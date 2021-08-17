@@ -1,9 +1,112 @@
+[user]
+    name = Andrew Borisenko
+    email = seigiard@gmail.com
+[push]
+    followTags = true
+    default = current
+[pull]
+    rebase = true
+[rebase]
+    autoStash = true
 [core]
-	editor = nano
-	autocrlf = input
+		editor = nano
+		autocrlf = input
+    whitespace=fix,-indent-with-non-tab,trailing-space,cr-at-eol
+    excludesfile = /Users/mitrichius/.gitignore_global
+    pager = diff-so-fancy | less --tabs=4 -RFX
+[alias]
+    co = checkout
+    st = status
+    di = diff
+    ci = commit
+    up = remote update
+    br = branch
+    history = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
+[color]
+    ui = true
+[color "branch"]
+    current = yellow reverse
+    local = yellow
+    remote = green
+[color "diff"]
+    meta = 11
+    frag = magenta bold
+    old = red bold
+    new = green bold
+    whitespace = red reverse
+    commit = yellow bold
+[color "status"]
+    added = yellow
+    changed = green
+    untracked = cyan
+[user]
+    name = Dmitry Kolosov
+    email = mitrichius@gmail.com
+[push]
+    followTags = true
+    default = current
+[pull]
+    rebase = true
+[rebase]
+    autoStash = true
+[core]
+    whitespace=fix,-indent-with-non-tab,trailing-space,cr-at-eol
+    excludesfile = /Users/mitrichius/.gitignore_global
+    pager = diff-so-fancy | less --tabs=4 -RFX
+[alias]
+    co = checkout
+    st = status
+    di = diff
+    ci = commit
+    up = remote update
+    br = branch
+    history = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
+[color]
+    ui = true
+[color "branch"]
+    current = yellow reverse
+    local = yellow
+    remote = green
+[color "diff"]
+    meta = 11
+    frag = magenta bold
+    old = red bold
+    new = green bold
+    whitespace = red reverse
+    commit = yellow bold
+[color "status"]
+    added = yellow
+    changed = green
+    untracked = cyan
 [difftool "sourcetree"]
 	cmd = /usr/local/bin/wbstorm diff $LOCAL $PWD/$REMOTE
 	path =
 [mergetool "sourcetree"]
 	cmd = /usr/local/bin/wbstorm merge $PWD/$LOCAL $PWD/$REMOTE $PWD/$BASE $PWD/$MERGED
 	trustExitCode = true
+[filter "lfs"]
+    clean = git-lfs clean %f
+    smudge = git-lfs smudge %f
+    required = true
+
+# Use separate file for username / github token / etc
+[include]
+    path = $HOME/.gitconfig.local
+[color "diff-highlight"]
+    oldNormal = red bold
+    oldHighlight = red bold 52
+    newNormal = green bold
+    newHighlight = green bold 22
+[filter "lfs"]
+    clean = git-lfs clean %f
+    smudge = git-lfs smudge %f
+    required = true
+
+# Use separate file for username / github token / etc
+[include]
+    path = $HOME/.gitconfig.local
+[color "diff-highlight"]
+    oldNormal = red bold
+    oldHighlight = red bold 52
+    newNormal = green bold
+    newHighlight = green bold 22

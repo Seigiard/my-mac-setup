@@ -23,7 +23,7 @@
     "Alpha Component" : 1,
     "Green Component" : 0.26474356651306152
   },
-  "Normal Font" : "FiraMono-Regular 15",
+  "Normal Font" : "Monaco 15",
   "Bold Color" : {
     "Red Component" : 0.99999600648880005,
     "Color Space" : "sRGB",
@@ -85,7 +85,6 @@
     "Alpha Component" : 1,
     "Green Component" : 0.86199951171875
   },
-  "Working Directory" : "\/Users\/seigiard",
   "Blinking Cursor" : false,
   "Disable Window Resizing" : true,
   "Sync Title" : false,
@@ -114,7 +113,7 @@
   },
   "Custom Command" : "No",
   "ASCII Anti Aliased" : true,
-  "Non Ascii Font" : "Monaco 12",
+  "Non Ascii Font" : "Monaco 15",
   "Vertical Spacing" : 1.1000000000000001,
   "Use Bold Font" : true,
   "Option Key Sends" : 0,
