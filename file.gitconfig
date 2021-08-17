@@ -1,0 +1,9 @@
+[core]
+	editor = nano
+	autocrlf = input
+[difftool "sourcetree"]
+	cmd = /usr/local/bin/wbstorm diff $LOCAL $PWD/$REMOTE
+	path =
+[mergetool "sourcetree"]
+	cmd = /usr/local/bin/wbstorm merge $PWD/$LOCAL $PWD/$REMOTE $PWD/$BASE $PWD/$MERGED
+	trustExitCode = true

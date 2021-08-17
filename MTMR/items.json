@@ -1,0 +1,231 @@
+[
+  { "type": "escape", "title": "Esc", "width": 60 },
+  {
+    "type": "appleScriptTitledButton",
+    "source": {
+      "filePath": "/Users/Shared/MTMR/spotify.scpt"
+    },
+    "action": "appleScript",
+    "actionAppleScript": {
+      "inline": "tell application \"Spotify\"\rplaypause\rend tell"
+    },
+    "refreshInterval": 5,
+    "image": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABABAMAAABYR2ztAAAABGdBTUEAALGPC/xhBQAAAAFzUkdCAK7OHOkAAAAYUExURUdwTB3WXx3UXh3VXx7XYBkXFRpVLRyURmIaeAQAAAAEdFJOUwDDO3fSqUUkAAABbklEQVRIx61VbW6DMAztoAeYNA7ApB6gkzhAWS24wIAL0HABaK6/pHFNEhy8TXu/kPzkPD/8cTj8K7KPAqB+K5NhQPCUrABCXe7HOUYYZxgVRLiG8RfY4DUgFFtC7cffAfZTFBwBdhWEKfgEq4ocEjgj4ZQifO6/QG9kkETp1dDeVWfRKx3XYSW0LoqY5kCElXDrQkyeCCuh6WL0M4nIWQIyzqixdfKU1koFDKvyCA8NJMzU4xiD+b4kfHRpsIyKc6hBwjVptFHVY51EMAINNDFGJITKDNQcdpX74Hz0CQ3rY5qwMp4EIxrlafzrsYZ2Veb0DkRgfNCUok4Y1fqEijfyi2b8RE9beWqa48Y/uvCNMcH9btfUi+/CGLR1vhL6Zz9N/vBlaCU+7lwY/cmJ67Ryen/2tj23PLqJBodZH8vgj544vOL4pxfI5acrSFxi8hrkU9TSKr78ZpnL50A8KPJJEo+afBblwyqf5j/iGys5j6ScrST2AAAAAElFTkSuQmCC"
+    },
+    "longAction": "openUrl",
+    "longUrl": "spotify://"
+  },
+  { "type": "previous", "width": 44, "align": "right"},
+  { "type": "play", "width": 44, "align": "right"},
+  { "type": "next", "width": 44, "align": "right"},
+
+  {
+    "type": "staticButton",
+    "title": "",
+    "width": 20,
+    "bordered": false,
+    "align": "right"
+  },
+  {
+    "type": "mute",
+    "bordered": false,
+    "width": 30,
+    "align": "right"
+  },
+  {
+    "type": "volumeDown",
+    "bordered": false,
+    "width": 30,
+    "align": "right"
+  },
+  {
+    "type": "volumeUp",
+    "bordered": false,
+    "width": 30,
+    "align": "right"
+  },
+
+  {
+    "type": "staticButton",
+    "title": "",
+    "width": 20,
+    "bordered": false,
+    "align": "right"
+  },
+  {
+    "type": "weather",
+    "refreshInterval": 1800,
+    "units": "metric",
+    "icon_type": "text",
+    "api_key": "9e2df1fb216a5477f862b69f1732af0c",
+    "align": "right",
+    "bordered": false
+  },
+  {
+    "type": "timeButton",
+    "formatTemplate": "HH:mm",
+    "bordered": false,
+    "locale": "ru_RU",
+    "align": "right"
+  },
+  {
+    "type": "staticButton",
+    "title": "",
+    "width": 10,
+    "bordered": false,
+    "align": "right"
+  },
+  {
+    "type": "group",
+    "align": "right",
+    "title": "\uD83C\uDF0E",
+    "items": [
+      { "type": "escape", "title": "Esc", "width": 60 },
+      {
+        "type": "staticButton",
+        "title": "Chicago",
+        "bordered": false,
+        "align": "right"
+      },
+      {
+        "type": "timeButton",
+        "formatTemplate": "HH:mm",
+        "locale": "en_GB",
+        "timeZone": "CDT",
+        "align": "right"
+      },
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 50,
+        "bordered": false,
+        "align": "right"
+      },
+      {
+        "type": "staticButton",
+        "title": "Iceland",
+        "bordered": false,
+        "align": "right"
+      },
+      {
+        "type": "timeButton",
+        "formatTemplate": "HH:mm",
+        "locale": "en_GB",
+        "timeZone": "UTC",
+        "align": "right"
+      },
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 50,
+        "bordered": false,
+        "align": "right"
+      },
+      {
+        "type": "timeButton",
+        "formatTemplate": "d MMM, E, HH:mm",
+        "width": 160,
+        "bordered": true,
+        "locale": "ru_RU",
+        "align": "right",
+        "action": "openUrl",
+        "url": "ical://"
+      },
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 20,
+        "bordered": false,
+        "align": "right"
+      },
+      {
+        "type": "close",
+        "bordered": false,
+        "width": 50,
+        "align": "right"
+      }
+    ]
+  },
+  {
+    "type": "group",
+    "align": "right",
+    "title": "⚙️",
+    "items": [
+      { "type": "escape", "title": "Esc", "width": 60 },
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 50,
+        "bordered": false
+      },
+      {
+        "type": "brightnessDown",
+        "bordered": false,
+        "width": 40
+      },
+      {
+        "type": "brightness",
+        "bordered": false,
+        "width": 180
+      },
+      {
+        "type": "brightnessUp",
+        "bordered": false,
+        "width": 40
+      },
+
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 50,
+        "bordered": false
+      },
+      {
+        "type": "mute",
+        "bordered": false,
+        "width": 50
+      },
+      {
+        "type": "volumeDown",
+        "bordered": false,
+        "width": 40
+      },
+      {
+        "type": "volume",
+        "bordered": false,
+        "width": 180
+      },
+      {
+        "type": "volumeUp",
+        "bordered": false,
+        "width": 40
+      },
+
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 50,
+        "bordered": false,
+        "align": "right"
+      },
+      { "type": "previous", "width": 44, "align": "right"},
+      { "type": "play", "width": 44, "align": "right"},
+      { "type": "next", "width": 44, "align": "right"},
+
+      {
+        "type": "battery",
+        "width": 60,
+        "align": "right",
+        "remainingtime": "yes",
+        "bordered": false
+      },
+      {
+        "type": "close",
+        "bordered": false,
+        "width": 50,
+        "align": "right"
+      }
+    ]
+  }
+]
