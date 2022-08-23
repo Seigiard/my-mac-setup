@@ -1,0 +1,14 @@
+behavior {
+    theme "Kon"
+}
+
+fonts {
+    actionBar [ "Default" 13 ]
+    breadcrumbs [ "Default" 13 ]
+    virtualTabs [ "Default Bold" 13 ]
+    files [ "Default" 14 ]
+    statusBar [ "Default Light" 12 ]
+    tableHeader [ "Default" 11 ]
+    tabs [ "Default" 13 ]
+    preferences [ "Monaco" 13 ]
+}
