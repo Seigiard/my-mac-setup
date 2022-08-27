@@ -18,6 +18,14 @@ Install „Settings Sync“ (`Shan.code-settings-sync`) extention
 
 Setup and download settings.
 
+## SublimeText
+
+Install „[Settings Sync](https://packagecontrol.io/packages/Sync%20Settings)“ extention
+
+Setup and download settings.
+
+Check `./config/Preferences.sublime-settings` 
+
 ## RayCast
 
 Open Raycast and import latest Raycast*.rayconfig
