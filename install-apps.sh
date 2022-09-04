@@ -15,6 +15,8 @@ git clone https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-~/.
 brew tap homebrew/cask-fonts
 echo 'Install Fira Code with ligatures'
 brew install --cask font-fira-code
+echo 'Install Input'
+brew install --cask font-input
 
 brew install --cask kitty # terminal
 brew install --cask hammerspoon # window manager but not only
