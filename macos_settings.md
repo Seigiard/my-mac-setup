@@ -51,7 +51,7 @@
   Keyboard:
     Keyboard:
       Key Repeat: Fast (before the last one)
-      Delay Until Repeat: Long (after the first one)
+      Delay Until Repeat: Fast
       [x] Turn keyboard backlight off after 30 secs of inactivity
       Press Fn to: Do Nothing
     Modifier Keys:

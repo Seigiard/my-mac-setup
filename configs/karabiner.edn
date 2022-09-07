@@ -1,0 +1,54 @@
+{;; LAYERS
+ :layers {:caps-mode {:key :caps_lock :alone {:key :escape}}} ;; layers
+
+ ;; BINDINGS
+ :main
+ [{:des "caps lock mode: quick reach for cursor etc."
+   :rules [:caps-mode
+          ;; caps lock : arrow mode
+           [:##j :##left_arrow]
+           [:##k :##down_arrow]
+           [:##i :##up_arrow]
+           [:##l :##right_arrow]
+           [:h :!Oleft_arrow]
+           [:semicolon :!Oright_arrow]
+           [:u :!Cup_arrow]
+           [:o :!Cdown_arrow]]}
+
+  {:des "Disable Arrows"
+   :rules [[:##left_arrow :vk_none]
+           [:##right_arrow :vk_none]
+           [:##up_arrow :vk_none]
+           [:##down_arrow :vk_none]]}]
+
+ ;; code won't read cheatsheet section
+ ;; ! stand for mandatory
+ ;; # stand for optional
+ ;; C T O S for left command control optional shift
+ ;; F for fn
+ ;; need to prefix C T O S F with ! or #
+
+ ;; !  | means mandatory
+ ;; #  | means optional
+ ;; C  | left_command
+ ;; T  | left_control
+ ;; O  | left_option
+ ;; S  | left_shift
+ ;; F  | fn
+ ;; Q  | right_command
+ ;; W  | right_control
+ ;; E  | right_option
+ ;; R  | right_shift
+ ;; P  | caps_lock
+ ;; !! | mandatory command + control + optional + shift (hyper)
+ ;; ## | optional any
+ :cheatsheet {:!Ca "command a" ;; mandatory left_command
+              :!Ta "control a" ;; mandatory left_control
+              :!Oa "option a"
+              :!Sa "shift a"
+              :#Sa "shift a" ;; keycode a, optional left_shift
+              :!CTOa "command control option a"
+              :!Cspacebar "command space"
+              :!Fa "fn a"
+              :##a "keycode a optional any"
+              :!!a "mandatory hyper(control command option shift) a "}}
