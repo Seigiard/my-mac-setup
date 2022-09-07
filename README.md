@@ -29,3 +29,13 @@ Check `./config/Preferences.sublime-settings`
 ## RayCast
 
 Open Raycast and import latest Raycast*.rayconfig
+
+## Strata
+
+Install keyboard layout with markdown support: https://github.com/Atarity/Strata
+
+# Set noTunes to launch at startup
+
+Navigate to `System Preferences -> Users & Groups`.
+
+Under your user, select "Login Items", click the lock on the bottom left and enter your login password to make changes. Click the plus sign (+) in the main panel and search for noTunes. Select it and click "Add".
