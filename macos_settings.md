@@ -47,11 +47,15 @@
   Bluetooth:
     [x] Show Bluetooth in menubar
   Sound:
+    [ ] Play sound on startup
+    [ ] Play user interface sound effects
+    [x] Play feedback when volume is changed
     [ ] Show volume in menu bar
   Keyboard:
     Keyboard:
       Key Repeat: Fast (before the last one)
-      Delay Until Repeat: Fast
+      Delay Until Repeat: Short (before the last one)
+      [ ] Ajust keyboard brightness in low light
       [x] Turn keyboard backlight off after 30 secs of inactivity
       Press Fn to: Do Nothing
     Modifier Keys:
@@ -127,15 +131,16 @@
       [x] Put hard disks to sleep when possible
       [ ] Wake for network access
       [ ] Enable Power Nap while on battery power
+      [x] Automatic graphics switching
       [ ] Low power mode
   Users & Groups:
     Login Items:
-      Android File Transfer Agent
       noTunes
       MTMR
       Hammerspoon
       Dropbox
       Endurance
+      CleanShotX
 
 # Finder Preferences:
   General:
