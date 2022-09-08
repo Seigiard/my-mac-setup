@@ -15,11 +15,11 @@
            [:##u :!Cup_arrow]
            [:##o :!Cdown_arrow]]}
 
-  {:des "Disable Arrows"
-   :rules [[:##left_arrow :vk_none]
-           [:##right_arrow :vk_none]
-           [:##up_arrow :vk_none]
-           [:##down_arrow :vk_none]]}]
+  ;; {:des "Disable Arrows"
+  ;;  :rules [[:##left_arrow :vk_none]
+  ;;          [:##right_arrow :vk_none]
+  ;;          [:##up_arrow :vk_none]
+  ;;          [:##down_arrow :vk_none]]}]
 
  ;; code won't read cheatsheet section
  ;; ! stand for mandatory
