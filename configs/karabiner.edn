@@ -10,10 +10,10 @@
            [:##k :##down_arrow]
            [:##i :##up_arrow]
            [:##l :##right_arrow]
-           [:h :!Oleft_arrow]
-           [:semicolon :!Oright_arrow]
-           [:u :!Cup_arrow]
-           [:o :!Cdown_arrow]]}
+           [:##h :!Oleft_arrow]
+           [:##semicolon :!Oright_arrow]
+           [:##u :!Cup_arrow]
+           [:##o :!Cdown_arrow]]}
 
   {:des "Disable Arrows"
    :rules [[:##left_arrow :vk_none]
