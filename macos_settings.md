@@ -10,8 +10,6 @@
   Desktop & Screen Saver:
     Screen Saver:
       Start after: Never
-      Hot Corners:
-        Top Left: Application Windows
   Dock & Menu Bar:
     Size: [---x-----]
     [ ] Magnification
