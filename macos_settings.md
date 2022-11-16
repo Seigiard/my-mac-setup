@@ -70,7 +70,7 @@
         [ ] Show Notification Centre
         [ ] Quick Note
       Input Sources
-        [x] Select the previous input source
+        [x] Select the previous input source – `⌘+Spacebar`
         [ ] Select next source in Input menu
       Screenshots:
         Uncheck All
