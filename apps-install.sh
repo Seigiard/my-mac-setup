@@ -15,25 +15,26 @@ nvm install node
 
 ## Fonts
 brew tap homebrew/cask-fonts
-echo 'Install Fira Code with ligatures'
-brew install --cask font-fira-code
+# echo 'Install Fira Code with ligatures'
+# brew install --cask font-fira-code
 echo 'Install Input Font'
 brew install --cask font-input
 
 brew install --cask kitty # terminal
+brew install --cask marta # File Manager
 brew install --cask hammerspoon # window manager but not only
-brew install --cask mtmr # my touchbar my rules
+brew install --cask raycast # raycast
+# brew install --cask mtmr # my touchbar my rules
 brew install --cask android-file-transfer # Transfer files from and to an Android smartphone
 brew install --cask ticktick # to-do and task manager
 brew install --cask transmission # torrents
-brew install --cask marta # File Manager
 brew install --cask spotify
 brew install --cask notunes 
 
 brew install --cask vscodium
 brew install --cask obsidian
 
-brew install --cask brave-browser # Brave Browser
+# brew install --cask brave-browser # Brave Browser
 brew install --cask telegram # Telegram
 
 brew install --cask vanilla # Hide icons in menu bar
