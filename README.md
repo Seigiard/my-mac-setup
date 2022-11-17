@@ -6,10 +6,6 @@ If you do not need something — comment it.
 
 # Manual Settings
 
-## Fira Code
-
-You need to explicitly enable ligatures support in editors: https://github.com/tonsky/FiraCode/wiki
-
 ## VS Code
 
 Install „Settings Sync“ (`Shan.code-settings-sync`) extention
