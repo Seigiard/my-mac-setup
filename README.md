@@ -1,3 +1,9 @@
+# Clone repo
+
+## Setup Github
+- https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent 
+- https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account
+
 # Install Apps
 
 Open `install-apps.sh` and check, what do you need to be installed.
