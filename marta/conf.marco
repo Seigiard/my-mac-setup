@@ -7,7 +7,7 @@ behavior {
 }
 
 fonts {
-    actionBar [ "Default" 12 ]
+    actionBar [ "Default" 24 ]
     breadcrumbs [ "Default" 13 ]
     virtualTabs [ "Default Bold" 13 ]
     files [ "Default" 14 ]

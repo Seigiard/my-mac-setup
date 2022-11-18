@@ -1,0 +1,24 @@
+- defaults:
+    link:
+      relink: true
+      force: true
+
+- clean:
+    ~/
+    ~/Library/Application Support/org.yanex.marta/conf.marco
+    ~/Library/Application Support/org.yanex.marta/favorites.marco
+
+- create:
+    - ~/.config
+
+- link:
+    ~/.config/kitty: kitty
+    ~/Library/Application Support/org.yanex.marta/conf.marco:
+      path: marta/conf.marco
+    ~/Library/Application Support/org.yanex.marta/favorites.marco:
+      path: marta/favorites.marco
+    ~/.gitconfig: .gitconfig
+    ~/.editorconfig: .editorconfig
+    
+- shell:
+  - [git submodule update --init --recursive, Installing submodules]
