@@ -1,7 +1,7 @@
 # Clone repo
 
 ## Setup Github
-- https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent 
+- https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
 - https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account
 
 # Install Apps
@@ -11,6 +11,10 @@ Open `install-apps.sh` and check, what do you need to be installed.
 If you do not need something — comment it.
 
 # Manual Settings
+
+## NextDNS
+
+Setup DNS: https://my.nextdns.io
 
 ## VS Code
 
@@ -26,7 +30,7 @@ Install „[Settings Sync](https://packagecontrol.io/packages/Sync%20Settings)�
 
 Setup and download settings.
 
-Check `./config/Preferences.sublime-settings` 
+Check `./config/Preferences.sublime-settings`
 
 ## RayCast
 
@@ -41,3 +45,12 @@ Install keyboard layout with markdown support: https://github.com/Atarity/Strata
 Navigate to `System Preferences -> Users & Groups`.
 
 Under your user, select "Login Items", click the lock on the bottom left and enter your login password to make changes. Click the plus sign (+) in the main panel and search for noTunes. Select it and click "Add".
+
+# SetApp
+
+Install
+- AlDente
+- CleanMyMac
+- CleanShot
+- Elmedia Player
+- Endurance
