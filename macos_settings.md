@@ -70,7 +70,7 @@
         [ ] Show Notification Centre
         [ ] Quick Note
       Input Sources
-        [x] Select the previous input source – `⌘+Spacebar`
+        [ ] Select the previous input source
         [ ] Select next source in Input menu
       Screenshots:
         Uncheck All
@@ -84,6 +84,8 @@
       English - Strata Markdown
       Russian - Strata Markdown
       [x] Show Input menu in menu bar
+      [x] Use the Caps Lock key to Switch
+      [ ] Automatically switch to a document's input source
   Trackpad:
     Point & Click:
       [ ] Look up & data detectors

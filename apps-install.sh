@@ -24,14 +24,15 @@ brew install --cask setapp
 brew install --cask kitty # terminal
 brew install --cask marta # File Manager
 brew install --cask raycast
-# brew install --cask hammerspoon # window manager but not only
+brew install --cask karabiner-elements
+brew install yqrashawn/goku/goku
 brew install --cask dropbox
 # brew install --cask mtmr # my touchbar my rules
 brew install --cask android-file-transfer # Transfer files from and to an Android smartphone
 brew install --cask ticktick # to-do and task manager
 brew install --cask transmission # torrents
 brew install --cask spotify
-brew install --cask notunes 
+brew install --cask notunes
 
 brew install --cask webstorm
 brew install --cask vscodium
