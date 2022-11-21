@@ -33,11 +33,58 @@
             }
           } ],
           "to_if_alone" : [ {
-            "key_code" : "escape"
+            "key_code" : "vk_none"
           } ]
         } ]
       }, {
-        "description" : "caps lock mode: quick reach for cursor etc.",
+        "description" : "Left Opt → Birman En, Right Opt → Birman Ru",
+        "manipulators" : [ {
+          "to_if_alone" : [ {
+            "select_input_source" : {
+              "input_source_id" : "^org.sil.ukelele.keyboardlayout.t.english-ilyabirmantypography$"
+            }
+          } ],
+          "from" : {
+            "key_code" : "left_command"
+          },
+          "to" : [ {
+            "key_code" : "left_command"
+          } ],
+          "conditions" : [ {
+            "name" : "parallels",
+            "value" : 1,
+            "type" : "variable_unless"
+          }, {
+            "name" : "rdp",
+            "value" : 1,
+            "type" : "variable_unless"
+          } ],
+          "type" : "basic"
+        }, {
+          "to_if_alone" : [ {
+            "select_input_source" : {
+              "input_source_id" : "^org.sil.ukelele.keyboardlayout.t.russian-ilyabirmantypography$"
+            }
+          } ],
+          "from" : {
+            "key_code" : "right_command"
+          },
+          "to" : [ {
+            "key_code" : "right_command"
+          } ],
+          "conditions" : [ {
+            "name" : "parallels",
+            "value" : 1,
+            "type" : "variable_unless"
+          }, {
+            "name" : "rdp",
+            "value" : 1,
+            "type" : "variable_unless"
+          } ],
+          "type" : "basic"
+        } ]
+      }, {
+        "description" : "caps lock mode: replace arrows to jkil",
         "manipulators" : [ {
           "from" : {
             "key_code" : "j",
@@ -255,6 +302,19 @@
       },
       "ignore" : true,
       "manipulate_caps_lock_led" : false,
+      "simple_modifications" : [ ],
+      "treat_as_built_in_keyboard" : false
+    }, {
+      "disable_built_in_keyboard_if_exists" : false,
+      "fn_function_keys" : [ ],
+      "identifiers" : {
+        "is_keyboard" : true,
+        "is_pointing_device" : false,
+        "product_id" : 666,
+        "vendor_id" : 1452
+      },
+      "ignore" : false,
+      "manipulate_caps_lock_led" : true,
       "simple_modifications" : [ ],
       "treat_as_built_in_keyboard" : false
     } ],

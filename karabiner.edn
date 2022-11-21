@@ -10,11 +10,19 @@
 }} ;; profiles
 
  ;; LAYERS
- :layers {:caps-mode {:key :caps_lock :alone {:key :escape}}} ;; layers
+ :layers {:caps-mode {:key :caps_lock :alone {:key :vk_none}}} ;; layers
+
+ :input-sources {:en-birman {:input_source_id "^org.sil.ukelele.keyboardlayout.t.english-ilyabirmantypography$"}
+                 :ru-birman {:input_source_id "^org.sil.ukelele.keyboardlayout.t.russian-ilyabirmantypography$"}}
 
  ;; BINDINGS
  :main
- [{:des "caps lock mode: quick reach for cursor etc."
+ [{:des "Left Opt → Birman En, Right Opt → Birman Ru"
+   :rules [[:condi :!rdp :!parallels]
+           [:left_command        :left_command  nil  {:alone {:input :en-birman}}]
+           [:right_command     :right_command nil {:alone {:input :ru-birman}}]]}
+
+  {:des "caps lock mode: replace arrows to jkil"
    :rules [:caps-mode
           ;; caps lock : arrow mode
            [:##j :##left_arrow]

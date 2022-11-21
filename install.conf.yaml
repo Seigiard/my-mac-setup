@@ -14,7 +14,7 @@
 - link:
       ~/.config/kitty: kitty
       ~/.config/karabiner.edn: karabiner.edn
-      ~/.config/karabiner/karabiner.json: karabiner.json
+      ~/.config/karabiner: karabiner
       ~/Library/Application Support/org.yanex.marta/conf.marco:
           path: marta/conf.marco
       ~/Library/Application Support/org.yanex.marta/favorites.marco:
@@ -26,4 +26,4 @@
 
 - shell:
       - [git submodule update --init --recursive, Installing submodules]
-      - [goku]
+      # - [goku]
