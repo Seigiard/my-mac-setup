@@ -250,6 +250,20 @@
           } ],
           "type" : "basic"
         } ]
+      }, {
+        "description" : "Cmd+Opt+3 as #",
+        "manipulators" : [ {
+          "from" : {
+            "key_code" : "3",
+            "modifiers" : {
+              "mandatory" : [ "left_command", "left_option" ]
+            }
+          },
+          "to" : [ {
+            "shell_command" : "osascript -e 'set temp to the clipboard \n set the clipboard to \"#\" \n tell application \"System Events\" \n   keystroke \"v\" using command down \n   delay 0.05 \n end tell \n set the clipboard to temp'"
+          } ],
+          "type" : "basic"
+        } ]
       } ]
     },
     "devices" : [ {
