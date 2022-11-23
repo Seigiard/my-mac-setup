@@ -23,6 +23,7 @@
       ~/.editorconfig: .editorconfig
       ~/.zimrc: .zimrc
       ~/.zshrc: .zshrc
+      ~/.aws: .aws
 
 - shell:
       - [git submodule update --init --recursive, Installing submodules]
