@@ -41,7 +41,7 @@
            [:##u :!Cup_arrow]
            [:##o :!Cdown_arrow]]}
 
-  {:des "Cmd+Opt+3 as #" :rules [[:!CO3 [:sym "#"]]]}
+  {:des "Cmd+Opt+3 as #" :rules [[:!CO3 [:sym "#"]] [:!QE3 [:sym "#"]] [:!QO3 [:sym "#"]] [:!CE3 [:sym "#"]]]}
 
   ;; {:des "Disable Arrows"
   ;;  :rules [[:left_arrow :vk_none]
