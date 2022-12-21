@@ -2,7 +2,6 @@
   Delete all extra MacOS apps: Garage Band, iMovie, Keynote, Numbers, Pages, etc.
 
   Update all apps through the App Store (in the Updates section and Featured section for the latest OS, multiple times if needed).
-
 # System Preferences:
   General
     Appearance: Dark

@@ -3,9 +3,9 @@
                         ;; if keydown event for two different keys are pressed within :sim ms, the keypresses are considered simultaneous
                       :delay   150    ;; to_delayed_action_delay_milliseconds (def: 500)
                         ;; after :delay ms, the key press is considered to be delayed (used for double-press macros)
-                      :alone   500    ;; to_if_alone_timeout_milliseconds (def: 1000)
+                      :alone   300    ;; to_if_alone_timeout_milliseconds (def: 1000)
                         ;; if keyup event comes within :alone ms from keydown, the key is not just pressed but held
-                      :held    500    ;; to_if_held_down_threshold_milliseconds (def: 500)
+                      :held    300    ;; to_if_held_down_threshold_milliseconds (def: 500)
                         ;; key is fired twice when :held ms is elapsed (otherwise seen as a hold command) (TODO WHAT IS THIS??)
 }} ;; profiles
 
@@ -20,7 +20,7 @@
 
  ;; BINDINGS
  :main
- [{:des "Left Opt → Birman En, Right Opt → Birman Ru"
+ [{:des "Left Cmd → Birman En, Right Cmd → Birman Ru"
    :rules [[:condi :!rdp :!parallels]
            [:left_command      :left_command  nil  {:alone {:input :en-birman}}]
            [:right_command     :right_command nil {:alone {:input :ru-birman}}]]}
@@ -41,7 +41,7 @@
            [:##u :!Cup_arrow]
            [:##o :!Cdown_arrow]]}
 
-  {:des "Cmd+Opt+3 as #" :rules [[:!CO3 [:sym "#"]] [:!QE3 [:sym "#"]] [:!QO3 [:sym "#"]] [:!CE3 [:sym "#"]]]}
+  {:des "Cmd+Opt+3 as #" :rules [[:!CO3 [:sym "#"]]]}
 
   ;; {:des "Disable Arrows"
   ;;  :rules [[:left_arrow :vk_none]

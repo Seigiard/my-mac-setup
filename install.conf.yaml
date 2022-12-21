@@ -14,7 +14,6 @@
 - link:
       ~/.config/kitty: kitty
       ~/.config/karabiner.edn: karabiner.edn
-      ~/.config/karabiner: karabiner
       ~/Library/Application Support/org.yanex.marta/conf.marco:
           path: marta/conf.marco
       ~/Library/Application Support/org.yanex.marta/favorites.marco:
