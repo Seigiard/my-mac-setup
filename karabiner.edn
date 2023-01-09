@@ -9,21 +9,24 @@
                         ;; key is fired twice when :held ms is elapsed (otherwise seen as a hold command) (TODO WHAT IS THIS??)
 }} ;; profiles
 
- :templates {; define the script monstrosity in one place as a template
-             :sym "osascript -e 'set temp to the clipboard \n set the clipboard to \"%s\" \n tell application \"System Events\" \n   keystroke \"v\" using command down \n   delay 0.05 \n end tell \n set the clipboard to temp'"}
+:templates {; define the script monstrosity in one place as a template
+             :en-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": []}'"
+             :ru-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": [{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]}'"
+            }
 
  ;; LAYERS
  :layers {:caps-mode {:key :caps_lock :alone {:key :vk_none}}} ;; layers
 
- :input-sources {:en-birman {:input_source_id "^org.sil.ukelele.keyboardlayout.t.english-ilyabirmantypography$"}
-                 :ru-birman {:input_source_id "^org.sil.ukelele.keyboardlayout.t.russian-ilyabirmantypography$"}}
+ :input-sources {:en-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.english-seigiardtypography$"}
+                 :ru-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.russian-seigiardtypography$"}}
 
  ;; BINDINGS
  :main
- [{:des "Left Cmd → Birman En, Right Cmd → Birman Ru"
+ [{:des "Left Cmd → Seigiard En, Right Cmd → Seigiard Ru"
    :rules [[:condi :!rdp :!parallels]
-           [:left_command      :left_command  nil  {:alone {:input :en-birman}}]
-           [:right_command     :right_command nil {:alone {:input :ru-birman}}]]}
+           [:left_command      :left_command  nil  {:alone [{:input :en-seigiard} [:en-tilda-mapping]]}]
+           [:right_command     :right_command nil {:alone [{:input :ru-seigiard} [:ru-tilda-mapping]]}]
+           ]}
 
   {:des "caps lock mode: replace arrows to jkil"
    :rules [:caps-mode
@@ -40,8 +43,6 @@
            [:##semicolon :!Cright_arrow]
            [:##u :!Cup_arrow]
            [:##o :!Cdown_arrow]]}
-
-  {:des "Cmd+Opt+3 as #" :rules [[:!CO3 [:sym "#"]]]}
 
   ;; {:des "Disable Arrows"
   ;;  :rules [[:left_arrow :vk_none]

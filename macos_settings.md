@@ -65,12 +65,17 @@
     Shortcuts:
       Launchpad & Doc:
         Uncheck All
+      Display:
+        Uncheck All
       Mission Control:
-        [ ] Show Notification Centre
-        [ ] Quick Note
+        Uncheck All except:
+        [x] Mission Control
+        [x] Application windows
+      Keyboard
+        Uncheck All except:
+        [x] Move focus to the next window
       Input Sources
-        [ ] Select the previous input source
-        [ ] Select next source in Input menu
+        Uncheck All
       Screenshots:
         Uncheck All
       Services:

@@ -1,4 +1,5 @@
 environment {
+    terminal "kitty"
     textEditor "VSCodium"
 }
 

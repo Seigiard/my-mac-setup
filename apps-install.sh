@@ -43,7 +43,5 @@ brew install --cask telegram
 
 brew install --cask vanilla # Hide icons in menu bar
 
-brew install --cask ilya-birman-typography-layout
-
 # plugins for quick look
 brew install qlcolorcode qlstephen qlmarkdown quicklook-json betterzip qlimagesize
