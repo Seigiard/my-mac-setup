@@ -8,3 +8,5 @@ else
   # Intel
   eval "$(/usr/local/bin/brew shellenv)"
 fi
+
+PATH="$PATH:$(python3 -m site --user-base)/bin"
