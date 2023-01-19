@@ -1,5 +1,6 @@
 {
   "global" : {
+    "ask_for_confirmation_before_quitting" : true,
     "check_for_updates_on_startup" : true,
     "show_in_menu_bar" : true,
     "show_profile_name_in_menu_bar" : false,
@@ -10,8 +11,8 @@
       "parameters" : {
         "basic.simultaneous_threshold_milliseconds" : 50,
         "basic.to_delayed_action_delay_milliseconds" : 150,
-        "basic.to_if_alone_timeout_milliseconds" : 500,
-        "basic.to_if_held_down_threshold_milliseconds" : 500
+        "basic.to_if_alone_timeout_milliseconds" : 300,
+        "basic.to_if_held_down_threshold_milliseconds" : 300
       },
       "rules" : [ {
         "description" : "Auto generated layer conditions",
@@ -37,12 +38,14 @@
           } ]
         } ]
       }, {
-        "description" : "Left Cmd → Birman En, Right Cmd → Birman Ru",
+        "description" : "Left Cmd → Seigiard En, Right Cmd → Seigiard Ru",
         "manipulators" : [ {
           "to_if_alone" : [ {
             "select_input_source" : {
-              "input_source_id" : "^org.sil.ukelele.keyboardlayout.t.english-ilyabirmantypography$"
+              "input_source_id" : "^org.sil.ukelele.keyboardlayout.seigiardlayout.english-seigiardtypography$"
             }
+          }, {
+            "shell_command" : "hidutil property --set '{\"UserKeyMapping\": []}'"
           } ],
           "from" : {
             "key_code" : "left_command"
@@ -63,8 +66,10 @@
         }, {
           "to_if_alone" : [ {
             "select_input_source" : {
-              "input_source_id" : "^org.sil.ukelele.keyboardlayout.t.russian-ilyabirmantypography$"
+              "input_source_id" : "^org.sil.ukelele.keyboardlayout.seigiardlayout.russian-seigiardtypography$"
             }
+          }, {
+            "shell_command" : "hidutil property --set '{\"UserKeyMapping\": [{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]}'"
           } ],
           "from" : {
             "key_code" : "right_command"
@@ -247,20 +252,6 @@
             "name" : "caps-mode",
             "value" : 1,
             "type" : "variable_if"
-          } ],
-          "type" : "basic"
-        } ]
-      }, {
-        "description" : "Cmd+Opt+3 as #",
-        "manipulators" : [ {
-          "from" : {
-            "key_code" : "3",
-            "modifiers" : {
-              "mandatory" : [ "left_command", "left_option" ]
-            }
-          },
-          "to" : [ {
-            "shell_command" : "osascript -e 'set temp to the clipboard \n set the clipboard to \"#\" \n tell application \"System Events\" \n   keystroke \"v\" using command down \n   delay 0.05 \n end tell \n set the clipboard to temp'"
           } ],
           "type" : "basic"
         } ]
