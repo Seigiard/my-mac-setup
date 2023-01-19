@@ -22,10 +22,10 @@
 
  ;; BINDINGS
  :main
- [{:des "Left Cmd → Seigiard En, Right Cmd → Seigiard Ru"
+ [{:des "Left Cmd → Seigiard Cyr, Right Cmd → Seigiard Cyr"
    :rules [[:condi :!rdp :!parallels]
-           [:left_command      :left_command  nil  {:alone [{:input :eng-seigiard} [:en-tilda-mapping]]}]
-           [:right_command     :right_command nil {:alone [{:input :cyr-seigiard} [:ru-tilda-mapping]]}]
+           [:left_command      :left_command  nil  {:alone [{:input :eng-seigiard} [:eng-tilda-mapping]]}]
+           [:right_command     :right_command nil {:alone [{:input :cyr-seigiard} [:cyr-tilda-mapping]]}]
            ]}
 
   {:des "caps lock mode: replace arrows to jkil"
