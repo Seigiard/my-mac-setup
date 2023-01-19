@@ -14,7 +14,7 @@ module.leftCmdPreset = {
 }
 module.rightCmdPreset = {
   title = "Cyrillic",
-  layout = "Russian - Seigiard Typography",
+  layout = "Cyrillic - Seigiard Typography",
   userKeyMapping = "[{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]"
 }
 

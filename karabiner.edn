@@ -10,22 +10,22 @@
 }} ;; profiles
 
 :templates {; define the script monstrosity in one place as a template
-             :en-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": []}'"
-             :ru-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": [{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]}'"
+             :eng-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": []}'"
+             :cyr-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": [{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]}'"
             }
 
  ;; LAYERS
  :layers {:caps-mode {:key :caps_lock :alone {:key :vk_none}}} ;; layers
 
- :input-sources {:en-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.english-seigiardtypography$"}
-                 :ru-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.russian-seigiardtypography$"}}
+ :input-sources {:eng-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.english-seigiardtypography$"}
+                 :cyr-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.cyrillic-seigiardtypography$"}}
 
  ;; BINDINGS
  :main
  [{:des "Left Cmd → Seigiard En, Right Cmd → Seigiard Ru"
    :rules [[:condi :!rdp :!parallels]
-           [:left_command      :left_command  nil  {:alone [{:input :en-seigiard} [:en-tilda-mapping]]}]
-           [:right_command     :right_command nil {:alone [{:input :ru-seigiard} [:ru-tilda-mapping]]}]
+           [:left_command      :left_command  nil  {:alone [{:input :eng-seigiard} [:en-tilda-mapping]]}]
+           [:right_command     :right_command nil {:alone [{:input :cyr-seigiard} [:ru-tilda-mapping]]}]
            ]}
 
   {:des "caps lock mode: replace arrows to jkil"
