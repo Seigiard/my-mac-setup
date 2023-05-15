@@ -10,3 +10,6 @@ else
 fi
 
 PATH="$PATH:$(python3 -m site --user-base)/bin"
+
+# Add VSCodium (code)
+PATH="$PATH:/Applications/VSCodium.app/Contents/Resources/app/bin"

@@ -16,7 +16,7 @@ If you do not need something — comment it.
 
 Setup DNS: https://my.nextdns.io
 
-## VS Code
+## VS Codium
 
 Install „Settings Sync“ (`Shan.code-settings-sync`) extention
 - [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=Shan.code-settings-sync)
@@ -36,10 +36,6 @@ Check `./config/Preferences.sublime-settings`
 
 Open Raycast and import latest Raycast*.rayconfig
 
-## Strata
-
-Install keyboard layout with markdown support: https://github.com/Atarity/Strata
-
 # Set noTunes to launch at startup
 
 Navigate to `System Preferences -> Users & Groups`.
@@ -48,6 +44,7 @@ Under your user, select "Login Items", click the lock on the bottom left and ent
 
 # Seigiard Layout
 Add [Seigird Layout](https://github.com/Seigiard/keyboard-layout) via Input sources
+
 # SetApp
 
 Install

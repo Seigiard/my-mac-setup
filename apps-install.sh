@@ -14,18 +14,17 @@ nvm install node
 
 ## Fonts
 brew tap homebrew/cask-fonts
-# echo 'Install Fira Code with ligatures'
-# brew install --cask font-fira-code
+echo 'Install Fira Code with ligatures'
+brew install --cask font-fira-code
 echo 'Install Input Font'
 brew install --cask font-input
-brew install --cask font-atkinson-hyperlegible
 
 brew install --cask setapp
 brew install --cask kitty # terminal
 brew install --cask marta # File Manager
 brew install --cask raycast
 brew install --cask hammerspoon
-# brew install --cask karabiner-elements
+brew install --cask karabiner-elements
 brew install yqrashawn/goku/goku
 
 brew install --cask dropbox
@@ -40,7 +39,7 @@ brew install --cask webstorm
 brew install --cask vscodium
 brew install --cask obsidian
 
-# brew install --cask brave-browser # Brave Browser
+brew install --cask brave-browser # Brave Browser
 brew install --cask telegram
 
 brew install --cask vanilla # Hide icons in menu bar
