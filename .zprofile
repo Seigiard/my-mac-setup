@@ -11,5 +11,9 @@ fi
 
 PATH="$PATH:$(python3 -m site --user-base)/bin"
 
-# Add VSCodium (code)
-PATH="$PATH:/Applications/VSCodium.app/Contents/Resources/app/bin"
+# Add Visual Studio Code (code)
+PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
+
+if [ -d "$HOME/adb-fastboot/platform-tools" ] ; then
+  PATH="$HOME/adb-fastboot/platform-tools:$PATH"
+fi
