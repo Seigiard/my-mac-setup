@@ -10,10 +10,12 @@
 - create:
       - ~/.config
       - ~/.config/karabiner
+      - ~/.config/karabiner/assets/complex_modifications
 
 - link:
       ~/.config/kitty: kitty
       ~/.config/karabiner.edn: karabiner.edn
+      ~/.config/karabiner/assets/complex_modifications: karabiner/assets/complex_modifications
       # ~/.hammerspoon: hammerspoon
       ~/Library/Application Support/org.yanex.marta/conf.marco:
           path: marta/conf.marco

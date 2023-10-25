@@ -14,10 +14,9 @@ nvm install node
 
 ## Fonts
 brew tap homebrew/cask-fonts
-echo 'Install Fira Code with ligatures'
-brew install --cask font-fira-code
-echo 'Install Input Font'
+echo 'Install Fonts: Input & JetBrains Mono'
 brew install --cask font-input
+brew install --cask font-jetbrains-mono
 
 brew install --cask setapp
 brew install --cask kitty # terminal

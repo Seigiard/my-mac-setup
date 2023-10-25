@@ -24,6 +24,10 @@ Install „Settings Sync“ (`Shan.code-settings-sync`) extention
 
 Setup and download settings.
 
+## Visual Studio Code
+
+Enable Settings Sync in menu
+
 ## SublimeText
 
 Install „[Settings Sync](https://packagecontrol.io/packages/Sync%20Settings)“ extention

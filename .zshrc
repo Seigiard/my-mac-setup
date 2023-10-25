@@ -134,9 +134,3 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 alias rk="sudo pkill Karabiner-DriverKit-VirtualHIDDeviceClient"
-
-alias run-core="cd ~/Projects/core && npm run dev"
-alias run-ui="cd ~/Projects/core/ui && npm run dev"
-alias run-react="cd ~/Projects/core/react && npm run dev"
-alias run-sdk="cd ~/Projects/core/sdk && npm run dev"
-alias run-website="cd ~/Projects/core/website && npm run dev"
