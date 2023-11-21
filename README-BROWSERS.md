@@ -21,31 +21,33 @@ https://www.waterfox.net/
 
 # Chrome Extentions
 
-- ClearURLs - doesn't work on Orion
-- DeepL Translate - doesn't work on Orion
-- JSON Viewer - doesn't work on Orion
-- Consent-O-Matic, using in Orion
+- ClearURLs - !Orion
+- DeepL Translate - !Orion
+- JSON Viewer - !Orion
+- Consent-O-Matic, using in Orion, not sure that is useful
   - PopUpOFF - Popup and overlay blocker, as alternative
+  - I still don't care about cookies 4.6(98), another alternative
 - Raindrop.io
 - SponsorBlock for YouTube
 - Stylebot
-- uBlock Origin
-- Vimium C - All by Keyboard - doesn't work on Orion
-
+- uBlock Origin - no need for Orion
+- Vimium C - All by Keyboard - !Orion
+- Custom New Tab URL
+- React Developer Tools (dev only)
 
 # Firefox Extentions
 
 
 # Ad Block Lists
 
-EasyList is the primary filter list that removes most adverts from international webpages, including unwanted frames, images and objects.
+EasyList is the primary filter list that removes most adverts from international web pages, including unwanted frames, images, and objects.
 https://easylist.to/easylist/easylist.txt
 
-EasyPrivacy is an optional supplementary filter list that completely removes all forms of tracking from the internet, including web bugs, tracking scripts and information collectors, thereby protecting your personal data.
+EasyPrivacy is an optional supplementary filter list that completely removes all forms of tracking from the internet, including web bugs, tracking scripts, and information collectors, thereby protecting your data.
 
 https://easylist.to/easylist/easyprivacy.txt
 
-Fanboy's Annoyance List blocks Social Media content, in-page pop-ups and other annoyances
+Fanboy's Annoyance List blocks Social Media content, in-page pop-ups, and other annoyances
 https://secure.fanboy.co.nz/fanboy-annoyance.txt
 
 EasyList Czech and Slovak
