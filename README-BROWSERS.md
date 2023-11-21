@@ -6,6 +6,11 @@ https://brave.com/
 - vertical tabs
 - profiles
 
+https://github.com/ungoogled-software/ungoogled-chromium
+
+- no tracking
+- no vertical tabs :(
+
 ## Based on Safari
 https://kagi.com/orion/#download_sec
 
@@ -13,13 +18,14 @@ https://kagi.com/orion/#download_sec
 - profiles
 
 ## Based on FF
+Tune with https://github.com/yokoffing/Betterfox
+
 https://www.waterfox.net/
 
-- vertical tabs tree via extention and css tweak
+- vertical tabs tree via extension and CSS tweak
 - containers
 
-
-# Chrome Extentions
+# Chrome Extensions
 
 - ClearURLs - !Orion
 - DeepL Translate - !Orion
@@ -35,7 +41,7 @@ https://www.waterfox.net/
 - Custom New Tab URL
 - React Developer Tools (dev only)
 
-# Firefox Extentions
+# Firefox Extensions
 
 
 # Ad Block Lists
