@@ -28,10 +28,9 @@ https://www.waterfox.net/
 # Chrome Extensions
 
 - ClearURLs - !Orion
-- DeepL Translate - !Orion
+- DeepL Translate: Reading & writing translator - !Orion
 - JSON Viewer - !Orion
-- Consent-O-Matic, using in Orion, not sure that is useful
-  - PopUpOFF - Popup and overlay blocker, as alternative
+- PopUpOFF - Popup and overlay blocker, as alternative
   - I still don't care about cookies 4.6(98), another alternative
 - Raindrop.io
 - SponsorBlock for YouTube
@@ -42,6 +41,17 @@ https://www.waterfox.net/
 - React Developer Tools (dev only)
 
 # Firefox Extensions
+
+- 1Password – Password Manager
+- ClearURLs
+- DeepL Translate: Reading & writing translator
+- PopUpOFF
+- Raindrop.io
+- SideBerry
+- SponsorBlock for YouTube
+- Stylebot
+- uBlock Origin
+- Vimium C - All by Keyboard
 
 
 # Ad Block Lists

@@ -1,0 +1,23 @@
+/*
+https://dev.to/colewalker/customizing-firefox-with-css-h4m
+
+open about:config
+set toolkit.legacyUserProfileCustomizations.stylesheets to true
+
+open about:profiles
+click on "Show in Folder" in Root Directory section for the profile you want to use
+place this file in ./chrome/userChrome.css
+*/
+
+#TabsToolbar {
+    visibility: collapse;
+}
+
+#sidebar-header {
+    font-size: 1em !important;
+}
+
+#sidebar-close .toolbarbutton-icon {
+    width: 1em;
+    height: 1em;
+}
