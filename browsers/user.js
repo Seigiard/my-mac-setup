@@ -7,9 +7,6 @@
 // visit https://github.com/yokoffing/Betterfox/wiki/Optional-Hardening
 // Enter your personal overrides below this line:
 
-// Show title bar
-user_pref("browser.tabs.drawInTitlebar", true);
-
 // Block autoplay in tabs until selected:
 user_pref("media.block-autoplay-until-in-foreground", true);
 user_pref("media.block-play-until-document-interaction", true);
