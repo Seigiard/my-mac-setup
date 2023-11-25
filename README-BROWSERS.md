@@ -12,15 +12,21 @@ https://github.com/ungoogled-software/ungoogled-chromium
 - no vertical tabs :(
 
 ## Based on Safari
-https://kagi.com/orion/#download_sec
+
+https://kagi.com/orion
 
 - vertical tabs tree (!)
 - profiles
 
 ## Based on FF
-Tune with https://github.com/yokoffing/Betterfox
+Tune with
+- https://github.com/yokoffing/Betterfox
+- http://web.archive.org/web/20180821224202/
+- https://jojo-website.neocities.org/privacy.html
 
+https://firefox.net
 https://www.waterfox.net/
+https://librewolf.net/
 
 - vertical tabs tree via extension and CSS tweak
 - containers
@@ -42,9 +48,11 @@ https://www.waterfox.net/
 
 # Firefox Extensions
 
+- Arc Dark Theme
 - 1Password – Password Manager
 - ClearURLs
 - DeepL Translate: Reading & writing translator
+- My Homepage
 - PopUpOFF
 - Raindrop.io
 - SideBerry
