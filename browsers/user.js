@@ -7,6 +7,12 @@
 // visit https://github.com/yokoffing/Betterfox/wiki/Optional-Hardening
 // Enter your personal overrides below this line:
 
+// Enable CSS
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+user_pref("layers.acceleration.force-enabled", true);
+user_pref("gfx.webrender.all", true);
+user_pref("svg.context-properties.content.enabled", true);
+
 // Block autoplay in tabs until selected:
 user_pref("media.block-autoplay-until-in-foreground", true);
 user_pref("media.block-play-until-document-interaction", true);
