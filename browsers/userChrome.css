@@ -60,9 +60,6 @@ place this file in ./chrome/userChrome.css
         display: none;
     }
     #urlbar {
-        /* Firefox */
-        /* --urlbar-toolbar-height: 44px !important; */
-        /* Waterfox */
-        --urlbar-toolbar-height: 38px !important;
+        --urlbar-toolbar-height: 44px !important;
     }
 }
