@@ -1,0 +1,97 @@
+body.has-brand #wrapper,
+.b-translators__block {
+    background-color: #ddd !important;
+}
+
+body {
+    font-family: Inter, Roboto, "Helvetica Neue", "Arial Nova", "Nimbus Sans", Arial, sans-serif !important;
+    font-weight: normal;
+}
+
+body .b-topnav_wrapper,
+body .b-search__field {
+    background-image: none;
+    background-color: #efefef;
+}
+
+body h1,
+body h2,
+body h3,
+body h4 {
+    font-family: Seravek, "Gill Sans Nova", Ubuntu, Calibri, "DejaVu Sans", source-sans-pro, sans-serif;
+    font-weight: normal !important;
+}
+
+div[class^="b-post__"]:has(.b-player) {
+    margin-left: calc(-50vw + 50%) !important;
+    margin-right: calc(-50vw + 50%) !important;
+    max-width: 100vw;
+}
+.b-player {
+    width: 100vw;
+    max-width: 100vw;
+}
+.b-player__holder_cdn {
+    width: 80% !important;
+    height: 0 !important;
+    padding-bottom: 56% !important;
+    position: relative !important;
+}
+.b-player__container_cdn {
+    width: auto !important;
+    height: auto !important;
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+}
+
+#simple-seasons-tabs,
+#simple-episodes-tabs {
+    width: 960px !important;
+    margin: 0 auto !important;
+}
+
+.b-translators__block:not(:empty) {
+    padding: 1rem 0 !important;
+}
+
+.b-sidetitle {
+    margin-bottom: 1rem !important;
+}
+
+.b-post__lastepisodeout,
+.b-post__social_holder_wrapper,
+.b-post__rating_table,
+.b-post__qa_list_block,
+.b-post__mtitle,
+.b-post__mixedtext,
+.b-post__support_holder,
+.b-content__htitle,
+.b-content__inline_sideprobar,
+.b-content__crumbs,
+.b-content__sidebar,
+.b-collections__newest,
+.b-footer,
+.b-inlineads__icon.mini,
+.b-translators__title,
+.b-seriesupdate__block_date .act,
+.b-sideactions__reviews,
+.b-wrapper.nopadd,
+.comments-form,
+.b-post__status_logo,
+.b-post__go_status,
+a#ownplayer-link-show,
+#hd-comments-list,
+#vk_groups,
+#hd-comments-list,
+#hd-comments-navigation,
+.b-content__inline_item .trailer,
+.b-content__inline_item .play,
+.b-content__inline_item .info,
+.b-post__wait_status:empty,
+.b-post__status_wrapper,
+*[id^="heipf"] {
+    display: none !important;
+}
