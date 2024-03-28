@@ -19,6 +19,7 @@ place this file in ./chrome/userChrome.css
 }
 
 #navigator-toolbox {
+    flex-direction: column;
 }
 #titlebar {
 }
@@ -39,24 +40,12 @@ place this file in ./chrome/userChrome.css
     #titlebar {
         flex-grow: 1;
     }
-
     /* NavBar goes first and has limited width */
     #nav-bar {
         order: -1;
-    }
-    html.tabs-sidebar-is-active #nav-bar {
-        width: 100%;
-    }
-    html:not(.tabs-sidebar-is-active) #nav-bar {
-        width: clamp(250px, 50vw, 600px);
         flex-shrink: 0;
         flex-grow: 0;
-    }
-    html.tabs-sidebar-is-active #TabsToolbar {
-        display: none;
-    }
-    html.tabs-sidebar-is-active #toolbar-menubar:not([autohide]) {
-        visibility: visible;
+        width: clamp(250px, 60vw, 50%);
     }
     /* MacOS: move window buttons to left corner */
     .titlebar-buttonbox-container {
@@ -71,9 +60,6 @@ place this file in ./chrome/userChrome.css
         display: none;
     }
     #urlbar {
-        /* Firefox */
-        /* --urlbar-toolbar-height: 44px !important; */
-        /* Waterfox */
-        --urlbar-toolbar-height: 38px !important;
+        --urlbar-toolbar-height: 44px !important;
     }
 }
