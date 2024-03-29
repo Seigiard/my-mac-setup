@@ -26,6 +26,8 @@
       ~/.zshrc: .zshrc
       ~/.zprofile: .zprofile
       ~/.aws: .aws
+      ~/Library/Application Support/Firefox/Profiles/seigiard:
+          path: browsers/ff-profile/seigiard
 
 - shell:
       - [git submodule update --init --recursive, Installing submodules]
