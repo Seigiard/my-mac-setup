@@ -17,9 +17,12 @@ brew tap homebrew/cask-fonts
 echo 'Install Fonts: Input & JetBrains Mono'
 brew install --cask font-input
 brew install --cask font-jetbrains-mono
+brew install font-hack-nerd-font
 
 brew install --cask setapp
 brew install --cask kitty # terminal
+brew install fish # shell
+brew install grc # colorizer
 brew install --cask marta # File Manager
 brew install --cask raycast
 brew install --cask hammerspoon

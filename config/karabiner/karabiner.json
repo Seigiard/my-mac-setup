@@ -38,7 +38,7 @@
           } ]
         } ]
       }, {
-        "description" : "Left Cmd → Seigiard En, Right Cmd → Seigiard Ru",
+        "description" : "Left Cmd → Seigiard Cyr, Right Cmd → Seigiard Cyr",
         "manipulators" : [ {
           "to_if_alone" : [ {
             "select_input_source" : {
@@ -66,7 +66,7 @@
         }, {
           "to_if_alone" : [ {
             "select_input_source" : {
-              "input_source_id" : "^org.sil.ukelele.keyboardlayout.seigiardlayout.russian-seigiardtypography$"
+              "input_source_id" : "^org.sil.ukelele.keyboardlayout.seigiardlayout.cyrillic-seigiardtypography$"
             }
           }, {
             "shell_command" : "hidutil property --set '{\"UserKeyMapping\": [{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]}'"

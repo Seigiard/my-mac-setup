@@ -9,13 +9,12 @@
 
 - create:
       - ~/.config
-      - ~/.config/karabiner
-      - ~/.config/karabiner/assets/complex_modifications
 
 - link:
-      ~/.config/kitty: kitty
+      ~/.config/kitty: config/kitty
       ~/.config/karabiner.edn: karabiner.edn
-      ~/.config/karabiner/assets/complex_modifications: karabiner/assets/complex_modifications
+      ~/.config/karabiner: config/karabiner
+      ~/.config/fish: config/fish
       # ~/.hammerspoon: hammerspoon
       ~/Library/Application Support/org.yanex.marta/conf.marco:
           path: marta/conf.marco
@@ -31,3 +30,4 @@
 - shell:
       - [git submodule update --init --recursive, Installing submodules]
       - [goku]
+      - [curl https://git.io/fisher --create-dirs -sLo ~/.config/fish/functions/fisher.fish]
