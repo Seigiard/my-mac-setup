@@ -1,5 +1,5 @@
 set -g theme_powerline_fonts yes
-set -g theme_nerd_fonts no
+set -g theme_newline_cursor yes
 set -g theme_display_git_stashed_verbose yes
 set -g theme_display_git_master_branch yes
 set -g theme_display_git_untracked yes
