@@ -10,7 +10,7 @@
 /****************************************************************************
  * Betterfox                                                                *
  * "Ad meliora"                                                             *
- * version: 119                                                             *
+ * version: 122.1                                                           *
  * url: https://github.com/yokoffing/Betterfox                              *
  ****************************************************************************/
 
@@ -27,7 +27,7 @@ user_pref("gfx.content.skia-font-cache-size", 20);
 
 /** DISK CACHE ***/
 user_pref("browser.cache.jsbc_compression_level", 3);
-user_pref("signon.rememberSignons", true);
+
 /** MEDIA CACHE ***/
 user_pref("media.memory_cache_max_size", 65536);
 user_pref("media.cache_readahead_limit", 7200);
@@ -37,8 +37,6 @@ user_pref("media.cache_resume_threshold", 3600);
 user_pref("image.mem.decode_bytes_at_a_time", 32768);
 
 /** NETWORK ***/
-user_pref("network.buffer.cache.size", 262144);
-user_pref("network.buffer.cache.count", 128);
 user_pref("network.http.max-connections", 1800);
 user_pref("network.http.max-persistent-connections-per-server", 10);
 user_pref("network.http.max-urgent-start-excessive-connections-per-host", 5);
@@ -70,7 +68,6 @@ user_pref("browser.download.start_downloads_in_tmp_dir", true);
 user_pref("browser.helperApps.deleteTempFileOnExit", true);
 user_pref("browser.uitour.enabled", false);
 user_pref("privacy.globalprivacycontrol.enabled", true);
-user_pref("privacy.globalprivacycontrol.functionality.enabled", true);
 
 /** OCSP & CERTS / HPKP ***/
 user_pref("security.OCSP.enabled", 0);
@@ -102,17 +99,13 @@ user_pref("network.IDN_show_punycode", true);
 
 /** HTTPS-FIRST POLICY ***/
 user_pref("dom.security.https_first", true);
+user_pref("dom.security.https_first_schemeless", true);
 
 /** PASSWORDS ***/
-user_pref("signon.rememberSignons", false);
 user_pref("signon.formlessCapture.enabled", false);
 user_pref("signon.privateBrowsingCapture.enabled", false);
 user_pref("network.auth.subresource-http-auth-allow", 1);
 user_pref("editor.truncate_user_pastes", false);
-
-/** ADDRESS + CREDIT CARD MANAGER ***/
-user_pref("extensions.formautofill.addresses.enabled", false);
-user_pref("extensions.formautofill.creditCards.enabled", false);
 
 /** MIXED CONTENT + CROSS-SITE ***/
 user_pref("security.mixed_content.block_display_content", true);
@@ -203,7 +196,6 @@ user_pref("browser.privateWindowSeparation.enabled", false); // WINDOWS
 /** COOKIE BANNER HANDLING ***/
 user_pref("cookiebanners.service.mode", 1);
 user_pref("cookiebanners.service.mode.privateBrowsing", 1);
-user_pref("cookiebanners.service.enableGlobalRules", true);
 
 /** FULLSCREEN NOTICE ***/
 user_pref("full-screen-api.transition-duration.enter", "0 0");
@@ -220,11 +212,10 @@ user_pref("browser.urlbar.trending.featureGate", false);
 user_pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 user_pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
 
-/*** POCKET ***/
+/** POCKET ***/
 user_pref("extensions.pocket.enabled", false);
 
 /** DOWNLOADS ***/
-user_pref("browser.download.useDownloadDir", false);
 user_pref("browser.download.always_ask_before_handling_new_types", true);
 user_pref("browser.download.manager.addToRecentDocs", false);
 
@@ -265,22 +256,42 @@ user_pref("browser.vpn_promo.enabled", false);
 // PREF: enable container tabs
 user_pref("privacy.userContext.enabled", true);
 
+// PREF: disable Firefox View
+user_pref("browser.tabs.firefox-view", false);
+user_pref("browser.tabs.firefox-view-next", false);
+user_pref("browser.tabs.firefox-view-newIcon", false); // needed?
+user_pref("browser.firefox-view.feature-tour", '{"screen":"","complete":true}');
+
 // PREF: enable HTTPS-Only Mode
 // Warn me before loading sites that don't support HTTPS
 // in both Normal and Private Browsing windows.
 user_pref("dom.security.https_only_mode", true);
+user_pref("dom.security.https_only_mode_pbm", true);
 user_pref("dom.security.https_only_mode_error_page_user_suggestions", true);
 
 // PREF: set DNS-over-HTTPS provider
 user_pref("network.trr.uri", "https://dns.nextdns.io/ab7c6c/Firefox");
+
 // PREF: enforce DNS-over-HTTPS (DoH)
 user_pref("network.trr.use_ohttp", false);
 user_pref("network.trr.mode", 2);
 user_pref("network.trr.max-fails", 5);
 
-/****************************************************************************
- * SECTION: SECURTY                                                       *
- ****************************************************************************/
+// Disable the close browser window with last tab
+user_pref("browser.tabs.closeWindowWithLastTab", false);
+
+// PREF: disable login manager
+user_pref("signon.rememberSignons", false);
+
+// PREF: disable address and credit card manager
+user_pref("extensions.formautofill.addresses.enabled", false);
+user_pref("extensions.formautofill.creditCards.enabled", false);
+
+// PREF: disable telemetry of what default browser you use [WINDOWS]
+user_pref("default-browser-agent.enabled", false);
+
+// Save files to the Downloads directory without asking where to save every time.
+user_pref("browser.download.useDownloadDir", true);
 
 /****************************************************************************
  * SECTION: SMOOTHFOX                                                       *
@@ -300,20 +311,11 @@ user_pref("general.smoothScroll.stopDecelerationWeighting", "0.6"); // default=.
  * END: BETTERFOX                                                           *
  ****************************************************************************/
 
-// Enables the CSS :has() selector, required for hide tabs toolbar tweak.
-user_pref("layout.css.has-selector.enabled", true);
+/****************************************************************************
+ * Floorp Settings                                                                   *
+ ****************************************************************************/
+// TabBar: Optimize browser for vertical tabs (hide tabs toolbar)
+user_pref("floorp.browser.tabbar.settings", 2);
 
-// This hides the tabs toolbar when using a vertical tabs extension such as Sidebery, Tree Style Tab or Tab Center Reborn.
-user_pref("uc.tweak.hide-tabs-bar", true);
-
-// Removes the extra space at the top of the window when not maximised.
-user_pref("uc.tweak.disable-drag-space", true);
-user_pref("uc.tweak.floating-tabs", true);
-
-user_pref("uc.tweak.remove-tab-separators", true);
-user_pref("uc.tweak.force-tab-colour", true);
-user_pref("uc.tweak.rounded-corners", true);
-user_pref("uc.tweak.vertical-context-navigation", false);
-user_pref("widget.macos.native-context-menus", false);
-
-user_pref("browser.tabs.closeWindowWithLastTab", false);
+// Disable workspaces, I use containers and Sideberry for this.
+user_pref("floorp.browser.workspaces.enabled", false);
