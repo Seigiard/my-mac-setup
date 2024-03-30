@@ -1,8 +1,0 @@
-/* Edge-Frfox & EdgyArc-fr */
-@import url("EdgeFirefox/userChrome.css");
-
-/* OneLinerFirefox */
-/* @import url("OneLinerFirefox/userChrome.css"); */
-
-/* Import custom stylesheet instead of modifying Edge-Frfox theme files. */
-@import url("custom.css");
