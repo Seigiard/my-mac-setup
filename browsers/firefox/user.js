@@ -293,6 +293,9 @@ user_pref("default-browser-agent.enabled", false);
 // Save files to the Downloads directory without asking where to save every time.
 user_pref("browser.download.useDownloadDir", true);
 
+// Ctrl+Tab cycles through tabs in recently used order
+user_pref("browser.ctrlTab.sortByRecentlyUsed", true);
+
 /****************************************************************************
  * SECTION: SMOOTHFOX                                                       *
  ****************************************************************************/
