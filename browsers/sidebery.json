@@ -19,7 +19,7 @@
       "cookieStoreId": "firefox-container-2",
       "name": "Work",
       "icon": "briefcase",
-      "color": "orange",
+      "color": "blue",
       "colorCode": "#37adff",
       "proxified": false,
       "proxy": null,
@@ -322,7 +322,7 @@
     "bookmarks": [],
     "bookmarksPanel": []
   },
-  "sidebarCSS": "#root.root {\n  --tabs-pinned-height: 42px;\n  --tabs-pinned-width: 42px;\n  --tabs-font: 0.825rem system-ui, sans-serif;\n}\n\n/* Move container to the bottom of the page */\n.top-horizontal-box {\n\torder: 1;\n}\n\n/* Make pinned tabs bigger */\n.PinnedTabsBar .fav, \n.PinnedTabsBar .fav-icon {\n  width: calc(var(--tabs-pinned-width) * 0.5);\n  height: calc(var(--tabs-pinned-width) * 0.5);\n  filter: grayscale(0.5);\n}\n\n/* Bold Tab Group */\n.Tab[data-group=\"true\"] .title { \n  font-weight: 700;\n}\n.Tab[data-group=\"true\"] .fav-icon {\n  display: none;\n}\n\n/* Tiny tabs alignment */\n#root[data-pinned-tabs-position=\"panel\"] .PinnedTabsBar {\n\tpadding: 4px 5px\n}\n\n#root[data-pinned-tabs-position=\"panel\"] .ScrollBox .Tab[data-lvl=\"0\"] {\n\tpadding-left: 2px;\n}\n\n#root[data-pinned-tabs-position=\"panel\"] .ScrollBox .new-tab-btns {\n  padding-left: 5px;\n  padding-top: 10px;\n}\n",
+  "sidebarCSS": "#root.root {\n  --tabs-pinned-height: 42px;\n  --tabs-pinned-width: 42px;\n  --tabs-font: 0.825rem system-ui, sans-serif;\n}\n\n/* Move container to the bottom of the page */\n.top-horizontal-box {\n\torder: 1;\n}\n\n/* Make pinned tabs bigger */\n.PinnedTabsBar .fav, \n.PinnedTabsBar .fav-icon {\n  width: calc(var(--tabs-pinned-width) * 0.5);\n  height: calc(var(--tabs-pinned-width) * 0.5);\n  filter: grayscale(0.5);\n}\n\n/* Bold Tab Group */\n.Tab[data-group=\"true\"] .title { \n  font-weight: 700;\n}\n.Tab[data-group=\"true\"] .fav-icon {\n  display: none;\n}\n.Tab[data-group=\"true\"] .fav .exp {\n\topacity: 1;\n}\n\n/* Hide nested tabs vertical line */\n.Tab[data-pin=\"false\"]:not([data-lvl=\"0\"]) .body::after {\n\tall:initial;\n}\n\n/* Container marker */\n#root[data-pinned-tabs-position=\"panel\"] .Tab[data-pin=\"true\"] .ctx, #root[data-pinned-tabs-position=\"top\"] .Tab[data-pin=\"true\"] .ctx {\n  bottom: 0px;\n  left: 0px;\n  right: 0px;\n  width: auto;\n  height: var(--tabs-border-radius);\n  box-shadow: none;\n  border-bottom-right-radius: var(--tabs-border-radius);\n  border-bottom-left-radius: var(--tabs-border-radius);\n  background: linear-gradient(to bottom, transparent var(--lg-stop), var(--color) var(--lg-stop), var(--color) 100%);\n}\n.Tab[data-pin=\"false\"] .ctx {\n  top: 0px; bottom: 0px; left: auto; right: 0px; \n\twidth: var(--tabs-border-radius);\n  height: auto;\n  border-top-right-radius: var(--tabs-border-radius);\n  border-bottom-right-radius: var(--tabs-border-radius);\n  background: linear-gradient(to right, transparent var(--lg-stop), var(--color) var(--lg-stop), var(--color) 100%);\n}\n.Tab .ctx {\n  --ctx-line-size: min(2px, var(--tabs-border-radius));\n  --lg-stop: calc(var(--tabs-border-radius) - var(--ctx-line-size));\n  display:none;\n  background-color: transparent;\n}\n.Tab:hover .ctx {\n  display:block;\n}\n\n/* Tiny tabs alignment */\n#root[data-pinned-tabs-position=\"panel\"] .PinnedTabsBar {\n\tpadding: 4px 5px\n}\n\n#root[data-pinned-tabs-position=\"panel\"] .ScrollBox .Tab[data-lvl=\"0\"] {\n\tpadding-left: 2px;\n}\n\n#root[data-pinned-tabs-position=\"panel\"] .ScrollBox .new-tab-btns {\n  padding-left: 5px;\n  padding-top: 10px;\n}",
   "ver": "5.2.0",
   "keybindings": {
     "_execute_sidebar_action": "MacCtrl+E",
