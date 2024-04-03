@@ -57,3 +57,15 @@ Install
 - CleanShot
 - Elmedia Player
 - Endurance
+
+# Fish Shell
+
+In case if something goes wrong
+
+```sh
+fisher install oh-my-fish/plugin-brew # integrate Homebrew paths into shell
+fisher install laughedelic/brew-completions # completions for Homebrew.
+fisher install jorgebucaran/nvm.fish # node version manages
+fisher install ilancosman/tide@v6 # Fish prompt line
+fisher install oh-my-fish/plugin-grc # colorizer
+```
