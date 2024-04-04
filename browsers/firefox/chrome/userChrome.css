@@ -23,4 +23,20 @@ Quote: https://userChrome.org | https://github.com/topics/userchrome
         border: none !important;
         font-size: 1.25rem !important;
     }
+
+    /* Hide bookmark icon in urlbar */
+    #star-button-box,
+    /* Hide context icon in urlbar */
+    #userContext-label,
+    /* Hide Reopen closed tab button */
+    #undo-closed-tab,
+    /* Floorp: Hide Show sidebar on the other side button */
+    #sidebar-reverse-position-toolbar {
+        display: none !important;
+    }
+
+    #sidebar-button {
+        order: -1;
+        margin-left: 10px !important;
+    }
 }
