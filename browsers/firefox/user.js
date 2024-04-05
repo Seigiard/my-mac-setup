@@ -322,3 +322,6 @@ user_pref("floorp.browser.tabbar.settings", 2);
 
 // Disable workspaces, I use containers and Sideberry for this.
 user_pref("floorp.browser.workspaces.enabled", false);
+
+// Hide right toolbar
+user_pref("floorp.browser.sidebar.enable", false);
