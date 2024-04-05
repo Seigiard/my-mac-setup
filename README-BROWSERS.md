@@ -26,8 +26,11 @@ Tune with
 
 https://firefox.net
 https://www.waterfox.net/
+https://floorp.app/ - current choice
 
-- vertical tabs tree via extension and CSS tweak
+- [Nord Theme](https://addons.mozilla.org/en-GB/firefox/addon/nord123)
+- vertical tabs tree via extension-
+- CSS tweak
 - containers
 
 # Chrome Extensions
