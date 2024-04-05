@@ -35,15 +35,14 @@ Quote: https://userChrome.org | https://github.com/topics/userchrome
         display: none !important;
     }
 
-    // Fix black splitter in Nord theme
-    #sidebar-splitter {
-        --sidebar-border-color: var(--lwt-accent-color);
-        background-color: var(--lwt-accent-color);
-    }
-
-    // Toggle Sidebar button goes first
+    /* Toggle Sidebar button goes first */
     #sidebar-button {
         order: -1;
         margin-left: 10px !important;
+    }
+
+    /* Fix black splitter in Nord theme */
+    #sidebar-splitter {
+        background-color: var(--lwt-accent-color) !important;
     }
 }
