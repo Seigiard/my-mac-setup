@@ -72,6 +72,8 @@ https://floorp.app/ - current choice
 - TWP Translate Wep Page -  translate web page, but not selected text
 - Surfingkeys - keyboard shortcuts for web pages (alternative to Vimium C)
 
-
 # uBlock Setup
 https://github.com/yokoffing/filterlists#guidelines
+
+# 1Password setup
+Extensions > 1Password > Settings > Autofill & Save > Disable “Offer to save 'sign-in with' logins”
