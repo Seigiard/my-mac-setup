@@ -70,6 +70,7 @@ https://floorp.app/ - current choice
 - uBlock Origin
 - Violentmonkey Beta - script manager - thinking do I need it?
 - TWP Translate Wep Page -  translate web page, but not selected text
+- Surfingkeys - keyboard shortcuts for web pages (alternative to Vimium C)
 
 
 # uBlock Setup
