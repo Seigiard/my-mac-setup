@@ -40,6 +40,7 @@ https://floorp.app/ - current choice
 - JSON Viewer - !Orion
 - PopUpOFF - Popup and overlay blocker, as alternative
   - I still don't care about cookies 4.6(98), another alternative
+  - Consent-O-Matic
 - Raindrop.io
 - SponsorBlock for YouTube
 - Stylebot
@@ -58,10 +59,18 @@ https://floorp.app/ - current choice
 - PopUpOFF
 - Raindrop.io
 - SideBerry
-- SponsorBlock for YouTube
 - Stylebot
 - uBlock Origin
 - Vimium C - All by Keyboard
+
+# Orion Extensions
+- 1Password – Password Manager
+- Consent-O-Matic
+- Stylus - style manager - smaller than Stylebot, do not load additional scripts on page
+- uBlock Origin
+- Violentmonkey Beta - script manager - thinking do I need it?
+- TWP Translate Wep Page -  translate web page, but not selected text
+
 
 # uBlock Setup
 https://github.com/yokoffing/filterlists#guidelines
