@@ -17,3 +17,5 @@ PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
 if [ -d "$HOME/adb-fastboot/platform-tools" ] ; then
   PATH="$HOME/adb-fastboot/platform-tools:$PATH"
 fi
+# Added by OrbStack: command-line tools and integration
+source ~/.orbstack/shell/init.zsh 2>/dev/null || :
