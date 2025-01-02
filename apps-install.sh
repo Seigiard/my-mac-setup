@@ -14,13 +14,13 @@ nvm install node
 
 ## Fonts
 brew tap homebrew/cask-fonts
-echo 'Install Fonts: Input & JetBrains Mono'
-brew install --cask font-input
+echo 'Install Nerd Fonts: Inconsolata & JetBrains Mono'
 brew install --cask font-jetbrains-mono
-brew install font-hack-nerd-font
+brew install --cask font-inconsolata
+brew install --cask font-symbols-only-nerd-font
 
 brew install --cask setapp
-brew install --cask kitty # terminal
+brew install --cask ghostty # terminal
 brew install fish # shell
 brew install grc # colorizer
 brew install --cask marta # File Manager

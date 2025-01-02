@@ -1,6 +1,6 @@
 [user]
-    name = Andrew Borisenko
-    email = seigiard@gmail.com
+	name = Andrew Borisenko
+	email = seigiard@gmail.com
 [push]
     followTags = true
     default = current
@@ -12,7 +12,7 @@
     editor = nano
     autocrlf = input
     whitespace=fix,-indent-with-non-tab,trailing-space,cr-at-eol
-    excludesfile = /Users/mitrichius/.gitignore_global
+	excludesfile = /Users/seigiard/.gitignore_global
     pager = diff-so-fancy | less --tabs=4 -RFX
 [alias]
     co = checkout

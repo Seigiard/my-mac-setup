@@ -1,15 +1,11 @@
 # Browsers
 
 ## Based on Chrome
+
 https://brave.com/
 
 - vertical tabs
 - profiles
-
-https://github.com/ungoogled-software/ungoogled-chromium
-
-- no tracking
-- no vertical tabs :(
 
 ## Based on Safari
 
@@ -19,14 +15,16 @@ https://kagi.com/orion
 - profiles
 
 ## Based on FF
+
 Tune with
 - https://github.com/yokoffing/Betterfox
 - http://web.archive.org/web/20180821224202/
 - https://jojo-website.neocities.org/privacy.html
 
+https://zen-browser.app/ - current choice
 https://firefox.net
 https://www.waterfox.net/
-https://floorp.app/ - current choice
+https://floorp.app/
 
 - [Nord Theme](https://addons.mozilla.org/en-GB/firefox/addon/nord123)
 - vertical tabs tree via extension-
@@ -64,16 +62,19 @@ https://floorp.app/ - current choice
 - Vimium C - All by Keyboard
 
 # Orion Extensions
+
 - 1Password – Password Manager
 - Consent-O-Matic
 - Stylus - style manager - smaller than Stylebot, do not load additional scripts on page
 - uBlock Origin
 - Violentmonkey Beta - script manager - thinking do I need it?
-- TWP Translate Wep Page -  translate web page, but not selected text
+- TWP Translate Wep Page - translate web page, but not selected text
 - Surfingkeys - keyboard shortcuts for web pages (alternative to Vimium C)
 
 # uBlock Setup
+
 https://github.com/yokoffing/filterlists#guidelines
 
 # 1Password setup
+
 Extensions > 1Password > Settings > Autofill & Save > Disable “Offer to save 'sign-in with' logins”
