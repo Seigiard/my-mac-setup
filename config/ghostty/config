@@ -1,7 +1,9 @@
 font-family = JetBrains Mono
 window-title-font-family = JetBrains Mono
 font-size = 16
-theme = GruvboxDarkHard
+#theme = GruvboxDark
+theme = GruvboxLight
+#theme = Builtin Solarized Light
 cursor-style = block
 adjust-cell-height = 10%
 
