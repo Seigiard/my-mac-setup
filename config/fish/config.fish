@@ -53,3 +53,6 @@ bind \e\x7F backward-kill-word
 source /Users/seigiard/.docker/init-fish.sh || true # Added by Docker Desktop
 
 fish_add_path /opt/homebrew/sbin
+
+# Added by Windsurf
+fish_add_path /Users/seigiard/.codeium/windsurf/bin

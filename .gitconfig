@@ -1,5 +1,5 @@
 [user]
-	name = Andrew Borisenko
+	name = Borisenko Andrew
 	email = seigiard@gmail.com
 [push]
     followTags = true
@@ -39,3 +39,8 @@
     added = yellow
     changed = green
     untracked = cyan
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
