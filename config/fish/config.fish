@@ -32,6 +32,10 @@ function fish_title
     end
 end
 
+function fish_right_prompt_loading_indicator
+    echo ' … '
+end
+
 # Auto-switch nvm version on cd
 # Requires a ~/.node-version file with a valid node version
 # https://github.com/jorgebucaran/nvm.fish/pull/186
@@ -54,8 +58,6 @@ bind \e\x7F backward-kill-word
 if test -f /Users/seigiard/.docker/init-fish.sh
     source /Users/seigiard/.docker/init-fish.sh || true # Added by Docker Desktop
 end
-
-fish_add_path /opt/homebrew/sbin
 
 # Added by Windsurf
 fish_add_path /Users/seigiard/.codeium/windsurf/bin

@@ -59,29 +59,9 @@ Install
 - AlDente
 - CleanMyMac
 - CleanShot
-- Elmedia Player
 - Endurance
 
 # Fish Shell
-
-```sh
-brew install fish
-brew install grc
-echo /opt/homebrew/bin/fish | sudo tee -a /etc/shells
-chsh -s /opt/homebrew/bin/fish
-```
-
-In case if something goes wrong
-
-```sh
-fisher install oh-my-fish/plugin-brew # integrate Homebrew paths into shell
-fisher install laughedelic/brew-completions # completions for Homebrew.
-fisher install jorgebucaran/nvm.fish # node version manages
-fisher install ilancosman/tide@v6 # Fish prompt line
-fisher install oh-my-fish/plugin-grc # colorizer
-```
-
-Install as default
 
 ```sh
 # Which fish
@@ -92,4 +72,19 @@ echo "/usr/local/bin/fish" | sudo tee -a /etc/shells
 
 # Make fish shell to default shell for Terminal
 chsh -s /usr/local/bin/fish
+```
+
+In case if something goes wrong
+
+```sh
+# https://github.com/jorgebucaran/fisher
+curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher
+# integrate Homebrew paths into shell
+fisher install oh-my-fish/plugin-brew
+# completions for Homebrew.
+fisher install laughedelic/brew-completions
+# node version manages
+fisher install jorgebucaran/nvm.fish
+# Fish prompt line
+fisher install ilancosman/tide@v6
 ```
