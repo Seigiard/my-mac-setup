@@ -23,9 +23,6 @@
           path: marta/favorites.marco
       ~/.gitconfig: .gitconfig
       ~/.editorconfig: .editorconfig
-      ~/.zimrc: .zimrc
-      ~/.zshrc: .zshrc
-      ~/.zprofile: .zprofile
       ~/.aws: .aws
 
 - shell:

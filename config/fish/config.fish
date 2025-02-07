@@ -50,7 +50,10 @@ end
 set -x LANG en_US.UTF-8
 
 bind \e\x7F backward-kill-word
-source /Users/seigiard/.docker/init-fish.sh || true # Added by Docker Desktop
+
+if test -f /Users/seigiard/.docker/init-fish.sh
+    source /Users/seigiard/.docker/init-fish.sh || true # Added by Docker Desktop
+end
 
 fish_add_path /opt/homebrew/sbin
 

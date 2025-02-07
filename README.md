@@ -80,3 +80,16 @@ fisher install jorgebucaran/nvm.fish # node version manages
 fisher install ilancosman/tide@v6 # Fish prompt line
 fisher install oh-my-fish/plugin-grc # colorizer
 ```
+
+Install as default
+
+```sh
+# Which fish
+which fish
+
+#  Add fish shell
+echo "/usr/local/bin/fish" | sudo tee -a /etc/shells
+
+# Make fish shell to default shell for Terminal
+chsh -s /usr/local/bin/fish
+```

@@ -23,3 +23,7 @@ window-new-tab-position = "end"
 
 clipboard-trim-trailing-spaces = true
 copy-on-select = true
+
+font-feature = -calt
+font-feature = -liga
+font-feature = -dlig

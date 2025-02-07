@@ -49,9 +49,23 @@
   {
     "type": "staticButton",
     "title": "",
+    "width": 10,
+    "bordered": false,
+    "align": "right"
+  },
+  {
+    "type": "staticButton",
+    "title": "",
     "width": 20,
     "bordered": false,
     "align": "right"
+  },
+  {
+    "type": "battery",
+    "width": 60,
+    "align": "right",
+    "remainingtime": "yes",
+    "bordered": false
   },
   {
     "type": "weather",
@@ -70,84 +84,6 @@
     "align": "right"
   },
   {
-    "type": "staticButton",
-    "title": "",
-    "width": 10,
-    "bordered": false,
-    "align": "right"
-  },
-  {
-    "type": "group",
-    "align": "right",
-    "title": "\uD83C\uDF0E",
-    "items": [
-      { "type": "escape", "title": "Esc", "width": 60 },
-      {
-        "type": "staticButton",
-        "title": "Chicago",
-        "bordered": false,
-        "align": "right"
-      },
-      {
-        "type": "timeButton",
-        "formatTemplate": "HH:mm",
-        "locale": "en_GB",
-        "timeZone": "CDT",
-        "align": "right"
-      },
-      {
-        "type": "staticButton",
-        "title": "",
-        "width": 50,
-        "bordered": false,
-        "align": "right"
-      },
-      {
-        "type": "staticButton",
-        "title": "Iceland",
-        "bordered": false,
-        "align": "right"
-      },
-      {
-        "type": "timeButton",
-        "formatTemplate": "HH:mm",
-        "locale": "en_GB",
-        "timeZone": "UTC",
-        "align": "right"
-      },
-      {
-        "type": "staticButton",
-        "title": "",
-        "width": 50,
-        "bordered": false,
-        "align": "right"
-      },
-      {
-        "type": "timeButton",
-        "formatTemplate": "d MMM, E, HH:mm",
-        "width": 160,
-        "bordered": true,
-        "locale": "ru_RU",
-        "align": "right",
-        "action": "openUrl",
-        "url": "ical://"
-      },
-      {
-        "type": "staticButton",
-        "title": "",
-        "width": 20,
-        "bordered": false,
-        "align": "right"
-      },
-      {
-        "type": "close",
-        "bordered": false,
-        "width": 50,
-        "align": "right"
-      }
-    ]
-  },
-  {
     "type": "group",
     "align": "right",
     "title": "⚙️",
@@ -156,9 +92,27 @@
       {
         "type": "staticButton",
         "title": "",
-        "width": 50,
+        "width": 20,
         "bordered": false
       },
+      {
+        "type": "illuminationDown",
+        "bordered": false,
+        "width": 40
+      },
+      {
+        "type": "illuminationUp",
+        "bordered": false,
+        "width": 40
+      },
+
+      {
+        "type": "staticButton",
+        "title": "",
+        "width": 20,
+        "bordered": false
+      },
+
       {
         "type": "brightnessDown",
         "bordered": false,
@@ -167,7 +121,7 @@
       {
         "type": "brightness",
         "bordered": false,
-        "width": 180
+        "width": 150
       },
       {
         "type": "brightnessUp",
@@ -178,13 +132,14 @@
       {
         "type": "staticButton",
         "title": "",
-        "width": 50,
+        "width": 30,
         "bordered": false
       },
+
       {
         "type": "mute",
         "bordered": false,
-        "width": 50
+        "width": 40
       },
       {
         "type": "volumeDown",
@@ -194,31 +149,29 @@
       {
         "type": "volume",
         "bordered": false,
-        "width": 180
+        "width": 150
       },
       {
         "type": "volumeUp",
         "bordered": false,
         "width": 40
       },
-
       {
         "type": "staticButton",
         "title": "",
-        "width": 50,
+        "width": 30,
         "bordered": false,
         "align": "right"
       },
       { "type": "previous", "width": 44, "align": "right"},
       { "type": "play", "width": 44, "align": "right"},
       { "type": "next", "width": 44, "align": "right"},
-
       {
-        "type": "battery",
-        "width": 60,
-        "align": "right",
-        "remainingtime": "yes",
-        "bordered": false
+        "type": "staticButton",
+        "title": "",
+        "width": 20,
+        "bordered": false,
+        "align": "right"
       },
       {
         "type": "close",
