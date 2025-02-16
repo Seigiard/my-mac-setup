@@ -5,8 +5,6 @@ source $(brew --prefix)/share/powerlevel10k/powerlevel10k.zsh-theme
 
 # Autosuggestions
 source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-ZSH_AUTOSUGGEST_STRATEGY=(history completion)
-ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='bold'
 
 # Store history in ~/.zsh_history
 HISTFILE=~/.zsh_history
