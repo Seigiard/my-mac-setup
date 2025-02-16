@@ -72,9 +72,10 @@ echo "/usr/local/bin/fish" | sudo tee -a /etc/shells
 
 # Make fish shell to default shell for Terminal
 chsh -s /usr/local/bin/fish
+# chsh -s /bin/zsh -- back to zsh
 ```
 
-In case if something goes wrong
+## Fish Plugins via Fisher
 
 ```sh
 # https://github.com/jorgebucaran/fisher
@@ -87,4 +88,11 @@ fisher install laughedelic/brew-completions
 fisher install jorgebucaran/nvm.fish
 # Fish prompt line
 fisher install ilancosman/tide@v6
+```
+
+```
+brew install powerlevel10k
+brew install zsh-autosuggestions
+brew install zsh-syntax-highlighting
+brew install zsh-history-substring-search
 ```
