@@ -29,7 +29,9 @@ alias ll="ls -alF --color=auto"
 
 # Search in the history
 source $(brew --prefix)/share/zsh-history-substring-search/zsh-history-substring-search.zsh
+# Map ↑↓ navigation
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
+# Syntax highlighting
 source $(brew --prefix)/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
