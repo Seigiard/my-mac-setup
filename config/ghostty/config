@@ -3,8 +3,11 @@ window-title-font-family = JetBrains Mono
 font-size = 16
 #theme = GruvboxDark
 #theme = GruvboxLight
-theme = Builtin Tango Light
 #theme = Builtin Solarized Light
+#theme = ayu_light
+theme = xcodelighthc
+#theme = Pro Light
+#theme = Raycast_Light
 cursor-style = block
 adjust-cell-height = 10%
 
