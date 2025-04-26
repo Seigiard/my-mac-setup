@@ -1,6 +1,8 @@
 /* ==UserStyle==
 @name        Rezka.ag
-@description This is your new file, start writing code
+@namespace   https://github.com/Seigiard
+@version     0.0.1
+@updateURL   https://github.com/Seigiard/my-mac-setup/raw/main/browsers/userscripts/Rezka.ag.user.css
 @match       https://rezka.ag/*
 @match       https://hdrezka.ag/*
 ==/UserStyle== */
