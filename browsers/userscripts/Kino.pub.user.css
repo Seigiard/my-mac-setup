@@ -1,117 +1,122 @@
 /* ==UserStyle==
 @name        Kino.pub
 @description This is your new file, start writing code
-@match       https://kino.pub/*
+@match       https://kino.pub
 ==/UserStyle== */
 
-body {
-  font-family: system-ui, sans-serif; 
-}
-h1, h2, h3 {
-  font-family: Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif; 
-}
+@-moz-document domain("kino.pub") {
+	body {
+		font-family: system-ui, sans-serif;
+	}
 
-/* Sidebar */
-#aside, .app-aside, .app-aside .scroll {
-  width: 28rem;
-}
-#aside {
-  top: 0;
-  left: 0;
-  bottom: auto;
-  height: 3.5rem;
-}
-#aside .navside {
-  position: static;
-  background-color: transparent;
-}
-#aside .navside .navbar {
-  display: none;
-}
-#aside .navside .nav {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-  padding-right: 1rem;
-  padding-left: 1rem;
-  height: 3.5rem;
-}
-#aside .navside .nav li {
-  display: none;
-}
-#aside .navside .nav li:nth-child(12),
-#aside .navside .nav li:nth-child(13),
-#aside .navside .nav li:nth-child(19) {
-  display: block;
-}
+	h1, h2, h3 {
+		font-family: Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif;
+	}
+    /* Sidebar */
+	#aside, .app-aside, .app-aside .scroll {
+		width: 28rem;
+	}
 
-#aside .navside .nav li a {
-  display: inline-flex;
-  white-space: nowrap;
-  gap: 0.5rem;
-}
-#aside .navside .nav li a > * {
-  all:unset;
-}
+	#aside {
+		top: 0;
+		left: 0;
+		bottom: auto;
+		height: 3.5rem;
+	}
 
-/* Header */
-.app-header {
-  padding-left: 30rem;
-}
+	#aside .navside {
+		position: static;
+		background-color: transparent;
+	}
 
-/* Content */
-#content {
-  margin-left: 0;
-  margin-top: 0;
-}
+	#aside .navside .navbar {
+		display: none;
+	}
 
-.padding {
-  padding: 2rem 5rem;
-}
+	#aside .navside .nav {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		padding-right: 1rem;
+		padding-left: 1rem;
+		height: 3.5rem;
+	}
 
-/* Bookmarks */
-div[id^="favorites-item-"],
-.card-block {
-  position: relative;
-}
-div[id^="favorites-item-"] a,
-.card-block a {
-  z-index: 2;
-  position: relative;
-}
-div[id^="favorites-item-"] .item-title a,
-.card-block h6 a {
-  z-index: 0;
-  position: initial;
-}
-div[id^="favorites-item-"] .item-title a::before,
-.card-block h6 a::before {
-  content: "";
-  position: absolute;
-  top:0;
-  left:0;
-  right:0;
-  bottom:0;
-  z-index: 1;
-}
+	#aside .navside .nav li {
+		display: none;
+	}
 
-.episode-number a {
-  display: inline-block;
-  padding:0.5rem 0.7rem;
-  z-index:100;
-  text-decoration: underline;
-}
-.episode-number a:hover {
-  text-decoration: none;
-}
+	#aside .navside .nav li:nth-child(12), #aside .navside .nav li:nth-child(13), #aside .navside .nav li:nth-child(19) {
+		display: block;
+	}
 
-h3 select {
-  max-width: 8rem;
-  background-color: transparent;
-  float: right;
-  padding: 0.3rem 0.5rem;
-}
-h3 select + select {
-  margin-right: 1rem;
+	#aside .navside .nav li a {
+		display: inline-flex;
+		white-space: nowrap;
+		gap: 0.5rem;
+	}
+
+	#aside .navside .nav li a > * {
+		all: unset;
+	}
+    /* Header */
+	.app-header {
+		padding-left: 30rem;
+	}
+    /* Content */
+	#content {
+		margin-left: 0;
+		margin-top: 0;
+	}
+
+	.padding {
+		padding: 2rem 5rem;
+	}
+    /* Bookmarks */
+	div[id^="favorites-item-"], .card-block {
+		position: relative;
+	}
+
+	div[id^="favorites-item-"] a, .card-block a {
+		z-index: 2;
+		position: relative;
+	}
+
+	div[id^="favorites-item-"] .item-title a, .card-block h6 a {
+		z-index: 0;
+		position: initial;
+	}
+
+	div[id^="favorites-item-"] .item-title a::before, .card-block h6 a::before {
+		content: "";
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 1;
+	}
+
+	.episode-number a {
+		display: inline-block;
+		padding: 0.5rem 0.7rem;
+		z-index: 100;
+		text-decoration: underline;
+	}
+
+	.episode-number a:hover {
+		text-decoration: none;
+	}
+
+	h3 select {
+		max-width: 8rem;
+		background-color: transparent;
+		float: right;
+		padding: 0.3rem 0.5rem;
+	}
+
+	h3 select + select {
+		margin-right: 1rem;
+	}
 }

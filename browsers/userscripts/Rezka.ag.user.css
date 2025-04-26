@@ -2,137 +2,140 @@
 @name        Rezka.ag
 @description This is your new file, start writing code
 @match       https://rezka.ag/*
+@match       https://hdrezka.ag/*
 ==/UserStyle== */
 
-/*==================*/
-/*  HIDE SOME SHIT  */
-/*==================*/
-.b-post__lastepisodeout,
-.b-post__social_holder_wrapper,
-.b-post__rating_table,
-.b-post__qa_list_block,
-.b-post__mtitle,
-.b-post__mixedtext,
-.b-post__support_holder,
-.b-content__htitle,
-.b-content__inline_sideprobar,
-.b-content__crumbs,
-.b-content__sidebar,
-.b-collections__newest,
-.b-footer,
-.b-inlineads__icon.mini,
-.b-translators__title,
-.b-seriesupdate__block_date .act,
-.b-sideactions__reviews,
-.b-wrapper.nopadd,
-.comments-form,
-.b-post__status_logo,
-.b-post__go_status,
-a#ownplayer-link-show,
-#hd-comments-list,
-#vk_groups,
-#hd-comments-list,
-#hd-comments-navigation,
-.b-sidetitle,
-.b-sidelist__holder,
-.b-post__schedule,
-*[id^="heipf"] {
-    display: none !important;
-}
+@-moz-document domain("rezka.ag"), domain("hdrezka.ag") {
+    /*==================*/
+    /*  HIDE SOME BLOCKS  */
+    /*==================*/
+    .b-post__lastepisodeout,
+    .b-post__social_holder_wrapper,
+    .b-post__rating_table,
+    .b-post__qa_list_block,
+    .b-post__mtitle,
+    .b-post__mixedtext,
+    .b-post__support_holder,
+    .b-content__htitle,
+    .b-content__inline_sideprobar,
+    .b-content__crumbs,
+    .b-content__sidebar,
+    .b-collections__newest,
+    .b-footer,
+    .b-inlineads__icon.mini,
+    .b-translators__title,
+    .b-seriesupdate__block_date .act,
+    .b-sideactions__reviews,
+    .b-wrapper.nopadd,
+    .comments-form,
+    .b-post__status_logo,
+    .b-post__go_status,
+    a#ownplayer-link-show,
+    #hd-comments-list,
+    #vk_groups,
+    #hd-comments-list,
+    #hd-comments-navigation,
+    .b-sidetitle,
+    .b-sidelist__holder,
+    .b-post__schedule,
+    *[id^="heipf"] {
+        display: none !important;
+    }
 
-.b-content__main div:has(a[target="_blank"] > img[src*="https://static.hdrezka.ac/i/def_"])
-{
-    display: none !important;
-}
+    .b-content__main div:has(a[target="_blank"] > img[src*="https://static.hdrezka.ac/i/def_"])
+    {
+        display: none !important;
+    }
 
-body.active-brand.pp {
-    padding-top: 0 !important;
-}
+    body.active-brand.pp {
+        padding-top: 0 !important;
+    }
 
-/*===========*/
-/*  NAVBAR   */
-/*===========*/
-.b-topnav {
-    max-width: 960px;
-}
-.b-topnav_wrapper {
-    background-image: none;
-    background-color: #efefef;
-    box-shadow: none;
-    border: none;
-    margin-bottom: 20px;
-}
-.b-search__form {
-    width: 15rem;
-    background-color: transparent;
-}
-.b-search__field {
-    background-color: transparent;
-}
-.b-search__field:focus {
-    background-color: #fff;
-}
+    /*===========*/
+    /*  NAVBAR   */
+    /*===========*/
+    .b-topnav {
+        max-width: 960px;
+    }
+    .b-topnav_wrapper {
+        background-image: none;
+        background-color: #efefef;
+        box-shadow: none;
+        border: none;
+        margin-bottom: 20px;
+    }
+    .b-search__form {
+        width: 15rem;
+        background-color: transparent;
+    }
+    .b-search__field {
+        background-color: transparent;
+    }
+    .b-search__field:focus {
+        background-color: #fff;
+    }
 
-/*======================*/
-/*  TYPOGRAPHY          */
-/* modernfontstacks.com */
-/*======================*/
-body {
-    font-family: system-ui, sans-serif;
-    font-weight: normal;
-}
-
-h1,
-h2 {
+    /*======================*/
+    /*  TYPOGRAPHY          */
     /* modernfontstacks.com */
-    font-family: Avenir, Montserrat, Corbel, "URW Gothic", source-sans-pro, sans-serif;
-}
+    /*======================*/
+    body {
+        font-family: system-ui, sans-serif;
+        font-weight: normal;
+    }
 
-/*===============*/
-/*  MAIN LAYOUT  */
-/*===============*/
-body,
-#wrapper,
-body.active-brand #wrapper {
-    width: auto;
-    background-color: #ddd !important;
-}
+    h1,
+    h2 {
+        /* modernfontstacks.com */
+        font-family: Avenir, Montserrat, Corbel, "URW Gothic", source-sans-pro, sans-serif;
+    }
 
-.b-container {
-    padding: 20px 60px 80px;
-    max-width: 960px;
-}
+    /*===============*/
+    /*  MAIN LAYOUT  */
+    /*===============*/
+    body,
+    #wrapper,
+    body.active-brand #wrapper {
+        width: auto;
+        background-color: #ddd !important;
+    }
 
-.b-content__columns {
-    padding: initial;
-}
+    .b-container {
+        padding: 20px 60px 80px;
+        max-width: 960px;
+    }
 
-/*===============*/
-/*  PLAYER       */
-/*===============*/
-.b-translators__block {
-    margin-top: 2rem;
-}
+    .b-content__columns {
+        padding: initial;
+    }
 
-#player {
-    --margin: calc(50% - 48vw);
-    margin-left: var(--margin);
-    margin-right: var(--margin);
-}
+    /*===============*/
+    /*  PLAYER       */
+    /*===============*/
+    .b-translators__block {
+        margin-top: 2rem;
+    }
 
-.b-player__holder_cdn {
-    position: relative;
-    height: 0 !important;
-    width: 100% !important;
-    padding-bottom: 56%;
-}
-
-.b-player__container_cdn {
-    position: absolute;
-    height: 100% !important;
-    width: 100% !important;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    #player {
+        --margin: calc(50% - 48vw);
+        margin-left: var(--margin);
+        margin-right: var(--margin);
+    }
+    :root .b-premium_user__body .b-player__holder_cdn,
+    :root .b-player__holder_cdn {
+        position: relative;
+        height: 0 !important;
+        width: 100% !important;
+        padding-bottom: min(56%, 80vh);
+    }
+    :root .b-premium_user__body .b-player__container_cdn,
+    :root .b-player__container_cdn {
+        position: absolute!important;
+        height: 100% !important;
+        width: 100% !important;
+        top: 0!important;
+        bottom: 0!important;
+        left: 0!important;
+        right: 0!important;
+    }
 }
