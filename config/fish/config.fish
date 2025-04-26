@@ -61,3 +61,5 @@ end
 
 # Added by Windsurf
 fish_add_path /Users/seigiard/.codeium/windsurf/bin
+
+source /Users/seigiard/.docker/init-fish.sh || true # Added by Docker Desktop

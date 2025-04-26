@@ -95,4 +95,5 @@ brew install powerlevel10k
 brew install zsh-autosuggestions
 brew install zsh-syntax-highlighting
 brew install zsh-history-substring-search
+brew install nvm
 ```
