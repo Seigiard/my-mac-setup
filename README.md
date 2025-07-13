@@ -90,7 +90,15 @@ fisher install jorgebucaran/nvm.fish
 fisher install ilancosman/tide@v6
 ```
 
+## Homebrew
+
+```sh
+brew bundle # install from Brewfile
+brew bundle dump # update Brewfile
 ```
+
+
+```sh
 brew install powerlevel10k
 brew install zsh-autosuggestions
 brew install zsh-syntax-highlighting
