@@ -16,6 +16,8 @@
       ~/.config/kitty: config/kitty
       ~/.config/karabiner.edn: karabiner.edn
       ~/.config/karabiner: config/karabiner
+      ~/.config/zed/keymap.json: config/zed/keymap.json
+      ~/.config/zed/settings.json: config/zed/settings.json
       # ~/.hammerspoon: hammerspoon
       ~/Library/Application Support/org.yanex.marta/conf.marco:
           path: marta/conf.marco

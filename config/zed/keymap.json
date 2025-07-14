@@ -1,0 +1,21 @@
+[
+  // Custom bindings
+  {
+    "use_key_equivalents": true,
+    "bindings": {
+      "cmd-shift-c": null,
+      "cmd-1": "project_panel::ToggleFocus",
+      "cmd-2": "outline_panel::ToggleFocus",
+      "cmd-3": "git_panel::ToggleFocus",
+      "cmd-i": "agent::ToggleFocus",
+      "cmd-alt-1": "pane::RevealInProjectPanel"
+    }
+  },
+  {
+    "context": "Editor && mode == full",
+    "use_key_equivalents": true,
+    "bindings": {
+      "cmd-k": "assistant::InlineAssist"
+    }
+  }
+]
