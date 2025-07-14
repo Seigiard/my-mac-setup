@@ -16,6 +16,7 @@ excludesfile = /Users/seigiard/.gitignore_global
   pager = diff-so-fancy | less --tabs=4 -RFX
 [diff]
   tool = webstorm
+  external = webstorm
 [difftool "webstorm"]
   cmd = /Applications/WebStorm.app/Contents/MacOS/webstorm diff "$LOCAL" "$REMOTE"
   trustExitCode = true
@@ -26,6 +27,7 @@ excludesfile = /Users/seigiard/.gitignore_global
   prompt = false
 [merge]
   tool = webstorm
+  external = webstorm
 [mergetool "webstorm"]
   cmd = /Applications/WebStorm.app/Contents/MacOS/webstorm merge "$LOCAL" "$REMOTE" "$BASE" "$MERGED"
   trustExitCode = true
