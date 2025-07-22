@@ -40,7 +40,6 @@ excludesfile = /Users/seigiard/.gitignore_global
   up = remote update
   br = branch
   history = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
-  prom = pull --rebase --autostash origin main
   mom = merge origin/main
   mum = merge upstream/main
 	pullmain = "!f() {\n    current=$(git branch --show-current);\n    if git show-ref --verify --quiet refs/heads/main; then\n        git fetch origin main:main &&\n        echo \"✅ Updated main from $(git rev-parse --short HEAD~1) to $(git rev-parse --short main)\" &&\n        echo \"📍 Still on branch: $current\";\n    else\n        echo \"❌ Local main branch does not exist\";\n        exit 1;\n    fi\n}; f"
