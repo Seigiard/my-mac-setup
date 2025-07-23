@@ -26,7 +26,6 @@ excludesfile = /Users/seigiard/.gitignore_global
   prompt = false
 [merge]
   tool = webstorm
-  external = webstorm
 [mergetool "webstorm"]
   cmd = /Applications/WebStorm.app/Contents/MacOS/webstorm merge "$LOCAL" "$REMOTE" "$BASE" "$MERGED"
   trustExitCode = true
