@@ -18,12 +18,13 @@ echo 'Install Nerd Fonts: Inconsolata & JetBrains Mono'
 brew install --cask font-recursive-code
 brew install --cask font-jetbrains-mono
 
+brew install --cask imageoptim
+brew install --cask the-unarchiver
+
 brew install --cask setapp
 brew install --cask ghostty # terminal
-brew install fish # shell
 brew install --cask marta # File Manager
 brew install --cask raycast
-brew install --cask hammerspoon
 brew install --cask karabiner-elements
 brew install yqrashawn/goku/goku
 
@@ -38,9 +39,10 @@ brew install --cask iina # video player
 
 brew install --cask webstorm
 brew install --cask vscodium
+brew install --cask zed
+brew install --cask figma
 brew install --cask obsidian
 
 brew install --cask brave-browser # Brave Browser
+brew install --cask floorp
 brew install --cask telegram
-
-brew install --cask vanilla # Hide icons in menu bar
