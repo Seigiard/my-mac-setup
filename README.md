@@ -30,14 +30,6 @@ Setup and download settings.
 
 Enable Settings Sync in menu
 
-## SublimeText
-
-Install „[Settings Sync](https://packagecontrol.io/packages/Sync%20Settings)“ extention
-
-Setup and download settings.
-
-Check `./config/Preferences.sublime-settings`
-
 ## RayCast
 
 Open Raycast and import latest Raycast\*.rayconfig
@@ -56,52 +48,15 @@ Add [Seigird Layout](https://github.com/Seigiard/keyboard-layout) via Input sour
 
 Install
 
-- AlDente
+- Bolt AI
+- Bartender
 - CleanMyMac
-- CleanShot
-- Endurance
-
-# Fish Shell
-
-```sh
-# Which fish
-which fish
-
-#  Add fish shell
-echo "/usr/local/bin/fish" | sudo tee -a /etc/shells
-
-# Make fish shell to default shell for Terminal
-chsh -s /usr/local/bin/fish
-# chsh -s /bin/zsh -- back to zsh
-```
-
-## Fish Plugins via Fisher
-
-```sh
-# https://github.com/jorgebucaran/fisher
-curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher
-# integrate Homebrew paths into shell
-fisher install oh-my-fish/plugin-brew
-# completions for Homebrew.
-fisher install laughedelic/brew-completions
-# node version manages
-fisher install jorgebucaran/nvm.fish
-# Fish prompt line
-fisher install ilancosman/tide@v6
-```
+- CloudMounter
+- CleanShot X
 
 ## Homebrew
 
 ```sh
 brew bundle # install from Brewfile
 brew bundle dump # update Brewfile
-```
-
-
-```sh
-brew install powerlevel10k
-brew install zsh-autosuggestions
-brew install zsh-syntax-highlighting
-brew install zsh-history-substring-search
-brew install nvm
 ```

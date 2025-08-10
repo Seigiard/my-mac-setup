@@ -8,8 +8,13 @@ brew install zsh
 ## INSTALL ZIM
 curl -fsSL https://raw.githubusercontent.com/zimfw/install/master/install.zsh | zsh
 
-# Install Node using NVM.
-curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.34.0/install.sh | zsh
+brew install powerlevel10k
+brew install zsh-autosuggestions
+brew install zsh-syntax-highlighting
+brew install zsh-history-substring-search
+brew install nvm
+
+# Install Node using NVM
 nvm install node
 
 ## Fonts
