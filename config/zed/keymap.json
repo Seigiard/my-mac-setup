@@ -7,7 +7,9 @@
       "cmd-1": "project_panel::ToggleFocus",
       "cmd-2": "outline_panel::ToggleFocus",
       "cmd-3": "git_panel::ToggleFocus",
-      "cmd-i": "agent::ToggleFocus",
+      "cmd-i": "workspace::ToggleRightDock",
+      "cmd-f": "search::FocusSearch",
+      "cmd-r": "search::ToggleReplace",
       "cmd-alt-1": "pane::RevealInProjectPanel"
     }
   },

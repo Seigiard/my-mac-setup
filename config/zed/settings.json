@@ -7,19 +7,32 @@
 // custom settings, run the `open default settings` command
 // from the command palette or from `Zed` application menu.
 {
+  "context_servers": {
+    "mcp-server-figma": {
+      "source": "extension",
+      "enabled": true,
+      "settings": {
+        "figma_api_key": "YOUR_FIGMA_ACCESS_TOKEN"
+      }
+    },
+    "mcp-server-context7": {
+      "source": "extension",
+      "enabled": true,
+      "settings": {
+        "default_minimum_tokens": "10000"
+      }
+    }
+  },
   "agent": {
+    "default_profile": "write",
     "always_allow_tool_actions": true,
     "default_model": {
-      "provider": "zed.dev",
-      "model": "claude-sonnet-4"
-    },
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-latest"
+    }
   },
   "edit_predictions": {
     "mode": "subtle",
-    "copilot": {
-      "proxy": null,
-      "proxy_no_verify": null
-    },
     "enabled_in_text_threads": false
   },
   "features": {
@@ -69,9 +82,24 @@
   },
   "languages": {
     "CSS": {
+      "format_on_save": "on",
+      "formatter": "language_server",
       "code_actions_on_format": {
         "source.fixAll.stylelint": true
       }
+    },
+    "TypeScript": {
+      "format_on_save": "on",
+      "formatter": "language_server",
+      "language_servers": ["tsgo", "vtsls"]
+    },
+    "JavaScript": {
+      "format_on_save": "on",
+      "formatter": "language_server"
+    },
+    "HTML": {
+      "format_on_save": "on",
+      "formatter": "language_server"
     }
   },
   "lsp": {
