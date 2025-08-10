@@ -1,0 +1,112 @@
+{
+  "generalSettings" : {
+    "selectedHotkey2RawValue" : "none",
+    "audioRetentionPeriod" : 3,
+    "isSoundFeedbackEnabled" : true,
+    "isTextFormattingEnabled" : true,
+    "launchAtLoginEnabled" : true,
+    "isAutoCopyEnabled" : true,
+    "toggleMiniRecorderShortcut" : {
+      "carbonModifiers" : 4608,
+      "carbonKeyCode" : 49
+    },
+    "selectedHotkey1RawValue" : "custom",
+    "recorderType" : "notch",
+    "isSystemMuteEnabled" : true,
+    "isMenuBarOnly" : true,
+    "useAppleScriptPaste" : false,
+    "isAudioCleanupEnabled" : false
+  },
+  "customEmojis" : [
+    "🇬🇧",
+    "🇸🇰"
+  ],
+  "defaultPowerModeConfig" : {
+    "isAIEnhancementEnabled" : true,
+    "selectedAIModel" : "claude-sonnet-4-0",
+    "selectedAIProvider" : "Anthropic",
+    "useScreenCapture" : false,
+    "name" : "Default Configuration",
+    "emoji" : "⚙️",
+    "selectedLanguage" : "auto",
+    "selectedPrompt" : "00000000-0000-0000-0000-000000000001",
+    "id" : "4261E0F5-9C85-485B-A44F-D8FE3FC9F3AF",
+    "isAutoSendEnabled" : false
+  },
+  "powerModeConfigs" : [
+    {
+      "selectedAIProvider" : "Anthropic",
+      "id" : "A7CB2158-ECC6-4E40-AA72-CEC95AB08A8C",
+      "useScreenCapture" : false,
+      "selectedAIModel" : "claude-sonnet-4-0",
+      "selectedTranscriptionModelName" : "ggml-large-v3-turbo-q5_0",
+      "selectedPrompt" : "4B7CC3B8-7ADE-41F9-B2AA-701AF2CE4DE8",
+      "emoji" : "🇬🇧",
+      "selectedLanguage" : "auto",
+      "name" : "To English",
+      "isAutoSendEnabled" : false,
+      "appConfigs" : [
+        {
+          "bundleIdentifier" : "com.tinyspeck.slackmacgap",
+          "appName" : "Slack",
+          "id" : "67F218E5-4DCF-4B16-AAD7-4451A1CA1482"
+        },
+        {
+          "bundleIdentifier" : "com.linear",
+          "id" : "C39595F5-62AD-4536-A8DD-00393CA20116",
+          "appName" : "Linear"
+        }
+      ],
+      "isAIEnhancementEnabled" : true
+    },
+    {
+      "id" : "7C137B12-F79C-40CD-A42B-0CF13280980D",
+      "emoji" : "🇸🇰",
+      "appConfigs" : [
+        {
+          "id" : "DF12D7CD-BE73-4EC2-880F-330B198E6D4F",
+          "appName" : "Zen",
+          "bundleIdentifier" : "app.zen-browser.zen"
+        }
+      ],
+      "selectedAIModel" : "claude-sonnet-4-0",
+      "isAutoSendEnabled" : false,
+      "selectedLanguage" : "auto",
+      "selectedAIProvider" : "Anthropic",
+      "selectedPrompt" : "3DCB462A-9FC8-4E96-B0A5-4FEFA655F82C",
+      "name" : "To Slovak",
+      "isAIEnhancementEnabled" : true,
+      "selectedTranscriptionModelName" : "ggml-large-v3-turbo-q5_0",
+      "useScreenCapture" : false
+    }
+  ],
+  "customPrompts" : [
+    {
+      "triggerWords" : [
+
+      ],
+      "icon" : "doc.text.fill",
+      "description" : "translate to slovak",
+      "isPredefined" : false,
+      "isActive" : false,
+      "id" : "3DCB462A-9FC8-4E96-B0A5-4FEFA655F82C",
+      "promptText" : "I want you to act as an Slovak translator, spelling corrector and improver. I will speak to you in any language and you will detect the language, translate it and answer in the corrected and improved version of my text, in Slovak. \n\nI want you to keep simple and understandable level of A2-B1 level Slovak words and sentences. Keep the meaning same, but make them more literary. I want you to only reply the correction, the improvements and nothing else, do not write explanations.",
+      "title" : "ToSlovak"
+    },
+    {
+      "isActive" : false,
+      "promptText" : "I want you to act as an English translator, spelling corrector and improver. I will speak to you in any language and you will detect the language, translate it and answer in the corrected and improved version of my text, in English. \n\nI want you to keep simple and understandable level of A2-B1 level English words and sentences. Keep the meaning same, but make them more literary. I want you to only reply the correction, the improvements and nothing else, do not write explanations.",
+      "icon" : "doc.text.fill",
+      "id" : "4B7CC3B8-7ADE-41F9-B2AA-701AF2CE4DE8",
+      "isPredefined" : false,
+      "title" : "ToEnglish",
+      "triggerWords" : [
+
+      ]
+    }
+  ],
+  "version" : "1.41",
+  "customCloudModels" : [
+
+  ]
+}
