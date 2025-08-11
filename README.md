@@ -56,7 +56,14 @@ Install
 - CloudMounter
 - CleanShot X
 
-## Homebrew
+# Dropbox
+Sync → Available Offline
+
+# Additional Settings
+
+Run `macos-tunes.sh`
+
+Read `macos-settings.md` and tune settings.
 
 ```sh
 brew bundle # install from Brewfile

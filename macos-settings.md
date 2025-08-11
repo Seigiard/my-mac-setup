@@ -158,13 +158,3 @@
   |
   Downloads (Sort by: Date Added, Display as: Stack, View content as: Fan)
   Trash
-
-# Dock auto-hide times:
-  Set to custom:
-    defaults write com.apple.dock autohide-delay -int 0
-    defaults write com.apple.dock autohide-time-modifier -float 0.5
-    killall Dock
-  Restore defaults:
-    defaults delete com.apple.dock autohide-delay
-    defaults delete com.apple.dock autohide-time-modifier
-    killall Dock

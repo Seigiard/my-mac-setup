@@ -20,8 +20,8 @@
     "default_profile": "write",
     "always_allow_tool_actions": true,
     "default_model": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-latest"
+      "provider": "zed.dev",
+      "model": "claude-sonnet-4"
     }
   },
   "edit_predictions": {
