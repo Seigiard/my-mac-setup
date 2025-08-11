@@ -11,6 +11,8 @@ Open `install-apps.sh` and check, what do you need to be installed.
 
 If you do not need something — comment it.
 
+Run `install.sh`
+
 # Manual Settings
 
 ## NextDNS
