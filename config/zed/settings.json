@@ -8,13 +8,6 @@
 // from the command palette or from `Zed` application menu.
 {
   "context_servers": {
-    "mcp-server-figma": {
-      "source": "extension",
-      "enabled": true,
-      "settings": {
-        "figma_api_key": "YOUR_FIGMA_ACCESS_TOKEN"
-      }
-    },
     "mcp-server-context7": {
       "source": "extension",
       "enabled": true,
