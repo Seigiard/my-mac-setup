@@ -81,14 +81,19 @@
         "source.fixAll.stylelint": true
       }
     },
+    "TSX": {
+      "format_on_save": "on",
+      "formatter": "auto",
+      "language_servers": ["tsgo", "vtsls"]
+    },
     "TypeScript": {
       "format_on_save": "on",
-      "formatter": "language_server",
-      "language_servers": ["tsgo", "vtsls"]
+      "formatter": "auto",
+      "language_servers": ["tsgo", "vtsls"],
     },
     "JavaScript": {
       "format_on_save": "on",
-      "formatter": "language_server"
+      "formatter": "auto"
     },
     "HTML": {
       "format_on_save": "on",
