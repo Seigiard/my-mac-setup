@@ -68,36 +68,10 @@
   },
   "base_keymap": "JetBrains",
   "when_closing_with_no_tabs": "keep_window_open",
+  "format_on_save": "on",
   "formatter": {
     "code_actions": {
       "source.fixAll.eslint": true
-    }
-  },
-  "languages": {
-    "CSS": {
-      "format_on_save": "on",
-      "formatter": "language_server",
-      "code_actions_on_format": {
-        "source.fixAll.stylelint": true
-      }
-    },
-    "TSX": {
-      "format_on_save": "on",
-      "formatter": "auto",
-      "language_servers": ["tsgo", "vtsls"]
-    },
-    "TypeScript": {
-      "format_on_save": "on",
-      "formatter": "auto",
-      "language_servers": ["tsgo", "vtsls"],
-    },
-    "JavaScript": {
-      "format_on_save": "on",
-      "formatter": "auto"
-    },
-    "HTML": {
-      "format_on_save": "on",
-      "formatter": "language_server"
     }
   },
   "lsp": {
