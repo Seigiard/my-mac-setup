@@ -8,6 +8,7 @@ theme = xcodelighthc
 #theme = Pro Light
 #theme = Raycast_Light
 cursor-style = block
+adjust-cell-width = -3%
 adjust-cell-height = 10%
 
 shell-integration = zsh
