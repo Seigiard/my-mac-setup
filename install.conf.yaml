@@ -33,4 +33,3 @@
 - shell:
       - [git submodule update --init --recursive, Installing submodules]
       - [goku]
-      - [curl https://git.io/fisher --create-dirs -sLo ~/.config/fish/functions/fisher.fish]

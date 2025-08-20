@@ -82,10 +82,10 @@
           "type" : "basic"
         } ]
       }, {
-        "description" : "caps lock mode: replace arrows to jkil",
+        "description" : "caps lock mode: replace arrows to hjkl",
         "manipulators" : [ {
           "from" : {
-            "key_code" : "j",
+            "key_code" : "h",
             "modifiers" : {
               "optional" : [ "any" ]
             }
@@ -101,7 +101,7 @@
           "type" : "basic"
         }, {
           "from" : {
-            "key_code" : "k",
+            "key_code" : "j",
             "modifiers" : {
               "optional" : [ "any" ]
             }
@@ -117,7 +117,7 @@
           "type" : "basic"
         }, {
           "from" : {
-            "key_code" : "i",
+            "key_code" : "k",
             "modifiers" : {
               "optional" : [ "any" ]
             }
