@@ -28,7 +28,6 @@
       ~/.zshrc: .zshrc
       ~/.p10k.zsh: .p10k.zsh
       ~/.zprofile: .zprofile
-      ~/.aws: .aws
 
 - shell:
       - [git submodule update --init --recursive, Installing submodules]
