@@ -11,9 +11,9 @@
       - ~/.config
 
 - link:
-      ~/.config/fish: config/fish
+      # ~/.config/fish: config/fish
       ~/.config/ghostty: config/ghostty
-      ~/.config/kitty: config/kitty
+      # ~/.config/kitty: config/kitty
       ~/.config/karabiner.edn: karabiner.edn
       ~/.config/karabiner: config/karabiner
       ~/.config/zed/keymap.json: config/zed/keymap.json

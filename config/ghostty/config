@@ -1,4 +1,5 @@
-font-family = JetBrains Mono
+#font-family = JetBrains Mono
+font-family = Google Sans Code
 font-size = 16
 #theme = GruvboxDark
 #theme = GruvboxLight
