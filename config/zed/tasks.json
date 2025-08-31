@@ -1,0 +1,33 @@
+// Project tasks configuration. See https://zed.dev/docs/tasks for documentation.
+//
+// Example:
+[
+  {
+    "label": "Update Main Branch",
+    "command": "bash",
+    "args": [
+      "-c",
+      "current=$(git branch --show-current); if git show-ref --verify --quiet refs/heads/main; then git fetch origin main:main && echo \"✅ Updated main from $(git rev-parse --short HEAD~1 2>/dev/null || echo 'unknown') to $(git rev-parse --short main)\" && echo \"📍 Still on branch: $current\"; else echo \"❌ Local main branch does not exist\"; exit 1; fi"
+    ],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "never",
+    "hide": "always"
+  },
+  {
+    "label": "Lazygit",
+    "command": "lazygit",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "always"
+  },
+  {
+    "label": "Claude",
+    "command": "claude",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "always"
+  }
+]

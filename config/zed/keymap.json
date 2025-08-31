@@ -19,5 +19,12 @@
     "bindings": {
       "cmd-k": "assistant::InlineAssist"
     }
+  },
+  {
+    "context": "Editor && multibuffer",
+    "use_key_equivalents": true,
+    "bindings": {
+      "cmd-alt-o": "editor::OpenExcerpts"
+    }
   }
 ]
