@@ -5,17 +5,15 @@
 
 ## INSTALL ZSH
 brew install zsh
-## INSTALL ZIM
-curl -fsSL https://raw.githubusercontent.com/zimfw/install/master/install.zsh | zsh
 
 # brew install powerlevel10k
 brew install bat
+brew install delta
 brew install starship
 brew install zsh-autosuggestions
 brew install zsh-syntax-highlighting
 brew install zsh-history-substring-search
 brew install nvm
-brew install difftastic
 
 # Install Node using NVM
 nvm install node

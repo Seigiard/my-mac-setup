@@ -18,11 +18,6 @@ setopt extended_history  # record command start time
 
 autoload -U colors && colors
 
-# Completion
-zstyle :compinstall filename "$HOME/.zshrc"
-autoload -Uz compinit
-compinit
-
 # Autosuggestions
 source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 # Syntax highlighting
