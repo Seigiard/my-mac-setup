@@ -1,6 +1,5 @@
 #font-family = JetBrains Mono
-font-family = Google Sans Code
-#font-family = Rec Mono Duotone
+font-family = Rec Mono Duotone
 font-size = 16
 #theme = GruvboxDark
 #theme = GruvboxLight
@@ -11,7 +10,7 @@ theme = xcodelighthc
 #theme = Raycast_Light
 cursor-style = block
 adjust-cell-width = -3%
-adjust-cell-height = 5%
+adjust-cell-height = 10%
 
 shell-integration = zsh
 shell-integration-features = no-cursor,sudo,title
