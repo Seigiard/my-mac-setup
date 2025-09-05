@@ -47,7 +47,7 @@
   // Font style for the code editing area (Buffer)
   "buffer_font_size": 18.0,
   // "buffer_font_family": "Rec Mono Duotone",
-  "buffer_font_family": "Google Sans Code",
+  "buffer_font_family": "JetBrains Mono",
   "buffer_font_weight": 400,
   "toolbar": {
     "breadcrumbs": true,
