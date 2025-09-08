@@ -10,6 +10,7 @@ brew install zsh
 brew install bat
 brew install delta
 brew install starship
+brew install lazygit
 brew install zsh-autosuggestions
 brew install zsh-syntax-highlighting
 brew install zsh-history-substring-search
