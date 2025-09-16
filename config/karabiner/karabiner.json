@@ -258,6 +258,7 @@
                     },
                     {
                         "description": "Home row mods - shift, ctrl, opt, cmd",
+                        "enabled": false,
                         "manipulators": [
                             {
                                 "from": {
@@ -1038,6 +1039,7 @@
                     },
                     {
                         "description": "R_U = Meh ",
+                        "enabled": false,
                         "manipulators": [
                             {
                                 "from": { "key_code": "r" },
