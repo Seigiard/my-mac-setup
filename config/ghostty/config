@@ -1,13 +1,10 @@
 font-family = JetBrains Mono
 #font-family = Rec Mono Duotone
 font-size = 16
-#theme = GruvboxDark
-#theme = GruvboxLight
-#theme = Builtin Solarized Light
-#theme = ayu_light
-theme = Xcode Light hc
+#theme = Gruvbox Dark
+#theme = Xcode Light hc
 #theme = Pro Light
-#theme = Raycast_Light
+theme = Flexoki Light
 cursor-style = block
 adjust-cell-width = -3%
 adjust-cell-height = 10%
