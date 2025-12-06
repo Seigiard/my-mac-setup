@@ -8,6 +8,7 @@
       "cmd-2": "outline_panel::ToggleFocus",
       "cmd-3": "git_panel::ToggleFocus",
       "cmd-i": "workspace::ToggleRightDock",
+      "cmd-j": "workspace::ToggleBottomDock",
       "cmd-shift-i": ["agent::NewExternalAgentThread", { "agent": "claude_code" }],
       "cmd-f": "search::FocusSearch",
       "cmd-r": "search::ToggleReplace",

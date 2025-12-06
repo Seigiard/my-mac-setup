@@ -4,11 +4,8 @@
 [
   {
     "label": "Update Main Branch",
-    "command": "bash",
-    "args": [
-      "-c",
-      "current=$(git branch --show-current); git fetch origin main:main 2>/dev/null || git fetch origin main 2>/dev/null && if [ \"$current\" = \"main\" ]; then git pull origin main && echo \"✅ Updated main branch\"; else echo \"✅ Updated main from origin\" && echo \"📍 Still on branch: $current\"; fi"
-    ],
+    "command": "git",
+    "args": ["pullmain"],
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "never",

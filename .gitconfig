@@ -48,7 +48,20 @@
   history = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
   mom = merge origin/main
   mum = merge upstream/main
-  pullmain = "!f() { current=$(git branch --show-current); git fetch origin main:main 2>/dev/null || git fetch origin main 2>/dev/null && if [ \"$current\" = \"main\" ]; then git pull origin main &&     echo \"✅ Updated main branch\"; else     echo \"✅ Updated main from origin\" && echo \"📍 Still on branch: $current\"; fi\n}; f"
+  [alias]
+  pullmain = "!f() { \
+    current=$(git branch --show-current); \
+    if [ \"$current\" = \"main\" ]; then \
+      git pull origin main --quiet && echo \"✅ Updated main branch\"; \
+    else \
+      if git show-ref --verify --quiet refs/heads/main; then \
+        git fetch origin main:main --quiet 2>/dev/null && echo \"✅ Updated main from origin\"; \
+      else \
+        git fetch origin main --quiet 2>/dev/null && echo \"✅ Fetched main from origin (no local main branch)\"; \
+      fi; \
+      echo \"📍 Still on branch: $current\"; \
+    fi; \
+  }; f"
 [color]
   ui = true
 [color "branch"]

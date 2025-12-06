@@ -7,6 +7,31 @@
 // custom settings, run the `open default settings` command
 // from the command palette or from `Zed` application menu.
 {
+  "buffer_font_size": 18.0,
+  "title_bar": {
+    "show_menus": false,
+    "show_project_items": true,
+    "show_branch_icon": false
+  },
+  "debugger": {
+    "button": true
+  },
+  "search": {
+    "button": true
+  },
+  "diagnostics": {
+    "button": true
+  },
+  "status_bar": {
+    "cursor_position_button": false,
+    "active_language_button": true
+  },
+  "agent_buffer_font_size": 16.0,
+  "code_actions_on_format": {
+    "source.fixAll.eslint": true
+  },
+  // "theme": "Ayu Light",
+  // "theme": "Gruvbox Light Hard",
   "theme": "Flexoki Light",
   "outline_panel": {
     "default_width": 500
@@ -19,7 +44,6 @@
   },
   "context_servers": {
     "mcp-server-context7": {
-      "source": "extension",
       "enabled": true,
       "settings": {
         "default_minimum_tokens": "10000"
@@ -44,8 +68,6 @@
     // Which inline completion provider to use.
     "edit_prediction_provider": "zed"
   },
-  // "theme": "Ayu Light",
-  // "theme": "Gruvbox Light Hard",
   "terminal": {
     // Enable auto-copy to clipboard when text is selected in the terminal
     "dock": "bottom",
@@ -56,9 +78,8 @@
   "wrap_guides": [120],
   // Font style for the user interface (UI)
   "ui_font_size": 19,
-  "ui_font_family": "Zed Plex Sans",
+  "ui_font_family": ".ZedSans",
   // Font style for the code editing area (Buffer)
-  "buffer_font_size": 18.0,
   // "buffer_font_family": "Rec Mono Duotone",
   "buffer_font_family": "JetBrains Mono",
   "buffer_font_weight": 400,
@@ -83,11 +104,6 @@
   "base_keymap": "JetBrains",
   "when_closing_with_no_tabs": "keep_window_open",
   "format_on_save": "on",
-  "formatter": {
-    "code_actions": {
-      "source.fixAll.eslint": true
-    }
-  },
   "lsp": {
     "eslint": {
       "settings": {
