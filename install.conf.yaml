@@ -1,36 +1,36 @@
 - defaults:
-      link:
-          relink: true
-          force: true
+    link:
+      relink: true
+      force: true
 
 - clean: ~/
-      ~/Library/Application Support/org.yanex.marta/conf.marco
-      ~/Library/Application Support/org.yanex.marta/favorites.marco
+    ~/Library/Application Support/org.yanex.marta/conf.marco
+    ~/Library/Application Support/org.yanex.marta/favorites.marco
 
 - create:
-      - ~/.config
+    - ~/.config
 
 - link:
-      # ~/.config/fish: config/fish
-      ~/.config/ghostty: config/ghostty
-      # ~/.config/kitty: config/kitty
-      ~/.config/karabiner.edn: karabiner.edn
-      ~/.config/karabiner: config/karabiner
-      ~/.config/zed/keymap.json: config/zed/keymap.json
-      ~/.config/zed/settings.json: config/zed/settings.json
-      ~/.config/zed/tasks.json: config/zed/tasks.json
-      ~/.config/starship.toml: config/starship.toml
-      # ~/.hammerspoon: hammerspoon
-      ~/Library/Application Support/org.yanex.marta/conf.marco:
-          path: marta/conf.marco
-      ~/Library/Application Support/org.yanex.marta/favorites.marco:
-          path: marta/favorites.marco
-      ~/.gitconfig: .gitconfig
-      ~/.editorconfig: .editorconfig
-      ~/.zshrc: .zshrc
-      ~/.p10k.zsh: .p10k.zsh
-      ~/.zprofile: .zprofile
+    # ~/.config/fish: config/fish
+    ~/.config/ghostty: config/ghostty
+    # ~/.config/kitty: config/kitty
+    ~/.config/karabiner.edn: karabiner.edn
+    ~/.config/karabiner: config/karabiner
+    ~/.config/zed/keymap.json: config/zed/keymap.json
+    ~/.config/zed/settings.json: config/zed/settings.json
+    ~/.config/zed/tasks.json: config/zed/tasks.json
+    ~/.config/starship.toml: config/starship.toml
+    ~/.hammerspoon: hammerspoon
+    ~/Library/Application Support/org.yanex.marta/conf.marco:
+      path: marta/conf.marco
+    ~/Library/Application Support/org.yanex.marta/favorites.marco:
+      path: marta/favorites.marco
+    ~/.gitconfig: .gitconfig
+    ~/.editorconfig: .editorconfig
+    ~/.zshrc: .zshrc
+    ~/.p10k.zsh: .p10k.zsh
+    ~/.zprofile: .zprofile
 
 - shell:
-      - [git submodule update --init --recursive, Installing submodules]
-      - [goku]
+    - [git submodule update --init --recursive, Installing submodules]
+    - [goku]

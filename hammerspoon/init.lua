@@ -1,11 +1,13 @@
-require "./cmd-layout"
+# require "./cmd-layout"
+local wm = require("wm-setup")
 
 -----------------------------------------------
--- Reload config on write
+-- Hotkeys
 -----------------------------------------------
-local function reload_config()
-  hs.reload()
-end
+hs.alert.show("Hammerspoon config loaded")
+hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "r", hs.reload)
 
-hs.pathwatcher.new(os.getenv("HOME") .. "/.hammerspoon/", reload_config):start()
-hs.alert.show("Hammerspoon config (re)loaded")
+hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "left", wm.cycleLeft)
+hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "right", wm.cycleLeft)
+hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "up", wm.cycleRight)
+hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "down", wm.cycleRight)
