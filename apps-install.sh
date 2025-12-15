@@ -5,6 +5,7 @@
 
 ## INSTALL ZSH
 brew install zsh
+brew tap lazywalker/rgrc
 
 # brew install powerlevel10k
 brew install bat
@@ -15,6 +16,7 @@ brew install zsh-autosuggestions
 brew install zsh-syntax-highlighting
 brew install zsh-history-substring-search
 brew install nvm
+brew install rgrc
 
 # Install Node using NVM
 nvm install node

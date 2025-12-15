@@ -28,5 +28,11 @@
     "bindings": {
       "cmd-alt-o": "editor::OpenExcerpts"
     }
+  },
+  {
+    "context": "InlineAssistEditor",
+    "bindings": {
+      "cmd-k": "editor::Cancel"
+    }
   }
 ]
