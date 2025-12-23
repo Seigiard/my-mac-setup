@@ -51,9 +51,13 @@
     }
   },
   "agent": {
+    "inline_assistant_model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-latest"
+    },
     "use_modifier_to_send": false,
     "default_width": 600,
-    "default_profile": "write",
+    "default_profile": "ask",
     "always_allow_tool_actions": true,
     "default_model": {
       "provider": "zed.dev",
