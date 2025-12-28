@@ -13,6 +13,7 @@
 - link:
     # ~/.config/fish: config/fish
     ~/.config/ghostty: config/ghostty
+    ~/.config/zellij: config/zellij
     # ~/.config/kitty: config/kitty
     ~/.config/karabiner.edn: karabiner.edn
     ~/.config/karabiner: config/karabiner
@@ -28,7 +29,6 @@
     ~/.gitconfig: .gitconfig
     ~/.editorconfig: .editorconfig
     ~/.zshrc: .zshrc
-    ~/.p10k.zsh: .p10k.zsh
     ~/.zprofile: .zprofile
 
 - shell:

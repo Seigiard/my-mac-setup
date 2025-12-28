@@ -1,0 +1,5 @@
+default_shell "zsh"
+default_mode "locked"
+mouse_mode true
+copy_on_select true
+theme "gruvbox-light"
