@@ -45,25 +45,28 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$(brew --prefix)/opt/nvm/nvm.sh" ] && \. "$(brew --prefix)/opt/nvm/nvm.sh" # This loads nvm
 [ -s "$(brew --prefix)/opt/nvm/etc/bash_completion.d/nvm" ] && \. "$(brew --prefix)/opt/nvm/etc/bash_completion.d/nvm" # This loads nvm bash_completion
 
-eval "$(rgrc --aliases)"
 
-# show all the history stored.
-alias history="fc -l 1"
+# -------------------------------------------
+# Aliases
+# -------------------------------------------
 
-# Color output
-alias g='git'
-alias ..='cd ..'
+# rgrc colorizer (auto-colorize common commands)
+command -v rgrc &>/dev/null && eval "$(rgrc --aliases)"
 
-if command -v bat > /dev/null 2>&1; then
-  alias cat='bat'
-fi
-
-alias l="ls -A --color=auto"
-alias ls="ls -A --color=auto"
-alias ll="ls -alF --color=auto"
+# Load custom aliases
+[[ -f ~/.aliases ]] && source ~/.aliases
 
 if [ -f /Users/seigiard/.docker/init-zsh.sh ]; then
 
 source /Users/seigiard/.docker/init-zsh.sh || true # Added by Docker Desktop
 
 fi;
+
+# -------------------------------------------
+# Zellij auto-start
+# -------------------------------------------
+
+# Auto-start zellij
+# if [[ -z "$ZELLIJ" ]]; then
+#     eval "$(zellij setup --generate-auto-start zsh)"
+# fi

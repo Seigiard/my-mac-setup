@@ -28,6 +28,7 @@
       path: marta/favorites.marco
     ~/.gitconfig: .gitconfig
     ~/.editorconfig: .editorconfig
+    ~/.aliases: .aliases
     ~/.zshrc: .zshrc
     ~/.zprofile: .zprofile
 
