@@ -7,16 +7,25 @@
 brew install zsh
 brew tap lazywalker/rgrc
 
-# brew install powerlevel10k
+## INSTALL OH-MY-ZSH
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+## INSTALL OH-MY-ZSH CUSTOM PLUGINS
+git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
+
 brew install bat
 brew install delta
 brew install starship
 brew install lazygit
-brew install zsh-autosuggestions
-brew install zsh-syntax-highlighting
-brew install zsh-history-substring-search
 brew install nvm
 brew install rgrc
+
+# AI Assistant tools
+brew install rq
+brew install ripgrep
+brew install ast-grep
 
 # Install Node using NVM
 nvm install node

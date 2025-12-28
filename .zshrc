@@ -1,32 +1,35 @@
 [[ ! -f /usr/local/bin/brew ]] || eval "$(/usr/local/bin/brew shellenv)"
 [[ ! -f /opt/homebrew/bin/brew ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
 
+# Oh My Zsh configuration
+export ZSH="$HOME/.oh-my-zsh"
 ZSH_DISABLE_COMPFIX="true"
 
 # History
 HISTSIZE=10000
 SAVEHIST=10000
-# Store history in ~/.zsh_history
 HISTFILE=~/.zsh_history
-# Share history in every terminal session
 setopt share_history
 setopt appendhistory
 setopt inc_append_history
-setopt hist_ignore_all_dups  # do not put duplicated command into history list
-setopt hist_save_no_dups  # do not save duplicated command
-setopt hist_reduce_blanks  # remove unnecessary blanks
-setopt inc_append_history_time  # append command to history file immediately after execution
-setopt extended_history  # record command start time
+setopt hist_ignore_all_dups
+setopt hist_save_no_dups
+setopt hist_reduce_blanks
+setopt inc_append_history_time
+setopt extended_history
 
-autoload -U colors && colors
+# Oh My Zsh plugins
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-history-substring-search
+)
 
-# Autosuggestions
-source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-# Syntax highlighting
-source $(brew --prefix)/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-# Search in the history
-source $(brew --prefix)/share/zsh-history-substring-search/zsh-history-substring-search.zsh
-# Map ↑↓ navigation
+source $ZSH/oh-my-zsh.sh
+ZSH_THEME=""
+
+# Map ↑↓ navigation for history substring search
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
@@ -37,7 +40,6 @@ export PATH="$HOME/.local/bin/:$PATH"
 if command -v starship > /dev/null 2>&1; then
   eval "$(starship init zsh)"
 fi
-
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$(brew --prefix)/opt/nvm/nvm.sh" ] && \. "$(brew --prefix)/opt/nvm/nvm.sh" # This loads nvm
