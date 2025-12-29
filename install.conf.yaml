@@ -23,7 +23,7 @@
     ~/.config/zed/settings.json: dot_config/zed/settings.json
     ~/.config/zed/tasks.json: dot_config/zed/tasks.json
     ~/.config/starship.toml: dot_config/starship.toml
-    ~/.hammerspoon: dot_hammerspoon
+    # ~/.hammerspoon: dot_hammerspoon
     ~/.gitconfig: .gitconfig
     ~/.editorconfig: .editorconfig
     ~/.aliases: .aliases

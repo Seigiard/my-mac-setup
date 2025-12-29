@@ -51,7 +51,9 @@ export NVM_DIR="$HOME/.nvm"
 # -------------------------------------------
 
 # rgrc colorizer (auto-colorize common commands)
-command -v rgrc &>/dev/null && eval "$(rgrc --aliases)"
+if command -v rgrc > /dev/null 2>&1; then
+  eval "$(rgrc --aliases)"
+fi
 
 # Load custom aliases
 [[ -f ~/.aliases ]] && source ~/.aliases
@@ -59,6 +61,14 @@ command -v rgrc &>/dev/null && eval "$(rgrc --aliases)"
 if [ -f /Users/seigiard/.docker/init-zsh.sh ]; then
 
 source /Users/seigiard/.docker/init-zsh.sh || true # Added by Docker Desktop
+
+fi;
+
+if [ -f ~/.orbstack/shell/init.zsh ]; then
+
+# Added by OrbStack: command-line tools and integration
+# This won't be added again if you remove it.
+source ~/.orbstack/shell/init.zsh 2>/dev/null || :
 
 fi;
 
@@ -71,4 +81,6 @@ fi;
 #     eval "$(zellij setup --generate-auto-start zsh)"
 # fi
 
-eval "$(zoxide init zsh)"
+if command -v zoxide > /dev/null 2>&1; then
+  eval "$(zoxide init zsh)"
+fi
