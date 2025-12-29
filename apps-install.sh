@@ -34,7 +34,6 @@ brew install ffmpeg
 brew install sevenzip
 brew install jq
 brew install eza
-brew install glow
 brew install poppler
 brew install fd
 brew install ripgrep
