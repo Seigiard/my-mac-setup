@@ -21,11 +21,28 @@ brew install starship
 brew install lazygit
 brew install nvm
 brew install rgrc
+brew install ouch
 
 # AI Assistant tools
 brew install rq
 brew install ripgrep
 brew install ast-grep
+
+# YAZI
+brew install yazi
+brew install ffmpeg
+brew install sevenzip
+brew install jq
+brew install eza
+brew install glow
+brew install poppler
+brew install fd
+brew install ripgrep
+brew install fzf
+brew install zoxide
+brew install resvg
+brew install imagemagick
+brew install font-symbols-only-nerd-font
 
 # Install Node using NVM
 nvm install node
@@ -64,3 +81,7 @@ brew install --cask obsidian
 brew install --cask brave-browser # Brave Browser
 brew install --cask floorp
 brew install --cask telegram
+
+# YAZI
+ya pkg add yazi-rs/plugins:piper
+ya pkg add ndtoan96/ouch

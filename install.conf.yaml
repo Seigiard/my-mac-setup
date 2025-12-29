@@ -14,6 +14,7 @@
     # ~/.config/fish: config/fish
     ~/.config/ghostty: config/ghostty
     ~/.config/zellij: config/zellij
+    ~/.config/yazi: config/yazi
     # ~/.config/kitty: config/kitty
     ~/.config/karabiner.edn: karabiner.edn
     ~/.config/karabiner: config/karabiner

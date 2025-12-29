@@ -70,3 +70,5 @@ fi;
 # if [[ -z "$ZELLIJ" ]]; then
 #     eval "$(zellij setup --generate-auto-start zsh)"
 # fi
+
+eval "$(zoxide init zsh)"
