@@ -1,6 +1,11 @@
 [[ ! -f /usr/local/bin/brew ]] || eval "$(/usr/local/bin/brew shellenv)"
 [[ ! -f /opt/homebrew/bin/brew ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
 
+# Helpers
+has() { command -v "$1" > /dev/null 2>&1; }
+try_source() { [[ -s "$1" ]] && source "$1"; }
+BREW_PREFIX="$(brew --prefix 2>/dev/null)"
+
 # Oh My Zsh configuration
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_DISABLE_COMPFIX="true"
@@ -27,7 +32,10 @@ plugins=(
 )
 
 source $ZSH/oh-my-zsh.sh
-ZSH_THEME=""
+ZSH_THEME="" # use starship instead
+
+# Prompt
+has starship && eval "$(starship init zsh)"
 
 # Map ↑↓ navigation for history substring search
 bindkey '^[[A' history-substring-search-up
@@ -36,27 +44,22 @@ bindkey '^[[B' history-substring-search-down
 # Local binaries
 export PATH="$HOME/.local/bin/:$PATH"
 
-# Prompt
-if command -v starship > /dev/null 2>&1; then
-  eval "$(starship init zsh)"
-fi
-
+# NVM
 export NVM_DIR="$HOME/.nvm"
-[ -s "$(brew --prefix)/opt/nvm/nvm.sh" ] && \. "$(brew --prefix)/opt/nvm/nvm.sh" # This loads nvm
-[ -s "$(brew --prefix)/opt/nvm/etc/bash_completion.d/nvm" ] && \. "$(brew --prefix)/opt/nvm/etc/bash_completion.d/nvm" # This loads nvm bash_completion
-
+try_source "$BREW_PREFIX/opt/nvm/nvm.sh"
+try_source "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm"
 
 # -------------------------------------------
 # Aliases
 # -------------------------------------------
 
-# rgrc colorizer (auto-colorize common commands)
-if command -v rgrc > /dev/null 2>&1; then
-  eval "$(rgrc --aliases)"
-fi
+has rgrc && eval "$(rgrc --aliases)" # colorize common commands
+has zoxide && eval "$(zoxide init zsh)" # fuzzy cd
+try_source ~/.aliases
 
-# Load custom aliases
-[[ -f ~/.aliases ]] && source ~/.aliases
+# -------------------------------------------
+# Docker and OrbStack
+# -------------------------------------------
 
 if [ -f /Users/seigiard/.docker/init-zsh.sh ]; then
 
@@ -73,14 +76,6 @@ source ~/.orbstack/shell/init.zsh 2>/dev/null || :
 fi;
 
 # -------------------------------------------
-# Zellij auto-start
+# Zellij autostart
 # -------------------------------------------
-
-# Auto-start zellij
-# if [[ -z "$ZELLIJ" ]]; then
-#     eval "$(zellij setup --generate-auto-start zsh)"
-# fi
-
-if command -v zoxide > /dev/null 2>&1; then
-  eval "$(zoxide init zsh)"
-fi
+# has zellij && eval "$(zellij setup --generate-auto-start zsh)"
