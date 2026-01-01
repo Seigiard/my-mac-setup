@@ -14,7 +14,6 @@
     # Dot files
     # ~/.config/fish: dot_config/fish
     ~/.config/ghostty: dot_config/ghostty
-    ~/.config/zellij: dot_config/zellij
     ~/.config/yazi: dot_config/yazi
     # ~/.config/kitty: dot_config/kitty
     ~/.config/karabiner.edn: dot_config/karabiner.edn

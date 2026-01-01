@@ -75,7 +75,3 @@ source ~/.orbstack/shell/init.zsh 2>/dev/null || :
 
 fi;
 
-# -------------------------------------------
-# Zellij autostart
-# -------------------------------------------
-# has zellij && eval "$(zellij setup --generate-auto-start zsh)"
