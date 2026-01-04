@@ -1,17 +1,25 @@
 ## Tools
 
-Use `rq`, `ripgrep` and `ast-grep` when you need it.
-Use `grep` MCP server that searches public GitHub repositories. Through the Grep MCP server, AI agents can issue search queries and retrieve code snippets that match specific patterns or regular expressions, filtered by language, repository, and file path
-Use `context7` for code generation and library documentation.
+### CLI tools (via Bash)
+- **AST search/refactoring**: `ast-grep` — for structural search (classes, functions, patterns)
+- **JSON/YAML processing**: `rq` — prefer over jq for complex transformations
+- **Code search**: `rg` with flags (`-t`, `-g`, `--json`) — when specific output format needed
 
-ALWAYS when you done run the command `osascript -e 'display notification "$RELEVANT_MESSAGE" with title "$TITLE_DO_IDENTIFY_PROJECT"'`
+### MCP servers
+- `grep` — search public GitHub repositories
+- `context7` — library documentation and code generation
+
+### Notifications
+After completing a task:
+```bash
+osascript -e 'display notification "MESSAGE" with title "PROJECT"'
+```
 
 ## Code Comments
 
 Keep comments minimal and meaningful. Only add comments that provide value.
 
 **DO NOT add:**
-
 
 - Comments that simply describe what the next line does (e.g., `// Check if user exists`)
 - Comments that restate the code in plain English
