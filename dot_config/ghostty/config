@@ -37,6 +37,8 @@ copy-on-select = clipboard
 font-feature = -calt
 font-feature = -liga
 font-feature = -dlig
-keybind = shift+enter=text:\n
 
 term = xterm-256color
+
+# KEYBINDINGS
+keybind = shift+enter=text:\n

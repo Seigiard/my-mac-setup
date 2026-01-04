@@ -11,49 +11,49 @@
   "title_bar": {
     "show_menus": false,
     "show_project_items": true,
-    "show_branch_icon": false
+    "show_branch_icon": false,
   },
   "debugger": {
-    "button": true
+    "button": true,
   },
   "search": {
-    "button": true
+    "button": true,
   },
   "diagnostics": {
-    "button": true
+    "button": true,
   },
   "status_bar": {
     "cursor_position_button": false,
-    "active_language_button": true
+    "active_language_button": true,
   },
   "agent_buffer_font_size": 16.0,
   "code_actions_on_format": {
-    "source.fixAll.eslint": true
+    "source.fixAll.eslint": true,
   },
   // "theme": "Ayu Light",
   // "theme": "Gruvbox Light Hard",
   "theme": "Flexoki Light",
   "outline_panel": {
-    "default_width": 500
+    "default_width": 500,
   },
   "git_panel": {
-    "default_width": 500
+    "default_width": 500,
   },
   "project_panel": {
-    "default_width": 500
+    "default_width": 500,
   },
   "context_servers": {
     "mcp-server-context7": {
       "enabled": true,
       "settings": {
-        "default_minimum_tokens": "10000"
-      }
-    }
+        "default_minimum_tokens": "10000",
+      },
+    },
   },
   "agent": {
     "inline_assistant_model": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-5-latest"
+      "model": "claude-sonnet-4-5-latest",
     },
     "use_modifier_to_send": false,
     "default_width": 600,
@@ -61,21 +61,20 @@
     "always_allow_tool_actions": true,
     "default_model": {
       "provider": "zed.dev",
-      "model": "claude-sonnet-4"
-    }
+      "model": "claude-sonnet-4",
+    },
   },
   "edit_predictions": {
     "mode": "subtle",
-    "enabled_in_text_threads": false
+    "enabled_in_text_threads": false,
   },
   "features": {
     // Which inline completion provider to use.
-    "edit_prediction_provider": "zed"
+    "edit_prediction_provider": "zed",
   },
   "terminal": {
-    // Enable auto-copy to clipboard when text is selected in the terminal
     "dock": "bottom",
-    "copy_on_select": true
+    "copy_on_select": true,
   },
   "soft_wrap": "preferred_line_length",
   "preferred_line_length": 120,
@@ -89,21 +88,19 @@
   "buffer_font_weight": 400,
   "toolbar": {
     "breadcrumbs": true,
-    "quick_actions": false
+    "quick_actions": false,
   },
-  // Hide navigation history buttons in the tab bar
   "tab_bar": {
-    "show_nav_history_buttons": false
+    "show_nav_history_buttons": false,
   },
-  // File icons and Git status in tabs
   "tabs": {
     "file_icons": true,
-    "git_status": true
+    "git_status": true,
   },
   "tab_size": 2,
   "journal": {
     "path": "~/Dropbox/Knowledge Base",
-    "hour_format": "hour24"
+    "hour_format": "hour24",
   },
   "base_keymap": "JetBrains",
   "when_closing_with_no_tabs": "keep_window_open",
@@ -112,27 +109,22 @@
     "eslint": {
       "settings": {
         "problems": {
-          "shortenToSingleLine": true
-        }
-      }
-    }
+          "shortenToSingleLine": true,
+        },
+      },
+    },
   },
   "telemetry": {
     "diagnostics": false,
-    "metrics": false
+    "metrics": false,
   },
   "collaboration_panel": {
     // Whether to show the collaboration panel button in the status bar.
     "button": false,
-    "dock": "left"
-  },
-  "chat_panel": {
-    // Whether to show the collaboration panel button in the status bar.
-    "button": "never",
-    "dock": "left"
+    "dock": "left",
   },
   "notification_panel": {
     "button": false,
-    "dock": "left"
-  }
+    "dock": "left",
+  },
 }

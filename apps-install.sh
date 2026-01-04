@@ -24,7 +24,6 @@ brew install starship # cross-shell customizable prompt
 brew install lazygit # terminal UI for git commands
 brew install nvm # Node.js version manager
 brew install rgrc # colorizes terminal output (grc alternative in Rust)
-brew install ouch # painless compression/decompression tool
 
 # AI Assistant tools
 brew install rq # record query - jq for binary formats (protobuf, avro, etc.)
@@ -33,6 +32,7 @@ brew install ast-grep # structural code search/replace using AST patterns
 
 # YAZI file manager and its dependencies
 brew install yazi # blazing fast terminal file manager
+brew install ouch # painless compression/decompression tool
 brew install ffmpeg # video/audio processing toolkit (for yazi previews)
 brew install sevenzip # 7z archive support (for yazi)
 brew install jq # JSON processor (for yazi)
