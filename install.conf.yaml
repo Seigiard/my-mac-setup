@@ -12,7 +12,6 @@
 
 - link:
     # Dot files
-    # ~/.config/fish: dot_config/fish
     ~/.config/ghostty: dot_config/ghostty
     ~/.config/yazi: dot_config/yazi
     # ~/.config/kitty: dot_config/kitty
@@ -22,7 +21,9 @@
     ~/.config/zed/settings.json: dot_config/zed/settings.json
     ~/.config/zed/tasks.json: dot_config/zed/tasks.json
     ~/.config/starship.toml: dot_config/starship.toml
+    ~/.claude/CLAUDE.md: dot_claude/CLAUDE.md
     ~/.claude/commands: dot_claude/commands
+    ~/.claude/agents: dot_claude/agents
     # ~/.hammerspoon: dot_hammerspoon
     ~/.gitconfig: .gitconfig
     ~/.editorconfig: .editorconfig
