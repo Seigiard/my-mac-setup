@@ -22,7 +22,7 @@ brew install bat # cat clone with syntax highlighting and git integration
 brew install delta # syntax-highlighting pager for git diffs
 brew install starship # cross-shell customizable prompt
 brew install lazygit # terminal UI for git commands
-brew install nvm # Node.js version manager
+brew install mise # polyglot version manager (replaces nvm, faster)
 brew install rgrc # colorizes terminal output (grc alternative in Rust)
 
 # AI Assistant tools
@@ -41,6 +41,12 @@ brew install poppler # PDF rendering library (for yazi PDF previews)
 brew install fd # fast find alternative (for yazi)
 brew install fzf # fuzzy finder (for yazi)
 brew install zoxide # smarter cd command that learns your habits
+
+# System monitoring & disk utilities (cross-platform)
+brew install btop   # htop replacement with graphs
+brew install procs  # ps replacement with tree view
+brew install dust   # du replacement with visual tree
+brew install duf    # df replacement with nice table
 brew install resvg # SVG rendering (for yazi SVG previews)
 brew install imagemagick # image manipulation tools (for yazi image previews)
 brew install font-symbols-only-nerd-font # icons for terminal apps
@@ -79,8 +85,8 @@ brew install --cask brave-browser # Brave Browser
 brew install --cask floorp # Firefox-based privacy browser
 brew install --cask telegram # secure messaging app
 
-# Install Node using NVM
-nvm install node
+# Install Node using mise
+mise use --global node@lts
 
 # YAZI
 ya pkg add yazi-rs/plugins:piper

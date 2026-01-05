@@ -20,19 +20,10 @@
   algorithm = histogram
   colorMoved = true
   indentHeuristic = true
-[difftool "webstorm"]
-  cmd = /Applications/WebStorm.app/Contents/MacOS/webstorm diff "$LOCAL" "$REMOTE"
-  trustExitCode = true
-[difftool "zed"]
-	cmd = zed --wait --diff $LOCAL $REMOTE
-	trustExitCode = true
 [difftool]
   prompt = false
 [merge]
   conflictStyle = zdiff3
-[mergetool "webstorm"]
-  cmd = /Applications/WebStorm.app/Contents/MacOS/webstorm merge "$LOCAL" "$REMOTE" "$BASE" "$MERGED"
-  trustExitCode = true
 [mergetool]
   prompt = false
 [pager]
@@ -48,7 +39,6 @@
   history = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
   mom = merge origin/main
   mum = merge upstream/main
-  [alias]
   pullmain = "!f() { \
     current=$(git branch --show-current); \
     if [ \"$current\" = \"main\" ]; then \
@@ -84,3 +74,10 @@
   smudge = git-lfs smudge -- %f
   process = git-lfs filter-process
   required = true
+
+# OS-specific includes
+[includeIf "gitdir:/Users/"]
+  path = ~/.gitconfig-macos
+
+[includeIf "gitdir:/home/"]
+  path = ~/.gitconfig-linux

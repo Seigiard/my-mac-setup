@@ -16,7 +16,7 @@ description: Create a git commit with smart combining logic
 - Current branch: !`git branch --show-current`
 - Recent commits: !`git log --oneline -10`
 - Last commit details: !`git show --stat HEAD`
-- Check if last commit is pushed: !`git log @{u}..HEAD --oneline` (if empty, last commit is pushed)
+- Check if last commit is pushed: !`git log @{u}..HEAD --oneline 2>/dev/null || git log -1 --oneline` (if empty, last commit is pushed)
 
 ## Your task
 

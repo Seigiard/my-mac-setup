@@ -1,0 +1,2 @@
+# Linux-specific git configuration
+# Uses delta for all diffs (no IDE difftools)

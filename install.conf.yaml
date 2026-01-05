@@ -26,6 +26,8 @@
     ~/.claude/agents: dot_claude/agents
     # ~/.hammerspoon: dot_hammerspoon
     ~/.gitconfig: .gitconfig
+    ~/.gitconfig-macos: .gitconfig-macos
+    ~/.gitconfig-linux: .gitconfig-linux
     ~/.editorconfig: .editorconfig
     ~/.aliases: .aliases
     ~/.zshrc: .zshrc

@@ -1,16 +1,44 @@
-[[ ! -f /usr/local/bin/brew ]] || eval "$(/usr/local/bin/brew shellenv)"
-[[ ! -f /opt/homebrew/bin/brew ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
+# ===========================================
+# Zsh Configuration (macOS + Linux compatible)
+# ===========================================
 
 # Helpers
 has() { command -v "$1" > /dev/null 2>&1; }
 try_source() { [[ -s "$1" ]] && source "$1"; }
-BREW_PREFIX="$(brew --prefix 2>/dev/null)"
 
-# Oh My Zsh configuration
+# -------------------------------------------
+# Homebrew (hardcoded for speed)
+# -------------------------------------------
+
+if [[ -f /opt/homebrew/bin/brew ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+  BREW_PREFIX="/opt/homebrew"
+elif [[ -f /usr/local/bin/brew ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+  BREW_PREFIX="/usr/local"
+fi
+
+# -------------------------------------------
+# Oh My Zsh
+# -------------------------------------------
+
 export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME=""
 ZSH_DISABLE_COMPFIX="true"
 
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-history-substring-search
+)
+
+source $ZSH/oh-my-zsh.sh
+
+# -------------------------------------------
 # History
+# -------------------------------------------
+
 HISTSIZE=10000
 SAVEHIST=10000
 HISTFILE=~/.zsh_history
@@ -23,55 +51,46 @@ setopt hist_reduce_blanks
 setopt inc_append_history_time
 setopt extended_history
 
-# Oh My Zsh plugins
-plugins=(
-  git
-  zsh-autosuggestions
-  zsh-syntax-highlighting
-  zsh-history-substring-search
-)
+# -------------------------------------------
+# Key bindings (↑/↓ history substring search)
+# -------------------------------------------
 
-source $ZSH/oh-my-zsh.sh
-ZSH_THEME="" # use starship instead
-
-# Prompt
-has starship && eval "$(starship init zsh)"
-
-# Map ↑↓ navigation for history substring search
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
-# Local binaries
-export PATH="$HOME/.local/bin/:$PATH"
-
-# NVM
-export NVM_DIR="$HOME/.nvm"
-try_source "$BREW_PREFIX/opt/nvm/nvm.sh"
-try_source "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm"
-
 # -------------------------------------------
-# Aliases
+# Path
 # -------------------------------------------
 
-has rgrc && eval "$(rgrc --aliases)" # colorize common commands
-has zoxide && eval "$(zoxide init zsh)" # fuzzy cd
+export PATH="$HOME/.local/bin:$PATH"
+
+# -------------------------------------------
+# mise - polyglot version manager
+# -------------------------------------------
+
+has mise && eval "$(mise activate zsh)"
+
+# -------------------------------------------
+# fzf configuration (use fd for speed)
+# -------------------------------------------
+
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
+export FZF_CTRL_T_OPTS="--preview 'bat -n --color=always --line-range :500 {}'"
+
+# -------------------------------------------
+# Tools initialization
+# -------------------------------------------
+
+has rgrc && eval "$(rgrc --aliases)"
+has zoxide && eval "$(zoxide init zsh --cmd cd)"
+has starship && eval "$(starship init zsh)"
 try_source ~/.aliases
 
 # -------------------------------------------
 # Docker and OrbStack
 # -------------------------------------------
 
-if [ -f /Users/seigiard/.docker/init-zsh.sh ]; then
-
-source /Users/seigiard/.docker/init-zsh.sh || true # Added by Docker Desktop
-
-fi;
-
-if [ -f ~/.orbstack/shell/init.zsh ]; then
-
-# Added by OrbStack: command-line tools and integration
-# This won't be added again if you remove it.
-source ~/.orbstack/shell/init.zsh 2>/dev/null || :
-
-fi;
-
+try_source ~/.docker/init-zsh.sh
+try_source ~/.orbstack/shell/init.zsh
