@@ -8,31 +8,31 @@
       "cmd-2": "outline_panel::ToggleFocus",
       "cmd-3": "git_panel::ToggleFocus",
       "cmd-i": "workspace::ToggleRightDock",
-      "cmd-j": "workspace::ToggleBottomDock",
+      "cmd-j": "terminal_panel::Toggle",
       "cmd-shift-i": ["agent::NewExternalAgentThread", { "agent": "claude_code" }],
       "cmd-f": "search::FocusSearch",
       "cmd-r": "search::ToggleReplace",
-      "cmd-alt-1": "pane::RevealInProjectPanel"
-    }
+      "cmd-alt-1": "pane::RevealInProjectPanel",
+    },
   },
   {
     "context": "Editor && mode == full",
     "use_key_equivalents": true,
     "bindings": {
-      "cmd-k": "assistant::InlineAssist"
-    }
+      "cmd-k": "assistant::InlineAssist",
+    },
   },
   {
     "context": "Editor && multibuffer",
     "use_key_equivalents": true,
     "bindings": {
-      "cmd-alt-o": "editor::OpenExcerpts"
-    }
+      "cmd-alt-o": "editor::OpenExcerpts",
+    },
   },
   {
     "context": "InlineAssistEditor",
     "bindings": {
-      "cmd-k": "editor::Cancel"
-    }
-  }
+      "cmd-k": "editor::Cancel",
+    },
+  },
 ]

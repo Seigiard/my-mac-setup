@@ -73,7 +73,7 @@
     "edit_prediction_provider": "zed",
   },
   "terminal": {
-    "dock": "bottom",
+    "dock": "right",
     "copy_on_select": true,
   },
   "soft_wrap": "preferred_line_length",

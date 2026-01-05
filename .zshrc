@@ -94,3 +94,5 @@ try_source ~/.aliases
 
 try_source ~/.docker/init-zsh.sh
 try_source ~/.orbstack/shell/init.zsh
+
+export EDITOR="zed"
