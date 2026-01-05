@@ -6,8 +6,21 @@
 - **Code search**: `rg` with flags (`-t`, `-g`, `--json`) — when specific output format needed
 
 ### MCP servers
-- `grep` — search public GitHub repositories
-- `context7` — library documentation and code generation
+
+**context7** — library documentation and code examples
+- When: need official docs for a library/framework (React, Next.js, Prisma, etc.)
+- Use for: API references, usage patterns, configuration options
+- Flow: `resolve-library-id` → `query-docs`
+
+**deepwiki** — GitHub repository analysis
+- When: need to understand a specific open-source project's architecture
+- Use for: how a repo works internally, design decisions, codebase structure
+- Best for: "How does X implement Y?" questions about specific repos
+
+**grep** — search public GitHub repositories
+- When: need real-world code examples and usage patterns
+- Use for: how developers actually use an API in production code
+- Best for: finding implementation patterns across many projects
 
 ### Notifications
 After completing a task:
