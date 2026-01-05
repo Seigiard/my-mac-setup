@@ -84,7 +84,7 @@ export FZF_CTRL_T_OPTS="--preview 'bat -n --color=always --line-range :500 {}'"
 # -------------------------------------------
 
 has rgrc && eval "$(rgrc --aliases)"
-has zoxide && eval "$(zoxide init zsh --cmd cd)"
+[[ -z "$CLAUDECODE" ]] && has zoxide && eval "$(zoxide init zsh --cmd cd)"
 has starship && eval "$(starship init zsh)"
 try_source ~/.aliases
 

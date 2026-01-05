@@ -95,11 +95,14 @@ alias m='mc'
 
 # -------------------------------------------
 # Safety
+# (skip in Claude Code - breaks non-interactive shell)
 # -------------------------------------------
 
-alias rm='rm -i'
-alias cp='cp -i'
-alias mv='mv -i'
+if [[ -z "$CLAUDECODE" ]]; then
+  alias rm='rm -i'
+  alias cp='cp -i'
+  alias mv='mv -i'
+fi
 
 # -------------------------------------------
 # Homelab specific
