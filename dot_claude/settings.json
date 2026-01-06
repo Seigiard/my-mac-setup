@@ -43,6 +43,9 @@
     "lastShownTime": 1754040532937
   },
   "permissions": {
-    "defaultMode": "plan"
+    "defaultMode": "plan",
+    "allow": ["Bash(npm run test:*)", "Bash(git diff:*)"],
+    "ask": ["Bash(git push:*)"],
+    "deny": ["Bash(rm -rf:*)"]
   }
 }
