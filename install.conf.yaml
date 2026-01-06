@@ -17,13 +17,15 @@
     # ~/.config/kitty: dot_config/kitty
     ~/.config/karabiner.edn: dot_config/karabiner.edn
     ~/.config/karabiner: dot_config/karabiner
+    ~/.config/starship.toml: dot_config/starship.toml
     ~/.config/zed/keymap.json: dot_config/zed/keymap.json
     ~/.config/zed/settings.json: dot_config/zed/settings.json
     ~/.config/zed/tasks.json: dot_config/zed/tasks.json
-    ~/.config/starship.toml: dot_config/starship.toml
-    ~/.claude/CLAUDE.md: dot_claude/CLAUDE.md
-    ~/.claude/commands: dot_claude/commands
+    # Claude
     ~/.claude/agents: dot_claude/agents
+    ~/.claude/commands: dot_claude/commands
+    ~/.claude/CLAUDE.md: dot_claude/CLAUDE.md
+    ~/.claude/settings.json: dot_claude/settings.json
     # ~/.hammerspoon: dot_hammerspoon
     ~/.gitconfig: .gitconfig
     ~/.gitconfig-macos: .gitconfig-macos
