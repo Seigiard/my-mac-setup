@@ -1,5 +1,11 @@
 {
   "cleanupPeriodDays": 365,
+  "permissions": {
+    "allow": ["Bash(npm run test:*)", "Bash(git diff:*)"],
+    "deny": ["Bash(rm -rf:*)"],
+    "ask": ["Bash(git push:*)"],
+    "defaultMode": "plan"
+  },
   "hooks": {
     "Notification": [
       {
@@ -26,7 +32,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash -c '\"/opt/homebrew/bin/bun\" \"$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1)src/index.ts\"'"
+    "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
     "code-review@claude-code-plugins": true,
@@ -36,16 +42,9 @@
     "pr-review-toolkit@claude-code-plugins": true,
     "learning-output-style@claude-code-plugins": true,
     "explanatory-output-style@claude-code-plugins": true,
-    "claude-hud@claude-hud": true,
     "claude-mem@thedotmack": false
   },
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
-  },
-  "permissions": {
-    "defaultMode": "plan",
-    "allow": ["Bash(npm run test:*)", "Bash(git diff:*)"],
-    "ask": ["Bash(git push:*)"],
-    "deny": ["Bash(rm -rf:*)"]
   }
 }
