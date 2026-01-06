@@ -73,6 +73,23 @@ general preferences). Acknowledge, write, confirm.
 
 </tools>
 
+<code-structure>
+
+## Code Structure
+
+**File layout (top to bottom):**
+
+1. Imports (follow project conventions, run formatter)
+2. Constants
+3. Types/interfaces
+4. Main export (component/function)
+5. Secondary exports
+6. Internal helpers (small inline, large → separate utils file)
+
+**Key principle:** Main export at the top — readers see the purpose immediately.
+
+</code-structure>
+
 <code-comments>
 
 ## Code Comments
@@ -100,6 +117,7 @@ Keep comments minimal and meaningful. Only add comments that provide value.
 ## Git Commits
 
 Propose to use `/gc` command to generate commit messages.
+**IMPORTANT**: Do not append any co-authors to commit message like `🤖 Generated with [Claude Code](https://claude.ai/code)`
 
 </git-workflow>
 
