@@ -1,7 +1,16 @@
 {
   "cleanupPeriodDays": 365,
   "permissions": {
-    "allow": ["Bash(npm run test:*)", "Bash(git diff:*)"],
+    "allow": [
+      "Bash(npm run test:*)",
+      "Bash(git diff:*)",
+      "Bash(ast-grep:*)",
+      "Bash(rq:*)",
+      "Bash(jq:*)",
+      "Bash(ast-grep:rg)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs"
+    ],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Bash(git push:*)"],
     "defaultMode": "plan"

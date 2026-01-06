@@ -1,130 +1,111 @@
-// Zed settings
-//
-// For information on how to configure Zed, see the Zed
-// documentation: https://zed.dev/docs/configuring-zed
-//
-// To see all of Zed's default settings without changing your
-// custom settings, run the `open default settings` command
-// from the command palette or from `Zed` application menu.
 {
-  "buffer_font_size": 18.0,
-  "title_bar": {
-    "show_menus": false,
-    "show_project_items": true,
-    "show_branch_icon": false,
-  },
-  "debugger": {
-    "button": true,
-  },
-  "search": {
-    "button": true,
-  },
-  "diagnostics": {
-    "button": true,
-  },
-  "status_bar": {
-    "cursor_position_button": false,
-    "active_language_button": true,
-  },
-  "agent_buffer_font_size": 16.0,
-  "code_actions_on_format": {
-    "source.fixAll.eslint": true,
-  },
-  // "theme": "Ayu Light",
-  // "theme": "Gruvbox Light Hard",
-  "theme": "Flexoki Light",
-  "outline_panel": {
-    "default_width": 500,
-  },
-  "git_panel": {
-    "default_width": 500,
-  },
-  "project_panel": {
-    "default_width": 500,
-  },
-  "context_servers": {
-    "mcp-server-context7": {
-      "enabled": true,
-      "settings": {
-        "default_minimum_tokens": "10000",
-      },
-    },
-  },
-  "agent": {
-    "inline_assistant_model": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-5-latest",
-    },
-    "use_modifier_to_send": false,
-    "default_width": 600,
-    "default_profile": "ask",
-    "always_allow_tool_actions": true,
-    "default_model": {
-      "provider": "zed.dev",
-      "model": "claude-sonnet-4",
-    },
-  },
-  "edit_predictions": {
-    "mode": "subtle",
-    "enabled_in_text_threads": false,
-  },
-  "features": {
-    // Which inline completion provider to use.
-    "edit_prediction_provider": "zed",
-  },
-  "terminal": {
-    "dock": "right",
-    "copy_on_select": true,
-  },
-  "soft_wrap": "preferred_line_length",
-  "preferred_line_length": 120,
-  "wrap_guides": [120],
-  // Font style for the user interface (UI)
-  "ui_font_size": 19,
-  "ui_font_family": ".ZedSans",
-  // Font style for the code editing area (Buffer)
-  // "buffer_font_family": "Rec Mono Duotone",
-  "buffer_font_family": "JetBrains Mono",
-  "buffer_font_weight": 400,
-  "toolbar": {
-    "breadcrumbs": true,
-    "quick_actions": false,
-  },
-  "tab_bar": {
-    "show_nav_history_buttons": false,
-  },
   "tabs": {
     "file_icons": true,
-    "git_status": true,
+    "git_status": true
+  },
+  "when_closing_with_no_tabs": "keep_window_open",
+  "terminal": {
+    "dock": "right",
+    "default_height": 600,
+    "copy_on_select": true,
+    "default_width": 1300
+  },
+  "ui_font_size": 19,
+  "buffer_font_family": "JetBrains Mono",
+  "agent": {
+    "inline_assistant_model": {
+      "model": "claude-sonnet-4-5-latest",
+      "provider": "anthropic"
+    },
+    "default_model": {
+      "model": "claude-sonnet-4",
+      "provider": "zed.dev"
+    },
+    "always_allow_tool_actions": true,
+    "use_modifier_to_send": false,
+    "default_profile": "ask",
+    "default_width": 600
+  },
+  "project_panel": {
+    "default_width": 500
+  },
+  "git_panel": {
+    "default_width": 500
+  },
+  "debugger": {
+    "button": true
+  },
+  "search": {
+    "button": true
+  },
+  "buffer_font_size": 18,
+  "wrap_guides": [
+    120
+  ],
+  "theme": "Flexoki Light",
+  "title_bar": {
+    "show_menus": false,
+    "show_branch_icon": false,
+    "show_project_items": true
+  },
+  "preferred_line_length": 120,
+  "outline_panel": {
+    "default_width": 500
+  },
+  "status_bar": {
+    "active_language_button": true,
+    "cursor_position_button": false
+  },
+  "format_on_save": "on",
+  "base_keymap": "JetBrains",
+  "telemetry": {
+    "metrics": false,
+    "diagnostics": false
   },
   "tab_size": 2,
-  "journal": {
-    "path": "~/Dropbox/Knowledge Base",
-    "hour_format": "hour24",
-  },
-  "base_keymap": "JetBrains",
-  "when_closing_with_no_tabs": "keep_window_open",
-  "format_on_save": "on",
+  "agent_buffer_font_size": 16,
   "lsp": {
     "eslint": {
       "settings": {
         "problems": {
-          "shortenToSingleLine": true,
-        },
-      },
-    },
+          "shortenToSingleLine": true
+        }
+      }
+    }
   },
-  "telemetry": {
-    "diagnostics": false,
-    "metrics": false,
-  },
-  "collaboration_panel": {
-    // Whether to show the collaboration panel button in the status bar.
-    "button": false,
-    "dock": "left",
+  "code_actions_on_format": {
+    "source.fixAll.eslint": true
   },
   "notification_panel": {
     "button": false,
-    "dock": "left",
+    "dock": "left"
   },
+  "edit_predictions": {
+    "mode": "subtle",
+    "enabled_in_text_threads": false
+  },
+  "features": {
+    "edit_prediction_provider": "zed"
+  },
+  "soft_wrap": "preferred_line_length",
+  "tab_bar": {
+    "show_nav_history_buttons": false
+  },
+  "collaboration_panel": {
+    "button": false,
+    "dock": "left"
+  },
+  "toolbar": {
+    "breadcrumbs": true,
+    "quick_actions": false
+  },
+  "buffer_font_weight": 400,
+  "ui_font_family": ".ZedSans",
+  "journal": {
+    "path": "~/Dropbox/Knowledge Base",
+    "hour_format": "hour24"
+  },
+  "diagnostics": {
+    "button": true
+  }
 }

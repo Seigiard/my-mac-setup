@@ -42,7 +42,8 @@ general preferences). Acknowledge, write, confirm.
 ### CLI Tools (via Bash)
 
 - **AST search/refactoring**: `ast-grep` — for structural search (classes, functions, patterns)
-- **JSON/YAML processing**: `rq` — prefer over jq for complex transformations
+- **JSON processing**: `jq` — for complex transformations
+- **YAML, TOML, CSV, CBOR, Avro, MessagePack, Protobuf processing**: `rq` — for complex transformations
 - **Code search**: `rg` with flags (`-t`, `-g`, `--json`) — when specific output format needed
 
 </cli>
