@@ -27,7 +27,7 @@
     ~/.claude/CLAUDE.md: dot_claude/CLAUDE.md
     ~/.claude/statusline.sh: dot_claude/statusline.sh
     ~/.claude/settings.json: dot_claude/settings.json
-    # ~/.hammerspoon: dot_hammerspoon
+    ~/.hammerspoon: dot_hammerspoon
     ~/.gitconfig: .gitconfig
     ~/.gitconfig-macos: .gitconfig-macos
     ~/.gitconfig-linux: .gitconfig-linux
