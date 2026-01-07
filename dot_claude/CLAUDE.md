@@ -113,8 +113,4 @@ Keep comments minimal and meaningful. Only add comments that provide value.
 
 </code-comments>
 
-<git-workflow>
-Propose to use `/gc` command to generate commit messages.
-</git-workflow>
-
 </claude-instructions>
