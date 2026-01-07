@@ -3,26 +3,26 @@
     "file_icons": true,
     "git_status": true
   },
-  "when_closing_with_no_tabs": "keep_window_open",
   "terminal": {
     "dock": "right",
     "default_height": 600,
     "copy_on_select": true,
     "default_width": 1300
   },
+  "when_closing_with_no_tabs": "keep_window_open",
   "ui_font_size": 19,
   "buffer_font_family": "JetBrains Mono",
   "agent": {
-    "inline_assistant_model": {
-      "model": "claude-sonnet-4-5-latest",
-      "provider": "anthropic"
-    },
+    "always_allow_tool_actions": true,
+    "use_modifier_to_send": false,
     "default_model": {
       "model": "claude-sonnet-4",
       "provider": "zed.dev"
     },
-    "always_allow_tool_actions": true,
-    "use_modifier_to_send": false,
+    "inline_assistant_model": {
+      "model": "claude-sonnet-4-5-latest",
+      "provider": "anthropic"
+    },
     "default_profile": "ask",
     "default_width": 600
   },
@@ -45,8 +45,8 @@
   "theme": "Flexoki Light",
   "title_bar": {
     "show_menus": false,
-    "show_branch_icon": false,
-    "show_project_items": true
+    "show_project_items": true,
+    "show_branch_icon": false
   },
   "preferred_line_length": 120,
   "outline_panel": {

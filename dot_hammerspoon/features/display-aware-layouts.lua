@@ -9,8 +9,10 @@ local debounceTimer = nil
 local lastDisplayType = nil
 local DEBOUNCE_DELAY = 0.5
 
-local function onBuiltIn(screen)
-  hs.alert.show("Built-in: " .. screen:name())
+local function onBuiltIn(screen, showAlert)
+  if showAlert then
+    hs.alert.show("Built-in: " .. screen:name())
+  end
   if config.window and config.window.builtIn then
     windowManager.applyLayout(config.window.builtIn, screen)
   end
@@ -19,8 +21,10 @@ local function onBuiltIn(screen)
   end
 end
 
-local function onExternal(screen)
-  hs.alert.show("External: " .. screen:name())
+local function onExternal(screen, showAlert)
+  if showAlert then
+    hs.alert.show("External: " .. screen:name())
+  end
   if config.window and config.window.external then
     windowManager.applyLayout(config.window.external, screen)
   end
@@ -29,7 +33,7 @@ local function onExternal(screen)
   end
 end
 
-local function applyCurrentDisplaySettings(force)
+local function applyCurrentDisplaySettings(showAlert)
   if debounceTimer then
     debounceTimer:stop()
   end
@@ -37,49 +41,104 @@ local function applyCurrentDisplaySettings(force)
   debounceTimer = hs.timer.doAfter(DEBOUNCE_DELAY, function()
     local screen, displayType = display.getPrimaryDisplay()
 
-    if not force and displayType == lastDisplayType then
+    if displayType == lastDisplayType then
       return
     end
     lastDisplayType = displayType
 
     if displayType == "built-in" then
-      onBuiltIn(screen)
+      onBuiltIn(screen, showAlert)
     else
-      onExternal(screen)
+      onExternal(screen, showAlert)
     end
   end)
 end
 
 local function triggerBuiltIn()
-  hs.alert.show("Manual: Built-in display mode")
   lastDisplayType = "built-in"
   local screen = display.getPrimaryDisplay()
-  onBuiltIn(screen)
+  onBuiltIn(screen, true)
 end
 
 local function triggerExternal()
-  hs.alert.show("Manual: External display mode")
   lastDisplayType = "external"
-  onExternal(hs.screen.mainScreen())
+  onExternal(hs.screen.mainScreen(), true)
 end
 
 function M.init(cfg)
   config = cfg or {}
 
-  local watcher = display.createWatcher(applyCurrentDisplaySettings)
+  -- Screen change watcher (show alert when display changes)
+  local watcher = display.createWatcher(function()
+    applyCurrentDisplaySettings(true)
+  end)
   watcher:start()
 
   local mods = { "ctrl", "alt", "cmd" }
   hs.hotkey.bind(mods, "1", triggerBuiltIn)
   hs.hotkey.bind(mods, "2", triggerExternal)
 
-  -- Apply on startup/wake
-  applyCurrentDisplaySettings()
+  -- Apply on startup (silent)
+  applyCurrentDisplaySettings(false)
+
+  -- Wake watcher (silent)
   hs.caffeinate.watcher.new(function(event)
     if event == hs.caffeinate.watcher.screensDidWake then
-      applyCurrentDisplaySettings()
+      applyCurrentDisplaySettings(false)
     end
   end):start()
+
+  -- Polling: check for new windows every 1.5 sec
+  local knownWindows = {}
+
+  local function getConfiguredAppNames()
+    local apps = {}
+    if config.window then
+      for appName, _ in pairs(config.window.builtIn or {}) do
+        apps[appName] = true
+      end
+      for appName, _ in pairs(config.window.external or {}) do
+        apps[appName] = true
+      end
+    end
+    return apps
+  end
+
+  local function checkForNewWindows()
+    local configuredApps = getConfiguredAppNames()
+    local layout = lastDisplayType == "built-in"
+      and config.window.builtIn
+      or config.window.external
+
+    if not layout then return end
+
+    local screen = display.getPrimaryDisplay()
+    local currentWindows = {}
+
+    for appName, _ in pairs(configuredApps) do
+      local app = hs.application.get(appName)
+      if app then
+        for _, win in ipairs(app:allWindows()) do
+          if win:isStandard() then
+            local winId = win:id()
+            currentWindows[winId] = true
+
+            if not knownWindows[winId] then
+              local position = layout[appName]
+              if position then
+                win:moveToUnit(position, screen)
+              end
+            end
+          end
+        end
+      end
+    end
+
+    knownWindows = currentWindows
+  end
+
+  hs.timer.doEvery(1.5, checkForNewWindows)
+  checkForNewWindows()
 end
 
 return M
