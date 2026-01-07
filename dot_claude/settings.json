@@ -15,6 +15,10 @@
     "ask": ["Bash(git push:*)"],
     "defaultMode": "plan"
   },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "hooks": {
     "Notification": [
       {

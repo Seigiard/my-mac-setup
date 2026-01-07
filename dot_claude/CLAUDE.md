@@ -114,12 +114,7 @@ Keep comments minimal and meaningful. Only add comments that provide value.
 </code-comments>
 
 <git-workflow>
-
-## Git Commits
-
 Propose to use `/gc` command to generate commit messages.
-**IMPORTANT**: Do not append any co-authors to commit message like `🤖 Generated with [Claude Code](https://claude.ai/code)`
-
 </git-workflow>
 
 </claude-instructions>
