@@ -27,6 +27,7 @@ brew install mise # polyglot version manager (replaces nvm, faster)
 brew install rgrc # colorizes terminal output (grc alternative in Rust)
 
 # AI Assistant tools
+brew install gh # GitHub from the command line
 brew install rq # record query - jq for binary formats (protobuf, avro, etc.)
 brew install ripgrep # blazingly fast grep alternative (rg)
 brew install ast-grep # structural code search/replace using AST patterns
