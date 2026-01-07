@@ -6,6 +6,7 @@ local M = {}
 
 local config = {}
 local debounceTimer = nil
+local lastDisplayType = nil
 local DEBOUNCE_DELAY = 0.5
 
 local function onBuiltIn(screen)
@@ -28,13 +29,19 @@ local function onExternal(screen)
   end
 end
 
-local function applyCurrentDisplaySettings()
+local function applyCurrentDisplaySettings(force)
   if debounceTimer then
     debounceTimer:stop()
   end
 
   debounceTimer = hs.timer.doAfter(DEBOUNCE_DELAY, function()
     local screen, displayType = display.getPrimaryDisplay()
+
+    if not force and displayType == lastDisplayType then
+      return
+    end
+    lastDisplayType = displayType
+
     if displayType == "built-in" then
       onBuiltIn(screen)
     else
@@ -45,12 +52,14 @@ end
 
 local function triggerBuiltIn()
   hs.alert.show("Manual: Built-in display mode")
+  lastDisplayType = "built-in"
   local screen = display.getPrimaryDisplay()
   onBuiltIn(screen)
 end
 
 local function triggerExternal()
   hs.alert.show("Manual: External display mode")
+  lastDisplayType = "external"
   onExternal(hs.screen.mainScreen())
 end
 
