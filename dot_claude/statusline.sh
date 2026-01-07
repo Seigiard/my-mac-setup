@@ -2,10 +2,35 @@
 input=$(cat)
 
 BOLD='\033[1m'
-CYAN='\033[36m'
+GREEN='\033[32m'
 PURPLE='\033[35m'
 DIM='\033[2m'
+GRAY='\033[90m'
 RESET='\033[0m'
+
+progress_bar() {
+    local pct=$1
+    local bar=""
+    for ((i=0; i<10; i++)); do
+        local seg_start=$((i * 10))
+        local seg_end=$(((i + 1) * 10))
+        if [ "$pct" -ge "$seg_end" ]; then
+            bar+="▓"
+        elif [ "$pct" -le "$seg_start" ]; then
+            bar+="░"
+        else
+            local fill=$(((pct - seg_start) * 10))
+            if [ "$fill" -le 20 ]; then
+                bar+="░"
+            elif [ "$fill" -le 66 ]; then
+                bar+="▒"
+            else
+                bar+="▓"
+            fi
+        fi
+    done
+    printf '%s' "$bar"
+}
 
 CURRENT_DIR=$(echo "$input" | jq -r '.workspace.current_dir // "."')
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
@@ -21,25 +46,24 @@ usage=$(echo "$input" | jq '.context_window.current_usage')
 if [ "$usage" != "null" ]; then
     current=$(echo "$usage" | jq '.input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens')
     size=$(echo "$input" | jq '.context_window.context_window_size')
-    CONTEXT_PCT="$((current * 100 / size))%"
+    raw_pct=$((current * 100 / size))
+    adjusted_pct=$((raw_pct + 20))
+    [ "$adjusted_pct" -gt 100 ] && adjusted_pct=100
+    CONTEXT_PCT="$adjusted_pct"
 else
-    CONTEXT_PCT="0%"
+    CONTEXT_PCT="0"
 fi
 
-TOTAL_INPUT=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
-TOTAL_OUTPUT=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
-TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT))
+BAR=$(progress_bar "$CONTEXT_PCT")
 
-if [ "$TOTAL_TOKENS" -ge 1000000 ]; then
-    TOTAL_DISPLAY="$((TOTAL_TOKENS / 1000000))M"
-elif [ "$TOTAL_TOKENS" -ge 1000 ]; then
-    TOTAL_DISPLAY="$((TOTAL_TOKENS / 1000))k"
-else
-    TOTAL_DISPLAY="$TOTAL_TOKENS"
-fi
+CC_INFO="${BOLD}${GREEN}${MODEL}${RESET} ${DIM}${GREEN}${BAR}${RESET}"
 
-OUTPUT="${BOLD}${CYAN}${FOLDER}${RESET}"
-[ -n "$GIT_BRANCH" ] && OUTPUT="${OUTPUT} ${DIM}${PURPLE}[${GIT_BRANCH}]${RESET}"
-OUTPUT="${OUTPUT}${DIM} ❯ ${MODEL} · ${CONTEXT_PCT} ctx · ${TOTAL_DISPLAY} tok${RESET}"
+FOLDER_INFO="${BOLD}${FOLDER}${RESET}"
+[ -n "$GIT_BRANCH" ] && FOLDER_INFO="${FOLDER_INFO} ${PURPLE}[${GIT_BRANCH}]${RESET}"
 
-printf '%b\n' "$OUTPUT"
+STATUS_LINE="${FOLDER_INFO}${GRAY} ❯ ${RESET}${CC_INFO}"
+CLEAN_TEXT=$(printf '%b' "$STATUS_LINE" | sed 's/\x1b\[[0-9;]*m//g')
+TEXT_WIDTH=${#CLEAN_TEXT}
+UNDERLINE=$(printf '─%.0s' $(seq 1 $TEXT_WIDTH))
+
+printf '%b\n' "${STATUS_LINE}\n "
