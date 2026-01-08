@@ -4,21 +4,21 @@
     "git_status": true
   },
   "terminal": {
-    "dock": "right",
-    "default_height": 600,
+    "dock": "bottom",
+    "default_height": 500,
     "copy_on_select": true,
-    "default_width": 1300
+    "default_width": 600
   },
   "when_closing_with_no_tabs": "keep_window_open",
   "ui_font_size": 19,
   "buffer_font_family": "JetBrains Mono",
   "agent": {
-    "always_allow_tool_actions": true,
     "use_modifier_to_send": false,
     "default_model": {
       "model": "claude-sonnet-4",
       "provider": "zed.dev"
     },
+    "always_allow_tool_actions": true,
     "inline_assistant_model": {
       "model": "claude-sonnet-4-5-latest",
       "provider": "anthropic"
@@ -27,10 +27,10 @@
     "default_width": 600
   },
   "project_panel": {
-    "default_width": 500
+    "default_width": 350
   },
   "git_panel": {
-    "default_width": 500
+    "default_width": 350
   },
   "debugger": {
     "button": true
@@ -50,7 +50,7 @@
   },
   "preferred_line_length": 120,
   "outline_panel": {
-    "default_width": 500
+    "default_width": 350
   },
   "status_bar": {
     "active_language_button": true,

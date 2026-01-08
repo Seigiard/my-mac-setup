@@ -35,4 +35,11 @@
       "cmd-k": "editor::Cancel",
     },
   },
+  {
+    "context": "Terminal",
+    "bindings": {
+      "shift-enter": ["terminal::SendText", "\u001b\r"],
+      "cmd-enter": ["terminal::SendText", "\u001b\r"],
+    },
+  },
 ]
