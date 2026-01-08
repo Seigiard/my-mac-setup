@@ -1,24 +1,25 @@
 {
   "cleanupPeriodDays": 365,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "allow": [
-      "Bash(npm run test:*)",
-      "Bash(git diff:*)",
-      "Bash(ast-grep:*)",
-      "Bash(rq:*)",
-      "Bash(jq:*)",
-      "Bash(gh pr:*)",
-      "Bash(ast-grep:rg)",
+      "Bash(npm run *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(ast-grep *)",
+      "Bash(rq *)",
+      "Bash(jq *)",
+      "Bash(gh *)",
+      "Bash(tree *)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs"
     ],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Bash(git push:*)"],
     "defaultMode": "plan"
-  },
-  "attribution": {
-    "commit": "",
-    "pr": ""
   },
   "hooks": {
     "Notification": [
@@ -27,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -message \"$CLAUDE_NOTIFICATION_MESSAGE\" -sound default -timeout 10"
+            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -message \"$CLAUDE_NOTIFICATION_MESSAGE\" -sound Ping -timeout 10"
           }
         ]
       }
@@ -38,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -subtitle \"Session Complete\" -message \"Task completed\" -sound default -timeout 10"
+            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -subtitle \"Session Complete\" -message \"Task completed\" -sound Ping -timeout 10"
           }
         ]
       }
@@ -49,14 +50,23 @@
     "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
-    "code-review@claude-code-plugins": true,
-    "commit-commands@claude-code-plugins": true,
-    "feature-dev@claude-code-plugins": true,
-    "frontend-design@claude-code-plugins": true,
-    "pr-review-toolkit@claude-code-plugins": true,
-    "learning-output-style@claude-code-plugins": true,
-    "explanatory-output-style@claude-code-plugins": true,
-    "claude-mem@thedotmack": false
+    "claude-mem@thedotmack": false,
+    "frontend-design@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "figma@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "greptile@claude-plugins-official": true,
+    "learning-output-style@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true
   },
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
