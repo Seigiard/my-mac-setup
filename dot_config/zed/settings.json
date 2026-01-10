@@ -1,7 +1,7 @@
 {
   "tabs": {
-    "file_icons": true,
-    "git_status": true
+    "git_status": true,
+    "file_icons": true
   },
   "terminal": {
     "dock": "bottom",
@@ -13,15 +13,15 @@
   "ui_font_size": 19,
   "buffer_font_family": "JetBrains Mono",
   "agent": {
+    "inline_assistant_model": {
+      "model": "claude-opus-4-5",
+      "provider": "zed.dev"
+    },
     "use_modifier_to_send": false,
+    "always_allow_tool_actions": true,
     "default_model": {
       "model": "claude-sonnet-4",
       "provider": "zed.dev"
-    },
-    "always_allow_tool_actions": true,
-    "inline_assistant_model": {
-      "model": "claude-sonnet-4-5-latest",
-      "provider": "anthropic"
     },
     "default_profile": "ask",
     "default_width": 600
@@ -44,8 +44,8 @@
   ],
   "theme": "Flexoki Light",
   "title_bar": {
-    "show_menus": false,
     "show_project_items": true,
+    "show_menus": false,
     "show_branch_icon": false
   },
   "preferred_line_length": 120,
@@ -95,11 +95,11 @@
     "button": false,
     "dock": "left"
   },
+  "buffer_font_weight": 400,
   "toolbar": {
     "breadcrumbs": true,
     "quick_actions": false
   },
-  "buffer_font_weight": 400,
   "ui_font_family": ".ZedSans",
   "journal": {
     "path": "~/Dropbox/Knowledge Base",
