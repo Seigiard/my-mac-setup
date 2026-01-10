@@ -13,9 +13,9 @@
       "Bash(rq *)",
       "Bash(jq *)",
       "Bash(gh *)",
+      "Bash(find *)",
       "Bash(tree *)",
-      "mcp__context7__resolve-library-id",
-      "mcp__context7__get-library-docs"
+      "mcp__context7__*"
     ],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Bash(git push:*)"],
@@ -49,10 +49,14 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
+  "fileSuggestion": {
+    "type": "command",
+    "command": "~/.claude/file-suggestion.sh"
+  },
   "enabledPlugins": {
     "claude-mem@thedotmack": false,
     "frontend-design@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
+    "context7@claude-plugins-official": false,
     "feature-dev@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
@@ -64,7 +68,6 @@
     "explanatory-output-style@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
     "hookify@claude-plugins-official": true,
-    "greptile@claude-plugins-official": true,
     "learning-output-style@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true
   },
