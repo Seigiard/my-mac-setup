@@ -1,4 +1,8 @@
 {
+  "fileSuggestion": {
+    "type": "command",
+    "command": "~/.claude/hooks/file-suggestion.sh"
+  },
   "cleanupPeriodDays": 365,
   "attribution": {
     "commit": "",
@@ -15,12 +19,14 @@
       "Bash(gh *)",
       "Bash(find *)",
       "Bash(tree *)",
-      "mcp__context7__*"
+      "mcp__context7__*",
+      "Bash(~/.claude/hooks/daily-summary.py*)"
     ],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Bash(git push:*)"],
     "defaultMode": "plan"
   },
+  "model": "opus",
   "hooks": {
     "Notification": [
       {
@@ -47,12 +53,9 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/statusline.sh"
+    "command": "~/.claude/hooks/statusline.sh"
   },
-  "fileSuggestion": {
-    "type": "command",
-    "command": "~/.claude/file-suggestion.sh"
-  },
+  "additionalDirectories": ["/Users/seigiard/Dropbox/Knowledge Base"],
   "enabledPlugins": {
     "claude-mem@thedotmack": false,
     "frontend-design@claude-plugins-official": true,
