@@ -25,6 +25,7 @@ brew install starship # cross-shell customizable prompt
 brew install lazygit # terminal UI for git commands
 brew install mise # polyglot version manager (replaces nvm, faster)
 brew install rgrc # colorizes terminal output (grc alternative in Rust)
+brew install tldr # terminal-friendly man pages
 
 # AI Assistant tools
 brew install gh # GitHub from the command line
