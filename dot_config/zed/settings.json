@@ -4,36 +4,36 @@
     "file_icons": true
   },
   "terminal": {
-    "dock": "bottom",
-    "default_height": 500,
+    "dock": "right",
+    "default_height": 600,
     "copy_on_select": true,
-    "default_width": 600
+    "default_width": 1300
   },
   "when_closing_with_no_tabs": "keep_window_open",
   "ui_font_size": 19,
   "buffer_font_family": "JetBrains Mono",
   "agent": {
-    "inline_assistant_model": {
-      "model": "claude-opus-4-5",
-      "provider": "zed.dev"
-    },
-    "use_modifier_to_send": false,
     "always_allow_tool_actions": true,
+    "use_modifier_to_send": false,
     "default_model": {
       "model": "claude-sonnet-4",
+      "provider": "zed.dev"
+    },
+    "inline_assistant_model": {
+      "model": "claude-opus-4-5",
       "provider": "zed.dev"
     },
     "default_profile": "ask",
     "default_width": 600
   },
   "project_panel": {
-    "default_width": 350
-  },
-  "git_panel": {
-    "default_width": 350
+    "default_width": 500
   },
   "debugger": {
     "button": true
+  },
+  "git_panel": {
+    "default_width": 500
   },
   "search": {
     "button": true
@@ -45,16 +45,16 @@
   "theme": "Flexoki Light",
   "title_bar": {
     "show_project_items": true,
-    "show_menus": false,
-    "show_branch_icon": false
+    "show_branch_icon": false,
+    "show_menus": false
   },
   "preferred_line_length": 120,
-  "outline_panel": {
-    "default_width": 350
-  },
   "status_bar": {
     "active_language_button": true,
     "cursor_position_button": false
+  },
+  "outline_panel": {
+    "default_width": 500
   },
   "format_on_save": "on",
   "base_keymap": "JetBrains",
@@ -95,11 +95,11 @@
     "button": false,
     "dock": "left"
   },
-  "buffer_font_weight": 400,
   "toolbar": {
     "breadcrumbs": true,
     "quick_actions": false
   },
+  "buffer_font_weight": 400,
   "ui_font_family": ".ZedSans",
   "journal": {
     "path": "~/Dropbox/Knowledge Base",
