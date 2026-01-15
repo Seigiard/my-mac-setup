@@ -1,0 +1,49 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install base dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    sudo \
+    zsh \
+    locales \
+    ca-certificates \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up locale
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+# Create test user with sudo access
+RUN useradd -m -s /bin/zsh testuser && \
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser
+
+# Create necessary directories
+RUN mkdir -p /home/testuser/.local/bin /home/testuser/.local/share/chezmoi /home/testuser/.config
+
+# Install chezmoi
+RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /home/testuser/.local/bin
+
+# Install bats for testing
+RUN git clone https://github.com/bats-core/bats-core.git /tmp/bats && \
+    cd /tmp/bats && \
+    sudo ./install.sh /usr/local && \
+    rm -rf /tmp/bats
+
+# Add local bin to PATH
+ENV PATH="/home/testuser/.local/bin:${PATH}"
+
+# Copy dotfiles source (will be mounted in docker-compose)
+# The actual source is mounted at runtime for faster iteration
+
+CMD ["/bin/zsh"]

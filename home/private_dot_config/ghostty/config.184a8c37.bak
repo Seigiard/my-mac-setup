@@ -1,0 +1,32 @@
+font-family = JetBrains Mono
+window-title-font-family = JetBrains Mono
+font-size = 16
+#theme = GruvboxDark
+#theme = GruvboxLight
+#theme = Builtin Solarized Light
+#theme = ayu_light
+theme = xcodelighthc
+#theme = Pro Light
+#theme = Raycast_Light
+cursor-style = block
+adjust-cell-height = 10%
+
+shell-integration-features = no-cursor,sudo,title
+
+window-inherit-working-directory = true
+
+mouse-hide-while-typing = true
+mouse-scroll-multiplier = 2
+
+window-padding-balance = true
+window-save-state = always
+macos-titlebar-style = tabs
+window-colorspace = "display-p3"
+window-new-tab-position = "end"
+
+clipboard-trim-trailing-spaces = true
+copy-on-select = true
+
+font-feature = -calt
+font-feature = -liga
+font-feature = -dlig

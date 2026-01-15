@@ -1,0 +1,31 @@
+services:
+  ubuntu:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      # Mount the chezmoi source directory (read-write for chezmoi init)
+      - ../home:/home/testuser/dotfiles:ro
+      # Mount tests for running inside container
+      - ../tests:/home/testuser/tests:ro
+    environment:
+      - CHEZMOI_NAME=Test User
+      - CHEZMOI_EMAIL=test@example.com
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/zsh", "-c"]
+    command: ["echo 'Ubuntu test container ready'"]
+
+  # Test runner service
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - ../home:/home/testuser/dotfiles:ro
+      - ../tests:/home/testuser/tests:ro
+    environment:
+      - CHEZMOI_NAME=Test User
+      - CHEZMOI_EMAIL=test@example.com
+    entrypoint: ["/bin/zsh", "-c"]
+    command: ["cp -r /home/testuser/dotfiles/* /home/testuser/dotfiles/.[!.]* /home/testuser/.local/share/chezmoi/ 2>/dev/null; cd /home/testuser && chezmoi init --source=/home/testuser/.local/share/chezmoi && chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose && bats tests/"]

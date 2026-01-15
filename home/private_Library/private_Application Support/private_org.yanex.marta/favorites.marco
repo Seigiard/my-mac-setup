@@ -1,0 +1,11 @@
+Downloads "${user.downloads}"
+Dropbox "~/Dropbox"
+Projects "~/Projects"
+Movies "${user.movies}"
+GDrive "${user.library}/CloudStorage/CloudMounter-GDrive"
+Separator1 null
+Home "~"
+Desktop "${user.desktop}"
+Documents "${user.documents}"
+Applications "${all.applications}"
+Library "${user.library}"

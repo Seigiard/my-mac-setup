@@ -1,0 +1,25 @@
+environment {
+    terminal "ghostty"
+    textEditor "Zed"
+}
+
+behavior {
+    theme "Classic"
+}
+
+fonts {
+    actionBar [ "Default" 14 ]
+    breadcrumbs [ "Default" 14 ]
+    virtualTabs [ "Default Bold" 14 ]
+    files [ "Default" 16 ]
+    statusBar [ "Default Light" 13 ]
+    tableHeader [ "Default" 13 ]
+    tabs [ "Default" 14 ]
+    preferences [ "Monaco" 16 ]
+}
+
+keyBindings {
+  "Cmd+Down" "core.open"
+  "Cmd+UP" "core.go.up"
+  "Cmd+R" "core.refresh"
+}

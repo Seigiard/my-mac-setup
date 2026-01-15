@@ -1,0 +1,14 @@
+[[plugin.deps]]
+use = "yazi-rs/plugins:piper"
+rev = "1612f00"
+hash = "d00cacddd5e4f58e2fb13aecae42d655"
+
+[[plugin.deps]]
+use = "ndtoan96/ouch"
+rev = "cfb9140"
+hash = "b5067143415bd2d46c0dfa57319ddcef"
+
+[[flavor.deps]]
+use = "gosxrgxx/flexoki-light"
+rev = "45eb0a0"
+hash = "1ee212b0799497b54c7e60bac8931e4e"

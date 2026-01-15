@@ -1,0 +1,21 @@
+{{- /* Chezmoi configuration template */ -}}
+{{- /* This file is processed during `chezmoi init` */ -}}
+
+sourceDir: {{ .chezmoi.sourceDir | quote }}
+
+{{- $name := env "CHEZMOI_NAME" }}
+{{- if not $name }}
+{{-   $name = promptStringOnce . "name" "Your full name" }}
+{{- end }}
+
+{{- $email := env "CHEZMOI_EMAIL" }}
+{{- if not $email }}
+{{-   $email = promptStringOnce . "email" "Your email address" }}
+{{- end }}
+
+data:
+  name: {{ $name | quote }}
+  email: {{ $email | quote }}
+  ostype: {{ .chezmoi.os | quote }}
+  is_darwin: {{ eq .chezmoi.os "darwin" }}
+  is_linux: {{ eq .chezmoi.os "linux" }}

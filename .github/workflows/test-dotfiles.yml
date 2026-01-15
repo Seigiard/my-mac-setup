@@ -1,0 +1,149 @@
+name: Test Dotfiles
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Manual trigger for full tests
+  workflow_dispatch:
+  # Weekly full test (Sundays at 3am UTC)
+  schedule:
+    - cron: '0 3 * * 0'
+
+env:
+  CHEZMOI_NAME: "Test User"
+  CHEZMOI_EMAIL: "test@example.com"
+
+jobs:
+  test-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
+
+      - name: Add chezmoi to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Initialize chezmoi
+        run: chezmoi init --source=./home
+
+      - name: Apply dotfiles (dry-run first)
+        run: chezmoi diff --source=./home || true
+
+      - name: Apply dotfiles
+        run: chezmoi apply --source=./home --verbose
+
+      - name: Run smoke tests
+        run: bats tests/smoke.bats
+
+      - name: Run idempotency tests
+        run: bats tests/idempotent.bats
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: brew install chezmoi
+
+      - name: Install bats
+        run: brew install bats-core
+
+      - name: Initialize chezmoi
+        run: chezmoi init --source=./home
+
+      - name: Apply dotfiles (dry-run first)
+        run: chezmoi diff --source=./home || true
+
+      - name: Apply dotfiles
+        run: chezmoi apply --source=./home --verbose
+
+      - name: Run smoke tests
+        run: bats tests/smoke.bats
+
+      - name: Run idempotency tests
+        run: bats tests/idempotent.bats
+
+  # Full installation test with CLI tools (macOS)
+  test-macos-full:
+    runs-on: macos-latest
+    # Run weekly or manually to save CI minutes
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: brew install chezmoi
+
+      - name: Install bats
+        run: brew install bats-core
+
+      - name: Initialize chezmoi
+        run: chezmoi init --source=./home
+
+      - name: Apply dotfiles
+        run: chezmoi apply --source=./home --verbose
+
+      - name: Install CLI tools via Homebrew
+        run: |
+          # Core CLI tools (skip GUI casks in CI)
+          brew install starship bat delta lazygit mise
+          brew install ripgrep ast-grep jq rq tldr
+          brew install yazi fd fzf zoxide eza ouch
+          brew install btop procs dust duf
+          brew install ffmpeg sevenzip poppler resvg imagemagick
+
+      - name: Install Oh My Zsh
+        run: |
+          sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+          git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+          git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+          git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
+
+      - name: Run smoke tests (with tools installed)
+        run: bats tests/smoke.bats
+
+      - name: Run idempotency tests
+        run: bats tests/idempotent.bats
+
+      - name: Verify CLI tools work
+        run: |
+          echo "=== Verifying CLI tools ==="
+          starship --version
+          bat --version
+          delta --version
+          lazygit --version
+          rg --version
+          yazi --version
+          fd --version
+          fzf --version
+          zoxide --version
+          eza --version
+          btop --version
+          echo "=== All CLI tools verified ==="
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on scripts
+        run: |
+          find . -name "*.sh" -type f | xargs shellcheck --severity=warning || true
+          find home -name "run_*" -type f | xargs shellcheck --severity=warning || true

@@ -1,0 +1,108 @@
+{:profiles {:Default {:default true
+                      :sim     50     ;; simultaneous_threshold_milliseconds (def: 50)
+                        ;; if keydown event for two different keys are pressed within :sim ms, the keypresses are considered simultaneous
+                      :delay   150    ;; to_delayed_action_delay_milliseconds (def: 500)
+                        ;; after :delay ms, the key press is considered to be delayed (used for double-press macros)
+                      :alone   300    ;; to_if_alone_timeout_milliseconds (def: 1000)
+                        ;; if keyup event comes within :alone ms from keydown, the key is not just pressed but held
+                      :held    150    ;; to_if_held_down_threshold_milliseconds (def: 500)
+                        ;; key is fired twice when :held ms is elapsed (otherwise seen as a hold command)
+}} ;; profiles
+
+:templates {:open "open -a '%s.app'"
+            :eng-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": []}'"
+            :cyr-tilda-mapping "hidutil property --set '{\"UserKeyMapping\": [{\"HIDKeyboardModifierMappingSrc\": 0x700000064, \"HIDKeyboardModifierMappingDst\": 0x700000035}, {\"HIDKeyboardModifierMappingSrc\": 0x700000035, \"HIDKeyboardModifierMappingDst\": 0x700000064}]}'"}
+
+;; No :layers needed - we define the meh-mode variable manually in :main
+
+:input-sources {:eng-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.english-seigiardtypography$"}
+                :cyr-seigiard {:input_source_id "^org.sil.ukelele.keyboardlayout.seigiardlayout.cyrillic-seigiardtypography$"}}
+
+;; BINDINGS
+:main [
+  ;; ============================================================
+  ;; Caps Lock → Meh (⌃⌥⇧) modifier + enable meh-mode
+  ;; ============================================================
+  {:des "Caps Lock → Meh (⌃⌥⇧)"
+   :rules [[:##caps_lock [{:key :left_shift :modi [:left_control :left_option]}
+                          ["meh-mode" 1]]
+            nil
+            {:afterup ["meh-mode" 0] :alone :vk_none}]]}
+
+  ;; ============================================================
+  ;; Meh mode: Vim-style navigation with hjkl
+  ;; ============================================================
+  {:des "Meh (⌃⌥⇧) mode: replace arrows to hjkl"
+   :rules [[:condi ["meh-mode" 1]]
+           ;; Basic arrow navigation
+           [:##h :left_arrow]
+           [:##j :down_arrow]
+           [:##k :up_arrow]
+           [:##l :right_arrow]
+
+           ;; Additional modifiers in meh-mode
+           [:##f :left_option]   ;; f becomes Option for word-by-word movement
+           [:##d :left_shift]    ;; d becomes Shift for selection
+
+           ;; Line start/end with Cmd+arrows
+           [:##semicolon :!Cright_arrow]  ;; ; → End of line
+           [:##u :!Cup_arrow]             ;; u → Top of document
+           [:##o :!Cdown_arrow]           ;; o → Bottom of document
+           ]}
+
+  ;; ============================================================
+  ;; Launch apps with Meh (⌃⌥⇧) + key
+  ;; ============================================================
+  {:des "Launch apps with Meh (⌃⌥⇧) + X"
+   :rules [[:condi ["meh-mode" 1]]
+           [:##b [:open "Brave Browser"]]
+           [:##e [:open "Zed"]]
+           [:##s [:open "Slack"]]
+           [:##i [:open "Linear"]]
+           [:##t [:open "Ghostty"]]
+           ]}
+
+  ;; ============================================================
+  ;; Input source switching via Command keys
+  ;; Left Cmd (alone) → English, Right Cmd (alone) → Cyrillic
+  ;; ============================================================
+  {:des "Left Cmd → Seigiard Eng, Right Cmd → Seigiard Cyr"
+   :rules [[:condi :!rdp :!parallels]
+           [:left_command  :left_command  nil {:alone [{:input :eng-seigiard} [:eng-tilda-mapping]]}]
+           [:right_command :right_command nil {:alone [{:input :cyr-seigiard} [:cyr-tilda-mapping]]}]
+           ]}
+
+  ]
+
+;; ============================================================
+;; CHEATSHEET - Modifier reference
+;; ============================================================
+;; !  | means mandatory
+;; #  | means optional
+;; C  | left_command
+;; T  | left_control
+;; O  | left_option
+;; S  | left_shift
+;; F  | fn
+;; Q  | right_command
+;; W  | right_control
+;; E  | right_option
+;; R  | right_shift
+;; P  | caps_lock
+;; !! | mandatory command + control + option + shift (hyper)
+;; ## | optional any
+;;
+;; Examples:
+;; :!Ca     → mandatory left_command + a
+;; :!Ta     → mandatory left_control + a
+;; :!Oa     → mandatory left_option + a
+;; :!Sa     → mandatory left_shift + a
+;; :#Sa     → keycode a, optional left_shift
+;; :!CTOa   → command + control + option + a
+;; :!TOS    → control + option + shift (Meh)
+;; :##a     → keycode a with optional any modifier
+;; :!!a     → mandatory hyper (control + command + option + shift) + a
+;;
+;; Tutorial:
+;; https://raw.githubusercontent.com/yqrashawn/GokuRakuJoudo/refs/heads/master/tutorial.md
+}
