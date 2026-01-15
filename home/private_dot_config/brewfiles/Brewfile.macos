@@ -1,11 +1,10 @@
 # macOS-specific packages
 
 # Taps
-tap "lazywalker/rgrc"
 tap "yqrashawn/goku"
 
 # CLI tools (macOS only)
-brew "rgrc"
+brew "lazywalker/rgrc/rgrc"
 brew "terminal-notifier"
 brew "yqrashawn/goku/goku"
 
