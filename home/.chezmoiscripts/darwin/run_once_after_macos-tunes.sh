@@ -1,3 +1,9 @@
+#!/bin/bash
+# macOS system preferences and tweaks
+# Run once after initial setup
+
+set -e
+
 # Show system info (hostname, IP, macOS version) when clicking the clock on login screen
 sudo defaults write /Library/Preferences/com.apple.loginwindow AdminHostInfo HostName
 
