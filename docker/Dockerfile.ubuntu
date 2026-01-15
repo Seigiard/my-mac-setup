@@ -4,7 +4,7 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Install base dependencies
+# Install base dependencies for Linuxbrew
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y \
     locales \
     ca-certificates \
     build-essential \
+    procps \
+    file \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up locale
@@ -28,22 +30,24 @@ RUN useradd -m -s /bin/zsh testuser && \
 USER testuser
 WORKDIR /home/testuser
 
+# Install Linuxbrew
+RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Add Linuxbrew to PATH
+ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
+ENV HOMEBREW_NO_AUTO_UPDATE=1
+ENV HOMEBREW_NO_INSTALL_CLEANUP=1
+
+# Verify brew works
+RUN brew --version
+
 # Create necessary directories
 RUN mkdir -p /home/testuser/.local/bin /home/testuser/.local/share/chezmoi /home/testuser/.config
 
-# Install chezmoi
-RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /home/testuser/.local/bin
+# Install chezmoi via brew
+RUN brew install chezmoi
 
 # Install bats for testing
-RUN git clone https://github.com/bats-core/bats-core.git /tmp/bats && \
-    cd /tmp/bats && \
-    sudo ./install.sh /usr/local && \
-    rm -rf /tmp/bats
-
-# Add local bin to PATH
-ENV PATH="/home/testuser/.local/bin:${PATH}"
-
-# Copy dotfiles source (will be mounted in docker-compose)
-# The actual source is mounted at runtime for faster iteration
+RUN brew install bats-core
 
 CMD ["/bin/zsh"]

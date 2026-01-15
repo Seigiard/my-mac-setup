@@ -7,20 +7,20 @@ load 'helpers/common'
 # ===========================================
 
 @test "chezmoi apply succeeds" {
-  run chezmoi apply --source="$CHEZMOI_SOURCE" --verbose
+  run chezmoi apply --source="$CHEZMOI_SOURCE" --force --verbose
   echo "Output: $output"
   [[ "$status" -eq 0 ]]
 }
 
 @test "second chezmoi apply succeeds (idempotency)" {
-  run chezmoi apply --source="$CHEZMOI_SOURCE"
+  run chezmoi apply --source="$CHEZMOI_SOURCE" --force
   echo "Output: $output"
   [[ "$status" -eq 0 ]]
 }
 
 @test "chezmoi diff is empty after apply (no pending changes)" {
   # First ensure we've applied
-  chezmoi apply --source="$CHEZMOI_SOURCE"
+  chezmoi apply --source="$CHEZMOI_SOURCE" --force
 
   # Then check diff is empty
   run chezmoi diff --source="$CHEZMOI_SOURCE"
