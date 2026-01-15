@@ -1,71 +1,84 @@
-# Clone repo
+# My Mac Setup
 
-## Setup Github
+Cross-platform dotfiles managed with [chezmoi](https://www.chezmoi.io/).
 
-- https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
-- https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account
-
-# Install Apps
-
-Open `install-apps.sh` and check, what do you need to be installed.
-
-If you do not need something — comment it.
-
-Run `install.sh`
-
-# Manual Settings
-
-## NextDNS
-
-Setup DNS: https://my.nextdns.io
-
-## VS Codium
-
-Install „Settings Sync“ (`Shan.code-settings-sync`) extention
-
-- [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=Shan.code-settings-sync)
-- [Open VSX](https://open-vsx.org/vscode/item?itemName=Shan.code-settings-sync)
-
-Setup and download settings.
-
-## Visual Studio Code
-
-Enable Settings Sync in menu
-
-## RayCast
-
-Open Raycast and import latest Raycast\*.rayconfig
-
-# Set noTunes to launch at startup
-
-Navigate to `System Preferences -> Users & Groups`.
-
-Under your user, select "Login Items", click the lock on the bottom left and enter your login password to make changes. Click the plus sign (+) in the main panel and search for noTunes. Select it and click "Add".
-
-# Seigiard Layout
-
-Add [Seigird Layout](https://github.com/Seigiard/keyboard-layout) via Input sources
-
-# SetApp
-
-Install
-
-- Bolt AI
-- Bartender
-- CleanMyMac
-- CloudMounter
-- CleanShot X
-
-# Dropbox
-Sync → Available Offline
-
-# Additional Settings
-
-Run `macos-tunes.sh`
-
-Read `macos-settings.md` and tune settings.
+## Quick Start
 
 ```sh
-brew bundle # install from Brewfile
-brew bundle dump # update Brewfile
+# Install chezmoi and apply dotfiles
+sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply Seigiard/my-mac-setup
 ```
+
+This will:
+- Install Homebrew (if not present)
+- Install CLI tools and apps via Brewfiles
+- Install Oh My Zsh and plugins
+- Apply macOS system preferences
+- Set up all configs (zsh, git, starship, yazi, etc.)
+
+## Prerequisites
+
+Set up GitHub SSH keys:
+- [Generate SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
+- [Add key to GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
+
+## Manual Configuration
+
+After running chezmoi, configure these manually:
+
+### Apps
+
+- **Raycast** — Import `*.rayconfig` backup
+- **VS Codium** — Install Settings Sync extension
+- **SetApp** — Install: Bartender, CleanMyMac, CleanShot X, CloudMounter
+
+### System
+
+- **NextDNS** — [Configure](https://my.nextdns.io)
+- **Keyboard Layout** — Add [Seigiard Layout](https://github.com/Seigiard/keyboard-layout)
+- **System Settings** — See `macos-settings.md` for manual tweaks
+
+## Structure
+
+```
+home/
+├── .chezmoiscripts/          # Install scripts (run by chezmoi)
+│   ├── run_onchange_after_install-packages.sh.tmpl
+│   └── darwin/
+│       └── run_once_after_macos-tunes.sh
+├── private_dot_config/
+│   ├── brewfiles/            # Homebrew packages
+│   │   ├── Brewfile          # Cross-platform CLI tools
+│   │   └── Brewfile.macos    # macOS apps and casks
+│   ├── ghostty/
+│   ├── karabiner/
+│   └── yazi/
+├── dot_zshrc
+├── dot_aliases
+├── dot_gitconfig.tmpl
+└── ...
+```
+
+## Usage
+
+```sh
+# Update dotfiles from repo
+chezmoi update
+
+# Edit a dotfile
+chezmoi edit ~/.zshrc
+
+# See what would change
+chezmoi diff
+
+# Apply changes
+chezmoi apply
+
+# Add a new dotfile
+chezmoi add ~/.config/some-app
+```
+
+## Platforms
+
+- **macOS** — Full support (apps, system preferences, fonts)
+- **Linux** — CLI tools only (via Brewfile)
