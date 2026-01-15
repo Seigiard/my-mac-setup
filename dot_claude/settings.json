@@ -14,13 +14,20 @@
       "Bash(git diff *)",
       "Bash(git log *)",
       "Bash(ast-grep *)",
+      "Bash(grep:*)",
       "Bash(rq *)",
       "Bash(jq *)",
       "Bash(gh *)",
       "Bash(find *)",
       "Bash(tree *)",
-      "mcp__context7__*",
-      "Bash(~/.claude/hooks/daily-summary.py*)"
+      "Bash(wc:*)",
+      "mcp__context7",
+      "mcp__deepwiki",
+      "mcp__github",
+      "mcp__linear-server",
+      "mcp__claude-in-chrome",
+      "mcp__plugin_figma_figma",
+      "Skill(superpowers:*)"
     ],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Bash(git push:*)"],
@@ -55,7 +62,6 @@
     "type": "command",
     "command": "~/.claude/hooks/statusline.sh"
   },
-  "additionalDirectories": ["/Users/seigiard/Dropbox/Knowledge Base"],
   "enabledPlugins": {
     "claude-mem@thedotmack": false,
     "frontend-design@claude-plugins-official": true,
@@ -72,8 +78,16 @@
     "plugin-dev@claude-plugins-official": true,
     "hookify@claude-plugins-official": true,
     "learning-output-style@claude-plugins-official": true,
-    "ralph-loop@claude-plugins-official": true
+    "ralph-loop@claude-plugins-official": true,
+    "superpowers@superpowers-marketplace": true
   },
+  "additionalDirectories": [
+    "/Users/seigiard/Dropbox/Knowledge Base",
+    "/Users/seigiard/Dropbox/Knowledge Base/Calendar/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
+    "~/.claude/hooks/"
+  ],
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
   }
