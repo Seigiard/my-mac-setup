@@ -3,13 +3,13 @@
     "git_status": true,
     "file_icons": true
   },
-  "terminal": {
-    "dock": "right",
-    "default_height": 600,
-    "copy_on_select": true,
-    "default_width": 1300
-  },
   "when_closing_with_no_tabs": "keep_window_open",
+  "terminal": {
+    "dock": "bottom",
+    "default_height": 500,
+    "copy_on_select": true,
+    "default_width": 600
+  },
   "ui_font_size": 19,
   "buffer_font_family": "JetBrains Mono",
   "agent": {
@@ -20,20 +20,20 @@
       "provider": "zed.dev"
     },
     "inline_assistant_model": {
-      "model": "claude-opus-4-5",
-      "provider": "zed.dev"
+      "model": "claude-sonnet-4-5-latest",
+      "provider": "anthropic"
     },
     "default_profile": "ask",
     "default_width": 600
   },
   "project_panel": {
-    "default_width": 500
+    "default_width": 350
+  },
+  "git_panel": {
+    "default_width": 350
   },
   "debugger": {
     "button": true
-  },
-  "git_panel": {
-    "default_width": 500
   },
   "search": {
     "button": true
@@ -54,7 +54,7 @@
     "cursor_position_button": false
   },
   "outline_panel": {
-    "default_width": 500
+    "default_width": 350
   },
   "format_on_save": "on",
   "base_keymap": "JetBrains",
@@ -64,15 +64,6 @@
   },
   "tab_size": 2,
   "agent_buffer_font_size": 16,
-  "lsp": {
-    "eslint": {
-      "settings": {
-        "problems": {
-          "shortenToSingleLine": true
-        }
-      }
-    }
-  },
   "code_actions_on_format": {
     "source.fixAll.eslint": true
   },
