@@ -43,7 +43,6 @@ general preferences). Acknowledge, write, confirm.
 
 - **AST search/refactoring**: `ast-grep` — for structural search (classes, functions, patterns)
 - **JSON processing**: `jq` — for complex transformations
-- **YAML, TOML, CSV, CBOR, Avro, MessagePack, Protobuf processing**: `rq` — for complex transformations
 - **Code search**: `rg` with flags (`-t`, `-g`, `--json`) — when specific output format needed
 
 </cli>
