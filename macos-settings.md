@@ -41,6 +41,8 @@
   - [ ] Play user interface sound effects
   - [x] Play feedback when volume is changed
 - Accessibility:
+  - Display:
+    - [x] Show window title icons
   - Audio
     - [x] Play stereo audio as mono
 - Keyboard:

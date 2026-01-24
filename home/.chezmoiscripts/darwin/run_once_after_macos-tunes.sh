@@ -175,9 +175,6 @@ defaults write com.apple.finder ShowHardDrivesOnDesktop -bool false
 defaults write com.apple.finder ShowMountedServersOnDesktop -bool false
 defaults write com.apple.finder ShowRemovableMediaOnDesktop -bool false
 
-# Always show proxy icons in window title bars (instead of hover-to-reveal)
-defaults write com.apple.universalaccess showWindowTitlebarIcons -bool true
-
 # ==============================================================================
 # Spring Loading & .DS_Store
 # ==============================================================================
