@@ -6,10 +6,11 @@ Cross-platform dotfiles managed with [chezmoi](https://www.chezmoi.io/).
 
 ```sh
 # Install chezmoi and apply dotfiles
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply Seigiard/my-mac-setup
+sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply $PATH_TO/my-mac-setup
 ```
 
 This will:
+
 - Install Homebrew (if not present)
 - Install CLI tools and apps via Brewfiles
 - Install Oh My Zsh and plugins
@@ -19,6 +20,7 @@ This will:
 ## Prerequisites
 
 Set up GitHub SSH keys:
+
 - [Generate SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
 - [Add key to GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
 
