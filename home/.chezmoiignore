@@ -1,0 +1,25 @@
+# README and docs
+README.md
+LICENSE
+
+# macOS-only files (ignore on Linux)
+{{ if ne .chezmoi.os "darwin" }}
+private_dot_hammerspoon
+private_dot_hammerspoon/**
+private_Library
+private_Library/**
+private_dot_config/ghostty
+private_dot_config/ghostty/**
+private_dot_config/karabiner
+private_dot_config/karabiner/**
+private_dot_config/karabiner.edn
+private_dot_config/zed
+private_dot_config/zed/**
+.chezmoiscripts/darwin
+.chezmoiscripts/darwin/**
+{{ end }}
+
+# Linux-only files (ignore on macOS)
+{{ if ne .chezmoi.os "linux" }}
+.chezmoiscripts/linux
+{{ end }}

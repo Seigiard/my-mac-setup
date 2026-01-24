@@ -1,0 +1,77 @@
+#!/bin/bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Install packages via Homebrew (cross-platform)
+#
+# Hash triggers (re-run when files change):
+# # {{ include "private_dot_config/brewfiles/Brewfile" | sha256sum }}
+# # {{ if eq .chezmoi.os "darwin" }}
+# # {{ include "private_dot_config/brewfiles/Brewfile.macos" | sha256sum }}
+# # {{ end }}
+
+set -e
+
+BREWFILES_DIR="$HOME/.config/brewfiles"
+
+# Check if Homebrew is installed
+if ! command -v brew &> /dev/null; then
+    echo "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    # Add brew to PATH for this session
+    if [[ -f /opt/homebrew/bin/brew ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+    fi
+fi
+
+echo "=== Installing packages via Homebrew ==="
+
+# Install cross-platform packages
+echo "--- Installing common CLI tools ---"
+brew bundle --file="$BREWFILES_DIR/Brewfile" 
+# # {{ if eq .chezmoi.os "darwin" }}
+# macOS-specific packages
+echo "--- Installing macOS packages ---"
+brew bundle --file="$BREWFILES_DIR/Brewfile.macos"
+# # {{ end }}
+
+echo "=== Package installation complete! ==="
+
+# Install Oh My Zsh if not present
+if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
+    echo "Installing Oh My Zsh..."
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+fi
+
+# Install Oh My Zsh plugins
+ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
+    git clone https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
+fi
+if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+fi
+if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-history-substring-search" ]]; then
+    git clone https://github.com/zsh-users/zsh-history-substring-search "$ZSH_CUSTOM/plugins/zsh-history-substring-search"
+fi
+
+# Initialize mise
+if command -v mise &> /dev/null; then
+    mise use --global node@lts
+fi
+
+# # {{ if eq .chezmoi.os "darwin" }}
+# Install Yazi plugins (macOS)
+if command -v ya &> /dev/null; then
+    ya pkg add yazi-rs/plugins:piper || true
+    ya pkg add ndtoan96/ouch || true
+fi
+
+# Run goku to compile karabiner config
+if command -v goku &> /dev/null; then
+    goku || true
+fi
+# # {{ end }}
+
+echo "=== Setup complete! ==="

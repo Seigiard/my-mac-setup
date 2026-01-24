@@ -1,0 +1,50 @@
+# macOS-specific packages
+
+# Taps
+tap "yqrashawn/goku"
+
+# CLI tools (macOS only)
+brew "lazywalker/rgrc/rgrc"
+brew "terminal-notifier"
+brew "yqrashawn/goku/goku"
+
+# Fonts
+cask "font-symbols-only-nerd-font"
+cask "font-recursive-code"
+cask "font-jetbrains-mono"
+
+# Terminal & editors
+cask "ghostty"
+cask "zed"
+cask "vscodium"
+cask "webstorm"
+cask "obsidian"
+
+# Productivity
+cask "raycast"
+cask "marta"
+cask "ticktick"
+cask "setapp"
+cask "dropbox"
+
+# Utilities
+cask "karabiner-elements"
+cask "the-unarchiver"
+cask "imageoptim"
+
+# Media
+cask "spotify"
+cask "notunes"
+cask "iina"
+cask "transmission"
+
+# Browsers
+cask "brave-browser"
+cask "floorp"
+
+# Communication
+cask "telegram"
+cask "figma"
+
+# Other
+cask "android-file-transfer"

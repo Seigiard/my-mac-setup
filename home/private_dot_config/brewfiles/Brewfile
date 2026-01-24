@@ -1,0 +1,43 @@
+# Cross-platform CLI tools (Linuxbrew + Homebrew)
+# Format: brew "package" # binary_name (if different)
+
+# Shell & prompt
+brew "zsh"
+brew "starship"
+
+# Git tools
+brew "git"
+brew "gh"
+brew "delta"
+brew "lazygit"
+
+# Version manager
+brew "mise"
+
+# Search & text processing
+brew "ripgrep"      # rg
+brew "ast-grep"     # sg
+brew "bat"
+brew "jq"
+brew "tldr"
+
+# File management
+brew "yazi"
+brew "fd"
+brew "fzf"
+brew "zoxide"
+brew "eza"
+brew "ouch"
+
+# System monitoring
+brew "btop"
+brew "procs"
+brew "dust"
+brew "duf"
+
+# Yazi dependencies
+brew "ffmpeg"
+brew "sevenzip"     # 7zz
+brew "poppler"
+brew "resvg"
+brew "imagemagick"

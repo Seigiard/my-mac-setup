@@ -1,0 +1,102 @@
+{
+  "tabs": {
+    "git_status": true,
+    "file_icons": true
+  },
+  "when_closing_with_no_tabs": "keep_window_open",
+  "terminal": {
+    "dock": "bottom",
+    "default_height": 500,
+    "copy_on_select": true,
+    "default_width": 600
+  },
+  "ui_font_size": 19,
+  "buffer_font_family": "JetBrains Mono",
+  "agent": {
+    "always_allow_tool_actions": true,
+    "use_modifier_to_send": false,
+    "default_model": {
+      "model": "claude-sonnet-4",
+      "provider": "zed.dev"
+    },
+    "inline_assistant_model": {
+      "model": "claude-sonnet-4-5-latest",
+      "provider": "anthropic"
+    },
+    "default_profile": "ask",
+    "default_width": 600
+  },
+  "project_panel": {
+    "default_width": 350
+  },
+  "git_panel": {
+    "default_width": 350
+  },
+  "debugger": {
+    "button": true
+  },
+  "search": {
+    "button": true
+  },
+  "buffer_font_size": 18,
+  "wrap_guides": [
+    120
+  ],
+  "theme": "Flexoki Light",
+  "title_bar": {
+    "show_project_items": true,
+    "show_branch_icon": false,
+    "show_menus": false
+  },
+  "preferred_line_length": 120,
+  "status_bar": {
+    "active_language_button": true,
+    "cursor_position_button": false
+  },
+  "outline_panel": {
+    "default_width": 350
+  },
+  "format_on_save": "on",
+  "base_keymap": "JetBrains",
+  "telemetry": {
+    "metrics": false,
+    "diagnostics": false
+  },
+  "tab_size": 2,
+  "agent_buffer_font_size": 16,
+  "code_actions_on_format": {
+    "source.fixAll.eslint": true
+  },
+  "notification_panel": {
+    "button": false,
+    "dock": "left"
+  },
+  "edit_predictions": {
+    "mode": "subtle",
+    "enabled_in_text_threads": false
+  },
+  "features": {
+    "edit_prediction_provider": "zed"
+  },
+  "soft_wrap": "preferred_line_length",
+  "tab_bar": {
+    "show_nav_history_buttons": false
+  },
+  "collaboration_panel": {
+    "button": false,
+    "dock": "left"
+  },
+  "toolbar": {
+    "breadcrumbs": true,
+    "quick_actions": false
+  },
+  "buffer_font_weight": 400,
+  "ui_font_family": ".ZedSans",
+  "journal": {
+    "path": "~/Dropbox/Knowledge Base",
+    "hour_format": "hour24"
+  },
+  "diagnostics": {
+    "button": true
+  }
+}

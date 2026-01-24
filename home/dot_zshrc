@@ -16,6 +16,9 @@ if [[ -f /opt/homebrew/bin/brew ]]; then
 elif [[ -f /usr/local/bin/brew ]]; then
   eval "$(/usr/local/bin/brew shellenv)"
   BREW_PREFIX="/usr/local"
+elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+  BREW_PREFIX="/home/linuxbrew/.linuxbrew"
 fi
 
 # -------------------------------------------

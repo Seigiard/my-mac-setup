@@ -1,0 +1,94 @@
+{
+  "fileSuggestion": {
+    "type": "command",
+    "command": "~/.claude/hooks/file-suggestion.sh"
+  },
+  "cleanupPeriodDays": 365,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(ast-grep *)",
+      "Bash(grep:*)",
+      "Bash(rq *)",
+      "Bash(jq *)",
+      "Bash(gh *)",
+      "Bash(find *)",
+      "Bash(tree *)",
+      "Bash(wc:*)",
+      "mcp__context7",
+      "mcp__deepwiki",
+      "mcp__github",
+      "mcp__linear-server",
+      "mcp__claude-in-chrome",
+      "mcp__plugin_figma_figma",
+      "Skill(superpowers:*)"
+    ],
+    "deny": ["Bash(rm -rf:*)"],
+    "ask": ["Bash(git push:*)"],
+    "defaultMode": "plan"
+  },
+  "model": "opus",
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -message \"$CLAUDE_NOTIFICATION_MESSAGE\" -sound Ping -timeout 10"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -subtitle \"Session Complete\" -message \"Task completed\" -sound Ping -timeout 10"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/hooks/statusline.sh"
+  },
+  "enabledPlugins": {
+    "claude-mem@thedotmack": false,
+    "frontend-design@claude-plugins-official": true,
+    "context7@claude-plugins-official": false,
+    "feature-dev@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "figma@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "learning-output-style@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "superpowers@superpowers-marketplace": true
+  },
+  "additionalDirectories": [
+    "/Users/seigiard/Dropbox/Knowledge Base",
+    "/Users/seigiard/Dropbox/Knowledge Base/Calendar/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
+    "~/.claude/hooks/"
+  ],
+  "feedbackSurveyState": {
+    "lastShownTime": 1754040532937
+  }
+}

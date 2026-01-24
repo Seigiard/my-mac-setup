@@ -1,0 +1,78 @@
+services:
+  # Interactive shell for debugging
+  ubuntu:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - ../home:/home/testuser/dotfiles:ro
+      - ../tests:/home/testuser/tests:ro
+    environment:
+      - CHEZMOI_NAME=Test User
+      - CHEZMOI_EMAIL=test@example.com
+      - HOMEBREW_NO_AUTO_UPDATE=1
+      - HOMEBREW_NO_INSTALL_CLEANUP=1
+    stdin_open: true
+    tty: true
+
+  # Full test with package installation
+  test-full:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - ../home:/home/testuser/dotfiles:ro
+      - ../tests:/home/testuser/tests:ro
+    environment:
+      - CHEZMOI_NAME=Test User
+      - CHEZMOI_EMAIL=test@example.com
+      - HOMEBREW_NO_AUTO_UPDATE=1
+      - HOMEBREW_NO_INSTALL_CLEANUP=1
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo "=== Copying dotfiles to chezmoi source ==="
+        # Copy all files including hidden ones (using subshell to avoid glob issues)
+        (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/)
+
+        echo "=== Initializing chezmoi ==="
+        chezmoi init --source=/home/testuser/.local/share/chezmoi \
+          --promptString name="Test User" \
+          --promptString email="test@example.com"
+
+        echo "=== Applying dotfiles (with package installation) ==="
+        chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
+
+        echo "=== Running tests ==="
+        bats tests/
+
+        echo "=== Verifying installed packages ==="
+        echo "Checking brew packages..."
+        brew list
+
+        echo "=== All done! ==="
+
+  # Quick test (no package installation, just config files)
+  test-quick:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - ../home:/home/testuser/dotfiles:ro
+      - ../tests:/home/testuser/tests:ro
+    environment:
+      - CHEZMOI_NAME=Test User
+      - CHEZMOI_EMAIL=test@example.com
+      - SKIP_PACKAGE_INSTALL=1
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        # Copy all files including hidden ones (using subshell to avoid glob issues)
+        (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/)
+        chezmoi init --source=/home/testuser/.local/share/chezmoi \
+          --promptString name="Test User" \
+          --promptString email="test@example.com"
+        chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
+        bats tests/

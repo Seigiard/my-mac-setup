@@ -1,0 +1,88 @@
+name: Test Dotfiles
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CHEZMOI_NAME: "Test User"
+  CHEZMOI_EMAIL: "test@example.com"
+
+jobs:
+  test-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Install chezmoi
+        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
+
+      - name: Add chezmoi to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Initialize chezmoi
+        run: chezmoi init --source=./home
+
+      - name: Apply dotfiles (dry-run first)
+        run: chezmoi diff --source=./home || true
+
+      - name: Apply dotfiles
+        run: chezmoi apply --source=./home --verbose
+
+      - name: Run smoke tests
+        run: bats tests/smoke.bats
+
+      - name: Run idempotency tests
+        run: bats tests/idempotent.bats
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: brew install chezmoi
+
+      - name: Install bats
+        run: brew install bats-core
+
+      - name: Initialize chezmoi
+        run: chezmoi init --source=./home
+
+      - name: Apply dotfiles (dry-run first)
+        run: chezmoi diff --source=./home || true
+
+      - name: Apply dotfiles
+        run: chezmoi apply --source=./home --verbose
+
+      - name: Run smoke tests
+        run: bats tests/smoke.bats
+
+      - name: Run idempotency tests
+        run: bats tests/idempotent.bats
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on scripts
+        run: |
+          find . -name "*.sh" -type f | xargs shellcheck --severity=warning || true
+          find home -name "run_*" -type f | xargs shellcheck --severity=warning || true
