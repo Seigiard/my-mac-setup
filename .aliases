@@ -59,6 +59,15 @@ else
 fi
 alias myip='curl -s ifconfig.me'
 
+# Kill process by port: killport 6006
+killport() {
+  local port="$1"
+  [[ -z "$port" ]] && { echo "Usage: killport <port>"; return 1; }
+  local pid=$(lsof -ti:"$port" 2>/dev/null)
+  [[ -z "$pid" ]] && { echo "No process on port $port"; return 0; }
+  kill -9 $pid && echo "Killed process(es) on port $port: $pid"
+}
+
 # -------------------------------------------
 # macOS only
 # -------------------------------------------

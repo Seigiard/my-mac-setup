@@ -88,6 +88,10 @@ else
     fi
 fi
 
+# Offset to compensate for underreporting (~20%)
+CONTEXT_PCT=$((CONTEXT_PCT + 20))
+[ "$CONTEXT_PCT" -gt 100 ] && CONTEXT_PCT=100
+
 COLOR=$(get_context_color "$CONTEXT_PCT")
 BAR=$(progress_bar "$CONTEXT_PCT" "$COLOR")
 TOOLS=$(get_tool_counts "$TRANSCRIPT")

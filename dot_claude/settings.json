@@ -13,6 +13,7 @@
       "Bash(npm run *)",
       "Bash(git diff *)",
       "Bash(git log *)",
+      "Bash(git push:*)",
       "Bash(ast-grep *)",
       "Bash(grep:*)",
       "Bash(rq *)",
@@ -29,12 +30,8 @@
       "mcp__plugin_figma_figma",
       "Skill(superpowers:*)"
     ],
-    "deny": [
-      "Bash(rm -rf:*)"
-    ],
-    "ask": [
-      "Bash(git push:*)"
-    ],
+    "deny": ["Bash(rm -rf:*)"],
+    "ask": [],
     "defaultMode": "plan"
   },
   "model": "opus",
