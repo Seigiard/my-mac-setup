@@ -76,6 +76,12 @@ if [[ "$OS" == "macos" ]]; then
   alias o='open .'
   alias ql='qlmanage -p'
   alias flushdns='sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder'
+
+  # SMB mounts (home.local) - uses Finder for native credential handling
+  alias mnt-public='open "smb://guest@home.local/public"'
+  alias mnt-andrew='open "smb://andrew@home.local/andrew"'
+  alias unmnt-public='diskutil unmount /Volumes/public'
+  alias unmnt-andrew='diskutil unmount /Volumes/andrew'
 fi
 
 # -------------------------------------------
