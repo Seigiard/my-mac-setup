@@ -19,10 +19,19 @@ This will:
 
 ## Prerequisites
 
-Set up GitHub SSH keys:
+### GitHub SSH keys
 
 - [Generate SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
 - [Add key to GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
+
+### 1Password CLI (optional, for secrets)
+
+Some configs use 1Password to inject API keys (e.g., `LINEAR_API_KEY`).
+
+1Password CLI is installed automatically via Brewfile. To enable:
+
+1. Open 1Password app: **Settings → Developer → Enable "Integrate with 1Password CLI"**
+2. Run `chezmoi apply` to inject secrets into configs
 
 ## Manual Configuration
 
@@ -55,7 +64,7 @@ home/
 │   ├── ghostty/
 │   ├── karabiner/
 │   └── yazi/
-├── dot_zshrc
+├── dot_zshrc.tmpl            # Uses 1Password for API keys
 ├── dot_aliases
 ├── dot_gitconfig.tmpl
 └── ...

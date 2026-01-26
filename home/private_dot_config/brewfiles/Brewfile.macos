@@ -6,6 +6,7 @@ tap "yqrashawn/goku"
 # CLI tools (macOS only)
 brew "lazywalker/rgrc/rgrc"
 brew "terminal-notifier"
+brew "schpet/tap/linear"
 brew "yqrashawn/goku/goku"
 
 # Fonts
@@ -28,6 +29,7 @@ cask "setapp"
 cask "dropbox"
 
 # Utilities
+cask "1password-cli"
 cask "karabiner-elements"
 cask "the-unarchiver"
 cask "imageoptim"

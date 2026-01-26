@@ -98,4 +98,12 @@ try_source ~/.aliases
 try_source ~/.docker/init-zsh.sh
 try_source ~/.orbstack/shell/init.zsh
 
+{{- if lookPath "op" }}
+# -------------------------------------------
+# API Keys (from 1Password)
+# -------------------------------------------
+
+export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" }}"
+{{- end }}
+
 export EDITOR="zed"
