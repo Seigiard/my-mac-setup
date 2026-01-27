@@ -1,0 +1,38 @@
+# External sources synced by chezmoi
+# Run `chezmoi apply` to sync, `chezmoi update` to refresh
+# Using archive type with include to extract only specific subdirectories
+
+[".claude/skills/react-best-practices"]
+    type = "archive"
+    url = "https://github.com/vercel-labs/agent-skills/archive/refs/heads/main.tar.gz"
+    include = ["*/skills/react-best-practices/**"]
+    stripComponents = 3
+    refreshPeriod = "168h"
+
+[".claude/skills/composition-patterns"]
+    type = "archive"
+    url = "https://github.com/vercel-labs/agent-skills/archive/refs/heads/main.tar.gz"
+    include = ["*/skills/composition-patterns/**"]
+    stripComponents = 3
+    refreshPeriod = "168h"
+
+[".claude/skills/react-useeffect"]
+    type = "archive"
+    url = "https://github.com/jarrodwatts/claude-code-config/archive/refs/heads/main.tar.gz"
+    include = ["*/skills/react-useeffect/**"]
+    stripComponents = 3
+    refreshPeriod = "168h"
+
+[".claude/skills/rigorous-coding"]
+    type = "archive"
+    url = "https://github.com/jarrodwatts/claude-code-config/archive/refs/heads/main.tar.gz"
+    include = ["*/skills/rigorous-coding/**"]
+    stripComponents = 3
+    refreshPeriod = "168h"
+
+[".claude/skills/linear-cli"]
+    type = "archive"
+    url = "https://github.com/schpet/linear-cli/archive/refs/heads/main.tar.gz"
+    include = ["*/skills/linear-cli/**"]
+    stripComponents = 3
+    refreshPeriod = "168h"
