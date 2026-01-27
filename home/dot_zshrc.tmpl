@@ -7,21 +7,6 @@ has() { command -v "$1" > /dev/null 2>&1; }
 try_source() { [[ -s "$1" ]] && source "$1"; }
 
 # -------------------------------------------
-# Homebrew (hardcoded for speed)
-# -------------------------------------------
-
-if [[ -f /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-  BREW_PREFIX="/opt/homebrew"
-elif [[ -f /usr/local/bin/brew ]]; then
-  eval "$(/usr/local/bin/brew shellenv)"
-  BREW_PREFIX="/usr/local"
-elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  BREW_PREFIX="/home/linuxbrew/.linuxbrew"
-fi
-
-# -------------------------------------------
 # Oh My Zsh
 # -------------------------------------------
 
@@ -62,18 +47,6 @@ bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
 # -------------------------------------------
-# Path
-# -------------------------------------------
-
-export PATH="$HOME/.local/bin:$PATH"
-
-# -------------------------------------------
-# mise - polyglot version manager
-# -------------------------------------------
-
-has mise && eval "$(mise activate zsh)"
-
-# -------------------------------------------
 # fzf configuration (use fd for speed)
 # -------------------------------------------
 
@@ -98,12 +71,3 @@ try_source ~/.aliases
 try_source ~/.docker/init-zsh.sh
 try_source ~/.orbstack/shell/init.zsh
 
-{{- if lookPath "op" }}
-# -------------------------------------------
-# API Keys (from 1Password)
-# -------------------------------------------
-
-export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" }}"
-{{- end }}
-
-export EDITOR="zed"

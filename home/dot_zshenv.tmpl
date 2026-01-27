@@ -1,0 +1,38 @@
+# ~/.zshenv - Sourced by ALL zsh shells (interactive and non-interactive)
+# Keep this minimal - only env vars needed by scripts/tools
+
+# Helpers
+has() { command -v "$1" > /dev/null 2>&1; }
+
+# -------------------------------------------
+# Homebrew (needed for scripts to find brew commands)
+# -------------------------------------------
+if [[ -f /opt/homebrew/bin/brew ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -f /usr/local/bin/brew ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+
+# -------------------------------------------
+# Path
+# -------------------------------------------
+export PATH="$HOME/.local/bin:$PATH"
+
+# -------------------------------------------
+# mise (version manager - needed for correct tool versions)
+# -------------------------------------------
+has mise && eval "$(mise activate zsh)"
+
+# -------------------------------------------
+# Editor
+# -------------------------------------------
+export EDITOR="zed"
+
+{{- if lookPath "op" }}
+# -------------------------------------------
+# API Keys (from 1Password)
+# -------------------------------------------
+export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" }}"
+{{- end }}
