@@ -38,18 +38,22 @@ disable-model-invocation: true
 
 ### 2. Получить Linear активность за день
 
-Использовать Linear MCP:
+Использовать Linear CLI:
 
 ```
-list_issues(assignee: "me", updatedAt: "YYYY-MM-DD")
+linear issue list --sort manual --team UI
+linear issue list --sort manual --team CM
+linear issue list --sort manual --team CX
 ```
 
 Найти таски которые за день:
+
 - Перешли в Done/Review
 - Получили комментарии
 - Были обновлены
 
 Формулировать человечески:
+
 - "Закрыл combobox" вместо "UI-384 moved to Done"
 - "PR по Pro badge ушёл на ревью"
 
@@ -62,15 +66,18 @@ list_issues(assignee: "me", updatedAt: "YYYY-MM-DD")
 ### 4. Сформировать картину дня через диалог
 
 **Показать что собрал:**
+
 - Linear активность
 - Claude сессии
 - Ключевые моменты из Дневника
 
 **Спросить:**
+
 - "Как прошёл день?"
 - Если что-то неясно: "Таска про X — это то же что combobox?"
 
 **Убрать дубликаты:**
+
 - Если в Дневнике уже есть инфо — не спрашивать повторно
 
 ### 5. Дописать итог в `## Дневник`
@@ -88,6 +95,7 @@ list_issues(assignee: "me", updatedAt: "YYYY-MM-DD")
 ## Handoff
 
 **Открытые треды:**
+
 - combobox: custom entry в дропдаунах
 - Lexical: итерации по фидбеку
 - Tailwind: осталось 5 компонентов
@@ -97,11 +105,13 @@ list_issues(assignee: "me", updatedAt: "YYYY-MM-DD")
 ```
 
 **Открытые треды собираются из:**
+
 - Linear: In Progress таски
 - Дневник: упомянутые планы
 - План: невыполненное
 
 **Контекст включает:**
+
 - Как закончился день (энергия, настроение)
 - Технический контекст (где остановился)
 - Рекомендация на завтра

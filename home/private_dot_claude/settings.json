@@ -11,6 +11,8 @@
   "permissions": {
     "allow": [
       "Bash(npm run *)",
+      "Bash(linear *)",
+      "Bash(curl *)",
       "Bash(git diff *)",
       "Bash(git log *)",
       "Bash(ast-grep *)",
@@ -21,10 +23,8 @@
       "Bash(find *)",
       "Bash(tree *)",
       "Bash(wc:*)",
-      "mcp__context7",
       "mcp__deepwiki",
       "mcp__github",
-      "mcp__linear-server",
       "mcp__claude-in-chrome",
       "mcp__plugin_figma_figma",
       "Skill(superpowers:*)"

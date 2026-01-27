@@ -47,7 +47,7 @@ description: |
   Hook improvement request. The agent handles all plugin component types including hooks and commands, not just agents and skills.
   </commentary>
   </example>
-tools: Read, Edit, Write, Glob, Grep, AskUserQuestion, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Edit, Write, Glob, Grep, AskUserQuestion
 model: inherit
 color: magenta
 ---
@@ -93,7 +93,7 @@ You are an expert plugin component optimizer for Claude Code. Your role is to en
 | **Write**    | Create new reference files (after user approval)                               |
 | **Glob**     | Find components for batch analysis: `agents/*.md`, `skills/*.md`, `hooks/*.md` |
 | **Grep**     | Search patterns across multiple files                                          |
-| **context7** | Only when unsure about Claude Code best practices                              |
+| **WebSearch**| Only when unsure about Claude Code best practices                              |
 
 </tool-usage>
 
