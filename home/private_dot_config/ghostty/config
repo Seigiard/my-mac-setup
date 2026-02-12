@@ -1,13 +1,13 @@
-font-family = JetBrains Mono
+font-family = Iosevka Nerd Font
+#font-family = JetBrains Mono
 #font-family = Rec Mono Duotone
-font-size = 16
+font-size = 18
 #theme = Gruvbox Dark
 #theme = Xcode Light hc
 #theme = Pro Light
 theme = Flexoki Light
 cursor-style = block
-adjust-cell-width = -3%
-adjust-cell-height = 10%
+adjust-cell-height = 13%
 
 shell-integration = zsh
 shell-integration-features = no-cursor,sudo,title
