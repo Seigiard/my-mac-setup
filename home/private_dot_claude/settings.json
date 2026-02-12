@@ -29,8 +29,12 @@
       "mcp__plugin_figma_figma",
       "Skill(superpowers:*)"
     ],
-    "deny": ["Bash(rm -rf:*)"],
-    "ask": ["Bash(git push:*)"],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
+    ],
     "defaultMode": "plan"
   },
   "model": "opus",
@@ -63,21 +67,32 @@
     "command": "~/.claude/hooks/statusline.sh"
   },
   "enabledPlugins": {
-    "claude-mem@thedotmack": false,
     "frontend-design@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": false,
+    "code-review@claude-plugins-official": false,
     "commit-commands@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "figma@claude-plugins-official": true,
+    "playwright@claude-plugins-official": false,
+    "pr-review-toolkit@claude-plugins-official": false,
+    "figma@claude-plugins-official": false,
     "explanatory-output-style@claude-plugins-official": true,
-    "plugin-dev@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": false,
     "hookify@claude-plugins-official": true,
     "learning-output-style@claude-plugins-official": true,
-    "superpowers@superpowers-marketplace": true
+    "superpowers@superpowers-marketplace": true,
+    "code-documentation@claude-code-workflows": true,
+    "debugging-toolkit@claude-code-workflows": true,
+    "git-pr-workflows@claude-code-workflows": true,
+    "c4-architecture@claude-code-workflows": true,
+    "frontend-mobile-development@claude-code-workflows": true,
+    "conductor@claude-code-workflows": false,
+    "unit-testing@claude-code-workflows": true,
+    "code-review-ai@claude-code-workflows": true,
+    "comprehensive-review@claude-code-workflows": true,
+    "code-refactoring@claude-code-workflows": true,
+    "javascript-typescript@claude-code-workflows": true,
+    "ralphex@ralphex": true
   },
   "additionalDirectories": [
     "/Users/seigiard/Dropbox/Knowledge Base",

@@ -11,8 +11,10 @@ brew "yqrashawn/goku/goku"
 
 # Fonts
 cask "font-symbols-only-nerd-font"
-cask "font-recursive-code"
 cask "font-jetbrains-mono"
+cask "font-jetbrains-mono-nerd-font"
+cask "font-d2coding-nerd-font"
+cask "font-iosevka-nerd-font"
 
 # Terminal & editors
 cask "ghostty"

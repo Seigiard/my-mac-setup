@@ -41,9 +41,9 @@ disable-model-invocation: true
 Использовать Linear CLI:
 
 ```
-linear issue list --sort manual --team UI
-linear issue list --sort manual --team CM
-linear issue list --sort manual --team CX
+linear issue list --sort manual --team UI --limit 10
+linear issue list --sort manual --team CM --limit 10
+linear issue list --sort manual --team CX --limit 10
 ```
 
 Найти таски которые за день:

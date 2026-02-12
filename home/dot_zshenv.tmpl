@@ -30,9 +30,12 @@ has mise && eval "$(mise activate zsh)"
 # -------------------------------------------
 export EDITOR="zed"
 
+# -------------------------------------------
+# Linear CLI
+# -------------------------------------------
+export LINEAR_ISSUE_SORT="manual"
+
 {{- if lookPath "op" }}
-# -------------------------------------------
 # API Keys (from 1Password)
-# -------------------------------------------
 export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" }}"
 {{- end }}
