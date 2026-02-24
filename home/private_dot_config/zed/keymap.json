@@ -13,6 +13,7 @@
       "cmd-f": "search::FocusSearch",
       "cmd-r": "search::ToggleReplace",
       "cmd-alt-1": "pane::RevealInProjectPanel",
+      "cmd-shift-enter": "workspace::ToggleZoom",
     },
   },
   {

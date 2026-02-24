@@ -4,17 +4,17 @@
       "settings": {
         "typescript": {
           "updateImportsOnFileMove": {
-            "enabled": "always"
-          }
+            "enabled": "always",
+          },
         },
         "javascript": {
           "updateImportsOnFileMove": {
-            "enabled": "always"
-          }
-        }
+            "enabled": "always",
+          },
+        },
       },
-      "enable_lsp_tasks": true
-    }
+      "enable_lsp_tasks": true,
+    },
   },
   "tabs": {
     "git_status": true,
@@ -32,7 +32,9 @@
   "ui_font_size": 19,
   "buffer_font_family": "Iosevka Nerd Font Mono",
   "agent": {
-    "always_allow_tool_actions": true,
+    "tool_permissions": {
+      "default": "allow",
+    },
     "use_modifier_to_send": false,
     "default_model": {
       "model": "claude-sonnet-4",
@@ -40,6 +42,10 @@
     },
     "inline_assistant_model": {
       "model": "claude-sonnet-4-5",
+      "provider": "zed.dev",
+    },
+    "commit_message_model": {
+      "model": "claude-haiku-4-5",
       "provider": "zed.dev",
     },
     "default_profile": "ask",
