@@ -23,6 +23,8 @@
       "Bash(find *)",
       "Bash(tree *)",
       "Bash(wc:*)",
+      "Bash(bun run fix)",
+      "Bash(bun run typecheck:*)",
       "mcp__deepwiki",
       "mcp__github",
       "mcp__claude-in-chrome",
@@ -41,22 +43,116 @@
   "hooks": {
     "Notification": [
       {
-        "matcher": "*",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -message \"$CLAUDE_NOTIFICATION_MESSAGE\" -sound Ping -timeout 10"
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
     ],
     "Stop": [
       {
-        "matcher": "*",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -title \"Claude Code — $(basename \"$PWD\")\" -subtitle \"Session Complete\" -message \"Task completed\" -sound Ping -timeout 10"
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -80,7 +176,7 @@
     "plugin-dev@claude-plugins-official": false,
     "hookify@claude-plugins-official": true,
     "learning-output-style@claude-plugins-official": true,
-    "superpowers@superpowers-marketplace": true,
+    "superpowers@claude-plugins-official": true,
     "code-documentation@claude-code-workflows": true,
     "debugging-toolkit@claude-code-workflows": true,
     "git-pr-workflows@claude-code-workflows": true,
@@ -88,12 +184,12 @@
     "frontend-mobile-development@claude-code-workflows": true,
     "conductor@claude-code-workflows": false,
     "unit-testing@claude-code-workflows": true,
-    "code-review-ai@claude-code-workflows": true,
     "comprehensive-review@claude-code-workflows": true,
     "code-refactoring@claude-code-workflows": true,
     "javascript-typescript@claude-code-workflows": true,
-    "ralphex@ralphex": true
+    "safety-net@cc-marketplace": true
   },
+  "skipDangerousModePermissionPrompt": true,
   "additionalDirectories": [
     "/Users/seigiard/Dropbox/Knowledge Base",
     "/Users/seigiard/Dropbox/Knowledge Base/Calendar/",
