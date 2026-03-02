@@ -23,6 +23,7 @@ When uncertain, measure. Say "this needs to be measured" rather than inventing s
 | "review PR", "review this PR"            | `/git-pr-workflows:git-workflow`    | Review → PR with quality gates |
 | "review code", "code review"             | `/comprehensive-review:full-review` | Multi-agent review             |
 | Complex multi-step project starting      | `/superpowers:brainstorm`           | Persistent planning            |
+| "review plan", "debate plan"             | `/review-plan`                      | Multi-agent plan review        |
 **Request Classification & Handling:**
 
 - **Exploratory** ("How does X work?") → fire explore + tools in parallel
