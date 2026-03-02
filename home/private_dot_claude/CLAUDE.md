@@ -7,45 +7,40 @@ Assumptions are the enemy. Never guess numerical values - benchmark instead of e
 When uncertain, measure. Say "this needs to be measured" rather than inventing statistics.
 </epistemology>
 
-<interaction>
-Clarify unclear requests, then proceed autonomously. Only ask for help when scripts timeout
-(>2min), sudo is needed, or genuine blockers arise.
-</interaction>
-
-<Behavior_Instructions>
+<behavior-instructions>
 
 ## Phase 0 - Intent Gate (EVERY message)
 
 ### Key Triggers (check BEFORE classification):
 
-- External library/source mentioned → fire \`librarian\` background
-- 2+ modules involved → fire \`explore\` background
-- **GitHub mention (@mention in issue/PR)** → This is a WORK REQUEST. Plan full cycle: investigate → implement → create PR
-- **"Look into" + "create PR"** → Not just research. Full implementation cycle expected.
+- External library/source mentioned → fire \`open-source-librarian\` background
+- 2+ modules involved → fire Agent(subagent_type=Explore) background
 
 ### Skill Triggers (fire IMMEDIATELY when matched):
 
-| Trigger                                  | Skill                             | Notes                        |
-| ---------------------------------------- | --------------------------------- | ---------------------------- |
-| Writing/implementing code                | `/rigorous-coding`                | ALWAYS before implementation |
-| React useEffect, useState, data fetching | `/react-useeffect`                | Before writing hooks         |
-| "commit", "create commit"                | `/commit-commands:commit`         | Let skill handle git         |
-| "commit and PR", "push and create PR"    | `/commit-commands:commit-push-pr` | Full workflow                |
-| "review PR", "review this PR"            | `/pr-review-toolkit:review-pr`    | Comprehensive review         |
-| "review code", "code review"             | `/code-review:code-review`        | Before merging               |
-| Complex multi-step project starting      | `/superpowers:brainstorm`         | Persistent planning          |
-| Unclear requirements need fleshing out   | `/interview`                      | Structured discovery         |
+| Trigger                                  | Skill                               | Notes                          |
+| ---------------------------------------- | ----------------------------------- | ------------------------------ |
+| Writing/implementing code                | `/rigorous-coding`                  | ALWAYS before implementation   |
+| React useEffect, useState, data fetching | `/react-useeffect`                  | Before writing hooks           |
+| "commit", "create commit"                | `/commit-commands:commit`           | Let skill handle git           |
+| "commit and PR", "push and create PR"    | `/commit-commands:commit-push-pr`   | Full workflow                  |
+| "review PR", "review this PR"            | `/git-pr-workflows:git-workflow`    | Review → PR with quality gates |
+| "review code", "code review"             | `/comprehensive-review:full-review` | Multi-agent review             |
+| Complex multi-step project starting      | `/superpowers:brainstorm`           | Persistent planning            |
+| Fetch URL content as markdown            | `/markdown-new`                     | Free, no API key               |
+| URL with CSS selectors, PDFs, auth       | `/jina-reader`                      | Needs JINA_API_KEY             |
+| Web search, deep research via curl       | `/tavily` or `/jina-reader`         | When MCP tools unavailable     |
 
 ### Step 1: Classify Request Type
 
-| Type            | Signal                                          | Action                                                                                     |
-| --------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **Trivial**     | Single file, known location, direct answer      | Direct tools only (UNLESS Key Trigger applies)                                             |
-| **Explicit**    | Specific file/line, clear command               | Execute directly                                                                           |
-| **Exploratory** | "How does X work?", "Find Y"                    | Fire explore (1-3) + tools in parallel                                                     |
-| **Open-ended**  | "Improve", "Refactor", "Add feature"            | Assess codebase first                                                                      |
-| **GitHub Work** | Mentioned in issue, "look into X and create PR" | **Full cycle**: investigate → implement → verify → create PR (see GitHub Workflow section) |
-| **Ambiguous**   | Unclear scope, multiple interpretations         | Ask ONE clarifying question                                                                |
+| Type            | Signal                                            | Action                                                       |
+| --------------- | ------------------------------------------------- | ------------------------------------------------------------ |
+| **Trivial**     | Single file, known location, direct answer        | Direct tools only (UNLESS Key Trigger applies)               |
+| **Explicit**    | Specific file/line, clear command                 | Execute directly                                             |
+| **Exploratory** | "How does X work?", "Find Y"                      | Fire explore (1-3) + tools in parallel                       |
+| **Open-ended**  | "Improve", "Refactor", "Add feature"              | Assess codebase first                                        |
+| **GitHub Work** | @mention in issue/PR, "look into X and create PR" | **Full cycle**: investigate → implement → verify → create PR |
+| **Ambiguous**   | Unclear scope, multiple interpretations           | Ask ONE clarifying question                                  |
 
 ### Step 2: Check for Ambiguity
 
@@ -56,47 +51,31 @@ Clarify unclear requests, then proceed autonomously. Only ask for help when scri
 | Multiple interpretations, 2x+ effort difference | **MUST ask**                                     |
 | Missing critical info (file, error, context)    | **MUST ask**                                     |
 | User's design seems flawed or suboptimal        | **MUST raise concern** before implementing       |
+| Script timeout (>2min), sudo needed, blocker    | **MUST ask** for help                            |
 
 ### Step 3: Validate Before Acting
 
-- Do I have any implicit assumptions that might affect the outcome?
-- Is the search scope clear?
-- What tools / agents can be used to satisfy the user's request, considering the intent and scope?
-  - What are the list of tools / agents do I have?
-  - What tools / agents can I leverage for what tasks?
-  - Specifically, how can I leverage them like?
-    - background tasks?
-    - parallel tool calls?
-    - lsp tools?
+- Check implicit assumptions that might affect the outcome
+- Identify which tools, agents, and parallel/background execution best serve this request
+- If user's design will cause problems or will contradict codebase patterns → raise concern, propose alternative, ask before proceeding
+  </behavior-instructions>
 
-### When to Challenge the User
+<conventions>
 
-If you observe:
+## Conventions
 
-- A design decision that will cause obvious problems
-- An approach that contradicts established patterns in the codebase
-- A request that seems to misunderstand how the existing code works
+- **Commit messages**: describe the actual change, not the trigger. "address review feedback" is banned — state what changed
+- **GitHub CLI**: prefer `gh pr view`, `gh issue list`, `gh search prs` over `gh api`. Use `gh api` only when subcommands can't get the data
+- **Commands in output**: must be copy-paste runnable, never abbreviated pseudocode
+- **Research findings**: include steps another user can independently verify (exact commands + output)
+- **New features**: iterate TDD-style (Red → Green → Refactor). Use `/tdd-integration` for strict cycle, `/superpowers:test-driven-development` before implementation
 
-Then: Raise your concern concisely. Propose an alternative. Ask if they want to proceed anyway.
-
-\`\`\`
-I notice [observation]. This might cause [problem] because [reason].
-Alternative: [your suggestion].
-Should I proceed with your original request, or try the alternative?
-\`\`\`
-</Behavior_Instructions>
-
-<ground-truth-clarification>
-For non-trivial tasks, reach ground truth understanding before coding. Simple tasks execute
-immediately. Complex tasks (refactors, new features, ambiguous requirements) require
-clarification first: research codebase, ask targeted questions, confirm understanding,
-persist the plan, then execute autonomously.
-</ground-truth-clarification>
+</conventions>
 
 <first-principles-reimplementation>
-Building from scratch can beat adapting legacy code when implementations are in wrong
-languages, carry historical baggage, or need architectural rewrites. Understand domain
-at spec level, choose optimal stack, implement incrementally with human verification.
+When refactoring estimate exceeds 2x reimplementation effort (wrong language, heavy legacy
+baggage, architectural mismatch) — prefer building from scratch. Understand domain at spec
+level, choose optimal stack, implement incrementally with human verification.
 </first-principles-reimplementation>
 
 <constraint-persistence>
@@ -126,23 +105,18 @@ general preferences). Acknowledge, write, confirm.
 
 ### MCP Servers
 
-**context7** — library documentation and code examples (via `/context7` skill)
+**Tool selection guide:**
 
-- When: need official docs for a library/framework (React, Next.js, Prisma, etc.)
-- Use for: API references, usage patterns, configuration options
-- Invoke: `/context7` skill — handles library resolution and doc queries automatically
-
-**deepwiki** — GitHub repository analysis
-
-- When: need to understand a specific open-source project's architecture
-- Use for: how a repo works internally, design decisions, codebase structure
-- Best for: "How does X implement Y?" questions about specific repos
-
-**grep** — search public GitHub repositories
-
-- When: need real-world code examples and usage patterns
-- Use for: how developers actually use an API in production code
-- Best for: finding implementation patterns across many projects
+| Need                          | Primary tool                                                | Fallback                  |
+| ----------------------------- | ----------------------------------------------------------- | ------------------------- |
+| Library docs / API references | `/context7`                                                 | `mcp__deepwiki`           |
+| How a specific repo works     | `mcp__deepwiki`                                             | Agent(Explore)            |
+| Real-world usage patterns     | `mcp__grep-app__searchGitHub`                               | —                         |
+| Quick URL → markdown, no key  | `/markdown-new`                                             | `WebFetch`                |
+| URL with selectors/auth/PDFs  | `mcp__jina__read_url`                                       | `/jina-reader` curl       |
+| Web search                    | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `/tavily` curl            |
+| Deep multi-step research      | `mcp__tavily-mcp__tavily_research`                          | `/jina-reader` DeepSearch |
+| Site crawl / map              | `mcp__tavily-mcp__tavily_crawl`                             | `/tavily` curl            |
 
 </mcp-servers>
 
