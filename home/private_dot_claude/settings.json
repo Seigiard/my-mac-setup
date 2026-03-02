@@ -11,6 +11,7 @@
   "permissions": {
     "allow": [
       "Bash(npm run *)",
+      "Bash(npx -y react-doctor*)",
       "Bash(linear *)",
       "Bash(curl *)",
       "Bash(git diff *)",
@@ -118,6 +119,11 @@
             "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
             "timeout": 10,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/user-prompt-skill-eval.sh",
+            "timeout": 5
           }
         ]
       }
