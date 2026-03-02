@@ -29,14 +29,18 @@
       "mcp__github",
       "mcp__claude-in-chrome",
       "mcp__plugin_figma_figma",
-      "Skill(superpowers:*)"
+      "mcp__jina",
+      "mcp__tavily-mcp",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:hub.docker.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:react.dev)"
     ],
-    "deny": [
-      "Bash(rm -rf:*)"
-    ],
-    "ask": [
-      "Bash(git push:*)"
-    ],
+    "deny": ["Bash(rm -rf:*)"],
     "defaultMode": "plan"
   },
   "model": "opus",
@@ -187,7 +191,8 @@
     "comprehensive-review@claude-code-workflows": true,
     "code-refactoring@claude-code-workflows": true,
     "javascript-typescript@claude-code-workflows": true,
-    "safety-net@cc-marketplace": true
+    "safety-net@cc-marketplace": true,
+    "playground@claude-plugins-official": true
   },
   "skipDangerousModePermissionPrompt": true,
   "additionalDirectories": [

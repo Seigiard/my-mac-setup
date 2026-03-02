@@ -13,6 +13,9 @@ sourceDir: {{ .chezmoi.sourceDir | quote }}
 {{-   $email = promptStringOnce . "email" "Your email address" }}
 {{- end }}
 
+onepassword:
+  account: "my.1password.com"
+
 data:
   name: {{ $name | quote }}
   email: {{ $email | quote }}

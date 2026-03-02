@@ -37,7 +37,7 @@ export LINEAR_ISSUE_SORT="manual"
 
 {{ if lookPath "op" }}
 # API Keys (from 1Password)
-export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" }}"
-export TAVILY_API_KEY="{{ onepasswordRead "op://Private/Tavily API Key/credential" }}"
-export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" }}"
+export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
+export TAVILY_API_KEY="{{ onepasswordRead "op://Private/Tavily API Key/credential" "my.1password.com" }}"
+export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 {{- end }}

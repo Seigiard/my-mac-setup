@@ -26,5 +26,13 @@
     "allow_concurrent_runs": false,
     "reveal": "always",
     "hide": "always"
+  },
+  {
+    "label": "Run dev",
+    "command": "tmux has-session -t dev-$(basename $ZED_WORKTREE_ROOT) 2>/dev/null && tmux attach-session -t dev-$(basename $ZED_WORKTREE_ROOT) || tmux new-session -d -s dev-$(basename $ZED_WORKTREE_ROOT) -x $(tput cols) -y $(tput lines) 'nr dev -- console ui' \\; set destroy-unattached on \\; split-window -vb -l 5 'watchexec --quiet --clear -w .logs/dev-auto-ports.json -- bun run --silent dev:ports' \\; select-pane -t 2 \\; attach",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success"
   }
 ]

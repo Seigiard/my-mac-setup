@@ -9,9 +9,9 @@ if ! command -v op &>/dev/null || ! command -v jq &>/dev/null; then
   exit 0
 fi
 
-GITHUB_PAT=$(op read "op://Private/GitCopilot API Key/credential" 2>/dev/null || echo "")
-JINA_KEY=$(op read "op://Private/Jina API Key/credential" 2>/dev/null || echo "")
-TAVILY_KEY=$(op read "op://Private/Tavily API Key/credential" 2>/dev/null || echo "")
+GITHUB_PAT=$(op read "op://Private/GitCopilot API Key/credential" --account my.1password.com 2>/dev/null || echo "")
+JINA_KEY=$(op read "op://Private/Jina API Key/credential" --account my.1password.com 2>/dev/null || echo "")
+TAVILY_KEY=$(op read "op://Private/Tavily API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 
 if [ -z "$GITHUB_PAT" ] || [ -z "$JINA_KEY" ] || [ -z "$TAVILY_KEY" ]; then
   echo "$existing"
