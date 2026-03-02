@@ -18,9 +18,19 @@ paths: "**/*.{ts,tsx}"
 - Prefer `unknown` over `any` when type is truly unknown
 - Use explicit return types on exported functions
 
+### File Layout (top to bottom)
+
+1. Imports (external → internal → relative)
+2. Constants
+3. Types/interfaces
+4. Main export (component/function)
+5. Secondary exports
+6. Internal helpers (small inline, large → separate utils file)
+
+Main export at the top — readers see the purpose immediately.
+
 ### Imports
 
-- Group imports: external → internal → relative
 - Use named exports over default exports
 - No circular dependencies
 
@@ -32,7 +42,7 @@ paths: "**/*.{ts,tsx}"
 
 ### React Best Practices
 
-- When writing React code, invoke `vercel-react-best-practices` skill
+- When writing React code, invoke `react-best-practices` skill
 
 ### React Hooks
 
