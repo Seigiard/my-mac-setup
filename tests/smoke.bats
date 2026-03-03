@@ -7,15 +7,18 @@ load 'helpers/common'
 # ===========================================
 
 @test "zsh is installed" {
-  command_exists zsh
+  run command -v zsh
+  assert_success
 }
 
 @test "git is installed" {
-  command_exists git
+  run command -v git
+  assert_success
 }
 
 @test "curl is installed" {
-  command_exists curl
+  run command -v curl
+  assert_success
 }
 
 # ===========================================
@@ -23,23 +26,23 @@ load 'helpers/common'
 # ===========================================
 
 @test ".zshrc exists" {
-  [[ -f "$HOME/.zshrc" ]]
+  assert_file_exists "$HOME/.zshrc"
 }
 
 @test ".aliases exists" {
-  [[ -f "$HOME/.aliases" ]]
+  assert_file_exists "$HOME/.aliases"
 }
 
 @test ".gitconfig exists" {
-  [[ -f "$HOME/.gitconfig" ]]
+  assert_file_exists "$HOME/.gitconfig"
 }
 
 @test ".editorconfig exists" {
-  [[ -f "$HOME/.editorconfig" ]]
+  assert_file_exists "$HOME/.editorconfig"
 }
 
 @test "starship.toml exists" {
-  [[ -f "$HOME/.config/starship.toml" ]]
+  assert_file_exists "$HOME/.config/starship.toml"
 }
 
 # ===========================================
@@ -47,7 +50,7 @@ load 'helpers/common'
 # ===========================================
 
 @test "yazi config exists" {
-  [[ -d "$HOME/.config/yazi" ]]
+  assert_dir_exists "$HOME/.config/yazi"
 }
 
 # ===========================================
@@ -55,11 +58,11 @@ load 'helpers/common'
 # ===========================================
 
 @test ".claude directory exists" {
-  [[ -d "$HOME/.claude" ]]
+  assert_dir_exists "$HOME/.claude"
 }
 
 @test ".claude/CLAUDE.md exists" {
-  [[ -f "$HOME/.claude/CLAUDE.md" ]]
+  assert_file_exists "$HOME/.claude/CLAUDE.md"
 }
 
 # ===========================================
@@ -67,111 +70,91 @@ load 'helpers/common'
 # ===========================================
 
 @test "hammerspoon config exists (macOS only)" {
-  if ! is_macos; then
-    skip "Not on macOS"
-  fi
-  [[ -d "$HOME/.hammerspoon" ]]
+  is_macos || skip "Not on macOS"
+  assert_dir_exists "$HOME/.hammerspoon"
 }
 
 @test "ghostty config exists (macOS only)" {
-  if ! is_macos; then
-    skip "Not on macOS"
-  fi
-  [[ -d "$HOME/.config/ghostty" ]]
+  is_macos || skip "Not on macOS"
+  assert_dir_exists "$HOME/.config/ghostty"
 }
 
 @test "karabiner config exists (macOS only)" {
-  if ! is_macos; then
-    skip "Not on macOS"
-  fi
-  [[ -d "$HOME/.config/karabiner" ]]
+  is_macos || skip "Not on macOS"
+  assert_dir_exists "$HOME/.config/karabiner"
 }
 
 @test "zed config exists (macOS only)" {
-  if ! is_macos; then
-    skip "Not on macOS"
-  fi
-  [[ -d "$HOME/.config/zed" ]]
+  is_macos || skip "Not on macOS"
+  assert_dir_exists "$HOME/.config/zed"
 }
 
 # ===========================================
 # Optional tools (installed via package manager)
-# These tests are skipped if tool is not installed
 # ===========================================
 
 @test "starship is available (if installed)" {
-  if ! command_exists starship; then
-    skip "starship not installed"
-  fi
-  starship --version
+  command_exists starship || skip "starship not installed"
+  run starship --version
+  assert_success
 }
 
 @test "bat is available (if installed)" {
-  if ! command_exists bat; then
-    skip "bat not installed"
-  fi
-  bat --version
+  command_exists bat || skip "bat not installed"
+  run bat --version
+  assert_success
 }
 
 @test "eza is available (if installed)" {
-  if ! command_exists eza; then
-    skip "eza not installed"
-  fi
-  eza --version
+  command_exists eza || skip "eza not installed"
+  run eza --version
+  assert_success
 }
 
 @test "fd is available (if installed)" {
-  if ! command_exists fd; then
-    skip "fd not installed"
-  fi
-  fd --version
+  command_exists fd || skip "fd not installed"
+  run fd --version
+  assert_success
 }
 
 @test "fzf is available (if installed)" {
-  if ! command_exists fzf; then
-    skip "fzf not installed"
-  fi
-  fzf --version
+  command_exists fzf || skip "fzf not installed"
+  run fzf --version
+  assert_success
 }
 
 @test "ripgrep is available (if installed)" {
-  if ! command_exists rg; then
-    skip "ripgrep not installed"
-  fi
-  rg --version
+  command_exists rg || skip "ripgrep not installed"
+  run rg --version
+  assert_success
 }
 
 @test "delta is available (if installed)" {
-  if ! command_exists delta; then
-    skip "delta not installed"
-  fi
-  delta --version
+  command_exists delta || skip "delta not installed"
+  run delta --version
+  assert_success
 }
 
 @test "yazi is available (if installed)" {
-  if ! command_exists yazi; then
-    skip "yazi not installed"
-  fi
-  yazi --version
+  command_exists yazi || skip "yazi not installed"
+  run yazi --version
+  assert_success
 }
 
 @test "lazygit is available (if installed)" {
-  if ! command_exists lazygit; then
-    skip "lazygit not installed"
-  fi
-  lazygit --version
+  command_exists lazygit || skip "lazygit not installed"
+  run lazygit --version
+  assert_success
 }
 
 @test "zoxide is available (if installed)" {
-  if ! command_exists zoxide; then
-    skip "zoxide not installed"
-  fi
-  zoxide --version
+  command_exists zoxide || skip "zoxide not installed"
+  run zoxide --version
+  assert_success
 }
 
 @test "mise is available (if installed)" {
-  if ! command_exists mise; then
-    skip "mise not installed"
-  fi
-  mise --version
+  command_exists mise || skip "mise not installed"
+  run mise --version
+  assert_success
 }
