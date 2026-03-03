@@ -33,7 +33,6 @@ services:
       - |
         set -e
         echo "=== Copying dotfiles to chezmoi source ==="
-        # Copy all files including hidden ones (using subshell to avoid glob issues)
         (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/)
 
         echo "=== Initializing chezmoi ==="
@@ -41,15 +40,17 @@ services:
           --promptString name="Test User" \
           --promptString email="test@example.com"
 
+        echo "=== Validating test infrastructure ==="
+        bats tests/helpers_test.bats
+
+        echo "=== Running template tests (pre-apply gate) ==="
+        bats tests/templates.bats
+
         echo "=== Applying dotfiles (with package installation) ==="
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
 
-        echo "=== Running tests ==="
-        bats tests/
-
-        echo "=== Verifying installed packages ==="
-        echo "Checking brew packages..."
-        brew list
+        echo "=== Running post-apply tests ==="
+        bats tests/smoke.bats tests/scripts.bats tests/platform.bats tests/idempotent.bats
 
         echo "=== All done! ==="
 
@@ -64,15 +65,15 @@ services:
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
-      - SKIP_PACKAGE_INSTALL=1
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
         set -e
-        # Copy all files including hidden ones (using subshell to avoid glob issues)
         (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/)
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
+        bats tests/helpers_test.bats
+        bats tests/templates.bats
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
-        bats tests/
+        bats tests/smoke.bats tests/scripts.bats tests/platform.bats tests/idempotent.bats
