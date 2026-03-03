@@ -29,6 +29,9 @@ brew "zoxide"
 brew "eza"
 brew "ouch"
 
+# Testing
+brew "bats-core"    # bats
+
 # System monitoring
 brew "btop"
 brew "procs"

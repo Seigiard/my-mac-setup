@@ -29,5 +29,5 @@ echo "$existing" | jq \
     "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp", "headers": { "Authorization": ("Bearer " + $github_pat) } },
     "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } },
     "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) },
-    "context7": { "type": "remote", "url": "https://mcp.context7.com/mcp", "headers": { "CONTEXT7_API_KEY": $context7_key }, "enabled": true }
+    "context7": { "type": "http", "url": "https://mcp.context7.com/mcp", "headers": { "CONTEXT7_API_KEY": $context7_key }, "enabled": true }
   }'
