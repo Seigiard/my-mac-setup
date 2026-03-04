@@ -35,15 +35,15 @@ setup() {
 
 @test "hammerspoon absent on Linux" {
   is_linux || skip "Only relevant on Linux"
-  assert_file_not_exists "$HOME/.hammerspoon"
+  assert_dir_not_exists "$HOME/.hammerspoon"
 }
 
 @test "Library absent on Linux" {
   is_linux || skip "Only relevant on Linux"
-  assert_file_not_exists "$HOME/Library"
+  assert_dir_not_exists "$HOME/Library"
 }
 
 @test "ghostty config absent on Linux" {
   is_linux || skip "Only relevant on Linux"
-  assert_file_not_exists "$HOME/.config/ghostty"
+  assert_dir_not_exists "$HOME/.config/ghostty"
 }

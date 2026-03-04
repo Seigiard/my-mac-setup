@@ -3,18 +3,19 @@ README.md
 LICENSE
 
 # macOS-only files (ignore on Linux)
+# Patterns match target paths, not source names
 {{ if ne .chezmoi.os "darwin" }}
-private_dot_hammerspoon
-private_dot_hammerspoon/**
-private_Library
-private_Library/**
-private_dot_config/ghostty
-private_dot_config/ghostty/**
-private_dot_config/karabiner
-private_dot_config/karabiner/**
-private_dot_config/karabiner.edn
-private_dot_config/zed
-private_dot_config/zed/**
+.hammerspoon
+.hammerspoon/**
+Library
+Library/**
+.config/ghostty
+.config/ghostty/**
+.config/karabiner
+.config/karabiner/**
+.config/karabiner.edn
+.config/zed
+.config/zed/**
 .chezmoiscripts/darwin
 .chezmoiscripts/darwin/**
 {{ end }}
