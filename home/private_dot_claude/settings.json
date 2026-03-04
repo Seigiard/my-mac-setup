@@ -48,7 +48,9 @@
       "WebFetch(domain:platform.claude.com)",
       "WebFetch(domain:react.dev)"
     ],
-    "deny": ["Bash(rm -rf:*)"],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ],
     "defaultMode": "plan"
   },
   "model": "opus",
@@ -206,7 +208,8 @@
     "javascript-typescript@claude-code-workflows": true,
     "safety-net@cc-marketplace": true,
     "playground@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true
+    "claude-md-management@claude-plugins-official": true,
+    "context7-plugin@context7-marketplace": true
   },
   "skipDangerousModePermissionPrompt": true,
   "additionalDirectories": [

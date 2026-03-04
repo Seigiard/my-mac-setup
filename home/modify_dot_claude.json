@@ -12,9 +12,8 @@ fi
 GITHUB_PAT=$(op read "op://Private/GitCopilot API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 JINA_KEY=$(op read "op://Private/Jina API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 TAVILY_KEY=$(op read "op://Private/Tavily API Key/credential" --account my.1password.com 2>/dev/null || echo "")
-CONTEXT7_KEY=$(op read "op://Private/Context7 API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 
-if [ -z "$GITHUB_PAT" ] || [ -z "$JINA_KEY" ] || [ -z "$TAVILY_KEY" ] || [ -z "$CONTEXT7_KEY" ]; then
+if [ -z "$GITHUB_PAT" ] || [ -z "$JINA_KEY" ] || [ -z "$TAVILY_KEY" ]; then
   echo "$existing"
   exit 0
 fi
@@ -23,11 +22,9 @@ echo "$existing" | jq \
   --arg github_pat "$GITHUB_PAT" \
   --arg jina_key "$JINA_KEY" \
   --arg tavily_key "$TAVILY_KEY" \
-  --arg context7_key "$CONTEXT7_KEY" \
   '.mcpServers = {
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
     "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp", "headers": { "Authorization": ("Bearer " + $github_pat) } },
     "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } },
-    "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) },
-    "context7": { "type": "http", "url": "https://mcp.context7.com/mcp", "headers": { "CONTEXT7_API_KEY": $context7_key }, "enabled": true }
+    "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) }
   }'
