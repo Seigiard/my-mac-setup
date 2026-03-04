@@ -21,6 +21,7 @@ One repo → `chezmoi apply` → fully configured machine with all tools, config
 - Template vars (`.name`, `.email`, `.is_darwin`, `.is_linux`) defined in `home/.chezmoi.yaml.tmpl` via env vars or interactive prompt
 - `CHEZMOI_NAME` / `CHEZMOI_EMAIL` env vars required in CI (set in workflow)
 - `op` must be absent from PATH in test environments, otherwise 1Password templates fail
+- **Never** run `chezmoi init` without `--config /tmp/chezmoi-test.yaml --config-path /tmp/chezmoi-test.yaml` outside of Docker/CI — it overwrites the host's real config. Use `chezmoi_test_init()` from `tests/helpers/common.bash` in tests
 
 ## Commands
 

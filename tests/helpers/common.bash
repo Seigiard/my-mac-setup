@@ -32,6 +32,16 @@ else
 fi
 export CHEZMOI_SOURCE
 
+CHEZMOI_TEST_CONFIG="/tmp/chezmoi-test.yaml"
+export CHEZMOI_TEST_CONFIG
+
+chezmoi_test_init() {
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" init \
+    --config "$CHEZMOI_TEST_CONFIG" \
+    --config-path "$CHEZMOI_TEST_CONFIG" \
+    "$@"
+}
+
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
