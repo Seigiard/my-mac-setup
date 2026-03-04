@@ -16,7 +16,7 @@ teardown() {
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
 
   BATS_TEST_TMPFILE="$(mktemp /tmp/install-packages-XXXXXX.sh)"
-  chezmoi execute-template < "$script" > "$BATS_TEST_TMPFILE"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$script" > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
 }
@@ -32,7 +32,7 @@ teardown() {
   skip_if_no_chezmoi
   local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
-  run chezmoi execute-template < "$script"
+  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" execute-template < "$script"
   assert_success
 }
 
@@ -59,6 +59,6 @@ teardown() {
 @test "darwin scripts excluded from managed list on Linux" {
   is_linux || skip "Only relevant on Linux"
   skip_if_no_chezmoi
-  run chezmoi managed
+  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
   refute_output --partial "run_once_after_macos-tunes"
 }

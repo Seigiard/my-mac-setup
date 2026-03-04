@@ -12,7 +12,7 @@ setup() {
 
 @test "chezmoiignore filters macOS files on Linux" {
   is_linux || skip "Only relevant on Linux"
-  run chezmoi managed
+  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
   refute_output --partial ".hammerspoon"
   refute_output --partial "Library"
   refute_output --partial ".config/ghostty"
@@ -22,7 +22,7 @@ setup() {
 
 @test "chezmoiignore includes macOS files on macOS" {
   is_macos || skip "Only relevant on macOS"
-  run chezmoi managed
+  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
   assert_output --partial ".hammerspoon"
   assert_output --partial ".config/ghostty"
   assert_output --partial ".config/karabiner"

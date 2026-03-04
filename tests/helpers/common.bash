@@ -60,7 +60,7 @@ skip_if_no_chezmoi() {
 
 render_template() {
   local template_file="$1"
-  chezmoi execute-template < "$template_file"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$template_file"
 }
 
 assert_no_template_markers() {

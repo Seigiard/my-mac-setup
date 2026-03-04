@@ -18,13 +18,13 @@ teardown() {
 # ===========================================
 
 @test "chezmoi data contains name from env var" {
-  run chezmoi data --format json
+  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" data --format json
   assert_success
   assert_output --partial '"name"'
 }
 
 @test "chezmoi data contains email from env var" {
-  run chezmoi data --format json
+  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" data --format json
   assert_success
   assert_output --partial '"email"'
 }
@@ -59,16 +59,7 @@ teardown() {
 # ===========================================
 
 @test "zshenv template renders without op in PATH" {
-  local chezmoi_bin
-  chezmoi_bin="$(command -v chezmoi)"
-  local clean_path=""
-  local -a path_dirs
-  IFS=':' read -ra path_dirs <<< "$PATH"
-  for dir in "${path_dirs[@]}"; do
-    [[ -d "$dir" ]] && [[ -x "$dir/op" ]] && continue
-    clean_path="${clean_path:+$clean_path:}$dir"
-  done
-  PATH="$clean_path" run "$chezmoi_bin" execute-template < "$CHEZMOI_SOURCE/dot_zshenv.tmpl"
+  run render_template "$CHEZMOI_SOURCE/dot_zshenv.tmpl"
   assert_success
 }
 
