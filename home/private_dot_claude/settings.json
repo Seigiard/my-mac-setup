@@ -205,7 +205,8 @@
     "code-refactoring@claude-code-workflows": true,
     "javascript-typescript@claude-code-workflows": true,
     "safety-net@cc-marketplace": true,
-    "playground@claude-plugins-official": true
+    "playground@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true
   },
   "skipDangerousModePermissionPrompt": true,
   "additionalDirectories": [
