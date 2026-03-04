@@ -61,13 +61,15 @@ When uncertain, measure. Say "this needs to be measured" rather than inventing s
 
 **Tool selection guide:**
 
-| Need                          | Primary tool                                                | Fallback                  |
-| ----------------------------- | ----------------------------------------------------------- | ------------------------- |
-| Library docs / API references | `mcp__context7`                                             | `mcp__deepwiki`           |
-| How a specific repo works     | `mcp__deepwiki`                                             | Agent(Explore)            |
-| Quick URL → markdown, no key  | `/markdown-new`                                             | `WebFetch`                |
-| URL with selectors/auth/PDFs  | `mcp__jina__read_url`                                       | `/jina-reader` curl       |
-| Web search                    | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `/tavily` curl            |
-| Deep multi-step research      | `mcp__tavily-mcp__tavily_research`                          | `/jina-reader` DeepSearch |
-| Site crawl / map              | `mcp__tavily-mcp__tavily_crawl`                             | `/tavily` curl            |
+| Need                          | Primary tool                                                | Fallback           |
+| ----------------------------- | ----------------------------------------------------------- | ------------------ |
+| Library docs / API (inline)   | `mcp__plugin_context7-plugin_context7` (resolve → query)    | `mcp__deepwiki`    |
+| Library docs (background)     | Agent(`context7-plugin:docs-researcher`)                    | `mcp__deepwiki`    |
+| Library deep research         | Agent(`open-source-librarian`) — background                 | `mcp__deepwiki`    |
+| How a specific repo works     | `mcp__deepwiki`                                             | Agent(Explore)     |
+| Quick URL → markdown, no key  | `/markdown-new`                                             | `WebFetch`         |
+| URL with selectors/auth/PDFs  | `mcp__jina__read_url`                                       | `/markdown-new`    |
+| Web search                    | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `WebSearch`        |
+| Deep multi-step research      | `mcp__tavily-mcp__tavily_research`                          | `mcp__jina__*`     |
+| Site crawl / map              | `mcp__tavily-mcp__tavily_crawl`                             | `mcp__jina__*`     |
 

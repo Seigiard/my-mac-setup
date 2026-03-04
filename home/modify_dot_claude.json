@@ -9,22 +9,19 @@ if ! command -v op &>/dev/null || ! command -v jq &>/dev/null; then
   exit 0
 fi
 
-GITHUB_PAT=$(op read "op://Private/GitCopilot API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 JINA_KEY=$(op read "op://Private/Jina API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 TAVILY_KEY=$(op read "op://Private/Tavily API Key/credential" --account my.1password.com 2>/dev/null || echo "")
 
-if [ -z "$GITHUB_PAT" ] || [ -z "$JINA_KEY" ] || [ -z "$TAVILY_KEY" ]; then
+if [ -z "$JINA_KEY" ] || [ -z "$TAVILY_KEY" ]; then
   echo "$existing"
   exit 0
 fi
 
 echo "$existing" | jq \
-  --arg github_pat "$GITHUB_PAT" \
   --arg jina_key "$JINA_KEY" \
   --arg tavily_key "$TAVILY_KEY" \
   '.mcpServers = {
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
-    "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp", "headers": { "Authorization": ("Bearer " + $github_pat) } },
     "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } },
     "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) }
   }'

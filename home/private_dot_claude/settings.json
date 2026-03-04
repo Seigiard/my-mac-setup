@@ -34,7 +34,6 @@
       "Bash(bun run fix)",
       "Bash(bun run typecheck:*)",
       "mcp__deepwiki",
-      "mcp__github",
       "mcp__claude-in-chrome",
       "mcp__plugin_figma_figma",
       "mcp__jina",

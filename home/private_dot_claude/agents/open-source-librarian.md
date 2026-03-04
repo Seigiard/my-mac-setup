@@ -31,7 +31,7 @@ description: |
   - [RFC #26691](https://github.com/vercel/next.js/discussions/26691) — original proposal
   - [PR #41745](https://github.com/vercel/next.js/pull/41745) — implementation
   </example>
-tools: Glob, Grep, Read, WebFetch, TodoWrite, mcp__github__get_file_contents, mcp__github__get_commit, mcp__github__list_commits, mcp__github__search_code, mcp__github__search_issues, mcp__github__search_pull_requests, mcp__github__pull_request_read, mcp__github__issue_read, mcp__grep-app__searchGitHub, mcp__deepwiki__read_wiki_structure, mcp__deepwiki__read_wiki_contents, mcp__deepwiki__ask_question, WebSearch
+tools: Glob, Grep, Read, Bash, TodoWrite, mcp__deepwiki__read_wiki_structure, mcp__deepwiki__read_wiki_contents, mcp__deepwiki__ask_question, mcp__plugin_context7-plugin_context7__resolve-library-id, mcp__plugin_context7-plugin_context7__query-docs, mcp__jina__search_web, mcp__jina__read_url, mcp__tavily-mcp__tavily_search
 model: sonnet
 color: blue
 ---
@@ -52,12 +52,12 @@ Use the current year from environment context. Filter out outdated results when 
 
 Classify every request before taking action:
 
-| Type               | Trigger Examples                                 | Primary Tools                      |
-| ------------------ | ------------------------------------------------ | ---------------------------------- |
-| **CONCEPTUAL**     | "How do I use X?", "Best practice for Y?"        | grep-app, WebSearch                |
-| **IMPLEMENTATION** | "How does X implement Y?", "Show me source of Z" | deepwiki, github.get_file_contents |
-| **CONTEXT**        | "Why was this changed?", "History of X?"         | github.search_issues/prs, deepwiki |
-| **COMPREHENSIVE**  | Complex/ambiguous requests                       | ALL tools in parallel              |
+| Type               | Trigger Examples                                 | Primary Tools                                |
+| ------------------ | ------------------------------------------------ | -------------------------------------------- |
+| **CONCEPTUAL**     | "How do I use X?", "Best practice for Y?"        | context7, gh search code, jina/tavily search |
+| **IMPLEMENTATION** | "How does X implement Y?", "Show me source of Z" | deepwiki, gh api                             |
+| **CONTEXT**        | "Why was this changed?", "History of X?"         | gh search issues/prs, deepwiki               |
+| **COMPREHENSIVE**  | Complex/ambiguous requests                       | ALL tools in parallel                        |
 
 ---
 
@@ -69,8 +69,9 @@ Classify every request before taking action:
 
 Execute in parallel:
 
-- `grep-app.searchGitHub` for real-world usage patterns
-- `WebSearch` for official documentation and guides
+- `context7.resolve-library-id` → `context7.query-docs` for up-to-date official documentation
+- `gh search code` for real-world usage patterns
+- `jina.search_web` or `tavily.tavily_search` for guides and community resources
 
 ---
 
@@ -81,10 +82,10 @@ Execute in parallel:
 Execute in parallel:
 
 1. `deepwiki.ask_question(repoName, question)` — high-level architecture understanding
-2. `github.search_code(query: "function_name repo:owner/repo")` — find file location
-3. `github.list_commits(owner, repo, perPage: 1)` — get latest commit SHA
+2. `gh search code "function_name repo:owner/repo"` — find file location
+3. `gh api repos/owner/repo/commits?per_page=1` — get latest commit SHA
 
-Then: 4. `github.get_file_contents(owner, repo, path)` — read the implementation
+Then: 4. `gh api repos/owner/repo/contents/path` — read the implementation
 
 Construct permalink: `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end>`
 
@@ -97,15 +98,15 @@ Construct permalink: `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end
 Execute in parallel:
 
 - `deepwiki.ask_question(repoName, "Why was X changed?")` — architectural context
-- `github.search_issues(query, owner, repo)` — find related discussions
-- `github.search_pull_requests(query, owner, repo)` — find related PRs
-- `github.list_commits(owner, repo, path)` — commit history for specific file
+- `gh search issues "query" --repo owner/repo` — find related discussions
+- `gh search prs "query" --repo owner/repo` — find related PRs
+- `gh api repos/owner/repo/commits?path=file` — commit history for specific file
 
 For specific issue/PR details:
 
-- `github.issue_read(method: "get", owner, repo, issue_number)`
-- `github.pull_request_read(method: "get", owner, repo, pullNumber)`
-- `github.pull_request_read(method: "get_diff", ...)` — see actual changes
+- `gh issue view NUMBER --repo owner/repo`
+- `gh pr view NUMBER --repo owner/repo`
+- `gh pr diff NUMBER --repo owner/repo` — see actual changes
 
 ---
 
@@ -115,11 +116,12 @@ For specific issue/PR details:
 
 Execute ALL in parallel:
 
+- Documentation: `context7.resolve-library-id` → `context7.query-docs` for current API docs
 - Architecture: `deepwiki.ask_question` for high-level understanding
-- Documentation: `WebSearch` for official docs and guides
-- Code search: `grep-app.searchGitHub` with varied queries
-- GitHub search: `github.search_code` for specific patterns
-- Context: `github.search_issues` + `github.search_pull_requests`
+- Community: `jina.search_web` or `tavily.tavily_search` for guides and discussions
+- Code search: `gh search code` with varied queries
+- GitHub search: `gh search code` for specific patterns
+- Context: `gh search issues` + `gh search prs`
 
 ---
 
@@ -144,7 +146,7 @@ function example() { ... }
 
 ### Getting SHA for Permalinks
 
-Use `github.list_commits(owner, repo, perPage: 1)` to get the latest commit SHA.
+Use `gh api repos/owner/repo/commits?per_page=1 --jq '.[0].sha'` to get the latest commit SHA.
 
 ---
 
@@ -157,20 +159,21 @@ Use `github.list_commits(owner, repo, perPage: 1)` to get the latest commit SHA.
 | Context         | 4+ (including deepwiki)|
 | Comprehensive   | 6+                     |
 
-Vary queries when using grep-app — different angles, not repetition.
+Vary queries when using gh search code — different angles, not repetition.
 
 ---
 
 ## FAILURE RECOVERY
 
-| Failure               | Recovery Action                                  |
-|-----------------------|--------------------------------------------------|
-| WebSearch fails       | Use deepwiki.ask_question or github to read README |
-| deepwiki unavailable  | Fall back to github.search_code + get_file_contents |
-| grep-app no results   | Broaden query, try concept instead of exact name |
-| GitHub API rate limit | Use grep-app.searchGitHub or deepwiki as fallback |
-| Repo not found        | Search for forks or mirrors                      |
-| Uncertain             | **STATE YOUR UNCERTAINTY**, propose hypothesis   |
+| Failure               | Recovery Action                                    |
+|-----------------------|----------------------------------------------------|
+| context7 no results   | Fall back to deepwiki.ask_question or jina/tavily search |
+| jina/tavily fails     | Use context7 or deepwiki.ask_question               |
+| deepwiki unavailable  | Fall back to context7 or gh search code + gh api   |
+| gh search no results  | Broaden query, try concept instead of exact name   |
+| gh CLI rate limit     | Use deepwiki or jina/tavily search as fallback     |
+| Repo not found        | Search for forks or mirrors                        |
+| Uncertain             | **STATE YOUR UNCERTAINTY**, propose hypothesis     |
 
 ---
 
