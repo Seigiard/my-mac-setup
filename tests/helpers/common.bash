@@ -11,6 +11,19 @@ load "${HELPERS_DIR}/bats-libs/bats-support/load"
 load "${HELPERS_DIR}/bats-libs/bats-assert/load"
 load "${HELPERS_DIR}/bats-libs/bats-file/load"
 
+# Build a PATH without 1Password CLI for chezmoi commands that render
+# all templates (apply, verify). op triggers auth prompts in tests.
+# Individual tools remain available via full path.
+CHEZMOI_BIN="$(command -v chezmoi 2>/dev/null || true)"
+PATH_WITHOUT_OP=""
+IFS=':' read -ra _path_dirs <<< "$PATH"
+for _dir in "${_path_dirs[@]}"; do
+  [[ -d "$_dir" ]] && [[ -x "$_dir/op" ]] && continue
+  PATH_WITHOUT_OP="${PATH_WITHOUT_OP:+$PATH_WITHOUT_OP:}$_dir"
+done
+unset _path_dirs _dir
+export CHEZMOI_BIN PATH_WITHOUT_OP
+
 # Source directory for chezmoi (auto-detect from chezmoi config or use default)
 if command -v chezmoi >/dev/null 2>&1; then
   CHEZMOI_SOURCE="$(chezmoi source-path 2>/dev/null || echo "$HOME/.local/share/chezmoi")"
