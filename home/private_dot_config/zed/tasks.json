@@ -9,7 +9,19 @@
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "never",
-    "hide": "always"
+    "hide": "always",
+  },
+  {
+    "label": "Merge main",
+    "command": "bash",
+    "args": [
+      "-c",
+      "echo '→ Updating main...' && git pullmain && echo '→ Merging main into current branch...' && git merge main; if [ -n \"$(git ls-files --unmerged)\" ]; then echo '✗ Conflicts detected, launching Claude...' && claude 'fix all merge conflicts' --allowedTools Edit,Read,Bash,Grep,Glob; else echo '✓ Merged cleanly'; fi",
+    ],
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success",
   },
   {
     "label": "Lazygit",
@@ -17,7 +29,7 @@
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
     "reveal": "always",
-    "hide": "always"
+    "hide": "always",
   },
   {
     "label": "Claude",
@@ -25,7 +37,7 @@
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
     "reveal": "always",
-    "hide": "always"
+    "hide": "always",
   },
   {
     "label": "Run dev",
@@ -33,6 +45,5 @@
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
     "reveal": "always",
-    "hide": "on_success"
-  }
+  },
 ]
