@@ -14,6 +14,10 @@ One repo → `chezmoi apply` → fully configured machine with all tools, config
 
 ## Gotchas
 
+- **Check `.chezmoiexternal.toml` before adding files** — skills and configs managed there (e.g., `linear-cli`, `react-best-practices`) must NOT be duplicated in `home/`. Causes "inconsistent state" errors
+- `home/.chezmoiscripts/` — run scripts executed by chezmoi during apply (install Homebrew, etc.)
+- `home/.chezmoiexternal.toml` — external archives/repos pulled by chezmoi (e.g., bats-libs)
+- `home/.chezmoiignore` — OS-conditional ignore rules (darwin-only vs linux-only files)
 - `browsers/` contains browser extension configs — not managed by chezmoi
 - New features should have a smoke test in `tests/smoke.bats` (bats-core syntax)
 - `.chezmoiroot` = `home` — chezmoi source is `home/`, not repo root
@@ -27,7 +31,12 @@ One repo → `chezmoi apply` → fully configured machine with all tools, config
 
 ```bash
 make test-ubuntu    # full test in Docker
+make test-docker    # build + run full Docker test suite
+make test-templates # template tests only (fast, no apply)
 make test-local     # chezmoi diff (dry-run, no changes)
 make lint           # shellcheck
+make shell-ubuntu   # interactive shell in Ubuntu container
+make build-docker   # build Docker image only
 make clean          # remove Docker resources
+bats tests/smoke.bats  # run a single test file
 ```
