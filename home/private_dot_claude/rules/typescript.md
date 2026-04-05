@@ -4,6 +4,12 @@ paths: "**/*.{ts,tsx}"
 
 ## TypeScript Rules
 
+When tracing where a symbol is defined or finding all references to it, use LSP (goToDefinition, findReferences, hover) instead of Grep. LSP gives exact results; Grep gives text matches.
+
+Use Grep/Glob for discovery (finding files, searching patterns). Use LSP for understanding (definitions, references, type info).
+
+After locating a file with Grep/Glob, use LSP to navigate within it rather than reading the whole file.
+
 ### Naming Conventions
 
 - PascalCase for interfaces, types, classes, components
@@ -43,6 +49,7 @@ Main export at the top — readers see the purpose immediately.
 ### React Best Practices
 
 - When writing React code, invoke `react-best-practices` skill
+- Verify all changes using `react-doctor` skill
 
 ### React Hooks
 

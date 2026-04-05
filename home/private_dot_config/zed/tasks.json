@@ -3,7 +3,7 @@
 // Example:
 [
   {
-    "label": "Update Main Branch",
+    "label": "@um: Update Main Branch",
     "command": "git",
     "args": ["pullmain"],
     "use_new_terminal": false,
@@ -12,11 +12,11 @@
     "hide": "always",
   },
   {
-    "label": "Merge main",
+    "label": "@mm: Merge main",
     "command": "bash",
     "args": [
       "-c",
-      "echo '→ Updating main...' && git pullmain && echo '→ Merging main into current branch...' && git merge main; if [ -n \"$(git ls-files --unmerged)\" ]; then echo '✗ Conflicts detected, launching Claude...' && claude 'fix all merge conflicts' --allowedTools Edit,Read,Bash,Grep,Glob; else echo '✓ Merged cleanly'; fi",
+      "echo '→ Updating main...' && git pullmain && echo '→ Merging main into current branch...' && git merge main --no-edit; if [ -n \"$(git ls-files --unmerged)\" ]; then echo '✗ Conflicts detected, launching Claude...' && claude --dangerously-skip-permissions 'fix all merge conflicts'; else echo '✓ Merged cleanly'; fi",
     ],
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
@@ -24,7 +24,7 @@
     "hide": "on_success",
   },
   {
-    "label": "Lazygit",
+    "label": "@lg: Lazygit",
     "command": "lazygit",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
@@ -32,18 +32,19 @@
     "hide": "always",
   },
   {
-    "label": "Claude",
-    "command": "claude",
+    "label": "@rd: Run Dev",
+    "command": "tmux has-session -t dev-$(basename $ZED_WORKTREE_ROOT) 2>/dev/null && tmux attach-session -t dev-$(basename $ZED_WORKTREE_ROOT) || tmux new-session -d -s dev-$(basename $ZED_WORKTREE_ROOT) -x $(tput cols) -y $(tput lines) 'nr dev -- console ui' \\; set destroy-unattached on \\; split-window -vb -l 5 'watchexec --quiet --clear -w .logs/dev-auto-ports.json -- bun run --silent dev:ports' \\; select-pane -t 2 \\; attach",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
     "reveal": "always",
     "hide": "always",
   },
   {
-    "label": "Run dev",
-    "command": "tmux has-session -t dev-$(basename $ZED_WORKTREE_ROOT) 2>/dev/null && tmux attach-session -t dev-$(basename $ZED_WORKTREE_ROOT) || tmux new-session -d -s dev-$(basename $ZED_WORKTREE_ROOT) -x $(tput cols) -y $(tput lines) 'nr dev -- console ui' \\; set destroy-unattached on \\; split-window -vb -l 5 'watchexec --quiet --clear -w .logs/dev-auto-ports.json -- bun run --silent dev:ports' \\; select-pane -t 2 \\; attach",
+    "label": "@rdoc: Run Docker",
+    "command": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 554968126167.dkr.ecr.eu-central-1.amazonaws.com && docker build --build-arg BUILD_DATE=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") -f console/Dockerfile -t console-test . && docker run --rm -p 4000:5000 --env-file console/.env console-test",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
     "reveal": "always",
+    "hide": "always",
   },
 ]

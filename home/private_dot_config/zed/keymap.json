@@ -9,7 +9,6 @@
       "cmd-3": "git_panel::ToggleFocus",
       "cmd-i": "workspace::ToggleRightDock",
       "cmd-j": "terminal_panel::Toggle",
-      "cmd-shift-i": ["agent::NewExternalAgentThread", { "agent": "claude_code" }],
       "cmd-f": "search::FocusSearch",
       "cmd-r": "search::ToggleReplace",
       "cmd-alt-1": "pane::RevealInProjectPanel",

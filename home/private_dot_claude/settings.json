@@ -4,47 +4,65 @@
     "command": "~/.claude/hooks/file-suggestion.sh"
   },
   "cleanupPeriodDays": 365,
+  "env": {
+    "ENABLE_LSP_TOOL": "1"
+  },
   "attribution": {
     "commit": "",
     "pr": ""
   },
   "permissions": {
     "allow": [
-      "Bash(npm run *)",
-      "Bash(npx -y react-doctor*)",
-      "Bash(linear *)",
-      "Bash(curl *)",
-      "Bash(git diff *)",
-      "Bash(git log *)",
       "Bash(ast-grep *)",
-      "Bash(grep:*)",
-      "Bash(rq *)",
-      "Bash(jq *)",
-      "Bash(gh pr view *)",
-      "Bash(gh pr list *)",
-      "Bash(gh pr create *)",
-      "Bash(gh pr checks *)",
-      "Bash(gh issue *)",
-      "Bash(gh search *)",
-      "Bash(gh api *)",
-      "Bash(gh run *)",
-      "Bash(find *)",
-      "Bash(tree *)",
-      "Bash(wc:*)",
       "Bash(bun run fix)",
       "Bash(bun run typecheck:*)",
-      "mcp__deepwiki",
+      "Bash(bun test *)",
+      "Bash(curl *)",
+      "Bash(diff *)",
+      "Bash(echo *)",
+      "Bash(find *)",
+      "Bash(gh api *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh run *)",
+      "Bash(gh search *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git rev-parse *)",
+      "Bash(git show *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(grep:*)",
+      "Bash(head *)",
+      "Bash(jq *)",
+      "Bash(linear *)",
+      "Bash(ls *)",
+      "Bash(npm run *)",
+      "Bash(npx -y react-doctor*)",
+      "Bash(pwd)",
+      "Bash(rg *)",
+      "Bash(rq *)",
+      "Bash(sed -n *)",
+      "Bash(tail *)",
+      "Bash(tree *)",
+      "Bash(wc:*)",
+      "Bash(which *)",
       "mcp__claude-in-chrome",
-      "mcp__plugin_figma_figma",
+      "mcp__deepwiki",
+      "mcp__github",
       "mcp__jina",
+      "mcp__plugin_figma_figma",
       "mcp__tavily-mcp",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:api.github.com)",
-      "WebFetch(domain:hub.docker.com)",
       "WebFetch(domain:code.claude.com)",
       "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:hub.docker.com)",
       "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:react.dev)"
     ],
     "deny": [
@@ -52,7 +70,6 @@
     ],
     "defaultMode": "plan"
   },
-  "model": "opus",
   "hooks": {
     "Notification": [
       {
@@ -87,7 +104,8 @@
           {
             "type": "command",
             "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -127,10 +145,20 @@
             "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
             "timeout": 10,
             "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/scripts/hook-handle-use.sh",
+            "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/seigiard/.claude/hooks/user-prompt-skill-eval.sh",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/scripts/hook-handle-rename.sh",
             "timeout": 5
           }
         ]
@@ -174,6 +202,30 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/rtk-rewrite.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/seigiard/.claude/hooks/peon-ping/peon.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
@@ -186,14 +238,12 @@
     "code-review@claude-plugins-official": false,
     "commit-commands@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "playwright@claude-plugins-official": false,
+    "playwright@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": false,
     "figma@claude-plugins-official": false,
-    "explanatory-output-style@claude-plugins-official": true,
-    "plugin-dev@claude-plugins-official": false,
+    "explanatory-output-style@claude-plugins-official": false,
     "hookify@claude-plugins-official": true,
-    "learning-output-style@claude-plugins-official": true,
+    "learning-output-style@claude-plugins-official": false,
     "superpowers@claude-plugins-official": true,
     "code-documentation@claude-code-workflows": true,
     "debugging-toolkit@claude-code-workflows": true,
@@ -208,8 +258,42 @@
     "safety-net@cc-marketplace": true,
     "playground@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
-    "context7-plugin@context7-marketplace": true
+    "context7-plugin@context7-marketplace": true,
+    "plugin-dev@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "tsgo-lsp@tsgo-lsp": true,
+    "impeccable@impeccable": true,
+    "accessibility-compliance@claude-code-workflows": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "compound-engineering@compound-engineering-plugin": true
   },
+  "extraKnownMarketplaces": {
+    "tsgo-lsp": {
+      "source": {
+        "source": "github",
+        "repo": "ClayWarren/tsgo-lsp"
+      }
+    },
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      }
+    },
+    "chrome-devtools-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "ChromeDevTools/chrome-devtools-mcp"
+      }
+    },
+    "compound-engineering-plugin": {
+      "source": {
+        "source": "github",
+        "repo": "EveryInc/compound-engineering-plugin"
+      }
+    }
+  },
+  "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
   "additionalDirectories": [
     "/Users/seigiard/Dropbox/Knowledge Base",
@@ -220,5 +304,6 @@
   ],
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
-  }
+  },
+  "autoUpdatesChannel": "stable"
 }

@@ -1,4 +1,9 @@
 {
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry",
+    },
+  },
   "lsp": {
     "vtsls": {
       "settings": {
@@ -41,7 +46,7 @@
       "provider": "zed.dev",
     },
     "inline_assistant_model": {
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-4-6",
       "provider": "zed.dev",
     },
     "commit_message_model": {
