@@ -134,8 +134,7 @@ alias hllogs='cd /opt/homelab && docker compose logs -f'
 # -------------------------------------------
 
 tm() {
-  local session_name
-  session_name=$(basename "$PWD" | tr '.' '_')
+  local session_name="${1:-$(basename "$PWD" | tr '.' '_')}"
   printf '\033]0;💻 %s\007' "$session_name"
   if tmux has-session -t "$session_name" 2>/dev/null; then
     tmux attach-session -t "$session_name"
@@ -171,13 +170,7 @@ tp() {
       tm
     fi
   else
-    local session_name="$1"
-    printf '\033]0;💻 %s\007' "$session_name"
-    if tmux has-session -t "$session_name" 2>/dev/null; then
-      tmux attach-session -t "$session_name"
-    else
-      tmux new-session -s "$session_name"
-    fi
+    tm "$1"
   fi
 }
 
