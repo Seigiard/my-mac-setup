@@ -7,8 +7,9 @@ One repo → `chezmoi apply` → fully configured machine with all tools, config
 
 - **Never** run `chezmoi apply` in this repo — use `make test-local` (diff only) or `make test-ubuntu` (Docker)
 - **Never** hardcode secrets — always use `onepasswordRead` in templates
+- **Editing managed files**: edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file in `~/`. Single source of truth, no drift. Use `chezmoi managed | grep <name>` to check if a file is tracked
 - **Adding a CLI tool**: add to `home/private_dot_config/brewfiles/Brewfile` (cross-platform) or `Brewfile.macos` (macOS-only casks/apps)
-- **Adding a config**: `chezmoi add ~/.config/tool` creates it in `home/`; use `.tmpl` suffix if it needs OS branching or secrets
+- **Adding a new config**: `chezmoi add ~/.config/tool` creates it in `home/`; use `.tmpl` suffix if it needs OS branching or secrets
 - **Secrets**: injected via 1Password (`onepasswordRead` in templates). Guarded by `lookPath "op"` — CI/Docker environments work without 1Password
 - **Testing changes**: `make test-ubuntu` (Docker) or `bats tests/smoke.bats` locally. CI runs both ubuntu + macos
 
