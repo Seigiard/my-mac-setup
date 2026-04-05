@@ -130,51 +130,54 @@ alias hlstatus='/opt/homelab/scripts/docker/status.sh'
 alias hllogs='cd /opt/homelab && docker compose logs -f'
 
 # -------------------------------------------
-# Claude Code + Zellij
+# Claude Code + Tmux
 # -------------------------------------------
 
-zcc() {
-  if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
-    echo "Already inside zellij session '$ZELLIJ_SESSION_NAME'"
+tm() {
+  local session_name
+  session_name=$(basename "$PWD" | tr '.' '_')
+  printf '\033]0;💻 %s\007' "$session_name"
+  if tmux has-session -t "$session_name" 2>/dev/null; then
+    tmux attach-session -t "$session_name"
+  else
+    tmux new-session -s "$session_name"
+  fi
+}
+
+# Tmux picker: fzf to choose session, or arg, or fall back to tm (current dir)
+tp() {
+  if ! has tmux; then
+    echo "tmux is not installed"
     return 1
   fi
 
-  local base="${1:-$(basename "$PWD")}"
-  [[ -z "$base" ]] && base="claude"
-
-  local name="$base"
-  local existing
-  existing=$(zellij list-sessions -n -s 2>/dev/null)
-
-  if echo "$existing" | grep -qx "$name"; then
-    local i=2
-    while echo "$existing" | grep -qx "${base}-${i}"; do
-      ((i++))
-    done
-    name="${base}-${i}"
+  if [[ $(tmux list-sessions 2>/dev/null | wc -l) -eq 0 ]]; then
+    tm
+    return
   fi
 
-  zellij -s "$name" -n claude
-}
+  if [[ $# -eq 0 ]]; then
+    local selected_session
+    selected_session=$(tmux list-sessions -F "#{session_attached} #{session_name}#{?session_attached, (attached),}" \
+      | sort -rn \
+      | sed -E 's/^[0-9]+ //' \
+      | fzf --height 40% --reverse \
+      | sed -E 's/ \(attached\)$//')
 
-zccr() {
-  local sessions
-  sessions=$(zellij list-sessions -n -s 2>/dev/null)
-  [[ -z "$sessions" ]] && { echo "No zellij sessions"; return 0; }
-
-  local count
-  count=$(echo "$sessions" | wc -l | tr -d ' ')
-
-  if [[ "$count" -eq 1 ]]; then
-    zellij attach "$sessions"
-  elif has fzf; then
-    local pick
-    pick=$(echo "$sessions" | fzf --prompt="Attach to session: ")
-    [[ -n "$pick" ]] && zellij attach "$pick"
+    if [[ -n "$selected_session" ]]; then
+      printf '\033]0;💻 %s\007' "$selected_session"
+      tmux attach-session -t "$selected_session"
+    else
+      tm
+    fi
   else
-    echo "Multiple sessions (install fzf for interactive picker):"
-    echo "$sessions"
-    echo "Usage: zellij attach <session-name>"
+    local session_name="$1"
+    printf '\033]0;💻 %s\007' "$session_name"
+    if tmux has-session -t "$session_name" 2>/dev/null; then
+      tmux attach-session -t "$session_name"
+    else
+      tmux new-session -s "$session_name"
+    fi
   fi
 }
 
