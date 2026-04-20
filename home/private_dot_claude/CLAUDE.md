@@ -38,6 +38,11 @@ When uncertain, measure. Say "this needs to be measured" rather than inventing s
 - User's design seems flawed → raise concern before implementing
 - Script timeout (>2min), sudo needed, blocker
 
+## Behavioral Guardrails
+
+- **Edit discipline**: read the full file before editing. Plan changes, make ONE edit. If 3+ edits to the same file — stop, re-read requirements
+- **Full completion**: if the user asked for N things, deliver all N before presenting results
+
 ## Conventions
 
 - **Commit messages**: describe the actual change, not the trigger. "address review feedback" is banned — state what changed

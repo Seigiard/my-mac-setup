@@ -93,7 +93,7 @@ export default {
       browser: "/Applications/zoom.us.app",
     },
     {
-      match: "https://linear.app/integration-app/*",
+      match: "https://linear.app/membranehq/*",
       browser: "Linear",
     },
     {

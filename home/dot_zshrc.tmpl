@@ -7,6 +7,17 @@ has() { command -v "$1" > /dev/null 2>&1; }
 try_source() { [[ -s "$1" ]] && source "$1"; }
 
 # -------------------------------------------
+# Homebrew (re-prepend after macOS path_helper reorders PATH)
+# -------------------------------------------
+if [[ -f /opt/homebrew/bin/brew ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -f /usr/local/bin/brew ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+
+# -------------------------------------------
 # Oh My Zsh
 # -------------------------------------------
 
