@@ -239,6 +239,7 @@
     "debugging-toolkit@claude-code-workflows": true,
     "unit-testing@claude-code-workflows": true,
     "code-refactoring@claude-code-workflows": true,
+    "accessibility-compliance@claude-code-workflows": true,
     "javascript-typescript@claude-code-workflows": true,
     "safety-net@cc-marketplace": true,
     "playground@claude-plugins-official": true,
@@ -248,7 +249,6 @@
     "typescript-lsp@claude-plugins-official": true,
     "tsgo-lsp@tsgo-lsp": true,
     "impeccable@impeccable": true,
-    "accessibility-compliance@claude-code-workflows": true,
     "chrome-devtools-mcp@claude-plugins-official": true,
     "compound-engineering@compound-engineering-plugin": true
   },
@@ -257,19 +257,22 @@
       "source": {
         "source": "github",
         "repo": "ClayWarren/tsgo-lsp"
-      }
+      },
+      "autoUpdate": true
     },
     "impeccable": {
       "source": {
         "source": "github",
         "repo": "pbakaus/impeccable"
-      }
+      },
+      "autoUpdate": true
     },
     "chrome-devtools-plugins": {
       "source": {
         "source": "github",
         "repo": "ChromeDevTools/chrome-devtools-mcp"
-      }
+      },
+      "autoUpdate": true
     },
     "compound-engineering-plugin": {
       "source": {

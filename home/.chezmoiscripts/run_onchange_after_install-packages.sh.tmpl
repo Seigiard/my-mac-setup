@@ -74,4 +74,10 @@ if command -v goku &> /dev/null; then
 fi
 # # {{ end }}
 
+# Install fff-mcp (fast file finder for AI agents)
+if [[ ! -x "$HOME/.local/bin/fff-mcp" ]]; then
+    echo "--- Installing fff-mcp ---"
+    curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
+fi
+
 echo "=== Setup complete! ==="

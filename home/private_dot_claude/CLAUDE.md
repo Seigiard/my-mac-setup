@@ -14,16 +14,20 @@ When uncertain, measure. Say "this needs to be measured" rather than inventing s
 
 **Skill Triggers (fire IMMEDIATELY when matched):**
 
-| Trigger                                  | Skill                               | Notes                          |
-| ---------------------------------------- | ----------------------------------- | ------------------------------ |
-| Writing/implementing code                | `/rigorous-coding`                  | ALWAYS before implementation   |
-| React useEffect, useState, data fetching | `/react-useeffect`                  | Before writing hooks           |
-| "commit", "create commit"                | `/commit-commands:commit`           | Let skill handle git           |
-| "commit and PR", "push and create PR"    | `/commit-commands:commit-push-pr`   | Full workflow                  |
-| "review PR", "review this PR"            | `/git-pr-workflows:git-workflow`    | Review → PR with quality gates |
-| "review code", "code review"             | `/comprehensive-review:full-review` | Multi-agent review             |
-| Complex multi-step project starting      | `/superpowers:brainstorm`           | Persistent planning            |
-| "review plan", "debate plan"             | `/review-plan`                      | Multi-agent plan review        |
+| Trigger                                  | Skill                                     | Notes                        |
+| ---------------------------------------- | ----------------------------------------- | ---------------------------- |
+| Writing/implementing code                | `/rigorous-coding`                        | ALWAYS before implementation |
+| React useEffect, useState, data fetching | `/react-useeffect`                        | Before writing hooks         |
+| "commit", "create commit"                | `/compound-engineering:ce-commit`         | Let skill handle git         |
+| "commit and PR", "push and create PR"    | `/compound-engineering:ce-commit-push-pr` | Full workflow                |
+| "review PR", "review code"               | `/compound-engineering:ce-code-review`    | Multi-agent review           |
+| Complex multi-step project starting      | `/compound-engineering:ce-brainstorm`     | Persistent planning          |
+| Planning multi-step tasks                | `/compound-engineering:ce-plan`           | Structured breakdown         |
+| Debugging, errors, test failures         | `/compound-engineering:ce-debug`          | Systematic root cause        |
+| "review plan", "review spec"             | `/compound-engineering:ce-doc-review`     | Parallel persona review      |
+| Linear issues, task tracking             | `/linear-cli`                             | Linear CLI management        |
+| Executing work efficiently               | `/compound-engineering:ce-work`           | Quality + completion         |
+
 **Request Classification & Handling:**
 
 - **Exploratory** ("How does X work?") → fire explore + tools in parallel
@@ -66,16 +70,19 @@ When uncertain, measure. Say "this needs to be measured" rather than inventing s
 
 **Tool selection guide:**
 
-| Need                          | Primary tool                                                | Fallback           |
-| ----------------------------- | ----------------------------------------------------------- | ------------------ |
-| Library docs / API (inline)   | `mcp__plugin_context7-plugin_context7` (resolve → query)    | `mcp__deepwiki`    |
-| Library docs (background)     | Agent(`context7-plugin:docs-researcher`)                    | `mcp__deepwiki`    |
-| Library deep research         | Agent(`open-source-librarian`) — background                 | `mcp__deepwiki`    |
-| How a specific repo works     | `mcp__deepwiki`                                             | Agent(Explore)     |
-| Quick URL → markdown, no key  | `/markdown-new`                                             | `WebFetch`         |
-| URL with selectors/auth/PDFs  | `mcp__jina__read_url`                                       | `/markdown-new`    |
-| Web search                    | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `WebSearch`        |
-| Deep multi-step research      | `mcp__tavily-mcp__tavily_research`                          | `mcp__jina__*`     |
-| Site crawl / map              | `mcp__tavily-mcp__tavily_crawl`                             | `mcp__jina__*`     |
+| Need                         | Primary tool                                                | Fallback        |
+| ---------------------------- | ----------------------------------------------------------- | --------------- |
+| Find files by topic/name     | `mcp__fff__find_files`                                      | Glob            |
+| Search file contents         | `mcp__fff__grep` (bare identifiers only)                    | Grep            |
+| Multi-pattern content search | `mcp__fff__multi_grep` (OR across patterns)                 | Grep            |
+| Library docs / API (inline)  | `mcp__plugin_context7-plugin_context7` (resolve → query)    | `mcp__deepwiki` |
+| Library docs (background)    | Agent(`context7-plugin:docs-researcher`)                    | `mcp__deepwiki` |
+| Library deep research        | Agent(`open-source-librarian`) — background                 | `mcp__deepwiki` |
+| How a specific repo works    | `mcp__deepwiki`                                             | Agent(Explore)  |
+| Quick URL → markdown, no key | `/markdown-new`                                             | `WebFetch`      |
+| URL with selectors/auth/PDFs | `mcp__jina__read_url`                                       | `/markdown-new` |
+| Web search                   | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `WebSearch`     |
+| Deep multi-step research     | `mcp__tavily-mcp__tavily_research`                          | `mcp__jina__*`  |
+| Site crawl / map             | `mcp__tavily-mcp__tavily_crawl`                             | `mcp__jina__*`  |
 
 @RTK.md

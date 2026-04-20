@@ -23,5 +23,6 @@ echo "$existing" | jq \
   '.mcpServers = {
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
     "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } },
-    "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) }
+    "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) },
+    "fff": { "type": "stdio", "command": "/Users/seigiard/.local/bin/fff-mcp", "args": [], "env": {} }
   }'
