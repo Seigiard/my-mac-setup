@@ -59,13 +59,42 @@ else
 fi
 alias myip='curl -s ifconfig.me'
 
-# Kill process by port: killport 6006
+# Kill process(es) holding port(s): killport 6006 [3000 ...]
 killport() {
-  local port="$1"
-  [[ -z "$port" ]] && { echo "Usage: killport <port>"; return 1; }
-  local pid=$(lsof -ti:"$port" 2>/dev/null)
-  [[ -z "$pid" ]] && { echo "No process on port $port"; return 0; }
-  kill -9 $pid && echo "Killed process(es) on port $port: $pid"
+  [[ $# -eq 0 ]] && { echo "Usage: killport <port> [port ...]"; return 1; }
+  local port pid pids kids attempt rc=0
+  for port in "$@"; do
+    pids=$(lsof -ti:"$port" 2>/dev/null | sort -u)
+    if [[ -z "$pids" ]]; then
+      echo "No process on port $port"
+      continue
+    fi
+    echo "Port $port held by: $(echo $pids | tr '\n' ' ')"
+
+    # Kill children first — shell wrappers (npm/pnpm/yarn) spawn nodes that hold the port
+    for pid in $pids; do
+      kids=$(pgrep -P "$pid" 2>/dev/null)
+      [[ -n "$kids" ]] && kill -TERM $kids 2>/dev/null
+    done
+
+    # Graceful TERM, then KILL with sudo fallback; retry to handle respawns and races
+    kill -TERM $pids 2>/dev/null
+    for attempt in 1 2 3; do
+      sleep 0.2
+      pids=$(lsof -ti:"$port" 2>/dev/null | sort -u)
+      [[ -z "$pids" ]] && break
+      kill -KILL $pids 2>/dev/null || sudo kill -KILL $pids 2>/dev/null
+    done
+
+    pids=$(lsof -ti:"$port" 2>/dev/null | sort -u)
+    if [[ -z "$pids" ]]; then
+      echo "Port $port freed"
+    else
+      echo "Port $port still held by: $(echo $pids | tr '\n' ' ') (run: lsof -i:$port)"
+      rc=1
+    fi
+  done
+  return $rc
 }
 
 # -------------------------------------------
