@@ -37,6 +37,8 @@
   "ui_font_size": 19,
   "buffer_font_family": "Iosevka Nerd Font Mono",
   "agent": {
+    "sidebar_side": "right",
+    "dock": "right",
     "tool_permissions": {
       "default": "allow",
     },
@@ -57,9 +59,12 @@
     "default_width": 600,
   },
   "project_panel": {
+    "git_status_indicator": true,
+    "dock": "left",
     "default_width": 350,
   },
   "git_panel": {
+    "dock": "left",
     "tree_view": true,
     "default_width": 350,
   },
@@ -75,10 +80,10 @@
   "title_bar": {
     "show_project_items": true,
     "show_menus": false,
-    "show_branch_icon": false,
   },
   "preferred_line_length": 120,
   "outline_panel": {
+    "dock": "left",
     "default_width": 350,
   },
   "status_bar": {
@@ -96,14 +101,9 @@
   "code_actions_on_format": {
     "source.fixAll.eslint": true,
   },
-  "notification_panel": {
-    "button": false,
-    "dock": "left",
-  },
   "edit_predictions": {
     "provider": "zed",
     "mode": "subtle",
-    "enabled_in_text_threads": false,
   },
   "soft_wrap": "preferred_line_length",
   "tab_bar": {
