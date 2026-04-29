@@ -1,0 +1,28 @@
+# Global gitignore — applied to every repo via core.excludesfile
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# JetBrains
+.idea/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Git worktrees
+.worktrees/
+
+# Claude Code local state
+.claude/settings.local.json
+CLAUDE.local.md
+
+# direnv
+.envrc.local
+.direnv/
+
+mise.toml

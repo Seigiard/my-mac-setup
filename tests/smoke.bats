@@ -37,6 +37,10 @@ load 'helpers/common'
   assert_file_exists "$HOME/.gitconfig"
 }
 
+@test ".gitignore exists" {
+  assert_file_exists "$HOME/.gitignore"
+}
+
 @test ".editorconfig exists" {
   assert_file_exists "$HOME/.editorconfig"
 }
