@@ -63,10 +63,27 @@ alias myip='curl -s ifconfig.me'
 killport() {
   [[ $# -eq 0 ]] && { echo "Usage: killport <port> [port ...]"; return 1; }
   local port pid pids kids attempt rc=0
+  local tw
   for port in "$@"; do
-    pids=$(lsof -ti:"$port" 2>/dev/null | sort -u)
+    pids=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+
+    # Escalate via cached sudo (non-interactive) for root-owned processes
+    if [[ -z "$pids" ]] && sudo -n true 2>/dev/null; then
+      pids=$(sudo -n lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    fi
+
     if [[ -z "$pids" ]]; then
-      echo "No process on port $port"
+      # No process — check if port is stuck in TIME_WAIT (kernel state, not killable)
+      if [[ "$OS" == "macos" ]]; then
+        tw=$(netstat -an -p tcp 2>/dev/null | awk -v p="\\.$port\$|:$port\$" '$NF=="TIME_WAIT" && $4 ~ p' | wc -l | tr -d ' ')
+      else
+        tw=$(ss -tan state time-wait 2>/dev/null | awk -v p=":$port\$" 'NR>1 && $4 ~ p' | wc -l | tr -d ' ')
+      fi
+      if [[ "${tw:-0}" -gt 0 ]]; then
+        echo "No process on port $port — but $tw TIME_WAIT connection(s) (kernel releases in ~60s)"
+      else
+        echo "No process on port $port"
+      fi
       continue
     fi
     echo "Port $port held by: $(echo $pids | tr '\n' ' ')"
@@ -81,12 +98,12 @@ killport() {
     kill -TERM $pids 2>/dev/null
     for attempt in 1 2 3; do
       sleep 0.2
-      pids=$(lsof -ti:"$port" 2>/dev/null | sort -u)
+      pids=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
       [[ -z "$pids" ]] && break
       kill -KILL $pids 2>/dev/null || sudo kill -KILL $pids 2>/dev/null
     done
 
-    pids=$(lsof -ti:"$port" 2>/dev/null | sort -u)
+    pids=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
     if [[ -z "$pids" ]]; then
       echo "Port $port freed"
     else
