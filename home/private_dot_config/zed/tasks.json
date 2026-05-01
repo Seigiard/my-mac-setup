@@ -3,7 +3,7 @@
 // Example:
 [
   {
-    "label": "@um: Update Main Branch",
+    "label": "@um: Update Main Branch (гь)",
     "command": "git",
     "args": ["pullmain"],
     "use_new_terminal": false,
@@ -12,7 +12,7 @@
     "hide": "always",
   },
   {
-    "label": "@mm: Merge main",
+    "label": "@mm: Merge main (ьь)",
     "command": "bash",
     "args": [
       "-c",
@@ -24,7 +24,7 @@
     "hide": "on_success",
   },
   {
-    "label": "@lg: Lazygit",
+    "label": "@lg: Lazygit (дп)",
     "command": "lazygit",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
@@ -32,7 +32,7 @@
     "hide": "always",
   },
   {
-    "label": "@rd: Run Dev",
+    "label": "@rd: Run Dev (кв)",
     "command": "tmux has-session -t dev-$(basename $ZED_WORKTREE_ROOT) 2>/dev/null && tmux attach-session -t dev-$(basename $ZED_WORKTREE_ROOT) || tmux new-session -d -s dev-$(basename $ZED_WORKTREE_ROOT) -x $(tput cols) -y $(tput lines) 'nr dev -- console ui' \\; set destroy-unattached on \\; split-window -vb -l 5 'watchexec --quiet --clear -w .logs/dev-auto-ports.json -- bun run --silent dev:ports' \\; select-pane -t 2 \\; attach",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
@@ -40,7 +40,7 @@
     "hide": "always",
   },
   {
-    "label": "@rdoc: Run Docker",
+    "label": "@rdoc: Run Docker (квщс)",
     "command": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 554968126167.dkr.ecr.eu-central-1.amazonaws.com && docker build --build-arg BUILD_DATE=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") -f console/Dockerfile -t console-test . && docker run --rm -p 4000:5000 --env-file console/.env console-test",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
