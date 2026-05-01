@@ -49,11 +49,18 @@ ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
 if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
     git clone https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
 fi
-if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
-    git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+if [[ ! -d "$ZSH_CUSTOM/plugins/fast-syntax-highlighting" ]]; then
+    git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git "$ZSH_CUSTOM/plugins/fast-syntax-highlighting"
+fi
+# Remove deprecated zsh-syntax-highlighting (replaced by fast-syntax-highlighting)
+if [[ -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
+    rm -rf "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
 fi
 if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-history-substring-search" ]]; then
     git clone https://github.com/zsh-users/zsh-history-substring-search "$ZSH_CUSTOM/plugins/zsh-history-substring-search"
+fi
+if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-defer" ]]; then
+    git clone https://github.com/romkatv/zsh-defer.git "$ZSH_CUSTOM/plugins/zsh-defer"
 fi
 
 # Initialize mise

@@ -5,15 +5,20 @@
 has() { command -v "$1" > /dev/null 2>&1; }
 
 # -------------------------------------------
-# Homebrew (needed for scripts to find brew commands)
+# Homebrew env (inlined equivalent of `brew shellenv`, no subshell fork)
 # -------------------------------------------
-if [[ -f /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-elif [[ -f /usr/local/bin/brew ]]; then
-  eval "$(/usr/local/bin/brew shellenv)"
-elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-fi
+for _hb in /opt/homebrew /usr/local /home/linuxbrew/.linuxbrew; do
+  if [[ -d "$_hb/bin" ]]; then
+    export HOMEBREW_PREFIX="$_hb"
+    export HOMEBREW_CELLAR="$_hb/Cellar"
+    export HOMEBREW_REPOSITORY="$_hb"
+    fpath=("$_hb/share/zsh/site-functions" $fpath)
+    export PATH="$_hb/bin:$_hb/sbin:$PATH"
+    export INFOPATH="$_hb/share/info${INFOPATH:+:$INFOPATH}"
+    break
+  fi
+done
+unset _hb
 
 # -------------------------------------------
 # Path
@@ -21,9 +26,18 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 
 # -------------------------------------------
-# mise (version manager - needed for correct tool versions)
+# mise (version manager) — activate output is cached, regenerated when
+# the mise binary is newer than the cache file. Saves ~10ms per shell.
 # -------------------------------------------
-has mise && eval "$(mise activate zsh)"
+if has mise; then
+  _mise_cache="$HOME/.cache/zsh/mise-activate.zsh"
+  [[ -d "${_mise_cache:h}" ]] || mkdir -p "${_mise_cache:h}"
+  if [[ ! -s "$_mise_cache" || "$_mise_cache" -ot "$(command -v mise)" ]]; then
+    mise activate zsh > "$_mise_cache" 2>/dev/null
+  fi
+  source "$_mise_cache"
+  unset _mise_cache
+fi
 
 # -------------------------------------------
 # Editor

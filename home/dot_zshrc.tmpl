@@ -7,15 +7,17 @@ has() { command -v "$1" > /dev/null 2>&1; }
 try_source() { [[ -s "$1" ]] && source "$1"; }
 
 # -------------------------------------------
-# Homebrew (re-prepend after macOS path_helper reorders PATH)
+# PATH: re-prepend Homebrew after macOS path_helper reorders PATH.
+# zshenv already ran `brew shellenv`, so HOMEBREW_* env vars are set;
+# here we only fix PATH order to avoid a second fork to brew.
 # -------------------------------------------
-if [[ -f /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-elif [[ -f /usr/local/bin/brew ]]; then
-  eval "$(/usr/local/bin/brew shellenv)"
-elif [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-fi
+for _brew_bin in /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin; do
+  if [[ -d "$_brew_bin" && "${PATH%%:*}" != "$_brew_bin" ]]; then
+    export PATH="$_brew_bin:${_brew_bin%/bin}/sbin:$PATH"
+    break
+  fi
+done
+unset _brew_bin
 
 # -------------------------------------------
 # Oh My Zsh
@@ -25,14 +27,21 @@ export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME=""
 ZSH_DISABLE_COMPFIX="true"
 
-plugins=(
-  git
-  zsh-autosuggestions
-  zsh-syntax-highlighting
-  zsh-history-substring-search
-)
+# Heavy plugins are loaded via zsh-defer below (after first prompt).
+plugins=()
+
+# Wrapper adds -C to compinit (skip security audit) — omz calls compinit
+# without -C, which costs ~100-200ms on every shell start.
+compinit() {
+  unfunction compinit
+  autoload -Uz compinit
+  compinit -C "$@"
+}
 
 source $ZSH/oh-my-zsh.sh
+
+# zsh-defer: queue heavy work to run right after the first prompt is drawn.
+try_source $ZSH/custom/plugins/zsh-defer/zsh-defer.plugin.zsh
 
 # -------------------------------------------
 # History
@@ -67,12 +76,28 @@ export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
 export FZF_CTRL_T_OPTS="--preview 'bat -n --color=always --line-range :500 {}'"
 
 # -------------------------------------------
-# Tools initialization
+# Cached init helper: skips subshell fork on each shell start by sourcing
+# a cached file. Cache is regenerated when the source binary is newer.
+# -------------------------------------------
+_zsh_cache_dir="$HOME/.cache/zsh"
+[[ -d "$_zsh_cache_dir" ]] || mkdir -p "$_zsh_cache_dir"
+
+cached_init() {
+  local name="$1" bin="$2"; shift 2
+  local cache="$_zsh_cache_dir/$name.zsh"
+  if [[ ! -s "$cache" || "$cache" -ot "$(command -v "$bin")" ]]; then
+    "$@" > "$cache" 2>/dev/null
+  fi
+  source "$cache"
+}
+
+# -------------------------------------------
+# Tools initialization (cached → no per-shell forks)
 # -------------------------------------------
 
-has rgrc && eval "$(rgrc --aliases)"
-[[ -z "$CLAUDECODE" ]] && has zoxide && eval "$(zoxide init zsh --cmd cd)"
-has starship && eval "$(starship init zsh)"
+has rgrc && cached_init rgrc rgrc rgrc --aliases
+[[ -z "$CLAUDECODE" ]] && has zoxide && cached_init zoxide zoxide zoxide init zsh --cmd cd
+has starship && cached_init starship starship starship init zsh
 try_source ~/.aliases
 
 # -------------------------------------------
@@ -91,4 +116,14 @@ export PATH="$HOME/.bun/bin:$PATH"
 # peon-ping quick controls
 alias peon="bash /Users/seigiard/.claude/hooks/peon-ping/peon.sh"
 [ -f /Users/seigiard/.claude/hooks/peon-ping/completions.bash ] && source /Users/seigiard/.claude/hooks/peon-ping/completions.bash
+
+# -------------------------------------------
+# Deferred plugin loading — activates after the first prompt is drawn so
+# the prompt appears sooner; functionality kicks in within ~10ms after.
+# -------------------------------------------
+if (( $+functions[zsh-defer] )); then
+  zsh-defer source $ZSH/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh
+  zsh-defer source $ZSH/custom/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh
+  zsh-defer source $ZSH/custom/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh
+fi
 
