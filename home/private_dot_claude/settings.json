@@ -65,7 +65,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:react.dev)"
     ],
-    "deny": ["Bash(rm -rf:*)"],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ],
     "defaultMode": "plan"
   },
   "hooks": {
@@ -234,9 +236,9 @@
     "frontend-design@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "code-documentation@claude-code-workflows": true,
-    "debugging-toolkit@claude-code-workflows": true,
+    "superpowers@claude-plugins-official": false,
+    "code-documentation@claude-code-workflows": false,
+    "debugging-toolkit@claude-code-workflows": false,
     "unit-testing@claude-code-workflows": true,
     "code-refactoring@claude-code-workflows": true,
     "accessibility-compliance@claude-code-workflows": true,
@@ -282,7 +284,7 @@
       "autoUpdate": true
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,
   "additionalDirectories": [
@@ -294,5 +296,7 @@
   ],
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
-  }
+  },
+  "theme": "light-daltonized",
+  "autoCompactEnabled": false
 }
