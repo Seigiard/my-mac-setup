@@ -1,43 +1,78 @@
 # my-mac-setup
 
-Reproducible dev environment for macOS (primary) and Linux (CI/Docker).
-One repo → `chezmoi apply` → fully configured machine with all tools, configs, and secrets.
+Reproducible dev environment for macOS (primary) and Linux (CI/Docker), managed by chezmoi. One repo → `chezmoi apply` → fully configured machine with tools, configs, and secrets.
 
-## What Claude needs to know
+## Project map
 
-- **Never** run `chezmoi apply` in this repo — use `make test-local` (diff only) or `make test-ubuntu` (Docker)
-- **Never** hardcode secrets — always use `onepasswordRead` in templates
-- **Editing managed files**: edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file in `~/`. Single source of truth, no drift. Use `chezmoi managed | grep <name>` to check if a file is tracked
-- **Adding a CLI tool**: add to `home/private_dot_config/brewfiles/Brewfile` (cross-platform) or `Brewfile.macos` (macOS-only casks/apps)
-- **Adding a new config**: `chezmoi add ~/.config/tool` creates it in `home/`; use `.tmpl` suffix if it needs OS branching or secrets
-- **Secrets**: injected via 1Password (`onepasswordRead` in templates). Guarded by `lookPath "op"` — CI/Docker environments work without 1Password
-- **Testing changes**: `make test-ubuntu` (Docker) or `bats tests/smoke.bats` locally. CI runs both ubuntu + macos
-
-## Gotchas
-
-- **Check `.chezmoiexternal.toml` before adding files** — skills and configs managed there (e.g., `linear-cli`, `react-best-practices`) must NOT be duplicated in `home/`. Causes "inconsistent state" errors
+- `home/` — chezmoi source tree (`.chezmoiroot` = `home`); files map to `~/`
 - `home/.chezmoiscripts/` — run scripts executed by chezmoi during apply (install Homebrew, etc.)
-- `home/.chezmoiexternal.toml` — external archives/repos pulled by chezmoi (e.g., bats-libs)
+- `home/.chezmoiexternal.toml` — external archives/repos pulled by chezmoi (e.g., bats-libs, skills)
 - `home/.chezmoiignore` — OS-conditional ignore rules (darwin-only vs linux-only files)
-- `browsers/` contains browser extension configs — not managed by chezmoi
-- New features should have a smoke test in `tests/smoke.bats` (bats-core syntax)
-- `.chezmoiroot` = `home` — chezmoi source is `home/`, not repo root
-- `modify_` scripts (e.g., `modify_dot_claude.json`) read existing file from stdin, output modified version — don't treat them as regular templates
-- Template vars (`.name`, `.email`, `.is_darwin`, `.is_linux`) defined in `home/.chezmoi.yaml.tmpl` via env vars or interactive prompt
-- `CHEZMOI_NAME` / `CHEZMOI_EMAIL` env vars required in CI (set in workflow)
-- `op` must be absent from PATH in test environments, otherwise 1Password templates fail
-- **Never** run `chezmoi init` without `--config /tmp/chezmoi-test.yaml --config-path /tmp/chezmoi-test.yaml` outside of Docker/CI — it overwrites the host's real config. Use `chezmoi_test_init()` from `tests/helpers/common.bash` in tests
+- `home/.chezmoi.yaml.tmpl` — template vars (`.name`, `.email`, `.is_darwin`, `.is_linux`)
+- `home/private_dot_config/brewfiles/` — `Brewfile` (cross-platform) and `Brewfile.macos` (macOS-only)
+- `tests/` — bats-core smoke tests; `tests/helpers/common.bash` has shared helpers
+- `docker/` — Dockerfile and scripts for `make test-ubuntu`
+- `browsers/` — browser extension configs (NOT managed by chezmoi)
+- `configs/`, `docs/`, `macos-settings.md` — supplementary material
 
-## Commands
+<important if="you need to run commands to build, test, lint, or run scripts">
 
-```bash
-make test-ubuntu    # full test in Docker
-make test-docker    # build + run full Docker test suite
-make test-templates # template tests only (fast, no apply)
-make test-local     # chezmoi diff (dry-run, no changes)
-make lint           # shellcheck
-make shell-ubuntu   # interactive shell in Ubuntu container
-make build-docker   # build Docker image only
-make clean          # remove Docker resources
-bats tests/smoke.bats  # run a single test file
-```
+| Command | What it does |
+|---|---|
+| `make test-ubuntu` | Full test in Docker |
+| `make test-docker` | Build + run full Docker test suite |
+| `make test-templates` | Template tests only (fast, no apply) |
+| `make test-local` | `chezmoi diff` (dry-run, no changes) |
+| `make lint` | shellcheck |
+| `make shell-ubuntu` | Interactive shell in Ubuntu container |
+| `make build-docker` | Build Docker image only |
+| `make clean` | Remove Docker resources |
+| `bats tests/smoke.bats` | Run a single test file |
+
+</important>
+
+<important if="you are about to run chezmoi apply or chezmoi init on the host">
+
+- **Never** run `chezmoi apply` in this repo on the host — use `make test-local` (diff only) or `make test-ubuntu` (Docker) instead.
+- **Never** run `chezmoi init` without `--config /tmp/chezmoi-test.yaml --config-path /tmp/chezmoi-test.yaml` outside Docker/CI — it overwrites the host's real config. Use `chezmoi_test_init()` from `tests/helpers/common.bash` in tests.
+
+</important>
+
+<important if="you are editing a config file that lives in the home directory (e.g., ~/.tmux.conf, ~/.config/...)">
+
+Edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file in `~/`. Single source of truth, no drift. Run `chezmoi managed | grep <name>` to check if a file is tracked.
+
+</important>
+
+<important if="you are adding a new file or directory to the chezmoi source tree">
+
+- Check `home/.chezmoiexternal.toml` first — skills and configs managed there (e.g., `linear-cli`, `react-best-practices`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
+- `chezmoi add ~/.config/tool` creates the source file in `home/`. Use a `.tmpl` suffix if the file needs OS branching or secrets.
+- `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
+
+</important>
+
+<important if="you are adding or removing a CLI tool, app, or cask">
+
+- Cross-platform CLIs go in `home/private_dot_config/brewfiles/Brewfile`.
+- macOS-only casks/apps go in `home/private_dot_config/brewfiles/Brewfile.macos`.
+
+</important>
+
+<important if="you are working with templates, secrets, or 1Password integration">
+
+- **Never** hardcode secrets — use `onepasswordRead` in templates.
+- 1Password calls must be guarded by `lookPath "op"` so CI/Docker environments (without 1Password) still apply.
+- `op` must be absent from `PATH` in test environments, otherwise 1Password templates fail.
+- Required env vars in CI: `CHEZMOI_NAME`, `CHEZMOI_EMAIL` (set in the GitHub workflow).
+
+</important>
+
+<important if="you are adding a new feature, script, or config that should be tested">
+
+- Add a smoke test in `tests/smoke.bats` (bats-core syntax).
+- Run locally with `bats tests/smoke.bats`, or `make test-ubuntu` for the full Docker suite.
+- CI runs both ubuntu and macos jobs.
+- Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.
+
+</important>
