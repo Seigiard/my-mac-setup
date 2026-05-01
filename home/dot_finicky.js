@@ -4,17 +4,18 @@
  * @typedef {import('/Applications/Finicky.app/Contents/Resources/finicky.d.ts').FinickyConfig} FinickyConfig
  */
 
+const workBrowserHostnames = ["localhost", "console.getmembrane.app"];
+
 /**
  * @type {FinickyConfig}
  */
 export default {
-  defaultBrowser: "Brave Browser",
+  defaultBrowser: "Helium",
   rewrite: [
     {
       match: ["*.slack.com/*"],
       url: function (url) {
         const subdomain = url.host.slice(0, -10);
-        const pathParts = url.pathname.split("/");
 
         let team,
           patterns = {};
@@ -77,8 +78,8 @@ export default {
   ],
   handlers: [
     {
-      match: finicky.matchHostnames(["localhost", "console.integration.app"]),
-      browser: "Brave Browser",
+      match: finicky.matchHostnames(workBrowserHostnames),
+      browser: "Helium",
     },
     {
       match: "www.figma.com/file/*",
