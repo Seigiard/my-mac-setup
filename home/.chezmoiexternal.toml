@@ -43,3 +43,10 @@ url = "https://github.com/ast-grep/agent-skill/archive/refs/heads/main.tar.gz"
 include = ["*/ast-grep/skills/ast-grep/**"]
 stripComponents = 4
 refreshPeriod = "168h"
+
+[".claude/skills/improve-claude-md"]
+type = "archive"
+url = "https://github.com/dexhorthy/slopfiles/archive/refs/heads/main.tar.gz"
+include = ["*/plugins/improve-claude-md/skills/improve-claude-md/**"]
+stripComponents = 5
+refreshPeriod = "168h"
