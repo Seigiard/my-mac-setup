@@ -4,8 +4,7 @@
 [
   {
     "label": "@um: Update Main Branch (гь)",
-    "command": "git",
-    "args": ["pullmain"],
+    "command": "gpmain",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "never",
@@ -13,11 +12,7 @@
   },
   {
     "label": "@mm: Merge main (ьь)",
-    "command": "bash",
-    "args": [
-      "-c",
-      "echo '→ Updating main...' && git pullmain && echo '→ Merging main into current branch...' && git merge main --no-edit; if [ -n \"$(git ls-files --unmerged)\" ]; then echo '✗ Conflicts detected, launching Claude...' && claude --dangerously-skip-permissions 'fix all merge conflicts'; else echo '✓ Merged cleanly'; fi",
-    ],
+    "command": "gmmain",
     "use_new_terminal": true,
     "allow_concurrent_runs": false,
     "reveal": "always",

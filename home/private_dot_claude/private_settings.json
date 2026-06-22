@@ -1,0 +1,169 @@
+{
+  "additionalDirectories": [
+    "/Users/seigiard/Dropbox/Knowledge Base",
+    "/Users/seigiard/Dropbox/Knowledge Base/Calendar/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
+    "~/.claude/hooks/"
+  ],
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "autoCompactEnabled": false,
+  "autoUpdatesChannel": "stable",
+  "cleanupPeriodDays": 365,
+  "effortLevel": "medium",
+  "enabledPlugins": {
+    "accessibility-compliance@claude-code-workflows": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "code-documentation@claude-code-workflows": false,
+    "code-refactoring@claude-code-workflows": true,
+    "compound-engineering@compound-engineering-plugin": true,
+    "context7-plugin@context7-marketplace": true,
+    "debugging-toolkit@claude-code-workflows": false,
+    "frontend-design@claude-plugins-official": true,
+    "impeccable@impeccable": true,
+    "javascript-typescript@claude-code-workflows": true,
+    "playground@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true,
+    "safety-net@cc-marketplace": true,
+    "security-guidance@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": false,
+    "tsgo-lsp@tsgo-lsp": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "unit-testing@claude-code-workflows": true
+  },
+  "env": {
+    "CLAUDE_CODE_NO_FLICKER": "1"
+  },
+  "extraKnownMarketplaces": {
+    "chrome-devtools-plugins": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "ChromeDevTools/chrome-devtools-mcp",
+        "source": "github"
+      }
+    },
+    "compound-engineering-plugin": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "EveryInc/compound-engineering-plugin",
+        "source": "github"
+      }
+    },
+    "impeccable": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "pbakaus/impeccable",
+        "source": "github"
+      }
+    },
+    "tsgo-lsp": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "ClayWarren/tsgo-lsp",
+        "source": "github"
+      }
+    }
+  },
+  "feedbackSurveyState": {
+    "lastShownTime": 1754040532937
+  },
+  "fileSuggestion": {
+    "command": "~/.claude/hooks/file-suggestion.sh",
+    "type": "command"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/Users/seigiard/.claude/hooks/rtk-rewrite.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash '/Users/seigiard/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ast-grep *)",
+      "Bash(bun run fix)",
+      "Bash(bun run typecheck:*)",
+      "Bash(bun test *)",
+      "Bash(curl *)",
+      "Bash(diff *)",
+      "Bash(echo *)",
+      "Bash(find *)",
+      "Bash(gh api *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh run *)",
+      "Bash(gh search *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git rev-parse *)",
+      "Bash(git show *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(grep:*)",
+      "Bash(head *)",
+      "Bash(jq *)",
+      "Bash(linear *)",
+      "Bash(ls *)",
+      "Bash(npm run *)",
+      "Bash(npx -y react-doctor*)",
+      "Bash(pwd)",
+      "Bash(rg *)",
+      "Bash(rq *)",
+      "Bash(sed -n *)",
+      "Bash(tail *)",
+      "Bash(tree *)",
+      "Bash(wc:*)",
+      "Bash(which *)",
+      "mcp__claude-in-chrome",
+      "mcp__deepwiki",
+      "mcp__github",
+      "mcp__jina",
+      "mcp__plugin_figma_figma",
+      "mcp__tavily-mcp",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:hub.docker.com)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:react.dev)"
+    ],
+    "defaultMode": "plan",
+    "deny": [
+      "Bash(rm -rf:*)"
+    ]
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "statusLine": {
+    "command": "~/.claude/hooks/statusline.sh",
+    "type": "command"
+  },
+  "theme": "light-daltonized"
+}

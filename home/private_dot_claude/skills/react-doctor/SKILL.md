@@ -10,10 +10,10 @@ Scans your React codebase for security, performance, correctness, and architectu
 ## Usage
 
 ```bash
-npx -y react-doctor@latest . --verbose --diff --no-ami
+npx -y react-doctor@latest . --verbose --scope files --no-telemetry -y
 ```
 
-Always use `--diff` to scan only changed files, never the entire project. Add `--no-ami` to skip interactive prompts.
+Always use `--scope files` to scan only changed files, never the entire project. Add `--no-telemetry` to skip telemetry and `-y` to skip interactive prompts.
 
 ## Workflow
 

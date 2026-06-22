@@ -62,7 +62,7 @@ alias myip='curl -s ifconfig.me'
 # Kill process(es) holding port(s): killport 6006 [3000 ...]
 killport() {
   [[ $# -eq 0 ]] && { echo "Usage: killport <port> [port ...]"; return 1; }
-  local port pid pids kids attempt rc=0
+  local port pid pids dev_auto_pids kids attempt remaining rc=0
   local tw
   for port in "$@"; do
     pids=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
@@ -70,6 +70,37 @@ killport() {
     # Escalate via cached sudo (non-interactive) for root-owned processes
     if [[ -z "$pids" ]] && sudo -n true 2>/dev/null; then
       pids=$(sudo -n lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    fi
+
+    # dev-auto reserves ports before child services bind them, so a stuck
+    # dev-auto parent can block the default port without appearing in lsof.
+    dev_auto_pids=""
+    if [[ -f .logs/dev-auto-ports.json ]]; then
+      if has jq; then
+        dev_auto_pids=$(jq -r --argjson port "$port" 'to_entries[] | select(any(.value.ports[]?; . == $port)) | .value.pid' .logs/dev-auto-ports.json 2>/dev/null | sort -u)
+      elif has node; then
+        dev_auto_pids=$(node -e '
+const fs = require("fs")
+const port = Number(process.argv[1])
+try {
+  const db = JSON.parse(fs.readFileSync(".logs/dev-auto-ports.json", "utf8"))
+  for (const entry of Object.values(db)) {
+    if (entry && Object.values(entry.ports || {}).includes(port)) console.log(entry.pid)
+  }
+} catch {}
+' "$port" 2>/dev/null | sort -u)
+      fi
+
+      for pid in $dev_auto_pids; do
+        kill -0 "$pid" 2>/dev/null || continue
+        if [[ -z "$pids" ]]; then
+          pids="$pid"
+        else
+          pids="$pids
+$pid"
+        fi
+      done
+      pids=$(echo "$pids" | sort -u)
     fi
 
     if [[ -z "$pids" ]]; then
@@ -86,7 +117,11 @@ killport() {
       fi
       continue
     fi
-    echo "Port $port held by: $(echo $pids | tr '\n' ' ')"
+    if [[ -n "$dev_auto_pids" ]]; then
+      echo "Port $port held/reserved by: $(echo $pids | tr '\n' ' ')"
+    else
+      echo "Port $port held by: $(echo $pids | tr '\n' ' ')"
+    fi
 
     # Kill children first — shell wrappers (npm/pnpm/yarn) spawn nodes that hold the port
     for pid in $pids; do
@@ -98,16 +133,36 @@ killport() {
     kill -TERM $pids 2>/dev/null
     for attempt in 1 2 3; do
       sleep 0.2
-      pids=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
-      [[ -z "$pids" ]] && break
-      kill -KILL $pids 2>/dev/null || sudo kill -KILL $pids 2>/dev/null
+      remaining=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+      for pid in $dev_auto_pids; do
+        kill -0 "$pid" 2>/dev/null || continue
+        if [[ -z "$remaining" ]]; then
+          remaining="$pid"
+        else
+          remaining="$remaining
+$pid"
+        fi
+      done
+      remaining=$(echo "$remaining" | sort -u)
+      [[ -z "$remaining" ]] && break
+      kill -KILL $remaining 2>/dev/null || sudo kill -KILL $remaining 2>/dev/null
     done
 
-    pids=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
-    if [[ -z "$pids" ]]; then
+    remaining=$(lsof -ti:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    for pid in $dev_auto_pids; do
+      kill -0 "$pid" 2>/dev/null || continue
+      if [[ -z "$remaining" ]]; then
+        remaining="$pid"
+      else
+        remaining="$remaining
+$pid"
+      fi
+    done
+    remaining=$(echo "$remaining" | sort -u)
+    if [[ -z "$remaining" ]]; then
       echo "Port $port freed"
     else
-      echo "Port $port still held by: $(echo $pids | tr '\n' ' ') (run: lsof -i:$port)"
+      echo "Port $port still held/reserved by: $(echo $remaining | tr '\n' ' ') (run: lsof -i:$port; bun run dev:ports)"
       rc=1
     fi
   done
@@ -146,6 +201,34 @@ alias gd='git diff'
 alias gco='git checkout'
 alias gb='git branch'
 alias lg='lazygit'
+
+gpmain() {
+  git pullmain "$@"
+}
+
+gmmain() {
+  local merge_status
+
+  echo '→ Updating main...'
+  gpmain || return $?
+
+  echo '→ Merging main into current branch...'
+  git merge main --no-edit
+  merge_status=$?
+
+  if [[ -n "$(git ls-files --unmerged)" ]]; then
+    echo '✗ Conflicts detected, launching Pi...'
+    pi --print 'fix all merge conflicts'
+    return $?
+  fi
+
+  if [[ $merge_status -ne 0 ]]; then
+    echo '✗ Merge failed'
+    return $merge_status
+  fi
+
+  echo '✓ Merged cleanly'
+}
 
 # -------------------------------------------
 # Editors

@@ -49,6 +49,13 @@ export EDITOR="zed"
 # -------------------------------------------
 export LINEAR_ISSUE_SORT="manual"
 
+{{ if .is_darwin }}
+# -------------------------------------------
+# Agent Browser
+# -------------------------------------------
+export AGENT_BROWSER_EXECUTABLE_PATH="/Applications/Helium.app/Contents/MacOS/Helium"
+{{- end }}
+
 {{ if lookPath "op" }}
 # API Keys (from 1Password)
 export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
