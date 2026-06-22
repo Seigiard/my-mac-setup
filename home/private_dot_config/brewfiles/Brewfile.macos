@@ -10,10 +10,7 @@ brew "schpet/tap/linear"
 brew "yqrashawn/goku/goku"
 
 # Fonts
-cask "font-symbols-only-nerd-font"
-cask "font-jetbrains-mono"
 cask "font-jetbrains-mono-nerd-font"
-cask "font-d2coding-nerd-font"
 cask "font-iosevka-nerd-font"
 
 # Terminal & editors
@@ -43,11 +40,13 @@ cask "iina"
 cask "transmission"
 
 # Browsers
-cask "brave-browser"
-cask "floorp"
+cask "helium-browser"
+cask "zen"
 
 # Communication
 cask "telegram"
+
+# Design
 cask "figma"
 
 # Other
