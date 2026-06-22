@@ -96,8 +96,7 @@ When the refactor estimate exceeds 2x the reimplementation effort (wrong languag
 **CLI tools (via Bash):**
 
 - `ast-grep` — structural search/refactor (classes, functions, patterns)
-- `jq` — JSON transformations
-- `rq` — YAML, TOML, CSV, CBOR, Avro, MessagePack, Protobuf transformations
+- `jq` — JSON transformations and parsing
 - `rg` with flags (`-t`, `-g`, `--json`) — when a specific output format is needed
 
 **MCP / agent tool selection:**
