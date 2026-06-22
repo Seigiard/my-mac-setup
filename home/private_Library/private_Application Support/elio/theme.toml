@@ -1,0 +1,857 @@
+[palette]
+bg = "none"
+chrome = "none"
+chrome_alt = "none"
+panel = "none"
+panel_alt = "none"
+surface = "none"
+elevated = "none"
+border = "#DAD8CE"
+text = "#100F0F"
+muted = "#878580"
+accent = "#205EA6"
+accent_soft = "#E6E4D9"
+accent_text = "#100F0F"
+selected_bg = "#E6E4D9"
+selected_border = "#B7B5AC"
+selection_bar = "#205EA6"
+yank_bar = "#66800B"
+cut_bar = "#AF3029"
+grid_selection_band = "#D7E2EC"
+grid_yank_band = "#DDE6C9"
+grid_cut_band = "#F1D9D2"
+sidebar_active = "#E6E4D9"
+button_bg = "none"
+button_disabled_bg = "none"
+path_bg = "none"
+
+[preview.code]
+fg = "#100F0F"
+bg = "none"
+selection_bg = "#E6E4D9"
+selection_fg = "#100F0F"
+caret = "#AF3029"
+line_highlight = "none"
+line_number = "#B7B5AC"
+comment = "#878580"
+string = "#66800B"
+constant = "#BC5215"
+keyword = "#AF3029"
+function = "#205EA6"
+type = "#5E409D"
+parameter = "#24837B"
+tag = "#A02F6F"
+operator = "#6F6E69"
+macro = "#BC5215"
+invalid = "#D14D41"
+
+[classes.directory]
+color = "#205EA6"
+
+[classes.code]
+color = "#5E409D"
+
+[classes.config]
+color = "#6F6E69"
+
+[classes.document]
+color = "#BC5215"
+
+[classes.license]
+color = "#AD8301"
+
+[classes.image]
+color = "#66800B"
+
+[classes.audio]
+color = "#5E409D"
+
+[classes.video]
+color = "#A02F6F"
+
+[classes.archive]
+color = "#BC5215"
+
+[classes.font]
+color = "#8B7EC8"
+
+[classes.data]
+color = "#66800B"
+
+[classes.file]
+color = "#878580"
+
+[extensions.toml]
+class = "config"
+icon = ""
+color = "#6F6E69"
+
+[extensions.json]
+class = "config"
+icon = ""
+color = "#5E409D"
+
+[extensions.jsonc]
+class = "config"
+icon = ""
+color = "#5E409D"
+
+[extensions.json5]
+class = "config"
+icon = ""
+color = "#5E409D"
+
+[extensions.desktop]
+class = "config"
+icon = "󰍹"
+color = "#6F6E69"
+
+[extensions.xcf]
+class = "image"
+icon = ""
+color = "#AF3029"
+
+[extensions.iso]
+class = "archive"
+icon = "󰗮"
+color = "#5E409D"
+
+[extensions.pdf]
+class = "document"
+icon = "󰈙"
+color = "#AF3029"
+
+[extensions.epub]
+class = "document"
+icon = "󱗖"
+color = "#BC5215"
+
+[extensions.cbz]
+class = "archive"
+icon = "󱗖"
+color = "#BC5215"
+
+[extensions.cbr]
+class = "archive"
+icon = "󱗖"
+color = "#BC5215"
+
+[extensions.lock]
+class = "data"
+icon = "󰈡"
+color = "#66800B"
+
+[extensions.rs]
+class = "code"
+icon = ""
+color = "#BC5215"
+
+[extensions.ts]
+class = "code"
+icon = ""
+color = "#5E409D"
+
+[extensions.tsx]
+class = "code"
+icon = "󰜈"
+color = "#8B7EC8"
+
+[extensions.js]
+class = "code"
+icon = ""
+color = "#5E409D"
+
+[extensions.jsx]
+class = "code"
+icon = "󰜈"
+color = "#8B7EC8"
+
+[extensions.py]
+class = "code"
+icon = ""
+color = "#AD8301"
+
+[extensions.go]
+class = "code"
+icon = ""
+color = "#24837B"
+
+[extensions.sh]
+class = "code"
+icon = ""
+color = "#6F6E69"
+
+[extensions.bash]
+class = "code"
+icon = ""
+color = "#6F6E69"
+
+[extensions.zsh]
+class = "code"
+icon = ""
+color = "#6F6E69"
+
+[extensions.fish]
+class = "code"
+icon = ""
+color = "#6F6E69"
+
+[extensions.c]
+class = "code"
+icon = ""
+color = "#5E409D"
+
+[extensions.cpp]
+class = "code"
+icon = ""
+color = "#8B7EC8"
+
+[extensions.h]
+class = "code"
+icon = ""
+color = "#5E409D"
+
+[extensions.hpp]
+class = "code"
+icon = ""
+color = "#8B7EC8"
+
+[extensions.java]
+class = "code"
+icon = ""
+color = "#BC5215"
+
+[extensions.lua]
+class = "code"
+icon = ""
+color = "#5E409D"
+
+[extensions.php]
+class = "code"
+icon = ""
+color = "#5E409D"
+
+[extensions.rb]
+class = "code"
+icon = ""
+color = "#AF3029"
+
+[extensions.swift]
+class = "code"
+icon = ""
+color = "#BC5215"
+
+[extensions.kt]
+class = "code"
+icon = ""
+color = "#8B7EC8"
+
+[extensions.vue]
+class = "code"
+icon = ""
+color = "#66800B"
+
+[extensions.svelte]
+class = "code"
+icon = ""
+color = "#BC5215"
+
+[extensions.astro]
+class = "code"
+icon = ""
+color = "#878580"
+
+[extensions.html]
+class = "code"
+icon = ""
+color = "#BC5215"
+
+[extensions.htm]
+class = "code"
+icon = ""
+color = "#BC5215"
+
+[extensions.xml]
+class = "code"
+icon = "󰗀"
+color = "#5E409D"
+
+[extensions.xsd]
+class = "code"
+icon = "󰗀"
+color = "#5E409D"
+
+[extensions.xsl]
+class = "code"
+icon = "󰗀"
+color = "#5E409D"
+
+[extensions.xslt]
+class = "code"
+icon = "󰗀"
+color = "#5E409D"
+
+[extensions.css]
+class = "code"
+icon = ""
+color = "#24837B"
+
+[extensions.scss]
+class = "code"
+icon = ""
+color = "#8B7EC8"
+
+[extensions.md]
+class = "document"
+icon = ""
+color = "#BC5215"
+
+[extensions.markdown]
+class = "document"
+icon = ""
+color = "#BC5215"
+
+[extensions.mdown]
+class = "document"
+icon = ""
+color = "#BC5215"
+
+[extensions.mkd]
+class = "document"
+icon = ""
+color = "#BC5215"
+
+[extensions.mdx]
+class = "document"
+icon = ""
+color = "#BC5215"
+
+[extensions.txt]
+class = "document"
+icon = ""
+color = "#878580"
+
+[extensions.sql]
+class = "data"
+icon = ""
+color = "#66800B"
+
+[extensions.nix]
+class = "config"
+icon = ""
+color = "#5E409D"
+
+[extensions.dart]
+class = "code"
+icon = ""
+color = "#24837B"
+
+[extensions.zig]
+class = "code"
+icon = ""
+color = "#AD8301"
+
+[files."Cargo.lock"]
+class = "data"
+icon = "󰈡"
+color = "#66800B"
+
+[files."package.json"]
+class = "config"
+icon = "󰏗"
+color = "#5E409D"
+
+[files."package-lock.json"]
+class = "data"
+icon = "󰈡"
+color = "#66800B"
+
+[files."tsconfig.json"]
+class = "config"
+icon = ""
+color = "#8B7EC8"
+
+[files."Dockerfile"]
+class = "config"
+icon = "󰡨"
+color = "#24837B"
+
+[files."compose.yml"]
+class = "config"
+icon = "󰡨"
+color = "#24837B"
+
+[files."compose.yaml"]
+class = "config"
+icon = "󰡨"
+color = "#24837B"
+
+[files."docker-compose.yml"]
+class = "config"
+icon = "󰡨"
+color = "#24837B"
+
+[files."docker-compose.yaml"]
+class = "config"
+icon = "󰡨"
+color = "#24837B"
+
+[files."README.md"]
+class = "document"
+icon = ""
+color = "#BC5215"
+
+[files.".gitignore"]
+class = "config"
+icon = "󰊢"
+color = "#8B7EC8"
+
+[files.".env"]
+class = "config"
+icon = "󰒓"
+color = "#66800B"
+
+[files.".npmrc"]
+class = "config"
+icon = ""
+color = "#AF3029"
+
+[files.".yarnrc.yml"]
+class = "config"
+icon = ""
+color = "#24837B"
+
+[files."pnpm-lock.yaml"]
+class = "data"
+icon = "󰈡"
+color = "#AD8301"
+
+[files."yarn.lock"]
+class = "data"
+icon = "󰈡"
+color = "#24837B"
+
+[files."bun.lock"]
+class = "data"
+icon = "󰈡"
+color = "#AD8301"
+
+[files."bun.lockb"]
+class = "data"
+icon = "󰈡"
+color = "#AD8301"
+
+[files."pnpm-workspace.yaml"]
+class = "config"
+icon = ""
+color = "#6F6E69"
+
+[files."biome.json"]
+class = "config"
+icon = "󰏗"
+color = "#24837B"
+
+[files."turbo.json"]
+class = "config"
+icon = "󰐷"
+color = "#878580"
+
+[files."deno.json"]
+class = "config"
+icon = ""
+color = "#66800B"
+
+[files."deno.jsonc"]
+class = "config"
+icon = ""
+color = "#66800B"
+
+[files."poetry.lock"]
+class = "data"
+icon = "󰈡"
+color = "#66800B"
+
+[files."requirements.txt"]
+class = "document"
+icon = ""
+color = "#AD8301"
+
+[files."go.mod"]
+class = "config"
+icon = ""
+color = "#24837B"
+
+[files."go.sum"]
+class = "data"
+icon = ""
+color = "#66800B"
+
+[files."vite.config.ts"]
+class = "config"
+icon = ""
+color = "#8B7EC8"
+
+[files."vite.config.js"]
+class = "config"
+icon = ""
+color = "#8B7EC8"
+
+[files."vite.config.mjs"]
+class = "config"
+icon = ""
+color = "#8B7EC8"
+
+[files."vite.config.mts"]
+class = "config"
+icon = ""
+color = "#8B7EC8"
+
+[files."tailwind.config.ts"]
+class = "config"
+icon = "󱏿"
+color = "#24837B"
+
+[files."tailwind.config.js"]
+class = "config"
+icon = "󱏿"
+color = "#24837B"
+
+[files."tailwind.config.mjs"]
+class = "config"
+icon = "󱏿"
+color = "#24837B"
+
+[files."eslint.config.js"]
+class = "config"
+icon = "󰱺"
+color = "#5E409D"
+
+[files."eslint.config.mjs"]
+class = "config"
+icon = "󰱺"
+color = "#5E409D"
+
+[files."eslint.config.ts"]
+class = "config"
+icon = "󰱺"
+color = "#5E409D"
+
+[files."prettier.config.js"]
+class = "config"
+icon = ""
+color = "#205EA6"
+
+[files."prettier.config.mjs"]
+class = "config"
+icon = ""
+color = "#205EA6"
+
+[files."prettier.config.ts"]
+class = "config"
+icon = ""
+color = "#205EA6"
+
+[files."postcss.config.js"]
+class = "config"
+icon = ""
+color = "#24837B"
+
+[files."postcss.config.cjs"]
+class = "config"
+icon = ""
+color = "#24837B"
+
+[files."jest.config.js"]
+class = "config"
+icon = "󰙨"
+color = "#AD8301"
+
+[files."jest.config.ts"]
+class = "config"
+icon = "󰙨"
+color = "#AD8301"
+
+[files."vitest.config.ts"]
+class = "config"
+icon = "󰙨"
+color = "#66800B"
+
+[directories.".git"]
+icon = "󰊢"
+color = "#878580"
+
+[directories.".config"]
+icon = ""
+color = "#6F6E69"
+
+[directories.".github"]
+icon = "󰊤"
+color = "#878580"
+
+[directories.".vscode"]
+icon = ""
+color = "#5E409D"
+
+[directories.".idea"]
+icon = ""
+color = "#A02F6F"
+
+[directories.".cargo"]
+icon = ""
+color = "#BC5215"
+
+[directories.".ssh"]
+icon = "󰢬"
+color = "#878580"
+
+[directories.".cache"]
+icon = "󰪺"
+color = "#9F9D96"
+
+[directories.".npm"]
+icon = "󰏗"
+color = "#66800B"
+
+[directories.".yarn"]
+icon = ""
+color = "#24837B"
+
+[directories.".pnpm-store"]
+icon = ""
+color = "#AD8301"
+
+[directories.".venv"]
+icon = ""
+color = "#AD8301"
+
+[directories."venv"]
+icon = ""
+color = "#AD8301"
+
+[directories."node_modules"]
+icon = "󰏗"
+color = "#205EA6"
+
+[directories."tests"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."test"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."__tests__"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."scripts"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."build"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."dist"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories.".next"]
+icon = ""
+color = "#205EA6"
+
+[directories.".nuxt"]
+icon = "󱄆"
+color = "#205EA6"
+
+[directories.".svelte-kit"]
+icon = ""
+color = "#205EA6"
+
+[directories.".astro"]
+icon = ""
+color = "#205EA6"
+
+[directories."public"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."Public"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."publico"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."Publico"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."público"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."Público"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."pictures"]
+icon = "󰉏"
+color = "#66800B"
+
+[directories."Pictures"]
+icon = "󰉏"
+color = "#66800B"
+
+[directories."imagenes"]
+icon = "󰉏"
+color = "#66800B"
+
+[directories."Imagenes"]
+icon = "󰉏"
+color = "#66800B"
+
+[directories."imágenes"]
+icon = "󰉏"
+color = "#66800B"
+
+[directories."Imágenes"]
+icon = "󰉏"
+color = "#66800B"
+
+[directories."documents"]
+icon = "󰲃"
+color = "#BC5215"
+
+[directories."Documents"]
+icon = "󰲃"
+color = "#BC5215"
+
+[directories."documentos"]
+icon = "󰲃"
+color = "#BC5215"
+
+[directories."Documentos"]
+icon = "󰲃"
+color = "#BC5215"
+
+[directories."downloads"]
+icon = "󰉍"
+color = "#AD8301"
+
+[directories."Downloads"]
+icon = "󰉍"
+color = "#AD8301"
+
+[directories."descargas"]
+icon = "󰉍"
+color = "#AD8301"
+
+[directories."Descargas"]
+icon = "󰉍"
+color = "#AD8301"
+
+[directories."music"]
+icon = "󱍙"
+color = "#5E409D"
+
+[directories."Music"]
+icon = "󱍙"
+color = "#5E409D"
+
+[directories."musica"]
+icon = "󱍙"
+color = "#5E409D"
+
+[directories."Musica"]
+icon = "󱍙"
+color = "#5E409D"
+
+[directories."música"]
+icon = "󱍙"
+color = "#5E409D"
+
+[directories."Música"]
+icon = "󱍙"
+color = "#5E409D"
+
+[directories."videos"]
+icon = "󰕧"
+color = "#A02F6F"
+
+[directories."Videos"]
+icon = "󰕧"
+color = "#A02F6F"
+
+[directories."vídeos"]
+icon = "󰕧"
+color = "#A02F6F"
+
+[directories."Vídeos"]
+icon = "󰕧"
+color = "#A02F6F"
+
+[directories."desktop"]
+icon = "󰍹"
+color = "#6F6E69"
+
+[directories."Desktop"]
+icon = "󰍹"
+color = "#6F6E69"
+
+[directories."escritorio"]
+icon = "󰍹"
+color = "#6F6E69"
+
+[directories."Escritorio"]
+icon = "󰍹"
+color = "#6F6E69"
+
+[directories."assets"]
+icon = "󰉏"
+color = "#205EA6"
+
+[directories."coverage"]
+icon = "󰙨"
+color = "#205EA6"
+
+[directories."tmp"]
+icon = "󰪺"
+color = "#205EA6"
+
+[directories."temp"]
+icon = "󰪺"
+color = "#205EA6"
+
+[directories."out"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."target"]
+icon = "󱧽"
+color = "#205EA6"
+
+[directories."bin"]
+icon = "󱁿"
+color = "#205EA6"
+
+[directories."lib"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."vendor"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."src"]
+icon = "󰉋"
+color = "#205EA6"
+
+[directories."config"]
+icon = "󰒓"
+color = "#205EA6"
+
+[directories."docs"]
+icon = "󱧷"
+color = "#205EA6"
