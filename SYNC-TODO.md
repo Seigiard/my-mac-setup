@@ -46,28 +46,28 @@
 ## Tracker — расходятся (`MM`), правил локально, в репо нет
 
 ### Shell
-- [ ] `~/.aliases`  · plain
-- [ ] `~/.tmux.conf`  · plain
-- [ ] `~/.config/tmux/flexoki-light.tmuxtheme`  · plain
-- [ ] `~/.zshrc`  · ⚠️ TEMPLATE (`dot_zshrc.tmpl`) — merge/править шаблон
-- [ ] `~/.zshenv`  · ⚠️ TEMPLATE (`dot_zshenv.tmpl`) — merge/править шаблон
+- [x] `~/.aliases`  · plain → live→репо (`chezmoi add`), dev_auto+gpmain/gmmain
+- [x] `~/.tmux.conf`  · plain → live→репо (`chezmoi add`): tmux-256color+terminal-features, вернул source-file
+- [x] `~/.config/tmux/flexoki-light.tmuxtheme`  · plain → `chezmoi add --follow`: вшил богатую тему (live = симлинк на неуправляемый alacritty-tmux). Остаточный diff symlink↔real-file — намеренно, источник self-contained
+- [x] `~/.zshrc`  · TEMPLATE → убрал peon-ping из шаблона; alacritty word-arrows + meridian overrides оставлены live-only (эксперименты, в репо не тянем)
+- [x] `~/.zshenv`  · TEMPLATE → добавил AGENT_BROWSER_EXECUTABLE_PATH под `{{ if .is_darwin }}`; MEMBRANE(plaintext-секрет!)/AMP/cargo оставлены live-only, не тянем
 
 ### Claude
-- [ ] `~/.claude.json`  · ⚠️ modify-скрипт (`modify_dot_claude.json`) — править скрипт
-- [ ] `~/.claude/CLAUDE.md`  · plain
-- [ ] `~/.claude/settings.json`  · plain
-- [ ] `~/.claude/rules/typescript.md`  · plain
-- [ ] `~/.claude/skills/react-doctor/SKILL.md`  · plain
+- [x] `~/.claude.json`  · modify-скрипт → veche удалён из live (`claude mcp remove veche`), в репо-скрипт не добавляли. Источник не менялся; остаток diff — рантайм-каша usageCount/lastUsedAt (неустранимо)
+- [x] `~/.claude/CLAUDE.md`  · plain → live→репо (`chezmoi add`), 222 стр. Репо-рестрактур (121 стр) + принципы Assumptions/Full-completion/superpowers сознательно отброшены
+- [x] `~/.claude/settings.json`  · plain → live→репо (`chezmoi add`): effortLevel=medium, втянул herdr SessionStart-хук. Источник переименован settings.json→private_settings.json (live 0600)
+- [x] `~/.claude/rules/typescript.md`  · plain → РЕПО ВПЕРЕДИ (расширенные React/Hooks секции со скиллами). Источник не трогаем, доедет на apply
+- [x] `~/.claude/skills/react-doctor/SKILL.md`  · plain → исправил флаги на актуальные CLI (`--diff/--offline/--no-ami` → `--scope files --no-telemetry -y`) в репо И live
 
 ### Editors / tools
-- [ ] `~/.config/zed/keymap.json`  · plain
-- [ ] `~/.config/zed/settings.json`  · plain
-- [ ] `~/.config/zed/tasks.json`  · plain
-- [ ] `~/.config/karabiner/karabiner.json`  · plain
-- [ ] `~/.config/yazi/flavors/flexoki-light.yazi/flavor.toml`  · plain
+- [x] `~/.config/zed/keymap.json`  · plain → live→репо (`chezmoi add`), донастроенные биндинги + CSI-u shift-enter
+- [x] `~/.config/zed/settings.json`  · plain → live→репо целиком (`chezmoi add`): tsgo (не vtsls), все live-префы, agent_servers codex/pi/opencode
+- [x] `~/.config/zed/tasks.json`  · plain → @um/@mm на gpmain/gmmain (live), @as/@alg (alacritty-session) удалены из live+репо. `chezmoi add`
+- [x] `~/.config/karabiner/karabiner.json`  · plain → live→репо (`chezmoi add`), private_karabiner.json (0600). **Решено: json = единственный источник.** goku убран (install-скрипт + Brewfile.macos), `karabiner.edn` удалён (источник+живой) как мёртвый балласт. Live goku-бинарь ещё установлен — опц. `brew uninstall goku && brew untap yqrashawn/goku`
+- [x] `~/.config/yazi/flavors/flexoki-light.yazi/flavor.toml`  · plain → live→репо (`chezmoi add`): ключ `url` (не `name`), yazi-схему фиксили недавно
 
 ### Repo meta
-- [ ] `~/.gitignore`  · plain
+- [x] `~/.gitignore`  · plain → РЕПО ВПЕРЕДИ/корректнее (`Icon?` vs живой `Icon`). Источник не трогаем, доедет на apply
 
 ## Репо впереди, не применено на хост (` M`)
 
@@ -78,8 +78,9 @@
 
 ## Скрипты (`R`)
 
-- [ ] `.chezmoiscripts/install-packages.sh` — перезапустится при `apply`; не конфиг,
-      проверить что повторный прогон идемпотентен и ничего не сломает.
+- [x] `.chezmoiscripts/install-packages.sh` — идемпотентен (всё под guards: `command -v`,
+      `[[ ! -d ]]`, `|| true`, `brew bundle` без `--cleanup`). **Убран goku-шаг** — он
+      перезаписывал бы управляемый karabiner.json из edn. Теперь повторный прогон безопасен.
 
 ## Сделано в этой сессии
 

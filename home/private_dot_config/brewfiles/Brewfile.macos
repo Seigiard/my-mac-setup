@@ -1,14 +1,10 @@
 # macOS-specific packages
 
-# Taps
-tap "yqrashawn/goku"
-
 # CLI tools (macOS only)
 brew "elio"         # terminal file manager (theme synced under Library/)
 brew "lazywalker/rgrc/rgrc"
 brew "terminal-notifier"
 brew "schpet/tap/linear"
-brew "yqrashawn/goku/goku"
 
 # Fonts
 cask "font-jetbrains-mono-nerd-font"
