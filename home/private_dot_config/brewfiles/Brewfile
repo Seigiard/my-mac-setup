@@ -1,9 +1,13 @@
 # Cross-platform CLI tools (Linuxbrew + Homebrew)
 # Format: brew "package" # binary_name (if different)
 
+# Taps
+tap "oven-sh/bun", trusted: true
+
 # Shell & prompt
 brew "zsh"
 brew "starship"
+brew "grc"          # generic colouriser
 
 # Git tools
 brew "git"
@@ -11,15 +15,19 @@ brew "gh"
 brew "delta"
 brew "lazygit"
 
-# Version manager
+# Version & package managers
 brew "mise"
+brew "ni"
+
+# JavaScript runtimes
+brew "node"
+brew "oven-sh/bun/bun"  # bun
 
 # Search & text processing
 brew "ripgrep"      # rg
 brew "ast-grep"     # sg
 brew "bat"
 brew "jq"
-brew "tldr"
 
 # File management
 brew "yazi"
@@ -28,6 +36,20 @@ brew "fzf"
 brew "zoxide"
 brew "eza"
 brew "ouch"
+
+# Terminal multiplexers
+brew "tmux"
+
+# AI coding agents & tooling
+brew "opencode"
+brew "agent-browser"
+brew "pi-coding-agent"
+brew "herdr"        # agent multiplexer
+brew "crit"         # local plan/code review
+brew "rtk"          # LLM token-saving CLI proxy
+
+# Dev tools
+brew "act"          # run GitHub Actions locally
 
 # Testing
 brew "bats-core"    # bats
