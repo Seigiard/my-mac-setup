@@ -8,3 +8,11 @@ panel_bg = "reset"
 
 [experimental]
 kitty_graphics = true
+
+[keys]
+switch_workspace = "ctrl+shift+1..9"
+split_horizontal = "prefix+minus"
+split_vertical = "prefix+v"
+
+[ui]
+prompt_new_tab_name = false

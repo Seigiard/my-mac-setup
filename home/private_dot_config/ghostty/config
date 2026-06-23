@@ -27,7 +27,7 @@ macos-titlebar-style = tabs
 window-colorspace = "display-p3"
 window-new-tab-position = "end"
 window-padding-balance = true
-window-padding-x = 8
+window-padding-x = 0
 window-padding-y = 0
 
 clipboard-trim-trailing-spaces = true
@@ -40,8 +40,87 @@ font-feature = -dlig
 #term = xterm-256color
 term = xterm-ghostty
 
+# BEGIN auto-launch herdr
+# Launch Herdr by default when available; otherwise fall back to a login shell.
+command = shell:/bin/zsh -lc 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; if command -v herdr >/dev/null 2>&1; then exec herdr; else exec "${SHELL:-/bin/zsh}" -l; fi'
+# END auto-launch herdr
+
 # KEYBINDINGS
 keybind = shift+enter=text:\x1b[13;2u
 keybind = ctrl+key_c=text:\x03
 
-#config-file = /Users/seigiard/.config/native-shortcuts-herd/ghostty.conf
+
+# BEGIN macOS-style herdr shortcuts test
+# Sends macOS-style shortcuts to herdr as ctrl+b prefix sequences.
+# This maps to herdr 0.7 defaults with one explicit herdr binding for workspace jumps.
+keybind = cmd+KeyT=text:\x02c
+keybind = cmd+t=unbind
+keybind = cmd+KeyN=text:\x02N
+keybind = cmd+n=unbind
+keybind = cmd+KeyD=text:\x02v
+keybind = cmd+d=unbind
+keybind = cmd+shift+KeyD=text:\x02-
+keybind = cmd+shift+d=unbind
+keybind = cmd+shift+enter=text:\x02z
+keybind = cmd+ctrl+left=text:\x02h
+keybind = cmd+ctrl+down=text:\x02j
+keybind = cmd+ctrl+up=text:\x02k
+keybind = cmd+ctrl+right=text:\x02l
+keybind = cmd+ctrl+KeyH=text:\x02h
+keybind = cmd+ctrl+KeyJ=text:\x02j
+keybind = cmd+ctrl+KeyK=text:\x02k
+keybind = cmd+ctrl+KeyL=text:\x02l
+keybind = cmd+KeyW=text:\x02x
+keybind = cmd+w=unbind
+keybind = cmd+shift+KeyW=text:\x02D
+keybind = cmd+shift+w=unbind
+keybind = cmd+KeyK=text:\x02W
+keybind = cmd+k=unbind
+keybind = cmd+KeyL=text:\x02T
+keybind = cmd+l=unbind
+keybind = alt+t=text:\x02c
+
+# Browser-style tab cycling via herdr defaults: prefix+n / prefix+p.
+keybind = ctrl+tab=text:\x02n
+keybind = ctrl+shift+tab=text:\x02p
+
+# Cmd+1..9 switches herdr tabs via herdr default prefix+1..9.
+keybind = cmd+digit_1=text:\x021
+keybind = cmd+1=text:\x021
+keybind = cmd+digit_2=text:\x022
+keybind = cmd+2=text:\x022
+keybind = cmd+digit_3=text:\x023
+keybind = cmd+3=text:\x023
+keybind = cmd+digit_4=text:\x024
+keybind = cmd+4=text:\x024
+keybind = cmd+digit_5=text:\x025
+keybind = cmd+5=text:\x025
+keybind = cmd+digit_6=text:\x026
+keybind = cmd+6=text:\x026
+keybind = cmd+digit_7=text:\x027
+keybind = cmd+7=text:\x027
+keybind = cmd+digit_8=text:\x028
+keybind = cmd+8=text:\x028
+keybind = cmd+digit_9=text:\x029
+keybind = cmd+9=text:\x029
+
+# Ctrl+Shift+1..9 sends enhanced key sequences for direct herdr workspace jumps.
+keybind = ctrl+shift+digit_1=text:\x1b[49;6u
+keybind = ctrl+shift+1=text:\x1b[49;6u
+keybind = ctrl+shift+digit_2=text:\x1b[50;6u
+keybind = ctrl+shift+2=text:\x1b[50;6u
+keybind = ctrl+shift+digit_3=text:\x1b[51;6u
+keybind = ctrl+shift+3=text:\x1b[51;6u
+keybind = ctrl+shift+digit_4=text:\x1b[52;6u
+keybind = ctrl+shift+4=text:\x1b[52;6u
+keybind = ctrl+shift+digit_5=text:\x1b[53;6u
+keybind = ctrl+shift+5=text:\x1b[53;6u
+keybind = ctrl+shift+digit_6=text:\x1b[54;6u
+keybind = ctrl+shift+6=text:\x1b[54;6u
+keybind = ctrl+shift+digit_7=text:\x1b[55;6u
+keybind = ctrl+shift+7=text:\x1b[55;6u
+keybind = ctrl+shift+digit_8=text:\x1b[56;6u
+keybind = ctrl+shift+8=text:\x1b[56;6u
+keybind = ctrl+shift+digit_9=text:\x1b[57;6u
+keybind = ctrl+shift+9=text:\x1b[57;6u
+# END macOS-style herdr shortcuts test
