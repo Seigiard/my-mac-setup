@@ -14,5 +14,17 @@ switch_workspace = "ctrl+shift+1..9"
 split_horizontal = "prefix+minus"
 split_vertical = "prefix+v"
 
+[[keys.command]]
+key = "cmd+shift+p"
+type = "plugin_action"
+command = "seigi.command-palette.open"
+description = "command palette"
+
+[[keys.command]]
+key = "prefix+space"
+type = "plugin_action"
+command = "seigi.command-palette.open"
+description = "command palette"
+
 [ui]
 prompt_new_tab_name = false

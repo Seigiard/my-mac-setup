@@ -1,0 +1,67 @@
+[
+  {
+    "group": "Panes",
+    "title": "Split pane right",
+    "description": "Split the active pane to the right",
+    "type": "herdr",
+    "args": ["pane", "split", "{target_pane}", "--direction", "right", "--focus"]
+  },
+  {
+    "group": "Panes",
+    "title": "Split pane down",
+    "description": "Split the active pane downward",
+    "type": "herdr",
+    "args": ["pane", "split", "{target_pane}", "--direction", "down", "--focus"]
+  },
+  {
+    "group": "Panes",
+    "title": "Close active pane",
+    "description": "Close the pane that opened the palette",
+    "type": "herdr",
+    "args": ["pane", "close", "{target_pane}"]
+  },
+  {
+    "group": "Apps",
+    "title": "Lazygit in new tab",
+    "description": "Open a new tab in the current pane's directory and run lazygit",
+    "type": "tab_run",
+    "label": "lazygit",
+    "command": "lazygit"
+  },
+  {
+    "group": "Apps",
+    "title": "Lazygit in overlay",
+    "description": "Replace the palette overlay with lazygit in the current pane's directory",
+    "type": "overlay_shell",
+    "command": "lazygit"
+  },
+  {
+    "group": "Herdr",
+    "title": "New tab",
+    "description": "Create and focus a new tab in the active workspace",
+    "type": "herdr",
+    "args": ["tab", "create", "--focus"]
+  },
+  {
+    "group": "Herdr",
+    "title": "List workspaces",
+    "description": "Show workspace JSON in this overlay",
+    "type": "herdr",
+    "args": ["workspace", "list"],
+    "pause": true
+  },
+  {
+    "group": "Herdr",
+    "title": "Reload config",
+    "description": "Apply config.toml changes without restarting panes",
+    "type": "herdr",
+    "args": ["server", "reload-config"]
+  },
+  {
+    "group": "Settings",
+    "title": "Edit command palette config",
+    "description": "Open commands.json in the original pane with $EDITOR",
+    "type": "pane_run",
+    "command": "${EDITOR:-vi} {config_file_q}"
+  }
+]

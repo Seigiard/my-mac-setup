@@ -78,6 +78,8 @@ keybind = cmd+KeyK=text:\x02W
 keybind = cmd+k=unbind
 keybind = cmd+KeyL=text:\x02T
 keybind = cmd+l=unbind
+keybind = cmd+shift+KeyP=text:\x02\x20
+keybind = cmd+shift+p=unbind
 keybind = alt+t=text:\x02c
 
 # Browser-style tab cycling via herdr defaults: prefix+n / prefix+p.

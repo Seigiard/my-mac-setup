@@ -1,0 +1,18 @@
+id = "seigi.command-palette"
+name = "Command Palette"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Custom Herdr command palette for running managed commands from an overlay."
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "open"
+title = "Open command palette"
+contexts = ["workspace"]
+command = ["python3", "open.py"]
+
+[[panes]]
+id = "palette"
+title = "Palette"
+placement = "overlay"
+command = ["python3", "palette.py"]

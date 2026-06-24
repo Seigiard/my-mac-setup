@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Link local Herdr command-palette plugin after the managed files change.
+#
+# Hash triggers:
+# # {{ include "private_dot_config/herdr/plugins/command-palette/herdr-plugin.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/command-palette/open.py" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/command-palette/palette.py" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/command-palette/README.md" | sha256sum }}
+# # {{ include "private_dot_config/herdr/config.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/command-palette/defaults/commands.json" | sha256sum }}
+
+# Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
+set -u
+
+plugin_dir="$HOME/.config/herdr/plugins/command-palette"
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping command-palette plugin link"
+  exit 0
+fi
+
+if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
+  echo "Herdr command-palette plugin manifest not found at $plugin_dir; skipping"
+  exit 0
+fi
+
+if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
+  echo "Linked Herdr command-palette plugin"
+  if herdr server reload-config >/dev/null 2>&1; then
+    echo "Reloaded Herdr config"
+  else
+    echo "Warning: linked plugin but failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+  fi
+else
+  echo "Warning: failed to link Herdr command-palette plugin. Run manually: herdr plugin link $plugin_dir" >&2
+fi
