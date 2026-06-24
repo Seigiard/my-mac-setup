@@ -50,9 +50,7 @@ seeds the user-editable global command list at:
 
 That runtime file is intentionally not managed by chezmoi, so live edits are not
 overwritten by `chezmoi apply`. The palette also supports
-`HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.toml` for experiments. If an old
-`commands.json` exists and no TOML file has been created yet, the palette
-migrates it once into `commands.toml` and then uses TOML from then on.
+`HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.toml` for experiments.
 
 You can also add one command per file beside it:
 
@@ -70,6 +68,18 @@ directory until a repo provides:
 
 Project commands are read-only from the palette's point of view and render above
 global commands under `Project · <group>` headings.
+
+Validate command files with the plugin itself:
+
+```bash
+python3 ~/.config/herdr/plugins/command-palette/palette.py --validate \
+  ~/.config/herdr/command-palette/commands.toml \
+  .herdr/command-palette/*.toml
+```
+
+The validator parses TOML and checks the command-palette schema: required title
+or name, supported command types, valid nested `run` type, and selectable options
+for `select` commands.
 
 Supported command types:
 

@@ -72,6 +72,10 @@ load 'helpers/common'
 
   run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); assert len(mod.load_command_data_file(__import__("pathlib").Path(os.path.expanduser("~/.config/herdr/plugins/command-palette/defaults/commands.toml")))) > 0'
   assert_success
+
+  run python3 "$HOME/.config/herdr/plugins/command-palette/palette.py" --validate \
+    "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml"
+  assert_success
 }
 
 @test "herdr command palette can load and seed commands" {
@@ -125,6 +129,20 @@ assert mod.command_kind({"name": "Default Shell", "command": "echo hi"}) == "she
 assert mod.context_vars(cfg)["project_root"].endswith("/repo")
 PY
   assert_success
+  rm -rf "$tmpdir"
+}
+
+@test "herdr command palette rejects invalid TOML commands" {
+  tmpdir="$(mktemp -d)"
+  cat > "$tmpdir/bad.toml" <<'TOML'
+name = "Broken"
+type = "not_a_type"
+command = "echo broken"
+TOML
+
+  run python3 "$HOME/.config/herdr/plugins/command-palette/palette.py" --validate "$tmpdir/bad.toml"
+  assert_failure
+  assert_output --partial "unsupported type"
   rm -rf "$tmpdir"
 }
 

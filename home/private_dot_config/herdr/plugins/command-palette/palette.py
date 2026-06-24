@@ -103,64 +103,12 @@ def ensure_config() -> Path:
     path = command_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        legacy = path.with_name("commands.json")
-        if legacy.exists():
-            migrate_json_to_toml(legacy, path)
+        defaults = bundled_defaults_path()
+        if defaults.exists():
+            shutil.copyfile(defaults, path)
         else:
-            defaults = bundled_defaults_path()
-            if defaults.exists():
-                shutil.copyfile(defaults, path)
-            else:
-                path.write_text("\n")
+            path.write_text("\n")
     return path
-
-
-def toml_quote(value: Any) -> str:
-    return json.dumps(str(value), ensure_ascii=False)
-
-
-def toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(toml_value(item) for item in value) + "]"
-    return toml_quote(value)
-
-
-def command_to_toml(command: dict[str, Any]) -> str:
-    lines = ["[[commands]]"]
-    for key in ("group", "title", "name", "description", "type", "label", "command", "pause", "format", "focus_delay", "append_value", "run_type"):
-        if key in command:
-            lines.append(f"{key} = {toml_value(command[key])}")
-    if isinstance(command.get("args"), list):
-        lines.append(f"args = {toml_value(command['args'])}")
-    if isinstance(command.get("run"), dict):
-        lines.append("[commands.run]")
-        for key, value in command["run"].items():
-            lines.append(f"{key} = {toml_value(value)}")
-    if isinstance(command.get("form"), dict):
-        lines.append("[commands.form]")
-        for key, value in command["form"].items():
-            lines.append(f"{key} = {toml_value(value)}")
-    if isinstance(command.get("options"), list):
-        for option in command["options"]:
-            if not isinstance(option, dict):
-                continue
-            lines.append("[[commands.options]]")
-            for key, value in option.items():
-                lines.append(f"{key} = {toml_value(value)}")
-    return "\n".join(lines) + "\n"
-
-
-def migrate_json_to_toml(source: Path, destination: Path) -> None:
-    data = json.loads(source.read_text())
-    if isinstance(data, dict):
-        data = [data]
-    if not isinstance(data, list):
-        raise ValueError(f"{source} must contain a JSON command object or array to migrate")
-    destination.write_text("\n".join(command_to_toml(command) for command in data if isinstance(command, dict)))
 
 
 def strip_toml_comment(line: str) -> str:
@@ -351,6 +299,40 @@ def load_commands_from_dir(base_dir: Path, origin: str, main_file: Path | None =
                 raise ValueError(f"command #{index + 1} in {path} must be an object")
             commands.append(command_from_raw(item, f"{path}#{index + 1}", origin))
     return commands
+
+
+def validate_command_file(path: Path) -> int:
+    items = load_command_data_file(path)
+    if not items:
+        raise ValueError(f"{path} does not define any commands")
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"command #{index + 1} in {path} must be an object")
+        command_from_raw(item, f"{path}#{index + 1}", "Validation")
+    return len(items)
+
+
+def validate_command_files(paths: list[Path]) -> list[tuple[Path, int]]:
+    results: list[tuple[Path, int]] = []
+    for path in paths:
+        if not path.exists():
+            raise ValueError(f"{path} does not exist")
+        if not path.is_file():
+            raise ValueError(f"{path} is not a file")
+        results.append((path, validate_command_file(path)))
+    return results
+
+
+def validate_cli(args: list[str]) -> int:
+    paths = [Path(arg).expanduser() for arg in args] if args else [bundled_defaults_path()]
+    try:
+        results = validate_command_files(paths)
+    except Exception as exc:
+        print(f"command palette config invalid: {exc}", file=sys.stderr)
+        return 1
+    for path, count in results:
+        print(f"ok {path} ({count} command{'s' if count != 1 else ''})")
+    return 0
 
 
 def load_commands() -> tuple[Path, list[Command]]:
@@ -1195,6 +1177,9 @@ def wait_for_key() -> None:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--validate":
+        return validate_cli(sys.argv[2:])
+
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise SystemExit("command palette needs a TTY")
 
