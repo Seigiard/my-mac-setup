@@ -11,6 +11,12 @@ title = "Open command palette"
 contexts = ["workspace"]
 command = ["python3", "open.py"]
 
+[[actions]]
+id = "smart_close"
+title = "Smart close pane or tab"
+contexts = ["workspace"]
+command = ["python3", "smart_close.py"]
+
 [[panes]]
 id = "palette"
 title = "Palette"

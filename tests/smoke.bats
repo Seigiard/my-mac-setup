@@ -54,6 +54,7 @@ load 'helpers/common'
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/palette.py"
+  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/defaults/commands.json"
 }
 
@@ -65,7 +66,8 @@ load 'helpers/common'
 @test "herdr command palette sources are valid" {
   run python3 -m py_compile \
     "$HOME/.config/herdr/plugins/command-palette/open.py" \
-    "$HOME/.config/herdr/plugins/command-palette/palette.py"
+    "$HOME/.config/herdr/plugins/command-palette/palette.py" \
+    "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
   assert_success
 
   run python3 -m json.tool "$HOME/.config/herdr/plugins/command-palette/defaults/commands.json"

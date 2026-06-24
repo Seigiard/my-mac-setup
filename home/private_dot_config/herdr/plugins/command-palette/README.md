@@ -18,6 +18,12 @@ herdr plugin link ~/.config/herdr/plugins/command-palette
 herdr plugin action list --plugin seigi.command-palette
 ```
 
+The plugin also exposes `seigi.command-palette.smart_close`, used by the
+dotfiles' Cmd-W bridge to close the focused pane when a tab has multiple panes,
+then close the current tab when the workspace has multiple tabs, but never close
+the last tab in a workspace. Use Herdr's explicit close-workspace binding for
+workspace destruction.
+
 ## Keybinding
 
 Configured in `~/.config/herdr/config.toml`:

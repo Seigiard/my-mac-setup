@@ -41,8 +41,9 @@ font-feature = -dlig
 term = xterm-ghostty
 
 # BEGIN auto-launch herdr
-# Launch Herdr by default when available; otherwise fall back to a login shell.
-command = shell:/bin/zsh -lc 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; if command -v herdr >/dev/null 2>&1; then exec herdr; else exec "${SHELL:-/bin/zsh}" -l; fi'
+# Launch Herdr by default when available. Do not exec it: Herdr detach should
+# return to a plain Ghostty login shell while keeping the Herdr server/session alive.
+command = shell:/bin/zsh -lc 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; if command -v herdr >/dev/null 2>&1; then herdr; fi; exec "${SHELL:-/bin/zsh}" -l'
 # END auto-launch herdr
 
 # KEYBINDINGS
@@ -80,6 +81,8 @@ keybind = cmd+KeyL=text:\x02T
 keybind = cmd+l=unbind
 keybind = cmd+shift+KeyP=text:\x02\x20
 keybind = cmd+shift+p=unbind
+keybind = cmd+shift+KeyE=text:\x02q
+keybind = cmd+shift+e=unbind
 keybind = alt+t=text:\x02c
 
 # Browser-style tab cycling via herdr defaults: prefix+n / prefix+p.

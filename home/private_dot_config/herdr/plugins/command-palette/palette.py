@@ -98,10 +98,10 @@ def load_commands() -> tuple[Path, list[Command]]:
         if not title:
             raise ValueError(f"command #{index + 1} is missing title")
         kind = str(item.get("type") or "").strip()
-        if kind not in {"herdr", "pane_run", "tab_run", "shell", "overlay_shell", "plugin_action"}:
+        if kind not in {"herdr", "pane_run", "tab_run", "workspace_picker", "shell", "overlay_shell", "plugin_action"}:
             raise ValueError(
                 f"command '{title}' has unsupported type '{kind}'. "
-                "Use herdr, pane_run, tab_run, shell, overlay_shell, or plugin_action."
+                "Use herdr, pane_run, tab_run, workspace_picker, shell, overlay_shell, or plugin_action."
             )
         group = str(item.get("group") or "Other").strip() or "Other"
         commands.append(
@@ -181,6 +181,63 @@ def contains_target_pane_placeholder(value: Any) -> bool:
     if isinstance(value, dict):
         return any(contains_target_pane_placeholder(item) for item in value.values())
     return False
+
+
+def format_workspace_list(output: str) -> str:
+    try:
+        data = json.loads(output)
+        workspaces = data.get("result", {}).get("workspaces", [])
+    except (AttributeError, json.JSONDecodeError):
+        return output
+    if not isinstance(workspaces, list):
+        return output
+    if not workspaces:
+        return "No workspaces"
+
+    rows = []
+    for workspace in workspaces:
+        if not isinstance(workspace, dict):
+            continue
+        rows.append({
+            "current": "*" if workspace.get("focused") else " ",
+            "number": str(workspace.get("number", "?")),
+            "label": str(workspace.get("label") or workspace.get("workspace_id") or "untitled"),
+            "tabs": str(workspace.get("tab_count", 0)),
+            "panes": str(workspace.get("pane_count", 0)),
+            "status": str(workspace.get("agent_status") or "unknown"),
+        })
+    if not rows:
+        return output
+
+    number_width = max(len("#"), *(len(row["number"]) for row in rows))
+    label_width = max(len("Workspace"), *(len(row["label"]) for row in rows))
+    tabs_width = max(len("Tabs"), *(len(row["tabs"]) for row in rows))
+    panes_width = max(len("Panes"), *(len(row["panes"]) for row in rows))
+
+    lines = [
+        f"  {'#':>{number_width}}  {'Workspace':<{label_width}}  {'Tabs':>{tabs_width}}  {'Panes':>{panes_width}}  Status"
+    ]
+    for row in rows:
+        lines.append(
+            f"{row['current']} {row['number']:>{number_width}}  "
+            f"{row['label']:<{label_width}}  "
+            f"{row['tabs']:>{tabs_width}}  "
+            f"{row['panes']:>{panes_width}}  "
+            f"{row['status']}"
+        )
+    return "\n".join(lines)
+
+
+def format_output(raw: dict[str, Any], output: str) -> str:
+    output_format = str(raw.get("format") or "").strip()
+    if output_format == "workspace_list":
+        return format_workspace_list(output)
+    if output_format == "json":
+        try:
+            return json.dumps(json.loads(output), indent=2, ensure_ascii=False)
+        except json.JSONDecodeError:
+            return output
+    return output
 
 
 
@@ -292,6 +349,96 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
     center(detail, f"{ESC}2m")
     center("Enter run · Esc quit · ↑/↓ or Tab move", f"{ESC}2m")
     sys.stdout.flush()
+
+def workspace_list(herdr: str) -> list[dict[str, Any]]:
+    result = json_result([herdr, "workspace", "list"])
+    workspaces = result.get("workspaces", [])
+    return [workspace for workspace in workspaces if isinstance(workspace, dict)] if isinstance(workspaces, list) else []
+
+
+def render_workspace_picker(workspaces: list[dict[str, Any]], selected: int) -> None:
+    cols, rows = terminal_size()
+    block_width = min(74, max(38, cols - 12))
+    pad = max(0, (cols - block_width) // 2)
+    selected = min(selected, max(0, len(workspaces) - 1))
+    clear()
+
+    def center(text: str = "", style: str = "") -> None:
+        sys.stdout.write(" " * pad)
+        write_line(fit(text, block_width), style)
+
+    content_height = 7 + max(1, len(workspaces))
+    top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
+    for _ in range(top_margin):
+        write_line()
+
+    title = "Switch Workspace"
+    count = f"{len(workspaces)} workspaces"
+    gap = max(2, block_width - len(title) - len(count))
+    center(f"{title}{' ' * gap}{count}", f"{ESC}35m{ESC}1m")
+    center("─" * min(block_width, 54), f"{ESC}2m")
+    center("Choose a workspace…", f"{ESC}2m")
+    center()
+
+    if not workspaces:
+        center("No workspaces", f"{ESC}2m")
+    else:
+        number_width = max(1, *(len(str(workspace.get("number", "?"))) for workspace in workspaces))
+        label_width = max(12, block_width - number_width - 28)
+        for index, workspace in enumerate(workspaces):
+            active = index == selected
+            marker = "›" if active else " "
+            current = "*" if workspace.get("focused") else " "
+            number = str(workspace.get("number", "?"))
+            label = str(workspace.get("label") or workspace.get("workspace_id") or "untitled")
+            tabs = workspace.get("tab_count", 0)
+            panes = workspace.get("pane_count", 0)
+            status = str(workspace.get("agent_status") or "unknown")
+            row = (
+                f"{marker} {current} {number:>{number_width}} "
+                f"{fit(label, label_width):<{label_width}} "
+                f"{tabs}t {panes}p {status}"
+            )
+            center(row, f"{ESC}35m{ESC}1m" if active else "")
+
+    center()
+    center("Enter switch · Esc cancel · ↑/↓ or Tab move", f"{ESC}2m")
+    sys.stdout.flush()
+
+
+def pick_workspace(herdr: str) -> tuple[int, str, bool]:
+    workspaces = workspace_list(herdr)
+    if not workspaces:
+        return 1, "No workspaces found", True
+
+    selected = next((index for index, workspace in enumerate(workspaces) if workspace.get("focused")), 0)
+    while True:
+        selected = max(0, min(selected, len(workspaces) - 1))
+        render_workspace_picker(workspaces, selected)
+        key = read_key()
+        if key in {"\x03", "\x04", "\x1b"}:
+            return 0, "", False
+        if key in {"\r", "\n"}:
+            workspace_id = workspaces[selected].get("workspace_id")
+            if not workspace_id:
+                return 1, "Selected workspace has no id", True
+            subprocess.Popen(
+                [
+                    "bash",
+                    "-lc",
+                    f"sleep 0.2; exec {shlex.quote(herdr)} workspace focus {shlex.quote(str(workspace_id))}",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return 0, "", False
+        if is_up_key(key):
+            selected -= 1
+        elif is_down_key(key):
+            selected += 1
+
 
 def read_key() -> str:
     stdin_fd = sys.stdin.fileno()
@@ -427,7 +574,11 @@ def run_command(command: Command, config_path: Path) -> tuple[int, str, bool]:
         if not isinstance(args, list):
             raise ValueError(f"{command.title}: herdr commands require args array")
         result = subprocess.run([herdr, *args], text=True, capture_output=True)
-        return result.returncode, (result.stdout or "") + (result.stderr or ""), pause
+        output = (result.stdout or "") + (result.stderr or "")
+        return result.returncode, format_output(raw, output), pause
+
+    if command.kind == "workspace_picker":
+        return pick_workspace(herdr)
 
     if command.kind == "pane_run":
         target_pane = os.environ.get("HERDR_TARGET_PANE_ID")

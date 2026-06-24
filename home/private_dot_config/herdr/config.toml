@@ -13,6 +13,7 @@ kitty_graphics = true
 switch_workspace = "ctrl+shift+1..9"
 split_horizontal = "prefix+minus"
 split_vertical = "prefix+v"
+close_pane = ""
 
 [[keys.command]]
 key = "cmd+shift+p"
@@ -25,6 +26,12 @@ key = "prefix+space"
 type = "plugin_action"
 command = "seigi.command-palette.open"
 description = "command palette"
+
+[[keys.command]]
+key = "prefix+x"
+type = "plugin_action"
+command = "seigi.command-palette.smart_close"
+description = "close pane, then tab, but keep workspace"
 
 [ui]
 prompt_new_tab_name = false
