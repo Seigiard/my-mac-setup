@@ -1,0 +1,5 @@
+name = "Lint shell scripts"
+group = "Tests"
+description = "Run shellcheck via make lint"
+command = "make -C {project_root_q} lint"
+pause = true

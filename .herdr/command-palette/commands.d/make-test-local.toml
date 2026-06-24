@@ -1,0 +1,5 @@
+name = "Chezmoi diff"
+group = "Tests"
+description = "Run the local chezmoi dry-run diff"
+command = "make -C {project_root_q} test-local"
+pause = true

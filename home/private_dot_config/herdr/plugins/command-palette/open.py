@@ -39,6 +39,30 @@ def focused_pane_from_context() -> str:
     return ""
 
 
+def focused_cwd_from_context() -> str:
+    raw = os.environ.get("HERDR_PLUGIN_CONTEXT_JSON")
+    if not raw:
+        return ""
+    try:
+        context = json.loads(raw)
+    except json.JSONDecodeError:
+        return ""
+
+    for key in ("focused_pane_cwd", "workspace_cwd", "cwd"):
+        value = context.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    focused_pane = context.get("focused_pane")
+    if isinstance(focused_pane, dict):
+        for key in ("foreground_cwd", "cwd"):
+            value = focused_pane.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+    return ""
+
+
 def main() -> int:
     herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
     plugin_id = os.environ.get("HERDR_PLUGIN_ID", PLUGIN_ID)
@@ -64,6 +88,10 @@ def main() -> int:
     ]
     if target_pane:
         command.extend(["--env", f"HERDR_TARGET_PANE_ID={target_pane}"])
+
+    target_cwd = focused_cwd_from_context()
+    if target_cwd:
+        command.extend(["--env", f"HERDR_TARGET_CWD={target_cwd}"])
 
     test_config = os.environ.get("HERDR_COMMAND_PALETTE_CONFIG")
     if test_config:

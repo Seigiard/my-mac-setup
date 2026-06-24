@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Tiny dependency-free TUI command palette for Herdr.
 
-Commands are read from ~/.config/herdr/command-palette/commands.json (or
-HERDR_COMMAND_PALETTE_CONFIG), seeded from this plugin's defaults on first run.
-The palette deliberately executes only commands from that local config file;
+Global commands are read from ~/.config/herdr/command-palette/commands.json (or
+HERDR_COMMAND_PALETTE_CONFIG) plus commands.d/*.json|toml. Project-local commands
+are read from .herdr/command-palette/ under the pane's working directory. The
+palette deliberately executes only commands from those trusted local files;
 there is no runtime command registration or shell parsing for Herdr argv entries.
 """
 
@@ -18,12 +19,16 @@ import subprocess
 import sys
 import termios
 import tty
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
 
 DEFAULT_LIMIT = 12
 ESC = "\x1b["
+RUNNABLE_KINDS = {"herdr", "pane_run", "tab_run", "workspace_picker", "shell", "overlay_shell", "plugin_action"}
+COMMAND_KINDS = RUNNABLE_KINDS | {"select", "form"}
 
 
 @dataclass
@@ -33,10 +38,32 @@ class Command:
     kind: str
     group: str
     raw: dict[str, Any]
+    origin: str = "Global"
+    source: str = ""
 
     @property
     def search_text(self) -> str:
-        return f"{self.group} {self.title} {self.description} {self.kind}"
+        return f"{self.origin} {self.group} {self.title} {self.description} {self.kind}"
+
+    @property
+    def display_group(self) -> str:
+        return self.group
+
+
+@dataclass
+class Choice:
+    label: str
+    value: str
+    description: str = ""
+    heading: str = ""
+
+    @property
+    def selectable(self) -> bool:
+        return bool(self.label)
+
+    @property
+    def search_text(self) -> str:
+        return f"{self.label} {self.description} {self.value}"
 
 
 def xdg_config_home() -> Path:
@@ -84,35 +111,199 @@ def ensure_config() -> Path:
     return path
 
 
+def strip_toml_comment(line: str) -> str:
+    in_single = False
+    in_double = False
+    escaped = False
+    for index, char in enumerate(line):
+        if char == "\\" and in_double and not escaped:
+            escaped = True
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single and not escaped:
+            in_double = not in_double
+        elif char == "#" and not in_single and not in_double:
+            return line[:index]
+        escaped = False
+    return line
+
+
+def parse_toml_value(value: str) -> Any:
+    value = value.strip()
+    if value in {"true", "false"}:
+        return value == "true"
+    if value.startswith(("'", '"', "[")):
+        try:
+            return ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return value.strip('"').strip("'")
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def parse_toml_action(path: Path) -> dict[str, Any]:
+    """Parse the small TOML subset command-palette action files use.
+
+    Python's tomllib is only available on newer Python versions. Use it when it
+    exists, then fall back to a deliberately tiny parser that supports the action
+    shape we document: scalar keys, [form], and repeated [[options]] tables.
+    """
+    try:
+        import tomllib  # type: ignore[import-not-found]
+
+        with path.open("rb") as file:
+            data = tomllib.load(file)
+        return data if isinstance(data, dict) else {}
+    except ModuleNotFoundError:
+        pass
+
+    data: dict[str, Any] = {}
+    current: dict[str, Any] = data
+    options: list[dict[str, Any]] = []
+    for raw_line in path.read_text().splitlines():
+        line = strip_toml_comment(raw_line).strip()
+        if not line:
+            continue
+        if line == "[[options]]":
+            option: dict[str, Any] = {}
+            options.append(option)
+            data["options"] = options
+            current = option
+            continue
+        if line == "[form]":
+            form: dict[str, Any] = {}
+            data["form"] = form
+            current = form
+            continue
+        if line.startswith("["):
+            current = data
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        current[key.strip()] = parse_toml_value(value)
+    return data
+
+
+def load_command_data_file(path: Path) -> list[dict[str, Any]]:
+    if path.suffix == ".toml":
+        return [parse_toml_action(path)]
+
+    data = json.loads(path.read_text())
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return [data]
+    raise ValueError(f"{path} must contain a JSON object or array")
+
+
+def command_data_files(base_dir: Path, main_file: Path | None = None) -> list[Path]:
+    files: list[Path] = []
+    if main_file and main_file.exists():
+        files.append(main_file)
+
+    for path in sorted(base_dir.glob("*.toml")):
+        files.append(path)
+    for path in sorted(base_dir.glob("*.json")):
+        if main_file and path == main_file:
+            continue
+        files.append(path)
+
+    commands_dir = base_dir / "commands.d"
+    if commands_dir.is_dir():
+        files.extend(sorted(commands_dir.glob("*.toml")))
+        files.extend(sorted(commands_dir.glob("*.json")))
+    return files
+
+
+def project_command_dir(cwd: str) -> Path | None:
+    if not cwd:
+        return None
+    try:
+        start = Path(cwd).expanduser().resolve()
+    except OSError:
+        return None
+    for path in (start, *start.parents):
+        candidate = path / ".herdr" / "command-palette"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def launch_cwd() -> str:
+    return os.environ.get("HERDR_TARGET_CWD", "")
+
+
+def command_kind(raw: dict[str, Any]) -> str:
+    kind = str(raw.get("type") or "").strip()
+    if not kind and raw.get("command"):
+        return "shell"
+    if kind == "command":
+        return "shell"
+    return kind
+
+
+def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> None:
+    kind = command_kind(raw)
+    if kind not in COMMAND_KINDS:
+        raise ValueError(
+            f"command '{title}' ({source}) has unsupported type '{kind}'. "
+            "Use herdr, pane_run, tab_run, workspace_picker, shell, overlay_shell, plugin_action, select, or form."
+        )
+    if kind in {"select", "form"}:
+        run = raw.get("run")
+        if isinstance(run, dict):
+            run_kind = command_kind(run) or "shell"
+        else:
+            run_kind = str(raw.get("run_type") or "shell").strip()
+            if run_kind == "command":
+                run_kind = "shell"
+        if run_kind in {"select", "form"} or run_kind not in RUNNABLE_KINDS:
+            raise ValueError(f"command '{title}' ({source}) has unsupported interactive run type '{run_kind}'")
+        if kind == "select":
+            options = raw.get("options")
+            if not isinstance(options, list) or not any(isinstance(option, dict) and option.get("label") for option in options):
+                raise ValueError(f"command '{title}' ({source}) select commands need at least one labeled option")
+
+
+def command_from_raw(item: dict[str, Any], source: str, origin: str) -> Command:
+    title = str(item.get("title") or item.get("name") or "").strip()
+    if not title:
+        raise ValueError(f"command in {source} is missing title")
+    validate_command_raw(item, title, source)
+    group = str(item.get("group") or "Other").strip() or "Other"
+    return Command(
+        title=title,
+        description=str(item.get("description") or "").strip(),
+        kind=command_kind(item),
+        group=group,
+        raw=item,
+        origin=origin,
+        source=source,
+    )
+
+
+def load_commands_from_dir(base_dir: Path, origin: str, main_file: Path | None = None) -> list[Command]:
+    commands: list[Command] = []
+    for path in command_data_files(base_dir, main_file):
+        items = load_command_data_file(path)
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(f"command #{index + 1} in {path} must be an object")
+            commands.append(command_from_raw(item, f"{path}#{index + 1}", origin))
+    return commands
+
+
 def load_commands() -> tuple[Path, list[Command]]:
     path = ensure_config()
-    data = json.loads(path.read_text())
-    if not isinstance(data, list):
-        raise ValueError(f"{path} must contain a JSON array")
-
     commands: list[Command] = []
-    for index, item in enumerate(data):
-        if not isinstance(item, dict):
-            raise ValueError(f"command #{index + 1} must be an object")
-        title = str(item.get("title") or "").strip()
-        if not title:
-            raise ValueError(f"command #{index + 1} is missing title")
-        kind = str(item.get("type") or "").strip()
-        if kind not in {"herdr", "pane_run", "tab_run", "workspace_picker", "shell", "overlay_shell", "plugin_action"}:
-            raise ValueError(
-                f"command '{title}' has unsupported type '{kind}'. "
-                "Use herdr, pane_run, tab_run, workspace_picker, shell, overlay_shell, or plugin_action."
-            )
-        group = str(item.get("group") or "Other").strip() or "Other"
-        commands.append(
-            Command(
-                title=title,
-                description=str(item.get("description") or "").strip(),
-                kind=kind,
-                group=group,
-                raw=item,
-            )
-        )
+    project_dir = project_command_dir(launch_cwd())
+    if project_dir:
+        commands.extend(load_commands_from_dir(project_dir, "Project", project_dir / "commands.json"))
+    commands.extend(load_commands_from_dir(path.parent, "Global", path))
     return path, commands
 
 
@@ -159,15 +350,22 @@ def visible_commands(query: str, commands: list[Command], rows: int) -> list[Com
 
 
 def group_count(commands: list[Command]) -> int:
-    return len({command.group for command in commands})
+    include_origin = len({command.origin for command in commands}) > 1
+    return len({display_group_label(command, include_origin) for command in commands})
+
+
+def display_group_label(command: Command, include_origin: bool) -> str:
+    return f"{command.origin} · {command.group}" if include_origin and command.origin else command.group
 
 
 def grouped_rows(commands: list[Command]) -> list[tuple[str, str, Command | None]]:
     rows: list[tuple[str, str, Command | None]] = []
     current_group = None
+    include_origin = len({command.origin for command in commands}) > 1
     for command in commands:
-        if command.group != current_group:
-            current_group = command.group
+        label = display_group_label(command, include_origin)
+        if label != current_group:
+            current_group = label
             rows.append(("header", current_group, None))
         rows.append(("command", "", command))
     return rows
@@ -319,6 +517,7 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
     else:
         kind_width = 10
         group_width = 14
+        include_origin = len({command.origin for command in visible}) > 1
         title_width = max(12, block_width - kind_width - group_width - 6) if query else max(12, block_width - kind_width - 7)
         command_index = 0
         for row_kind, label, command in display_rows:
@@ -333,7 +532,7 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
             if query:
                 row = (
                     f"{marker} {fit(command.title, title_width):<{title_width}} "
-                    f"{fit(command.group, group_width):>{group_width}} "
+                    f"{fit(display_group_label(command, include_origin), group_width):>{group_width}} "
                     f"{fit(kind, kind_width):>{kind_width}}"
                 )
             else:
@@ -440,6 +639,186 @@ def pick_workspace(herdr: str) -> tuple[int, str, bool]:
             selected += 1
 
 
+def command_choices(command: Command) -> list[Choice]:
+    options = command.raw.get("options")
+    if not isinstance(options, list):
+        return []
+    choices: list[Choice] = []
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        label = str(option.get("label") or "")
+        value = str(option.get("value") or label)
+        choices.append(
+            Choice(
+                label=label,
+                value=value,
+                description=str(option.get("description") or ""),
+                heading=str(option.get("heading") or ""),
+            )
+        )
+    return choices
+
+
+def visible_choices(query: str, choices: list[Choice], rows: int) -> list[Choice]:
+    if not query.strip():
+        return choices[: result_limit_for_rows(rows)]
+    selectable = [choice for choice in choices if choice.selectable]
+    scored = [(fuzzy_score(query, choice.search_text), choice) for choice in selectable]
+    return [choice for score, choice in sorted(scored, key=lambda item: (-item[0], item[1].label.lower())) if score >= 0][
+        : result_limit_for_rows(rows)
+    ]
+
+
+def selectable_index_at_or_after(choices: list[Choice], selected: int) -> int:
+    if not choices:
+        return 0
+    selected = max(0, min(selected, len(choices) - 1))
+    if choices[selected].selectable:
+        return selected
+    for index in range(selected + 1, len(choices)):
+        if choices[index].selectable:
+            return index
+    for index in range(selected - 1, -1, -1):
+        if choices[index].selectable:
+            return index
+    return selected
+
+
+def move_choice(choices: list[Choice], selected: int, delta: int) -> int:
+    index = selected + delta
+    while 0 <= index < len(choices):
+        if choices[index].selectable:
+            return index
+        index += delta
+    return selected
+
+
+def render_choice_picker(command: Command, query: str, choices: list[Choice], selected: int) -> None:
+    cols, rows = terminal_size()
+    block_width = min(74, max(38, cols - 12))
+    pad = max(0, (cols - block_width) // 2)
+    visible = visible_choices(query, choices, rows)
+    selected = selectable_index_at_or_after(visible, selected)
+    clear()
+
+    def center(text: str = "", style: str = "") -> None:
+        sys.stdout.write(" " * pad)
+        write_line(fit(text, block_width), style)
+
+    content_height = 7 + max(1, len(visible))
+    top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
+    for _ in range(top_margin):
+        write_line()
+
+    count = f"{sum(1 for choice in visible if choice.selectable)}/{sum(1 for choice in choices if choice.selectable)}"
+    gap = max(2, block_width - len(command.title) - len(count))
+    center(f"{command.title}{' ' * gap}{count}", f"{ESC}35m{ESC}1m")
+    center("─" * min(block_width, 54), f"{ESC}2m")
+    prompt = query if query else "type to filter options…"
+    center(f"❯ {fit(prompt, block_width - 2)}", "" if query else f"{ESC}2m")
+    center()
+
+    if not visible:
+        center("No matching options", f"{ESC}2m")
+    else:
+        desc_width = 22
+        label_width = max(12, block_width - desc_width - 5)
+        for index, choice in enumerate(visible):
+            if not choice.selectable:
+                heading = choice.heading or choice.description
+                if heading:
+                    center(f"  {heading}", f"{ESC}36m{ESC}1m")
+                else:
+                    center()
+                continue
+            active = index == selected
+            marker = "›" if active else " "
+            row = f"{marker} {fit(choice.label, label_width):<{label_width}} {fit(choice.description, desc_width):>{desc_width}}"
+            center(row, f"{ESC}35m{ESC}1m" if active else "")
+
+    center()
+    center("Enter select · Esc back · ↑/↓ or Tab move", f"{ESC}2m")
+    sys.stdout.flush()
+
+
+def pick_choice(command: Command) -> str | None:
+    choices = command_choices(command)
+    query = ""
+    selected = selectable_index_at_or_after(choices, 0)
+    while True:
+        visible = visible_choices(query, choices, terminal_size()[1])
+        selected = selectable_index_at_or_after(visible, selected)
+        render_choice_picker(command, query, choices, selected)
+        key = read_key()
+        if key in {"\x03", "\x04"}:
+            return None
+        if key == "\x1b":
+            return None
+        if key in {"\r", "\n"}:
+            if visible and visible[selected].selectable:
+                return visible[selected].value
+            continue
+        if key in {"\x7f", "\b"}:
+            query = query[:-1]
+            selected = 0
+        elif key == "\x15":
+            query = ""
+            selected = 0
+        elif is_up_key(key):
+            selected = move_choice(visible, selected, -1)
+        elif is_down_key(key):
+            selected = move_choice(visible, selected, 1)
+        elif key and not key.startswith("\x1b") and key.isprintable():
+            query += key
+            selected = 0
+
+
+def render_form(command: Command, value: str) -> None:
+    cols, rows = terminal_size()
+    block_width = min(74, max(38, cols - 12))
+    pad = max(0, (cols - block_width) // 2)
+    form = command.raw.get("form") if isinstance(command.raw.get("form"), dict) else {}
+    prompt = str(form.get("prompt") or command.raw.get("prompt") or "Enter a value")
+    placeholder = str(form.get("placeholder") or command.raw.get("placeholder") or "type a value…")
+    clear()
+
+    def center(text: str = "", style: str = "") -> None:
+        sys.stdout.write(" " * pad)
+        write_line(fit(text, block_width), style)
+
+    top_margin = max(1, min(rows // 4, (rows - 8) // 2))
+    for _ in range(top_margin):
+        write_line()
+
+    center(command.title, f"{ESC}35m{ESC}1m")
+    center("─" * min(block_width, 54), f"{ESC}2m")
+    center(prompt, f"{ESC}2m")
+    center()
+    shown = value if value else placeholder
+    center(f"❯ {fit(shown, block_width - 2)}", "" if value else f"{ESC}2m")
+    center()
+    center("Enter submit · Esc back", f"{ESC}2m")
+    sys.stdout.flush()
+
+
+def read_form_value(command: Command) -> str | None:
+    value = ""
+    while True:
+        render_form(command, value)
+        key = read_key()
+        if key in {"\x03", "\x04", "\x1b"}:
+            return None
+        if key in {"\r", "\n"}:
+            return value.strip()
+        if key in {"\x7f", "\b"}:
+            value = value[:-1]
+        elif key == "\x15":
+            value = ""
+        elif key and not key.startswith("\x1b") and key.isprintable():
+            value += key
+
+
 def read_key() -> str:
     stdin_fd = sys.stdin.fileno()
     data = os.read(stdin_fd, 1)
@@ -532,7 +911,9 @@ def context_vars(config_path: Path, herdr: str | None = None) -> dict[str, str]:
     state_dir = os.environ.get("HERDR_PLUGIN_STATE_DIR", "")
     target_pane = os.environ.get("HERDR_TARGET_PANE_ID", "")
     herdr_bin = herdr or os.environ.get("HERDR_BIN_PATH", "herdr")
-    target_cwd = target_pane_cwd(herdr_bin, target_pane)
+    target_cwd = os.environ.get("HERDR_TARGET_CWD") or target_pane_cwd(herdr_bin, target_pane)
+    local_command_dir = project_command_dir(target_cwd)
+    project_root = str(local_command_dir.parent.parent) if local_command_dir else ""
     return {
         "config_file": config,
         "config_file_q": shlex.quote(config),
@@ -546,6 +927,8 @@ def context_vars(config_path: Path, herdr: str | None = None) -> dict[str, str]:
         "target_pane_q": shlex.quote(target_pane),
         "target_cwd": target_cwd,
         "target_cwd_q": shlex.quote(target_cwd),
+        "project_root": project_root,
+        "project_root_q": shlex.quote(project_root),
     }
 
 
@@ -560,9 +943,71 @@ def expand(value: Any, variables: dict[str, str]) -> Any:
     return value
 
 
+def variables_with_value(variables: dict[str, str], value: str) -> dict[str, str]:
+    updated = dict(variables)
+    updated["value"] = value
+    updated["value_q"] = shlex.quote(value)
+    updated["value_url"] = quote_plus(value)
+    return updated
+
+
+def command_environment(variables: dict[str, str]) -> dict[str, str]:
+    env = os.environ.copy()
+    mapping = {
+        "HERDR_COMMAND_PALETTE_CONFIG_FILE": "config_file",
+        "HERDR_COMMAND_PALETTE_CONFIG_DIR": "config_dir",
+        "HERDR_COMMAND_PALETTE_PLUGIN_ROOT": "plugin_root",
+        "HERDR_COMMAND_PALETTE_STATE_DIR": "state_dir",
+        "HERDR_COMMAND_PALETTE_TARGET_PANE": "target_pane",
+        "HERDR_COMMAND_PALETTE_TARGET_CWD": "target_cwd",
+        "HERDR_COMMAND_PALETTE_PROJECT_ROOT": "project_root",
+        "HERDR_COMMAND_PALETTE_VALUE": "value",
+    }
+    for env_key, var_key in mapping.items():
+        if var_key in variables:
+            env[env_key] = variables[var_key]
+    return env
+
+
+def interactive_run_raw(command: Command) -> dict[str, Any]:
+    run = command.raw.get("run")
+    if isinstance(run, dict):
+        merged = dict(run)
+    else:
+        merged = {key: value for key, value in command.raw.items() if key not in {"options", "form", "prompt", "placeholder"}}
+        merged["type"] = command.raw.get("run_type") or "shell"
+    merged.setdefault("title", command.title)
+    merged.setdefault("description", command.description)
+    merged.setdefault("group", command.group)
+    return merged
+
+
 def run_command(command: Command, config_path: Path) -> tuple[int, str, bool]:
     herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
     variables = context_vars(config_path, herdr)
+    raw = command.raw
+    pause = bool(raw.get("pause", False))
+
+    if command.kind == "select":
+        value = pick_choice(command)
+        if value is None:
+            return 0, "", False
+        child_raw = interactive_run_raw(command)
+        child = Command(command.title, command.description, command_kind(child_raw), command.group, child_raw, command.origin, command.source)
+        return run_command_with_variables(child, config_path, variables_with_value(variables, value), herdr)
+
+    if command.kind == "form":
+        value = read_form_value(command)
+        if value is None:
+            return 0, "", False
+        child_raw = interactive_run_raw(command)
+        child = Command(command.title, command.description, command_kind(child_raw), command.group, child_raw, command.origin, command.source)
+        return run_command_with_variables(child, config_path, variables_with_value(variables, value), herdr)
+
+    return run_command_with_variables(command, config_path, variables, herdr)
+
+
+def run_command_with_variables(command: Command, config_path: Path, variables: dict[str, str], herdr: str) -> tuple[int, str, bool]:
     raw = command.raw
     pause = bool(raw.get("pause", False))
 
@@ -646,9 +1091,12 @@ def run_command(command: Command, config_path: Path) -> tuple[int, str, bool]:
         result = subprocess.run(invoke, text=True, capture_output=True)
         return result.returncode, (result.stdout or "") + (result.stderr or ""), pause
 
-    shell_command = expand(raw.get("command", ""), variables)
+    raw_shell_command = raw.get("command", "")
+    shell_command = expand(raw_shell_command, variables)
     if not shell_command:
         raise ValueError(f"{command.title}: shell command requires command")
+    if variables.get("value") and "{value" not in str(raw_shell_command) and raw.get("append_value", True):
+        shell_command = f"{shell_command} {shlex.quote(variables['value'])}"
 
     command_cwd = variables["target_cwd"] or None
 
@@ -657,14 +1105,14 @@ def run_command(command: Command, config_path: Path) -> tuple[int, str, bool]:
         try:
             if command_cwd:
                 os.chdir(command_cwd)
-            os.execlp("bash", "bash", "-lc", str(shell_command))
+            os.execlpe("bash", "bash", "-lc", str(shell_command), command_environment(variables))
         except OSError as exc:
             print(f"failed to launch overlay shell command: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
         raise AssertionError("unreachable")
 
     shell_pause = bool(raw.get("pause", True))
-    result = subprocess.run(["bash", "-lc", str(shell_command)], cwd=command_cwd, text=True, capture_output=True)
+    result = subprocess.run(["bash", "-lc", str(shell_command)], cwd=command_cwd, env=command_environment(variables), text=True, capture_output=True)
     return result.returncode, (result.stdout or "") + (result.stderr or ""), shell_pause
 
 

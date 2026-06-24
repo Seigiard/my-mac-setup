@@ -1,7 +1,7 @@
 # Herdr Command Palette
 
-Local Herdr plugin that opens an overlay command palette and runs commands from a
-user-editable JSON file.
+Local Herdr plugin that opens an overlay command palette and runs user-editable
+global and project-local commands.
 
 ## Install/link
 
@@ -42,7 +42,7 @@ change this to a prefix binding such as `prefix+space` or `prefix+shift+p`.
 ## Commands
 
 The plugin ships read-only defaults in `defaults/commands.json`. On first run it
-seeds the user-editable command list at:
+seeds the user-editable global command list at:
 
 ```bash
 ~/.config/herdr/command-palette/commands.json
@@ -52,6 +52,25 @@ That runtime file is intentionally not managed by chezmoi, so live edits are not
 overwritten by `chezmoi apply`. The palette also supports
 `HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.json` for experiments.
 
+You can also add one command per file under:
+
+```bash
+~/.config/herdr/command-palette/commands.d/*.json
+~/.config/herdr/command-palette/commands.d/*.toml
+```
+
+Project-local commands are discovered by walking up from the pane's working
+directory until a repo provides:
+
+```bash
+.herdr/command-palette/commands.json
+.herdr/command-palette/commands.d/*.json
+.herdr/command-palette/commands.d/*.toml
+```
+
+Project commands are read-only from the palette's point of view and render above
+global commands under `Project · <group>` headings.
+
 Supported command types:
 
 - `herdr`: runs `HERDR_BIN_PATH` with an argv array.
@@ -60,6 +79,9 @@ Supported command types:
 - `shell`: runs a shell command inside the overlay and pauses for output.
 - `overlay_shell`: replaces the overlay with an interactive shell command.
 - `plugin_action`: invokes another Herdr plugin action.
+- `workspace_picker`: opens a navigable workspace switcher.
+- `select`: opens a second fuzzy list, then runs a nested command with `{value}`.
+- `form`: prompts for text, then runs a nested command with `{value}`.
 
 Each command may include a `group` field. The palette shows section headers when
 the search query is empty, and includes the group label in search results. If
@@ -78,6 +100,49 @@ Example:
 }
 ```
 
+One-file TOML commands may use `name` instead of `title`; omitting `type` defaults
+to `shell` when a `command` is present:
+
+```toml
+name = "Search Google"
+description = "Prompt for a query"
+type = "form"
+command = "open 'https://www.google.com/search?q={value_url}'"
+
+[form]
+prompt = "Search Google for"
+placeholder = "herdr command palette"
+```
+
+`select` commands use `[[options]]`; options without `label` are non-selectable
+headings/spacers:
+
+```toml
+name = "Open Git Remote"
+type = "select"
+command = "gh repo view --web {value_q}"
+
+[[options]]
+heading = "Repos"
+
+[[options]]
+label = "my-mac-setup"
+value = "seigiard/my-mac-setup"
+description = "dotfiles"
+```
+
+For `select`/`form`, either place the nested runnable command fields at the top
+level, or use an explicit JSON `run` object:
+
+```json
+{
+  "title": "Open docs",
+  "type": "select",
+  "options": [{ "label": "Herdr", "value": "https://herdr.dev" }],
+  "run": { "type": "overlay_shell", "command": "open {value_q}" }
+}
+```
+
 String fields support these placeholders:
 
 - `{config_file}`, `{config_file_q}`
@@ -86,3 +151,9 @@ String fields support these placeholders:
 - `{state_dir}`, `{state_dir_q}`
 - `{target_pane}`, `{target_pane_q}`
 - `{target_cwd}`, `{target_cwd_q}`
+- `{project_root}`, `{project_root_q}` when a project-local command directory is found
+- `{value}`, `{value_q}`, `{value_url}` for `select` and `form` commands
+
+Shell commands also receive `HERDR_COMMAND_PALETTE_*` environment variables for
+the config path, target pane/cwd, plugin root, state dir, and selected/input
+value.

@@ -80,6 +80,51 @@ load 'helpers/common'
   assert_file_exists "$HOME/.config/herdr/command-palette/commands.json"
 }
 
+@test "herdr command palette loads TOML and project-local commands" {
+  tmpdir="$(mktemp -d)"
+  mkdir -p "$tmpdir/global/commands.d" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette/commands.d"
+  cat > "$tmpdir/global/commands.json" <<'JSON'
+[{"title":"Global JSON","type":"shell","command":"echo global"}]
+JSON
+  cat > "$tmpdir/global/commands.d/search.toml" <<'TOML'
+name = "Search"
+type = "form"
+command = "echo {value_q}"
+
+[form]
+prompt = "Search for"
+TOML
+  cat > "$tmpdir/repo/.herdr/command-palette/commands.d/project.toml" <<'TOML'
+name = "Project Choice"
+type = "select"
+command = "echo {value_q}"
+
+[[options]]
+label = "One"
+value = "one"
+TOML
+
+  run env HERDR_COMMAND_PALETTE_CONFIG="$tmpdir/global/commands.json" HERDR_TARGET_CWD="$tmpdir/repo/sub" python3 - <<'PY'
+import importlib.util, os, sys
+path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
+spec=importlib.util.spec_from_file_location("palette", path)
+mod=importlib.util.module_from_spec(spec)
+sys.modules[spec.name]=mod
+spec.loader.exec_module(mod)
+cfg, cmds = mod.load_commands()
+by_title = {cmd.title: cmd for cmd in cmds}
+assert cfg.name == "commands.json"
+assert by_title["Project Choice"].origin == "Project"
+assert by_title["Project Choice"].kind == "select"
+assert by_title["Search"].kind == "form"
+assert by_title["Global JSON"].origin == "Global"
+assert mod.command_kind({"name": "Default Shell", "command": "echo hi"}) == "shell"
+assert mod.context_vars(cfg)["project_root"].endswith("/repo")
+PY
+  assert_success
+  rm -rf "$tmpdir"
+}
+
 # ===========================================
 # Yazi configuration
 # ===========================================

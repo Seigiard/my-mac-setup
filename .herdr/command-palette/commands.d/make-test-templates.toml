@@ -1,0 +1,5 @@
+name = "Test templates"
+group = "Tests"
+description = "Run the fast chezmoi template test suite"
+command = "make -C {project_root_q} test-templates"
+pause = true
