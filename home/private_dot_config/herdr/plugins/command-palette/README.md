@@ -41,31 +41,31 @@ change this to a prefix binding such as `prefix+space` or `prefix+shift+p`.
 
 ## Commands
 
-The plugin ships read-only defaults in `defaults/commands.json`. On first run it
+The plugin ships read-only defaults in `defaults/commands.toml`. On first run it
 seeds the user-editable global command list at:
 
 ```bash
-~/.config/herdr/command-palette/commands.json
+~/.config/herdr/command-palette/commands.toml
 ```
 
 That runtime file is intentionally not managed by chezmoi, so live edits are not
 overwritten by `chezmoi apply`. The palette also supports
-`HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.json` for experiments.
+`HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.toml` for experiments. If an old
+`commands.json` exists and no TOML file has been created yet, the palette
+migrates it once into `commands.toml` and then uses TOML from then on.
 
-You can also add one command per file under:
+You can also add one command per file beside it:
 
 ```bash
-~/.config/herdr/command-palette/commands.d/*.json
-~/.config/herdr/command-palette/commands.d/*.toml
+~/.config/herdr/command-palette/*.toml
 ```
 
 Project-local commands are discovered by walking up from the pane's working
 directory until a repo provides:
 
 ```bash
-.herdr/command-palette/commands.json
-.herdr/command-palette/commands.d/*.json
-.herdr/command-palette/commands.d/*.toml
+.herdr/command-palette/commands.toml
+.herdr/command-palette/*.toml
 ```
 
 Project commands are read-only from the palette's point of view and render above
@@ -87,21 +87,8 @@ Each command may include a `group` field. The palette shows section headers when
 the search query is empty, and includes the group label in search results. If
 `group` is omitted, the command falls back to `Other`.
 
-Example:
-
-```json
-{
-  "group": "Apps",
-  "title": "Lazygit in new tab",
-  "description": "Open a new tab and run lazygit",
-  "type": "tab_run",
-  "label": "lazygit",
-  "command": "lazygit"
-}
-```
-
-One-file TOML commands may use `name` instead of `title`; omitting `type` defaults
-to `shell` when a `command` is present:
+Example. One-file TOML commands may use `name` instead of `title`; omitting
+`type` defaults to `shell` when a `command` is present:
 
 ```toml
 name = "Search Google"
@@ -132,15 +119,19 @@ description = "dotfiles"
 ```
 
 For `select`/`form`, either place the nested runnable command fields at the top
-level, or use an explicit JSON `run` object:
+level, or use an explicit `run` table:
 
-```json
-{
-  "title": "Open docs",
-  "type": "select",
-  "options": [{ "label": "Herdr", "value": "https://herdr.dev" }],
-  "run": { "type": "overlay_shell", "command": "open {value_q}" }
-}
+```toml
+name = "Open docs"
+type = "select"
+
+[run]
+type = "overlay_shell"
+command = "open {value_q}"
+
+[[options]]
+label = "Herdr"
+value = "https://herdr.dev"
 ```
 
 String fields support these placeholders:

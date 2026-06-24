@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tiny dependency-free TUI command palette for Herdr.
 
-Global commands are read from ~/.config/herdr/command-palette/commands.json (or
-HERDR_COMMAND_PALETTE_CONFIG) plus commands.d/*.json|toml. Project-local commands
+Global commands are read from ~/.config/herdr/command-palette/commands.toml (or
+HERDR_COMMAND_PALETTE_CONFIG) plus other root-level *.toml files. Project-local commands
 are read from .herdr/command-palette/ under the pane's working directory. The
 palette deliberately executes only commands from those trusted local files;
 there is no runtime command registration or shell parsing for Herdr argv entries.
@@ -71,7 +71,7 @@ def xdg_config_home() -> Path:
 
 
 def user_config_path() -> Path:
-    return xdg_config_home() / "herdr" / "command-palette" / "commands.json"
+    return xdg_config_home() / "herdr" / "command-palette" / "commands.toml"
 
 
 def plugin_config_path() -> Path:
@@ -80,11 +80,11 @@ def plugin_config_path() -> Path:
             "HERDR_PLUGIN_CONFIG_DIR",
             xdg_config_home() / "herdr" / "plugins" / "command-palette-config",
         )
-    ) / "commands.json"
+    ) / "commands.toml"
 
 
 def bundled_defaults_path() -> Path:
-    return Path(os.environ.get("HERDR_PLUGIN_ROOT", Path(__file__).resolve().parent)) / "defaults" / "commands.json"
+    return Path(os.environ.get("HERDR_PLUGIN_ROOT", Path(__file__).resolve().parent)) / "defaults" / "commands.toml"
 
 
 def command_config_path() -> Path:
@@ -103,12 +103,64 @@ def ensure_config() -> Path:
     path = command_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        defaults = bundled_defaults_path()
-        if defaults.exists():
-            shutil.copyfile(defaults, path)
+        legacy = path.with_name("commands.json")
+        if legacy.exists():
+            migrate_json_to_toml(legacy, path)
         else:
-            path.write_text("[]\n")
+            defaults = bundled_defaults_path()
+            if defaults.exists():
+                shutil.copyfile(defaults, path)
+            else:
+                path.write_text("\n")
     return path
+
+
+def toml_quote(value: Any) -> str:
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(toml_value(item) for item in value) + "]"
+    return toml_quote(value)
+
+
+def command_to_toml(command: dict[str, Any]) -> str:
+    lines = ["[[commands]]"]
+    for key in ("group", "title", "name", "description", "type", "label", "command", "pause", "format", "focus_delay", "append_value", "run_type"):
+        if key in command:
+            lines.append(f"{key} = {toml_value(command[key])}")
+    if isinstance(command.get("args"), list):
+        lines.append(f"args = {toml_value(command['args'])}")
+    if isinstance(command.get("run"), dict):
+        lines.append("[commands.run]")
+        for key, value in command["run"].items():
+            lines.append(f"{key} = {toml_value(value)}")
+    if isinstance(command.get("form"), dict):
+        lines.append("[commands.form]")
+        for key, value in command["form"].items():
+            lines.append(f"{key} = {toml_value(value)}")
+    if isinstance(command.get("options"), list):
+        for option in command["options"]:
+            if not isinstance(option, dict):
+                continue
+            lines.append("[[commands.options]]")
+            for key, value in option.items():
+                lines.append(f"{key} = {toml_value(value)}")
+    return "\n".join(lines) + "\n"
+
+
+def migrate_json_to_toml(source: Path, destination: Path) -> None:
+    data = json.loads(source.read_text())
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        raise ValueError(f"{source} must contain a JSON command object or array to migrate")
+    destination.write_text("\n".join(command_to_toml(command) for command in data if isinstance(command, dict)))
 
 
 def strip_toml_comment(line: str) -> str:
@@ -161,25 +213,38 @@ def parse_toml_action(path: Path) -> dict[str, Any]:
         pass
 
     data: dict[str, Any] = {}
-    current: dict[str, Any] = data
-    options: list[dict[str, Any]] = []
+    current_command: dict[str, Any] = data
+    current: dict[str, Any] = current_command
     for raw_line in path.read_text().splitlines():
         line = strip_toml_comment(raw_line).strip()
         if not line:
             continue
-        if line == "[[options]]":
+        if line == "[[commands]]":
+            command: dict[str, Any] = {}
+            commands = data.setdefault("commands", [])
+            if isinstance(commands, list):
+                commands.append(command)
+            current_command = command
+            current = current_command
+            continue
+        if line in {"[[options]]", "[[commands.options]]"}:
             option: dict[str, Any] = {}
+            options = current_command.setdefault("options", [])
             options.append(option)
-            data["options"] = options
             current = option
             continue
-        if line == "[form]":
+        if line in {"[form]", "[commands.form]"}:
             form: dict[str, Any] = {}
-            data["form"] = form
+            current_command["form"] = form
             current = form
             continue
+        if line in {"[run]", "[commands.run]"}:
+            run: dict[str, Any] = {}
+            current_command["run"] = run
+            current = run
+            continue
         if line.startswith("["):
-            current = data
+            current = current_command
             continue
         if "=" not in line:
             continue
@@ -189,15 +254,13 @@ def parse_toml_action(path: Path) -> dict[str, Any]:
 
 
 def load_command_data_file(path: Path) -> list[dict[str, Any]]:
-    if path.suffix == ".toml":
-        return [parse_toml_action(path)]
-
-    data = json.loads(path.read_text())
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
+    data = parse_toml_action(path)
+    commands = data.get("commands")
+    if isinstance(commands, list):
+        return [command for command in commands if isinstance(command, dict)]
+    if data:
         return [data]
-    raise ValueError(f"{path} must contain a JSON object or array")
+    return []
 
 
 def command_data_files(base_dir: Path, main_file: Path | None = None) -> list[Path]:
@@ -206,16 +269,9 @@ def command_data_files(base_dir: Path, main_file: Path | None = None) -> list[Pa
         files.append(main_file)
 
     for path in sorted(base_dir.glob("*.toml")):
-        files.append(path)
-    for path in sorted(base_dir.glob("*.json")):
         if main_file and path == main_file:
             continue
         files.append(path)
-
-    commands_dir = base_dir / "commands.d"
-    if commands_dir.is_dir():
-        files.extend(sorted(commands_dir.glob("*.toml")))
-        files.extend(sorted(commands_dir.glob("*.json")))
     return files
 
 
@@ -302,7 +358,7 @@ def load_commands() -> tuple[Path, list[Command]]:
     commands: list[Command] = []
     project_dir = project_command_dir(launch_cwd())
     if project_dir:
-        commands.extend(load_commands_from_dir(project_dir, "Project", project_dir / "commands.json"))
+        commands.extend(load_commands_from_dir(project_dir, "Project", project_dir / "commands.toml"))
     commands.extend(load_commands_from_dir(path.parent, "Global", path))
     return path, commands
 

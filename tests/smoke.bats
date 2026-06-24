@@ -55,12 +55,12 @@ load 'helpers/common'
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/palette.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/defaults/commands.json"
+  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml"
 }
 
 @test "herdr command palette keybinding is configured" {
   assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
-  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/defaults/commands.json" "Edit command palette config"
+  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml" "Edit command palette config"
 }
 
 @test "herdr command palette sources are valid" {
@@ -70,31 +70,34 @@ load 'helpers/common'
     "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
   assert_success
 
-  run python3 -m json.tool "$HOME/.config/herdr/plugins/command-palette/defaults/commands.json"
+  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); assert len(mod.load_command_data_file(__import__("pathlib").Path(os.path.expanduser("~/.config/herdr/plugins/command-palette/defaults/commands.toml")))) > 0'
   assert_success
 }
 
 @test "herdr command palette can load and seed commands" {
-  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); cfg, cmds = mod.load_commands(); assert cfg.name == "commands.json"; assert len(cmds) > 0'
+  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); cfg, cmds = mod.load_commands(); assert cfg.name == "commands.toml"; assert len(cmds) > 0'
   assert_success
-  assert_file_exists "$HOME/.config/herdr/command-palette/commands.json"
+  assert_file_exists "$HOME/.config/herdr/command-palette/commands.toml"
 }
 
 @test "herdr command palette loads TOML and project-local commands" {
   tmpdir="$(mktemp -d)"
-  mkdir -p "$tmpdir/global/commands.d" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette/commands.d"
-  cat > "$tmpdir/global/commands.json" <<'JSON'
-[{"title":"Global JSON","type":"shell","command":"echo global"}]
-JSON
-  cat > "$tmpdir/global/commands.d/search.toml" <<'TOML'
+  mkdir -p "$tmpdir/global" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette"
+  cat > "$tmpdir/global/commands.toml" <<'TOML'
+[[commands]]
+title = "Global TOML"
+type = "shell"
+command = "echo global"
+
+[[commands]]
 name = "Search"
 type = "form"
 command = "echo {value_q}"
 
-[form]
+[commands.form]
 prompt = "Search for"
 TOML
-  cat > "$tmpdir/repo/.herdr/command-palette/commands.d/project.toml" <<'TOML'
+  cat > "$tmpdir/repo/.herdr/command-palette/project.toml" <<'TOML'
 name = "Project Choice"
 type = "select"
 command = "echo {value_q}"
@@ -104,7 +107,7 @@ label = "One"
 value = "one"
 TOML
 
-  run env HERDR_COMMAND_PALETTE_CONFIG="$tmpdir/global/commands.json" HERDR_TARGET_CWD="$tmpdir/repo/sub" python3 - <<'PY'
+  run env HERDR_COMMAND_PALETTE_CONFIG="$tmpdir/global/commands.toml" HERDR_TARGET_CWD="$tmpdir/repo/sub" python3 - <<'PY'
 import importlib.util, os, sys
 path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
 spec=importlib.util.spec_from_file_location("palette", path)
@@ -113,11 +116,11 @@ sys.modules[spec.name]=mod
 spec.loader.exec_module(mod)
 cfg, cmds = mod.load_commands()
 by_title = {cmd.title: cmd for cmd in cmds}
-assert cfg.name == "commands.json"
+assert cfg.name == "commands.toml"
 assert by_title["Project Choice"].origin == "Project"
 assert by_title["Project Choice"].kind == "select"
 assert by_title["Search"].kind == "form"
-assert by_title["Global JSON"].origin == "Global"
+assert by_title["Global TOML"].origin == "Global"
 assert mod.command_kind({"name": "Default Shell", "command": "echo hi"}) == "shell"
 assert mod.context_vars(cfg)["project_root"].endswith("/repo")
 PY
