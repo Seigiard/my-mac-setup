@@ -271,7 +271,7 @@ def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> None:
             run_kind = str(raw.get("run_type") or "shell").strip()
             if run_kind == "command":
                 run_kind = "shell"
-        if run_kind in {"select", "form"} or run_kind not in RUNNABLE_KINDS:
+        if run_kind in {"select", "form", "workspace_picker"} or run_kind not in RUNNABLE_KINDS:
             raise ValueError(f"command '{title}' ({source}) has unsupported interactive run type '{run_kind}'")
         if kind == "select":
             options = raw.get("options")
@@ -628,6 +628,44 @@ def curses_center(stdscr: Any, y: int, pad: int, width: int, text: str = "", att
     curses_add(stdscr, y, pad, fit(text, width), attr)
 
 
+def init_curses_screen(stdscr: Any) -> None:
+    import curses
+
+    if hasattr(curses, "set_escdelay"):
+        curses.set_escdelay(25)
+    curses.cbreak()
+    curses.noecho()
+    stdscr.keypad(True)
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
+
+
+def curses_key_action(key: Any) -> str:
+    import curses
+
+    if key in {"\x03", "\x04", "\x1b"}:  # Ctrl-C, Ctrl-D, Esc
+        return "cancel"
+    if key in {"\r", "\n"} or key == curses.KEY_ENTER:
+        return "enter"
+    if key in {"\x7f", "\b"} or key == curses.KEY_BACKSPACE:
+        return "backspace"
+    if key == "\x15":  # Ctrl-U
+        return "clear"
+    if key in {"\x1b[1;2A"} or key in {curses.KEY_HOME, getattr(curses, "KEY_SR", -1)}:
+        return "home"
+    if key in {"\x10"} or key in {curses.KEY_UP, curses.KEY_BTAB}:  # Ctrl-P / Up / Shift-Tab
+        return "up"
+    if key in {"\x0e", "\t"} or key == curses.KEY_DOWN:  # Ctrl-N / Down / Tab
+        return "down"
+    if key == curses.KEY_RESIZE:
+        return "resize"
+    if isinstance(key, str) and key and key.isprintable():
+        return "text"
+    return ""
+
+
 def render_curses_palette(
     stdscr: Any,
     query: str,
@@ -733,16 +771,7 @@ def render_curses_palette(
 def command_palette_curses_loop(stdscr: Any, config_path: Path, commands: list[Command]) -> Command | None:
     import curses
 
-    if hasattr(curses, "set_escdelay"):
-        curses.set_escdelay(25)
-    curses.cbreak()
-    curses.noecho()
-    stdscr.keypad(True)
-    try:
-        curses.curs_set(0)
-    except curses.error:
-        pass
-
+    init_curses_screen(stdscr)
     attrs = curses_palette_attrs()
     key_binding_groups = load_key_binding_groups()
     query = ""
@@ -755,27 +784,28 @@ def command_palette_curses_loop(stdscr: Any, config_path: Path, commands: list[C
         except curses.error:
             continue
 
-        if key in {"\x03", "\x04", "\x1b"}:  # Ctrl-C, Ctrl-D, Esc
+        action = curses_key_action(key)
+        if action == "cancel":
             return None
-        if key in {"\r", "\n"} or key == curses.KEY_ENTER:
+        if action == "enter":
             if visible:
                 return visible[selected]
             continue
-        if key in {"\x7f", "\b"} or key == curses.KEY_BACKSPACE:
+        if action == "backspace":
             query = query[:-1]
             selected = 0
-        elif key == "\x15":  # Ctrl-U
+        elif action == "clear":
             query = ""
             selected = 0
-        elif key in {"\x1b[1;2A"} or key in {curses.KEY_HOME, getattr(curses, "KEY_SR", -1)}:  # Shift-Up / Home
+        elif action == "home":
             selected = 0
-        elif key in {"\x10"} or key in {curses.KEY_UP, curses.KEY_BTAB}:  # Ctrl-P / Up / Shift-Tab
+        elif action == "up":
             selected = max(0, selected - 1)
-        elif key in {"\x0e", "\t"} or key == curses.KEY_DOWN:  # Ctrl-N / Down / Tab
+        elif action == "down":
             selected += 1
-        elif key == curses.KEY_RESIZE:
+        elif action == "resize":
             continue
-        elif isinstance(key, str) and key and key.isprintable():
+        elif action == "text" and isinstance(key, str):
             query += key
             selected = 0
 
@@ -783,7 +813,10 @@ def command_palette_curses_loop(stdscr: Any, config_path: Path, commands: list[C
 def pick_command_curses(config_path: Path, commands: list[Command]) -> Command | None:
     import curses
 
-    return curses.wrapper(command_palette_curses_loop, config_path, commands)
+    try:
+        return curses.wrapper(command_palette_curses_loop, config_path, commands)
+    except KeyboardInterrupt:
+        return None
 
 
 
@@ -810,36 +843,41 @@ def workspace_list(herdr: str) -> list[dict[str, Any]]:
     return [workspace for workspace in workspaces if isinstance(workspace, dict)] if isinstance(workspaces, list) else []
 
 
-def render_workspace_picker(workspaces: list[dict[str, Any]], selected: int) -> None:
-    cols, rows = terminal_size()
+def render_curses_workspace_picker(stdscr: Any, workspaces: list[dict[str, Any]], selected: int, attrs: dict[str, int]) -> int:
+    rows, cols = stdscr.getmaxyx()
     block_width = min(74, max(38, cols - 12))
     pad = max(0, (cols - block_width) // 2)
     selected = min(selected, max(0, len(workspaces) - 1))
-    clear()
-
-    def center(text: str = "", style: str = "") -> None:
-        sys.stdout.write(" " * pad)
-        write_line(fit(text, block_width), style)
-
     content_height = 7 + max(1, len(workspaces))
     top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
-    for _ in range(top_margin):
-        write_line()
+
+    stdscr.erase()
+
+    def center_at(offset: int, text: str = "", attr: int = attrs["normal"]) -> None:
+        curses_center(stdscr, top_margin + offset, pad, block_width, text, attr)
 
     title = "Switch Workspace"
     count = f"{len(workspaces)} workspaces"
     gap = max(2, block_width - len(title) - len(count))
-    center(f"{title}{' ' * gap}{count}", f"{ESC}35m{ESC}1m")
-    center("─" * min(block_width, 54), f"{ESC}2m")
-    center("Choose a workspace…", f"{ESC}2m")
-    center()
+    center_at(0, f"{title}{' ' * gap}{count}", attrs["accent"])
+    center_at(1, "─" * min(block_width, 54), attrs["muted"])
+    center_at(2, "Choose a workspace…", attrs["muted"])
+    center_at(3)
 
+    body_top = 4
     if not workspaces:
-        center("No workspaces", f"{ESC}2m")
+        center_at(body_top, "No workspaces", attrs["muted"])
     else:
         number_width = max(1, *(len(str(workspace.get("number", "?"))) for workspace in workspaces))
         label_width = max(12, block_width - number_width - 28)
-        for index, workspace in enumerate(workspaces):
+        max_visible = max(1, rows - top_margin - body_top - 3)
+        if len(workspaces) <= max_visible:
+            start = 0
+        else:
+            half = max_visible // 2
+            start = max(0, min(selected - half, len(workspaces) - max_visible))
+        for row_index, workspace in enumerate(workspaces[start : start + max_visible]):
+            index = start + row_index
             active = index == selected
             marker = "›" if active else " "
             current = "*" if workspace.get("focused") else " "
@@ -853,11 +891,48 @@ def render_workspace_picker(workspaces: list[dict[str, Any]], selected: int) -> 
                 f"{fit(label, label_width):<{label_width}} "
                 f"{tabs}t {panes}p {status}"
             )
-            center(row, f"{ESC}35m{ESC}1m" if active else "")
+            center_at(body_top + row_index, row, attrs["active"] if active else attrs["normal"])
 
-    center()
-    center("Enter switch · Esc cancel · ↑/↓ or Tab move", f"{ESC}2m")
-    sys.stdout.flush()
+    footer_y = min(rows - 2, top_margin + body_top + max(1, min(len(workspaces), rows - top_margin - body_top - 3)) + 1)
+    curses_center(stdscr, footer_y, pad, block_width, "Enter switch · Esc cancel · ↑/↓ or Tab move", attrs["muted"])
+    stdscr.refresh()
+    return selected
+
+
+def workspace_picker_curses_loop(stdscr: Any, workspaces: list[dict[str, Any]], selected: int) -> dict[str, Any] | None:
+    import curses
+
+    init_curses_screen(stdscr)
+    attrs = curses_palette_attrs()
+    while True:
+        selected = render_curses_workspace_picker(stdscr, workspaces, selected, attrs)
+        try:
+            key = stdscr.get_wch()
+        except curses.error:
+            continue
+
+        action = curses_key_action(key)
+        if action == "cancel":
+            return None
+        if action == "enter":
+            return workspaces[selected] if workspaces else None
+        if action == "home":
+            selected = 0
+        elif action == "up":
+            selected = max(0, selected - 1)
+        elif action == "down":
+            selected = min(len(workspaces) - 1, selected + 1)
+        elif action == "resize":
+            continue
+
+
+def pick_workspace_curses(workspaces: list[dict[str, Any]], selected: int) -> dict[str, Any] | None:
+    import curses
+
+    try:
+        return curses.wrapper(workspace_picker_curses_loop, workspaces, selected)
+    except KeyboardInterrupt:
+        return None
 
 
 def pick_workspace(herdr: str) -> tuple[int, str, bool]:
@@ -866,32 +941,24 @@ def pick_workspace(herdr: str) -> tuple[int, str, bool]:
         return 1, "No workspaces found", True
 
     selected = next((index for index, workspace in enumerate(workspaces) if workspace.get("focused")), 0)
-    while True:
-        selected = max(0, min(selected, len(workspaces) - 1))
-        render_workspace_picker(workspaces, selected)
-        key = read_key()
-        if key in {"\x03", "\x04", "\x1b"}:
-            return 0, "", False
-        if key in {"\r", "\n"}:
-            workspace_id = workspaces[selected].get("workspace_id")
-            if not workspace_id:
-                return 1, "Selected workspace has no id", True
-            subprocess.Popen(
-                [
-                    "bash",
-                    "-lc",
-                    f"sleep 0.2; exec {shlex.quote(herdr)} workspace focus {shlex.quote(str(workspace_id))}",
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return 0, "", False
-        if is_up_key(key):
-            selected -= 1
-        elif is_down_key(key):
-            selected += 1
+    workspace = pick_workspace_curses(workspaces, selected)
+    if workspace is None:
+        return 0, "", False
+    workspace_id = workspace.get("workspace_id")
+    if not workspace_id:
+        return 1, "Selected workspace has no id", True
+    subprocess.Popen(
+        [
+            "bash",
+            "-lc",
+            f"sleep 0.2; exec {shlex.quote(herdr)} workspace focus {shlex.quote(str(workspace_id))}",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return 0, "", False
 
 
 def command_choices(command: Command) -> list[Choice]:
@@ -1278,6 +1345,8 @@ def run_command_with_variables(command: Command, config_path: Path, variables: d
         return result.returncode, format_output(raw, output), pause
 
     if command.kind == "workspace_picker":
+        # Workspace picker opens its own short curses session and focuses the
+        # selected workspace asynchronously. It intentionally ignores pause.
         return pick_workspace(herdr)
 
     if command.kind == "pane_run":
@@ -1401,13 +1470,31 @@ def main() -> int:
         raise SystemExit("command palette needs a TTY")
 
     config_path, commands = load_commands()
-    # The curses picker tears itself down (endwin) before we run anything: the
-    # select/form/workspace sub-pickers still use raw-mode read_key + ANSI
-    # rendering and cannot run inside an active curses session. Do not keep
-    # curses alive across run_command — it will break interactive commands.
+    # The main curses picker tears itself down (endwin) before we run anything:
+    # select/form sub-pickers still use raw-mode read_key + ANSI rendering and
+    # cannot run inside an active curses session. Do not keep curses alive
+    # across run_command — it will break those interactive commands.
     chosen = pick_command_curses(config_path, commands)
     if chosen is None:
         return 0
+
+    if chosen.kind == "workspace_picker":
+        # Workspace picker is also curses-based. Run it directly after the main
+        # curses picker has ended instead of entering the legacy raw ANSI mode.
+        try:
+            code, output, pause = run_command(chosen, config_path)
+        except Exception as exc:
+            code, output, pause = 1, str(exc), True
+        if code != 0 or pause:
+            try:
+                setup_terminal()
+                status = f"{ESC}31mfailed ({code}){ESC}0m" if code != 0 else f"{ESC}32mdone{ESC}0m"
+                message = f"{status}\n\n{output.strip()}\n\n{ESC}2mPress any key to close.{ESC}0m"
+                render_message(message)
+                wait_for_key()
+            finally:
+                restore_terminal()
+        return code
 
     try:
         setup_terminal()
