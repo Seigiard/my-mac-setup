@@ -1127,49 +1127,67 @@ def pick_choice(command: Command) -> str | None:
         return None
 
 
-def render_form(command: Command, value: str) -> None:
-    cols, rows = terminal_size()
+def render_curses_form(stdscr: Any, command: Command, value: str, attrs: dict[str, int]) -> None:
+    rows, cols = stdscr.getmaxyx()
     block_width = min(74, max(38, cols - 12))
     pad = max(0, (cols - block_width) // 2)
     form = command.raw.get("form") if isinstance(command.raw.get("form"), dict) else {}
     prompt = str(form.get("prompt") or command.raw.get("prompt") or "Enter a value")
     placeholder = str(form.get("placeholder") or command.raw.get("placeholder") or "type a value…")
-    clear()
-
-    def center(text: str = "", style: str = "") -> None:
-        sys.stdout.write(" " * pad)
-        write_line(fit(text, block_width), style)
-
     top_margin = max(1, min(rows // 4, (rows - 8) // 2))
-    for _ in range(top_margin):
-        write_line()
 
-    center(command.title, f"{ESC}35m{ESC}1m")
-    center("─" * min(block_width, 54), f"{ESC}2m")
-    center(prompt, f"{ESC}2m")
-    center()
+    stdscr.erase()
+
+    def center_at(offset: int, text: str = "", attr: int = attrs["normal"]) -> None:
+        curses_center(stdscr, top_margin + offset, pad, block_width, text, attr)
+
+    center_at(0, command.title, attrs["accent"])
+    center_at(1, "─" * min(block_width, 54), attrs["muted"])
+    center_at(2, prompt, attrs["muted"])
+    center_at(3)
     shown = value if value else placeholder
-    center(f"❯ {fit(shown, block_width - 2)}", "" if value else f"{ESC}2m")
-    center()
-    center("Enter submit · Esc back", f"{ESC}2m")
-    sys.stdout.flush()
+    center_at(4, f"❯ {fit(shown, block_width - 2)}", attrs["normal"] if value else attrs["muted"])
+    center_at(5)
+    center_at(6, "Enter submit · Esc back", attrs["muted"])
+    stdscr.refresh()
+
+
+def form_curses_loop(stdscr: Any, command: Command) -> str | None:
+    import curses
+
+    init_curses_screen(stdscr)
+    attrs = curses_palette_attrs()
+    value = ""
+
+    while True:
+        render_curses_form(stdscr, command, value, attrs)
+        try:
+            key = stdscr.get_wch()
+        except curses.error:
+            continue
+
+        action = curses_key_action(key)
+        if action == "cancel":
+            return None
+        if action == "enter":
+            return value.strip()
+        if action == "backspace":
+            value = value[:-1]
+        elif action == "clear":
+            value = ""
+        elif action == "resize":
+            continue
+        elif action == "text" and isinstance(key, str):
+            value += key
 
 
 def read_form_value(command: Command) -> str | None:
-    value = ""
-    while True:
-        render_form(command, value)
-        key = read_key()
-        if key in {"\x03", "\x04", "\x1b"}:
-            return None
-        if key in {"\r", "\n"}:
-            return value.strip()
-        if key in {"\x7f", "\b"}:
-            value = value[:-1]
-        elif key == "\x15":
-            value = ""
-        elif key and not key.startswith("\x1b") and key.isprintable():
-            value += key
+    import curses
+
+    try:
+        return curses.wrapper(form_curses_loop, command)
+    except KeyboardInterrupt:
+        return None
 
 
 def read_key() -> str:
@@ -1502,18 +1520,17 @@ def main() -> int:
 
     config_path, commands = load_commands()
     # The main curses picker tears itself down (endwin) before we run anything.
-    # Form sub-pickers still use raw-mode read_key + ANSI rendering and cannot
-    # run inside an active curses session, while select/workspace_picker open
-    # their own short curses sessions. Do not keep curses alive across
-    # run_command — it will break those interactive commands.
+    # Interactive sub-pickers open their own short curses sessions; post-run
+    # output screens still use legacy raw ANSI rendering. Do not keep curses
+    # alive across run_command — it will break interactive commands.
     chosen = pick_command_curses(config_path, commands)
     if chosen is None:
         return 0
 
-    if chosen.kind in {"select", "workspace_picker"}:
-        # Select and workspace picker are also curses-based. Run them directly
-        # after the main curses picker has ended instead of entering the legacy
-        # raw ANSI mode used by form commands and post-run output screens.
+    if chosen.kind in {"select", "form", "workspace_picker"}:
+        # Interactive sub-pickers are curses-based. Run them directly after the
+        # main curses picker has ended instead of entering the legacy raw ANSI
+        # mode used by post-run output screens.
         try:
             code, output, pause = run_command(chosen, config_path)
         except Exception as exc:
