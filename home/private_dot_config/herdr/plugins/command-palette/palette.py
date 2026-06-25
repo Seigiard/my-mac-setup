@@ -11,6 +11,7 @@ there is no runtime command registration or shell parsing for Herdr argv entries
 from __future__ import annotations
 
 import json
+import locale
 import os
 import select
 import shlex
@@ -29,6 +30,11 @@ DEFAULT_LIMIT = 12
 ESC = "\x1b["
 RUNNABLE_KINDS = {"herdr", "pane_run", "tab_run", "workspace_picker", "shell", "overlay_shell", "plugin_action"}
 COMMAND_KINDS = RUNNABLE_KINDS | {"select", "form"}
+
+try:
+    locale.setlocale(locale.LC_ALL, "")
+except locale.Error:
+    pass
 
 
 @dataclass
@@ -575,69 +581,112 @@ def key_binding_rows(width: int, groups: list[tuple[str, list[tuple[str, str]]]]
     return rows
 
 
+def curses_palette_attrs() -> dict[str, int]:
+    import curses
 
-def render(query: str, commands: list[Command], selected: int, config_path: Path, message: str = "") -> None:
-    cols, rows = terminal_size()
-    key_binding_groups = load_key_binding_groups() if not message and cols >= 110 else []
-    bindings = key_binding_rows(38, key_binding_groups) if key_binding_groups else []
-    show_keybindings = bool(bindings)
+    attrs = {
+        "normal": curses.A_NORMAL,
+        "muted": curses.A_DIM,
+        "accent": curses.A_BOLD,
+        "header": curses.A_BOLD,
+        "active": curses.A_BOLD,
+    }
+    if not curses.has_colors():
+        return attrs
+    try:
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_MAGENTA, -1)
+        curses.init_pair(2, curses.COLOR_CYAN, -1)
+        attrs["accent"] = curses.color_pair(1) | curses.A_BOLD
+        attrs["active"] = curses.color_pair(1) | curses.A_BOLD
+        attrs["header"] = curses.color_pair(2) | curses.A_BOLD
+    except curses.error:
+        pass
+    return attrs
+
+
+def curses_add(stdscr: Any, y: int, x: int, text: str = "", attr: int = 0) -> None:
+    import curses
+
+    rows, cols = stdscr.getmaxyx()
+    if y < 0 or y >= rows or x >= cols:
+        return
+    x = max(0, x)
+    available = max(0, cols - x - 1)
+    if available <= 0:
+        return
+    try:
+        stdscr.addstr(y, x, fit(text, available), attr)
+    except curses.error:
+        # Writing into the lower-right terminal cell raises on some curses
+        # builds. Since every frame is redrawn, dropping that last cell is fine.
+        pass
+
+
+def curses_center(stdscr: Any, y: int, pad: int, width: int, text: str = "", attr: int = 0) -> None:
+    curses_add(stdscr, y, pad, fit(text, width), attr)
+
+
+def render_curses_palette(
+    stdscr: Any,
+    query: str,
+    commands: list[Command],
+    selected: int,
+    config_path: Path,
+    key_binding_groups: list[tuple[str, list[tuple[str, str]]]],
+    attrs: dict[str, int],
+) -> tuple[list[Command], int]:
+    rows, cols = stdscr.getmaxyx()
+    show_keybindings = cols >= 110 and bool(key_binding_groups)
     block_width = min(128 if show_keybindings else 74, max(38, cols - 12))
     column_separator = "  │ " if show_keybindings else ""
     right_width = 38 if show_keybindings else 0
     left_width = block_width - right_width - len(column_separator)
     pad = max(0, (cols - block_width) // 2)
-    max_results = result_limit_for_rows(rows)
     visible = visible_commands(query, commands, rows)
     selected = min(selected, max(0, len(visible) - 1))
-    clear()
+    display_rows = grouped_rows(visible) if not query else [("command", "", command) for command in visible]
+    bindings = key_binding_rows(right_width, key_binding_groups) if show_keybindings else []
+    body_height = max(len(display_rows) if display_rows else 1, len(bindings) - 2 if bindings else 0)
+    content_height = 6 + body_height + 2
+    top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
 
-    def center(text: str = "", style: str = "") -> None:
-        sys.stdout.write(" " * pad)
-        write_line(fit(text, block_width), style)
+    stdscr.erase()
 
-    def two_column(left: str = "", right: str = "", style: str = "") -> None:
+    def center_at(offset: int, text: str = "", attr: int = attrs["normal"]) -> None:
+        curses_center(stdscr, top_margin + offset, pad, block_width, text, attr)
+
+    def two_column_at(offset: int, left: str = "", right: str = "", attr: int = attrs["normal"]) -> None:
         if not show_keybindings:
-            center(left, style)
+            center_at(offset, left, attr)
             return
         line = f"{fit(left, left_width):<{left_width}}{column_separator}{fit(right, right_width):<{right_width}}"
-        center(line, style)
-
-    # Keep this intentionally plain. Herdr already provides the temporary
-    # overlay pane; drawing another heavy window inside it looks bad.
-    display_rows = grouped_rows(visible) if not query else [("command", "", command) for command in visible]
-    body_height = max(len(display_rows) if display_rows else 1, len(bindings) - 2 if bindings else 0)
-    content_height = 6 + body_height + (0 if message else 2)
-    top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
-    for _ in range(top_margin):
-        write_line()
+        center_at(offset, line, attr)
 
     count = f"{len(visible)}/{len(commands)}" if query else f"{len(commands)} commands · {group_count(commands)} groups"
     title = "Command Palette"
     gap = max(2, block_width - len(title) - len(count))
-    center(f"{title}{' ' * gap}{count}", f"{ESC}35m{ESC}1m")
-    center("─" * min(block_width, 54), f"{ESC}2m")
+    center_at(0, f"{title}{' ' * gap}{count}", attrs["accent"])
+    center_at(1, "─" * min(block_width, 54), attrs["muted"])
 
     prompt = query if query else "type to search…"
+    prompt_attr = attrs["normal"] if query else attrs["muted"]
     if show_keybindings:
-        two_column(f"❯ {fit(prompt, left_width - 2)}", bindings[0] if bindings else "")
-        two_column("", bindings[1] if len(bindings) > 1 else "")
+        two_column_at(2, f"❯ {fit(prompt, left_width - 2)}", bindings[0] if bindings else "", prompt_attr)
+        two_column_at(3, "", bindings[1] if len(bindings) > 1 else "", attrs["muted"])
     else:
-        center(f"❯ {fit(prompt, block_width - 2)}", "" if query else f"{ESC}2m")
-        center()
+        center_at(2, f"❯ {fit(prompt, block_width - 2)}", prompt_attr)
+        center_at(3)
 
-    if message:
-        for line in message.strip().splitlines()[: max(1, rows - top_margin - 5)]:
-            center(line)
-        sys.stdout.flush()
-        return
-
+    body_top = 4
     if not visible:
         if show_keybindings:
-            two_column("No matching commands", bindings[2] if len(bindings) > 2 else "", f"{ESC}2m")
+            two_column_at(body_top, "No matching commands", bindings[2] if len(bindings) > 2 else "", attrs["muted"])
             for index in range(3, len(bindings)):
-                two_column("", bindings[index])
+                two_column_at(body_top + index - 2, "", bindings[index])
         else:
-            center("No matching commands", f"{ESC}2m")
+            center_at(body_top, "No matching commands", attrs["muted"])
     else:
         kind_width = 10
         group_width = 14
@@ -645,13 +694,14 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
         title_width = max(12, left_width - kind_width - group_width - 6) if query else max(12, left_width - kind_width - 7)
         command_index = 0
         for row_index in range(max(len(display_rows), max(0, len(bindings) - 2))):
+            y_offset = body_top + row_index
             right = bindings[row_index + 2] if row_index + 2 < len(bindings) else ""
             if row_index >= len(display_rows):
-                two_column("", right)
+                two_column_at(y_offset, "", right)
                 continue
             row_kind, label, command = display_rows[row_index]
             if row_kind == "header":
-                two_column(f"  {label}", right, f"{ESC}36m{ESC}1m")
+                two_column_at(y_offset, f"  {label}", right, attrs["header"])
                 continue
             if command is None:
                 continue
@@ -666,17 +716,93 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
                 )
             else:
                 row = f"  {marker} {fit(command.title, title_width):<{title_width}} {fit(kind, kind_width):>{kind_width}}"
-            two_column(row, right, f"{ESC}35m{ESC}1m" if active else "")
+            two_column_at(y_offset, row, right, attrs["active"] if active else attrs["normal"])
             command_index += 1
 
-    center()
+    detail_y = min(rows - 3, top_margin + body_top + body_height + 1)
     if visible:
         detail = visible[selected].description or visible[selected].kind
     else:
         detail = f"Edit {short_path(config_path)}"
-    center(detail, f"{ESC}2m")
-    center("Enter run · Esc quit · ↑/↓ or Tab move", f"{ESC}2m")
+    curses_center(stdscr, detail_y, pad, block_width, detail, attrs["muted"])
+    curses_center(stdscr, detail_y + 1, pad, block_width, "Enter run · Esc quit · ↑/↓ or Tab move", attrs["muted"])
+    stdscr.refresh()
+    return visible, selected
+
+
+def command_palette_curses_loop(stdscr: Any, config_path: Path, commands: list[Command]) -> Command | None:
+    import curses
+
+    if hasattr(curses, "set_escdelay"):
+        curses.set_escdelay(25)
+    curses.cbreak()
+    curses.noecho()
+    stdscr.keypad(True)
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
+
+    attrs = curses_palette_attrs()
+    key_binding_groups = load_key_binding_groups()
+    query = ""
+    selected = 0
+
+    while True:
+        visible, selected = render_curses_palette(stdscr, query, commands, selected, config_path, key_binding_groups, attrs)
+        try:
+            key = stdscr.get_wch()
+        except curses.error:
+            continue
+
+        if key in {"\x03", "\x04", "\x1b"}:  # Ctrl-C, Ctrl-D, Esc
+            return None
+        if key in {"\r", "\n"} or key == curses.KEY_ENTER:
+            if visible:
+                return visible[selected]
+            continue
+        if key in {"\x7f", "\b"} or key == curses.KEY_BACKSPACE:
+            query = query[:-1]
+            selected = 0
+        elif key == "\x15":  # Ctrl-U
+            query = ""
+            selected = 0
+        elif key in {"\x1b[1;2A"} or key in {curses.KEY_HOME, getattr(curses, "KEY_SR", -1)}:  # Shift-Up / Home
+            selected = 0
+        elif key in {"\x10"} or key in {curses.KEY_UP, curses.KEY_BTAB}:  # Ctrl-P / Up / Shift-Tab
+            selected = max(0, selected - 1)
+        elif key in {"\x0e", "\t"} or key == curses.KEY_DOWN:  # Ctrl-N / Down / Tab
+            selected += 1
+        elif key == curses.KEY_RESIZE:
+            continue
+        elif isinstance(key, str) and key and key.isprintable():
+            query += key
+            selected = 0
+
+
+def pick_command_curses(config_path: Path, commands: list[Command]) -> Command | None:
+    import curses
+
+    return curses.wrapper(command_palette_curses_loop, config_path, commands)
+
+
+
+def render_message(message: str) -> None:
+    cols, rows = terminal_size()
+    lines = message.strip().splitlines() or [""]
+    block_width = min(74, max(38, cols - 12))
+    pad = max(0, (cols - block_width) // 2)
+    content_height = max(1, len(lines))
+    top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
+    clear()
+
+    for _ in range(top_margin):
+        write_line()
+    for line in lines[: max(1, rows - top_margin - 1)]:
+        sys.stdout.write(" " * pad)
+        write_line(fit(line, block_width))
     sys.stdout.flush()
+
 
 def workspace_list(herdr: str) -> list[dict[str, Any]]:
     result = json_result([herdr, "workspace", "list"])
@@ -1275,49 +1401,28 @@ def main() -> int:
         raise SystemExit("command palette needs a TTY")
 
     config_path, commands = load_commands()
-    query = ""
-    selected = 0
+    # The curses picker tears itself down (endwin) before we run anything: the
+    # select/form/workspace sub-pickers still use raw-mode read_key + ANSI
+    # rendering and cannot run inside an active curses session. Do not keep
+    # curses alive across run_command — it will break interactive commands.
+    chosen = pick_command_curses(config_path, commands)
+    if chosen is None:
+        return 0
+
     try:
         setup_terminal()
-        while True:
-            visible = visible_commands(query, commands, terminal_size()[1])
-            if selected >= len(visible):
-                selected = max(0, len(visible) - 1)
-            render(query, commands, selected, config_path)
-            key = read_key()
-            if key in {"\x03", "\x04", "\x1b"}:  # Ctrl-C, Ctrl-D, Esc
-                return 0
-            if key in {"\r", "\n"}:
-                if not visible:
-                    continue
-                chosen = visible[selected]
-                render(query, commands, selected, config_path, f"{ESC}33mRunning {chosen.title}…{ESC}0m")
-                try:
-                    code, output, pause = run_command(chosen, config_path)
-                except Exception as exc:
-                    code, output, pause = 1, str(exc), True
-                if code != 0 or pause:
-                    status = f"{ESC}31mfailed ({code}){ESC}0m" if code != 0 else f"{ESC}32mdone{ESC}0m"
-                    message = f"{status}\n\n{output.strip()}\n\n{ESC}2mPress any key to close.{ESC}0m"
-                    render(query, commands, selected, config_path, message)
-                    wait_for_key()
-                    return code
-                return 0
-            if key in {"\x7f", "\b"}:
-                query = query[:-1]
-                selected = 0
-            elif key == "\x15":  # Ctrl-U
-                query = ""
-                selected = 0
-            elif is_up_key(key):  # Up / Ctrl-P / Shift-Tab
-                selected = max(0, selected - 1)
-            elif is_down_key(key):  # Down / Ctrl-N / Tab
-                selected += 1
-            elif key == "\x1b[1;2A":
-                selected = 0
-            elif key and not key.startswith("\x1b") and key.isprintable():
-                query += key
-                selected = 0
+        render_message(f"{ESC}33mRunning {chosen.title}…{ESC}0m")
+        try:
+            code, output, pause = run_command(chosen, config_path)
+        except Exception as exc:
+            code, output, pause = 1, str(exc), True
+        if code != 0 or pause:
+            status = f"{ESC}31mfailed ({code}){ESC}0m" if code != 0 else f"{ESC}32mdone{ESC}0m"
+            message = f"{status}\n\n{output.strip()}\n\n{ESC}2mPress any key to close.{ESC}0m"
+            render_message(message)
+            wait_for_key()
+            return code
+        return 0
     finally:
         restore_terminal()
 
