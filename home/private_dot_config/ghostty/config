@@ -54,34 +54,45 @@ keybind = ctrl+key_c=text:\x03
 # BEGIN macOS-style herdr shortcuts test
 # Sends macOS-style shortcuts to Herdr. Most map to ctrl+b prefix sequences;
 # pane focus/swap use direct Herdr key bindings configured in Herdr config.
-keybind = cmd+KeyT=text:\x02c # palette: Tabs & workspaces | ⌘T | New tab
+# palette: Tabs & workspaces | ⌘T | New tab
+keybind = cmd+KeyT=text:\x02c
 keybind = cmd+t=unbind
-keybind = cmd+KeyN=text:\x02N # palette: Tabs & workspaces | ⌘N | New workspace
+# palette: Tabs & workspaces | ⌘N | New workspace
+keybind = cmd+KeyN=text:\x02N
 keybind = cmd+n=unbind
-keybind = cmd+KeyD=text:\x02v # palette: Panes | ⌘D | Split right
+# palette: Panes | ⌘D | Split right
+keybind = cmd+KeyD=text:\x02v
 keybind = cmd+d=unbind
-keybind = cmd+shift+KeyD=text:\x02- # palette: Panes | ⌘⇧D | Split down
+# palette: Panes | ⌘⇧D | Split down
+keybind = cmd+shift+KeyD=text:\x02-
 keybind = cmd+shift+d=unbind
-keybind = cmd+shift+enter=text:\x02z # palette: Panes | ⌘⇧Enter | Zoom pane
-keybind = shift+alt+left=text:\x1b[1;4D # palette: Panes | ⇧⌥←↓↑→ | Focus pane
+# palette: Panes | ⌘⇧Enter | Zoom pane
+keybind = cmd+shift+enter=text:\x02z
+# palette: Panes | ⇧⌥←↓↑→ | Focus pane
+keybind = shift+alt+left=text:\x1b[1;4D
 keybind = shift+alt+down=text:\x1b[1;4B
 keybind = shift+alt+up=text:\x1b[1;4A
 keybind = shift+alt+right=text:\x1b[1;4C
-keybind = shift+alt+KeyH=text:\x1b[1;4D # palette: Panes | ⇧⌥H/J/K/L | Focus pane
+# palette: Panes | ⇧⌥H/J/K/L | Focus pane
+keybind = shift+alt+KeyH=text:\x1b[1;4D
 keybind = shift+alt+KeyJ=text:\x1b[1;4B
 keybind = shift+alt+KeyK=text:\x1b[1;4A
 keybind = shift+alt+KeyL=text:\x1b[1;4C
-keybind = ctrl+shift+left=text:\x1b[1;6D # palette: Panes | ⌃⇧←↓↑→ | Move pane
+# palette: Panes | ⌃⇧←↓↑→ | Move pane
+keybind = ctrl+shift+left=text:\x1b[1;6D
 keybind = ctrl+shift+down=text:\x1b[1;6B
 keybind = ctrl+shift+up=text:\x1b[1;6A
 keybind = ctrl+shift+right=text:\x1b[1;6C
-keybind = ctrl+shift+KeyH=text:\x1b[1;6D # palette: Panes | ⌃⇧H/J/K/L | Move pane
+# palette: Panes | ⌃⇧H/J/K/L | Move pane
+keybind = ctrl+shift+KeyH=text:\x1b[1;6D
 keybind = ctrl+shift+KeyJ=text:\x1b[1;6B
 keybind = ctrl+shift+KeyK=text:\x1b[1;6A
 keybind = ctrl+shift+KeyL=text:\x1b[1;6C
-keybind = cmd+KeyW=text:\x02x # palette: Panes | ⌘W | Close pane/tab
+# palette: Panes | ⌘W | Close pane/tab
+keybind = cmd+KeyW=text:\x02x
 keybind = cmd+w=unbind
-keybind = cmd+shift+KeyW=text:\x02D # palette: Tabs & workspaces | ⌘⇧W | Close workspace
+# palette: Tabs & workspaces | ⌘⇧W | Close workspace
+keybind = cmd+shift+KeyW=text:\x02D
 keybind = cmd+shift+w=unbind
 keybind = cmd+KeyK=text:\x02W
 keybind = cmd+k=unbind
@@ -94,17 +105,22 @@ keybind = cmd+shift+e=unbind
 keybind = alt+t=text:\x02c
 
 # Browser-style tab cycling via Herdr defaults: prefix+n / prefix+p.
-keybind = ctrl+tab=text:\x02n # palette: Tabs & workspaces | ⌃Tab | Next tab
-keybind = cmd+shift+left_bracket=text:\x02p # palette: Tabs & workspaces | ⌘⇧[ / ] | Prev/next tab
+# palette: Tabs & workspaces | ⌃Tab | Next tab
+keybind = ctrl+tab=text:\x02n
+# palette: Tabs & workspaces | ⌘⇧[ / ] | Prev/next tab
+keybind = cmd+shift+left_bracket=text:\x02p
 keybind = cmd+shift+right_bracket=text:\x02n
 
 # Workspace switching via Herdr defaults/custom prefix bindings.
-keybind = ctrl+shift+tab=text:\x02w # palette: Tabs & workspaces | ⌃⇧Tab | Workspace picker
-keybind = ctrl+shift+left_bracket=text:\x02{ # palette: Tabs & workspaces | ⌃⇧[ / ] | Prev/next workspace
+# palette: Tabs & workspaces | ⌃⇧Tab | Workspace picker
+keybind = ctrl+shift+tab=text:\x02w
+# palette: Tabs & workspaces | ⌃⇧[ / ] | Prev/next workspace
+keybind = ctrl+shift+left_bracket=text:\x02{
 keybind = ctrl+shift+right_bracket=text:\x02}
 
 # Cmd+1..9 switches herdr tabs via herdr default prefix+1..9.
-keybind = cmd+digit_1=text:\x021 # palette: Tabs & workspaces | ⌘1…9 | Switch tab
+# palette: Tabs & workspaces | ⌘1…9 | Switch tab
+keybind = cmd+digit_1=text:\x021
 keybind = cmd+1=text:\x021
 keybind = cmd+digit_2=text:\x022
 keybind = cmd+2=text:\x022
@@ -124,7 +140,8 @@ keybind = cmd+digit_9=text:\x029
 keybind = cmd+9=text:\x029
 
 # Ctrl+Shift+1..9 sends enhanced key sequences for direct herdr workspace jumps.
-keybind = ctrl+shift+digit_1=text:\x1b[49;6u # palette: Tabs & workspaces | ⌃⇧1…9 | Switch workspace
+# palette: Tabs & workspaces | ⌃⇧1…9 | Switch workspace
+keybind = ctrl+shift+digit_1=text:\x1b[49;6u
 keybind = ctrl+shift+1=text:\x1b[49;6u
 keybind = ctrl+shift+digit_2=text:\x1b[50;6u
 keybind = ctrl+shift+2=text:\x1b[50;6u
