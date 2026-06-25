@@ -11,9 +11,19 @@ kitty_graphics = true
 
 [keys]
 switch_workspace = "ctrl+shift+1..9"
+previous_workspace = "prefix+{"
+next_workspace = "prefix+}"
+focus_pane_left = "shift+alt+left"
+focus_pane_down = "shift+alt+down"
+focus_pane_up = "shift+alt+up"
+focus_pane_right = "shift+alt+right"
 split_horizontal = "prefix+minus"
 split_vertical = "prefix+v"
 close_pane = ""
+swap_pane_left = "ctrl+shift+left"
+swap_pane_down = "ctrl+shift+down"
+swap_pane_up = "ctrl+shift+up"
+swap_pane_right = "ctrl+shift+right"
 
 [[keys.command]]
 key = "cmd+shift+p"

@@ -512,10 +512,79 @@ def write_line(text: str = "", style: str = "") -> None:
     sys.stdout.write(f"{style}{text}\x1b[K{ESC}0m\r\n")
 
 
+def key_bindings_config_path() -> Path:
+    explicit = os.environ.get("HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG")
+    if explicit:
+        return Path(explicit).expanduser()
+    return xdg_config_home() / "ghostty" / "config"
+
+
+def load_key_binding_groups() -> list[tuple[str, list[tuple[str, str]]]]:
+    """Read palette keybinding hints from Ghostty config comments.
+
+    Hints use a deliberately simple inline format on keybind lines:
+
+        # palette: Group | Key label | Description
+
+    If no hints are found, return an empty list. The palette then omits the
+    right-hand keybinding panel instead of falling back to hardcoded data.
+    """
+    path = key_bindings_config_path()
+    if not path.exists():
+        return []
+
+    groups: list[tuple[str, list[tuple[str, str]]]] = []
+    group_index: dict[str, int] = {}
+    seen: set[tuple[str, str, str]] = set()
+    try:
+        lines = path.read_text(errors="ignore").splitlines()
+    except OSError:
+        return []
+
+    for line in lines:
+        if "# palette:" not in line:
+            continue
+        hint = line.split("# palette:", 1)[1].strip()
+        parts = [part.strip() for part in hint.split("|", 2)]
+        if len(parts) != 3:
+            continue
+        group, key, description = parts
+        if not group or not key or not description:
+            continue
+        marker = (group, key, description)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        if group not in group_index:
+            group_index[group] = len(groups)
+            groups.append((group, []))
+        groups[group_index[group]][1].append((key, description))
+    return groups
+
+
+def key_binding_rows(width: int, groups: list[tuple[str, list[tuple[str, str]]]]) -> list[str]:
+    if width <= 0:
+        return []
+    key_width = min(12, max(8, width // 3))
+    action_width = max(8, width - key_width - 3)
+    rows = ["Key bindings", "─" * min(width, 24)]
+    for group, bindings in groups:
+        rows.append(group)
+        for key, action in bindings:
+            rows.append(f"  {fit(key, key_width):<{key_width}} {fit(action, action_width)}")
+    return rows
+
+
 
 def render(query: str, commands: list[Command], selected: int, config_path: Path, message: str = "") -> None:
     cols, rows = terminal_size()
-    block_width = min(74, max(38, cols - 12))
+    key_binding_groups = load_key_binding_groups() if not message and cols >= 110 else []
+    bindings = key_binding_rows(38, key_binding_groups) if key_binding_groups else []
+    show_keybindings = bool(bindings)
+    block_width = min(128 if show_keybindings else 74, max(38, cols - 12))
+    column_separator = "  │ " if show_keybindings else ""
+    right_width = 38 if show_keybindings else 0
+    left_width = block_width - right_width - len(column_separator)
     pad = max(0, (cols - block_width) // 2)
     max_results = result_limit_for_rows(rows)
     visible = visible_commands(query, commands, rows)
@@ -526,10 +595,18 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
         sys.stdout.write(" " * pad)
         write_line(fit(text, block_width), style)
 
+    def two_column(left: str = "", right: str = "", style: str = "") -> None:
+        if not show_keybindings:
+            center(left, style)
+            return
+        line = f"{fit(left, left_width):<{left_width}}{column_separator}{fit(right, right_width):<{right_width}}"
+        center(line, style)
+
     # Keep this intentionally plain. Herdr already provides the temporary
     # overlay pane; drawing another heavy window inside it looks bad.
     display_rows = grouped_rows(visible) if not query else [("command", "", command) for command in visible]
-    content_height = 6 + (len(display_rows) if display_rows else 1) + (0 if message else 2)
+    body_height = max(len(display_rows) if display_rows else 1, len(bindings) - 2 if bindings else 0)
+    content_height = 6 + body_height + (0 if message else 2)
     top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
     for _ in range(top_margin):
         write_line()
@@ -541,8 +618,12 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
     center("─" * min(block_width, 54), f"{ESC}2m")
 
     prompt = query if query else "type to search…"
-    center(f"❯ {fit(prompt, block_width - 2)}", "" if query else f"{ESC}2m")
-    center()
+    if show_keybindings:
+        two_column(f"❯ {fit(prompt, left_width - 2)}", bindings[0] if bindings else "")
+        two_column("", bindings[1] if len(bindings) > 1 else "")
+    else:
+        center(f"❯ {fit(prompt, block_width - 2)}", "" if query else f"{ESC}2m")
+        center()
 
     if message:
         for line in message.strip().splitlines()[: max(1, rows - top_margin - 5)]:
@@ -551,16 +632,26 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
         return
 
     if not visible:
-        center("No matching commands", f"{ESC}2m")
+        if show_keybindings:
+            two_column("No matching commands", bindings[2] if len(bindings) > 2 else "", f"{ESC}2m")
+            for index in range(3, len(bindings)):
+                two_column("", bindings[index])
+        else:
+            center("No matching commands", f"{ESC}2m")
     else:
         kind_width = 10
         group_width = 14
         include_origin = len({command.origin for command in visible}) > 1
-        title_width = max(12, block_width - kind_width - group_width - 6) if query else max(12, block_width - kind_width - 7)
+        title_width = max(12, left_width - kind_width - group_width - 6) if query else max(12, left_width - kind_width - 7)
         command_index = 0
-        for row_kind, label, command in display_rows:
+        for row_index in range(max(len(display_rows), max(0, len(bindings) - 2))):
+            right = bindings[row_index + 2] if row_index + 2 < len(bindings) else ""
+            if row_index >= len(display_rows):
+                two_column("", right)
+                continue
+            row_kind, label, command = display_rows[row_index]
             if row_kind == "header":
-                center(f"  {label}", f"{ESC}36m{ESC}1m")
+                two_column(f"  {label}", right, f"{ESC}36m{ESC}1m")
                 continue
             if command is None:
                 continue
@@ -575,7 +666,7 @@ def render(query: str, commands: list[Command], selected: int, config_path: Path
                 )
             else:
                 row = f"  {marker} {fit(command.title, title_width):<{title_width}} {fit(kind, kind_width):>{kind_width}}"
-            center(row, f"{ESC}35m{ESC}1m" if active else "")
+            two_column(row, right, f"{ESC}35m{ESC}1m" if active else "")
             command_index += 1
 
     center()

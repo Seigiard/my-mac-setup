@@ -97,6 +97,17 @@ Each command may include a `group` field. The palette shows section headers when
 the search query is empty, and includes the group label in search results. If
 `group` is omitted, the command falls back to `Other`.
 
+On wide terminals the palette renders a second right-hand panel with keybinding
+hints read from Ghostty config inline comments:
+
+```text
+keybind = ctrl+tab=text:\x02n # palette: Tabs & workspaces | ⌃Tab | Next tab
+```
+
+The format is `# palette: Group | Key label | Description`. If no such comments
+are present, the keybinding panel is omitted. Narrow terminals keep the
+single-column command list.
+
 Example. One-file TOML commands may use `name` instead of `title`; omitting
 `type` defaults to `shell` when a `command` is present:
 
