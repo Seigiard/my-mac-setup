@@ -78,6 +78,46 @@ load 'helpers/common'
   assert_success
 }
 
+@test "herdr command palette opener detects active palette pane" {
+  run python3 - <<'PY'
+import importlib.util, os, sys
+path=os.path.expanduser("~/.config/herdr/plugins/command-palette/open.py")
+spec=importlib.util.spec_from_file_location("palette_open", path)
+mod=importlib.util.module_from_spec(spec)
+sys.modules[spec.name]=mod
+spec.loader.exec_module(mod)
+assert mod.process_is_palette({"argv": ["python3", "palette.py"], "cwd": "/tmp/command-palette"})
+assert mod.process_is_palette({"cmdline": "python3 /tmp/command-palette/palette.py"})
+assert not mod.process_is_palette({"argv": ["vim", "palette.py"], "cwd": "/tmp/other-plugin"})
+assert not mod.process_is_palette({"argv": ["python3", "open.py"], "cwd": "/tmp/command-palette"})
+
+class Result:
+    def __init__(self, stdout=""):
+        self.returncode = 0
+        self.stdout = stdout
+        self.stderr = ""
+
+calls = []
+def fake_run(command, **kwargs):
+    calls.append(command)
+    if command[:3] == ["herdr", "pane", "current"]:
+        return Result('{"result":{"pane":{"pane_id":"pane-1"}}}')
+    if command[:3] == ["herdr", "pane", "process-info"]:
+        return Result('{"result":{"process_info":{"foreground_processes":[{"argv":["python3","palette.py"],"cwd":"/tmp/command-palette"}]}}}')
+    if command[:4] == ["herdr", "plugin", "pane", "focus"]:
+        return Result()
+    raise AssertionError(command)
+
+mod.subprocess.run = fake_run
+os.environ.pop("HERDR_PLUGIN_CONTEXT_JSON", None)
+os.environ.pop("HERDR_ACTIVE_PANE_ID", None)
+os.environ.pop("HERDR_PANE_ID", None)
+assert mod.main() == 0
+assert not any(command[:4] == ["herdr", "plugin", "pane", "open"] for command in calls)
+PY
+  assert_success
+}
+
 @test "herdr command palette can load and seed commands" {
   run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); cfg, cmds = mod.load_commands(); assert cfg.name == "commands.toml"; assert len(cmds) > 0'
   assert_success
