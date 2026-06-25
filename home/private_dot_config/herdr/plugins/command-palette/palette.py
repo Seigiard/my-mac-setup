@@ -666,6 +666,18 @@ def curses_key_action(key: Any) -> str:
     return ""
 
 
+def curses_scroll_window(rows: int, top_margin: int, body_top: int, total: int, selected: int) -> tuple[int, int, int]:
+    max_visible = max(1, rows - top_margin - body_top - 3)
+    if total <= max_visible:
+        start = 0
+    else:
+        half = max_visible // 2
+        start = max(0, min(selected - half, total - max_visible))
+    visible_count = max(1, min(total, max_visible))
+    footer_y = min(rows - 2, top_margin + body_top + visible_count + 1)
+    return start, max_visible, footer_y
+
+
 def render_curses_palette(
     stdscr: Any,
     query: str,
@@ -870,12 +882,7 @@ def render_curses_workspace_picker(stdscr: Any, workspaces: list[dict[str, Any]]
     else:
         number_width = max(1, *(len(str(workspace.get("number", "?"))) for workspace in workspaces))
         label_width = max(12, block_width - number_width - 28)
-        max_visible = max(1, rows - top_margin - body_top - 3)
-        if len(workspaces) <= max_visible:
-            start = 0
-        else:
-            half = max_visible // 2
-            start = max(0, min(selected - half, len(workspaces) - max_visible))
+        start, max_visible, footer_y = curses_scroll_window(rows, top_margin, body_top, len(workspaces), selected)
         for row_index, workspace in enumerate(workspaces[start : start + max_visible]):
             index = start + row_index
             active = index == selected
@@ -892,8 +899,8 @@ def render_curses_workspace_picker(stdscr: Any, workspaces: list[dict[str, Any]]
                 f"{tabs}t {panes}p {status}"
             )
             center_at(body_top + row_index, row, attrs["active"] if active else attrs["normal"])
-
-    footer_y = min(rows - 2, top_margin + body_top + max(1, min(len(workspaces), rows - top_margin - body_top - 3)) + 1)
+    if not workspaces:
+        _, _, footer_y = curses_scroll_window(rows, top_margin, body_top, 0, selected)
     curses_center(stdscr, footer_y, pad, block_width, "Enter switch · Esc cancel · ↑/↓ or Tab move", attrs["muted"])
     stdscr.refresh()
     return selected
@@ -1016,84 +1023,108 @@ def move_choice(choices: list[Choice], selected: int, delta: int) -> int:
     return selected
 
 
-def render_choice_picker(command: Command, query: str, choices: list[Choice], selected: int) -> None:
-    cols, rows = terminal_size()
+def render_curses_choice_picker(
+    stdscr: Any,
+    command: Command,
+    query: str,
+    choices: list[Choice],
+    selected: int,
+    attrs: dict[str, int],
+) -> tuple[list[Choice], int]:
+    rows, cols = stdscr.getmaxyx()
     block_width = min(74, max(38, cols - 12))
     pad = max(0, (cols - block_width) // 2)
     visible = visible_choices(query, choices, rows)
     selected = selectable_index_at_or_after(visible, selected)
-    clear()
-
-    def center(text: str = "", style: str = "") -> None:
-        sys.stdout.write(" " * pad)
-        write_line(fit(text, block_width), style)
-
     content_height = 7 + max(1, len(visible))
     top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
-    for _ in range(top_margin):
-        write_line()
+
+    stdscr.erase()
+
+    def center_at(offset: int, text: str = "", attr: int = attrs["normal"]) -> None:
+        curses_center(stdscr, top_margin + offset, pad, block_width, text, attr)
 
     count = f"{sum(1 for choice in visible if choice.selectable)}/{sum(1 for choice in choices if choice.selectable)}"
     gap = max(2, block_width - len(command.title) - len(count))
-    center(f"{command.title}{' ' * gap}{count}", f"{ESC}35m{ESC}1m")
-    center("─" * min(block_width, 54), f"{ESC}2m")
+    center_at(0, f"{command.title}{' ' * gap}{count}", attrs["accent"])
+    center_at(1, "─" * min(block_width, 54), attrs["muted"])
     prompt = query if query else "type to filter options…"
-    center(f"❯ {fit(prompt, block_width - 2)}", "" if query else f"{ESC}2m")
-    center()
+    center_at(2, f"❯ {fit(prompt, block_width - 2)}", attrs["normal"] if query else attrs["muted"])
+    center_at(3)
 
+    body_top = 4
     if not visible:
-        center("No matching options", f"{ESC}2m")
+        center_at(body_top, "No matching options", attrs["muted"])
     else:
         desc_width = 22
         label_width = max(12, block_width - desc_width - 5)
-        for index, choice in enumerate(visible):
+        start, max_visible, footer_y = curses_scroll_window(rows, top_margin, body_top, len(visible), selected)
+        for row_index, choice in enumerate(visible[start : start + max_visible]):
+            index = start + row_index
             if not choice.selectable:
                 heading = choice.heading or choice.description
-                if heading:
-                    center(f"  {heading}", f"{ESC}36m{ESC}1m")
-                else:
-                    center()
+                center_at(body_top + row_index, f"  {heading}" if heading else "", attrs["header"] if heading else attrs["normal"])
                 continue
             active = index == selected
             marker = "›" if active else " "
             row = f"{marker} {fit(choice.label, label_width):<{label_width}} {fit(choice.description, desc_width):>{desc_width}}"
-            center(row, f"{ESC}35m{ESC}1m" if active else "")
+            center_at(body_top + row_index, row, attrs["active"] if active else attrs["normal"])
+    if not visible:
+        _, _, footer_y = curses_scroll_window(rows, top_margin, body_top, 0, selected)
+    curses_center(stdscr, footer_y, pad, block_width, "Enter select · Esc back · ↑/↓ or Tab move", attrs["muted"])
+    stdscr.refresh()
+    return visible, selected
 
-    center()
-    center("Enter select · Esc back · ↑/↓ or Tab move", f"{ESC}2m")
-    sys.stdout.flush()
 
+def choice_picker_curses_loop(stdscr: Any, command: Command, choices: list[Choice]) -> str | None:
+    import curses
 
-def pick_choice(command: Command) -> str | None:
-    choices = command_choices(command)
+    init_curses_screen(stdscr)
+    attrs = curses_palette_attrs()
     query = ""
     selected = selectable_index_at_or_after(choices, 0)
+
     while True:
-        visible = visible_choices(query, choices, terminal_size()[1])
-        selected = selectable_index_at_or_after(visible, selected)
-        render_choice_picker(command, query, choices, selected)
-        key = read_key()
-        if key in {"\x03", "\x04"}:
+        visible, selected = render_curses_choice_picker(stdscr, command, query, choices, selected, attrs)
+        try:
+            key = stdscr.get_wch()
+        except curses.error:
+            continue
+
+        action = curses_key_action(key)
+        if action == "cancel":
             return None
-        if key == "\x1b":
-            return None
-        if key in {"\r", "\n"}:
+        if action == "enter":
             if visible and visible[selected].selectable:
                 return visible[selected].value
             continue
-        if key in {"\x7f", "\b"}:
+        if action == "backspace":
             query = query[:-1]
             selected = 0
-        elif key == "\x15":
+        elif action == "clear":
             query = ""
             selected = 0
-        elif is_up_key(key):
+        elif action == "home":
+            selected = selectable_index_at_or_after(visible, 0)
+        elif action == "up":
             selected = move_choice(visible, selected, -1)
-        elif is_down_key(key):
+        elif action == "down":
             selected = move_choice(visible, selected, 1)
-        elif key and not key.startswith("\x1b") and key.isprintable():
+        elif action == "resize":
+            continue
+        elif action == "text" and isinstance(key, str):
             query += key
             selected = 0
+
+
+def pick_choice(command: Command) -> str | None:
+    import curses
+
+    choices = command_choices(command)
+    try:
+        return curses.wrapper(choice_picker_curses_loop, command, choices)
+    except KeyboardInterrupt:
+        return None
 
 
 def render_form(command: Command, value: str) -> None:
@@ -1470,17 +1501,19 @@ def main() -> int:
         raise SystemExit("command palette needs a TTY")
 
     config_path, commands = load_commands()
-    # The main curses picker tears itself down (endwin) before we run anything:
-    # select/form sub-pickers still use raw-mode read_key + ANSI rendering and
-    # cannot run inside an active curses session. Do not keep curses alive
-    # across run_command — it will break those interactive commands.
+    # The main curses picker tears itself down (endwin) before we run anything.
+    # Form sub-pickers still use raw-mode read_key + ANSI rendering and cannot
+    # run inside an active curses session, while select/workspace_picker open
+    # their own short curses sessions. Do not keep curses alive across
+    # run_command — it will break those interactive commands.
     chosen = pick_command_curses(config_path, commands)
     if chosen is None:
         return 0
 
-    if chosen.kind == "workspace_picker":
-        # Workspace picker is also curses-based. Run it directly after the main
-        # curses picker has ended instead of entering the legacy raw ANSI mode.
+    if chosen.kind in {"select", "workspace_picker"}:
+        # Select and workspace picker are also curses-based. Run them directly
+        # after the main curses picker has ended instead of entering the legacy
+        # raw ANSI mode used by form commands and post-run output screens.
         try:
             code, output, pause = run_command(chosen, config_path)
         except Exception as exc:
