@@ -74,5 +74,5 @@ bash ~/.claude/skills/ask-agent/scripts/ask.sh pi "Add a missing null check in s
 ## Notes & limits
 
 - Read-only is enforced by a tool **allowlist** for claude and pi (no Bash, so no writes at all), but only by **prompt** for opencode (not a hard guarantee). Use `--rw` when you want the agent to make changes.
-- Keep `--cwd`/`--skills` paths space-free (the herdr-pane path passes flags positionally).
+- `--cwd`/`--skills` paths with spaces are fine (ask.sh shell-escapes values for the herdr-pane path).
 - This skill consults agents that are installed and on PATH: `claude`, `opencode`, `pi`. A missing CLI fails fast.

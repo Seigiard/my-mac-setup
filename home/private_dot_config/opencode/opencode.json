@@ -2,10 +2,10 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": {
     "external_directory": {
-      "/Users/seigiard/Projects/core/docs/*": "allow",
-      "/Users/seigiard/Projects/core/docs/**/*": "allow",
-      "/Users/seigiard/.crit/reviews/*": "allow",
-      "/Users/seigiard/.crit/reviews/*/**": "allow"
+      "~/Projects/core/docs/*": "allow",
+      "~/Projects/core/docs/**/*": "allow",
+      "~/.crit/reviews/*": "allow",
+      "~/.crit/reviews/*/**": "allow"
     }
   },
   "mcp": {
