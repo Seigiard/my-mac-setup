@@ -9,6 +9,9 @@ on:
 env:
   CHEZMOI_NAME: "Test User"
   CHEZMOI_EMAIL: "test@example.com"
+  # Runners lack node's release GPG key, so mise's signature check on
+  # `node@lts` fails. Skip it in CI; local installs keep verification.
+  MISE_NODE_VERIFY: "false"
 
 jobs:
   test-ubuntu:
