@@ -45,3 +45,7 @@ description = "close pane, then tab, but keep workspace"
 
 [ui]
 prompt_new_tab_name = false
+
+[ui.toast]
+delivery = "system"   # off | herdr | terminal | system
+delay_seconds = 1
