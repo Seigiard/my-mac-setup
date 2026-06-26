@@ -206,6 +206,12 @@ TOML
   assert_file_exists "$HOME/.claude/CLAUDE.md"
 }
 
+@test "ask-agent skill is deployed" {
+  assert_file_exists "$HOME/.claude/skills/ask-agent/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/ask.sh"
+  assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
+}
+
 # ===========================================
 # macOS-only configs (skipped on Linux)
 # ===========================================

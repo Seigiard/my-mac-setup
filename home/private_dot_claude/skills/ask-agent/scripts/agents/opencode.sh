@@ -10,6 +10,7 @@ set -euo pipefail
 
 Q="$(cat "$QF")"
 if [ "${RW:-0}" -eq 0 ]; then
+  echo "ask.sh: opencode read-only is prompt-enforced only (not a hard tool block); for a hard guarantee configure a read-only --agent" >&2
   Q="[Read-only consult from another agent. Do NOT edit, write, create, or delete any files — answer/review only.]
 
 $Q"

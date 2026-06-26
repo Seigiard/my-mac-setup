@@ -62,3 +62,44 @@ teardown() {
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
   refute_output --partial "run_once_after_macos-tunes"
 }
+
+# ===========================================
+# ask-agent skill scripts
+# ===========================================
+
+ASK_AGENT_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/ask-agent/scripts"
+
+@test "ask-agent scripts are valid bash" {
+  for s in ask.sh agents/claude.sh agents/opencode.sh agents/pi.sh; do
+    run bash -n "$ASK_AGENT_DIR/$s"
+    assert_success
+  done
+}
+
+@test "ask.sh uses set -euo pipefail" {
+  run grep -q "set -euo pipefail" "$ASK_AGENT_DIR/ask.sh"
+  assert_success
+}
+
+@test "ask.sh with no args exits 2" {
+  run bash "$ASK_AGENT_DIR/ask.sh"
+  assert_failure 2
+}
+
+@test "ask.sh with an unknown agent exits 2 and lists the valid agents" {
+  run bash "$ASK_AGENT_DIR/ask.sh" bogus "question"
+  assert_failure 2
+  assert_output --partial "claude opencode pi"
+}
+
+@test "ask.sh claude read-only maps to allowlist plus explicit deny" {
+  local stubdir; stubdir="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*"\n' > "$stubdir/claude"
+  chmod +x "$stubdir/claude"
+  run env PATH="$stubdir:$PATH" HERDR_ENV="" bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+  rm -rf "$stubdir"
+  assert_success
+  assert_output --partial -- "-p hi there"
+  assert_output --partial -- "--allowed-tools Read Grep Glob WebFetch WebSearch"
+  assert_output --partial -- "--disallowed-tools Bash Edit Write"
+}

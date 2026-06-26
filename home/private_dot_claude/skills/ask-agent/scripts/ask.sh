@@ -4,9 +4,10 @@
 #   ask.sh <claude|opencode|pi> "<question>" [--rw] [--model M] [--effort L] \
 #          [--cwd DIR] [--skills DIR]... [--agent NAME] [--headless]
 #
-# pi defaults to the latest GPT (openai-codex/gpt-5.5) at --effort medium — a genuine
-# cross-model second opinion. claude/opencode use their own model; --effort
-# applies to pi only.
+# pi and opencode default to a cross-model GPT for a genuine second opinion (a different
+# family than claude, which uses its own model). The exact default model IDs live in the
+# agents/<name>.sh adapters and are documented in SKILL.md — not duplicated here, to
+# avoid drift. --effort applies to pi only.
 #
 # Mode is auto-detected: inside herdr (HERDR_ENV=1) the consult runs in a visible
 # herdr pane beside you (you watch it live, the pane stays for follow-up) and its
@@ -42,13 +43,18 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ "$AGENT" = opencode ] && [ "${#SKILLS[@]}" -gt 0 ]; then
+  echo "ask.sh: --skills is ignored for opencode (no --skill flag; use --agent for a configured agent)" >&2
+fi
+
 QF="$(mktemp)" ; printf '%s' "$Q" > "$QF"
-trap 'rm -f "$QF"' EXIT
+OUT="" ; ECF=""   # set in herdr mode below; in the trap so every exit path cleans them
+trap 'rm -f "$QF" ${OUT:+"$OUT"} ${ECF:+"$ECF"}' EXIT
 export QF RW MODEL EFFORT CWD AGENT_NAME
 
 if [ "${HERDR_ENV:-}" = "1" ] && [ "$HEADLESS" -eq 0 ]; then
   command -v herdr >/dev/null || { echo "ask.sh: HERDR_ENV set but herdr not on PATH" >&2; exit 1; }
-  OUT="$(mktemp)"
+  OUT="$(mktemp)" ; ECF="$(mktemp)"   # OUT = captured answer; ECF = consult exit code
   MARK="ASKEND$$"             # completion marker we wait on
   ESC="ASK''${MARK#ASK}"     # same text, quote-broken, so the typed command line
                               # never matches MARK — only the printed line does
@@ -57,11 +63,20 @@ if [ "${HERDR_ENV:-}" = "1" ] && [ "$HEADLESS" -eq 0 ]; then
   SK="" ; for s in ${SKILLS[@]+"${SKILLS[@]}"}; do SK="$SK $(printf %q "$s")"; done
   PANE="$(herdr pane split "$HERDR_PANE_ID" --direction right --no-focus \
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')"
-  herdr pane run "$PANE" "$ENVP bash $(printf %q "$SCRIPT")$SK 2>&1 | tee $(printf %q "$OUT"); printf '%s\\n' '$ESC'"
-  herdr wait output "$PANE" --match "$MARK" --timeout 1800000 >/dev/null || true
+  # Subshell captures the consult's own exit status (not tee's) into ECF, while its
+  # stdout still streams through tee for the live pane view + OUT capture. $? is read
+  # inside the subshell, so this works under bash and zsh alike (no PIPESTATUS).
+  herdr pane run "$PANE" "( $ENVP bash $(printf %q "$SCRIPT")$SK 2>&1; printf '%d' \"\$?\" > $(printf %q "$ECF") ) | tee $(printf %q "$OUT"); printf '%s\\n' '$ESC'"
+  WAIT_RC=0
+  herdr wait output "$PANE" --match "$MARK" --timeout 1800000 >/dev/null || WAIT_RC=$?
   cat "$OUT"
-  rm -f "$OUT"
   echo "ask.sh: consult ran in herdr pane $PANE (left open for follow-up; close with: herdr pane close $PANE)" >&2
+  if [ "$WAIT_RC" -ne 0 ]; then
+    echo "ask.sh: WARNING: timed out waiting for the consult (30 min); output above may be incomplete (pane $PANE still running)" >&2
+    exit 124
+  fi
+  EC="$(cat "$ECF" 2>/dev/null || true)"
+  exit "${EC:-1}"   # propagate the consult's exit code; empty ECF = it never finished
 else
   bash "$SCRIPT" ${SKILLS[@]+"${SKILLS[@]}"}
 fi
