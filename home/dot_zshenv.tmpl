@@ -49,6 +49,14 @@ export EDITOR="zed"
 # -------------------------------------------
 export LINEAR_ISSUE_SORT="manual"
 
+# -------------------------------------------
+# OpenCode
+# Keep OpenCode skill discovery scoped to OpenCode's native skill paths.
+# These are env-var escape hatches, not valid opencode.json keys.
+# -------------------------------------------
+export OPENCODE_DISABLE_EXTERNAL_SKILLS=1
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+
 {{ if .is_darwin }}
 # -------------------------------------------
 # Agent Browser
