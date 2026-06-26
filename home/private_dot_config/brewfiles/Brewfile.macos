@@ -1,5 +1,9 @@
 # macOS-specific packages
 
+# Third-party taps (declare before their formulas so `brew bundle` taps them)
+tap "lazywalker/rgrc"
+tap "schpet/tap"
+
 # CLI tools (macOS only)
 brew "elio"         # terminal file manager (theme synced under Library/)
 brew "lazywalker/rgrc/rgrc"
