@@ -18,11 +18,11 @@ Source legend: `gh:<owner/repo>` GitHub · `npm:<pkg>` npm · `git:<url>` git ·
 
 ## Cross-tool skills (my own / want everywhere)
 
-| Skill | Tools | Source |
-|---|---|---|
-| crit | Claude, OpenCode, Pi | `?` (crit tool's skill — confirm) |
-| herdr | Claude → **want OpenCode + Pi too** | `repo` (home/private_dot_claude/skills/herdr) |
-| react-doctor | Claude, OpenCode | `gh:millionco/react-doctor` |
+| Skill        | Tools                               | Source                                        |
+| ------------ | ----------------------------------- | --------------------------------------------- |
+| crit         | Claude, OpenCode, Pi                | `?` (crit tool's skill — confirm)             |
+| herdr        | Claude → **want OpenCode + Pi too** | `repo` (home/private_dot_claude/skills/herdr) |
+| react-doctor | Claude, OpenCode                    | `gh:millionco/react-doctor`                   |
 
 ---
 
@@ -30,16 +30,16 @@ Source legend: `gh:<owner/repo>` GitHub · `npm:<pkg>` npm · `git:<url>` git ·
 
 ### Marketplaces (add first: `claude plugin marketplace add <source>`)
 
-| Marketplace | Source |
-|---|---|
-| claude-plugins-official | `gh:anthropics/claude-plugins-official` |
-| claude-code-workflows | `gh:wshobson/agents` |
-| cc-marketplace | `gh:kenryu42/cc-marketplace` |
-| context7-marketplace | `gh:upstash/context7` |
-| impeccable | `gh:pbakaus/impeccable` |
-| chrome-devtools-plugins | `gh:ChromeDevTools/chrome-devtools-mcp` |
-| compound-engineering-plugin | `gh:EveryInc/compound-engineering-plugin` |
-| obsidian-skills | `git:git@github.com:kepano/obsidian-skills.git` (only used project-scope — optional) |
+| Marketplace                 | Source                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------ |
+| claude-plugins-official     | `gh:anthropics/claude-plugins-official`                                              |
+| claude-code-workflows       | `gh:wshobson/agents`                                                                 |
+| cc-marketplace              | `gh:kenryu42/cc-marketplace`                                                         |
+| context7-marketplace        | `gh:upstash/context7`                                                                |
+| impeccable                  | `gh:pbakaus/impeccable`                                                              |
+| chrome-devtools-plugins     | `gh:ChromeDevTools/chrome-devtools-mcp`                                              |
+| compound-engineering-plugin | `gh:EveryInc/compound-engineering-plugin`                                            |
+| obsidian-skills             | `git:git@github.com:kepano/obsidian-skills.git` (only used project-scope — optional) |
 
 ### Plugins (user-scope, global: `claude plugin install <name>@<marketplace>`)
 
@@ -62,20 +62,20 @@ frontend-mobile-development · conductor · accessibility-compliance
 
 ### Authored skills (`home/private_dot_claude/skills/` — already in repo)
 
-ask-agent · herdr · markdown-new · react-doctor · review-plan · tdd-integration
+ask-agent · herdr · herdr-pair · markdown-new · react-doctor · review-plan · tdd-integration
 
 ### Skills pulled from upstream (`home/.chezmoiexternal.toml` — already in repo)
 
-| Skill | Source |
-|---|---|
-| react-best-practices | `gh:vercel-labs/agent-skills` |
-| composition-patterns | `gh:vercel-labs/agent-skills` |
-| react-useeffect | `gh:jarrodwatts/claude-code-config` |
-| rigorous-coding | `gh:jarrodwatts/claude-code-config` |
-| linear-cli | `gh:schpet/linear-cli` |
-| ast-grep | `gh:ast-grep/agent-skill` |
-| improve-claude-md | `gh:dexhorthy/slopfiles` |
-| handoff | `?` (present in ~/.claude/skills — confirm source) |
+| Skill                | Source                                             |
+| -------------------- | -------------------------------------------------- |
+| react-best-practices | `gh:vercel-labs/agent-skills`                      |
+| composition-patterns | `gh:vercel-labs/agent-skills`                      |
+| react-useeffect      | `gh:jarrodwatts/claude-code-config`                |
+| rigorous-coding      | `gh:jarrodwatts/claude-code-config`                |
+| linear-cli           | `gh:schpet/linear-cli`                             |
+| ast-grep             | `gh:ast-grep/agent-skill`                          |
+| improve-claude-md    | `gh:dexhorthy/slopfiles`                           |
+| handoff              | `?` (present in ~/.claude/skills — confirm source) |
 
 ### Authored agents (`home/private_dot_claude/agents/` — already in repo)
 
@@ -88,9 +88,8 @@ plan-skeptic · plan-synthesizer · tdd-implementer · tdd-refactorer · tdd-tes
 
 ### Plugins (`~/.config/opencode/opencode.json` → `plugin[]`; OpenCode self-installs at startup)
 
-| Plugin | Source |
-|---|---|
-| oh-my-openagent | `npm:oh-my-openagent` — **bundle**: provides ce-* skills + ~49 agents |
+| Plugin           | Source                                                                                                                     |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | @rynfar/meridian | `gh:rynfar/meridian` (`npm:@rynfar/meridian`) — install the package and reference it (replaces the old absolute brew path) |
 
 ### Local plugins (files, keep in repo)
@@ -99,7 +98,7 @@ herdr-agent-state.js · rtk.ts
 
 ### Skills / agents
 
-Mostly `bundle:oh-my-openagent` (the ce-* set + reviewer agents) — do not hand-list.
+Mostly `bundle:oh-my-openagent` (the ce-\* set + reviewer agents) — do not hand-list.
 Cross-tool own skills here: crit, react-doctor, herdr (wanted). Also web-perf, lfg.
 
 ---
@@ -108,15 +107,15 @@ Cross-tool own skills here: crit, react-doctor, herdr (wanted). Also web-perf, l
 
 ### Extensions (`~/.pi/agent/settings.json` → `packages[]`; `pi install <source>`)
 
-| Extension | Source |
-|---|---|
-| pi-theme-flexoki | `git:github.com/markacianfrani/pi-theme-flexoki` |
-| pi-fff | `npm:@ff-labs/pi-fff` |
-| pi-rtk | `npm:@sherif-fanous/pi-rtk` |
-| pi-codex-conversion | `npm:@howaboua/pi-codex-conversion` |
-| pi-agents | `npm:pi-agents` |
-| pi-subagents | `npm:pi-subagents` |
-| pi-intercom | `npm:pi-intercom` |
+| Extension               | Source                                                                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| pi-theme-flexoki        | `git:github.com/markacianfrani/pi-theme-flexoki`                                                                                        |
+| pi-fff                  | `npm:@ff-labs/pi-fff`                                                                                                                   |
+| pi-rtk                  | `npm:@sherif-fanous/pi-rtk`                                                                                                             |
+| pi-codex-conversion     | `npm:@howaboua/pi-codex-conversion`                                                                                                     |
+| pi-agents               | `npm:pi-agents`                                                                                                                         |
+| pi-subagents            | `npm:pi-subagents`                                                                                                                      |
+| pi-intercom             | `npm:pi-intercom`                                                                                                                       |
 | pi-agent-browser-native | `npm:pi-agent-browser-native` (https://pi.dev/packages/pi-agent-browser-native — replaced the old local absolute path / coctostan repo) |
 
 ### Skills / agents
