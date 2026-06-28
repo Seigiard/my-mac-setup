@@ -306,6 +306,72 @@ HERDR_INTEGRATIONS_TMPL="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_inst
   done
 }
 
+# Behavioral coverage for send.sh / spawn-partner.sh using a fake `herdr` on PATH, so the
+# highest-risk paths (missing flag, non-agent pane, unconfirmed delivery) run in CI.
+
+@test "send.sh with a missing required flag exits 2 naming the flag (bash-3.2 safe)" {
+  stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/herdr"; chmod +x "$stub/herdr"
+  run env PATH="$stub:$PATH" bash "$PAIR_DIR/send.sh" \
+    --self-role a --partner-role b --kind task --sid s --no-session-update --body hi
+  rm -rf "$stub"
+  assert_failure 2
+  assert_output --partial -- "--partner-pane required"
+}
+
+@test "send.sh refuses to send into a non-agent pane" {
+  stub="$(mktemp -d)"
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+[ "$1 $2" = "pane get" ] && printf '{"result":{"pane":{"agent_status":"unknown"}}}\n'
+exit 0
+SH
+  chmod +x "$stub/herdr"
+  run env PATH="$stub:$PATH" bash "$PAIR_DIR/send.sh" \
+    --partner-pane wB:p9 --self-role a --partner-role b --kind task --sid s --no-session-update --body hi
+  rm -rf "$stub"
+  assert_failure 1
+  assert_output --partial "not a receptive agent"
+}
+
+@test "send.sh records no turn when delivery cannot be confirmed" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid s \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  stub="$(mktemp -d)"
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "pane get")          printf '{"result":{"pane":{"agent_status":"idle"}}}\n' ;;  # never leaves idle
+  "wait agent-status") exit 1 ;;                                                   # working-wait times out
+esac
+exit 0
+SH
+  chmod +x "$stub/herdr"
+  run env PATH="$stub:$PATH" bash "$PAIR_DIR/send.sh" \
+    --partner-pane p2 --self-role a --partner-role b --kind task --sid s --ws wB --tab wB:tX --body hi
+  rm -rf "$stub"
+  assert_failure 1
+  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["round"])' "$PAIR_COWORKERS/wB/wB_tX/session.json"
+  assert_output "0"
+}
+
+@test "spawn-partner.sh rejects an unsupported agent" {
+  stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/herdr"; chmod +x "$stub/herdr"
+  proto="$(mktemp)"; echo proto > "$proto"
+  run env PATH="$stub:$PATH" bash "$PAIR_DIR/spawn-partner.sh" --agent codex --proto "$proto" --self wB:p1
+  rm -rf "$stub"; rm -f "$proto"
+  assert_failure 2
+  assert_output --partial "unsupported agent"
+}
+
+@test "spawn-partner.sh requires --proto" {
+  stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/herdr"; chmod +x "$stub/herdr"
+  run env PATH="$stub:$PATH" bash "$PAIR_DIR/spawn-partner.sh" --agent pi --self wB:p1
+  rm -rf "$stub"
+  assert_failure 2
+  assert_output --partial -- "--proto"
+}
+
 # recv.sh is a pure parser (text in via stdin), so its behavior is unit-testable offline.
 # Fixtures mirror real pi TUI output: leading-indented lines plus trailing TUI chrome.
 
@@ -346,15 +412,28 @@ EOF
   assert_failure 3
 }
 
-@test "recv.sh picks the last reply when several are present" {
+@test "recv.sh ignores a stale reply before the driver's last outgoing message (cursor)" {
   run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
-[pair b -> a kind=ready sid=s1]
-first reply
 [pair b -> a kind=accepted sid=s1]
-second reply
+stale reply from a previous turn — must be ignored
+[pair a -> b kind=task sid=s1]
+my latest outgoing message (the cursor)
+[pair b -> a kind=ready sid=s1]
+the real reply to this turn
 EOF
   assert_success
-  assert_line --index 0 "accepted"
+  assert_line --index 0 "ready"
+}
+
+@test "recv.sh takes the first real reply after the cursor, not a header quoted in the body" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
+[pair a -> b kind=task sid=s1]
+[pair b -> a kind=ready sid=s1]
+Done. For reference the accepted header looks like:
+[pair b -> a kind=accepted sid=s1]
+EOF
+  assert_success
+  assert_line --index 0 "ready"
 }
 
 @test "recv.sh ignores messages addressed to the partner, not self" {

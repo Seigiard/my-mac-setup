@@ -37,9 +37,12 @@ while [ $# -gt 0 ]; do
 done
 
 command -v herdr >/dev/null || { echo "send.sh: herdr not on PATH" >&2; exit 1; }
-for req in PARTNER_PANE SELF_ROLE PARTNER_ROLE KIND SID; do
-  [ -n "${!req}" ] || { echo "send.sh: --${req,,} required" >&2; exit 2; }
-done
+# Explicit per-flag checks: bash-3.2-safe (no ${x,,}) and they name the real flag.
+[ -n "$PARTNER_PANE" ] || { echo "send.sh: --partner-pane required" >&2; exit 2; }
+[ -n "$SELF_ROLE" ]    || { echo "send.sh: --self-role required" >&2; exit 2; }
+[ -n "$PARTNER_ROLE" ] || { echo "send.sh: --partner-role required" >&2; exit 2; }
+[ -n "$KIND" ]         || { echo "send.sh: --kind required" >&2; exit 2; }
+[ -n "$SID" ]          || { echo "send.sh: --sid required" >&2; exit 2; }
 
 # Compose header + body in a temp file so quotes/$/backticks in the body survive.
 MSG="$(mktemp)"
@@ -54,22 +57,45 @@ trap 'rm -f "$MSG"' EXIT
   fi
 } > "$MSG"
 
-REPLY_HEADER="[pair $PARTNER_ROLE -> $SELF_ROLE"
+partner_status() {
+  herdr pane get "$PARTNER_PANE" 2>/dev/null | python3 -c '
+import sys, json
+try:
+    print(json.load(sys.stdin)["result"]["pane"].get("agent_status") or "unknown")
+except Exception:
+    print("missing")'
+}
 
-# Delivery confirmation: the partner leaving idle proves the message submitted. `working`
-# is the unambiguous "received & processing" state; a very fast partner may instead already
-# be printing its reply header.
+# Delivery is proven by an agent-status TRANSITION, never by matching header text in the
+# pane: the outgoing message is echoed into the partner pane, and a stale prior reply may
+# still be visible, so a text match could "confirm" a non-delivery. The partner leaving
+# idle (working, or already finished as done) is the real submit signal.
 confirm_delivery() {
   herdr wait agent-status "$PARTNER_PANE" --status working --timeout 4000 >/dev/null 2>&1 && return 0
-  herdr wait output "$PARTNER_PANE" --match "$REPLY_HEADER" --timeout 3000 >/dev/null 2>&1 && return 0
+  case "$(partner_status)" in working|done) return 0 ;; esac
   return 1
 }
+
+# Refuse to type into a pane that is not a receptive agent (e.g. a reused bare shell) —
+# otherwise the body lines would execute as shell commands.
+case "$(partner_status)" in
+  idle|done|working) : ;;
+  *) echo "send.sh: partner pane $PARTNER_PANE is not a receptive agent; refusing to send" >&2; exit 1 ;;
+esac
 
 herdr pane send-text "$PARTNER_PANE" "$(cat "$MSG")"
 herdr pane send-keys "$PARTNER_PANE" Enter
 if ! confirm_delivery; then
-  herdr pane send-keys "$PARTNER_PANE" Enter   # retry the submit once
-  confirm_delivery || { echo "send.sh: message did not submit after retry (partner stayed idle, no reply)" >&2; exit 1; }
+  # Re-press Enter only if the partner is genuinely STILL idle (first Enter didn't submit).
+  # If it already left idle, the message submitted and a second Enter would be a stray
+  # keystroke into a now-busy agent.
+  st="$(partner_status)"
+  if [ "$st" = idle ]; then
+    herdr pane send-keys "$PARTNER_PANE" Enter
+    confirm_delivery || { echo "send.sh: message did not submit after retry" >&2; exit 1; }
+  else
+    echo "send.sh: could not confirm delivery (partner status: $st)" >&2; exit 1
+  fi
 fi
 
 if [ "$NO_SESSION_UPDATE" -eq 0 ]; then

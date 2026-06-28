@@ -14,8 +14,8 @@ WB="$(herdr tab create --workspace "$WS" --label workbench \
 Then record `workbench.tab_id = $WB` in the pair's session file. `session.sh` owns the session schema and its atomic-write discipline (temp file + `mv`), but it only mutates the turn-taking fields (`round`, `last_status`, `no_progress_count`) — the optional `workbench` block is updated inline with the **same** read → mutate → temp-file → `os.replace` pattern so a racing partner never sees a half-written file:
 
 ```bash
-TAB_SLUG="${TAB_ID//:/_}"
-SESSION="$HOME/.herdr-coworkers/$WS/$TAB_SLUG/session.json"   # honors $HERDR_COWORKERS_DIR if set
+TAB_SLUG="${TAB//:/_}"
+SESSION="${HERDR_COWORKERS_DIR:-$HOME/.herdr-coworkers}/$WS/$TAB_SLUG/session.json"
 WB="$WB" python3 - "$SESSION" <<'PY'
 import json, os, sys
 path = sys.argv[1]

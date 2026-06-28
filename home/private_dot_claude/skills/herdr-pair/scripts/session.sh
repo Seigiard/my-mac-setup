@@ -10,7 +10,12 @@
 # Roles are peer labels (a = initiator, b = partner), decoupled from agent type so a
 # claude<->claude pair (identical `agent` field) stays distinguishable. State lives at
 # $HERDR_COWORKERS_DIR/<ws>/<tab_slug>/session.json, tab_slug flattening ':' to '_'.
-# Two agents race on this file, so every write goes through a temp file + os.replace.
+#
+# Concurrency: `create` is atomic (os.link on a temp file — fails if the session already
+# exists, so two pair-starts in one tab can't both win). `update` is a read-modify-write and
+# is NOT lock-protected; that is safe only because under Model B the driver (role a) is the
+# sole writer — the partner never runs this script. If a symmetric "Model A" is ever added,
+# update needs a real lock (flock) to avoid lost increments.
 set -euo pipefail
 
 : "${HERDR_COWORKERS_DIR:=$HOME/.herdr-coworkers}"
@@ -63,18 +68,17 @@ case "$CMD" in
     for v in A_AGENT A_PANE B_AGENT B_PANE; do
       [ -n "${!v}" ] || { echo "session.sh: create requires --a-agent/--a-pane/--b-agent/--b-pane" >&2; exit 2; }
     done
-    if [ -e "$SESSION_FILE" ]; then
-      echo "session.sh: session already exists for this tab: $SESSION_FILE (resume or remove it)" >&2
-      exit 1
-    fi
     [ -n "$SID" ] || SID="$(date +%s)-$(openssl rand -hex 2 2>/dev/null || printf '%04x' "$RANDOM")"
     mkdir -p "$SESSION_DIR"
     CREATED_AT="$(date -u +%FT%TZ)"
+    # Atomic create: write a temp file, then os.link it into place. link() fails if the
+    # session already exists, so two concurrent pair-starts in one tab can't both win the
+    # claim (no TOCTOU between an existence check and the write).
     SID="$SID" WS="$WS" TAB="$TAB" \
       A_AGENT="$A_AGENT" A_PANE="$A_PANE" B_AGENT="$B_AGENT" B_PANE="$B_PANE" \
       CREATED_AT="$CREATED_AT" TMP="$SESSION_FILE.tmp.$$" FINAL="$SESSION_FILE" \
       python3 - <<'PY'
-import json, os
+import json, os, sys
 s = {
     "sid": os.environ["SID"],
     "workspace_id": os.environ["WS"],
@@ -89,10 +93,16 @@ s = {
     "workbench": {"tab_id": None, "server_pane": None, "logs_pane": None},
     "created_at": os.environ["CREATED_AT"],
 }
-tmp = os.environ["TMP"]
+tmp, final = os.environ["TMP"], os.environ["FINAL"]
 with open(tmp, "w") as f:
     json.dump(s, f, indent=2)
-os.replace(tmp, os.environ["FINAL"])
+try:
+    os.link(tmp, final)   # atomic; raises FileExistsError if final already exists
+except FileExistsError:
+    os.unlink(tmp)
+    sys.stderr.write(f"session.sh: session already exists for this tab: {final} (resume or remove it)\n")
+    sys.exit(1)
+os.unlink(tmp)
 PY
     printf '%s\n' "$SID"
     ;;

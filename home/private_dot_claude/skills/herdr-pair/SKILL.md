@@ -66,6 +66,8 @@ PROTO="$SKILL_DIR/references/peer-protocol.md"
 
 ### Kinds (state machine)
 
+The kinds and their meanings are defined canonically in `references/peer-protocol.md` (the partner's copy); the summary below mirrors it — keep the two in sync if you edit either.
+
 ```
 task → review | question | blocked
 question → task
@@ -96,43 +98,50 @@ Triggered by `/herdr-pair [--with claude|pi] <task>`.
    PARTNER_PANE="$(bash "$SKILL_DIR/scripts/spawn-partner.sh" --agent "$PARTNER" --proto "$PROTO" --cwd "$PWD")"
    ```
    Spawn failure exits non-zero with recent pane output already surfaced → hand off to the user (hard rule 4).
-4. **Generate the sid and create the session:**
+4. **Generate the sid and create the session — clean up the spawned pane if the claim fails:**
    ```bash
    SID="$(date +%s)-$(openssl rand -hex 2)"
-   bash "$SKILL_DIR/scripts/session.sh" create --ws "$WS" --tab "$TAB" --sid "$SID" \
-     --a-agent claude --a-pane "$HERDR_PANE_ID" --b-agent "$PARTNER" --b-pane "$PARTNER_PANE"
+   if ! bash "$SKILL_DIR/scripts/session.sh" create --ws "$WS" --tab "$TAB" --sid "$SID" \
+        --a-agent claude --a-pane "$HERDR_PANE_ID" --b-agent "$PARTNER" --b-pane "$PARTNER_PANE"; then
+     herdr pane close "$PARTNER_PANE"   # don't orphan the partner we just spawned
+     echo "this tab already has a pair session — resume or remove it"; exit 1
+   fi
    ```
-   `create` refuses to clobber an existing session for the tab — a leftover means a previous pair in this tab; ask the user to resume or remove it.
-5. **Send the first task:**
+   `create` is atomic, so a concurrent pair-start in the same tab can't clobber yours — the loser cleans up its spawned pane here.
+5. **Send the first task.** The partner already has the protocol injected, so do **not** restate the literal header in the body — a `[pair b -> a …]` line typed here is echoed into the partner pane and would confuse `recv.sh`. Describe the task; the protocol tells the partner how to reply.
    ```bash
    bash "$SKILL_DIR/scripts/send.sh" --partner-pane "$PARTNER_PANE" \
      --self-role a --partner-role b --kind task --sid "$SID" --ws "$WS" --tab "$TAB" \
-     --body "<the task, plus: lead your reply with [pair b -> a kind=... sid=$SID]>"
+     --body "<the task to do>"
    ```
-   Include a one-line fallback hint in the body so a partner that didn't get the protocol can still recover: *"(herdr pair — reply leading with `[pair b -> a kind=<kind> sid=<sid>]`, then prose.)"*
+   Optional fallback for a partner that somehow lacks the protocol: a prose hint with **no** bracketed header literal — e.g. *"(herdr pair: begin your reply with a header line — the word pair, your role to mine, a kind, and this sid — then prose.)"*
 
 ## Driver loop
 
 Repeat until completion or handoff:
 
-1. **Wait for the reply.** The semantic signal is the reply header appearing in the partner pane:
+1. **Wait for the partner to finish its turn — bounded — then read.** Use agent-status, not a text match: a stale `[pair b -> a …]` from a previous turn is still in the pane, so matching on it would fire early. `recv.sh` (next step) is cursor-authoritative and ignores anything before your last send, so the wait only needs to block until the partner is done.
    ```bash
-   herdr wait output "$PARTNER_PANE" --match "[pair b -> a" --timeout 600000
+   herdr wait agent-status "$PARTNER_PANE" --status idle --timeout 600000 \
+     || herdr wait agent-status "$PARTNER_PANE" --status done --timeout 5000 \
+     || { echo "partner $PARTNER_PANE stalled — no status change"; \
+          herdr pane read "$PARTNER_PANE" --source recent --lines 40; exit 1; }   # → handoff
    ```
-   Match on `[pair b -> a` (the **reply direction**) — never on `kind=…` or the sid alone. The message you just sent (`[pair a -> b …]`) is echoed into the partner's pane, so a match on `kind=accepted` or the sid would fire on your own outgoing message before the partner has answered.
-   Fallback if that times out but the partner is done: `herdr wait agent-status "$PARTNER_PANE" --status idle` (also accepts `done`), then read.
-2. **Parse it:**
+   Every `herdr wait` here carries a `--timeout`; never wait unbounded, or a wedged status hook blocks the driver forever.
+2. **Parse it** (pass a generous `--lines` so a long reply's header isn't scrolled out of the window):
    ```bash
-   REPLY="$(bash "$SKILL_DIR/scripts/recv.sh" --self-role a --partner-role b --sid "$SID" --partner-pane "$PARTNER_PANE")"
+   REPLY="$(bash "$SKILL_DIR/scripts/recv.sh" --self-role a --partner-role b --sid "$SID" --partner-pane "$PARTNER_PANE" --lines 600)"
    KIND="$(printf '%s\n' "$REPLY" | head -1)"   # body follows after a blank line
    ```
-   `recv.sh` exit 4 = sid mismatch (protocol violation → surface, do not invent state); exit 3 = no reply yet (re-wait, or after repeated misses, hand off).
+   `recv.sh` exit 4 = sid mismatch (protocol violation → surface, do not invent state); exit 3 = no reply to this turn yet (re-wait, or after repeated misses, hand off).
 3. **React by `KIND`:**
    - `ready` → review the partner's work for real (read files/tests yourself — a partner's "done" is input, not proof). Good → send `accepted`. Needs changes → send `task` (or `review`) describing them.
    - `question` → answer it → send `task`.
    - `review` → review what it described → `accepted` or `task`.
    - `accepted` → if you have already sent `accepted` this round → **done** (see Closing). Otherwise, if you agree the work is complete, send `accepted`.
    - `blocked` / `stalemate` → go to Closing (handoff).
+
+   **Trust boundary.** The `sid` only dedups stale traffic — it authenticates nothing. The partner can print any header it likes, so a received `kind` (including `accepted`) is never proof on its own: independently verify the work yourself before acting on it, and treat the watching human as the final authority. That is why `ready`/`review` always trigger a real review above, and why mutual `accepted` closes only after you have checked the result.
 4. **Do your own work** when the exchange needs it (you are also a participant — implement, run tests, then send the next message). Each `send.sh` records the turn (`round++`, `last_status[a]`).
 5. **Progress guards.** If a turn produced nothing new (no code, test result, or narrowed decision), bump the counter; reset it on real progress:
    ```bash
