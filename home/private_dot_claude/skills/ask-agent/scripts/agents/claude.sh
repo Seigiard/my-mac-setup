@@ -7,7 +7,18 @@
 set -euo pipefail
 : "${QF:?claude.sh: QF env var (question file) required}"
 
-args=( -p "$(cat "$QF")" )
+Q="$(cat "$QF")"
+# claude CLI parses a prompt whose first token starts with `-` (a leading dash or
+# YAML frontmatter `---`) as an option and drops the prompt; long/multiline argv is
+# also fragile. Route those over stdin (`claude -p` reads the prompt from stdin).
+# Short single-line non-option prompts keep `-p <prompt>` for transparency in `ps`.
+PIPE_STDIN=0
+case "$Q" in
+  -*) PIPE_STDIN=1 ;;
+  *) { [ "${#Q}" -gt 500 ] || case "$Q" in *$'\n'*) true ;; *) false ;; esac; } && PIPE_STDIN=1 ;;
+esac
+
+if [ "$PIPE_STDIN" -eq 1 ]; then args=( -p ); else args=( -p "$Q" ); fi
 [ -n "${MODEL:-}" ] && args+=( --model "$MODEL" )
 [ -n "${CWD:-}" ]   && args+=( --add-dir "$CWD" )
 for s in "$@"; do args+=( --add-dir "$s" ); done
@@ -17,4 +28,4 @@ for s in "$@"; do args+=( --add-dir "$s" ); done
 # still shell out and write. Deny takes precedence over allow. rw = let it edit.
 if [ "${RW:-0}" -eq 1 ]; then args+=( --permission-mode acceptEdits ); else args+=( --allowed-tools Read Grep Glob WebFetch WebSearch --disallowed-tools Bash Edit Write ); fi
 
-exec claude "${args[@]}"
+if [ "$PIPE_STDIN" -eq 1 ]; then exec claude "${args[@]}" <<<"$Q"; else exec claude "${args[@]}"; fi

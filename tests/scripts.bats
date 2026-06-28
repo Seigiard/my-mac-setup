@@ -105,6 +105,34 @@ ASK_AGENT_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/ask-agent/scripts"
   assert_output --partial -- "--disallowed-tools Bash Edit Write"
 }
 
+# A prompt whose first token is an option (e.g. YAML frontmatter `---` or a leading
+# `-`) is misparsed by the claude CLI as a flag, dropping the prompt. It must reach
+# claude via stdin (`claude -p` reads the prompt from stdin), not as a -p argv value.
+# `</dev/null` on run keeps the stub's `cat` from blocking in the (red) argv path.
+@test "ask.sh claude routes a leading-dash prompt via stdin, not argv" {
+  local stubdir; stubdir="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nprintf "ARGS[%%s]\\n" "$*"\nprintf "STDIN[%%s]" "$(cat)"\n' > "$stubdir/claude"
+  chmod +x "$stubdir/claude"
+  run env PATH="$stubdir:$PATH" HERDR_ENV="" bash "$ASK_AGENT_DIR/ask.sh" claude "--- look at this" </dev/null
+  rm -rf "$stubdir"
+  assert_success
+  assert_output --partial "STDIN[--- look at this]"
+  refute_output --partial -- "-p --- look at this"
+  assert_output --partial -- "ARGS[-p --allowed-tools"
+}
+
+@test "ask.sh claude routes a multiline prompt via stdin" {
+  local stubdir; stubdir="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nprintf "ARGS[%%s]\\n" "$*"\nprintf "STDIN[%%s]" "$(cat)"\n' > "$stubdir/claude"
+  chmod +x "$stubdir/claude"
+  run env PATH="$stubdir:$PATH" HERDR_ENV="" bash "$ASK_AGENT_DIR/ask.sh" claude "$(printf 'line one\nline two')" </dev/null
+  rm -rf "$stubdir"
+  assert_success
+  assert_output --partial "STDIN[line one"
+  assert_output --partial "line two]"
+  refute_output --partial -- "-p line one"
+}
+
 # ===========================================
 # herdr-pair skill scripts
 # ===========================================
