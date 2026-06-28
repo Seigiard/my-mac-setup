@@ -212,6 +212,16 @@ TOML
   assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
 }
 
+@test "herdr-pair skill is deployed" {
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/references/peer-protocol.md"
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/references/workbench-tab.md"
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/session.sh"
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/spawn-partner.sh"
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/send.sh"
+  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/recv.sh"
+}
+
 # ===========================================
 # macOS-only configs (skipped on Linux)
 # ===========================================

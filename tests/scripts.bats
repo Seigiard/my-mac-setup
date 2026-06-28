@@ -4,6 +4,7 @@ load 'helpers/common'
 
 teardown() {
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
+  [[ -n "${PAIR_COWORKERS:-}" ]] && rm -rf "$PAIR_COWORKERS" || true
 }
 
 # ===========================================
@@ -102,4 +103,316 @@ ASK_AGENT_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/ask-agent/scripts"
   assert_output --partial -- "-p hi there"
   assert_output --partial -- "--allowed-tools Read Grep Glob WebFetch WebSearch"
   assert_output --partial -- "--disallowed-tools Bash Edit Write"
+}
+
+# ===========================================
+# herdr-pair skill scripts
+# ===========================================
+
+PAIR_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/herdr-pair/scripts"
+
+# Each session test points the session store at a throwaway dir so it never
+# touches the real ~/.herdr-coworkers. teardown removes PAIR_COWORKERS.
+pair_new_store() {
+  PAIR_COWORKERS="$(mktemp -d)"
+  export HERDR_COWORKERS_DIR="$PAIR_COWORKERS"
+}
+
+@test "session.sh is valid bash" {
+  run bash -n "$PAIR_DIR/session.sh"
+  assert_success
+}
+
+@test "session.sh uses set -euo pipefail" {
+  run grep -q "set -euo pipefail" "$PAIR_DIR/session.sh"
+  assert_success
+}
+
+@test "session.sh create writes a well-formed per-tab session and prints the sid" {
+  pair_new_store
+  run bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid 123-abcd \
+    --a-agent claude --a-pane wB:p1 --b-agent pi --b-pane wB:p2
+  assert_success
+  assert_output --partial "123-abcd"
+  assert_file_exists "$PAIR_COWORKERS/wB/wB_tX/session.json"
+  run python3 - "$PAIR_COWORKERS/wB/wB_tX/session.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert s["sid"] == "123-abcd", s
+assert s["workspace_id"] == "wB", s
+assert s["tab_id"] == "wB:tX", s
+assert s["roles"]["a"] == {"agent_type": "claude", "pane_id": "wB:p1"}, s
+assert s["roles"]["b"] == {"agent_type": "pi", "pane_id": "wB:p2"}, s
+assert s["round"] == 0, s
+assert s["last_status"] == {"a": None, "b": None}, s
+assert s["no_progress_count"] == 0, s
+assert s["workbench"] == {"tab_id": None, "server_pane": None, "logs_pane": None}, s
+assert "created_at" in s, s
+PY
+  assert_success
+}
+
+@test "session.sh get round-trips a created session" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid 123-abcd \
+    --a-agent claude --a-pane wB:p1 --b-agent pi --b-pane wB:p2
+  run bash "$PAIR_DIR/session.sh" get --ws wB --tab wB:tX
+  assert_success
+  assert_output --partial '"sid": "123-abcd"'
+  assert_output --partial '"agent_type": "pi"'
+}
+
+@test "session.sh create refuses to clobber an existing session for the same tab" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid one \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  run bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid two \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  assert_failure
+  run bash "$PAIR_DIR/session.sh" get --ws wB --tab wB:tX
+  assert_output --partial '"sid": "one"'
+}
+
+@test "session.sh update bumps round and sets last_status, preserving prior fields" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid s \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status task
+  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role b --status review
+  run python3 - "$PAIR_COWORKERS/wB/wB_tX/session.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert s["round"] == 2, s
+assert s["last_status"] == {"a": "task", "b": "review"}, s
+assert s["roles"]["a"]["pane_id"] == "p1", s
+assert s["sid"] == "s", s
+PY
+  assert_success
+}
+
+@test "session.sh update adjusts no_progress_count with inc and reset" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid s \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status review --no-progress inc
+  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role b --status review --no-progress inc
+  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["no_progress_count"])' "$PAIR_COWORKERS/wB/wB_tX/session.json"
+  assert_output "2"
+  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status task --no-progress reset
+  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["no_progress_count"])' "$PAIR_COWORKERS/wB/wB_tX/session.json"
+  assert_output "0"
+}
+
+@test "session.sh flattens ':' in tab id to '_' in the on-disk path" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab "wB:t9" --sid s \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  assert_file_exists "$PAIR_COWORKERS/wB/wB_t9/session.json"
+  assert_file_not_exists "$PAIR_COWORKERS/wB/wB:t9/session.json"
+}
+
+@test "session.sh get on a missing session fails clearly" {
+  pair_new_store
+  run bash "$PAIR_DIR/session.sh" get --ws wB --tab wB:tX
+  assert_failure
+}
+
+@test "session.sh update on a missing session fails and invents no state" {
+  pair_new_store
+  run bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status task
+  assert_failure
+  assert_file_not_exists "$PAIR_COWORKERS/wB/wB_tX/session.json"
+}
+
+@test "session.sh rejects path-traversal in --ws/--tab for every subcommand" {
+  pair_new_store
+  # '..' must not slip past the path guard (would let `trash` rm -rf outside the store).
+  run bash "$PAIR_DIR/session.sh" trash --ws ".." --tab ".."
+  assert_failure 2
+  run bash "$PAIR_DIR/session.sh" create --ws ".." --tab ".." --sid s \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  assert_failure 2
+  run bash "$PAIR_DIR/session.sh" create --ws "a/b" --tab x --sid s \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  assert_failure 2
+  run bash "$PAIR_DIR/session.sh" get --ws wB --tab "../../etc"
+  assert_failure 2
+}
+
+@test "session.sh trash removes only this tab's session dir, leaving sibling tabs" {
+  pair_new_store
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:t1 --sid s1 \
+    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
+  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:t2 --sid s2 \
+    --a-agent claude --a-pane p3 --b-agent pi --b-pane p4
+  run bash "$PAIR_DIR/session.sh" trash --ws wB --tab wB:t1
+  assert_success
+  assert_dir_not_exists "$PAIR_COWORKERS/wB/wB_t1"
+  assert_dir_exists "$PAIR_COWORKERS/wB/wB_t2"
+}
+
+# ===========================================
+# herdr-integrations run-script
+# ===========================================
+
+HERDR_INTEGRATIONS_TMPL="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_install-herdr-integrations.sh.tmpl"
+
+@test "herdr-integrations script renders to valid bash" {
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  BATS_TEST_TMPFILE="$(mktemp /tmp/herdr-integrations-XXXXXX.sh)"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
+  run bash -n "$BATS_TEST_TMPFILE"
+  assert_success
+}
+
+@test "herdr-integrations script guards on command -v herdr and stays tolerant" {
+  run grep -q "command -v herdr" "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+  run grep -q 'herdr integration install claude pi opencode' "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+}
+
+@test "herdr-integrations version trigger is lookPath-guarded so CI without herdr still renders" {
+  run grep -q 'lookPath "herdr"' "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+}
+
+@test "herdr-integrations script exits 0 and skips when herdr is absent" {
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  BATS_TEST_TMPFILE="$(mktemp /tmp/herdr-integrations-XXXXXX.sh)"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
+  run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial "skipping agent-state integration refresh"
+}
+
+# ===========================================
+# herdr-pair transport scripts (spawn / send / recv)
+# ===========================================
+
+@test "herdr-pair transport scripts are valid bash" {
+  for s in spawn-partner.sh send.sh recv.sh; do
+    run bash -n "$PAIR_DIR/$s"
+    assert_success
+  done
+}
+
+@test "herdr-pair transport scripts use set -euo pipefail" {
+  for s in spawn-partner.sh send.sh recv.sh; do
+    run grep -q "set -euo pipefail" "$PAIR_DIR/$s"
+    assert_success
+  done
+}
+
+# recv.sh is a pure parser (text in via stdin), so its behavior is unit-testable offline.
+# Fixtures mirror real pi TUI output: leading-indented lines plus trailing TUI chrome.
+
+@test "recv.sh extracts the latest reply addressed to self and prints its kind" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid probe1 <<'EOF'
+ [pair a -> b kind=task sid=probe1]
+
+ Protocol probe. Reply per protocol.
+
+ [pair b -> a kind=ready sid=probe1]
+
+ Received; no files edited.
+
+────────────────────────────────────────
+~/Projects/my-mac-setup (feat/herdr-pair-skill)
+$0.033 (sub) 2.3%/272k (auto)
+EOF
+  assert_success
+  assert_line --index 0 "ready"
+  assert_output --partial "Received; no files edited."
+  refute_output --partial "0.033"
+}
+
+@test "recv.sh tolerates a Claude Code bullet glyph prefixing the header line" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid e2e-003 <<'EOF'
+⏺ [pair b -> a kind=ready sid=e2e-003]
+
+This reply confirms the pair channel works.
+EOF
+  assert_success
+  assert_line --index 0 "ready"
+}
+
+@test "recv.sh does not match a header quoted mid-sentence as a real reply" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
+Lead your reply with [pair b -> a kind=ready sid=s1] then prose.
+EOF
+  assert_failure 3
+}
+
+@test "recv.sh picks the last reply when several are present" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
+[pair b -> a kind=ready sid=s1]
+first reply
+[pair b -> a kind=accepted sid=s1]
+second reply
+EOF
+  assert_success
+  assert_line --index 0 "accepted"
+}
+
+@test "recv.sh ignores messages addressed to the partner, not self" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
+[pair a -> b kind=task sid=s1]
+this is my own outgoing message
+EOF
+  assert_failure 3
+}
+
+@test "recv.sh reports an sid mismatch as a distinct error" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid expected <<'EOF'
+[pair b -> a kind=ready sid=different]
+body
+EOF
+  assert_failure 4
+  assert_output --partial "sid mismatch"
+}
+
+@test "recv.sh exits 3 when there is no reply addressed to self" {
+  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
+just some noise
+no headers here
+EOF
+  assert_failure 3
+}
+
+# ===========================================
+# herdr-pair skill structure (source tree)
+# ===========================================
+
+PAIR_SKILL="$CHEZMOI_SOURCE/private_dot_claude/skills/herdr-pair"
+
+@test "herdr-pair skill source has all expected files" {
+  assert_file_exists "$PAIR_SKILL/SKILL.md"
+  assert_file_exists "$PAIR_SKILL/references/peer-protocol.md"
+  assert_file_exists "$PAIR_SKILL/references/workbench-tab.md"
+  assert_file_exists "$PAIR_SKILL/scripts/session.sh"
+  assert_file_exists "$PAIR_SKILL/scripts/spawn-partner.sh"
+  assert_file_exists "$PAIR_SKILL/scripts/send.sh"
+  assert_file_exists "$PAIR_SKILL/scripts/recv.sh"
+}
+
+@test "herdr-pair SKILL.md frontmatter is valid and triggers on the pair header" {
+  run python3 - "$PAIR_SKILL/SKILL.md" <<'PY'
+import sys
+t = open(sys.argv[1]).read()
+assert t.startswith("---\n"), "no opening frontmatter fence"
+end = t.index("\n---\n", 4)
+fm = t[4:end]
+keys = {}
+for line in fm.splitlines():
+    if ":" in line and not line.startswith(" "):
+        k, v = line.split(":", 1)
+        keys[k.strip()] = v.strip()
+assert keys.get("name") == "herdr-pair", keys
+assert "[pair" in keys.get("description", ""), "description must trigger on the [pair header"
+assert keys.get("user-invocable") == "true", keys
+PY
+  assert_success
 }

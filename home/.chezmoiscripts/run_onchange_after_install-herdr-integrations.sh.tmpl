@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Refresh herdr's agent-state integrations so `herdr wait agent-status` works for the
+# agents the herdr-pair skill drives. herdr ships per-agent state hooks and bumps their
+# version with each release; this re-runs `herdr integration install` whenever herdr is
+# upgraded (exactly when the hooks go stale), instead of vendoring the hooks here.
+#
+# Re-run trigger — the hashed herdr version below changes on upgrade, so chezmoi re-runs
+# this script then. The trigger is a single comment line (shellcheck-safe in the raw
+# template); lookPath guards `output` so CI/Docker without herdr still renders cleanly:
+# {{ if lookPath "herdr" }}herdr version: {{ output "herdr" "--version" | sha256sum }}{{ else }}herdr version: unavailable at apply time{{ end }}
+
+# Keep this tolerant: a missing herdr or a stopped server must not make chezmoi apply fail.
+set -u
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping agent-state integration refresh"
+  exit 0
+fi
+
+if herdr integration install claude pi opencode >/dev/null 2>&1; then
+  echo "Refreshed herdr agent-state integrations (claude pi opencode)"
+else
+  echo "Warning: failed to refresh herdr agent-state integrations. Run manually: herdr integration install claude pi opencode" >&2
+fi
+
+exit 0
