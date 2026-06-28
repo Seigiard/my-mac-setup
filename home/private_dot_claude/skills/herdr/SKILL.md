@@ -147,12 +147,14 @@ A higher-level wrapper over panes: it tracks **named** agents and their stable `
 ```bash
 herdr agent list                                  # result.agents[] (same shape as a pane, incl. terminal_id)
 herdr agent get   <target>
-herdr agent start reviewer --cwd "$PWD" --split right --no-focus -- claude   # spawn a CLI in a split
+herdr agent start reviewer --workspace <your_ws> --tab <your_tab> --cwd "$PWD" --split right --no-focus -- claude
 herdr agent send  <target> "Review the git diff. Do not edit files."
 herdr agent read  <target> --source recent-unwrapped --lines 160
 herdr agent wait  <target> --status idle --timeout 300000
 herdr agent rename <target> reviewer
 ```
+
+**Placement — pass `--workspace`/`--tab`, or you split the wrong workspace.** Without them, `agent start --split` splits the **focused** pane, which is often the user's active workspace, not yours — spawning your agent into a workspace you don't own (a hard isolation violation). Always pass `--workspace`/`--tab` from `herdr pane current`, or split explicitly with `herdr pane split <your_pane_id> --direction right --no-focus` and run the agent in the returned pane.
 
 When to use which layer: use **pane** commands for shells, servers, tests, and precise placement; use **agent** commands when you want a named coding agent you spawn, prompt, wait on, and read back.
 
@@ -199,7 +201,10 @@ herdr pane read "$TEST_PANE" --source recent-unwrapped --lines 30
 ### Spawn an agent and give it a task
 
 ```bash
-herdr agent start reviewer --cwd "$PWD" --split right --no-focus -- claude
+# Resolve YOUR workspace/tab first so the split lands in your own context, not the
+# focused (possibly someone else's) one.
+eval "$(herdr pane current | python3 -c 'import sys,json; p=json.load(sys.stdin)["result"]["pane"]; print(f"WS={p[\"workspace_id\"]}\nTAB={p[\"tab_id\"]}")')"
+herdr agent start reviewer --workspace "$WS" --tab "$TAB" --cwd "$PWD" --split right --no-focus -- claude
 herdr agent wait reviewer --status idle --timeout 60000
 herdr agent send reviewer "Review the test coverage in src/api/. Do not edit files. End with APPROVE or CHANGES_REQUESTED."
 herdr pane send-keys "$(herdr agent get reviewer | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" Enter
