@@ -10,9 +10,14 @@ manually. No scripts, templates, or tests.
 
 Ignored on purpose: Codex / Gemini CLI / GitHub Copilot targets.
 
-Source legend: `gh:<owner/repo>` GitHub · `npm:<pkg>` npm · `git:<url>` git ·
-`repo` authored in this dotfiles repo · `bundle:<name>` provided by a bundle ·
-`?` source unconfirmed — fill in.
+Source legend:
+
+- `gh:<owner/repo>` GitHub
+- `npm:<pkg>` npm
+- `git:<url>` git
+- `repo` authored in this dotfiles repo
+- `bundle:<name>` provided by a bundle
+- `?` source unconfirmed — fill in.
 
 ---
 
@@ -20,9 +25,8 @@ Source legend: `gh:<owner/repo>` GitHub · `npm:<pkg>` npm · `git:<url>` git ·
 
 | Skill        | Tools                               | Source                                        |
 | ------------ | ----------------------------------- | --------------------------------------------- |
-| crit         | Claude, OpenCode, Pi                | `?` (crit tool's skill — confirm)             |
-| herdr        | Claude → **want OpenCode + Pi too** | `repo` (home/private_dot_claude/skills/herdr) |
-| react-doctor | Claude, OpenCode                    | `gh:millionco/react-doctor`                   |
+| crit  | Claude, OpenCode, Pi                | `?` (crit tool's skill — confirm)             |
+| herdr | Claude → **want OpenCode + Pi too** | `repo` (home/private_dot_claude/skills/herdr) |
 
 ---
 
@@ -33,54 +37,35 @@ Source legend: `gh:<owner/repo>` GitHub · `npm:<pkg>` npm · `git:<url>` git ·
 | Marketplace                 | Source                                                                               |
 | --------------------------- | ------------------------------------------------------------------------------------ |
 | claude-plugins-official     | `gh:anthropics/claude-plugins-official`                                              |
-| claude-code-workflows       | `gh:wshobson/agents`                                                                 |
 | cc-marketplace              | `gh:kenryu42/cc-marketplace`                                                         |
-| context7-marketplace        | `gh:upstash/context7`                                                                |
 | impeccable                  | `gh:pbakaus/impeccable`                                                              |
-| chrome-devtools-plugins     | `gh:ChromeDevTools/chrome-devtools-mcp`                                              |
 | compound-engineering-plugin | `gh:EveryInc/compound-engineering-plugin`                                            |
 | obsidian-skills             | `git:git@github.com:kepano/obsidian-skills.git` (only used project-scope — optional) |
 
 ### Plugins (user-scope, global: `claude plugin install <name>@<marketplace>`)
 
-**claude-plugins-official:** code-review · playwright · pr-review-toolkit ·
-explanatory-output-style · learning-output-style · hookify · superpowers ·
-playground · claude-md-management · plugin-dev · chrome-devtools-mcp
-
-**claude-code-workflows:** code-documentation · debugging-toolkit · unit-testing ·
-code-refactoring · javascript-typescript · c4-architecture ·
-frontend-mobile-development · conductor · accessibility-compliance
+**claude-plugins-official:** playwright · playground · claude-md-management · plugin-dev
 
 **cc-marketplace:** safety-net
-**context7-marketplace:** context7-plugin
 **impeccable:** impeccable
 **compound-engineering-plugin:** compound-engineering
-**chrome-devtools-plugins:** chrome-devtools-mcp
-
-> ⚠️ `chrome-devtools-mcp` is installed from **both** claude-plugins-official and
-> chrome-devtools-plugins — pick one source to avoid a duplicate.
 
 ### Authored skills (`home/private_dot_claude/skills/` — already in repo)
 
-ask-agent · herdr · herdr-pair · markdown-new · react-doctor · review-plan · tdd-integration
+ask-agent · herdr · herdr-pair · markdown-new
 
 ### Skills pulled from upstream (`home/.chezmoiexternal.toml` — already in repo)
 
-| Skill                | Source                                             |
-| -------------------- | -------------------------------------------------- |
-| react-best-practices | `gh:vercel-labs/agent-skills`                      |
-| composition-patterns | `gh:vercel-labs/agent-skills`                      |
-| react-useeffect      | `gh:jarrodwatts/claude-code-config`                |
-| rigorous-coding      | `gh:jarrodwatts/claude-code-config`                |
-| linear-cli           | `gh:schpet/linear-cli`                             |
-| ast-grep             | `gh:ast-grep/agent-skill`                          |
-| improve-claude-md    | `gh:dexhorthy/slopfiles`                           |
-| handoff              | `?` (present in ~/.claude/skills — confirm source) |
+| Skill             | Source                                             |
+| ----------------- | -------------------------------------------------- |
+| rigorous-coding   | `gh:jarrodwatts/claude-code-config`                |
+| linear-cli        | `gh:schpet/linear-cli`                             |
+| improve-claude-md | `gh:dexhorthy/slopfiles`                           |
+| handoff           | `?` (present in ~/.claude/skills — confirm source) |
 
 ### Authored agents (`home/private_dot_claude/agents/` — already in repo)
 
-agent-enhancer · open-source-librarian · plan-architect · plan-pragmatist ·
-plan-skeptic · plan-synthesizer · tdd-implementer · tdd-refactorer · tdd-test-writer
+open-source-librarian
 
 ---
 
@@ -99,7 +84,7 @@ herdr-agent-state.js · rtk.ts
 ### Skills / agents
 
 Mostly `bundle:oh-my-openagent` (the ce-\* set + reviewer agents) — do not hand-list.
-Cross-tool own skills here: crit, react-doctor, herdr (wanted). Also web-perf, lfg.
+Cross-tool own skills here: crit, herdr (wanted). Also web-perf, lfg.
 
 ---
 
@@ -152,4 +137,3 @@ se-report-writer · synthes-agent.
 
 - Sources marked `?`: crit, handoff.
 - Whether to make herdr multi-tool now (currently Claude-only).
-- Drop the duplicate `chrome-devtools-mcp` marketplace source.

@@ -46,13 +46,7 @@ Main export at the top — readers see the purpose immediately.
 - Use try/catch for async operations
 - Avoid floating promises (unhandled)
 
-### React Best Practices
-
-- When writing React code, invoke `react-best-practices` skill
-- Verify all changes using `react-doctor` skill
-
 ### React Hooks
 
-- When writing or reviewing `useEffect` or `useState` for derived values, invoke `react-useeffect` skill
 - Prefer derived values over state + effect patterns
 - Use `useMemo` for expensive calculations, not `useEffect`

@@ -103,7 +103,6 @@
   },
   "permissions": {
     "allow": [
-      "Bash(ast-grep *)",
       "Bash(bun run fix)",
       "Bash(bun run typecheck:*)",
       "Bash(bun test *)",
@@ -131,7 +130,6 @@
       "Bash(linear *)",
       "Bash(ls *)",
       "Bash(npm run *)",
-      "Bash(npx -y react-doctor*)",
       "Bash(pwd)",
       "Bash(rg *)",
       "Bash(rq *)",

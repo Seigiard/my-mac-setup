@@ -25,7 +25,6 @@ brew "oven-sh/bun/bun"  # bun
 
 # Search & text processing
 brew "ripgrep"      # rg
-brew "ast-grep"     # sg
 brew "bat"
 brew "jq"
 
