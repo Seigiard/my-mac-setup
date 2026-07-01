@@ -1,139 +1,159 @@
 # Agent setup inventory
 
-Created: 2026-06-26
+The curated list of plugins / skills / agents I **choose**, for manual reinstall
+across Claude Code, OpenCode, and Pi. Maintained by hand. Bundle internals
+(skills/agents that ship inside a plugin or distribution) are listed as **one
+line**, never enumerated — they come back when the bundle is installed.
 
-The curated list of agent skills / agents / plugins I actually **choose**, for
-manual reinstall across Claude Code, OpenCode, and Pi. Bundle internals (skills
-and agents that ship inside a plugin/extension) are **not** listed individually —
-they come back when the bundle is installed. Maintained by hand; install
-manually. No scripts, templates, or tests.
+Codex / Gemini CLI / GitHub Copilot targets are ignored on purpose.
 
-Ignored on purpose: Codex / Gemini CLI / GitHub Copilot targets.
+**Source:** `gh:owner/repo` · `npm:pkg` · `git:url` · `repo` (authored in this
+dotfiles repo) · `bundle:name` (ships inside a bundle) · `?` (unconfirmed).
+**Managed:** `chezmoi-ext` (`home/.chezmoiexternal.toml`) · `repo` (tracked here)
+· `manual` (installed by hand / a CLI, not reproduced by this repo).
 
-Source legend:
+## Common
 
-- `gh:<owner/repo>` GitHub
-- `npm:<pkg>` npm
-- `git:<url>` git
-- `repo` authored in this dotfiles repo
-- `bundle:<name>` provided by a bundle
-- `?` source unconfirmed — fill in.
+### Compound Engineering
 
----
+Install on Claude, Opencode, Pi
 
-## Cross-tool skills (my own / want everywhere)
+https://github.com/EveryInc/compound-engineering-plugin
 
-| Skill        | Tools                               | Source                                        |
-| ------------ | ----------------------------------- | --------------------------------------------- |
-| crit  | Claude, OpenCode, Pi                | `?` (crit tool's skill — confirm)             |
-| herdr | Claude → **want OpenCode + Pi too** | `repo` (home/private_dot_claude/skills/herdr) |
+### CC Safety Net
+
+Install on Claude, Opencode, Pi
+
+https://ccsafetynet.com/docs/installation
 
 ---
 
 ## Claude Code
 
-### Marketplaces (add first: `claude plugin marketplace add <source>`)
+Install https://impeccable.style/
 
-| Marketplace                 | Source                                                                               |
-| --------------------------- | ------------------------------------------------------------------------------------ |
-| claude-plugins-official     | `gh:anthropics/claude-plugins-official`                                              |
-| cc-marketplace              | `gh:kenryu42/cc-marketplace`                                                         |
-| impeccable                  | `gh:pbakaus/impeccable`                                                              |
-| compound-engineering-plugin | `gh:EveryInc/compound-engineering-plugin`                                            |
-| obsidian-skills             | `git:git@github.com:kepano/obsidian-skills.git` (only used project-scope — optional) |
+### Marketplaces — `claude plugin marketplace add <source>`
 
-### Plugins (user-scope, global: `claude plugin install <name>@<marketplace>`)
+| Marketplace             | Source                                  |
+| ----------------------- | --------------------------------------- |
+| claude-plugins-official | `gh:anthropics/claude-plugins-official` |
+| cc-marketplace          | `gh:kenryu42/cc-marketplace`            |
 
-**claude-plugins-official:** playwright · playground · claude-md-management · plugin-dev
+### Plugins — `claude plugin install <plugin>@<marketplace>`
 
-**cc-marketplace:** safety-net
-**impeccable:** impeccable
-**compound-engineering-plugin:** compound-engineering
+| Plugin               | Marketplace             | Scope | Status  |
+| -------------------- | ----------------------- | ----- | ------- |
+| claude-md-management | claude-plugins-official | user  | enabled |
+| playground           | claude-plugins-official | user  | enabled |
+| playwright           | claude-plugins-official | user  | enabled |
+| skill-creator        | claude-plugins-official | user  | enabled |
+| plugin-dev           | claude-plugins-official | user  | enabled |
 
-### Authored skills (`home/private_dot_claude/skills/` — already in repo)
+### Skills (`~/.claude/skills/`)
 
-ask-agent · herdr · herdr-pair · markdown-new
+| Skill             | Source                              | Managed     |
+| ----------------- | ----------------------------------- | ----------- |
+| crit              | `?` (crit CLI's skill — confirm)    | manual      |
+| handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
+| herdr             | `repo`                              | repo        |
+| improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
+| linear-cli        | `gh:schpet/linear-cli`              | chezmoi-ext |
+| markdown-new      | `repo`                              | repo        |
+| rigorous-coding   | `gh:jarrodwatts/claude-code-config` | chezmoi-ext |
 
-### Skills pulled from upstream (`home/.chezmoiexternal.toml` — already in repo)
+Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
+(see Drift).
 
-| Skill             | Source                                             |
-| ----------------- | -------------------------------------------------- |
-| rigorous-coding   | `gh:jarrodwatts/claude-code-config`                |
-| linear-cli        | `gh:schpet/linear-cli`                             |
-| improve-claude-md | `gh:dexhorthy/slopfiles`                           |
-| handoff           | `?` (present in ~/.claude/skills — confirm source) |
+### Agents (`~/.claude/agents/`)
 
-### Authored agents (`home/private_dot_claude/agents/` — already in repo)
-
-open-source-librarian
+| Agent                 | Source |
+| --------------------- | ------ |
+| open-source-librarian | `repo` |
 
 ---
 
 ## OpenCode
 
-### Plugins (`~/.config/opencode/opencode.json` → `plugin[]`; OpenCode self-installs at startup)
+### Plugin (`~/.config/opencode/opencode.json` → `plugin[]`)
 
-| Plugin           | Source                                                                                                                     |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| @rynfar/meridian | `gh:rynfar/meridian` (`npm:@rynfar/meridian`) — install the package and reference it (replaces the old absolute brew path) |
+| Plugin   | Source                 | Notes                                           |
+| -------- | ---------------------- | ----------------------------------------------- |
+| meridian | `npm:@rynfar/meridian` | live still references old brew abs path (Drift) |
 
-### Local plugins (files, keep in repo)
+Local plugins kept in repo: `herdr-agent-state.js`, `rtk.ts`.
 
-herdr-agent-state.js · rtk.ts
+### Skills (`~/.config/opencode/skills/` — 39)
 
-### Skills / agents
+- `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
+- Own: `crit` (cross-tool), `lfg`.
 
-Mostly `bundle:oh-my-openagent` (the ce-\* set + reviewer agents) — do not hand-list.
-Cross-tool own skills here: crit, herdr (wanted). Also web-perf, lfg.
+### Agents (`~/.config/opencode/agent/` — ~51)
+
+- `bundle:compound-engineering` — the `ce-*` reviewer/researcher set (~48). Not enumerated.
+- Own / synced: `agent-enhancer`, `open-source-librarian`, `review`.
 
 ---
 
 ## Pi
 
-### Extensions (`~/.pi/agent/settings.json` → `packages[]`; `pi install <source>`)
+### Packages (`~/.pi/agent/settings.json` → `packages[]`) — `pi install <source>`
 
-| Extension               | Source                                                                                                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| pi-theme-flexoki        | `git:github.com/markacianfrani/pi-theme-flexoki`                                                                                        |
-| pi-fff                  | `npm:@ff-labs/pi-fff`                                                                                                                   |
-| pi-rtk                  | `npm:@sherif-fanous/pi-rtk`                                                                                                             |
-| pi-codex-conversion     | `npm:@howaboua/pi-codex-conversion`                                                                                                     |
-| pi-agents               | `npm:pi-agents`                                                                                                                         |
-| pi-subagents            | `npm:pi-subagents`                                                                                                                      |
-| pi-intercom             | `npm:pi-intercom`                                                                                                                       |
-| pi-agent-browser-native | `npm:pi-agent-browser-native` (https://pi.dev/packages/pi-agent-browser-native — replaced the old local absolute path / coctostan repo) |
+| Package                 | Source                                           |
+| ----------------------- | ------------------------------------------------ |
+| pi-theme-flexoki        | `git:github.com/markacianfrani/pi-theme-flexoki` |
+| pi-fff                  | `npm:@ff-labs/pi-fff`                            |
+| pi-rtk                  | `npm:@sherif-fanous/pi-rtk`                      |
+| pi-codex-conversion     | `npm:@howaboua/pi-codex-conversion`              |
+| pi-agents               | `npm:pi-agents`                                  |
+| pi-subagents            | `npm:pi-subagents`                               |
+| pi-intercom             | `npm:pi-intercom`                                |
+| pi-agent-browser-native | `npm:pi-agent-browser-native`                    |
 
-### Skills / agents
+### Skills (`~/.pi/agent/skills/`)
 
-Skills: crit, web-perf, web-research.
-Agents (`~/.pi/agent/agents/`, hand-authored — keep): ask-claude · ask-external ·
-ask-opencode · ask-pi · brainstorm-doc-reviewer · reviewer · se-plan-review ·
-se-report-writer · synthes-agent.
+`crit` (cross-tool) · `web-research`
 
----
+### Agents (`~/.pi/agent/agents/` — authored, keep)
 
-## Excluded / cleaned up
-
-- **Codex / Gemini / Copilot** targets (e.g. `web-perf` in `~/.codex/skills/`) — ignored.
-- **Claude project-scope plugins** (not global): frontend-design, feature-dev,
-  security-guidance, code-simplifier, typescript-lsp (all @ `Projects/platform`),
-  obsidian (@ Dropbox Knowledge Base).
-- **Pi compound-engineering orphan** — deleted 2026-06-26 (was an uncoordinated
-  install: 49 agent files + a private manifest, never in `packages[]`).
+`ask-claude` · `ask-external` · `ask-opencode` · `ask-pi` ·
+`brainstorm-doc-reviewer` · `reviewer` · `se-plan-review` · `se-report-writer` ·
+`synthes-agent`
 
 ---
 
-## Manual install quickref
+## Codex / Gemini / Copilot
 
-- **Claude:** `claude plugin marketplace add <source>` then
-  `claude plugin install <name>@<marketplace>`. Authored + upstream skills come
-  via `chezmoi apply` (already managed).
-- **OpenCode:** ensure entries in `~/.config/opencode/opencode.json` `plugin[]`;
-  install the meridian package; OpenCode self-installs npm plugins at startup.
-- **Pi:** `pi install <source>` for each `packages[]` entry (`pi list` to check,
+Ignored on purpose. `~/.codex/skills/` is now empty (`react-doctor`, `web-perf`
+removed). Not reproduced by this repo.
+
+---
+
+## Cross-tool skills (want everywhere)
+
+| Skill | Claude | OpenCode | Pi   | Source |
+| ----- | ------ | -------- | ---- | ------ |
+| crit  | ✓      | ✓        | ✓    | `?`    |
+| herdr | ✓      | want     | want | `repo` |
+
+---
+
+## Install quickref
+
+- **Claude:** `claude plugin marketplace add <source>`, then
+  `claude plugin install <plugin>@<marketplace>`. Skills marked `chezmoi-ext` /
+  `repo` come via `chezmoi apply`; `manual` ones must be reinstalled by hand.
+- **OpenCode:** ensure `plugin[]` in `opencode.json`; OpenCode self-installs npm
+  plugins at startup. Install the meridian package first.
+- **Pi:** `pi install <source>` per `packages[]` (`pi list` to check,
   `pi update --all` to refresh).
 
-## To confirm
+## Drift / to confirm
 
-- Sources marked `?`: crit, handoff.
-- Whether to make herdr multi-tool now (currently Claude-only).
+- Source of `crit` and `handoff` unconfirmed (`manual` installs, not reproduced).
+- OpenCode `meridian` `plugin[]` entry still points at the absolute brew path
+  (`/opt/homebrew/.../meridian.ts`) — switch to `npm:@rynfar/meridian`.
+- Authored skills `ask-agent`, `herdr-pair` exist in the repo but are not applied
+  to live `~/.claude/skills/` — confirm whether they should be.
+- OpenCode carries `agent-enhancer`, `open-source-librarian`, `review` agents —
+  confirm whether authored-and-synced or stragglers.
+- Whether to make `herdr` multi-tool now (currently Claude-only live).
