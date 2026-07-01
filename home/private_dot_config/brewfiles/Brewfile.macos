@@ -21,8 +21,6 @@ cask "font-iosevka-nerd-font"
 # Terminal & editors
 cask "ghostty"
 cask "zed"
-cask "vscodium"
-cask "webstorm"
 cask "obsidian"
 
 # Productivity
