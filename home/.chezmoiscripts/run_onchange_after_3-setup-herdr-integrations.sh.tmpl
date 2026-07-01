@@ -17,6 +17,11 @@ if ! command -v herdr >/dev/null 2>&1; then
   exit 0
 fi
 
+# herdr refuses to install the pi hook unless pi's extension dir already exists
+if command -v pi >/dev/null 2>&1; then
+  mkdir -p "$HOME/.pi/agent/extensions"
+fi
+
 failed=()
 for target in claude pi opencode; do
   herdr integration install "$target" >/dev/null 2>&1 || failed+=("$target")
