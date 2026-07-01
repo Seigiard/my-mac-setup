@@ -1,7 +1,7 @@
 {
   "additionalDirectories": [
-    "/Users/seigiard/Dropbox/Knowledge Base",
-    "/Users/seigiard/Dropbox/Knowledge Base/Calendar/",
+    "{{ .chezmoi.homeDir }}/Dropbox/Knowledge Base",
+    "{{ .chezmoi.homeDir }}/Dropbox/Knowledge Base/Calendar/",
     "~/Library/CloudStorage/Dropbox/Knowledge Base/",
     "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
     "~/.claude/hooks/"
@@ -81,7 +81,7 @@
       {
         "hooks": [
           {
-            "command": "/Users/seigiard/.claude/hooks/rtk-rewrite.sh",
+            "command": "{{ .chezmoi.homeDir }}/.claude/hooks/rtk-rewrite.sh",
             "type": "command"
           }
         ],
@@ -92,7 +92,7 @@
       {
         "hooks": [
           {
-            "command": "bash '/Users/seigiard/.claude/hooks/herdr-agent-state.sh' session",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-agent-state.sh' session",
             "timeout": 10,
             "type": "command"
           }
