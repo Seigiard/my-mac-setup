@@ -55,7 +55,6 @@ After running chezmoi, configure these manually:
 ### Apps
 
 - **Raycast** — Import `*.rayconfig` backup
-- **VS Codium** — Install Settings Sync extension
 - **SetApp** — Install: Bartender, CleanMyMac, CleanShot X, CloudMounter
 
 ### System
@@ -63,6 +62,14 @@ After running chezmoi, configure these manually:
 - **NextDNS** — [Configure](https://my.nextdns.io)
 - **Keyboard Layout** — Add [Seigiard Layout](https://github.com/Seigiard/keyboard-layout)
 - **System Settings** — See `macos-settings.md` for manual tweaks
+
+### Herdr
+
+The command-palette plugin files are managed by chezmoi, but registering the plugin needs a running Herdr server — which isn't up during `chezmoi apply`. After launching Herdr for the first time, link it once (the registration persists across restarts):
+
+```bash
+herdr plugin link ~/.config/herdr/plugins/command-palette
+```
 
 ## Structure
 
