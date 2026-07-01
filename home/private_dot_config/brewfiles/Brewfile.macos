@@ -11,6 +11,9 @@ brew "lazywalker/rgrc/rgrc"
 brew "terminal-notifier"
 brew "schpet/tap/linear"
 
+# AI coding agents (macOS-only casks; cross-platform ones live in Brewfile)
+cask "claude-code"
+
 # Fonts
 cask "font-jetbrains-mono-nerd-font"
 cask "font-iosevka-nerd-font"
