@@ -69,7 +69,9 @@ After running chezmoi, configure these manually:
 ```
 home/
 ├── .chezmoiscripts/          # Install scripts (run by chezmoi)
-│   ├── run_onchange_after_install-packages.sh.tmpl
+│   ├── run_onchange_after_1-install-packages.sh.tmpl
+│   ├── run_onchange_after_2-link-herdr-command-palette.sh.tmpl
+│   ├── run_onchange_after_3-setup-herdr-integrations.sh.tmpl
 │   └── darwin/
 │       └── run_once_after_macos-tunes.sh
 ├── private_dot_config/

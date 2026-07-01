@@ -13,7 +13,7 @@ teardown() {
 
 @test "install-packages script renders as valid bash" {
   skip_if_no_chezmoi
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_install-packages.sh.tmpl"
+  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
 
   BATS_TEST_TMPFILE="$(mktemp /tmp/install-packages-XXXXXX.sh)"
@@ -23,7 +23,7 @@ teardown() {
 }
 
 @test "install-packages script uses set -e" {
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_install-packages.sh.tmpl"
+  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
   run grep -q "set -e" "$script"
   assert_success
@@ -31,7 +31,7 @@ teardown() {
 
 @test "install-packages template has no rendering errors" {
   skip_if_no_chezmoi
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_install-packages.sh.tmpl"
+  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" execute-template < "$script"
   assert_success
@@ -283,7 +283,7 @@ PY
 # herdr-integrations run-script
 # ===========================================
 
-HERDR_INTEGRATIONS_TMPL="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_install-herdr-integrations.sh.tmpl"
+HERDR_INTEGRATIONS_TMPL="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 
 @test "herdr-integrations script renders to valid bash" {
   skip_if_no_chezmoi
@@ -297,7 +297,7 @@ HERDR_INTEGRATIONS_TMPL="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_inst
 @test "herdr-integrations script guards on command -v herdr and stays tolerant" {
   run grep -q "command -v herdr" "$HERDR_INTEGRATIONS_TMPL"
   assert_success
-  run grep -q 'herdr integration install claude pi opencode' "$HERDR_INTEGRATIONS_TMPL"
+  run grep -q 'for target in claude pi opencode' "$HERDR_INTEGRATIONS_TMPL"
   assert_success
 }
 

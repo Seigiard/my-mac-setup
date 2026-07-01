@@ -17,10 +17,15 @@ if ! command -v herdr >/dev/null 2>&1; then
   exit 0
 fi
 
-if herdr integration install claude pi opencode >/dev/null 2>&1; then
+failed=()
+for target in claude pi opencode; do
+  herdr integration install "$target" >/dev/null 2>&1 || failed+=("$target")
+done
+
+if [[ ${#failed[@]} -eq 0 ]]; then
   echo "Refreshed herdr agent-state integrations (claude pi opencode)"
 else
-  echo "Warning: failed to refresh herdr agent-state integrations. Run manually: herdr integration install claude pi opencode" >&2
+  echo "Warning: failed to refresh herdr agent-state integrations: ${failed[*]}. Run manually: herdr integration install <target> for each." >&2
 fi
 
 exit 0
