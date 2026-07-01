@@ -2,36 +2,51 @@
 
 Cross-platform dotfiles managed with [chezmoi](https://www.chezmoi.io/).
 
-## Quick Start
+## Quick Start (new machine)
+
+### 1. Install Homebrew
+
+Go to https://brew.sh/ and run the install command. Follow its prompt to add Homebrew to your `PATH`.
+
+### 2. Install chezmoi and 1Password
 
 ```sh
-# Install chezmoi and apply dotfiles
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply $PATH_TO/my-mac-setup
+brew install chezmoi 1password-cli
+brew install --cask 1password
 ```
 
-This will:
+### 3. Set up a GitHub SSH key
 
-- Install Homebrew (if not present)
-- Install CLI tools and apps via Brewfiles
-- Install Oh My Zsh and plugins
-- Apply macOS system preferences
-- Set up all configs (zsh, git, starship, yazi, etc.)
-
-## Prerequisites
-
-### GitHub SSH keys
+The repo is cloned over SSH, so you need a key before chezmoi can pull it.
 
 - [Generate SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
 - [Add key to GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
 
-### 1Password CLI (optional, for secrets)
+Verify it works: `ssh -T git@github.com`
+
+### 4. Enable 1Password CLI (optional, for secrets)
 
 Some configs use 1Password to inject API keys (e.g., `LINEAR_API_KEY`).
 
-1Password CLI is installed automatically via Brewfile. To enable:
+Open the 1Password app: **Settings → Developer → Enable "Integrate with 1Password CLI"**.
 
-1. Open 1Password app: **Settings → Developer → Enable "Integrate with 1Password CLI"**
-2. Run `chezmoi apply` to inject secrets into configs
+Skip this and chezmoi still applies — secret templates are guarded by `lookPath "op"`, so missing 1Password just leaves those values empty.
+
+### 5. Bootstrap with chezmoi
+
+One command clones the repo and applies everything:
+
+```sh
+chezmoi init --apply git@github.com:Seigiard/my-mac-setup.git
+```
+
+chezmoi clones into `~/.local/share/chezmoi` (it reads `.chezmoiroot = home` automatically), prompts for your name and email, then:
+
+- Installs Homebrew (if not present)
+- Installs CLI tools and apps via Brewfiles
+- Installs Oh My Zsh and plugins
+- Applies macOS system preferences
+- Sets up all configs (zsh, git, starship, yazi, etc.)
 
 ## Manual Configuration
 
