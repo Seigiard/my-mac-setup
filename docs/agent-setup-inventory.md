@@ -30,8 +30,6 @@ https://ccsafetynet.com/docs/installation
 
 ## Claude Code
 
-Install https://impeccable.style/
-
 ### Marketplaces — `claude plugin marketplace add <source>`
 
 | Marketplace             | Source                                  |
@@ -76,9 +74,7 @@ Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
 
 ### Plugin (`~/.config/opencode/opencode.json` → `plugin[]`)
 
-| Plugin   | Source                 | Notes                                           |
-| -------- | ---------------------- | ----------------------------------------------- |
-| meridian | `npm:@rynfar/meridian` | live still references old brew abs path (Drift) |
+No OpenCode plugins are installed via `plugin[]`.
 
 Local plugins kept in repo: `herdr-agent-state.js`, `rtk.ts`.
 
@@ -142,16 +138,14 @@ removed). Not reproduced by this repo.
 - **Claude:** `claude plugin marketplace add <source>`, then
   `claude plugin install <plugin>@<marketplace>`. Skills marked `chezmoi-ext` /
   `repo` come via `chezmoi apply`; `manual` ones must be reinstalled by hand.
-- **OpenCode:** ensure `plugin[]` in `opencode.json`; OpenCode self-installs npm
-  plugins at startup. Install the meridian package first.
+- **OpenCode:** ensure `plugin[]` in `opencode.json` if plugins are added;
+  OpenCode self-installs npm plugins at startup.
 - **Pi:** `pi install <source>` per `packages[]` (`pi list` to check,
   `pi update --all` to refresh).
 
 ## Drift / to confirm
 
 - Source of `crit` and `handoff` unconfirmed (`manual` installs, not reproduced).
-- OpenCode `meridian` `plugin[]` entry still points at the absolute brew path
-  (`/opt/homebrew/.../meridian.ts`) — switch to `npm:@rynfar/meridian`.
 - Authored skills `ask-agent`, `herdr-pair` exist in the repo but are not applied
   to live `~/.claude/skills/` — confirm whether they should be.
 - OpenCode carries `agent-enhancer`, `open-source-librarian`, `review` agents —
