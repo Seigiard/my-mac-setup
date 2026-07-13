@@ -1,0 +1,14 @@
+node_modules/
+executions/
+runs/
+workflows/.worktrees/
+sandboxes/
+state/
+tmp/
+*.db
+*.sqlite
+*.db-shm
+*.db-wal
+.smithers/
+dist/
+.DS_Store

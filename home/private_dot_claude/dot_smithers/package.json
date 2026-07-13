@@ -1,0 +1,12 @@
+{
+  "name": "claude-smithers-workflows",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "smithers-orchestrator": "0.27.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1"
+  }
+}
