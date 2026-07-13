@@ -46,7 +46,7 @@ Edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file i
 
 <important if="you are adding a new file or directory to the chezmoi source tree">
 
-- Check `home/.chezmoiexternal.toml` first — skills and configs managed there (e.g., `linear-cli`, `rigorous-coding`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
+- Check `home/.chezmoiexternal.toml` first — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
 - `chezmoi add ~/.config/tool` creates the source file in `home/`. Use a `.tmpl` suffix if the file needs OS branching or secrets.
 - `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
 

@@ -75,7 +75,6 @@ Pre-classification triggers (fire in background):
 
 | Trigger                                 | Skill                                      | Notes                             |
 | --------------------------------------- | ------------------------------------------ | --------------------------------- |
-| Writing/implementing code               | `/rigorous-coding`                         | ALWAYS before implementation      |
 | "commit", "create commit"               | `/compound-engineering:ce-commit`          | Let skill handle git              |
 | "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr`  | Full workflow                     |
 | "review PR", "review code"              | `/compound-engineering:ce-code-review`     | Multi-agent review                |
@@ -131,7 +130,9 @@ Assign Linear issues to the user by default unless they explicitly request a dif
 
 <important if="you are implementing a new feature or behavior">
 
-Iterate TDD-style (Red → Green → Refactor) for new features.
+- State assumptions before writing code.
+- Check non-happy paths and failure conditions before implementing.
+- Iterate TDD-style (Red → Green → Refactor) for new features.
 
 </important>
 

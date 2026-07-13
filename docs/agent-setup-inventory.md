@@ -57,7 +57,6 @@ https://ccsafetynet.com/docs/installation
 | improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
 | linear-cli        | `gh:schpet/linear-cli`              | chezmoi-ext |
 | markdown-new      | `repo`                              | repo        |
-| rigorous-coding   | `gh:jarrodwatts/claude-code-config` | chezmoi-ext |
 
 Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
 (see Drift).
