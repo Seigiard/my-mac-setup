@@ -2,13 +2,6 @@
 # Run `chezmoi apply` to sync, `chezmoi update` to refresh
 # Using archive type with include to extract only specific subdirectories
 
-[".claude/skills/rigorous-coding"]
-type = "archive"
-url = "https://github.com/jarrodwatts/claude-code-config/archive/refs/heads/main.tar.gz"
-include = ["*/skills/rigorous-coding/**"]
-stripComponents = 3
-refreshPeriod = "168h"
-
 [".claude/skills/linear-cli"]
 type = "archive"
 url = "https://github.com/schpet/linear-cli/archive/refs/heads/main.tar.gz"

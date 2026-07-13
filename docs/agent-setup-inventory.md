@@ -57,9 +57,21 @@ https://ccsafetynet.com/docs/installation
 | improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
 | linear-cli        | `gh:schpet/linear-cli`              | chezmoi-ext |
 | markdown-new      | `repo`                              | repo        |
+| se-code-review    | `repo` (local CE wrapper)           | repo        |
+| se-doc-review     | `repo` (local CE wrapper)           | repo        |
+| se-plan           | `repo` (local CE wrapper)           | repo        |
 
 Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
 (see Drift).
+
+### Smithers workflows (`~/.claude/.smithers/`)
+
+| Workflow        | Source | Managed |
+| --------------- | ------ | ------- |
+| se-code-review  | `repo` | repo    |
+| se-doc-review   | `repo` | repo    |
+
+Shared package for local `se-*` wrappers. Runtime deps/state are ignored.
 
 ### Agents (`~/.claude/agents/`)
 

@@ -77,11 +77,11 @@ Pre-classification triggers (fire in background):
 | --------------------------------------- | ------------------------------------------ | --------------------------------- |
 | "commit", "create commit"               | `/compound-engineering:ce-commit`          | Let skill handle git              |
 | "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr`  | Full workflow                     |
-| "review PR", "review code"              | `/compound-engineering:ce-code-review`     | Multi-agent review                |
+| "review PR", "review code"              | `/se-code-review`                          | Local wrapper: plugin + external reviews |
 | Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`      | Persistent planning               |
-| Planning multi-step tasks               | `/compound-engineering:ce-plan`            | Structured breakdown              |
+| Planning multi-step tasks               | `/se-plan`                                 | Local wrapper: plugin plan + external doc review |
 | Debugging, errors, test failures        | `/compound-engineering:ce-debug`           | Systematic root cause             |
-| "review plan", "review spec"            | `/compound-engineering:ce-doc-review`      | Parallel persona review           |
+| "review plan", "review spec"            | `/se-doc-review`                           | Local wrapper: plugin + external reviews |
 | Linear issues, task tracking            | `/linear-cli`                              | Linear CLI management             |
 | Linear ticket reference (CORE-XX, etc.) | `/linear-cli` + Linear-first triage        | Fetch ticket BEFORE investigating |
 | Plan iteration ("итерация N", "дальше") | Load plan first, batch 2–3, gate on commit | See plan-iteration block          |
