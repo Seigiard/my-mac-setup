@@ -35,7 +35,8 @@ import seDocReview from "./se-doc-review.tsx";
 const inputSchema = z.object({
   planPath: z.string().describe("Absolute path to the implementation-ready ce-unified-plan/v1 plan (read from the launcher, not the worktree — KTD11)."),
   until: z.enum(["branch", "pr"]).default("branch").describe("Run depth (R6); pr is a hard refusal in the MVP."),
-  validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required."),
+  validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required. Keep it FAST — the work gate runs it synchronously; scope to unit/type checks, not full e2e."),
+  validateTimeoutMs: z.number().default(10 * 60_000).describe("Work-gate validate-cmd timeout. A slow full-suite command (e2e) blocks the engine — scope the command instead of raising this blindly."),
   smoke: z.boolean().default(false).describe("Wiring test: trivial stage prompts, real staging/gates, no ce-work invocation."),
   workTimeoutMs: z.number().default(4 * 60 * 60_000).describe("Work leg timeout — hours, not review-sized minutes."),
   workBudgetUsd: z.number().default(50).describe("Runaway circuit breaker for the work leg, NOT a cost target; trips are logged."),
@@ -59,7 +60,7 @@ const gateVerdictSchema = z.object({
 
 const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers({
   input: inputSchema,
-  gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), repoPath: z.string() }),
+  gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   docReview: docReviewSchema,
   agentReport: z.object({ report: z.string() }),
@@ -204,6 +205,7 @@ export default smithers((ctx) => {
   // ctx.input arrives WITHOUT Zod defaults applied — coalesce every optional.
   const until = input.until ?? "branch";
   const validateCmd = input.validateCmd ?? "";
+  const validateTimeoutMs = input.validateTimeoutMs ?? 10 * 60_000;
   const smoke = input.smoke ?? false;
   const workTimeoutMs = input.workTimeoutMs ?? 4 * 60 * 60_000;
   const workBudgetUsd = input.workBudgetUsd ?? 50;
@@ -367,7 +369,7 @@ export default smithers((ctx) => {
         if (git(repoDir, "status", "--porcelain") !== "") {
           console.error(`se-pipeline preflight: target repo ${repoDir} has a dirty working tree — the run works from committed HEAD only (KTD11); operator WIP is not included.`);
         }
-        return { planHash: result.hash, planPath: input.planPath, until, validateCmd, repoPath: repoDir };
+        return { planHash: result.hash, planPath: input.planPath, until, validateCmd, validateTimeoutMs, repoPath: repoDir };
       }}
     </Task>,
   ];
@@ -451,7 +453,7 @@ export default smithers((ctx) => {
             return { state: "failed", reasons: [`run worktree has uncommitted/untracked changes after work — nothing may reach validate-cmd or verify-code uncommitted:\n${dirty.slice(0, 500)}`] };
           }
         }
-        const validate = raw === undefined ? null : runValidateCmd(gate0.validateCmd, staged.worktreePath);
+        const validate = raw === undefined ? null : runValidateCmd(gate0.validateCmd, staged.worktreePath, gate0.validateTimeoutMs);
         const result = workGate({ raw, headSha, validateExitCode: validate === null ? null : validate.exitCode });
         if (validate !== null && validate.exitCode !== 0) {
           result.reasons.push(`validate-cmd output tail: ${validate.output.slice(-500)}`);
