@@ -402,13 +402,15 @@ se_fixture_repo() {
   assert_output --partial "until"
 }
 
-@test "se pipeline fails without --validate-cmd and mentions it" {
+@test "se pipeline without --validate-cmd succeeds (derived from plan at gate-0)" {
+  # --validate-cmd is optional: omitted => empty validateCmd in the input JSON,
+  # and the workflow derives it from the plan's Verification Contract at gate-0.
   local repo
   repo="$(se_fixture_repo)"
   cd "$repo"
   run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md
-  assert_failure
-  assert_output --partial -- "--validate-cmd"
+  assert_success
+  assert_output --partial '"validateCmd":""'
 }
 
 @test "se resume without runId fails with usage" {

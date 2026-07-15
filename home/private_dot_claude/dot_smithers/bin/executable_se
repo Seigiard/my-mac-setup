@@ -17,10 +17,12 @@ Commands:
       repository: the current directory becomes PIPELINE_REPO (and
       DOC_REVIEW_REPO for the verify-doc child workflow).
         --until          stop stage: branch (default) or pr
-        --validate-cmd   REQUIRED. Command the work gate runs to validate work
-                         in the run worktree, e.g. --validate-cmd 'make test'.
-                         Keep it FAST — it runs synchronously; scope to unit/
-                         type checks, NOT full e2e (see below).
+        --validate-cmd   Command the work gate runs to validate work in the run
+                         worktree. OPTIONAL: if omitted, it is derived from the
+                         plan's own Verification Contract (the scoped test/
+                         typecheck commands the plan already declares). Pass this
+                         only to override. Keep it FAST — it runs synchronously;
+                         unit/type checks, NOT full e2e.
         --validate-timeout N   seconds before validate-cmd is killed (default
                          600). A too-broad command (e2e) that hits this fails
                          the gate — scope the command rather than raising this.
@@ -147,7 +149,9 @@ cmd_pipeline() {
     branch|pr) ;;
     *) usage_die "invalid --until value '$until' (must be branch|pr)" ;;
   esac
-  [[ -n $validate_cmd ]] || die "--validate-cmd is required: pass the command the pipeline must run to validate each stage, e.g. se pipeline plan.md --validate-cmd 'make test'"
+  # --validate-cmd is optional: when omitted, the workflow derives the command
+  # from the plan's Verification Contract (gate-0). It hard-errors there if the
+  # plan has none. An empty string in the input JSON signals "derive from plan".
   [[ $validate_timeout_s =~ ^[0-9]+$ ]] || usage_die "--validate-timeout must be an integer number of seconds"
 
   local plan_abs repo input

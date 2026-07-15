@@ -27,11 +27,31 @@ se pipeline docs/plans/<план>.md --validate-cmd 'bun test'
 - `--until=branch` (дефолт) — стоп на локальной закоммиченной ветке
   `se/<план>-<runid8>`. `--until=pr` пока не реализован (явный отказ).
 
-## Выбор validate-cmd (важно — заработано на F3, 2026-07-15)
+## validate-cmd: по умолчанию из плана
 
 work-гейт гоняет validate-cmd **синхронно с таймаутом** (дефолт 600 с,
 `--validate-timeout N` секунд), чтобы доказать работу агента (self-report не
-ground truth, KTD3). Команда должна быть **быстрой, узкой, самодостаточной**.
+ground truth, KTD3).
+
+**По умолчанию команда извлекается из `## Verification Contract` самого плана**
+(gate-0) — `/se-plan` уже кладёт туда узкие, с таймаутами команды. Ничего
+передавать не нужно:
+```bash
+se pipeline docs/plans/<план>.md          # validate берётся из плана
+```
+Пайплайн печатает выбранную команду в лог (`work-gate validate-cmd [plan
+Verification Contract]: ...`). Извлекаются только исполнимые check/test/typecheck
+строки; **отбрасываются** `storybook`/`--watch`/e2e/playwright (сервер/браузер) и
+`fix`/`format` (мутируют worktree → уронили бы clean-tree-проверку). Ручные/VRT
+строки игнорируются. Если в плане нет исполнимых команд — gate-0 роняет прогон с
+просьбой добавить их или передать `--validate-cmd`.
+
+`--validate-cmd '<cmd>'` — **только override** (или для legacy-планов без
+Verification Contract). KTD8: из плана (доверенный вход) извлекать безопасно; из
+конфига целевого репо — по-прежнему нельзя (чужой коммит исполнил бы произвольное).
+
+Если пишешь Verification Contract сам или override — команда должна быть
+**быстрой, узкой, самодостаточной**:
 
 - **`bun test` ≠ `bun run test`.** `bun test` — встроенный раннер bun,
   рекурсивно берёт ВСЕ `*.test/*.spec` (включая e2e/playwright) → таймаут.

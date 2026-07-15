@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { codeReviewGate, docReviewGate, planGate, workGate, type GateResult } from "./lib/gates.ts";
+import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
 import {
@@ -363,13 +364,25 @@ export default smithers((ctx) => {
         }
         const result = planGate(markdown, until);
         if (!result.ok) throw new Error(`gate-0 refused: ${result.reason}`);
-        if (validateCmd.trim() === "") {
-          throw new Error("gate-0 refused: --validate-cmd is required — the pipeline never reads validation commands from the target repo's config (KTD8). Pass it explicitly, e.g. se pipeline <plan> --validate-cmd 'bun test'.");
+        // Resolve the validate command: explicit --validate-cmd wins; otherwise
+        // derive it from the plan's own Verification Contract (KTD8: the plan is
+        // a trusted operator input — deriving from it is safe, unlike reading a
+        // command from the target repo's config).
+        let resolvedValidateCmd = validateCmd.trim();
+        let validateSource = "operator (--validate-cmd)";
+        if (resolvedValidateCmd === "") {
+          const derived = extractValidateCmd(markdown);
+          if (derived === null) {
+            throw new Error("gate-0 refused: no --validate-cmd given and the plan's Verification Contract has no runnable commands to derive one from. Add a Verification Contract with test/typecheck commands, or pass --validate-cmd explicitly.");
+          }
+          resolvedValidateCmd = derived;
+          validateSource = "plan Verification Contract";
         }
+        console.error(`se-pipeline: work-gate validate-cmd [${validateSource}]: ${resolvedValidateCmd}`);
         if (git(repoDir, "status", "--porcelain") !== "") {
           console.error(`se-pipeline preflight: target repo ${repoDir} has a dirty working tree — the run works from committed HEAD only (KTD11); operator WIP is not included.`);
         }
-        return { planHash: result.hash, planPath: input.planPath, until, validateCmd, validateTimeoutMs, repoPath: repoDir };
+        return { planHash: result.hash, planPath: input.planPath, until, validateCmd: resolvedValidateCmd, validateTimeoutMs, repoPath: repoDir };
       }}
     </Task>,
   ];
