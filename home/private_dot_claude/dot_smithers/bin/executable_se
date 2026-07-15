@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# se — CLI wrapper over smithers for the se-pipeline workflow.
+# Launch/observe durable pipeline runs without bunx incantations.
+set -euo pipefail
+
+SMITHERS_DIR="${SE_SMITHERS_DIR:-$HOME/.claude/.smithers}"
+SMITHERS_BIN="./node_modules/.bin/smithers"
+PIPELINE_WORKFLOW="workflows/se-pipeline.tsx"
+
+usage() {
+  cat <<'EOF'
+Usage: se <command> [args]
+
+Commands:
+  pipeline <plan-path> [--until=branch|pr] [--validate-cmd '<cmd>'] [--attach]
+      Launch the se-pipeline workflow for a plan file. Run from the target
+      repository: the current directory becomes PIPELINE_REPO (and
+      DOC_REVIEW_REPO for the verify-doc child workflow).
+        --until          stop stage: branch (default) or pr
+        --validate-cmd   REQUIRED. Command the pipeline runs to validate work,
+                         e.g. --validate-cmd 'make test'
+        --attach         stream logs in the foreground instead of detaching.
+                         Ctrl-C on an attached run only DETACHES — the durable
+                         run keeps going in the background. Stopping a run is
+                         only explicit: se abort <runId>
+      Default is detached: prints the runId immediately and returns.
+  list                 list se-pipeline runs (status incl. waiting-approval)
+  logs <runId>         show logs for a run
+  chat <runId>         open chat for a run
+  approve <runId>      approve a paused run (continue past the gate)
+  deny <runId>         deny a paused run (onDeny: fail)
+  abort <runId>        hard-stop a run (smithers cancel)
+  resume <runId>       resume a run (smithers up --run-id <id> --resume true)
+  --help               show this help
+
+Environment:
+  SE_DRY_RUN=1         print the assembled command + env instead of executing
+  SE_SMITHERS_DIR      override runtime dir (default: ~/.claude/.smithers)
+EOF
+}
+
+die() {
+  echo "se: $*" >&2
+  exit 1
+}
+
+usage_die() {
+  echo "se: $*" >&2
+  usage >&2
+  exit 1
+}
+
+dry_run() { [[ "${SE_DRY_RUN:-0}" == "1" ]]; }
+
+sq() {
+  local s=${1//\'/\'\\\'\'}
+  printf "'%s'" "$s"
+}
+
+print_smithers_cmd() {
+  printf 'cd %s &&' "$(sq "$SMITHERS_DIR")"
+  local arg
+  for arg in "$SMITHERS_BIN" "$@"; do
+    if [[ $arg =~ ^[A-Za-z0-9_./:=-]+$ ]]; then
+      printf ' %s' "$arg"
+    else
+      printf ' %s' "$(sq "$arg")"
+    fi
+  done
+  printf '\n'
+}
+
+require_runtime_dir() {
+  dry_run && return 0
+  [[ -d "$SMITHERS_DIR" ]] || die "smithers runtime dir not found: $SMITHERS_DIR"
+  [[ -x "$SMITHERS_DIR/$SMITHERS_BIN" ]] || die "smithers binary not found: $SMITHERS_DIR/$SMITHERS_BIN (run bun install in $SMITHERS_DIR)"
+}
+
+smithers_run() {
+  if dry_run; then
+    print_smithers_cmd "$@"
+    return 0
+  fi
+  cd "$SMITHERS_DIR"
+  "$SMITHERS_BIN" "$@"
+}
+
+json_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  printf '%s' "$s"
+}
+
+build_input_json() {
+  local plan_path=$1 until=$2 validate_cmd=$3
+  if command -v jq >/dev/null 2>&1; then
+    jq -cn --arg planPath "$plan_path" --arg until "$until" --arg validateCmd "$validate_cmd" \
+      '{planPath: $planPath, until: $until, validateCmd: $validateCmd}'
+  else
+    printf '{"planPath":"%s","until":"%s","validateCmd":"%s"}' \
+      "$(json_escape "$plan_path")" "$(json_escape "$until")" "$(json_escape "$validate_cmd")"
+  fi
+}
+
+cmd_pipeline() {
+  local plan="" until="branch" validate_cmd="" attach=0
+
+  while (($#)); do
+    case $1 in
+      --until=*) until=${1#--until=} ;;
+      --until)
+        [[ $# -ge 2 ]] || usage_die "--until requires a value (branch|pr)"
+        shift; until=$1 ;;
+      --validate-cmd=*) validate_cmd=${1#--validate-cmd=} ;;
+      --validate-cmd)
+        [[ $# -ge 2 ]] || usage_die "--validate-cmd requires a value"
+        shift; validate_cmd=$1 ;;
+      --attach) attach=1 ;;
+      -h|--help) usage; return 0 ;;
+      -*) usage_die "unknown option for pipeline: $1" ;;
+      *)
+        [[ -z $plan ]] || usage_die "unexpected argument: $1"
+        plan=$1 ;;
+    esac
+    shift
+  done
+
+  [[ -n $plan ]] || usage_die "pipeline requires a <plan-path>"
+  [[ -f $plan ]] || die "plan file not found: $plan"
+  case $until in
+    branch|pr) ;;
+    *) usage_die "invalid --until value '$until' (must be branch|pr)" ;;
+  esac
+  [[ -n $validate_cmd ]] || die "--validate-cmd is required: pass the command the pipeline must run to validate each stage, e.g. se pipeline plan.md --validate-cmd 'make test'"
+
+  local plan_abs repo input
+  plan_abs="$(cd "$(dirname "$plan")" && pwd -P)/$(basename "$plan")"
+  repo="$(pwd -P)"
+  input="$(build_input_json "$plan_abs" "$until" "$validate_cmd")"
+
+  local -a args=(up "$PIPELINE_WORKFLOW")
+  ((attach)) || args+=(--detach)
+  args+=(--input "$input")
+
+  if dry_run; then
+    printf 'PIPELINE_REPO=%s\n' "$repo"
+    printf 'DOC_REVIEW_REPO=%s\n' "$repo"
+    print_smithers_cmd "${args[@]}"
+    return 0
+  fi
+
+  require_runtime_dir
+  cd "$SMITHERS_DIR"
+  PIPELINE_REPO="$repo" DOC_REVIEW_REPO="$repo" "$SMITHERS_BIN" "${args[@]}"
+}
+
+cmd_list() {
+  require_runtime_dir
+  if dry_run; then
+    print_smithers_cmd ps
+    return 0
+  fi
+  cd "$SMITHERS_DIR"
+  local out
+  out="$("$SMITHERS_BIN" ps)" || die "smithers ps failed"
+  awk 'NR == 1 || /se-pipeline/' <<<"$out"
+
+  # Cost per finished run comes ONLY from the run's summary output — the single
+  # authoritative store (KTD6/U6); tokens are ground truth, USD is an estimate.
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
+    echo
+    echo "summary (verdict | run | branch | plan | tokens | ~USD):"
+    sqlite3 -separator ' | ' smithers.db \
+      "SELECT s.verdict, substr(s.run_id, 1, 12), s.branch,
+              replace(s.plan_path, rtrim(s.plan_path, replace(s.plan_path, '/', '')), ''),
+              s.total_tokens, printf('%.2f', s.est_cost_usd)
+       FROM summary s ORDER BY rowid DESC LIMIT 20" 2>/dev/null \
+      || echo "  (no summaries yet — older runs predate the cost store)"
+  fi
+}
+
+cmd_resume() {
+  local run_id=$1
+  require_runtime_dir
+  if dry_run; then
+    print_smithers_cmd up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true
+    return 0
+  fi
+  cd "$SMITHERS_DIR"
+  if ! "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true; then
+    {
+      echo "se: resume failed for $run_id"
+      echo "se: hint: force-resuming a killed run needs '--force true', and smithers refuses while the dead owner's heartbeat is still fresh (~30-45s) — wait and retry."
+      echo "se: suggested command from 'smithers why $run_id':"
+      "$SMITHERS_BIN" why "$run_id" || true
+    } >&2
+    exit 1
+  fi
+}
+
+require_run_id() {
+  local cmd=$1
+  [[ $# -ge 2 && -n ${2:-} ]] || usage_die "$cmd requires a <runId>"
+}
+
+main() {
+  (($#)) || { usage >&2; exit 1; }
+  local cmd=$1
+  shift
+  case $cmd in
+    -h|--help|help) usage ;;
+    pipeline) cmd_pipeline "$@" ;;
+    list) cmd_list "$@" ;;
+    logs|chat|approve|deny)
+      require_run_id "$cmd" "$@"
+      require_runtime_dir
+      smithers_run "$cmd" "$@" ;;
+    abort)
+      require_run_id abort "$@"
+      require_runtime_dir
+      smithers_run cancel "$@" ;;
+    resume)
+      require_run_id resume "$@"
+      cmd_resume "$@" ;;
+    *) usage_die "unknown command: $cmd" ;;
+  esac
+}
+
+main "$@"

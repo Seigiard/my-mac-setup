@@ -315,3 +315,111 @@ TOML
   run mise --version
   assert_success
 }
+
+# ===========================================
+# se CLI wrapper (source tree, SE_DRY_RUN)
+# ===========================================
+
+SE_SRC="$BATS_TEST_DIRNAME/../home/private_dot_claude/dot_smithers/bin/executable_se"
+
+se_fixture_repo() {
+  local repo="$BATS_TEST_TMPDIR/target-repo"
+  mkdir -p "$repo/docs/plans"
+  printf '# fixture plan\n' > "$repo/docs/plans/plan.md"
+  echo "$repo"
+}
+
+@test "se source script exists and passes bash syntax check" {
+  assert_file_exists "$SE_SRC"
+  run bash -n "$SE_SRC"
+  assert_success
+}
+
+@test "se --help prints usage" {
+  run bash "$SE_SRC" --help
+  assert_success
+  assert_output --partial "Usage: se"
+  assert_output --partial "pipeline"
+  assert_output --partial "se abort"
+}
+
+@test "se pipeline dry-run assembles smithers command with env and input JSON" {
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  local repo_abs
+  repo_abs="$(pwd -P)"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test'
+  assert_success
+  assert_output --partial "PIPELINE_REPO=$repo_abs"
+  assert_output --partial "DOC_REVIEW_REPO=$repo_abs"
+  assert_output --partial "smithers up workflows/se-pipeline.tsx --detach --input"
+  assert_output --partial "\"planPath\":\"$repo_abs/docs/plans/plan.md\""
+  assert_output --partial '"until":"branch"'
+  assert_output --partial '"validateCmd":"make test"'
+}
+
+@test "se pipeline dry-run honors --until=pr and --attach (no --detach)" {
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --until=pr --validate-cmd 'make test' --attach
+  assert_success
+  assert_output --partial '"until":"pr"'
+  refute_output --partial -- "--detach"
+}
+
+@test "se pipeline fails on nonexistent plan with reason" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline /nonexistent/plan.md --validate-cmd 'make test'
+  assert_failure
+  assert_output --partial "not found"
+}
+
+@test "se pipeline fails on invalid --until value" {
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --until=xyz --validate-cmd 'make test'
+  assert_failure
+  assert_output --partial "until"
+}
+
+@test "se pipeline fails without --validate-cmd and mentions it" {
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md
+  assert_failure
+  assert_output --partial -- "--validate-cmd"
+}
+
+@test "se resume without runId fails with usage" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" resume
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+@test "se abort dry-run maps to smithers cancel" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" abort run-123
+  assert_success
+  assert_output --partial "smithers cancel run-123"
+}
+
+@test "se list dry-run exits 0 and maps to smithers ps" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" list
+  assert_success
+  assert_output --partial "smithers ps"
+}
+
+@test "se with unknown command fails with usage" {
+  run bash "$SE_SRC" frobnicate
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+@test "se symlink source for ~/.local/bin exists in dotfiles" {
+  local link_src="$BATS_TEST_DIRNAME/../home/dot_local/bin/symlink_se.tmpl"
+  assert_file_exists "$link_src"
+  run grep -q '.claude/.smithers/bin/se' "$link_src"
+  assert_success
+}
