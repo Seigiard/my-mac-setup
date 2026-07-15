@@ -176,11 +176,9 @@ export default smithers((ctx) => {
         // total_cost_usd in the run log.
         maxBudgetUsd: 15,
         jsonSchema: reportJsonSchema,
-        // "json" (single terminal result) instead of the default "stream-json":
-        // 0.27.0's stream-json answer extraction chunk-joins assistant turns and
-        // corrupts capture on subagent-heavy runs. Fixed upstream in 95b4f5736
-        // (0.28.0, unreleased) — drop this override after upgrading.
-        outputFormat: "json",
+        // Default stream-json capture is safe here: the chunk-join corruption
+        // on subagent-heavy runs was fixed by 95b4f5736, which IS inside
+        // v0.27.0 (verified by spike run a9b4b686 — se-pipeline plan, KTD9).
       })
     : undefined;
   const opencodeAgent = staged

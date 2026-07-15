@@ -62,8 +62,16 @@ describe("runBranchName", () => {
     const a = runBranchName("my-plan", "aaaaaaaa-1111");
     const b = runBranchName("my-plan", "bbbbbbbb-2222");
     expect(a).not.toBe(b);
-    expect(a).toBe("se/my-plan-aaaaaaaa");
-    expect(b).toBe("se/my-plan-bbbbbbbb");
+    expect(a).toBe("se/my-plan-aaaa1111");
+    expect(b).toBe("se/my-plan-bbbb2222");
+  });
+
+  test("is unique between detach-style runIds sharing a long common prefix", () => {
+    // #given smithers --detach runIds are "run-<epoch-ms>": only the TAIL varies
+    const a = runBranchName("my-plan", "run-1784104646189");
+    const b = runBranchName("my-plan", "run-1784104999999");
+    // #then
+    expect(a).not.toBe(b);
   });
 });
 

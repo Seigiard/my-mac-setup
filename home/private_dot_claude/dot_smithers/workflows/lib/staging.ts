@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 const RUN_BRANCH_PREFIX = "se/";
-const RUN_ID_PREFIX_LENGTH = 8;
+const RUN_ID_TAIL_LENGTH = 8;
 const SLUG_MAX_LENGTH = 40;
 const LOCK_FILE_NAME = "se-run.lock";
 
@@ -21,7 +21,8 @@ export type RunState = "running" | "waiting-approval" | "interrupted-resumable" 
 // Returns the run's state, or undefined when the state store has no record of
 // it. Every non-terminal run is present in the store, so undefined is treated
 // like terminal (reapable/sweepable). Must resolve both full runIds (lock
-// holders) and 8-char runId prefixes (parsed from run branch names).
+// holders) and 8-char alphanumeric runId TAILS (parsed from run branch names —
+// see runIdTail).
 export type GetRunState = (runId: string) => RunState | undefined;
 
 export interface StagedWorktree {
@@ -48,8 +49,15 @@ export function slugify(input: string): string {
   return slug || "run";
 }
 
+// The 8-char run marker is the TAIL of the alphanumeric runId, not its head:
+// detached runs are named "run-<epoch-ms>", so their heads are all identical
+// and only the tail is unique. UUID tails are equally unique.
+export function runIdTail(runId: string): string {
+  return runId.toLowerCase().replace(/[^a-z0-9]/g, "").slice(-RUN_ID_TAIL_LENGTH);
+}
+
 export function runBranchName(slug: string, runId: string): string {
-  return `${RUN_BRANCH_PREFIX}${slugify(slug)}-${runId.slice(0, RUN_ID_PREFIX_LENGTH)}`;
+  return `${RUN_BRANCH_PREFIX}${slugify(slug)}-${runIdTail(runId)}`;
 }
 
 export function parseRunBranch(branch: string): { slug: string; runId8: string } | undefined {

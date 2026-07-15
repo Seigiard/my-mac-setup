@@ -49,6 +49,7 @@ brew "rtk"          # LLM token-saving CLI proxy
 
 # Dev tools
 brew "act"          # run GitHub Actions locally
+brew "gitleaks"     # secret scan gate in se-pipeline (KTD10)
 
 # Testing
 brew "bats-core"    # bats
