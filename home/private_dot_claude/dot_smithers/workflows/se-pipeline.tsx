@@ -59,7 +59,7 @@ const gateVerdictSchema = z.object({
 
 const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers({
   input: inputSchema,
-  gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string() }),
+  gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   docReview: docReviewSchema,
   agentReport: z.object({ report: z.string() }),
@@ -123,8 +123,13 @@ function makeGetRunState(): GetRunState {
       } finally {
         db.close();
       }
-    } catch {
-      return undefined;
+    } catch (err) {
+      // Fail CLOSED: an unreadable store must never read as "terminal" — that
+      // would let acquireRepoLock steal a live run's lock and sweepOrphans
+      // destroy its worktree. A genuine missing row returns undefined (terminal)
+      // inside the try; only a DB/query ERROR lands here, and it holds the lock.
+      console.error(`makeGetRunState: smithers.db unreadable for ${runId}, treating as live (fail-closed): ${err instanceof Error ? err.message : String(err)}`);
+      return "running";
     }
   };
 }
@@ -223,7 +228,6 @@ export default smithers((ctx) => {
     makeAttempt: (nodeId: string) => unknown;
     readRaw: (nodeId: string) => { present: boolean; raw: string | undefined };
     gateFn: (raw: string | undefined) => GateResult;
-    retriesFirst: number;
     waiveOnApprove: boolean;
     makeExtraPrep?: (nodeId: string) => unknown;
   }): StageBlock {
@@ -363,7 +367,7 @@ export default smithers((ctx) => {
         if (git(repoDir, "status", "--porcelain") !== "") {
           console.error(`se-pipeline preflight: target repo ${repoDir} has a dirty working tree — the run works from committed HEAD only (KTD11); operator WIP is not included.`);
         }
-        return { planHash: result.hash, planPath: input.planPath, until, validateCmd };
+        return { planHash: result.hash, planPath: input.planPath, until, validateCmd, repoPath: repoDir };
       }}
     </Task>,
   ];
@@ -416,7 +420,6 @@ export default smithers((ctx) => {
       ),
       readRaw: readDocReview,
       gateFn: (raw) => docReviewGate(raw === undefined ? undefined : JSON.parse(raw)),
-      retriesFirst: 1,
       waiveOnApprove: false,
     });
     children.push(...(doc.nodes as never[]));
@@ -435,6 +438,19 @@ export default smithers((ctx) => {
           return { state: "failed", reasons: [`plan content changed during the run (hash mismatch) — refusing to gate work against a stale spec (KTD7)`] };
         }
         const headSha = gitHead(staged.worktreePath);
+        // The branch must actually carry commits and be clean: uncommitted or
+        // untracked files are neither validated in a delivered state nor
+        // covered by the commit-range secret-scan (KTD10), and an unmoved HEAD
+        // means work delivered nothing while still returning a shaped envelope.
+        if (raw !== undefined) {
+          if (headSha === staged.baseSha) {
+            return { state: "failed", reasons: [`work stage produced no commits — run branch HEAD is still the pre-stage SHA ${staged.baseSha}`] };
+          }
+          const dirty = git(staged.worktreePath, "status", "--porcelain");
+          if (dirty !== "") {
+            return { state: "failed", reasons: [`run worktree has uncommitted/untracked changes after work — nothing may reach validate-cmd or verify-code uncommitted:\n${dirty.slice(0, 500)}`] };
+          }
+        }
         const validate = raw === undefined ? null : runValidateCmd(gate0.validateCmd, staged.worktreePath);
         const result = workGate({ raw, headSha, validateExitCode: validate === null ? null : validate.exitCode });
         if (validate !== null && validate.exitCode !== 0) {
@@ -454,7 +470,6 @@ export default smithers((ctx) => {
         ),
         readRaw: readAgentReport,
         gateFn: workGateFn,
-        retriesFirst: 0,
         waiveOnApprove: false,
         // KTD5 conditional reset before the approved extra attempt: envelope
         // present → untouched branch (ce-work idempotency path inspects the
@@ -466,6 +481,9 @@ export default smithers((ctx) => {
               const parsed = parseWorkEnvelope(first?.report);
               if (!parsed.ok && gitHead(staged.worktreePath) !== staged.baseSha) {
                 git(staged.worktreePath, "reset", "--hard", staged.baseSha);
+                // Untracked files from the failed attempt survive reset --hard;
+                // clear them so the extra attempt starts from a clean baseSha.
+                git(staged.worktreePath, "clean", "-fd");
                 return { stage: "work", didReset: true, resetTo: staged.baseSha };
               }
               return { stage: "work", didReset: false, resetTo: staged.baseSha };
@@ -498,7 +516,6 @@ export default smithers((ctx) => {
               reasons: [result.state === "found" ? `secret-scan found leaks in the run diff: ${result.details.slice(0, 500)}` : `secret-scan could not run: ${result.details.slice(0, 500)}`],
             };
           },
-          retriesFirst: 0,
           waiveOnApprove: true,
         });
         children.push(...(scan.nodes as never[]));
@@ -515,7 +532,6 @@ export default smithers((ctx) => {
             ),
             readRaw: readAgentReport,
             gateFn: (raw) => codeReviewGate({ raw }),
-            retriesFirst: 1,
             waiveOnApprove: true,
           });
           children.push(...(code.nodes as never[]));
@@ -549,11 +565,14 @@ export default smithers((ctx) => {
           if (codeReport) fs.writeFileSync(path.join(reportDir, "verify-code.report.json"), codeReport.report);
           if (docResult) fs.writeFileSync(path.join(reportDir, "verify-doc.result.json"), JSON.stringify(docResult, null, 2));
           const headSha = gitHead(staged.worktreePath);
+          // Read cost BEFORE any irreversible cleanup: a sqlite/JSON failure in
+          // readRunUsage must not abort the summary after the lock and worktree
+          // are already gone (they would then never be released/removed).
+          const usage = aggregateUsage(readRunUsage(ctx.runId));
           if (t === "green") {
             cleanupSnapshot(repoDir, staged.worktreePath);
           }
           releaseRepoLock(repoDir, ctx.runId);
-          const usage = aggregateUsage(readRunUsage(ctx.runId));
           return {
             verdict: t,
             planPath: gate0.planPath,

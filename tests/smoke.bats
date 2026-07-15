@@ -320,7 +320,25 @@ TOML
 # se CLI wrapper (source tree, SE_DRY_RUN)
 # ===========================================
 
-SE_SRC="$BATS_TEST_DIRNAME/../home/private_dot_claude/dot_smithers/bin/executable_se"
+# Resolve the chezmoi source root across layouts: on the host, tests/ and home/
+# are repo-root siblings ($BATS_TEST_DIRNAME/../home). In Docker, home/ mounts at
+# $HOME/dotfiles while tests/ mounts separately, so ../home does not exist —
+# fall back to the mount, then to the chezmoi source copy.
+se_source_root() {
+  for root in \
+    "$BATS_TEST_DIRNAME/../home" \
+    "$HOME/dotfiles" \
+    "${CHEZMOI_SOURCE:-$HOME/.local/share/chezmoi}"; do
+    if [[ -e "$root/private_dot_claude/dot_smithers/bin/executable_se" ]]; then
+      echo "$root"
+      return 0
+    fi
+  done
+  echo "$BATS_TEST_DIRNAME/../home"
+}
+
+SE_ROOT="$(se_source_root)"
+SE_SRC="$SE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
 
 se_fixture_repo() {
   local repo="$BATS_TEST_TMPDIR/target-repo"
@@ -340,7 +358,7 @@ se_fixture_repo() {
   assert_success
   assert_output --partial "Usage: se"
   assert_output --partial "pipeline"
-  assert_output --partial "se abort"
+  assert_output --partial "resume <runId>"
 }
 
 @test "se pipeline dry-run assembles smithers command with env and input JSON" {
@@ -411,6 +429,20 @@ se_fixture_repo() {
   assert_output --partial "smithers ps"
 }
 
+@test "se approve/deny/logs/chat dry-run pass through to smithers verbatim" {
+  for sub in approve deny logs chat; do
+    run env SE_DRY_RUN=1 bash "$SE_SRC" "$sub" run-xyz
+    assert_success
+    assert_output --partial "smithers $sub run-xyz"
+  done
+}
+
+@test "se approve without runId fails with usage" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" approve
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
 @test "se with unknown command fails with usage" {
   run bash "$SE_SRC" frobnicate
   assert_failure
@@ -418,7 +450,7 @@ se_fixture_repo() {
 }
 
 @test "se symlink source for ~/.local/bin exists in dotfiles" {
-  local link_src="$BATS_TEST_DIRNAME/../home/dot_local/bin/symlink_se.tmpl"
+  local link_src="$SE_ROOT/dot_local/bin/symlink_se.tmpl"
   assert_file_exists "$link_src"
   run grep -q '.claude/.smithers/bin/se' "$link_src"
   assert_success

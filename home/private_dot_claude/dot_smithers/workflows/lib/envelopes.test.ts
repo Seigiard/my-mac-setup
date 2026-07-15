@@ -111,6 +111,8 @@ describe("secretScanDiff (gitleaks, KTD10)", () => {
     const r = secretScanDiff(repo, base);
     expect(r.state).toBe("found");
     expect(r.details.length).toBeGreaterThan(0);
+    // --redact: the raw secret must never appear in the persisted details.
+    expect(r.details).not.toContain(fakeKey);
   });
 
   test("сканер недоступен (нет бинарника) → error, не clean", () => {

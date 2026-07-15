@@ -74,7 +74,10 @@ export function secretScanDiff(
   const bin = opts.bin ?? "gitleaks";
   const res = spawnSync(
     bin,
-    ["git", "--no-banner", "--exit-code", "2", `--log-opts=${baseSha}..HEAD`, repo],
+    // --redact: gitleaks otherwise echoes the raw secret into its report, which
+    // this pipeline persists to the run summary and report files — redact so a
+    // detected secret is never copied into a durable store.
+    ["git", "--no-banner", "--redact", "--exit-code", "2", `--log-opts=${baseSha}..HEAD`, repo],
     { encoding: "utf8", timeout: opts.timeoutMs ?? 2 * 60_000 },
   );
   const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;

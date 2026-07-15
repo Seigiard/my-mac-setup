@@ -19,10 +19,12 @@ Commands:
         --until          stop stage: branch (default) or pr
         --validate-cmd   REQUIRED. Command the pipeline runs to validate work,
                          e.g. --validate-cmd 'make test'
-        --attach         stream logs in the foreground instead of detaching.
-                         Ctrl-C on an attached run only DETACHES — the durable
-                         run keeps going in the background. Stopping a run is
-                         only explicit: se abort <runId>
+        --attach         run in the foreground streaming logs. NOTE: Ctrl-C
+                         sends SIGINT, which CANCELS the run (smithers aborts
+                         gracefully) — it does NOT detach. To leave a run going
+                         and stop watching, launch without --attach (detached
+                         is the default) and use `se logs <runId>` to follow.
+                         Recover a cancelled run with `se resume <runId>`.
       Default is detached: prints the runId immediately and returns.
   list                 list se-pipeline runs (status incl. waiting-approval)
   logs <runId>         show logs for a run
@@ -174,12 +176,22 @@ cmd_list() {
   if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
     echo
     echo "summary (verdict | run | branch | plan | tokens | ~USD):"
-    sqlite3 -separator ' | ' smithers.db \
+    local summary_out summary_rc
+    summary_out="$(sqlite3 -separator ' | ' smithers.db \
       "SELECT s.verdict, substr(s.run_id, 1, 12), s.branch,
               replace(s.plan_path, rtrim(s.plan_path, replace(s.plan_path, '/', '')), ''),
               s.total_tokens, printf('%.2f', s.est_cost_usd)
-       FROM summary s ORDER BY rowid DESC LIMIT 20" 2>/dev/null \
-      || echo "  (no summaries yet — older runs predate the cost store)"
+       FROM summary s ORDER BY rowid DESC LIMIT 20" 2>&1)"
+    summary_rc=$?
+    # A real query error (locked db, missing table) must be distinguishable from
+    # a genuinely empty history — never collapse both into "no summaries yet".
+    if [[ $summary_rc -ne 0 ]]; then
+      echo "  (summary query failed: $summary_out)" >&2
+    elif [[ -z $summary_out ]]; then
+      echo "  (no summaries yet — older runs predate the cost store)"
+    else
+      echo "$summary_out"
+    fi
   fi
 }
 
@@ -191,7 +203,20 @@ cmd_resume() {
     return 0
   fi
   cd "$SMITHERS_DIR"
-  if ! "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true; then
+
+  # The workflow reads the target repo from PIPELINE_REPO/DOC_REVIEW_REPO at
+  # module load; resume must restore them or the resumed run would target the
+  # smithers dir (cwd) instead of the original repo. The repo is persisted in
+  # the run's gate0 output, so recover it from smithers.db.
+  local repo=""
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
+    repo="$(sqlite3 smithers.db "SELECT repo_path FROM gate0 WHERE run_id='$run_id' LIMIT 1" 2>/dev/null || true)"
+  fi
+  if [[ -z $repo ]]; then
+    die "cannot resume $run_id: no persisted repo path found (gate0 not reached, or pre-U6 run). Re-launch with 'se pipeline' from the target repo."
+  fi
+
+  if ! PIPELINE_REPO="$repo" DOC_REVIEW_REPO="$repo" "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true; then
     {
       echo "se: resume failed for $run_id"
       echo "se: hint: force-resuming a killed run needs '--force true', and smithers refuses while the dead owner's heartbeat is still fresh (~30-45s) — wait and retry."
