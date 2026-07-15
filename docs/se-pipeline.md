@@ -27,6 +27,40 @@ se pipeline docs/plans/<план>.md --validate-cmd 'bun test'
 - `--until=branch` (дефолт) — стоп на локальной закоммиченной ветке
   `se/<план>-<runid8>`. `--until=pr` пока не реализован (явный отказ).
 
+## Выбор validate-cmd (важно — заработано на F3, 2026-07-15)
+
+work-гейт гоняет validate-cmd **синхронно с таймаутом** (дефолт 600 с,
+`--validate-timeout N` секунд), чтобы доказать работу агента (self-report не
+ground truth, KTD3). Команда должна быть **быстрой, узкой, самодостаточной**.
+
+- **`bun test` ≠ `bun run test`.** `bun test` — встроенный раннер bun,
+  рекурсивно берёт ВСЕ `*.test/*.spec` (включая e2e/playwright) → таймаут.
+  Нужен проектный скрипт: `bun run test`, `npm test`, `pnpm test`, `make test`.
+  На первом реальном прогоне (platform, PRD-2099) именно `bun test` в корне
+  утянул playwright и упал по ETIMEDOUT — гейт покраснел на таймауте, не на
+  провале тестов.
+- **Скоупь по затронутой области, не по корню.** Смотри `Files:` юнитов плана
+  / где легли коммиты work. Монорепа: фильтруй пакет
+  (`turbo run test --filter=<pkg>`, `nx test <pkg>`, `pnpm --filter <pkg> test`).
+- **Unit/type, не e2e.** Годится: `tsc --noEmit`, `<runner> --project=unit`,
+  vitest с in-memory БД (pglite и т.п.). Не годится для гейта: playwright/`e2e/`,
+  тесты с реальной БД/сетью/браузером — worktree прогона это чистый checkout от
+  committed HEAD, сервисов там нет.
+- **Проверь руками до запуска.** Прогони кандидата в репо, засеки. >2–3 мин или
+  нужен dev-сервер/БД/сеть → не подходит.
+- **Комбинируй дёшево:** `tsc --noEmit && <узкий unit-скрипт>`.
+- **Таймаут — страховка, не решение.** `--validate-timeout` поднимает потолок,
+  но синхронный длинный прогон блокирует heartbeat движка (spawnSync) — правильно
+  сузить команду.
+
+Пример (platform PRD-2099, тронул `@membranehq/api` + `@membranehq/console`):
+```bash
+se pipeline docs/plans/<план>.md \
+  --validate-cmd 'bun run test:engine-api && bun run test:console'
+# оба — vitest по конкретным пакетам (api на pglite, console --project=unit),
+# без e2e; вместо утянувшего playwright 'bun test' в корне.
+```
+
 ## Наблюдение и управление
 
 ```bash
