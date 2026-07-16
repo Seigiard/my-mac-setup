@@ -477,3 +477,11 @@ se_fixture_repo() {
   assert_success
   assert_output --partial "smithers-orchestrator"
 }
+
+@test "chezmoiignore excludes smithers runtime state from management" {
+  local ignore="$SE_ROOT/.chezmoiignore"
+  for entry in '.claude/.smithers/node_modules' '.claude/.smithers/smithers.db*' '.claude/.smithers/executions'; do
+    run grep -qF "$entry" "$ignore"
+    assert_success
+  done
+}
