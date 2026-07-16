@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { codeReviewGate, docReviewGate, planGate, workGate } from "./gates.ts";
+import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate } from "./gates.ts";
 
 const validPlan = `---
 title: Fixture - Plan
@@ -179,6 +179,56 @@ describe("codeReviewGate", () => {
 
   test("стадия без вывода → failed", () => {
     const r = codeReviewGate({ raw: undefined });
+    expect(r.state).toBe("failed");
+  });
+});
+
+describe("rescanGate (пост-approval пересканирование, R3/R4/R5)", () => {
+  const rescanReport = (overrides: Record<string, unknown> = {}): string =>
+    JSON.stringify({ moved: true, scan: { state: "clean", details: "" }, validateExitCode: 0, scannedHead: "a".repeat(40), currentHead: "b".repeat(40), ...overrides });
+
+  test("HEAD не двигался → green без причин (AE3)", () => {
+    const r = rescanGate({ raw: JSON.stringify({ moved: false, scannedHead: "a".repeat(40), currentHead: "a".repeat(40) }) });
+    expect(r.state).toBe("green");
+    expect(r.reasons).toEqual([]);
+  });
+
+  test("двигался, скан чист, validate 0 → green с информационной причиной", () => {
+    const r = rescanGate({ raw: rescanReport() });
+    expect(r.state).toBe("green");
+    expect(r.reasons.length).toBe(1);
+    expect(r.reasons.join(" ")).toContain("bbbbbbbb");
+  });
+
+  test("двигался, скан found → degraded с усечённым details (AE1)", () => {
+    const r = rescanGate({ raw: rescanReport({ scan: { state: "found", details: "AKIA-redacted-leak" } }) });
+    expect(r.state).toBe("degraded");
+    expect(r.reasons.join(" ")).toContain("AKIA-redacted-leak");
+  });
+
+  test("двигался, скан error → degraded (краш сканера — никогда не pass)", () => {
+    const r = rescanGate({ raw: rescanReport({ scan: { state: "error", details: "gitleaks missing" } }) });
+    expect(r.state).toBe("degraded");
+  });
+
+  test("двигался, validate exit 3 → failed с кодом в причине (AE2)", () => {
+    const r = rescanGate({ raw: rescanReport({ validateExitCode: 3 }) });
+    expect(r.state).toBe("failed");
+    expect(r.reasons.join(" ")).toContain("3");
+  });
+
+  test("двигался, validateExitCode null (не запускалась) → failed (KTD3)", () => {
+    const r = rescanGate({ raw: rescanReport({ validateExitCode: null }) });
+    expect(r.state).toBe("failed");
+  });
+
+  test("raw undefined → failed", () => {
+    const r = rescanGate({ raw: undefined });
+    expect(r.state).toBe("failed");
+  });
+
+  test("невалидный JSON → failed (нет результата ≠ pass)", () => {
+    const r = rescanGate({ raw: "{truncated" });
     expect(r.state).toBe("failed");
   });
 });

@@ -30,6 +30,23 @@ export interface CodeReviewGateInput {
   raw: string | undefined;
 }
 
+export interface RescanScan {
+  state: "clean" | "found" | "error";
+  details: string;
+}
+
+export interface RescanReport {
+  moved: boolean;
+  scan?: RescanScan;
+  validateExitCode?: number | null;
+  scannedHead?: string;
+  currentHead?: string;
+}
+
+export interface RescanGateInput {
+  raw: string | undefined;
+}
+
 function frontmatterField(markdown: string, field: string): string | undefined {
   const fm = markdown.match(/^---\n([\s\S]*?)\n---/);
   if (!fm) return undefined;
@@ -129,4 +146,42 @@ export function codeReviewGate(input: CodeReviewGateInput): GateResult {
     return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`], p1Count };
   }
   return { state: "green", reasons: [], p1Count };
+}
+
+// Post-approval rescan verdict (R3–R5): commits an operator adds during a
+// verify-code pause bypass the earlier secret-scan and validate-cmd. When the
+// branch HEAD moved, the rescan attempt re-runs both and passes the report
+// here. Unmoved HEAD is a deterministic no-op green (R5). Fail-closed: a leak
+// or scanner crash is degraded (needs a human), a broken/absent validate or an
+// absent/unparseable report is failed — no result is never a pass (R3, KTD3).
+export function rescanGate(input: RescanGateInput): GateResult {
+  if (input.raw === undefined) {
+    return { state: "failed", reasons: ["rescan produced no report (crash or timeout) — no result is never a pass (R3)"] };
+  }
+  let report: RescanReport;
+  try {
+    report = JSON.parse(input.raw) as RescanReport;
+  } catch {
+    return { state: "failed", reasons: ["rescan report is not parseable JSON — no result is never a pass (R3)"] };
+  }
+  if (!report.moved) {
+    return { state: "green", reasons: [] };
+  }
+  const headInfo = report.currentHead ? ` (HEAD ${report.currentHead.slice(0, 12)})` : "";
+  if (!report.scan) {
+    return { state: "failed", reasons: [`rescan report missing secret-scan result${headInfo} — fail-closed (R3)`] };
+  }
+  if (report.scan.state === "found") {
+    return { state: "degraded", reasons: [`rescan secret-scan found leaks in operator commits${headInfo}: ${report.scan.details.slice(0, 500)}`] };
+  }
+  if (report.scan.state === "error") {
+    return { state: "degraded", reasons: [`rescan secret-scan could not run${headInfo}: ${report.scan.details.slice(0, 500)}`] };
+  }
+  if (report.validateExitCode === undefined || report.validateExitCode === null) {
+    return { state: "failed", reasons: [`validate-cmd was not executed on the moved HEAD${headInfo} — agent self-report is not ground truth (KTD3)`] };
+  }
+  if (report.validateExitCode !== 0) {
+    return { state: "failed", reasons: [`validate-cmd exited with code ${report.validateExitCode} on the moved HEAD${headInfo}`] };
+  }
+  return { state: "green", reasons: [`operator commits rescanned clean${headInfo}`] };
 }

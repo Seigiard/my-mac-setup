@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { codeReviewGate, docReviewGate, planGate, workGate, type GateResult } from "./lib/gates.ts";
+import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult } from "./lib/gates.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
@@ -231,6 +231,18 @@ export default smithers((ctx) => {
 
   const gate0 = ctx.outputMaybe("gate0", { nodeId: "gate0" });
   const staged = ctx.outputMaybe("staging", { nodeId: "staging" });
+
+  // ProofBinding chain (R1/KTD-A/KTD-B): digest the persisted gate-0 output row
+  // (the plan-hash authority) and bind the expensive legs to it. The engine
+  // re-verifies at every render and immediately before every dispatch; a later
+  // mutation of the gate0 row (bug, manual sqlite edit, partial restore) flips
+  // the bound tasks to bound-stale and parks the run (BOUND_STALE / waiting-event)
+  // without consuming retries — resume after re-producing the authority row or
+  // reverting the mutation. Pure at render time; undefined until gate0 exists
+  // (work renders only after gate0, so authoring bind never strands scheduling).
+  // Provenance is row-chain integrity ONLY — it reads no filesystem, so
+  // workGateFn's plan-file re-hash stays the file guard (R2).
+  const gate0Proof = ctx.prove(outputs.gate0, { nodeId: "gate0" });
 
   const toVerdict = (stage: string, r: GateResult): z.infer<typeof gateVerdictSchema> => ({
     stage,
@@ -497,8 +509,11 @@ export default smithers((ctx) => {
         name: "work",
         makeAttempt: (nodeId) => (
           // KTD5: no blind retry for work — a crashed work leg goes straight
-          // to Approval, not into a silent multi-hour re-run.
-          <Task id={nodeId} output={outputs.agentReport} agent={workAgent} retries={0}>
+          // to Approval, not into a silent multi-hour re-run. bind (KTD-B):
+          // both work and work-extra fence the costly agent leg behind the
+          // gate-0 authority row — a tampered plan-hash parks BOUND_STALE
+          // before dispatch.
+          <Task id={nodeId} output={outputs.agentReport} agent={workAgent} retries={0} bind={gate0Proof}>
             {workPrompt(gate0.planPath, staged.branch, smoke)}
           </Task>
         ),
@@ -543,7 +558,11 @@ export default smithers((ctx) => {
             <Task id={nodeId} output={outputs.agentReport} retries={0}>
               {() => {
                 const result = secretScanDiff(staged.worktreePath, staged.baseSha);
-                return { report: JSON.stringify(result) };
+                // scannedHead threads the SHA scanned here to the post-approval
+                // rescan (KTD-D): if the branch HEAD later moves during a
+                // verify-code pause, the rescan re-scans + re-validates the new
+                // commits. Lives in the report JSON, not a new schema column.
+                return { report: JSON.stringify({ ...result, scannedHead: gitHead(staged.worktreePath) }) };
               }}
             </Task>
           ),
@@ -579,7 +598,52 @@ export default smithers((ctx) => {
           if (code.status === "stopped") terminal = "stopped-after-second-failure:verify-code";
           if (code.status === "green") {
             if (code.waived) notes.push(`verify-code: P0 waived by operator — ${code.verdict?.reasons ?? ""}`);
-            terminal = "green";
+
+            // Post-approval rescan (R3–R6): operators often hand-commit fixes on
+            // the run branch during the verify-code pause; those commits bypass
+            // the earlier secret-scan (base..HEAD) and the work-gate validate-cmd.
+            // The compute attempt reads the SHA scanned by secret-scan (KTD-D);
+            // if the worktree HEAD moved (or scannedHead is absent — fail-closed),
+            // it re-runs secretScanDiff + runValidateCmd on the new commits. All
+            // git/fs reads stay inside the closure (KTD-E render purity). Waive
+            // fits the actor — the red is the operator's own commits (mirrors
+            // secret-scan waive); a second red stops with a report (stageBlock).
+            const rescan = stageBlock({
+              name: "rescan",
+              makeAttempt: (nodeId) => (
+                <Task id={nodeId} output={outputs.agentReport} retries={0}>
+                  {() => {
+                    const prior = ctx.outputMaybe("agentReport", { nodeId: "secret-scan-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "secret-scan" });
+                    let scannedHead: string | undefined;
+                    if (prior?.report) {
+                      try {
+                        scannedHead = (JSON.parse(prior.report) as { scannedHead?: string }).scannedHead;
+                      } catch {
+                        scannedHead = undefined;
+                      }
+                    }
+                    const currentHead = gitHead(staged.worktreePath);
+                    const moved = scannedHead === undefined || currentHead !== scannedHead;
+                    if (!moved) {
+                      return { report: JSON.stringify({ moved: false, scannedHead, currentHead }) };
+                    }
+                    const scan = secretScanDiff(staged.worktreePath, staged.baseSha);
+                    const validate = runValidateCmd(gate0.validateCmd, staged.worktreePath, gate0.validateTimeoutMs);
+                    return { report: JSON.stringify({ moved: true, scan, validateExitCode: validate.exitCode, scannedHead, currentHead }) };
+                  }}
+                </Task>
+              ),
+              readRaw: readAgentReport,
+              gateFn: (raw) => rescanGate({ raw }),
+              waiveOnApprove: true,
+            });
+            children.push(...(rescan.nodes as never[]));
+            if (rescan.status === "stopped") terminal = "stopped-after-second-failure:rescan";
+            if (rescan.status === "green") {
+              if (rescan.waived) notes.push(`rescan: waived by operator (accepted own post-pause commits) — ${rescan.verdict?.reasons ?? ""}`);
+              else if (rescan.verdict?.reasons) notes.push(`rescan: ${rescan.verdict.reasons}`);
+              terminal = "green";
+            }
           }
         }
       }
@@ -589,7 +653,7 @@ export default smithers((ctx) => {
   if (terminal && gate0 && staged) {
     const t = terminal;
     const stages: Record<string, unknown> = {};
-    for (const stage of ["verify-doc", "work", "secret-scan", "verify-code"]) {
+    for (const stage of ["verify-doc", "work", "secret-scan", "verify-code", "rescan"]) {
       const extra = ctx.outputMaybe("gateVerdict", { nodeId: `gate-${stage}-extra` });
       const first = ctx.outputMaybe("gateVerdict", { nodeId: `gate-${stage}` });
       stages[stage] = extra ?? first ?? null;
@@ -598,7 +662,7 @@ export default smithers((ctx) => {
     const codeReport = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "verify-code" });
     const docResult = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
     children.push(
-      <Task id="summary" output={outputs.summary} retries={0}>
+      <Task id="summary" output={outputs.summary} retries={0} bind={gate0Proof}>
         {() => {
           const reportDir = path.join(os.tmpdir(), "se-pipeline", "reports", ctx.runId.slice(0, 8));
           fs.mkdirSync(reportDir, { recursive: true });
