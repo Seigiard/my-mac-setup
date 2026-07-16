@@ -1,0 +1,28 @@
+#!/bin/bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Install smithers workflow deps in the runtime dir (~/.claude/.smithers).
+# chezmoi deploys only the source files (workflows/lib/bin/package.json/
+# bun.lock/patches); node_modules and run state live in the runtime dir and
+# are never managed. A dependency or patch change lands via bun install.
+#
+# Hash triggers (re-run when files change):
+# # {{ include "private_dot_claude/dot_smithers/package.json" | sha256sum }}
+# # {{ include "private_dot_claude/dot_smithers/bun.lock" | sha256sum }}
+
+set -e
+
+SMITHERS_DIR="$HOME/.claude/.smithers"
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "bun not found; skipping smithers deps install"
+  exit 0
+fi
+
+if [ ! -f "$SMITHERS_DIR/package.json" ]; then
+  echo "no $SMITHERS_DIR/package.json; skipping smithers deps install"
+  exit 0
+fi
+
+echo "Installing smithers deps in $SMITHERS_DIR..."
+cd "$SMITHERS_DIR"
+bun install --frozen-lockfile

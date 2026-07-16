@@ -457,3 +457,23 @@ se_fixture_repo() {
   run grep -q '.claude/.smithers/bin/se' "$link_src"
   assert_success
 }
+
+@test "smithers deps install script exists with hash triggers on package.json and bun.lock" {
+  local script="$SE_ROOT/.chezmoiscripts/run_onchange_after_4-install-smithers-deps.sh.tmpl"
+  assert_file_exists "$script"
+  run grep -c 'sha256sum' "$script"
+  assert_success
+  assert_output "2"
+}
+
+@test "smithers deps install script skips gracefully without bun" {
+  local script="$SE_ROOT/.chezmoiscripts/run_onchange_after_4-install-smithers-deps.sh.tmpl"
+  run grep -q 'command -v bun' "$script"
+  assert_success
+}
+
+@test "smithers agents patch is tracked in dotfiles" {
+  run ls "$SE_ROOT/private_dot_claude/dot_smithers/patches/"
+  assert_success
+  assert_output --partial "smithers-orchestrator"
+}
