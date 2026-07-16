@@ -485,3 +485,33 @@ se_fixture_repo() {
     assert_success
   done
 }
+
+@test "se list --json dry-run maps to smithers ps --format json" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" list --json
+  assert_success
+  assert_output --partial "smithers ps --format json"
+}
+
+@test "se show dry-run maps to smithers inspect --format json" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" show run-xyz
+  assert_success
+  assert_output --partial "smithers inspect run-xyz --format json"
+}
+
+@test "se show without runId fails with usage" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" show
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+@test "se show rejects run ids with shell/sql metacharacters" {
+  run env SE_DRY_RUN=1 bash "$SE_SRC" show "run';drop table summary;--"
+  assert_failure
+}
+
+@test "se usage documents list --json and show" {
+  run bash "$SE_SRC" --help
+  assert_success
+  assert_output --partial "list [--json]"
+  assert_output --partial "show <runId>"
+}

@@ -33,7 +33,11 @@ Commands:
                          is the default) and use `se logs <runId>` to follow.
                          Recover a cancelled run with `se resume <runId>`.
       Default is detached: prints the runId immediately and returns.
-  list                 list se-pipeline runs (status incl. waiting-approval)
+  list [--json]        list se-pipeline runs (status incl. waiting-approval)
+                       --json: {runs, summaries} for unattended callers
+  show <runId> [--json]
+                       one run in depth: live status, summary verdict/branch,
+                       report dir and its files. --json merges all of it
   logs <runId>         show logs for a run
   chat <runId>         open chat for a run
   approve <runId>      approve a paused run (continue past the gate)
@@ -183,16 +187,53 @@ cmd_pipeline() {
   return $rc
 }
 
+# jq filter: se-pipeline runs out of `smithers ps --format json` ({cta, runs}).
+PS_RUNS_FILTER='[(.runs // .)[] | select((.workflowId // .workflow // "") == "se-pipeline")]'
+
 cmd_list() {
+  local as_json=0
+  while (($#)); do
+    case $1 in
+      --json) as_json=1 ;;
+      *) usage_die "unknown option for list: $1" ;;
+    esac
+    shift
+  done
   require_runtime_dir
   if dry_run; then
-    print_smithers_cmd ps
+    print_smithers_cmd ps --format json
     return 0
   fi
   cd "$SMITHERS_DIR"
+
+  if ((as_json)); then
+    command -v jq >/dev/null 2>&1 || die "se list --json requires jq"
+    local runs summaries="[]"
+    runs="$("$SMITHERS_BIN" ps --format json | jq "$PS_RUNS_FILTER")" || die "smithers ps failed"
+    if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
+      summaries="$(sqlite3 -json smithers.db \
+        "SELECT verdict, run_id, branch, plan_path, report_dir, total_tokens, est_cost_usd
+         FROM summary ORDER BY rowid DESC LIMIT 20")"
+      [[ -n $summaries ]] || summaries="[]"
+    fi
+    jq -n --argjson runs "$runs" --argjson summaries "$summaries" \
+      '{runs: $runs, summaries: $summaries}'
+    return 0
+  fi
+
   local out
-  out="$("$SMITHERS_BIN" ps)" || die "smithers ps failed"
-  awk 'NR == 1 || /se-pipeline/' <<<"$out"
+  if command -v jq >/dev/null 2>&1; then
+    # The toon-format `smithers ps` output interleaves runs with a giant
+    # cta/description blob; render a compact table from the JSON instead.
+    # Child runs (parentRunId set) are folded away — `se show` has them.
+    out="$("$SMITHERS_BIN" ps --format json)" || die "smithers ps failed"
+    echo "runs (id | status | started):"
+    jq -r "$PS_RUNS_FILTER"' | .[] | select(.parentRunId == null)
+      | [.id, .status, (.started // "")] | join(" | ")' <<<"$out"
+  else
+    out="$("$SMITHERS_BIN" ps)" || die "smithers ps failed"
+    awk 'NR == 1 || /se-pipeline/' <<<"$out"
+  fi
 
   # Cost per finished run comes ONLY from the run's summary output — the single
   # authoritative store (KTD6/U6); tokens are ground truth, USD is an estimate.
@@ -216,6 +257,70 @@ cmd_list() {
       echo "$summary_out"
     fi
   fi
+}
+
+cmd_show() {
+  local run_id="" as_json=0
+  while (($#)); do
+    case $1 in
+      --json) as_json=1 ;;
+      -*) usage_die "unknown option for show: $1" ;;
+      *)
+        [[ -z $run_id ]] || usage_die "unexpected argument: $1"
+        run_id=$1 ;;
+    esac
+    shift
+  done
+  [[ -n $run_id ]] || usage_die "show requires a <runId>"
+  # run_id lands in a SQL literal below — allow only smithers id charset.
+  [[ $run_id =~ ^[A-Za-z0-9:_-]+$ ]] || die "invalid runId: $run_id"
+  require_runtime_dir
+  if dry_run; then
+    print_smithers_cmd inspect "$run_id" --format json
+    return 0
+  fi
+  cd "$SMITHERS_DIR"
+  command -v jq >/dev/null 2>&1 || die "se show requires jq"
+
+  # Child run ids (…:child:…) are rejected by `smithers inspect` — the summary
+  # row and report dir still resolve, so inspect degrades to null, not a die.
+  local inspect summary="[]"
+  inspect="$("$SMITHERS_BIN" inspect "$run_id" --format json 2>/dev/null)" || inspect="null"
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
+    summary="$(sqlite3 -json smithers.db \
+      "SELECT verdict, run_id, branch, plan_path, report_dir, total_tokens, est_cost_usd, notes
+       FROM summary WHERE run_id='$run_id' LIMIT 1")"
+    [[ -n $summary ]] || summary="[]"
+  fi
+
+  local report_dir files="[]"
+  report_dir="$(jq -r '.[0].report_dir // empty' <<<"$summary")"
+  if [[ -n $report_dir && -d $report_dir ]]; then
+    files="$(find "$report_dir" -maxdepth 1 -type f -exec basename {} \; | jq -R . | jq -s 'sort')"
+  fi
+
+  if ((as_json)); then
+    jq -n --argjson run "${inspect:-null}" --argjson summary "$summary" \
+      --argjson reportFiles "$files" --arg reportDir "${report_dir:-}" \
+      '{run: ($run.run? // $run), summary: ($summary[0] // null),
+        reportDir: (if $reportDir == "" then null else $reportDir end),
+        reportFiles: $reportFiles}'
+    return 0
+  fi
+
+  jq -rn --argjson run "${inspect:-null}" --argjson summary "$summary" \
+    --argjson reportFiles "$files" --arg reportDir "${report_dir:-}" --arg id "$run_id" '
+    def row(k; v): "\(k): \(if v == null or v == "" then "—" else v end)";
+    row("run"; $id),
+    row("status"; ($run.run.status? // $run.status? // null)),
+    row("verdict"; ($summary[0].verdict? // null)),
+    row("branch"; ($summary[0].branch? // null)),
+    row("plan"; ($summary[0].plan_path? // null)),
+    row("tokens"; ($summary[0].total_tokens? | if . == null then null else (round | tostring) end)),
+    row("~USD"; ($summary[0].est_cost_usd? | if . == null then null else (. * 100 | round / 100 | tostring) end)),
+    row("reportDir"; (if $reportDir == "" then null else $reportDir end)),
+    ("reportFiles: " + ($reportFiles | join(", ") | if . == "" then "—" else . end)),
+    row("notes"; ($summary[0].notes? // null))'
 }
 
 cmd_resume() {
@@ -271,6 +376,7 @@ main() {
     -h|--help|help) usage ;;
     pipeline) cmd_pipeline "$@" ;;
     list) cmd_list "$@" ;;
+    show) cmd_show "$@" ;;
     logs|chat|approve|deny)
       require_run_id "$cmd" "$@"
       require_runtime_dir
