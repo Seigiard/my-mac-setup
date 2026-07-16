@@ -3,10 +3,16 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "smithers-orchestrator": "0.27.0",
+    "smithers-orchestrator": "0.28.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "26.1.1"
+  },
+  "trustedDependencies": [
+    "@smithers-orchestrator/jj-darwin-arm64"
+  ],
+  "patchedDependencies": {
+    "@smithers-orchestrator/agents@0.28.0": "patches/@smithers-orchestrator%2Fagents@0.28.0.patch"
   }
 }
