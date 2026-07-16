@@ -88,6 +88,31 @@ describe("runValidateCmd", () => {
     const r = runValidateCmd("definitely-no-such-cmd-xyz", os.tmpdir());
     expect(r.exitCode).not.toBe(0);
   });
+
+  test("таймаут убивает всю process-group, не только оболочку", () => {
+    // #given команда, породившая внука (sleep), который переживал bash
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "se-validate-pg-"));
+    const pidFile = path.join(dir, "orphan.pid");
+
+    // #when validate-cmd убит по таймауту
+    const r = runValidateCmd(`sleep 30 & echo $! > orphan.pid; wait`, dir, 800);
+
+    // #then сам вызов провален, а внук НЕ пережил kill группы
+    expect(r.exitCode).not.toBe(0);
+    const orphanPid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    expect(Number.isInteger(orphanPid) && orphanPid > 1).toBe(true);
+    const deadline = Date.now() + 2_000;
+    let alive = true;
+    while (alive && Date.now() < deadline) {
+      try {
+        process.kill(orphanPid, 0);
+        Bun.sleepSync(100);
+      } catch {
+        alive = false;
+      }
+    }
+    expect(alive).toBe(false);
+  });
 });
 
 describe("secretScanDiff (gitleaks, KTD10)", () => {

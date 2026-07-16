@@ -46,8 +46,23 @@ export interface ValidateCmdResult {
   output: string;
 }
 
+// Node's spawnSync timeout signals only the direct child; a validate-cmd that
+// spawned helpers (dev server, playwright workers) left them orphaned past the
+// kill (seen live on PRD-2099). spawnSync has no `detached`, so the wrapper
+// enables job control (`set -m`): the user command becomes a background job in
+// its OWN process group, and the trap forwards the timeout signal to that
+// whole group (kill -- -$!). It must be a background job under `wait` anyway —
+// bash defers trap handling while a foreground child runs, so a foreground
+// command would suppress the group kill until it exited on its own.
+const GROUP_KILL_WRAPPER = `trap 'kill -KILL -- -$! 2>/dev/null' TERM INT; set -m; bash -lc "$1" & wait "$!"`;
+
 export function runValidateCmd(cmd: string, cwd: string, timeoutMs = 10 * 60_000): ValidateCmdResult {
-  const res = spawnSync("bash", ["-lc", cmd], { cwd, encoding: "utf8", timeout: timeoutMs });
+  const res = spawnSync("bash", ["-c", GROUP_KILL_WRAPPER, "se-validate", cmd], {
+    cwd,
+    encoding: "utf8",
+    timeout: timeoutMs,
+    killSignal: "SIGTERM",
+  });
   const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
   if (res.error || res.status === null) {
     return { exitCode: 127, output: `${output}${res.error ? String(res.error) : "terminated (timeout or signal)"}` };
