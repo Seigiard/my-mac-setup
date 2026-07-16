@@ -162,6 +162,7 @@ function readRunUsage(runId: string): TokenUsageEvent[] {
         inputTokens: Number(p.inputTokens ?? 0),
         outputTokens: Number(p.outputTokens ?? 0),
         cacheReadTokens: Number(p.cacheReadTokens ?? 0),
+        cacheWriteTokens: Number(p.cacheWriteTokens ?? 0),
       };
     });
   } finally {

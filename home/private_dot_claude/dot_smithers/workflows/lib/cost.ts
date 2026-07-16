@@ -1,9 +1,17 @@
-// Run cost accounting (R8/KTD6, U6). 0.27.0 persists per-task TOKENS only
-// (TokenUsageReported events); no adapter fills USD (U1 spike verdict, е).
-// Tokens are therefore the authoritative metric; estUsd is an APPROXIMATION
-// from the price table below — update it when provider pricing changes.
-// The single authoritative store is the run's summary output, which embeds
-// this aggregation; `se list` and audits read only from there.
+// Run cost accounting (R8/KTD6, U6→U9-Батч4). Adapters persist per-task
+// TOKENS only (TokenUsageReported events); no adapter fills USD. Tokens are
+// therefore the authoritative metric; estUsd is an APPROXIMATION priced by
+// the official smithers-orchestrator/scorers table (estimateCostUsd /
+// modelTokenPrices) instead of a hand-rolled copy. The single authoritative
+// store is the run's summary output, which embeds this aggregation;
+// `se list` and audits read only from there.
+
+import { estimateCostUsd, modelTokenPrices } from "smithers-orchestrator/scorers";
+
+// Unknown ids price at $0 in the official table, but a real leg is never
+// free — the CLI just failed to report a concrete id (bare "claude", null,
+// or a model newer than the table). Price those at sonnet-class.
+const FALLBACK_MODEL = "claude-sonnet-5";
 
 export interface TokenUsageEvent {
   nodeId: string;
@@ -11,12 +19,14 @@ export interface TokenUsageEvent {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens?: number;
 }
 
 export interface StageUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
   estUsd: number;
 }
 
@@ -26,21 +36,14 @@ export interface RunUsage {
   totalEstUsd: number;
 }
 
-interface PriceRow {
-  match: string;
-  inputPerMTok: number;
-  outputPerMTok: number;
-  cacheReadPerMTok: number;
+// The event log reports models as the agent CLI names them
+// ("openai/gpt-5.6-terra"); the price table keys bare ids.
+function pricedModel(model: string | null): string {
+  const bare = (model ?? "").replace(/^[a-z0-9_-]+\//i, "");
+  const price = modelTokenPrices(bare);
+  const isFree = price.input === 0 && price.output === 0 && price.cacheRead === 0 && price.cacheWrite === 0;
+  return isFree ? FALLBACK_MODEL : bare;
 }
-
-// USD per million tokens, matched by model-string prefix. Approximate
-// (sonnet-class for bare "claude": the CLI reports no concrete model id).
-const PRICE_TABLE: PriceRow[] = [
-  { match: "openai/", inputPerMTok: 1.25, outputPerMTok: 10, cacheReadPerMTok: 0.125 },
-  { match: "claude", inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3 },
-];
-
-const DEFAULT_PRICE: PriceRow = { match: "", inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3 };
 
 export function aggregateUsage(events: TokenUsageEvent[]): RunUsage {
   const stages: Record<string, StageUsage> = {};
@@ -48,20 +51,29 @@ export function aggregateUsage(events: TokenUsageEvent[]): RunUsage {
   let totalEstUsd = 0;
 
   for (const event of events) {
-    const price = PRICE_TABLE.find((row) => (event.model ?? "").startsWith(row.match)) ?? DEFAULT_PRICE;
-    const estUsd =
-      (event.inputTokens * price.inputPerMTok +
-        event.outputTokens * price.outputPerMTok +
-        event.cacheReadTokens * price.cacheReadPerMTok) /
-      1_000_000;
+    const cacheWriteTokens = event.cacheWriteTokens ?? 0;
+    const estUsd = estimateCostUsd({
+      model: pricedModel(event.model),
+      inputTokens: event.inputTokens,
+      outputTokens: event.outputTokens,
+      cacheReadTokens: event.cacheReadTokens,
+      cacheWriteTokens,
+    });
 
-    const stage = (stages[event.nodeId] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estUsd: 0 });
+    const stage = (stages[event.nodeId] ??= {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      estUsd: 0,
+    });
     stage.inputTokens += event.inputTokens;
     stage.outputTokens += event.outputTokens;
     stage.cacheReadTokens += event.cacheReadTokens;
+    stage.cacheWriteTokens += cacheWriteTokens;
     stage.estUsd += estUsd;
 
-    totalTokens += event.inputTokens + event.outputTokens + event.cacheReadTokens;
+    totalTokens += event.inputTokens + event.outputTokens + event.cacheReadTokens + cacheWriteTokens;
     totalEstUsd += estUsd;
   }
 
