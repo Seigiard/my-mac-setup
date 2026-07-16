@@ -1,10 +1,18 @@
 # se-pipeline — раннбук
 
 Durable-прогон `verify-doc → work → verify-code` над целевым репозиторием на
-Smithers 0.27.0. План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
+Smithers 0.28.0 с локальным bun-патчем `@smithers-orchestrator/agents`
+(`patches/` — false positive квота-классификатора на подписке без usage
+credits, upstream smithersai/smithers#1342; при апгрейде пакета проверить,
+не влит ли фикс). План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
 (gitignored). Исходники: `home/private_dot_claude/dot_smithers/` (chezmoi →
 `~/.claude/.smithers`); состояние прогонов (`smithers.db`, `.smithers/`) живёт в
 рантайм-дире и в git не попадает.
+
+Модели плеч запинены константами в `se-pipeline.tsx`: work —
+`claude-opus-4-8` (fallback `claude-sonnet-5`), review — `claude-sonnet-5`
+(fallback `claude-haiku-4-5`); донор doc-review (`se-doc-review.tsx`) —
+`claude-sonnet-5`/`claude-haiku-4-5`.
 
 ## Запуск
 
@@ -124,12 +132,15 @@ cd "$FIXTURE"
 
 - **AE1 (полный зелёный прогон):**
   `se pipeline docs/plans/fixture-reverse-plan.md --validate-cmd 'bun test'` →
-  ветка с реальным коммитом ce-work, конверт с `final_commit_sha` == HEAD,
-  ревью-отчёт, `se list` со стоимостью. Последняя демонстрация — по этому
+  ветка с ОДНИМ коммитом от work-гейта (агент не коммитит — см. KTD5 ниже),
+  proof-of-work = tree-хэш (`baseTree ≠ headTree`), `final_commit_sha` в
+  конверте advisory; ревью-отчёт, `se list` со стоимостью. Последняя демонстрация — по этому
   раннбуку на фикстуре из скрипта: runId `run-1784105778671` (2026-07-15,
   запуск через `se`, ветка `se/fixture-reverse-plan-05778671`, коммит
-  `496c8a9 feat(reverse)`, ревью P0=0, 1.05M токенов ≈ $0.75; ранее —
-  `run-1784104646189`, «Ready to merge»).
+  `496c8a9 feat(reverse)`, ревью P0=0, 1.05M токенов ≈ $0.75 старой
+  таблицей, ≈$0.83 официальной с cacheWrite; ранее —
+  `run-1784104646189`, «Ready to merge»). Smoke-путь 0.28 после патча:
+  `run-1784198676339` (4 гейта green, один gate-коммит).
 - **AE2 (красный гейт → Approval):** детерминированный вариант — секрет в
   диффе: до запуска добавь в план юнита требование записать строку
   `awsAccessKeyId = "AKIA<16 заглавных>"` в файл конфига; секрет-скан gitleaks
@@ -142,26 +153,34 @@ cd "$FIXTURE"
   мемоизированы (не переоплачиваются), work перезапускается, прогон доходит до
   green. Демонстрации: `run-1784109630941` (2026-07-15, live U4, smoke: kill
   посреди work → resume восстановил repo из gate0 → finished green; заодно
-  подтвердил sweep осиротевшего лока предыдущего terminal-прогона). **KTD5-риск
-  вживую:** в этом прогоне kill попал ПОСЛЕ git-коммита work, но ДО завершения
-  задачи → resume перезапустил work → **дубль коммита** (2× `chore: smoke
-  commit`). Прогон green (гейт проходит: SHA=HEAD, validate ok), но ветка несёт
-  лишний коммит — задокументированный принятый риск (детерминированного
-  branch-reset на kill-пути в 0.27.0 нет; reset только на approve-extra-пути).
-  Оператор в сравнительной фазе замечает/сквошит дубль. Ранее: `run-1784036851218`
-  (U1-спайк: kill после ЗАВЕРШЁННОЙ задачи → мемоизация → без дублей).
+  подтвердил sweep осиротевшего лока предыдущего terminal-прогона).
+  **KTD5 (дубль коммита) закрыт git-only фиксом (U9, 2026-07-16):** work-агент
+  больше НЕ коммитит; коммитит одна мемоизируемая gate-задача через
+  `commitWorkGuarded` (только если дерево грязное) → kill в окне
+  commit→persist безопасен: resume видит чистое дерево, guard пропускает,
+  дубля нет. Подтверждено e2e `run-1784204259645` (owner убит в момент
+  появления gate-коммита → force-resume → finished, на ветке ровно один
+  коммит). Историческая демонстрация дубля на 0.27: `run-1784109630941`
+  (2× `chore: smoke commit`). Ранее: `run-1784036851218` (U1-спайк: kill
+  после ЗАВЕРШЁННОЙ задачи → мемоизация → без дублей).
 - **AE4 (невалидный вход):** requirements-only план / несуществующий файл /
   `--until=pr` → прогон падает сразу, причина в `error` и `se logs`.
   Продемонстрировано тремя прогонами U3 (все `status: failed`, `gate-0 refused: …`).
 
 ## Стоимость
 
-0.27.0 не персистит USD — только токены (`TokenUsageReported`). Авторитетный
-стор — выходная `summary` прогона: токены по плечам + `est_cost_usd` по
-прайс-таблице `workflows/lib/cost.ts` (приближение; первичная метрика —
-токены). `se list` читает только оттуда. Ориентир: смоук ≈ $0.13; полный
-фикстурный прогон (реальные doc-review + work + review) — единицы долларов;
-рабочая задача — десятки (бюджеты-предохранители: $15 ревью-плечи, $50 work).
+Smithers (и 0.28.0) не персистит USD — только токены (`TokenUsageReported`).
+Авторитетный стор — выходная `summary` прогона: токены по плечам +
+`est_cost_usd`, посчитанный официальной таблицей
+`smithers-orchestrator/scorers` (`estimateCostUsd`/`modelTokenPrices`) через
+`workflows/lib/cost.ts` (приближение; первичная метрика — токены).
+Особенности прайсинга: провайдер-префикс (`openai/…`) срезается перед
+лукапом; неизвестная таблице модель (голый `claude`, null) прайсится как
+sonnet-класс, не $0; `cacheWriteTokens` входит в цену и totalTokens.
+`se list` читает только оттуда. Ориентир: смоук ≈ $0.13; полный фикстурный
+прогон (реальные doc-review + work + review) — единицы долларов (AE1 ≈
+$0.83); рабочая задача — десятки (бюджеты-предохранители: $15 ревью-плечи,
+$50 work).
 
 ## Сравнительная фаза (F3, приёмка)
 
@@ -182,11 +201,10 @@ Criteria):
 
 ## Известные ограничения (MVP)
 
-- **KTD5-отклонение:** детерминированный branch-reset при kill-resume посреди
-  work нереализуем в 0.27.0 (мемоизация + статичный промпт агента); reset есть
-  только на approve-пути. Компенсация: идемпотентность ce-work + жёсткий
-  work-гейт (SHA/validate/evidence). Дубли коммитов на kill-пути проверяй в
-  сравнительной фазе; при проблемах — апгрейд 0.28.0.
+- ~~KTD5-отклонение (дубль коммита на kill-пути)~~ **закрыто** git-only
+  фиксом U9 (guarded gate commit + tree-хэш proof), подтверждено e2e
+  `run-1784204259645`. Branch-reset по-прежнему только на approve-пути —
+  теперь этого достаточно.
 - **KTD12:** work-агент без allow/deny-листа инструментов
   (`bypassPermissions` — headless-коммиты требуют Bash; изоляция — worktree и
   cwd). Гонять только на доверенных задачах до dev-container-фазы.
