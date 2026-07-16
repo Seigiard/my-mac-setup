@@ -62,3 +62,39 @@ describe("extractValidateCmd", () => {
     expect(cmd).toContain("test:unit");
   });
 });
+
+describe("extractValidateCmd: fenced-блоки", () => {
+  test("команды из ```bash-блока извлекаются как из таблицы", () => {
+    // #given Verification Contract с fenced-блоком (формат ce-plan)
+    const md = [
+      "## Verification Contract",
+      "",
+      "From the repo root:",
+      "",
+      "```bash",
+      "cd pkg && bun install --frozen-lockfile && bun test",
+      "cd pkg && bun build entry.tsx --target=bun --outfile=/tmp/x.js # transpile check",
+      "```",
+      "",
+      "Both must exit 0.",
+      "",
+      "## Definition of Done",
+    ].join("\n");
+
+    // #when
+    const cmd = extractValidateCmd(md);
+
+    // #then извлечена test-строка; build-строка без keep-сигнала отброшена
+    expect(cmd).toBe("(cd pkg && bun install --frozen-lockfile && bun test)");
+  });
+
+  test("watch/e2e строки в fenced-блоке отбрасываются, пустой блок → null", () => {
+    const md = "## Verification Contract\n```bash\nbun test --watch\nplaywright test e2e/\n```\n";
+    expect(extractValidateCmd(md)).toBe(null);
+  });
+
+  test("не-bash блок (```json) игнорируется", () => {
+    const md = '## Verification Contract\n```json\n{"test": true}\n```\n';
+    expect(extractValidateCmd(md)).toBe(null);
+  });
+});

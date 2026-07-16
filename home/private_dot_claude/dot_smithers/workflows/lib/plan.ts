@@ -38,15 +38,34 @@ export function extractValidateCmd(markdown: string): string | null {
 
   const commands: string[] = [];
   const seen = new Set<string>();
+  const keep = (cmd: string): void => {
+    if (!isRunnableVerification(cmd)) return;
+    if (seen.has(cmd)) return;
+    seen.add(cmd);
+    commands.push(cmd);
+  };
+  // Two shapes in the wild: table rows with backticked commands (fixture
+  // plans) and fenced shell blocks (ce-plan writes the contract as ```bash).
+  let inFence = false;
+  let fenceIsShell = false;
   for (const line of section.split("\n")) {
+    const trimmed = line.trim();
+    const fence = trimmed.match(/^```(\w*)/);
+    if (fence) {
+      inFence = !inFence;
+      fenceIsShell = inFence && ["", "bash", "sh", "shell", "zsh"].includes(fence[1].toLowerCase());
+      continue;
+    }
+    if (inFence) {
+      // Trailing comments are stripped BEFORE the filter — a "# transpile
+      // check" annotation must not smuggle a keep-signal into a non-test line.
+      const cmd = trimmed.replace(/\s+#.*$/, "");
+      if (fenceIsShell && cmd !== "" && !cmd.startsWith("#")) keep(cmd);
+      continue;
+    }
     if (!line.trimStart().startsWith("|")) continue; // table rows only
     if (/^\s*\|[\s|:-]+\|?\s*$/.test(line)) continue; // separator row
-    for (const span of backtickSpans(line)) {
-      if (!isRunnableVerification(span)) continue;
-      if (seen.has(span)) continue;
-      seen.add(span);
-      commands.push(span);
-    }
+    for (const span of backtickSpans(line)) keep(span);
   }
   if (commands.length === 0) return null;
   // Each command in its own subshell so a leading `cd <pkg>` cannot leak into
