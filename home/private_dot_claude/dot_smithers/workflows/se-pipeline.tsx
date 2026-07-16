@@ -34,6 +34,13 @@ import {
   type GetRunState,
 } from "./lib/staging.ts";
 import seDocReview from "./se-doc-review.tsx";
+import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
+
+// 0.28 types Subflow's workflow prop as WorkflowDefinition<unknown>; a
+// workflow typed with a concrete input schema can't satisfy it (ctx.input is
+// contravariant in build). Runtime only forwards the definition, so the cast
+// is safe.
+const seDocReviewSubflow = seDocReview as unknown as WorkflowDefinition<unknown>;
 
 const inputSchema = z.object({
   planPath: z.string().describe("Absolute path to the implementation-ready ce-unified-plan/v1 plan (read from the launcher, not the worktree — KTD11)."),
@@ -441,7 +448,7 @@ export default smithers((ctx) => {
       makeAttempt: (nodeId) => (
         <Subflow
           id={nodeId}
-          workflow={seDocReview}
+          workflow={seDocReviewSubflow}
           input={{ docPath: input.planPath, smoke }}
           output={outputs.docReview}
           retries={1}
