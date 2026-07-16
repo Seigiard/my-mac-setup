@@ -12,3 +12,4 @@ tmp/
 .smithers/
 dist/
 .DS_Store
+workflows/run-*.log

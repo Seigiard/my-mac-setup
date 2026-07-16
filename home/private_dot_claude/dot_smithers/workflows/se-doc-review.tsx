@@ -74,6 +74,10 @@ const REVIEW_TIMEOUT_MS = 10 * 60_000;
 const claudeAgent = new ClaudeCodeAgent({
   cwd: repoDir,
   permissionMode: "acceptEdits",
+  // Doc review is high-judgment but lighter than implementation: Sonnet, never
+  // Fable; fallbackModel rides out a Max-subscription rate-limit on the primary.
+  model: "claude-sonnet-5",
+  fallbackModel: "claude-haiku-4-5",
   timeoutMs: REVIEW_TIMEOUT_MS,
   // Circuit breaker against a runaway agent, NOT a cost target: a normal full
   // review bills ~$5-6 in one attempt (and must fit — a budget abort wastes

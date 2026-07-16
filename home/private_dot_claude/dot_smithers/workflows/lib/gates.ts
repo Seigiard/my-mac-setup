@@ -21,7 +21,8 @@ export interface DocReviewStageOutput {
 
 export interface WorkGateInput {
   raw: string | undefined;
-  headSha: string;
+  baseTree: string;
+  headTree: string;
   validateExitCode: number | null;
 }
 
@@ -90,9 +91,13 @@ export function workGate(input: WorkGateInput): GateResult {
   if (!Array.isArray(evidence) || evidence.length === 0) {
     reasons.push("verification_evidence is empty — self-report has no proof");
   }
-  const sha = env.final_commit_sha;
-  if (typeof sha !== "string" || sha !== input.headSha) {
-    reasons.push(`final_commit_sha ${typeof sha === "string" ? `"${sha}"` : "<missing>"} does not match branch HEAD ${input.headSha}`);
+  // Proof of work under jj-backed <Worktree> (KTD14): the worktree's tree-object
+  // hash must differ from the base tree. git dirty-state (`status --porcelain`)
+  // and commit SHAs are unreliable — jj continuously snapshots the working copy,
+  // so a dirty tree reads clean and HEAD moves on its own. Comparing tree hashes
+  // (content) is snapshot-independent. envelope.final_commit_sha is advisory now.
+  if (input.baseTree === input.headTree) {
+    reasons.push("worktree tree hash equals base — no content change, agent produced no work (KTD14)");
   }
   if (input.validateExitCode === null) {
     reasons.push("validate-cmd was not executed — agent self-report is not ground truth (KTD3)");

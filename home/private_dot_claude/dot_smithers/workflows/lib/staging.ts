@@ -191,6 +191,25 @@ export function cleanupSnapshot(
   }
 }
 
+// Deterministic guarded commit for the work stage (KTD5): commit the worktree
+// only when it is dirty, so a resume that re-runs this step finds a clean tree
+// and commits nothing — no duplicate commit. Commits belong to the pipeline,
+// never the agent, which keeps them idempotent across crash-resume. Returns
+// whether a commit was actually made.
+export function commitWorkGuarded(worktreePath: string, message: string): boolean {
+  if (git(worktreePath, "status", "--porcelain") === "") return false;
+  git(worktreePath, "add", "-A");
+  git(worktreePath, "commit", "--no-verify", "-m", message);
+  return true;
+}
+
+// Content hash of a ref's tree object (KTD3/KTD14 proof of work): compares
+// CONTENT, not git dirty-state, so proving that the work stage changed anything
+// is independent of how or when commits are arranged. `ref` defaults to HEAD.
+export function treeHash(cwd: string, ref = "HEAD"): string {
+  return git(cwd, "rev-parse", `${ref}^{tree}`);
+}
+
 function branchExists(repo: string, branch: string): boolean {
   try {
     git(repo, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`);

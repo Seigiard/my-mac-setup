@@ -24,11 +24,13 @@ import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./li
 import {
   acquireRepoLock,
   cleanupSnapshot,
+  commitWorkGuarded,
   git,
   releaseRepoLock,
   runBranchName,
   stageRunWorktree,
   sweepOrphans,
+  treeHash,
   type GetRunState,
 } from "./lib/staging.ts";
 import seDocReview from "./se-doc-review.tsx";
@@ -90,6 +92,14 @@ const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers
 const repoDir = process.env.PIPELINE_REPO ?? process.cwd();
 
 const REVIEW_TIMEOUT_MS = 15 * 60_000;
+
+// Model profile (Balanced): Opus for implementation, Sonnet for review — never
+// Fable. fallbackModel auto-switches when the primary is rate-limited, riding
+// out a Max-subscription throttle instead of failing the stage.
+const WORK_MODEL = "claude-opus-4-8";
+const WORK_FALLBACK_MODEL = "claude-sonnet-5";
+const REVIEW_MODEL = "claude-sonnet-5";
+const REVIEW_FALLBACK_MODEL = "claude-haiku-4-5";
 
 // Native structured-output enforcement (claude CLI --json-schema); smithers
 // does not derive it from the Task's Zod schema. Default stream-json capture
@@ -161,7 +171,7 @@ function readRunUsage(runId: string): TokenUsageEvent[] {
 
 function workPrompt(planPath: string, branch: string, smoke: boolean): string {
   if (smoke) {
-    return `[se-pipeline-stage] Smoke wiring test. Your cwd is an isolated git worktree on branch ${branch}. Do exactly this: append one line to SMOKE.md, run \`git add SMOKE.md && git commit -m "chore: smoke commit"\`, then run \`git rev-parse HEAD\`. Your FINAL message must be EXACTLY one JSON object {"report": "<envelope>"} where <envelope> is a JSON object serialized as a string with fields: status="complete", changed_files=["SMOKE.md"], u_ids_attempted=[], u_ids_completed=[], verification_evidence=[{"unit":"smoke","exception_reason":"smoke wiring test"}], blockers=[], behavior_change=false, standalone_shipping_skipped=true, final_commit_sha="<the sha you got>".`;
+    return `[se-pipeline-stage] Smoke wiring test. Your cwd is an isolated git worktree on branch ${branch}. Do exactly this: append one line to SMOKE.md. Do NOT run git add/commit/push — leave the change in the working tree; the pipeline commits it. Your FINAL message must be EXACTLY one JSON object {"report": "<envelope>"} where <envelope> is a JSON object serialized as a string with fields: status="complete", changed_files=["SMOKE.md"], u_ids_attempted=[], u_ids_completed=[], verification_evidence=[{"unit":"smoke","exception_reason":"smoke wiring test"}], blockers=[], behavior_change=false, standalone_shipping_skipped=true.`;
   }
   return `[se-pipeline-stage]
 
@@ -169,9 +179,9 @@ Invoke the skill compound-engineering:ce-work with args "mode:return-to-caller $
 
 Context: your cwd is an ISOLATED git worktree of the target repository, already on the run branch ${branch} — continue on this branch, do NOT ask about branches, do NOT create worktrees, never push. Fully headless: never ask questions; make every decision yourself.
 
-You are EXPLICITLY REQUESTED to commit: stage and commit the implemented work on the current branch with conventional messages (this instruction is the explicit commit request; it overrides any default no-commit policy).
+Do NOT commit and do NOT run git add/commit/push: leave ALL your changes in the working tree exactly as edited. The pipeline commits your work itself, deterministically, after this step — this keeps commits idempotent across crash-resume (KTD5). This instruction overrides any ce-work step that would otherwise commit.
 
-Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) EXTENDED with one additional required field final_commit_sha — the output of git rev-parse HEAD after your last commit — serialized as a string>"}.`;
+Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) serialized as a string>"}.`;
 }
 
 function codeReviewPrompt(baseSha: string, branch: string, smoke: boolean): string {
@@ -338,6 +348,8 @@ export default smithers((ctx) => {
         cwd: staged.worktreePath,
         permissionMode: "bypassPermissions",
         dangerouslySkipPermissions: true,
+        model: WORK_MODEL,
+        fallbackModel: WORK_FALLBACK_MODEL,
         timeoutMs: workTimeoutMs,
         maxBudgetUsd: workBudgetUsd,
         jsonSchema: reportJsonSchema,
@@ -347,6 +359,8 @@ export default smithers((ctx) => {
     ? new ClaudeCodeAgent({
         cwd: staged.worktreePath,
         permissionMode: "acceptEdits",
+        model: REVIEW_MODEL,
+        fallbackModel: REVIEW_FALLBACK_MODEL,
         timeoutMs: REVIEW_TIMEOUT_MS,
         maxBudgetUsd: 15,
         jsonSchema: reportJsonSchema,
@@ -442,32 +456,29 @@ export default smithers((ctx) => {
     if (doc.status === "green") {
       if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
 
-      // Work gate runs the effects itself: HEAD of the run branch and the
-      // operator's validate-cmd inside the worktree — agent self-report is
-      // never ground truth (KTD3). Plan hash is re-checked here so a plan
-      // edited during an Approval pause fails loudly (KTD7).
+      // Work gate runs the effects itself: it commits the agent's work, then
+      // proves the work by comparing tree hashes and running the operator's
+      // validate-cmd in the worktree — agent self-report is never ground truth
+      // (KTD3). Plan hash is re-checked so a plan edited during an Approval
+      // pause fails loudly (KTD7).
       const workGateFn = (raw: string | undefined): GateResult => {
         const planNow = fs.readFileSync(gate0.planPath, "utf8");
         const planCheck = planGate(planNow, gate0.until);
         if (!planCheck.ok || planCheck.hash !== gate0.planHash) {
           return { state: "failed", reasons: [`plan content changed during the run (hash mismatch) — refusing to gate work against a stale spec (KTD7)`] };
         }
-        const headSha = gitHead(staged.worktreePath);
-        // The branch must actually carry commits and be clean: uncommitted or
-        // untracked files are neither validated in a delivered state nor
-        // covered by the commit-range secret-scan (KTD10), and an unmoved HEAD
-        // means work delivered nothing while still returning a shaped envelope.
+        const baseTree = treeHash(repoDir, staged.baseSha);
+        // Deterministic guarded commit (KTD5): the work agent leaves its changes
+        // uncommitted; the pipeline commits them here, exactly once. Commits
+        // belong to the pipeline, never the agent, so a re-run agent cannot
+        // double them; commitWorkGuarded is a no-op on a clean tree, so a resume
+        // that re-runs this task after the commit persisted adds nothing.
         if (raw !== undefined) {
-          if (headSha === staged.baseSha) {
-            return { state: "failed", reasons: [`work stage produced no commits — run branch HEAD is still the pre-stage SHA ${staged.baseSha}`] };
-          }
-          const dirty = git(staged.worktreePath, "status", "--porcelain");
-          if (dirty !== "") {
-            return { state: "failed", reasons: [`run worktree has uncommitted/untracked changes after work — nothing may reach validate-cmd or verify-code uncommitted:\n${dirty.slice(0, 500)}`] };
-          }
+          commitWorkGuarded(staged.worktreePath, `se-pipeline: work stage on ${staged.branch}`);
         }
+        const headTree = treeHash(staged.worktreePath);
         const validate = raw === undefined ? null : runValidateCmd(gate0.validateCmd, staged.worktreePath, gate0.validateTimeoutMs);
-        const result = workGate({ raw, headSha, validateExitCode: validate === null ? null : validate.exitCode });
+        const result = workGate({ raw, baseTree, headTree, validateExitCode: validate === null ? null : validate.exitCode });
         if (validate !== null && validate.exitCode !== 0) {
           result.reasons.push(`validate-cmd output tail: ${validate.output.slice(-500)}`);
         }
@@ -494,10 +505,17 @@ export default smithers((ctx) => {
             {() => {
               const first = ctx.outputMaybe("agentReport", { nodeId: "work" });
               const parsed = parseWorkEnvelope(first?.report);
-              if (!parsed.ok && gitHead(staged.worktreePath) !== staged.baseSha) {
+              const moved = gitHead(staged.worktreePath) !== staged.baseSha;
+              const dirty = git(staged.worktreePath, "status", "--porcelain") !== "";
+              // KTD5 conditional reset: a first attempt with no valid envelope is
+              // discarded — reset the branch to the pre-stage SHA and clear
+              // untracked files (which survive reset --hard) so the extra attempt
+              // starts clean, whether the gate committed a bad attempt (moved) or
+              // the agent crashed leaving the tree dirty. A valid envelope (gate
+              // red on validate, not a broken run) keeps its committed work for
+              // ce-work's idempotency path.
+              if (!parsed.ok && (moved || dirty)) {
                 git(staged.worktreePath, "reset", "--hard", staged.baseSha);
-                // Untracked files from the failed attempt survive reset --hard;
-                // clear them so the extra attempt starts from a clean baseSha.
                 git(staged.worktreePath, "clean", "-fd");
                 return { stage: "work", didReset: true, resetTo: staged.baseSha };
               }

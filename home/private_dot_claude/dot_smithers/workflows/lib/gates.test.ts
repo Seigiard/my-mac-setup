@@ -96,54 +96,60 @@ describe("docReviewGate", () => {
   });
 });
 
-describe("workGate (KTD3, KTD13)", () => {
-  const headSha = "a".repeat(40);
+describe("workGate (KTD3, KTD14 tree-hash proof)", () => {
+  const baseTree = "a".repeat(40);
+  const headTree = "b".repeat(40);
 
-  test("валидный конверт + SHA совпал + validate-cmd 0 → green", () => {
-    const r = workGate({ raw: workEnvelope(), headSha, validateExitCode: 0 });
+  test("валидный конверт + tree изменился + validate-cmd 0 → green", () => {
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0 });
     expect(r.state).toBe("green");
   });
 
   test("verification_evidence пустое → failed с причиной", () => {
-    const r = workGate({ raw: workEnvelope({ verification_evidence: [] }), headSha, validateExitCode: 0 });
+    const r = workGate({ raw: workEnvelope({ verification_evidence: [] }), baseTree, headTree, validateExitCode: 0 });
     expect(r.state).toBe("failed");
     expect(r.reasons.join(" ")).toContain("verification_evidence");
   });
 
-  test("final_commit_sha не совпадает с HEAD → failed", () => {
-    const r = workGate({ raw: workEnvelope({ final_commit_sha: "b".repeat(40) }), headSha, validateExitCode: 0 });
+  test("tree головы == base (нет изменений контента) → failed", () => {
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree: baseTree, validateExitCode: 0 });
     expect(r.state).toBe("failed");
-    expect(r.reasons.join(" ")).toContain("final_commit_sha");
+    expect(r.reasons.join(" ")).toContain("tree hash");
   });
 
-  test("final_commit_sha отсутствует → failed", () => {
-    const r = workGate({ raw: workEnvelope({ final_commit_sha: undefined }), headSha, validateExitCode: 0 });
+  test("jj-clean-tree обман не проходит: конверт complete, но tree не изменился → failed", () => {
+    const r = workGate({ raw: workEnvelope({ final_commit_sha: "c".repeat(40) }), baseTree, headTree: baseTree, validateExitCode: 0 });
     expect(r.state).toBe("failed");
+  });
+
+  test("final_commit_sha теперь advisory: расходится с деревом, но tree изменён → green", () => {
+    const r = workGate({ raw: workEnvelope({ final_commit_sha: "d".repeat(40) }), baseTree, headTree, validateExitCode: 0 });
+    expect(r.state).toBe("green");
   });
 
   test("status != complete → failed", () => {
-    const r = workGate({ raw: workEnvelope({ status: "blocked" }), headSha, validateExitCode: 0 });
+    const r = workGate({ raw: workEnvelope({ status: "blocked" }), baseTree, headTree, validateExitCode: 0 });
     expect(r.state).toBe("failed");
   });
 
   test("validate-cmd exit != 0 → failed", () => {
-    const r = workGate({ raw: workEnvelope(), headSha, validateExitCode: 2 });
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 2 });
     expect(r.state).toBe("failed");
     expect(r.reasons.join(" ")).toContain("validate");
   });
 
   test("validate-cmd не запускалась → failed, не green", () => {
-    const r = workGate({ raw: workEnvelope(), headSha, validateExitCode: null });
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: null });
     expect(r.state).toBe("failed");
   });
 
   test("конверт-мусор (не парсится) → degraded, не failed и не green", () => {
-    const r = workGate({ raw: "{truncated", headSha, validateExitCode: 0 });
+    const r = workGate({ raw: "{truncated", baseTree, headTree, validateExitCode: 0 });
     expect(r.state).toBe("degraded");
   });
 
   test("стадия без конверта → failed (сразу Approval per KTD5)", () => {
-    const r = workGate({ raw: undefined, headSha, validateExitCode: null });
+    const r = workGate({ raw: undefined, baseTree, headTree, validateExitCode: null });
     expect(r.state).toBe("failed");
   });
 });

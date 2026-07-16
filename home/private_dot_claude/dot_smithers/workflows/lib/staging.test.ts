@@ -6,11 +6,13 @@ import * as path from "node:path";
 import {
   acquireRepoLock,
   cleanupSnapshot,
+  commitWorkGuarded,
   releaseRepoLock,
   runBranchName,
   slugify,
   stageRunWorktree,
   sweepOrphans,
+  treeHash,
   type GetRunState,
   type RunState,
 } from "./staging.ts";
@@ -277,5 +279,77 @@ describe("cleanupSnapshot", () => {
     cleanupSnapshot(repo, path.join(os.tmpdir(), "no-such-worktree-xyz"), (msg) => logs.push(msg));
     expect(logs.length).toBeGreaterThan(0);
     expect(logs[0]).toContain("no-such-worktree-xyz");
+  });
+});
+
+describe("treeHash (KTD3/KTD14 proof of work)", () => {
+  test("differs from base after a committed change, matches when content is unchanged", () => {
+    // #given a repo staged on a run branch
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+    const staged = stageRunWorktree(repo, runBranchName("plan", "tree0001"), baseSha, { worktreeBaseDir: baseDir });
+    const baseTree = treeHash(repo, baseSha);
+
+    // #then an unchanged worktree has the base tree hash
+    expect(treeHash(staged.worktreePath)).toBe(baseTree);
+
+    // #when real work is committed
+    fs.writeFileSync(path.join(staged.worktreePath, "new.txt"), "content\n");
+    commitWorkGuarded(staged.worktreePath, "work");
+
+    // #then the head tree hash diverges from base — content changed
+    expect(treeHash(staged.worktreePath)).not.toBe(baseTree);
+  });
+});
+
+describe("commitWorkGuarded (KTD5 idempotent commit)", () => {
+  test("commits a dirty tree once and returns true", () => {
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+    const staged = stageRunWorktree(repo, runBranchName("plan", "guard001"), baseSha, { worktreeBaseDir: baseDir });
+
+    fs.writeFileSync(path.join(staged.worktreePath, "impl.txt"), "work\n");
+    const committed = commitWorkGuarded(staged.worktreePath, "se-pipeline: work");
+
+    expect(committed).toBe(true);
+    expect(rawGit(staged.worktreePath, "status", "--porcelain")).toBe("");
+    expect(Number(rawGit(staged.worktreePath, "rev-list", "--count", "HEAD"))).toBe(2);
+  });
+
+  test("is a no-op on a clean tree — a resume re-run adds NO duplicate commit (KTD5)", () => {
+    // #given the work stage already committed once (first gate run)
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+    const staged = stageRunWorktree(repo, runBranchName("plan", "guard002"), baseSha, { worktreeBaseDir: baseDir });
+    fs.writeFileSync(path.join(staged.worktreePath, "impl.txt"), "work\n");
+    expect(commitWorkGuarded(staged.worktreePath, "se-pipeline: work")).toBe(true);
+    const shaAfterFirst = rawGit(staged.worktreePath, "rev-parse", "HEAD");
+    const countAfterFirst = Number(rawGit(staged.worktreePath, "rev-list", "--count", "HEAD"));
+
+    // #when a crash-resume re-runs the same guarded commit task (kill after
+    // commit, before the frame persisted)
+    const committedAgain = commitWorkGuarded(staged.worktreePath, "se-pipeline: work");
+
+    // #then nothing is committed: same HEAD, same commit count — no dup (KTD5)
+    expect(committedAgain).toBe(false);
+    expect(rawGit(staged.worktreePath, "rev-parse", "HEAD")).toBe(shaAfterFirst);
+    expect(Number(rawGit(staged.worktreePath, "rev-list", "--count", "HEAD"))).toBe(countAfterFirst);
+  });
+
+  test("stages untracked and modified files alike (git add -A)", () => {
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+    const staged = stageRunWorktree(repo, runBranchName("plan", "guard003"), baseSha, { worktreeBaseDir: baseDir });
+
+    fs.writeFileSync(path.join(staged.worktreePath, "file.txt"), "modified\n");
+    fs.writeFileSync(path.join(staged.worktreePath, "brand-new.txt"), "new\n");
+    expect(commitWorkGuarded(staged.worktreePath, "se-pipeline: work")).toBe(true);
+
+    const files = rawGit(staged.worktreePath, "show", "--name-only", "--format=", "HEAD").split("\n").filter(Boolean).sort();
+    expect(files).toEqual(["brand-new.txt", "file.txt"]);
   });
 });
