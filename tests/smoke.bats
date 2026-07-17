@@ -246,6 +246,23 @@ TOML
   assert_dir_exists "$HOME/.config/zed"
 }
 
+@test "herdr caffeinate plugin exists (macOS only)" {
+  is_macos || skip "Not on macOS"
+  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml"
+  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/reconcile.sh"
+  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/lib.sh"
+  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/actions.sh"
+  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/config.example.sh"
+}
+
+@test "herdr caffeinate plugin scripts are valid sh (macOS only)" {
+  is_macos || skip "Not on macOS"
+  for f in reconcile.sh lib.sh actions.sh; do
+    run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
+    [ "$status" -eq 0 ]
+  done
+}
+
 # ===========================================
 # Optional tools (installed via package manager)
 # ===========================================

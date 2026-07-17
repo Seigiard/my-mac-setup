@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Link and enable the local Herdr caffeinate plugin after the managed files change.
+#
+# Hash triggers:
+# # {{ if eq .chezmoi.os "darwin" }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/reconcile.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/lib.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/actions.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/config.example.sh" | sha256sum }}
+# # {{ end }}
+
+# Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
+set -u
+
+plugin_dir="$HOME/.config/herdr/plugins/herdr-caffeinate"
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  exit 0
+fi
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping caffeinate plugin link"
+  exit 0
+fi
+
+if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
+  echo "Herdr caffeinate plugin manifest not found at $plugin_dir; skipping"
+  exit 0
+fi
+
+if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
+  echo "Linked Herdr caffeinate plugin"
+  if herdr plugin enable keepawake.caffeinate >/dev/null 2>&1; then
+    echo "Enabled keepawake.caffeinate"
+  else
+    echo "Warning: linked but failed to enable; run manually: herdr plugin enable keepawake.caffeinate" >&2
+  fi
+  if herdr server reload-config >/dev/null 2>&1; then
+    echo "Reloaded Herdr config"
+  else
+    echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+  fi
+else
+  echo "Warning: failed to link Herdr caffeinate plugin. Run manually: herdr plugin link $plugin_dir" >&2
+fi

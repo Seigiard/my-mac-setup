@@ -1,0 +1,31 @@
+id = "keepawake.caffeinate"
+name = "Caffeinate"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Keep macOS awake while any herdr agent is working."
+platforms = ["macos"]
+
+# Fires globally whenever any agent/pane changes semantic status
+# (working / idle / blocked / done / unknown). The hook re-derives the
+# aggregate state and holds/releases a single caffeinate assertion.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["sh", "reconcile.sh"]
+
+[[actions]]
+id = "status"
+title = "Caffeinate: status"
+contexts = ["workspace"]
+command = ["sh", "actions.sh", "status"]
+
+[[actions]]
+id = "stop"
+title = "Caffeinate: force release"
+contexts = ["workspace"]
+command = ["sh", "actions.sh", "stop"]
+
+[[actions]]
+id = "test"
+title = "Caffeinate: self-test"
+contexts = ["workspace"]
+command = ["sh", "actions.sh", "test"]
