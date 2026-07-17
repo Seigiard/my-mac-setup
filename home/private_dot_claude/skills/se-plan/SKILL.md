@@ -27,6 +27,12 @@ Use the **combined** envelope (local + synthesis) for everything downstream in t
 - **HTML plans** (`output:html`): the plugin skips document review entirely for HTML output; the amendment then never fires and no harness is launched.
 - If the current prompt contains `[ce-doc-review-external-consult]`, you are inside an external consult — never invoke this wrapper or launch anything from there (the se-doc-review wrapper's recursion guard governs).
 
+## Amendment 3 — no scoping-confirmation gate by default
+
+Run the plugin workflow as if `confirm:auto` was passed (`SKIP_SCOPING_CONFIRM=true`): do not stop at the pre-plan scoping-synthesis confirmation ("confirm and I'll write the plan" — plugin Phases 0.7 / 5.1.5). Write the plan directly.
+
+This skips ONLY that confirmation. Everything that asks a real question stays: Phase 0.4 routing, Phase 0.5 product blockers, Phase 2 architecture questions, source-doc disambiguation, the Phase 5.4 post-generation menu, and Amendment 2 below. If the user explicitly passes `confirm:ask` (or asks to confirm scope), honor that for the run.
+
 ## Amendment 2 — no unresolved P0/P1 review findings on an executable plan
 
 Lesson from the first F3 comparison (2026-07-16): both executor tracks
