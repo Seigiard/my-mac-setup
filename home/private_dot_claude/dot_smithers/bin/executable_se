@@ -65,6 +65,21 @@ usage_die() {
 
 dry_run() { [[ "${SE_DRY_RUN:-0}" == "1" ]]; }
 
+# Real state db: smithers 0.28 resolves its state root by walking UP, so a
+# runtime dir literally named `.smithers` lands the db one level above
+# SMITHERS_DIR. Prefer the first non-empty smithers.db from SMITHERS_DIR
+# upward (two levels cover both layouts); empty files are probe artifacts.
+se_db() {
+  local d
+  for d in "$SMITHERS_DIR" "$(dirname "$SMITHERS_DIR")"; do
+    if [[ -s "$d/smithers.db" ]]; then
+      printf '%s' "$d/smithers.db"
+      return 0
+    fi
+  done
+  printf '%s' "$SMITHERS_DIR/smithers.db"
+}
+
 sq() {
   local s=${1//\'/\'\\\'\'}
   printf "'%s'" "$s"
@@ -210,8 +225,10 @@ cmd_list() {
     command -v jq >/dev/null 2>&1 || die "se list --json requires jq"
     local runs summaries="[]"
     runs="$("$SMITHERS_BIN" ps --format json | jq "$PS_RUNS_FILTER")" || die "smithers ps failed"
-    if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
-      summaries="$(sqlite3 -json smithers.db \
+    local db_path
+    db_path="$(se_db)"
+    if command -v sqlite3 >/dev/null 2>&1 && [[ -s $db_path ]]; then
+      summaries="$(sqlite3 -json "$db_path" \
         "SELECT verdict, run_id, branch, plan_path, report_dir, total_tokens, est_cost_usd
          FROM summary ORDER BY rowid DESC LIMIT 20")"
       [[ -n $summaries ]] || summaries="[]"
@@ -237,11 +254,13 @@ cmd_list() {
 
   # Cost per finished run comes ONLY from the run's summary output — the single
   # authoritative store (KTD6/U6); tokens are ground truth, USD is an estimate.
-  if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
+  local db_path
+  db_path="$(se_db)"
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -s $db_path ]]; then
     echo
     echo "summary (verdict | run | branch | plan | tokens | ~USD):"
     local summary_out summary_rc
-    summary_out="$(sqlite3 -separator ' | ' smithers.db \
+    summary_out="$(sqlite3 -separator ' | ' "$db_path" \
       "SELECT s.verdict, substr(s.run_id, 1, 12), s.branch,
               replace(s.plan_path, rtrim(s.plan_path, replace(s.plan_path, '/', '')), ''),
               s.total_tokens, printf('%.2f', s.est_cost_usd)
@@ -286,8 +305,10 @@ cmd_show() {
   # row and report dir still resolve, so inspect degrades to null, not a die.
   local inspect summary="[]"
   inspect="$("$SMITHERS_BIN" inspect "$run_id" --format json 2>/dev/null)" || inspect="null"
-  if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
-    summary="$(sqlite3 -json smithers.db \
+  local db_path
+  db_path="$(se_db)"
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -s $db_path ]]; then
+    summary="$(sqlite3 -json "$db_path" \
       "SELECT verdict, run_id, branch, plan_path, report_dir, total_tokens, est_cost_usd, notes
        FROM summary WHERE run_id='$run_id' LIMIT 1")"
     [[ -n $summary ]] || summary="[]"
@@ -336,9 +357,10 @@ cmd_resume() {
   # module load; resume must restore them or the resumed run would target the
   # smithers dir (cwd) instead of the original repo. The repo is persisted in
   # the run's gate0 output, so recover it from smithers.db.
-  local repo=""
-  if command -v sqlite3 >/dev/null 2>&1 && [[ -f smithers.db ]]; then
-    repo="$(sqlite3 smithers.db "SELECT repo_path FROM gate0 WHERE run_id='$run_id' LIMIT 1" 2>/dev/null || true)"
+  local repo="" db_path
+  db_path="$(se_db)"
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -s $db_path ]]; then
+    repo="$(sqlite3 "$db_path" "SELECT repo_path FROM gate0 WHERE run_id='$run_id' LIMIT 1" 2>/dev/null || true)"
   fi
   if [[ -z $repo ]]; then
     die "cannot resume $run_id: no persisted repo path found (gate0 not reached, or pre-U6 run). Re-launch with 'se pipeline' from the target repo."
@@ -377,6 +399,7 @@ main() {
     pipeline) cmd_pipeline "$@" ;;
     list) cmd_list "$@" ;;
     show) cmd_show "$@" ;;
+    db-path) se_db; echo ;;
     logs|chat|approve|deny)
       require_run_id "$cmd" "$@"
       require_runtime_dir

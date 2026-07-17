@@ -515,3 +515,17 @@ se_fixture_repo() {
   assert_output --partial "list [--json]"
   assert_output --partial "show <runId>"
 }
+
+@test "se db-path walks up past an empty runtime smithers.db (0.28 state layout)" {
+  local tmp; tmp="$(mktemp -d)"
+  mkdir -p "$tmp/parent/.smithers"
+  echo x > "$tmp/parent/smithers.db"
+  : > "$tmp/parent/.smithers/smithers.db"
+  run env SE_SMITHERS_DIR="$tmp/parent/.smithers" bash "$SE_SRC" db-path
+  assert_success
+  assert_output "$tmp/parent/smithers.db"
+  echo y > "$tmp/parent/.smithers/smithers.db"
+  run env SE_SMITHERS_DIR="$tmp/parent/.smithers" bash "$SE_SRC" db-path
+  assert_output "$tmp/parent/.smithers/smithers.db"
+  rm -rf "$tmp"
+}
