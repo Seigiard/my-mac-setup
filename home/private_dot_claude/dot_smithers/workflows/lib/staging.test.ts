@@ -7,6 +7,8 @@ import {
   acquireRepoLock,
   cleanupSnapshot,
   commitWorkGuarded,
+  git,
+  isAncestor,
   releaseRepoLock,
   runBranchName,
   slugify,
@@ -351,5 +353,22 @@ describe("commitWorkGuarded (KTD5 idempotent commit)", () => {
 
     const files = rawGit(staged.worktreePath, "show", "--name-only", "--format=", "HEAD").split("\n").filter(Boolean).sort();
     expect(files).toEqual(["brand-new.txt", "file.txt"]);
+  });
+});
+
+describe("isAncestor", () => {
+  test("прямой предок → true, обратное → false, мусорный SHA → false (fail-closed)", () => {
+    // #given репо с двумя коммитами
+    const repo = makeRepo();
+    const first = git(repo, "rev-parse", "HEAD");
+    fs.writeFileSync(path.join(repo, "b.txt"), "b");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-m", "second");
+    const second = git(repo, "rev-parse", "HEAD");
+
+    // #then
+    expect(isAncestor(repo, first, second)).toBe(true);
+    expect(isAncestor(repo, second, first)).toBe(false);
+    expect(isAncestor(repo, "0000000000000000000000000000000000000000", second)).toBe(false);
   });
 });

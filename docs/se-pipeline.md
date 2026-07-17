@@ -108,7 +108,7 @@ se resume <runId>      # продолжить после паузы/падени
 | verify-doc, work | одна доп. попытка стадии свежим узлом; для work — с условным сбросом ветки (конверт есть → нетронутая ветка, нет → reset на pre-stage SHA) |
 | secret-scan | waive: принять риск и продолжить (находка/ошибка сканера в notes) |
 | verify-code (P0) | waive: запись в notes, продолжение |
-| rescan (пост-approval) | waive: принять свои коммиты, добавленные во время verify-code паузы (красный секрет-скан/validate по новым коммитам в notes) |
+| rescan (пост-approval) | approve = ОДНА свежая попытка: пере-скан и пере-validate ТЕКУЩЕГО HEAD — рабочий цикл «закоммить фикс → approve»; коммиты, сделанные в паузе, сами попадают под скан. Скоуп `scannedHead..HEAD` (waived-находки base..scannedHead не пере-флагаются); rebase/amend рвёт ancestry → полный диапазон fail-closed. Второй красный → только стоп-с-отчётом |
 | вторая пауза того же гейта | только стоп: approve = стоп-с-отчётом, deny = fail |
 
 `deny` всегда роняет прогон. Rollback ветки не автоматизирован — откатывай
@@ -121,6 +121,22 @@ se resume <runId>      # продолжить после паузы/падени
   `se resume` печатает подсказку и вывод `smithers why`.
 - Правка исходников workflow между запуском и resume ломает resume
   (`RESUME_METADATA_MISMATCH`) — прогон перезапускается заново.
+- **0.28 state walk-up:** рантайм-дир зовётся `.smithers`, и smithers считает
+  его ЧУЖИМ state-диром → реальная БД лежит уровнем выше
+  (`~/.claude/smithers.db`). `se db-path` печатает разрезолвленный путь;
+  `se list/show/resume` ходят через него. Свежая 0.28-БД не имеет
+  `_smithers_events` до первой записи — cost-агрегация в summary fail-soft
+  (нулевая стоимость лучше упавшего прогона).
+- **Упавшая последняя задача с retries=0 не пере-запускается на resume** —
+  чинится точечно: `smithers retry-task workflows/se-pipeline.tsx
+  --run-id <id> --node-id <node>` (сбрасывает ноду и резюмит).
+- **После `se abort`** в целевом репо может остаться `.git/se-run.lock`
+  (снять руками: `rm <repo>/.git/se-run.lock`) и пустые worktree/ветка
+  (`git worktree prune`, `git branch -D se/<…>`).
+- **Шелл со старым `SE_SMITHERS_DIR`** (напр. на source-дир) заставит
+  `se pipeline` исполнять workflow из РАБОЧЕГО ДЕРЕВА этого дира — включая
+  чужие незакоммиченные правки. Проверяй `echo $SE_SMITHERS_DIR` перед
+  запуском; должен быть пуст (дефолт — рантайм).
 
 ## Провенанс и пост-approval рескан (Batch 5)
 

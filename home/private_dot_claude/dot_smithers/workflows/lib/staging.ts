@@ -206,6 +206,19 @@ export function commitWorkGuarded(worktreePath: string, message: string): boolea
 // Content hash of a ref's tree object (KTD3/KTD14 proof of work): compares
 // CONTENT, not git dirty-state, so proving that the work stage changed anything
 // is independent of how or when commits are arranged. `ref` defaults to HEAD.
+// True when `sha` is an ancestor of `of` in the repo. Used to scope the
+// post-approval rescan diff to the operator's new commits: a rebase/amend
+// during the pause breaks ancestry, and the caller falls back fail-closed to
+// the full base..HEAD range. Any git error (unknown sha) is "not an ancestor".
+export function isAncestor(cwd: string, sha: string, of: string): boolean {
+  try {
+    execFileSync("git", ["-C", cwd, "merge-base", "--is-ancestor", sha, of], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function treeHash(cwd: string, ref = "HEAD"): string {
   return git(cwd, "rev-parse", `${ref}^{tree}`);
 }

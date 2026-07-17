@@ -3,6 +3,7 @@
 // functions only classify. Degraded ≠ failed ≠ green: an unreadable envelope
 // is degraded (needs a human), a broken contract is failed (retry/approval).
 import { createHash } from "node:crypto";
+import type { SecretScanResult } from "./envelopes.ts";
 
 export type GateState = "green" | "failed" | "degraded";
 
@@ -30,17 +31,16 @@ export interface CodeReviewGateInput {
   raw: string | undefined;
 }
 
-export interface RescanScan {
-  state: "clean" | "found" | "error";
-  details: string;
-}
-
 export interface RescanReport {
   moved: boolean;
-  scan?: RescanScan;
+  scan?: SecretScanResult;
   validateExitCode?: number | null;
   scannedHead?: string;
   currentHead?: string;
+  // Diff base actually scanned: scannedHead when ancestry held (operator's new
+  // commits only — an already-waived base..scannedHead finding must not
+  // re-flag), else the full baseSha fallback (rebase/amend fail-closed).
+  scanBase?: string;
 }
 
 export interface RescanGateInput {

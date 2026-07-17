@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult } from "./lib/gates.ts";
+import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
@@ -26,6 +26,7 @@ import {
   cleanupSnapshot,
   commitWorkGuarded,
   git,
+  isAncestor,
   releaseRepoLock,
   runBranchName,
   stageRunWorktree,
@@ -156,25 +157,44 @@ function makeGetRunState(): GetRunState {
 // Per-stage token usage for this run and its subflow children, read from the
 // persisted event log (the only place 0.27.0 keeps usage — U1 verdict, е).
 function readRunUsage(runId: string): TokenUsageEvent[] {
-  const db = new Database(path.join(process.cwd(), "smithers.db"), { readonly: true });
-  try {
-    const rows = db
-      .query("SELECT payload_json FROM _smithers_events WHERE type='TokenUsageReported' AND (run_id = ?1 OR run_id LIKE ?1 || ':child:%')")
-      .all(runId) as Array<{ payload_json: string }>;
-    return rows.map((row) => {
-      const p = JSON.parse(row.payload_json) as Record<string, unknown>;
-      return {
-        nodeId: String(p.nodeId ?? "unknown"),
-        model: typeof p.model === "string" ? p.model : null,
-        inputTokens: Number(p.inputTokens ?? 0),
-        outputTokens: Number(p.outputTokens ?? 0),
-        cacheReadTokens: Number(p.cacheReadTokens ?? 0),
-        cacheWriteTokens: Number(p.cacheWriteTokens ?? 0),
-      };
-    });
-  } finally {
-    db.close();
+  // 0.28's walk-up state resolver can persist smithers.db a level ABOVE the
+  // launch dir (a runtime dir literally named `.smithers` reads as another
+  // project's state dir), and a fresh 0.28 database has no _smithers_events
+  // table until the first event lands. Cost is advisory (KTD6: tokens are the
+  // metric, USD an estimate) — the summary task must never fail the run over
+  // missing telemetry: resolve the db upward and fail soft to zero usage.
+  const cwd = process.cwd();
+  const candidates = [cwd, path.dirname(cwd)].map((d) => path.join(d, "smithers.db"));
+  for (const dbPath of candidates) {
+    let db: Database;
+    try {
+      if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0) continue;
+      db = new Database(dbPath, { readonly: true });
+    } catch {
+      continue;
+    }
+    try {
+      const rows = db
+        .query("SELECT payload_json FROM _smithers_events WHERE type='TokenUsageReported' AND (run_id = ?1 OR run_id LIKE ?1 || ':child:%')")
+        .all(runId) as Array<{ payload_json: string }>;
+      return rows.map((row) => {
+        const p = JSON.parse(row.payload_json) as Record<string, unknown>;
+        return {
+          nodeId: String(p.nodeId ?? "unknown"),
+          model: typeof p.model === "string" ? p.model : null,
+          inputTokens: Number(p.inputTokens ?? 0),
+          outputTokens: Number(p.outputTokens ?? 0),
+          cacheReadTokens: Number(p.cacheReadTokens ?? 0),
+          cacheWriteTokens: Number(p.cacheWriteTokens ?? 0),
+        };
+      });
+    } catch {
+      continue;
+    } finally {
+      db.close();
+    }
   }
+  return [];
 }
 
 function workPrompt(planPath: string, branch: string, smoke: boolean): string {
@@ -555,7 +575,7 @@ export default smithers((ctx) => {
         const scan = stageBlock({
           name: "secret-scan",
           makeAttempt: (nodeId) => (
-            <Task id={nodeId} output={outputs.agentReport} retries={0}>
+            <Task id={nodeId} output={outputs.agentReport} retries={0} bind={gate0Proof}>
               {() => {
                 const result = secretScanDiff(staged.worktreePath, staged.baseSha);
                 // scannedHead threads the SHA scanned here to the post-approval
@@ -586,7 +606,7 @@ export default smithers((ctx) => {
           const code = stageBlock({
             name: "verify-code",
             makeAttempt: (nodeId) => (
-              <Task id={nodeId} output={outputs.agentReport} agent={codeReviewAgent} retries={1}>
+              <Task id={nodeId} output={outputs.agentReport} agent={codeReviewAgent} retries={1} bind={gate0Proof}>
                 {codeReviewPrompt(staged.baseSha, staged.branch, smoke)}
               </Task>
             ),
@@ -608,10 +628,18 @@ export default smithers((ctx) => {
             // git/fs reads stay inside the closure (KTD-E render purity). Waive
             // fits the actor — the red is the operator's own commits (mirrors
             // secret-scan waive); a second red stops with a report (stageBlock).
+            // Both proofs exist by this point (secret-scan and verify-code are
+            // green behind us); binding the rescan to the scan row makes a
+            // mutated scannedHead park BOUND_STALE instead of yielding a
+            // false-clean no-op (the tamper vector the rescan itself guards).
+            const scanProof =
+              ctx.prove(outputs.agentReport, { nodeId: "secret-scan-extra" }) ??
+              ctx.prove(outputs.agentReport, { nodeId: "secret-scan" });
+            const rescanBind = [gate0Proof, scanProof].filter((b) => b !== undefined);
             const rescan = stageBlock({
               name: "rescan",
               makeAttempt: (nodeId) => (
-                <Task id={nodeId} output={outputs.agentReport} retries={0}>
+                <Task id={nodeId} output={outputs.agentReport} retries={0} bind={rescanBind as never}>
                   {() => {
                     const prior = ctx.outputMaybe("agentReport", { nodeId: "secret-scan-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "secret-scan" });
                     let scannedHead: string | undefined;
@@ -625,23 +653,34 @@ export default smithers((ctx) => {
                     const currentHead = gitHead(staged.worktreePath);
                     const moved = scannedHead === undefined || currentHead !== scannedHead;
                     if (!moved) {
-                      return { report: JSON.stringify({ moved: false, scannedHead, currentHead }) };
+                      return { report: JSON.stringify({ moved: false, scannedHead, currentHead } satisfies RescanReport) };
                     }
-                    const scan = secretScanDiff(staged.worktreePath, staged.baseSha);
+                    // Scan only the operator's new commits when ancestry holds:
+                    // base..scannedHead findings were already adjudicated (a
+                    // waived secret must not re-flag and train blind approves).
+                    // Rebase/amend during the pause breaks ancestry → full range,
+                    // fail-closed.
+                    const scanBase = scannedHead !== undefined && isAncestor(staged.worktreePath, scannedHead, "HEAD") ? scannedHead : staged.baseSha;
+                    const scan = secretScanDiff(staged.worktreePath, scanBase);
                     const validate = runValidateCmd(gate0.validateCmd, staged.worktreePath, gate0.validateTimeoutMs);
-                    return { report: JSON.stringify({ moved: true, scan, validateExitCode: validate.exitCode, scannedHead, currentHead }) };
+                    return { report: JSON.stringify({ moved: true, scan, validateExitCode: validate.exitCode, scannedHead, currentHead, scanBase } satisfies RescanReport) };
                   }}
                 </Task>
               ),
               readRaw: readAgentReport,
               gateFn: (raw) => rescanGate({ raw }),
-              waiveOnApprove: true,
+              // NOT a waive gate: approve = ONE fresh attempt that re-reads HEAD
+              // and re-scans — the natural operator flow on a red rescan is
+              // "commit the fix, approve", and the fix-commit must itself be
+              // scanned (the recursion the waive shape could never close). A
+              // second red stops with a report; commits made after the final
+              // green attempt are the documented regress stop.
+              waiveOnApprove: false,
             });
             children.push(...(rescan.nodes as never[]));
             if (rescan.status === "stopped") terminal = "stopped-after-second-failure:rescan";
             if (rescan.status === "green") {
-              if (rescan.waived) notes.push(`rescan: waived by operator (accepted own post-pause commits) — ${rescan.verdict?.reasons ?? ""}`);
-              else if (rescan.verdict?.reasons) notes.push(`rescan: ${rescan.verdict.reasons}`);
+              if (rescan.verdict?.reasons) notes.push(`rescan: ${rescan.verdict.reasons}`);
               terminal = "green";
             }
           }
@@ -662,7 +701,7 @@ export default smithers((ctx) => {
     const codeReport = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "verify-code" });
     const docResult = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
     children.push(
-      <Task id="summary" output={outputs.summary} retries={0} bind={gate0Proof}>
+      <Task id="summary" output={outputs.summary} retries={1} bind={gate0Proof}>
         {() => {
           const reportDir = path.join(os.tmpdir(), "se-pipeline", "reports", ctx.runId.slice(0, 8));
           fs.mkdirSync(reportDir, { recursive: true });
