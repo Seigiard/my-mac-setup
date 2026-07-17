@@ -170,6 +170,13 @@ export default smithers((ctx) => {
     ? new ClaudeCodeAgent({
         cwd: staged.snapshotDir,
         permissionMode: "acceptEdits",
+        // Consensus leg, not the deep one — the local personas already run on
+        // the session's top model. Sonnet matches se-pipeline verify-code and
+        // se-doc-review (which caught the Batch-5 P0s at this tier); unpinned,
+        // cost and quality float with the CLI's account default. fallbackModel
+        // rides out a Max-subscription rate-limit on the primary.
+        model: "claude-sonnet-5",
+        fallbackModel: "claude-haiku-4-5",
         timeoutMs: REVIEW_TIMEOUT_MS,
         // Circuit breaker against a runaway agent, NOT a cost target: the cap
         // re-arms on retry, so worst case ≈ 2 × this. Actual spend: grep
