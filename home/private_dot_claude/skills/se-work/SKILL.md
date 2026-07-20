@@ -56,4 +56,4 @@ While it runs, keep the session free for the user; report when the task re-invok
 
 ## Cost / time
 
-Full run ≈ verify-doc (three review envelopes) + work leg (opus) + verify-code; expect 30-90 min wall clock. Cost lands in the `se list` summary table after the run. For a quick non-durable execution of a small plan, `compound-engineering:ce-work` in-session is cheaper.
+Full run ≈ verify-doc (two external review envelopes: claude + opencode) + work leg (opus) + verify-code; expect 30-90 min wall clock. Cost lands in the `se list` summary table after the run. For a quick non-durable execution of a small plan, `compound-engineering:ce-work` in-session is cheaper.
