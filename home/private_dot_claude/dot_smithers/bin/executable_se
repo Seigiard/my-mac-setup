@@ -38,6 +38,7 @@ Commands:
   show <runId> [--json]
                        one run in depth: live status, summary verdict/branch,
                        report dir and its files. --json merges all of it
+  monitor              open the live web UI (smithers monitor, Gateway :7331)
   logs <runId>         show logs for a run
   chat <runId>         open chat for a run
   approve <runId>      approve a paused run (continue past the gate)
@@ -404,6 +405,9 @@ main() {
       require_run_id "$cmd" "$@"
       require_runtime_dir
       smithers_run "$cmd" "$@" ;;
+    monitor)
+      require_runtime_dir
+      smithers_run monitor "$@" ;;
     abort)
       require_run_id abort "$@"
       require_runtime_dir
