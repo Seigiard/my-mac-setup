@@ -183,6 +183,9 @@ if [[ "$OS" == "macos" ]]; then
   alias mnt-andrew='open "smb://andrew@home.local/andrew"'
   alias unmnt-public='diskutil unmount /Volumes/public'
   alias unmnt-andrew='diskutil unmount /Volumes/andrew'
+
+  # herdr-web bridge for phone access over tailscale (enable tailscale first)
+  [ -x "$HOME/.local/share/herdr-web/start-bridge.sh" ] && alias hweb="$HOME/.local/share/herdr-web/start-bridge.sh"
 fi
 
 # -------------------------------------------
