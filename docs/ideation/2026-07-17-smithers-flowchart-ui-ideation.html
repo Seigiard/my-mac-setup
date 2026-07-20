@@ -1,0 +1,214 @@
+<title>Ideation: Flow-chart UI для smithers/se-pipeline</title>
+<style>
+  :root {
+    --bg: #fafaf8; --fg: #1a1a1e; --muted: #6b6b74; --line: #e3e3de;
+    --card: #ffffff; --accent: #2456c4; --accent-soft: #eaf0fc; --accent-text: #1c3f92;
+    --warn-soft: #fdf3e4; --warn-text: #8a5a10; --ok-soft: #e8f5ea; --ok-text: #1f6b34;
+    --bad-soft: #fbeaea; --bad-text: #9c2626; --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --fg: #e8e8ec; --muted: #9a9aa4; --line: #2c2c34;
+      --card: #1e1e24; --accent: #7ba3f0; --accent-soft: #1d2a45; --accent-text: #a8c2f5;
+      --warn-soft: #3a2d14; --warn-text: #e3b96a; --ok-soft: #16301c; --ok-text: #7fc78f;
+      --bad-soft: #3a1d1d; --bad-text: #e08c8c;
+    }
+  }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+         max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: .2rem 0 .3rem; }
+  h2 { font-size: 1.25rem; margin: 2.2rem 0 .8rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+  p, li, dd { max-width: 72ch; }
+  code { font-family: var(--mono); font-size: .86em; background: var(--accent-soft); color: var(--accent-text);
+         padding: .08em .35em; border-radius: 4px; }
+  .meta { color: var(--muted); font-size: .85rem; display: flex; gap: 1.2rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+  .eyebrow { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; gap: .45rem; flex-wrap: wrap; margin: .35rem 0 .8rem; }
+  .chip { font-size: .74rem; padding: .18rem .6rem; border-radius: 999px; border: 1px solid var(--line); }
+  .chip.axis { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+  .chip.conf { background: var(--ok-soft); color: var(--ok-text); border-color: transparent; }
+  .chip.conf.mid { background: var(--warn-soft); color: var(--warn-text); }
+  .chip.cx { background: var(--card); color: var(--muted); }
+  article.idea { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+                 padding: 1.1rem 1.3rem; margin: 1rem 0; }
+  article.idea h3 { margin: 0 0 .2rem; font-size: 1.06rem; }
+  dl.fields { margin: .7rem 0 0; }
+  dl.fields dt { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: .65rem; }
+  dl.fields dd { margin: .15rem 0 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .jump { font-size: .9rem; columns: 2; column-gap: 2rem; padding-left: 1.2rem; }
+  .jump a { color: var(--accent); text-decoration: none; }
+  .axes li { margin: .25rem 0; }
+  figure { margin: 1rem 0 .3rem; overflow-x: auto; }
+  figcaption { font-size: .78rem; color: var(--muted); margin-top: .25rem; }
+  footer.composition-signal { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line);
+                              font-size: .78rem; color: var(--muted); }
+  svg text { font-family: var(--mono); }
+</style>
+
+<span class="eyebrow">Ideation · repo-grounded</span>
+<h1>Flow-chart UI для smithers-воркфлоу (se-pipeline)</h1>
+<div class="meta">
+  <span>date: 2026-07-17</span>
+  <span>topic: smithers-flowchart-ui</span>
+  <span>mode: repo-grounded</span>
+</div>
+<p><strong>Focus:</strong> открыть интерфейс и (а) просматривать/настраивать флоу — какие шаги какими агентами выполняются, какие развилки решений есть; (б) там же видеть запущенные флоу как flow-chart с подсветкой текущего этапа и ценами за выполненные шаги.</p>
+
+<h2 id="grounding-context">Grounding Context</h2>
+<p><strong>Codebase Context.</strong> se-pipeline — durable-конвейер (verify-doc → work → secret-scan → verify-code → rescan) на smithers-orchestrator 0.28; воркфлоу — JSX/TSX-деревья, рендерящиеся динамически в рантайме; состояние в sqlite. Все 5 стадий построены одним шаблоном <code>stageBlock()</code> (попытка → гейт green/failed/degraded → Approval-развилка → доп. попытка → stop-only Approval). У smithers уже есть: <code>smithers graph</code> (статический скелет первого рендера — <em>без</em> развилок и Approval-рёбер), <code>smithers monitor</code>/<code>gui</code> (живой web-UI, Gateway на :7331), TUI-режимы, <code>observability</code> (локальный Grafana-стек). Gateway отдаёт готовые React-хуки (<code>useGatewayRunTree</code> с инкрементальной сверкой дерева, <code>useGatewayRunEvents</code> с seq-номерами, <code>useGatewayApprovals</code> + <code>submitApproval</code>) — настоящая подписка, не поллинг. Стоимость: события <code>TokenUsageReported</code> ложатся в <code>_smithers_events</code> по nodeId <em>во время</em> прогона (верифицировано: движок «feeds it live events» для бюджет-трекера); summary-строка хранит <code>stageUsage</code> (разбивка по нодам) и <code>planHash</code> — обе колонки нигде не отображаются. Редактируемость: рантайм-инпуты (validateCmd, таймауты, бюджет work) против запиненных в TSX констант (модели, review-бюджет, waiveOnApprove); правка исходников ломает resume in-flight прогонов (<code>RESUME_METADATA_MISMATCH</code>).</p>
+<p><strong>External context.</strong> Жёсткий водораздел в prior art: code-first движки (Temporal, Airflow, Dagster, Prefect) рендерят граф только как read-only проекцию кода; двунаправленное редактирование есть у Windmill и LangGraph Studio — оба ценой ограничения авторинга сериализуемым пошаговым форматом, чем runtime-JSX smithers не является. Паттерны: waterfall-бары Inngest (обобщаются на стоимость), трейс-вью LangSmith с per-step cost, OTel GenAI semconv. «Атрибуция — какой шаг/агент сжёг деньги — то, что observability-стеки делают хуже всего».</p>
+<p><em>Past learnings: docs/solutions/ в репо отсутствует. Web-research: свежий диспатч (кэша не было).</em></p>
+
+<h2 id="topic-axes">Topic Axes</h2>
+<ul class="axes">
+  <li><strong>static-graph</strong> — статический граф воркфлоу: структура, развилки, агенты по шагам</li>
+  <li><strong>live-run-control</strong> — live-наблюдение прогона и управление (подсветка стадии, approvals)</li>
+  <li><strong>flow-editing</strong> — редактирование/конфигурирование флоу</li>
+  <li><strong>per-step-cost</strong> — стоимость по шагам: оверлеи, агрегаты, live</li>
+</ul>
+
+<h2 id="ranked-ideas">Ranked Ideas</h2>
+<ul class="jump">
+  <li><a href="#idea1">1. Полный граф развилок из stageBlock-шаблона</a></li>
+  <li><a href="#idea2">2. Замороженный граф-артефакт прогона со стоимостью по шагам</a></li>
+  <li><a href="#idea3">3. Пульт поверх monitor: push + andon + sparkline</a></li>
+</ul>
+
+<article class="idea" id="idea1">
+  <h3>1. Полный граф развилок из stageBlock-шаблона</h3>
+  <div class="chips"><span class="chip axis">static-graph</span><span class="chip conf">Confidence 85%</span><span class="chip cx">Complexity: Medium</span></div>
+  <p><strong>Description:</strong> Все пять стадий — вызовы одного шаблона <code>stageBlock()</code> (ровно 5 call-sites: se-pipeline.tsx:478/528/575/606/639) с параметрами-литералами. Экстрактор (~100–200 строк) один раз материализует <em>полный</em> граф: попытка → 3-путевой вердикт гейта (green/failed/degraded) → Approval (approve/deny) → доп. попытка → stop-only Approval — все рёбра, которые <code>smithers graph</code> структурно не может показать (он видит только скелет первого рендера). На нодах — «call sheet»: модель + фолбэк, таймаут, бюджет-предохранитель, waiveOnApprove. Выхлоп — Mermaid/SVG + JSON; CI-проверка, что закоммиченный граф не разъехался с кодом (и с runbook-таблицей семантик approve). Опциональный оверлей: эмпирические частоты рёбер из истории прогонов («approve на work сработал в 4/9 прогонов», неисхоженные ветки — пунктиром).</p>
+  <figure>
+  <svg viewBox="0 0 760 150" width="760" height="150" role="img" aria-label="Автомат одной стадии stageBlock">
+    <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker></defs>
+    <g fill="none" stroke="currentColor" stroke-width="1.2" color="var(--muted)">
+      <rect x="8" y="55" width="92" height="34" rx="6"/>
+      <path d="M158 72 l30 -32" marker-end="url(#ar)"/>
+      <path d="M158 72 h34" marker-end="url(#ar)"/>
+      <path d="M158 72 l30 32" marker-end="url(#ar)"/>
+      <polygon points="128,50 158,72 128,94 98,72" transform="translate(30 0)"/>
+      <rect x="232" y="88" width="104" height="34" rx="6"/>
+      <path d="M100 72 h24" marker-end="url(#ar)"/>
+      <path d="M336 105 h34" marker-end="url(#ar)"/>
+      <rect x="374" y="88" width="112" height="34" rx="6"/>
+      <path d="M486 105 h30" marker-end="url(#ar)"/>
+      <polygon points="546,83 576,105 546,127 516,105"/>
+      <path d="M576 105 h30" marker-end="url(#ar)"/>
+      <rect x="610" y="88" width="120" height="34" rx="6"/>
+      <rect x="232" y="10" width="104" height="34" rx="6"/>
+      <path d="M196 38 h32" transform="translate(0 -6)" marker-end="url(#ar)"/>
+    </g>
+    <g font-size="11" fill="var(--fg)">
+      <text x="20" y="76">attempt</text>
+      <text x="128" y="76">gate</text>
+      <text x="244" y="32">green ✓</text>
+      <text x="244" y="109">Approval</text>
+      <text x="386" y="109">extra attempt</text>
+      <text x="536" y="109">gate</text>
+      <text x="620" y="109">stop-Approval</text>
+    </g>
+    <g font-size="10" fill="var(--muted)">
+      <text x="196" y="30">green</text>
+      <text x="168" y="68">failed/</text>
+      <text x="168" y="80">degraded</text>
+      <text x="340" y="99">approve</text>
+      <text x="580" y="99">red</text>
+    </g>
+  </svg>
+  <figcaption>Автомат одной стадии — штампуется 5 раз; это и есть граф, который сегодня негде увидеть. Иллюстративно, не спецификация.</figcaption>
+  </figure>
+  <p><strong>Где смотреть (решение оператора, поверхности не исключают друг друга):</strong> (a) команда <code>se graph</code> — генерит self-contained SVG/HTML и открывает в браузере (паттерн reportDir, ноль инфраструктуры); (b) закоммиченный <code>docs/se-pipeline-graph.html</code> рядом с раннбуком + CI-гейт против дрейфа с кодом; (c) страница поверх monitor — только если жить в нём. Рекомендация: a+b от одного генератора. Приём из custom-harness: layout-хинты (позиции нод) — отдельные персистентные данные рядом с исходником, не автолэйаут на каждый рендер.</p>
+  <dl class="fields">
+    <dt>Basis</dt><dd><code>direct:</code> «smithers graph … Does NOT render conditional children (only first-render skeleton) … Does NOT show approval forks» (evidence-graph-structure); 5 call-sites stageBlock верифицированы построчно; параметры — литералы (name, gateFn, waiveOnApprove). Модели/бюджеты: se-pipeline.tsx:104–110, review <code>maxBudgetUsd: 15</code>.</dd>
+    <dt>Rationale</dt><dd>Это прямой ответ на обе половины вопроса (а): «какие шаги какими агентами» и «какие развилки есть». Сегодня ответ существует только в голове + TSX. Дыра не в рендеринге, а в том, что единственный штатный инструмент структурно не исследует условное дерево — а авторы конвейера, сами того не заметив, уже ограничили себя сериализуемым шаблоном, так что граф извлекается статически, без исполнения воркфлоу. Один раз построенный, этот граф — подложка для всех остальных идей (live-подсветка, cost-бейджи, артефакт прогона).</dd>
+    <dt>Downsides</dt><dd>Экстрактор привязан к конвенции stageBlock — новый воркфлоу «не по шаблону» потребует расширения; эмпирический оверлей требует майнинга _smithers_events (не проверен на масштабе).</dd>
+    <dt>Confidence</dt><dd>85%</dd>
+    <dt>Complexity</dt><dd>Medium</dd>
+  </dl>
+</article>
+
+<article class="idea" id="idea2">
+  <h3>2. Замороженный граф-артефакт прогона со стоимостью по шагам</h3>
+  <div class="chips"><span class="chip axis">static-graph</span><span class="chip conf">Confidence 80%</span><span class="chip cx">Complexity: Medium</span></div>
+  <p><strong>Description:</strong> UI не обязан быть приложением. Summary-таск (он уже агрегирует usage и пишет отчёты) дополнительно рендерит один self-contained HTML/SVG: граф из идеи №1 с подсвеченным фактическим путём — вердикты гейтов, waives, и <strong>$-бейджи по нодам</strong> из <code>stageUsage</code> с анфолдом <code>:child:</code>-legs (claude vs opencode ревью — по отдельности, а не одним свёрнутым числом). Токены — первичная метрика, USD — мелко (раннбук: USD — оценка, не биллинг). Бонус-слой: бар «расход против приора» — медианы стадий по прошлым прогонам, аномалия видна на глаз. Файл ложится в reportDir рядом с work.envelope.json, <code>se show</code> его перечисляет; открывается через годы без Gateway и живой версии smithers. Решение оператора: live-тикание НЕ нужно — запись в граф законченного воркфлоу достаточна. Шаг 0 (не дожидаясь графа): распарсить <code>stageUsage</code> в <code>se show</code> — одна строка, разбивка по стадиям появляется в CLI сегодня. Готового артефакта пока не существует; данные для прототипа лежат готовые (summary + stageUsage эталонных прогонов в smithers.db).</p>
+  <figure>
+  <svg viewBox="0 0 700 120" width="700" height="120" role="img" aria-label="Расход стадий против приоров">
+    <g font-size="11" fill="var(--fg)">
+      <text x="8" y="26">verify-doc</text><text x="8" y="56">work</text><text x="8" y="86">verify-code</text>
+    </g>
+    <g>
+      <rect x="110" y="14" width="180" height="14" rx="3" fill="var(--accent-soft)"/>
+      <rect x="110" y="14" width="150" height="14" rx="3" fill="var(--accent)" opacity=".65"/>
+      <rect x="110" y="44" width="340" height="14" rx="3" fill="var(--accent-soft)"/>
+      <rect x="110" y="44" width="420" height="14" rx="3" fill="var(--warn-text)" opacity=".7"/>
+      <rect x="110" y="74" width="230" height="14" rx="3" fill="var(--accent-soft)"/>
+      <rect x="110" y="74" width="80" height="14" rx="3" fill="var(--accent)" opacity=".65"/>
+    </g>
+    <g font-size="10" fill="var(--muted)">
+      <text x="298" y="25">0.9× медианы</text>
+      <text x="538" y="55">1.6× — amber, идёт сейчас</text>
+      <text x="348" y="85">в процессе</text>
+      <text x="110" y="112">светлый фон = медиана стадии по истории (stageUsage); заливка = этот прогон</text>
+    </g>
+  </svg>
+  <figcaption>Расход против приора в замороженном артефакте: аномалия видна на глаз. Иллюстративно.</figcaption>
+  </figure>
+  <dl class="fields">
+    <dt>Basis</dt><dd><code>direct:</code> summary персистит <code>stageUsage: JSON.stringify(usage.stages)</code> и <code>planHash</code>; «Report dir and files enumerated from filesystem» в se show; gap-таблица evidence-cost-data («stageUsage … never parsed/displayed»; «child-run cost folding opaque»). <code>external:</code> compound-бары Inngest; custom-harness: SQLite смизерса как единая read-model для UI.</dd>
+    <dt>Rationale</dt><dd>Прямой ответ на «цены за выполненные шаги» + пост-мортемы («что реально сделал тот прогон за $8») переживают любой живой UI. Атрибуция — какой лег сжёг бюджет — уже посчитана и лежит мёртвым грузом в колонке. Естественная вторая половина идеи №1: тот же граф, но с историей конкретного прогона; готовая единица сравнения для F3.</dd>
+    <dt>Downsides</dt><dd>Не live (снимок на момент завершения — принято оператором сознательно); шаблон надо поддерживать при изменении структуры конвейера (смягчается генерацией из графа №1); приоры требуют нескольких прогонов истории.</dd>
+    <dt>Confidence</dt><dd>80%</dd>
+    <dt>Complexity</dt><dd>Medium</dd>
+  </dl>
+</article>
+
+<article class="idea" id="idea3">
+  <h3>3. Пульт поверх monitor: push + andon + sparkline</h3>
+  <div class="chips"><span class="chip axis">live-run-control</span><span class="chip conf mid">Confidence 65%</span><span class="chip cx">Complexity: Medium</span></div>
+  <p><strong>Description:</strong> Ключевая находка проверки: инбокс approvals с consequence-текстом <em>уже встроен</em> в <code>smithers monitor</code> (ApprovalsInbox рендерит request.title/summary — строки, которые se-pipeline уже генерит: «approve to WAIVE and continue…»). Строить надо только то, чего там нет, и это три тонких куска поверх готовых хуков: (1) <strong>push</strong> — OS-уведомление на invalidate approvals-коллекции («runs page the operator»: work идёт часами, смотреть на граф — не режим соло-оператора); (2) <strong>andon</strong> — карточка «почему запарковано» для BOUND_STALE/крашей: подсветить ребро привязки gate0 → bound-ноды с digest mismatch и легальными действиями, вместо ручного <code>smithers why</code> + раннбук; (3) <strong>sparkline</strong> — прогон как строка из 5 клеток-стадий (цвет = вердикт, бейдж = пауза) — плотная замена <code>se list</code>; полный граф — это zoom, не домашний экран.</p>
+  <figure>
+  <svg viewBox="0 0 640 84" width="640" height="84" role="img" aria-label="Sparkline-строки прогонов">
+    <g font-size="10" fill="var(--muted)"><text x="8" y="14">runId</text><text x="150" y="14">doc</text><text x="205" y="14">work</text><text x="260" y="14">scan</text><text x="315" y="14">code</text><text x="370" y="14">rescan</text><text x="440" y="14">status</text></g>
+    <g font-size="11" fill="var(--fg)">
+      <text x="8" y="38" font-family="var(--mono)">…21992328</text>
+      <g><rect x="145" y="26" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="200" y="26" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="255" y="26" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="310" y="26" width="48" height="16" rx="3" fill="var(--warn-soft)"/><rect x="365" y="26" width="48" height="16" rx="3" fill="var(--card)" stroke="var(--line)"/></g>
+      <text x="440" y="38" fill="var(--warn-text)" font-size="10">⏸ waiting-approval (P0)</text>
+      <text x="8" y="66" font-family="var(--mono)">…04259645</text>
+      <g><rect x="145" y="54" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="200" y="54" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="255" y="54" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="310" y="54" width="48" height="16" rx="3" fill="var(--ok-soft)"/><rect x="365" y="54" width="48" height="16" rx="3" fill="var(--ok-soft)"/></g>
+      <text x="440" y="66" fill="var(--ok-text)" font-size="10">✓ green</text>
+    </g>
+  </svg>
+  <figcaption>Прогон = строка, граф = zoom. Иллюстративно.</figcaption>
+  </figure>
+  <dl class="fields">
+    <dt>Basis</dt><dd><code>direct:</code> опровержение C/D верификатором (monitor.tsx:288–369 ApprovalsInbox; serializeApprovalRow маппит request.title/summary) — значит, строить надо только дельту; exit 3 = durable wait; ProofBinding/BOUND_STALE подтверждён. <code>external:</code> доноры из awesome-smithers: burns — approval как первоклассное состояние UI, не строка лога (+ workspace-registry на N реп, актуально при выходе на репы integration.app); svvy — lane-метафора (strategy-lane + bounded execution-lanes) для группировки sparkline по стадиям. <code>reasoned:</code> ритм соло-оператора — часы автономии, секунды решения; дашборд-поза чужая.</dd>
+    <dt>Rationale</dt><dd>Дельта против встроенного — то, что реально болит: узнать о паузе не открывая ничего, понять «почему стоит» за один взгляд, видеть флот в 10 строк. Каждый кусок независим и мал.</dd>
+    <dt>Downsides</dt><dd>Ценность зависит от того, чего не хватает именно <em>тебе</em> в monitor — сперва неделю пожить в нём (см. Rejection Summary); риск дублировать то, что smithers доделает сам (192 открытых issue, UI-темы среди них).</dd>
+    <dt>Confidence</dt><dd>65%</dd>
+    <dt>Complexity</dt><dd>Medium</dd>
+  </dl>
+</article>
+
+<h2 id="rejection-summary">Rejection Summary</h2>
+<p>47 сырых идей от 5 фреймов → 23 кластера после дедупа → 6 выживших после верификации → <strong>3 после обсуждения с оператором</strong> (2026-07-17). Верификатор (свежий контекст) опроверг два кластера чтением исходников monitor-ui и усилил один чтением движка.</p>
+<table>
+  <tr><th>#</th><th>Idea</th><th>Reason rejected</th></tr>
+  <tr><td>C</td><td>Consequence-текст на кнопке Approve</td><td><strong>Опровергнуто:</strong> встроенный ApprovalsInbox монитора уже рендерит request.title/summary — строки уже генерятся se-pipeline и уже показываются</td></tr>
+  <tr><td>D</td><td>Cross-run approval-инбокс</td><td>Уже встроен в monitor (approve/deny по всем прогонам); новизна (push, mobile, sparkline) переехала в идею №3</td></tr>
+  <tr><td>F/G1</td><td>Launch-форма из zod-схемы + замки resume-safety + промоция констант в ctx.input</td><td>Отклонено оператором: при внятном просмотрщике флоу правки делаются где угодно (код, CLI) — UI нужен для просмотра, не для редактирования. Ось flow-editing закрыта сознательно</td></tr>
+  <tr><td>K</td><td>planHash как cross-run ключ истории плана</td><td>Снято оператором: тангенциально фокусу (история прогонов, не flow-chart UI); факт «неиспользуемый join-key» остаётся верным — место идеи в инструментах F3-сравнений</td></tr>
+  <tr><td>G2/S3</td><td>Pipeline-манифест как источник истины (Windmill-приём)</td><td>Архитектурная ставка не по размеру соло-оператора; вернуться, если редактирование за пределами inputs станет реальной потребностью</td></tr>
+  <tr><td>Q</td><td>Авто-тюнинг перезапуска из reasons гейта</td><td>Scope overrun: автоматизация воркфлоу, не UI; reasons — свободный текст, нужен LLM-шаг интерпретации</td></tr>
+  <tr><td>N</td><td>OTel GenAI-мост для стоимости</td><td>Большой лифт, частично дублирует готовый <code>smithers observability</code>; отложено</td></tr>
+  <tr><td>L/M</td><td>«Gateway как бэкенд», типовой run-manifest</td><td>Не идеи, а доктрина реализации — вошла в подход идей №1–5 (UI = тонкий клиент над готовыми хуками; nodeId — общий ключ)</td></tr>
+  <tr><td>B, H, O, A2, P, J</td><td>Call-sheet нод; распарсить stageUsage; артефакт в reportDir; эмпирические рёбра; токены-vs-USD; анфолд child-legs</td><td>Влиты в выживших №1 и №2 как составные части</td></tr>
+  <tr><td>I</td><td>Live-тикание стоимости на работающем прогоне</td><td>Отклонено оператором при обсуждении (2026-07-17): запись стоимости в граф законченного воркфлоу достаточна; live-часть не нужна. Техвозможность подтверждена (события уже текут через useGatewayRunEvents) — вернуться легко, если понадобится</td></tr>
+  <tr><td>—</td><td>smithersai/tui как источник паттернов</td><td>False positive: описание в awesome-smithers преувеличивает связь со smithers; нерелевантен</td></tr>
+  <tr><td>—</td><td>Общая предпосылка «UI нет вообще»</td><td>Скорректирована граундингом: <code>smithers monitor/gui/TUI/observability</code> существуют; выжившие строят дельту, а не дубль. Практический шаг 0 всего сета: неделю пожить в <code>smithers monitor</code> и записать, чего не хватило</td></tr>
+</table>
+<p><em>Покрытие осей: static-graph — №1, №2; live-run-control — №3; per-step-cost — №2. Ось flow-editing — ноль выживших, сознательный пробел по решению оператора: UI — просмотр, правки — в коде.</em></p>
+
+<footer class="composition-signal">Composed 2026-07-17 by ce-ideate (repo-grounded) from focus «flow-chart UI для smithers-воркфлоу» · grounding: 2 scouts + 4 evidence dossiers + web digest · verification: fresh-context basis check (2 кластера опровергнуты, 1 усилен)</footer>

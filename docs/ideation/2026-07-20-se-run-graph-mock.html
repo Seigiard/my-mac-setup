@@ -1,0 +1,229 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>se-pipeline · run-1784221992328 · замороженный граф (мок)</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --line: #d1d5db;
+  --card: #f9fafb; --green: #16a34a; --green-bg: #dcfce7;
+  --red: #dc2626; --red-bg: #fee2e2; --amber: #d97706; --amber-bg: #fef3c7;
+  --ghost: #9ca3af; --accent: #2563eb; --bar: #93c5fd;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418; --fg: #e5e7eb; --muted: #9ca3af; --line: #374151;
+    --card: #1a1f26; --green: #4ade80; --green-bg: #14331f;
+    --red: #f87171; --red-bg: #3b1518; --amber: #fbbf24; --amber-bg: #3a2c0d;
+    --ghost: #6b7280; --accent: #60a5fa; --bar: #1e40af;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --line: #d1d5db;
+  --card: #f9fafb; --green: #16a34a; --green-bg: #dcfce7;
+  --red: #dc2626; --red-bg: #fee2e2; --amber: #d97706; --amber-bg: #fef3c7;
+  --ghost: #9ca3af; --accent: #2563eb; --bar: #93c5fd;
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --fg: #e5e7eb; --muted: #9ca3af; --line: #374151;
+  --card: #1a1f26; --green: #4ade80; --green-bg: #14331f;
+  --red: #f87171; --red-bg: #3b1518; --amber: #fbbf24; --amber-bg: #3a2c0d;
+  --ghost: #6b7280; --accent: #60a5fa; --bar: #1e40af;
+}
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, "SF Pro Text", Segoe UI, sans-serif; margin: 0; padding: 2rem 1rem 4rem; }
+main { max-width: 880px; margin: 0 auto; }
+h1 { font-size: 1.35rem; margin: 0 0 .3rem; }
+h2 { font-size: 1.05rem; margin: 2.2rem 0 .8rem; }
+.meta { display: grid; grid-template-columns: auto 1fr; gap: .15rem 1rem; font-size: .85rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1.1rem; margin: 1rem 0 1.5rem; }
+.meta dt { color: var(--muted); white-space: nowrap; }
+.meta dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; overflow-wrap: anywhere; }
+.verdict { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-weight: 600; font-size: .8rem; background: var(--green-bg); color: var(--green); }
+.waived { background: var(--amber-bg); color: var(--amber); margin-left: .4rem; }
+figure { margin: 0; overflow-x: auto; }
+svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+svg text { font: 13px -apple-system, "SF Pro Text", Segoe UI, sans-serif; fill: var(--fg); }
+svg .small { font-size: 11px; fill: var(--muted); }
+svg .mono { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+svg .cost { font-family: ui-monospace, Menlo, monospace; font-size: 11px; fill: var(--fg); }
+svg .usd { fill: var(--muted); font-size: 10px; }
+svg .node { fill: var(--card); stroke: var(--line); stroke-width: 1.2; }
+svg .g { stroke: var(--green); }
+svg .r { stroke: var(--red); }
+svg .a { stroke: var(--amber); }
+svg .chip-g { fill: var(--green-bg); } svg .tg { fill: var(--green); font-weight: 600; font-size: 11px; }
+svg .chip-r { fill: var(--red-bg); } svg .tr { fill: var(--red); font-weight: 600; font-size: 11px; }
+svg .chip-a { fill: var(--amber-bg); } svg .ta { fill: var(--amber); font-weight: 600; font-size: 11px; }
+svg .edge { stroke: var(--fg); stroke-width: 1.6; fill: none; }
+svg .taken-r { stroke: var(--red); } svg .taken-a { stroke: var(--amber); }
+svg .ghost, svg .ghost-box { stroke: var(--ghost); stroke-dasharray: 4 4; opacity: .55; }
+svg .ghost-box { fill: none; }
+svg .ghost-t { fill: var(--ghost); font-size: 10.5px; }
+table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+th, td { text-align: left; padding: .4rem .7rem; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; }
+td.n, th.n { text-align: right; font-family: ui-monospace, Menlo, monospace; font-size: .8rem; }
+.bar { height: 8px; border-radius: 4px; background: var(--bar); min-width: 2px; }
+.child td:first-child { padding-left: 1.8rem; color: var(--muted); }
+footer { margin-top: 2.5rem; font-size: .75rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: .8rem; }
+</style>
+<main>
+<h1>se-pipeline · замороженный граф прогона <span style="font-family:ui-monospace,Menlo,monospace">run-1784221992328</span></h1>
+<div><span class="verdict">verdict: green</span><span class="verdict waived">verify-code P0 waived оператором</span></div>
+
+<dl class="meta">
+  <dt>план</dt><dd>docs/plans/2026-07-16-001-feat-se-pipeline-provenance-rescan-plan.md</dd>
+  <dt>ветка</dt><dd>se/2026-07-16-001-feat-se-pipeline-provenan-21992328</dd>
+  <dt>base → head</dt><dd>41a6771 → baadd57</dd>
+  <dt>until</dt><dd>branch (pr не запрошен)</dd>
+  <dt>validate-cmd</dt><dd>cd home/private_dot_claude/dot_smithers && bun install --frozen-lockfile && bun test && bun build … (derived из Verification Contract плана)</dd>
+  <dt>итого</dt><dd>7 354 501 tok · ~$4.80 · завершён 2026-07-17</dd>
+</dl>
+
+<figure>
+<svg viewBox="0 0 860 1210" width="860" role="img" aria-label="Граф прогона se-pipeline: путь через стадии с вердиктами гейтов и стоимостью">
+<defs>
+  <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+    <path d="M1,1 L8,4.5 L1,8" fill="none" stroke="context-stroke" stroke-width="1.5"/>
+  </marker>
+</defs>
+
+<!-- ============ gate-0 ============ -->
+<rect class="node g" x="70" y="20" width="330" height="66" rx="10"/>
+<text x="86" y="44" font-weight="600">gate-0 · provenance</text>
+<rect class="chip-g" x="310" y="32" width="74" height="18" rx="9"/><text class="tg" x="322" y="45">bound</text>
+<text class="small" x="86" y="64">plan-hash fe410d74… закреплён; validate-cmd derived</text>
+<text class="small" x="86" y="78">из Verification Contract</text>
+
+<line class="edge" x1="235" y1="86" x2="235" y2="122" marker-end="url(#ah)"/>
+
+<!-- ============ verify-doc ============ -->
+<rect class="node g" x="70" y="124" width="330" height="88" rx="10"/>
+<text x="86" y="148" font-weight="600">verify-doc</text>
+<rect class="chip-g" x="310" y="136" width="74" height="18" rx="9"/><text class="tg" x="324" y="149">green</text>
+<text class="small" x="86" y="168">2 конверта: claude + opencode (child-run, каждый —</text>
+<text class="small" x="86" y="182">полный plugin-workflow на своей модели)</text>
+<text class="cost" x="86" y="202">421 435 tok <tspan class="usd">· ~$0.59</tspan></text>
+
+<!-- child legs unfold -->
+<line class="edge ghost" x1="400" y1="168" x2="460" y2="168" marker-end="url(#ah)"/>
+<rect class="ghost-box" x="462" y="130" width="330" height="88" rx="10"/>
+<text x="478" y="152" font-weight="600" font-size="12">:child:verify-doc — ноги</text>
+<text class="mono" x="478" y="176">review-claude     219 195 tok · ~$0.34 · ok</text>
+<text class="mono" x="478" y="196">review-opencode   202 240 tok · ~$0.25 · ok</text>
+
+<!-- ghost fork at green gate -->
+<line class="edge ghost" x1="400" y1="196" x2="460" y2="252" marker-end="url(#ah)"/>
+<rect class="ghost-box" x="462" y="240" width="240" height="40" rx="8"/>
+<text class="ghost-t" x="476" y="257">failed / degraded → Approval</text>
+<text class="ghost-t" x="476" y="271">(развилка не сработала)</text>
+
+<line class="edge" x1="235" y1="212" x2="235" y2="248" marker-end="url(#ah)"/>
+
+<!-- ============ work ============ -->
+<rect class="node g" x="70" y="250" width="330" height="88" rx="10"/>
+<text x="86" y="274" font-weight="600">work · opus</text>
+<rect class="chip-g" x="310" y="262" width="74" height="18" rx="9"/><text class="tg" x="324" y="275">green</text>
+<text class="small" x="86" y="294">гейт: validate-cmd в run-worktree (10 мин cap)</text>
+<text class="cost" x="86" y="316">4 826 406 tok <tspan class="usd">· ~$3.29 · 66% прогона</tspan></text>
+
+<line class="edge ghost" x1="400" y1="294" x2="460" y2="360" marker-end="url(#ah)"/>
+<rect class="ghost-box" x="462" y="348" width="240" height="40" rx="8"/>
+<text class="ghost-t" x="476" y="365">failed / degraded → Approval</text>
+<text class="ghost-t" x="476" y="379">(развилка не сработала)</text>
+
+<line class="edge" x1="235" y1="338" x2="235" y2="374" marker-end="url(#ah)"/>
+
+<!-- ============ secret-scan ============ -->
+<rect class="node g" x="70" y="376" width="330" height="66" rx="10"/>
+<text x="86" y="400" font-weight="600">secret-scan · gitleaks</text>
+<rect class="chip-g" x="310" y="388" width="74" height="18" rx="9"/><text class="tg" x="324" y="401">green</text>
+<text class="small" x="86" y="420">коммиты ветки чисты; кост не тарифицируется (CLI)</text>
+
+<line class="edge ghost" x1="400" y1="409" x2="460" y2="466" marker-end="url(#ah)"/>
+<rect class="ghost-box" x="462" y="454" width="240" height="40" rx="8"/>
+<text class="ghost-t" x="476" y="471">failed → Approval</text>
+<text class="ghost-t" x="476" y="485">(развилка не сработала)</text>
+
+<line class="edge" x1="235" y1="442" x2="235" y2="478" marker-end="url(#ah)"/>
+
+<!-- ============ verify-code ============ -->
+<rect class="node r" x="70" y="480" width="330" height="106" rx="10"/>
+<text x="86" y="504" font-weight="600">verify-code · sonnet</text>
+<rect class="chip-r" x="310" y="492" width="74" height="18" rx="9"/><text class="tr" x="322" y="505">failed</text>
+<text class="small" x="86" y="524">гейт: 3 P0 finding(s) — gate requires P0 = 0 (KTD3)</text>
+<text class="small" x="86" y="540">P1 = 0</text>
+<text class="cost" x="86" y="564">2 106 660 tok <tspan class="usd">· ~$0.92 · 29% прогона</tspan></text>
+
+<!-- taken fork: failed -> approval -->
+<path class="edge taken-r" d="M 400 533 C 450 533, 470 620, 500 640" marker-end="url(#ah)"/>
+<text class="tr" x="428" y="576">failed</text>
+
+<rect class="node a" x="462" y="642" width="330" height="96" rx="10"/>
+<text x="478" y="666" font-weight="600">Approval · approve-verify-code-1</text>
+<rect class="chip-a" x="690" y="654" width="90" height="18" rx="9"/><text class="ta" x="700" y="667">approved</text>
+<text class="small" x="478" y="686">оператор: waive P0 → продолжить</text>
+<text class="small" x="478" y="702">2026-07-17 07:35 UTC</text>
+<text class="small" x="478" y="722">в summary.notes: «P0 waived by operator»</text>
+
+<!-- untaken: deny -->
+<line class="edge ghost" x1="627" y1="738" x2="627" y2="786" marker-end="url(#ah)"/>
+<rect class="ghost-box" x="512" y="788" width="230" height="34" rx="8"/>
+<text class="ghost-t" x="530" y="809">deny → run failed (не выбрано)</text>
+
+<!-- waive edge back to spine -->
+<path class="edge taken-a" d="M 462 690 C 330 690, 250 720, 237 776" marker-end="url(#ah)"/>
+<text class="ta" x="300" y="682">waive → продолжить</text>
+
+<!-- ============ branch ============ -->
+<rect class="node g" x="70" y="780" width="330" height="88" rx="10"/>
+<text x="86" y="804" font-weight="600">branch</text>
+<rect class="chip-g" x="310" y="792" width="74" height="18" rx="9"/><text class="tg" x="324" y="805">green</text>
+<text class="mono" x="86" y="826">se/2026-07-16-001-feat-se-pipeline-…-21992328</text>
+<text class="mono" x="86" y="844">41a6771 → baadd57</text>
+
+<!-- untaken: pr -->
+<line class="edge ghost" x1="400" y1="824" x2="460" y2="824" marker-end="url(#ah)"/>
+<rect class="ghost-box" x="462" y="806" width="240" height="36" rx="8"/>
+<text class="ghost-t" x="478" y="828">pr — не запрошен (until=branch)</text>
+
+<line class="edge" x1="235" y1="868" x2="235" y2="904" marker-end="url(#ah)"/>
+
+<!-- ============ summary ============ -->
+<rect class="node g" x="70" y="906" width="330" height="106" rx="10"/>
+<text x="86" y="930" font-weight="600">summary</text>
+<rect class="chip-g" x="310" y="918" width="74" height="18" rx="9"/><text class="tg" x="324" y="931">green</text>
+<text class="small" x="86" y="950">verify-code: P0 waived by operator</text>
+<text class="cost" x="86" y="974">7 354 501 tok <tspan class="usd">· ~$4.80 итого</tspan></text>
+<text class="small" x="86" y="994">reportDir: …/T/se-pipeline/reports/run-1784</text>
+
+<!-- legend -->
+<rect class="node" x="70" y="1060" width="722" height="110" rx="10"/>
+<text x="86" y="1084" font-weight="600" font-size="12">Легенда</text>
+<line class="edge" x1="86" y1="1102" x2="130" y2="1102" marker-end="url(#ah)"/>
+<text class="small" x="140" y="1106">пройденный путь</text>
+<line class="edge ghost" x1="280" y1="1102" x2="324" y2="1102" marker-end="url(#ah)"/>
+<text class="small" x="334" y="1106">развилка из stageBlock-шаблона, не сработавшая в этом прогоне</text>
+<rect class="chip-r" x="86" y="1120" width="60" height="18" rx="9"/><text class="tr" x="97" y="1133">failed</text>
+<text class="small" x="156" y="1133">вердикт гейта</text>
+<rect class="chip-a" x="280" y="1120" width="82" height="18" rx="9"/><text class="ta" x="290" y="1133">approved</text>
+<text class="small" x="372" y="1133">решение оператора на Approval-развилке</text>
+<text class="small" x="86" y="1156">Токены — первичны (ground truth подписочного окна); USD — оценка. Кост секций — из stage_usage summary-строки.</text>
+</svg>
+</figure>
+
+<h2>Стоимость по шагам</h2>
+<table>
+  <thead><tr><th>шаг</th><th class="n">tokens</th><th class="n">in / out / cache-read</th><th class="n">~USD</th><th style="width:30%">доля токенов</th></tr></thead>
+  <tbody>
+    <tr><td>work</td><td class="n">4 826 406</td><td class="n">20 786 / 31 907 / 4 773 713</td><td class="n">3.29</td><td><div class="bar" style="width:100%"></div></td></tr>
+    <tr><td>verify-code</td><td class="n">2 106 660</td><td class="n">2 089 / 19 325 / 2 085 246</td><td class="n">0.92</td><td><div class="bar" style="width:44%"></div></td></tr>
+    <tr><td>verify-doc (2 ноги child-run)</td><td class="n">421 435</td><td class="n">—</td><td class="n">0.59</td><td><div class="bar" style="width:9%"></div></td></tr>
+    <tr class="child"><td>review-claude</td><td class="n">219 195</td><td class="n">761 / 18 555 / 199 879</td><td class="n">0.34</td><td><div class="bar" style="width:4.5%"></div></td></tr>
+    <tr class="child"><td>review-opencode</td><td class="n">202 240</td><td class="n">46 109 / 4 579 / 151 552</td><td class="n">0.25</td><td><div class="bar" style="width:4.2%"></div></td></tr>
+    <tr><td><b>итого</b></td><td class="n"><b>7 354 501</b></td><td class="n"></td><td class="n"><b>4.80</b></td><td></td></tr>
+  </tbody>
+</table>
+<p style="font-size:.8rem;color:var(--muted)">Медианы прошлых прогонов (amber на 3×) не показаны — эталонный прогон пока один; колонка появится со второй строкой в summary.</p>
+
+<footer>
+Мок идей №1+№2 из ideation 2026-07-17 (граф развилок из stageBlock + замороженный артефакт со стоимостью). Все числа реальные — summary, gate_verdict, approval, doc_review из ~/.claude/.smithers/smithers.db, run-1784221992328 (план provenance-rescan, батч 5). В целевой реализации этот файл пишет summary-таск в reportDir рядом с конвертами, а `se show` его перечисляет.
+</footer>
+</main>
