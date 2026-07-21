@@ -393,11 +393,6 @@ def visible_commands(query: str, commands: list[Command], rows: int) -> list[Com
     return ranked(query, commands, result_limit_for_rows(rows))
 
 
-def group_count(commands: list[Command]) -> int:
-    include_origin = len({command.origin for command in commands}) > 1
-    return len({display_group_label(command, include_origin) for command in commands})
-
-
 def display_group_label(command: Command, include_origin: bool) -> str:
     return f"{command.origin} · {command.group}" if include_origin and command.origin else command.group
 
@@ -568,17 +563,19 @@ def load_key_binding_groups() -> list[tuple[str, list[tuple[str, str]]]]:
     return groups
 
 
-def key_binding_rows(width: int, groups: list[tuple[str, list[tuple[str, str]]]]) -> list[str]:
+def key_binding_lines(width: int, groups: list[tuple[str, list[tuple[str, str]]]]) -> list[tuple[str, str]]:
     if width <= 0:
         return []
     key_width = min(12, max(8, width // 3))
     action_width = max(8, width - key_width - 3)
-    rows = ["Key bindings", "─" * min(width, 24)]
-    for group, bindings in groups:
-        rows.append(group)
+    lines: list[tuple[str, str]] = [("Key bindings", "accent"), ("", "normal")]
+    for index, (group, bindings) in enumerate(groups):
+        if index > 0:
+            lines.append(("", "normal"))
+        lines.append((group, "header"))
         for key, action in bindings:
-            rows.append(f"  {fit(key, key_width):<{key_width}} {fit(action, action_width)}")
-    return rows
+            lines.append((f"  {fit(key, key_width):<{key_width}} {fit(action, action_width)}", "normal"))
+    return lines
 
 
 def curses_palette_attrs() -> dict[str, int]:
@@ -688,70 +685,49 @@ def render_curses_palette(
     attrs: dict[str, int],
 ) -> tuple[list[Command], int]:
     rows, cols = stdscr.getmaxyx()
-    show_keybindings = cols >= 110 and bool(key_binding_groups)
-    block_width = min(128 if show_keybindings else 74, max(38, cols - 12))
-    column_separator = "  │ " if show_keybindings else ""
-    right_width = 38 if show_keybindings else 0
-    left_width = block_width - right_width - len(column_separator)
+    column_separator = "    "
+    left_width = 57
+    right_width = 38
+    keybindings_block = left_width + len(column_separator) + right_width
+    show_keybindings = cols >= keybindings_block and bool(key_binding_groups)
+    if not show_keybindings:
+        column_separator = ""
+        right_width = 0
+        left_width = min(74, max(38, cols - 4))
+    block_width = left_width + len(column_separator) + right_width
     pad = max(0, (cols - block_width) // 2)
     visible = visible_commands(query, commands, rows)
     selected = min(selected, max(0, len(visible) - 1))
     display_rows = grouped_rows(visible) if not query else [("command", "", command) for command in visible]
-    bindings = key_binding_rows(right_width, key_binding_groups) if show_keybindings else []
-    body_height = max(len(display_rows) if display_rows else 1, len(bindings) - 2 if bindings else 0)
-    content_height = 6 + body_height + 2
-    top_margin = max(1, min(rows // 4, (rows - content_height) // 2))
+    kb_lines = key_binding_lines(right_width, key_binding_groups) if show_keybindings else []
+    top_margin = 1
 
     stdscr.erase()
 
     def center_at(offset: int, text: str = "", attr: int = attrs["normal"]) -> None:
         curses_center(stdscr, top_margin + offset, pad, block_width, text, attr)
 
-    def two_column_at(offset: int, left: str = "", right: str = "", attr: int = attrs["normal"]) -> None:
-        if not show_keybindings:
-            center_at(offset, left, attr)
-            return
-        line = f"{fit(left, left_width):<{left_width}}{column_separator}{fit(right, right_width):<{right_width}}"
-        center_at(offset, line, attr)
-
-    count = f"{len(visible)}/{len(commands)}" if query else f"{len(commands)} commands · {group_count(commands)} groups"
-    title = "Command Palette"
-    gap = max(2, block_width - len(title) - len(count))
-    center_at(0, f"{title}{' ' * gap}{count}", attrs["accent"])
-    center_at(1, "─" * min(block_width, 54), attrs["muted"])
+    def left_at(offset: int, text: str = "", attr: int = attrs["normal"]) -> None:
+        width = left_width if show_keybindings else block_width
+        curses_add(stdscr, top_margin + offset, pad, fit(text, width), attr)
 
     prompt = query if query else "type to search…"
     prompt_attr = attrs["normal"] if query else attrs["muted"]
-    if show_keybindings:
-        two_column_at(2, f"❯ {fit(prompt, left_width - 2)}", bindings[0] if bindings else "", prompt_attr)
-        two_column_at(3, "", bindings[1] if len(bindings) > 1 else "", attrs["muted"])
-    else:
-        center_at(2, f"❯ {fit(prompt, block_width - 2)}", prompt_attr)
-        center_at(3)
+    left_at(0, f"❯ {fit(prompt, left_width - 2)}", prompt_attr)
 
-    body_top = 4
+    body_top = 2
     if not visible:
-        if show_keybindings:
-            two_column_at(body_top, "No matching commands", bindings[2] if len(bindings) > 2 else "", attrs["muted"])
-            for index in range(3, len(bindings)):
-                two_column_at(body_top + index - 2, "", bindings[index])
-        else:
-            center_at(body_top, "No matching commands", attrs["muted"])
+        left_at(body_top, "No matching commands", attrs["muted"])
     else:
         kind_width = 10
         group_width = 14
         include_origin = len({command.origin for command in visible}) > 1
         title_width = max(12, left_width - kind_width - group_width - 6) if query else max(12, left_width - kind_width - 7)
         command_index = 0
-        for row_index in range(max(len(display_rows), max(0, len(bindings) - 2))):
+        for row_index, (row_kind, label, command) in enumerate(display_rows):
             y_offset = body_top + row_index
-            right = bindings[row_index + 2] if row_index + 2 < len(bindings) else ""
-            if row_index >= len(display_rows):
-                two_column_at(y_offset, "", right)
-                continue
-            row_kind, label, command = display_rows[row_index]
             if row_kind == "header":
-                two_column_at(y_offset, f"  {label}", right, attrs["header"])
+                left_at(y_offset, f"  {label}", attrs["header"])
                 continue
             if command is None:
                 continue
@@ -766,10 +742,22 @@ def render_curses_palette(
                 )
             else:
                 row = f"  {marker} {fit(command.title, title_width):<{title_width}} {fit(kind, kind_width):>{kind_width}}"
-            two_column_at(y_offset, row, right, attrs["active"] if active else attrs["normal"])
+            left_at(y_offset, row, attrs["active"] if active else attrs["normal"])
             command_index += 1
 
-    detail_y = min(rows - 3, top_margin + body_top + body_height + 1)
+    if show_keybindings:
+        separator_x = pad + left_width + 2
+        right_x = pad + left_width + len(column_separator)
+        for y in range(top_margin, rows - 3):
+            curses_add(stdscr, y, separator_x, "│", attrs["muted"])
+        for index, (text, style) in enumerate(kb_lines):
+            y = top_margin + index
+            if y >= rows - 3:
+                break
+            if text:
+                curses_add(stdscr, y, right_x, text, attrs[style])
+
+    detail_y = rows - 3
     if visible:
         detail = visible[selected].description or visible[selected].kind
     else:

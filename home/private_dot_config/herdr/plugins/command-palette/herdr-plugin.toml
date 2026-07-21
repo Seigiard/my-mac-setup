@@ -19,6 +19,6 @@ command = ["python3", "smart_close.py"]
 
 [[panes]]
 id = "palette"
-title = "Palette"
+title = "Command Palette"
 placement = "overlay"
 command = ["python3", "palette.py"]

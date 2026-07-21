@@ -186,9 +186,9 @@ def main() -> int:
         "--placement",
         "popup",
         "--width",
-        "132",
+        "104",
         "--height",
-        "50%",
+        "34",
         "--focus",
     ]
     if target_pane:
