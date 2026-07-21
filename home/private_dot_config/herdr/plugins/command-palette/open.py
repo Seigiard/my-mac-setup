@@ -184,7 +184,11 @@ def main() -> int:
         "--entrypoint",
         "palette",
         "--placement",
-        "overlay",
+        "popup",
+        "--width",
+        "80%",
+        "--height",
+        "50%",
         "--focus",
     ]
     if target_pane:

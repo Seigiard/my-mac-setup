@@ -62,6 +62,14 @@ description = "Choose and focus a workspace"
 type = "workspace_picker"
 
 [[commands]]
+group = "Smithers"
+title = "sm monitor"
+description = "Open the smithers live web UI (Gateway :7331) in a new tab"
+type = "tab_run"
+label = "sm monitor"
+command = "se monitor"
+
+[[commands]]
 group = "Herdr"
 title = "Reload config"
 description = "Apply config.toml changes without restarting panes"
