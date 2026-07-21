@@ -186,7 +186,7 @@ def main() -> int:
         "--placement",
         "popup",
         "--width",
-        "80%",
+        "132",
         "--height",
         "50%",
         "--focus",
