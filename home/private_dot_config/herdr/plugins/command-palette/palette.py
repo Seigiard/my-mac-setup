@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
-DEFAULT_LIMIT = 12
+DEFAULT_LIMIT = 40
 ESC = "\x1b["
 RUNNABLE_KINDS = {"herdr", "pane_run", "tab_run", "workspace_picker", "shell", "overlay_shell", "plugin_action"}
 COMMAND_KINDS = RUNNABLE_KINDS | {"select", "form"}
@@ -341,6 +341,13 @@ def validate_cli(args: list[str]) -> int:
     return 0
 
 
+def normalize_group_order(commands: list[Command]) -> list[Command]:
+    order: dict[tuple[str, str], int] = {}
+    for command in commands:
+        order.setdefault((command.origin, command.group), len(order))
+    return sorted(commands, key=lambda command: order[(command.origin, command.group)])
+
+
 def load_commands() -> tuple[Path, list[Command]]:
     path = ensure_config()
     commands: list[Command] = []
@@ -348,7 +355,7 @@ def load_commands() -> tuple[Path, list[Command]]:
     if project_dir:
         commands.extend(load_commands_from_dir(project_dir, "Project", project_dir / "commands.toml"))
     commands.extend(load_commands_from_dir(path.parent, "Global", path))
-    return path, commands
+    return path, normalize_group_order(commands)
 
 
 def fuzzy_score(query: str, text: str) -> float:
@@ -719,10 +726,9 @@ def render_curses_palette(
     if not visible:
         left_at(body_top, "No matching commands", attrs["muted"])
     else:
-        kind_width = 10
         group_width = 14
         include_origin = len({command.origin for command in visible}) > 1
-        title_width = max(12, left_width - kind_width - group_width - 6) if query else max(12, left_width - kind_width - 7)
+        title_width = max(12, left_width - group_width - 3) if query else max(12, left_width - 4)
         command_index = 0
         for row_index, (row_kind, label, command) in enumerate(display_rows):
             y_offset = body_top + row_index
@@ -733,15 +739,13 @@ def render_curses_palette(
                 continue
             active = command_index == selected
             marker = "›" if active else " "
-            kind = command.kind.replace("_", "-")
             if query:
                 row = (
                     f"{marker} {fit(command.title, title_width):<{title_width}} "
-                    f"{fit(display_group_label(command, include_origin), group_width):>{group_width}} "
-                    f"{fit(kind, kind_width):>{kind_width}}"
+                    f"{fit(display_group_label(command, include_origin), group_width):>{group_width}}"
                 )
             else:
-                row = f"  {marker} {fit(command.title, title_width):<{title_width}} {fit(kind, kind_width):>{kind_width}}"
+                row = f"  {marker} {fit(command.title, title_width):<{title_width}}"
             left_at(y_offset, row, attrs["active"] if active else attrs["normal"])
             command_index += 1
 
