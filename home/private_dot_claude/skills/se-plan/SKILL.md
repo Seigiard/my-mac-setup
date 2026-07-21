@@ -23,7 +23,7 @@ Use the **combined** envelope (local + synthesis) for everything downstream in t
 
 ## Notes
 
-- **Cost:** the amended review step is ~3x a plain review (~$5-6 external claude leg, opencode on GPT-5.5, ~5-10 min wall clock overlapping the local review). This is intentional — every plan gets the full three-envelope review. For a plan without external review, invoke `compound-engineering:ce-plan` directly.
+- **Cost:** the amended review step is ~3x a plain review (~$5-6 external claude leg, opencode on GPT-5.5, ~10-20 min wall clock overlapping the local review). This is intentional — every plan gets the full three-envelope review. For a plan without external review, invoke `compound-engineering:ce-plan` directly.
 - **HTML plans** (`output:html`): the plugin skips document review entirely for HTML output; the amendment then never fires and no harness is launched.
 - If the current prompt contains `[ce-doc-review-external-consult]`, you are inside an external consult — never invoke this wrapper or launch anything from there (the se-doc-review wrapper's recursion guard governs).
 

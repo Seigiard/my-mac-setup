@@ -67,9 +67,13 @@ const envelopeJsonSchema = JSON.stringify({
   required: ["envelope"],
 });
 
-// Real reviews run ~4-5 min; 10 min per attempt bounds a hung CLI. The
-// calling skill's wait cap must exceed maxAttempts × timeoutMs (~20 min).
-const REVIEW_TIMEOUT_MS = 10 * 60_000;
+// Per-leg caps sized from _smithers_attempts history, not a shared guess:
+// the claude leg's full plugin workflow (~7 persona subagents) runs ~12-17
+// min cold — a 10-min cap killed attempt 1 in 4/4 runs and left attempt 2
+// racing the same cap after session resume. Opencode finishes in 3-6 min.
+// The calling skill's wait cap must exceed maxAttempts × the larger cap.
+const CLAUDE_REVIEW_TIMEOUT_MS = 25 * 60_000;
+const OPENCODE_REVIEW_TIMEOUT_MS = 15 * 60_000;
 
 const claudeAgent = new ClaudeCodeAgent({
   cwd: repoDir,
@@ -78,13 +82,13 @@ const claudeAgent = new ClaudeCodeAgent({
   // Fable; fallbackModel rides out a Max-subscription rate-limit on the primary.
   model: "claude-sonnet-5",
   fallbackModel: "claude-haiku-4-5",
-  timeoutMs: REVIEW_TIMEOUT_MS,
   // Circuit breaker against a runaway agent, NOT a cost target: a normal full
   // review bills ~$5-6 in one attempt (and must fit — a budget abort wastes
   // the whole spend). The cap re-arms on retry, so worst case ≈ 2 × this.
   // Actual spend: grep total_cost_usd in the run log.
   maxBudgetUsd: 15,
   jsonSchema: envelopeJsonSchema,
+  timeoutMs: CLAUDE_REVIEW_TIMEOUT_MS,
   // Default stream-json capture is safe here: the chunk-join corruption on
   // subagent-heavy runs was fixed by 95b4f5736, which IS inside v0.27.0
   // (verified by spike run a9b4b686 — see the se-pipeline plan, KTD9).
@@ -93,7 +97,7 @@ const claudeAgent = new ClaudeCodeAgent({
 const opencodeAgent = new OpenCodeAgent({
   cwd: repoDir,
   model: "openai/gpt-5.5",
-  timeoutMs: REVIEW_TIMEOUT_MS,
+  timeoutMs: OPENCODE_REVIEW_TIMEOUT_MS,
 });
 
 function resolvePluginSkillDir(): { dir: string; version: string } {

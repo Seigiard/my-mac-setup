@@ -12,7 +12,7 @@ All external orchestration (staging, parallel CLI launches, timeouts, budget cap
 
 Argument contract is identical to the plugin skill: tokens starting with `mode:` are flags; the remaining token (if any) is the document path. `mode:headless` is passed through.
 
-**Cost note:** three multi-agent reviews (up to 7 persona subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-6; its `maxBudgetUsd: 15` is a runaway circuit breaker, not a cost target, and re-arms on retry — effective ceiling ≈ attempts × cap. Actual claude spend appears as `total_cost_usd` in the harness log. Expect ~5-10 minutes and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-doc-review` directly.
+**Cost note:** three multi-agent reviews (up to 7 persona subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-6; its `maxBudgetUsd: 15` is a runaway circuit breaker, not a cost target, and re-arms on retry — effective ceiling ≈ attempts × cap. Actual claude spend appears as `total_cost_usd` in the harness log. Expect ~10-20 minutes (the claude leg's full plugin workflow runs ~12-17 min cold) and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-doc-review` directly.
 
 ## Recursion guard (read first)
 
@@ -49,7 +49,7 @@ Never invoke bare `se-doc-review` from here — that is this wrapper.
 
 ## Phase 4: Collect external envelopes
 
-After the local review returns, wait for the background harness task. Cap the wait at ~25 min — the harness's own worst case is 2 attempts × 10-min per-attempt timeout per leg, so it always exits before that; past the cap, treat the harness as hung and its envelopes as failed. Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
+After the local review returns, wait for the background harness task. Cap the wait at ~55 min — the harness's own worst case is 2 attempts × 25-min per-attempt timeout on the claude leg (opencode: 2 × 15 min), so it always exits before that; past the cap, treat the harness as hung and its envelopes as failed. Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
 
 ## Phase 5: Synthesize the three envelopes
 
