@@ -32,7 +32,7 @@ group = "Git"
 title = "Lazygit in popup"
 description = "Open lazygit in a 90%×90% popup in the current pane's directory"
 type = "herdr"
-args = ["plugin", "pane", "open", "--plugin", "seigi.command-palette", "--entrypoint", "lazygit", "--cwd", "{target_cwd}", "--focus"]
+args = ["plugin", "pane", "open", "--plugin", "seigi.command-palette", "--entrypoint", "lazygit", "--width", "90%", "--height", "90%", "--cwd", "{target_cwd}", "--focus"]
 
 [[commands]]
 group = "Git"
