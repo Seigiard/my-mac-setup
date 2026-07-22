@@ -79,10 +79,14 @@ const reportJsonSchema = JSON.stringify({
   required: ["report"],
 });
 
-// Code reviews run heavier than doc reviews (up to ~9 reviewer personas on a
-// big diff); 15 min per attempt bounds a hung CLI. The calling skill's wait
-// cap must exceed maxAttempts × timeoutMs (~30 min).
-const REVIEW_TIMEOUT_MS = 15 * 60_000;
+// Per-leg caps sized from _smithers_attempts history, not a shared guess:
+// the claude leg (up to ~9 reviewer personas on a big diff) blew a 15-min cap
+// on platform-3 (run 46dec4cf — and smithers reaped the timed-out attempt
+// only at ~28 min wall-clock, so the real worst case exceeds the nominal
+// maxAttempts × cap). Opencode finishes in 3-6 min. The calling skill's wait
+// cap must exceed maxAttempts × the larger cap plus reap lag (~55 min).
+const CLAUDE_REVIEW_TIMEOUT_MS = 25 * 60_000;
+const OPENCODE_REVIEW_TIMEOUT_MS = 15 * 60_000;
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -177,7 +181,7 @@ export default smithers((ctx) => {
         // rides out a Max-subscription rate-limit on the primary.
         model: "claude-sonnet-5",
         fallbackModel: "claude-haiku-4-5",
-        timeoutMs: REVIEW_TIMEOUT_MS,
+        timeoutMs: CLAUDE_REVIEW_TIMEOUT_MS,
         // Circuit breaker against a runaway agent, NOT a cost target: the cap
         // re-arms on retry, so worst case ≈ 2 × this. Actual spend: grep
         // total_cost_usd in the run log.
@@ -192,7 +196,7 @@ export default smithers((ctx) => {
     ? new OpenCodeAgent({
         cwd: staged.snapshotDir,
         model: "openai/gpt-5.5",
-        timeoutMs: REVIEW_TIMEOUT_MS,
+        timeoutMs: OPENCODE_REVIEW_TIMEOUT_MS,
       })
     : undefined;
 
