@@ -138,7 +138,9 @@ Hard rules:
 - NEVER invoke a skill named bare \`se-doc-review\` — that is a wrapper that spawns external consults and would recurse.
 - NO CHANGES, JUST REPORT: do not create, edit, or delete ANY file — including ${docCopy}. Where the workflow would apply a safe_auto fix, report it in the envelope as an applied-candidate finding with the exact suggested edit instead of making it.
 - The repo at ${repoDir} is read-only context for feasibility verification.
-- Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"envelope": "<the full headless envelope text, ending with 'Review complete'>"}. A final message that is not that single JSON object is a failed run.`;
+- Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"envelope": "<the full headless envelope text>"}. Emit it exactly once, as the very last message; never emit placeholder JSON like {"envelope": "PENDING"} earlier in the session.
+- The envelope value is the review REPORT ITSELF, verbatim and complete: every section the workflow produced (applied-candidate fixes with exact suggested edits, proposed fixes, decisions, FYI, residual concerns, coverage), at least 500 characters, and its LAST line exactly: Review complete
+- A status note ("Document review complete", a list of reviewers used, a summary of what you did) is NOT an envelope. It fails schema validation and the ENTIRE multi-persona review is discarded and re-run from scratch — all prior work wasted.`;
 }
 
 export default smithers((ctx) => {

@@ -484,7 +484,10 @@ export default smithers((ctx) => {
           input={{ docPath: input.planPath, smoke }}
           output={outputs.docReview}
           retries={1}
-          timeoutMs={25 * 60_000}
+          // Hang guard, not a scheduler: must fit the claude leg's own retry
+          // ladder (2 × 25 min) plus synthesis margin. A cap equal to the leg
+          // cap killed run-1784730393057 mid-retry after one envelope fail.
+          timeoutMs={55 * 60_000}
         />
       ),
       readRaw: readDocReview,
