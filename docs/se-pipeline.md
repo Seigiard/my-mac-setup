@@ -1,10 +1,10 @@
 # se-pipeline — раннбук
 
 Durable-прогон `verify-doc → work → verify-code` над целевым репозиторием на
-Smithers 0.28.0 с локальным bun-патчем `@smithers-orchestrator/agents`
-(`patches/` — false positive квота-классификатора на подписке без usage
-credits, upstream smithersai/smithers#1342; при апгрейде пакета проверить,
-не влит ли фикс). План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
+Smithers 0.29.0 (без локальных патчей: фикс false-positive квота-классификатора
+org_level_disabled, upstream smithersai/smithers#1342, влит в 0.29.0 — `patches/`
+и `patchedDependencies` удалены при апгрейде 2026-07-22; detached-логи теперь в
+`.smithers/logs/` с ретеншном). План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
 (gitignored). Исходники: `home/private_dot_claude/dot_smithers/` (chezmoi →
 `~/.claude/.smithers`); состояние прогонов (`smithers.db`, `.smithers/`) живёт в
 рантайм-дире и в git не попадает.
