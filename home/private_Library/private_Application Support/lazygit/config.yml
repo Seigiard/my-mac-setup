@@ -1,0 +1,3 @@
+# Esc exits lazygit when there is nothing left to cancel, so Esc closes the
+# herdr lazygit popup instead of requiring q.
+quitOnTopLevelReturn: true

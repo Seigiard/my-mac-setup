@@ -63,6 +63,11 @@ load 'helpers/common'
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml" "Edit command palette config"
 }
 
+@test "herdr lazygit popup entrypoint is configured" {
+  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
+  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml" "Lazygit in popup"
+}
+
 @test "herdr command palette sources are valid" {
   run python3 -m py_compile \
     "$HOME/.config/herdr/plugins/command-palette/open.py" \
@@ -244,6 +249,11 @@ TOML
 @test "zed config exists (macOS only)" {
   is_macos || skip "Not on macOS"
   assert_dir_exists "$HOME/.config/zed"
+}
+
+@test "lazygit config sets quitOnTopLevelReturn (macOS only)" {
+  is_macos || skip "Not on macOS"
+  assert_file_contains "$HOME/Library/Application Support/lazygit/config.yml" "quitOnTopLevelReturn: true"
 }
 
 @test "herdr caffeinate plugin exists (macOS only)" {

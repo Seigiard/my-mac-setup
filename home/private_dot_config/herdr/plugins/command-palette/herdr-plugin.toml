@@ -22,3 +22,11 @@ id = "palette"
 title = "Command Palette"
 placement = "overlay"
 command = ["python3", "palette.py"]
+
+[[panes]]
+id = "lazygit"
+title = "Lazygit"
+placement = "popup"
+width = "90%"
+height = "90%"
+command = ["lazygit"]
