@@ -31,8 +31,9 @@ command = "lazygit"
 group = "Git"
 title = "Lazygit in popup"
 description = "Open lazygit in a 90%×90% popup in the current pane's directory"
-type = "herdr"
-args = ["plugin", "pane", "open", "--plugin", "seigi.command-palette", "--entrypoint", "lazygit", "--width", "90%", "--height", "90%", "--cwd", "{target_cwd}", "--focus"]
+type = "shell"
+pause = false
+command = "nohup bash -c \"sleep 0.4; herdr plugin pane open --plugin seigi.command-palette --entrypoint lazygit --width 90% --height 90% --cwd {target_cwd_q} --focus\" >/dev/null 2>&1 &"
 
 [[commands]]
 group = "Git"
