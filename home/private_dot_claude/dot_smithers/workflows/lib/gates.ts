@@ -138,14 +138,28 @@ export function codeReviewGate(input: CodeReviewGateInput): GateResult {
   if (!Array.isArray(findings)) {
     return { state: "degraded", reasons: ["review report has no findings array — invalid envelope, not a silent pass"] };
   }
+  // Multi-leg merged reports (lib/review-merge.ts) carry per-leg statuses.
+  // Mirror docReviewGate: every leg failed is degraded (not a silent pass),
+  // one failed leg is an advisory reason on an otherwise-green verdict.
+  // Reports without a legs field (single-leg, smoke) keep the old behavior.
+  const advisory: string[] = [];
+  const legs = report.legs;
+  if (legs !== null && typeof legs === "object" && !Array.isArray(legs)) {
+    const entries = Object.entries(legs as Record<string, unknown>);
+    const failed = entries.filter(([, status]) => status !== "ok").map(([source]) => source);
+    if (entries.length > 0 && failed.length === entries.length) {
+      return { state: "degraded", reasons: [`all review legs failed (${failed.join(", ")}) — not a silent pass`] };
+    }
+    for (const source of failed) advisory.push(`${source} review leg failed (advisory — remaining leg carried the review)`);
+  }
   const severityCount = (sev: string): number =>
     findings.filter((f) => typeof f === "object" && f !== null && String((f as Record<string, unknown>).severity).toUpperCase() === sev).length;
   const p0Count = severityCount("P0");
   const p1Count = severityCount("P1");
   if (p0Count > 0) {
-    return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`], p1Count };
+    return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`, ...advisory], p1Count };
   }
-  return { state: "green", reasons: [], p1Count };
+  return { state: "green", reasons: advisory, p1Count };
 }
 
 // Post-approval rescan verdict (R3–R5): commits an operator adds during a

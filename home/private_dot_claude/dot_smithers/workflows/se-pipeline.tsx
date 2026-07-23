@@ -11,13 +11,14 @@
 //   cd ~/.claude/.smithers && PIPELINE_REPO=/abs/repo DOC_REVIEW_REPO=/abs/repo \
 //     ./node_modules/.bin/smithers up workflows/se-pipeline.tsx \
 //     --input '{"planPath":"/abs/plan.md","until":"branch","validateCmd":"bun test"}'
-import { createSmithers, ClaudeCodeAgent, Subflow, TryCatchFinally, approvalDecisionSchema } from "smithers-orchestrator";
+import { createSmithers, ClaudeCodeAgent, OpenCodeAgent, Subflow, TryCatchFinally, approvalDecisionSchema } from "smithers-orchestrator";
 import { z } from "zod/v4";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
+import { mergeReviewReports } from "./lib/review-merge.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
@@ -69,7 +70,7 @@ const gateVerdictSchema = z.object({
   p1Count: z.number().optional(),
 });
 
-const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers({
+const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = createSmithers({
   input: inputSchema,
   gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
@@ -99,7 +100,12 @@ const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers
 
 const repoDir = process.env.PIPELINE_REPO ?? process.cwd();
 
-const REVIEW_TIMEOUT_MS = 15 * 60_000;
+// Per-leg caps sized from _smithers_attempts history (same arithmetic as
+// se-code-review.tsx): the claude leg's full plugin review blows a 15-min cap
+// on big diffs; opencode finishes in 3-6 min. The verify-code merge node is
+// pure compute.
+const CLAUDE_REVIEW_TIMEOUT_MS = 25 * 60_000;
+const OPENCODE_REVIEW_TIMEOUT_MS = 15 * 60_000;
 
 // Model profile (Balanced): Opus for implementation, Sonnet for review — never
 // Fable. fallbackModel auto-switches when the primary is rate-limited, riding
@@ -197,6 +203,26 @@ function readRunUsage(runId: string): TokenUsageEvent[] {
   return [];
 }
 
+// The opencode review leg has no claude plugin skills — stage a copy of the
+// plugin's ce-code-review skill under /tmp/ce-code-review, the tmp root
+// opencode's permission.external_directory allows (the run worktree itself is
+// its cwd and needs no allow). Same layout as se-code-review.tsx staging.
+function resolvePluginSkillDir(): { dir: string; version: string } {
+  const base = path.join(os.homedir(), ".claude/plugins/cache/compound-engineering-plugin/compound-engineering");
+  const versions = fs.readdirSync(base).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const latest = versions[versions.length - 1];
+  return { dir: path.join(base, latest, "skills/ce-code-review"), version: latest };
+}
+
+function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion: string } {
+  const stageDir = path.join("/tmp/ce-code-review", `pipeline-${tag}-${Date.now()}`);
+  const skillDir = path.join(stageDir, "skill");
+  fs.mkdirSync(skillDir, { recursive: true });
+  const plugin = resolvePluginSkillDir();
+  fs.cpSync(plugin.dir, skillDir, { recursive: true });
+  return { skillDir, pluginVersion: plugin.version };
+}
+
 function workPrompt(planPath: string, branch: string, smoke: boolean): string {
   if (smoke) {
     return `[se-pipeline-stage] Smoke wiring test. Your cwd is an isolated git worktree on branch ${branch}. Do exactly this: append one line to SMOKE.md. Do NOT run git add/commit/push — leave the change in the working tree; the pipeline commits it. Your FINAL message must be EXACTLY one JSON object {"report": "<envelope>"} where <envelope> is a JSON object serialized as a string with fields: status="complete", changed_files=["SMOKE.md"], u_ids_attempted=[], u_ids_completed=[], verification_evidence=[{"unit":"smoke","exception_reason":"smoke wiring test"}], blockers=[], behavior_change=false, standalone_shipping_skipped=true.`;
@@ -212,7 +238,7 @@ Do NOT commit and do NOT run git add/commit/push: leave ALL your changes in the 
 Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) serialized as a string>"}.`;
 }
 
-function codeReviewPrompt(baseSha: string, branch: string, smoke: boolean): string {
+function codeReviewPrompt(baseSha: string, branch: string, skillDir: string, smoke: boolean): string {
   if (smoke) {
     return `[se-pipeline-stage] Smoke wiring test. Your FINAL message must be EXACTLY one JSON object: {"report": "<the JSON object {\\"status\\":\\"complete\\",\\"verdict\\":\\"approve\\",\\"findings\\":[]} serialized as a string>"}. Do nothing else.`;
   }
@@ -222,6 +248,7 @@ Execute the compound-engineering code-review workflow in mode:agent on YOUR CURR
 
 How to execute it:
 - If your available skills include \`compound-engineering:ce-code-review\`, invoke it with args "mode:agent base:${baseSha}".
+- Otherwise, read ${skillDir}/SKILL.md and follow it directly, treating ${skillDir} as the skill's base directory (it references its own files under it). Where it dispatches subagents, use YOUR subagent tool.
 - Review target: the commits on this branch since ${baseSha}.
 
 Hard rules:
@@ -401,9 +428,16 @@ export default smithers((ctx) => {
         permissionMode: "acceptEdits",
         model: REVIEW_MODEL,
         fallbackModel: REVIEW_FALLBACK_MODEL,
-        timeoutMs: REVIEW_TIMEOUT_MS,
+        timeoutMs: CLAUDE_REVIEW_TIMEOUT_MS,
         maxBudgetUsd: 15,
         jsonSchema: reportJsonSchema,
+      })
+    : undefined;
+  const opencodeReviewAgent = staged
+    ? new OpenCodeAgent({
+        cwd: staged.worktreePath,
+        model: "openai/gpt-5.5",
+        timeoutMs: OPENCODE_REVIEW_TIMEOUT_MS,
       })
     : undefined;
 
@@ -606,13 +640,70 @@ export default smithers((ctx) => {
         if (scan.status === "green") {
           if (scan.waived) notes.push(`secret-scan: waived by operator — ${scan.verdict?.reasons ?? ""}`);
 
+          // verify-code mirrors se-code-review's harness shape: two independent
+          // full plugin reviews in parallel (claude + opencode, each with its
+          // own guard so one engine failing never kills the stage), then a
+          // deterministic merge (lib/review-merge.ts) lands on the stage's own
+          // nodeId — stageBlock, codeReviewGate, and the summary read the merged
+          // report exactly where the single-leg report used to live.
           const code = stageBlock({
             name: "verify-code",
-            makeAttempt: (nodeId) => (
-              <Task id={nodeId} output={outputs.agentReport} agent={codeReviewAgent} retries={1} bind={gate0Proof}>
-                {codeReviewPrompt(staged.baseSha, staged.branch, smoke)}
-              </Task>
-            ),
+            makeAttempt: (nodeId) => {
+              const consultOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-consult-stage` });
+              const consult = consultOut === undefined ? undefined : (JSON.parse(consultOut.report) as { skillDir: string });
+              const claudeOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-claude` });
+              const claudeCrash = ctx.outputMaybe("failedMarker", { nodeId: `${nodeId}-claude-crashed` });
+              const opencodeOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-opencode` });
+              const opencodeCrash = ctx.outputMaybe("failedMarker", { nodeId: `${nodeId}-opencode-crashed` });
+              const legsSettled = (claudeOut !== undefined || claudeCrash !== undefined) && (opencodeOut !== undefined || opencodeCrash !== undefined);
+              return (
+                <Sequence>
+                  <Task id={`${nodeId}-consult-stage`} output={outputs.agentReport} retries={0}>
+                    {() => ({ report: JSON.stringify(stageCodeReviewConsult(nodeId)) })}
+                  </Task>
+                  {consult ? (
+                    <Parallel>
+                      <TryCatchFinally
+                        id={`guard-${nodeId}-claude`}
+                        try={
+                          <Task id={`${nodeId}-claude`} output={outputs.agentReport} agent={codeReviewAgent} retries={1} bind={gate0Proof}>
+                            {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
+                          </Task>
+                        }
+                        catch={
+                          <Task id={`${nodeId}-claude-crashed`} output={outputs.failedMarker}>
+                            {() => ({ stage: `${nodeId}-claude` })}
+                          </Task>
+                        }
+                      />
+                      <TryCatchFinally
+                        id={`guard-${nodeId}-opencode`}
+                        try={
+                          <Task id={`${nodeId}-opencode`} output={outputs.agentReport} agent={opencodeReviewAgent} retries={1} bind={gate0Proof}>
+                            {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
+                          </Task>
+                        }
+                        catch={
+                          <Task id={`${nodeId}-opencode-crashed`} output={outputs.failedMarker}>
+                            {() => ({ stage: `${nodeId}-opencode` })}
+                          </Task>
+                        }
+                      />
+                    </Parallel>
+                  ) : null}
+                  {consult && legsSettled ? (
+                    <Task id={nodeId} output={outputs.agentReport} retries={0}>
+                      {() => ({
+                        report: mergeReviewReports([
+                          { source: "claude", raw: claudeOut?.report },
+                          { source: "opencode", raw: opencodeOut?.report },
+                        ]),
+                      })}
+                    </Task>
+                  ) : null}
+                </Sequence>
+              );
+            },
             readRaw: readAgentReport,
             gateFn: (raw) => codeReviewGate({ raw }),
             waiveOnApprove: true,
@@ -621,6 +712,7 @@ export default smithers((ctx) => {
           if (code.status === "stopped") terminal = "stopped-after-second-failure:verify-code";
           if (code.status === "green") {
             if (code.waived) notes.push(`verify-code: P0 waived by operator — ${code.verdict?.reasons ?? ""}`);
+            else if (code.verdict?.reasons) notes.push(`verify-code: ${code.verdict.reasons}`);
 
             // Post-approval rescan (R3–R6): operators often hand-commit fixes on
             // the run branch during the verify-code pause; those commits bypass
@@ -702,6 +794,11 @@ export default smithers((ctx) => {
     }
     const workReport = ctx.outputMaybe("agentReport", { nodeId: "work-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "work" });
     const codeReport = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "verify-code" });
+    // Per-leg reports of the attempt the gate actually used — the merged report
+    // strips nothing, but humans at the Approval pause want each engine's view.
+    const codeAttempt = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) !== undefined ? "verify-code-extra" : "verify-code";
+    const codeClaudeReport = ctx.outputMaybe("agentReport", { nodeId: `${codeAttempt}-claude` });
+    const codeOpencodeReport = ctx.outputMaybe("agentReport", { nodeId: `${codeAttempt}-opencode` });
     const docResult = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
     children.push(
       <Task id="summary" output={outputs.summary} retries={1} bind={gate0Proof}>
@@ -710,6 +807,8 @@ export default smithers((ctx) => {
           fs.mkdirSync(reportDir, { recursive: true });
           if (workReport) fs.writeFileSync(path.join(reportDir, "work.envelope.json"), workReport.report);
           if (codeReport) fs.writeFileSync(path.join(reportDir, "verify-code.report.json"), codeReport.report);
+          if (codeClaudeReport) fs.writeFileSync(path.join(reportDir, "verify-code.claude.report.json"), codeClaudeReport.report);
+          if (codeOpencodeReport) fs.writeFileSync(path.join(reportDir, "verify-code.opencode.report.json"), codeOpencodeReport.report);
           if (docResult) fs.writeFileSync(path.join(reportDir, "verify-doc.result.json"), JSON.stringify(docResult, null, 2));
           const headSha = gitHead(staged.worktreePath);
           // Read cost BEFORE any irreversible cleanup: a sqlite/JSON failure in

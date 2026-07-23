@@ -14,6 +14,16 @@ org_level_disabled, upstream smithersai/smithers#1342, влит в 0.29.0 — `p
 (fallback `claude-haiku-4-5`); донор doc-review (`se-doc-review.tsx`) —
 `claude-sonnet-5`/`claude-haiku-4-5`.
 
+Verify-code с 2026-07-23 повторяет форму se-code-review: два независимых
+полных plugin-ревью параллельно — claude (`claude-sonnet-5`, кап 25 мин) +
+opencode (`openai/gpt-5.5`, кап 15 мин, скилл стейджится в
+`/tmp/ce-code-review`, разрешён в opencode `permission.external_directory`) —
+и детерминированное слияние (`lib/review-merge.ts`) на nodeId стадии: гейт
+считает P0 по объединённым findings (каждый тегирован `source`), оба плеча
+упали → degraded, одно → advisory на green (зеркало docReviewGate). Пер-плечевые
+отчёты пишутся в reportDir (`verify-code.claude.report.json` /
+`verify-code.opencode.report.json`) рядом со слитым.
+
 ## Запуск
 
 Из целевого репозитория (cwd = репо):
