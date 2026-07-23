@@ -7,11 +7,12 @@
 //     --input '{"docPath":"/abs/path/plan.md"}'
 // Staging lives in /tmp/ce-doc-review — opencode reads it via the
 // permission.external_directory allow in ~/.config/opencode/opencode.json.
-import { createSmithers, ClaudeCodeAgent, OpenCodeAgent, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, TryCatchFinally } from "smithers-orchestrator";
 import { z } from "zod/v4";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 
 const inputSchema = z.object({
   docPath: z.string().describe("Absolute path to the document under review."),
@@ -58,47 +59,12 @@ const { Workflow, Task, Sequence, Parallel, smithers, outputs } = createSmithers
 
 const repoDir = process.env.DOC_REVIEW_REPO ?? process.cwd();
 
-// Native structured-output enforcement (claude CLI --json-schema). Smithers
-// does NOT derive this from the Task's Zod schema — without it the final
-// message is free-form text and capture fails on subagent-heavy sessions.
-const envelopeJsonSchema = JSON.stringify({
-  type: "object",
-  properties: { envelope: { type: "string" } },
-  required: ["envelope"],
-});
-
-// Per-leg caps sized from _smithers_attempts history, not a shared guess:
-// the claude leg's full plugin workflow (~7 persona subagents) runs ~12-17
-// min cold — a 10-min cap killed attempt 1 in 4/4 runs and left attempt 2
-// racing the same cap after session resume. Opencode finishes in 3-6 min.
-// The calling skill's wait cap must exceed maxAttempts × the larger cap.
-const CLAUDE_REVIEW_TIMEOUT_MS = 25 * 60_000;
-const OPENCODE_REVIEW_TIMEOUT_MS = 15 * 60_000;
-
-const claudeAgent = new ClaudeCodeAgent({
-  cwd: repoDir,
-  permissionMode: "acceptEdits",
-  // Doc review is high-judgment but lighter than implementation: Sonnet, never
-  // Fable; fallbackModel rides out a Max-subscription rate-limit on the primary.
-  model: "claude-sonnet-5",
-  fallbackModel: "claude-haiku-4-5",
-  // Circuit breaker against a runaway agent, NOT a cost target: a normal full
-  // review bills ~$5-6 in one attempt (and must fit — a budget abort wastes
-  // the whole spend). The cap re-arms on retry, so worst case ≈ 2 × this.
-  // Actual spend: grep total_cost_usd in the run log.
-  maxBudgetUsd: 15,
-  jsonSchema: envelopeJsonSchema,
-  timeoutMs: CLAUDE_REVIEW_TIMEOUT_MS,
-  // Default stream-json capture is safe here: the chunk-join corruption on
-  // subagent-heavy runs was fixed by 95b4f5736, which IS inside v0.27.0
-  // (verified by spike run a9b4b686 — see the se-pipeline plan, KTD9).
-});
-
-const opencodeAgent = new OpenCodeAgent({
-  cwd: repoDir,
-  model: "openai/gpt-5.5",
-  timeoutMs: OPENCODE_REVIEW_TIMEOUT_MS,
-});
+// Caps, models, and retry policy live in lib/agents.ts (docReview profile —
+// deliberately cheaper than codeReview), including the incident history that
+// sized them. The calling skill's wait cap must exceed (retries+1) × the
+// claude timeout.
+const claudeAgent = makeClaudeReviewAgent({ cwd: repoDir, profile: "docReview", jsonField: "envelope" });
+const opencodeAgent = makeOpencodeReviewAgent({ cwd: repoDir });
 
 function resolvePluginSkillDir(): { dir: string; version: string } {
   const base = path.join(os.homedir(), ".claude/plugins/cache/compound-engineering-plugin/compound-engineering");
@@ -136,6 +102,7 @@ How to execute it:
 
 Hard rules:
 - NEVER invoke a skill named bare \`se-doc-review\` — that is a wrapper that spawns external consults and would recurse.
+- EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${skillDir} — not a summary you write yourself. The envelope's Coverage section must name exactly the personas actually executed as subagents; collapsing them into fewer generic reviewers is a failed run.
 - NO CHANGES, JUST REPORT: do not create, edit, or delete ANY file — including ${docCopy}. Where the workflow would apply a safe_auto fix, report it in the envelope as an applied-candidate finding with the exact suggested edit instead of making it.
 - The repo at ${repoDir} is read-only context for feasibility verification.
 - Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"envelope": "<the full headless envelope text>"}. Emit it exactly once, as the very last message; never emit placeholder JSON like {"envelope": "PENDING"} earlier in the session.
@@ -158,7 +125,7 @@ export default smithers((ctx) => {
             <TryCatchFinally
               id="guard-claude"
               try={
-                <Task id="review-claude" output={outputs.review} agent={claudeAgent} retries={1}>
+                <Task id="review-claude" output={outputs.review} agent={claudeAgent} retries={AGENT_PROFILES.docReview.retries}>
                   {reviewPrompt(staged.docCopy, staged.skillDir, ctx.input.smoke ?? false)}
                 </Task>
               }
@@ -171,7 +138,7 @@ export default smithers((ctx) => {
             <TryCatchFinally
               id="guard-opencode"
               try={
-                <Task id="review-opencode" output={outputs.review} agent={opencodeAgent} retries={1}>
+                <Task id="review-opencode" output={outputs.review} agent={opencodeAgent} retries={AGENT_PROFILES.opencodeReview.retries}>
                   {reviewPrompt(staged.docCopy, staged.skillDir, ctx.input.smoke ?? false)}
                 </Task>
               }

@@ -8,12 +8,13 @@
 //     --input '{"target":""}'
 // Staging lives in /tmp/ce-code-review — opencode reads it via the
 // permission.external_directory allow in ~/.config/opencode/opencode.json.
-import { createSmithers, ClaudeCodeAgent, OpenCodeAgent, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, TryCatchFinally } from "smithers-orchestrator";
 import { z } from "zod/v4";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 
 const inputSchema = z.object({
   target: z
@@ -70,23 +71,10 @@ const { Workflow, Task, Sequence, Parallel, smithers, outputs } = createSmithers
 
 const repoDir = process.env.CODE_REVIEW_REPO ?? process.cwd();
 
-// Native structured-output enforcement (claude CLI --json-schema). Smithers
-// does NOT derive this from the Task's Zod schema — without it the final
-// message is free-form text and capture fails on subagent-heavy sessions.
-const reportJsonSchema = JSON.stringify({
-  type: "object",
-  properties: { report: { type: "string" } },
-  required: ["report"],
-});
-
-// Per-leg caps sized from _smithers_attempts history, not a shared guess:
-// the claude leg (up to ~9 reviewer personas on a big diff) blew a 15-min cap
-// on platform-3 (run 46dec4cf — and smithers reaped the timed-out attempt
-// only at ~28 min wall-clock, so the real worst case exceeds the nominal
-// maxAttempts × cap). Opencode finishes in 3-6 min. The calling skill's wait
-// cap must exceed maxAttempts × the larger cap plus reap lag (~55 min).
-const CLAUDE_REVIEW_TIMEOUT_MS = 25 * 60_000;
-const OPENCODE_REVIEW_TIMEOUT_MS = 15 * 60_000;
+// Caps, models, and retry policy live in lib/agents.ts (codeReview profile),
+// including the incident history that sized them. The calling skill's wait
+// cap must exceed (retries+1) × the claude timeout plus reap lag on a
+// timed-out attempt (observed +13 min on run 46dec4cf).
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -159,6 +147,7 @@ How to execute it:
 
 Hard rules:
 - NEVER invoke a skill named bare \`se-code-review\` — that is a wrapper that spawns external consults and would recurse.
+- EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's reviewer-persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${skillDir} — not a summary you write yourself. The report's reviewer list must name exactly the personas actually executed as subagents; collapsing them into fewer generic "review the diff" subagents is a failed run.
 - NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches. The snapshot and the repo are read-only context.
 - Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"report": "<the plugin's full mode:agent JSON review serialized as a string>"}. A final message that is not that single JSON object is a failed run.`;
 }
@@ -171,34 +160,9 @@ export default smithers((ctx) => {
   // Agents are built per render because their cwd — the frozen snapshot — only
   // exists after the stage task runs.
   const claudeAgent = staged
-    ? new ClaudeCodeAgent({
-        cwd: staged.snapshotDir,
-        permissionMode: "acceptEdits",
-        // Consensus leg, not the deep one — the local personas already run on
-        // the session's top model. Sonnet matches se-pipeline verify-code and
-        // se-doc-review (which caught the Batch-5 P0s at this tier); unpinned,
-        // cost and quality float with the CLI's account default. fallbackModel
-        // rides out a Max-subscription rate-limit on the primary.
-        model: "claude-sonnet-5",
-        fallbackModel: "claude-haiku-4-5",
-        timeoutMs: CLAUDE_REVIEW_TIMEOUT_MS,
-        // Circuit breaker against a runaway agent, NOT a cost target: the cap
-        // re-arms on retry, so worst case ≈ 2 × this. Actual spend: grep
-        // total_cost_usd in the run log.
-        maxBudgetUsd: 15,
-        jsonSchema: reportJsonSchema,
-        // Default stream-json capture is safe here: the chunk-join corruption
-        // on subagent-heavy runs was fixed by 95b4f5736, which IS inside
-        // v0.27.0 (verified by spike run a9b4b686 — se-pipeline plan, KTD9).
-      })
+    ? makeClaudeReviewAgent({ cwd: staged.snapshotDir, profile: "codeReview", jsonField: "report" })
     : undefined;
-  const opencodeAgent = staged
-    ? new OpenCodeAgent({
-        cwd: staged.snapshotDir,
-        model: "openai/gpt-5.5",
-        timeoutMs: OPENCODE_REVIEW_TIMEOUT_MS,
-      })
-    : undefined;
+  const opencodeAgent = staged ? makeOpencodeReviewAgent({ cwd: staged.snapshotDir }) : undefined;
 
   return (
     <Workflow name="code-review-externals">
@@ -211,7 +175,7 @@ export default smithers((ctx) => {
             <TryCatchFinally
               id="guard-claude"
               try={
-                <Task id="review-claude" output={outputs.review} agent={claudeAgent} retries={1}>
+                <Task id="review-claude" output={outputs.review} agent={claudeAgent} retries={AGENT_PROFILES.codeReview.retries}>
                   {reviewPrompt(staged.consultTarget, staged.skillDir, ctx.input.smoke ?? false)}
                 </Task>
               }
@@ -224,7 +188,7 @@ export default smithers((ctx) => {
             <TryCatchFinally
               id="guard-opencode"
               try={
-                <Task id="review-opencode" output={outputs.review} agent={opencodeAgent} retries={1}>
+                <Task id="review-opencode" output={outputs.review} agent={opencodeAgent} retries={AGENT_PROFILES.opencodeReview.retries}>
                   {reviewPrompt(staged.consultTarget, staged.skillDir, ctx.input.smoke ?? false)}
                 </Task>
               }

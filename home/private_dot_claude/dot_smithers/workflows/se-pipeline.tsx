@@ -11,7 +11,7 @@
 //   cd ~/.claude/.smithers && PIPELINE_REPO=/abs/repo DOC_REVIEW_REPO=/abs/repo \
 //     ./node_modules/.bin/smithers up workflows/se-pipeline.tsx \
 //     --input '{"planPath":"/abs/plan.md","until":"branch","validateCmd":"bun test"}'
-import { createSmithers, ClaudeCodeAgent, OpenCodeAgent, Subflow, TryCatchFinally, approvalDecisionSchema } from "smithers-orchestrator";
+import { createSmithers, Subflow, TryCatchFinally, approvalDecisionSchema } from "smithers-orchestrator";
 import { z } from "zod/v4";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
@@ -35,6 +35,7 @@ import {
   treeHash,
   type GetRunState,
 } from "./lib/staging.ts";
+import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent, stringFieldJsonSchema } from "./lib/agents.ts";
 import seDocReview from "./se-doc-review.tsx";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 
@@ -100,30 +101,11 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
 
 const repoDir = process.env.PIPELINE_REPO ?? process.cwd();
 
-// Per-leg caps sized from _smithers_attempts history (same arithmetic as
-// se-code-review.tsx): the claude leg's full plugin review blows a 15-min cap
-// on big diffs; opencode finishes in 3-6 min. The verify-code merge node is
-// pure compute.
-const CLAUDE_REVIEW_TIMEOUT_MS = 25 * 60_000;
-const OPENCODE_REVIEW_TIMEOUT_MS = 15 * 60_000;
-
-// Model profile (Balanced): Opus for implementation, Sonnet for review — never
-// Fable. fallbackModel auto-switches when the primary is rate-limited, riding
-// out a Max-subscription throttle instead of failing the stage.
-const WORK_MODEL = "claude-opus-4-8";
-const WORK_FALLBACK_MODEL = "claude-sonnet-5";
-const REVIEW_MODEL = "claude-sonnet-5";
-const REVIEW_FALLBACK_MODEL = "claude-haiku-4-5";
-
-// Native structured-output enforcement (claude CLI --json-schema); smithers
-// does not derive it from the Task's Zod schema. Default stream-json capture
-// is fine on 0.27.0 (KTD9 verdict, U1 spike run a9b4b686) — no outputFormat
-// override here.
-const reportJsonSchema = JSON.stringify({
-  type: "object",
-  properties: { report: { type: "string" } },
-  required: ["report"],
-});
+// Caps, models, and retry policy live in lib/agents.ts: verify-code claude
+// legs review a work-stage diff — same workload class as se-code-review —
+// so they share the codeReview profile. The verify-code merge node is pure
+// compute. Work timeout/budget are operator inputs, not profile constants.
+const reportJsonSchema = stringFieldJsonSchema("report");
 
 // Lock/sweep staleness is decided by run STATE in smithers.db (cwd = the
 // smithers dir), never pid liveness: an Approval pause has no live process
@@ -253,6 +235,7 @@ How to execute it:
 
 Hard rules:
 - NEVER invoke skills named bare \`se-code-review\` or \`se-pipeline\` — they spawn orchestrations and would recurse.
+- EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's reviewer-persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${skillDir} — not a summary you write yourself. The report's reviewer list must name exactly the personas actually executed as subagents; collapsing them into fewer generic "review the diff" subagents is a failed run.
 - NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches.
 - Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the plugin's full mode:agent JSON review (status/verdict/findings/...) serialized as a string>"}. A final message that is not that single JSON object is a failed run.`;
 }
@@ -411,35 +394,17 @@ export default smithers((ctx) => {
   // Agents are built per render — their cwd (the run worktree) exists only
   // after the staging task runs.
   const workAgent = staged
-    ? new ClaudeCodeAgent({
+    ? makeWorkAgent({
         cwd: staged.worktreePath,
-        permissionMode: "bypassPermissions",
-        dangerouslySkipPermissions: true,
-        model: WORK_MODEL,
-        fallbackModel: WORK_FALLBACK_MODEL,
         timeoutMs: workTimeoutMs,
         maxBudgetUsd: workBudgetUsd,
-        jsonSchema: reportJsonSchema,
+        jsonField: "report",
       })
     : undefined;
   const codeReviewAgent = staged
-    ? new ClaudeCodeAgent({
-        cwd: staged.worktreePath,
-        permissionMode: "acceptEdits",
-        model: REVIEW_MODEL,
-        fallbackModel: REVIEW_FALLBACK_MODEL,
-        timeoutMs: CLAUDE_REVIEW_TIMEOUT_MS,
-        maxBudgetUsd: 15,
-        jsonSchema: reportJsonSchema,
-      })
+    ? makeClaudeReviewAgent({ cwd: staged.worktreePath, profile: "codeReview", jsonField: "report" })
     : undefined;
-  const opencodeReviewAgent = staged
-    ? new OpenCodeAgent({
-        cwd: staged.worktreePath,
-        model: "openai/gpt-5.5",
-        timeoutMs: OPENCODE_REVIEW_TIMEOUT_MS,
-      })
-    : undefined;
+  const opencodeReviewAgent = staged ? makeOpencodeReviewAgent({ cwd: staged.worktreePath }) : undefined;
 
   const children: unknown[] = [
     <Task id="gate0" output={outputs.gate0} retries={0}>
@@ -666,7 +631,7 @@ export default smithers((ctx) => {
                       <TryCatchFinally
                         id={`guard-${nodeId}-claude`}
                         try={
-                          <Task id={`${nodeId}-claude`} output={outputs.agentReport} agent={codeReviewAgent} retries={1} bind={gate0Proof}>
+                          <Task id={`${nodeId}-claude`} output={outputs.agentReport} agent={codeReviewAgent} retries={AGENT_PROFILES.codeReview.retries} bind={gate0Proof}>
                             {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
                           </Task>
                         }
@@ -679,7 +644,7 @@ export default smithers((ctx) => {
                       <TryCatchFinally
                         id={`guard-${nodeId}-opencode`}
                         try={
-                          <Task id={`${nodeId}-opencode`} output={outputs.agentReport} agent={opencodeReviewAgent} retries={1} bind={gate0Proof}>
+                          <Task id={`${nodeId}-opencode`} output={outputs.agentReport} agent={opencodeReviewAgent} retries={AGENT_PROFILES.opencodeReview.retries} bind={gate0Proof}>
                             {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
                           </Task>
                         }

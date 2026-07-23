@@ -12,7 +12,7 @@ All external orchestration (snapshotting, staging, parallel CLI launches, timeou
 
 Argument contract is identical to the plugin skill: `mode:` / `base:` / `plan:` / `depth:` / `grouping:` tokens plus an optional PR number/URL/branch target. Everything is passed through to the local review unchanged.
 
-**Cost note:** three multi-persona reviews (up to ~9 reviewer subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-8; its `maxBudgetUsd: 15` is a runaway circuit breaker, not a cost target, and re-arms on retry — effective ceiling ≈ attempts × cap. Actual claude spend appears as `total_cost_usd` in the harness log. Expect ~10-20 minutes and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-code-review` directly (its quick-review short-circuit also stays available there).
+**Cost note:** three multi-persona reviews (up to ~9 reviewer subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-8; a big diff (4800+ lines) bills ~$17+. Its `maxBudgetUsd: 40` is a runaway circuit breaker, not a cost target; the claude leg runs `retries={0}` because budget exhaustion is deterministic for a given diff — a retry burns the cap again on the same failure. Actual claude spend appears as `total_cost_usd` in the harness log. Expect ~10-20 minutes and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-code-review` directly (its quick-review short-circuit also stays available there).
 
 ## Recursion guard (read first)
 
@@ -50,7 +50,7 @@ Never invoke bare `se-code-review` from here — that is this wrapper.
 
 ## Phase 4: Collect external reports
 
-After the local review returns, wait for the background harness task. Cap the wait at ~55 min — the harness's own worst case is 2 attempts × 25-min per-attempt timeout on the claude leg, plus smithers reap lag on a timed-out attempt (observed +13 min on run 46dec4cf); past the cap, treat the harness as hung and its reports as failed. Then read the report path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error). Each report is the plugin's `mode:agent` JSON (`status`, `verdict`, `findings[]`, `actionable_findings[]`, …); a report with `"status": "failed"` / `"degraded"` / `"skipped"` counts as that agent's honest result, not a harness failure.
+After the local review returns, wait for the background harness task. Cap the wait at ~60 min — the harness's own worst case is a single 45-min attempt on the claude leg (retries=0), plus smithers reap lag on a timed-out attempt (observed +13 min on run 46dec4cf); past the cap, treat the harness as hung and its reports as failed. Then read the report path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error). Each report is the plugin's `mode:agent` JSON (`status`, `verdict`, `findings[]`, `actionable_findings[]`, …); a report with `"status": "failed"` / `"degraded"` / `"skipped"` counts as that agent's honest result, not a harness failure.
 
 ## Phase 5: Synthesize the three reports
 
