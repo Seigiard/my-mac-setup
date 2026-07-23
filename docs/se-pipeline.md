@@ -148,6 +148,39 @@ se resume <runId>      # продолжить после паузы/падени
   чужие незакоммиченные правки. Проверяй `echo $SE_SMITHERS_DIR` перед
   запуском; должен быть пуст (дефолт — рантайм).
 
+## Smithers-причуды (проверено прогонами, актуально в 0.29)
+
+Правила авторинга воркфлоу; не изменились в 0.28/0.29:
+
+- Task без явного `retries` ретраится бесконечно (прогон висит в running) —
+  каждая Task обязана иметь `retries={0|1}`.
+- `ctx.input` приходит без Zod-дефолтов — коалесцировать каждое опциональное
+  поле (`?? default`).
+- ClaudeCodeAgent не умеет native structured output — envelope-контракт в
+  промпте обязателен. Невалидный envelope → smithers МОЛЧА перезапускает весь
+  агентный прогон внутри той же attempt: кап Subflow ≥ 2× длительности самой
+  долгой ноги.
+- `timeoutMs` срабатывает с reap-лагом (~+13 мин wall-clock). Wait cap
+  вызывающего = maxAttempts × cap + ~15 мин.
+- runId `run-<epoch-ms>` уникален только хвостом (`runIdTail`, последние
+  8 алфанум).
+- Глобальная политика «NEVER commit unless asked» из ~/.claude/CLAUDE.md
+  протекает в headless `claude -p` — work-промпт обязан явно просить коммит.
+- Burst-лимитер Anthropic бьёт при 5–6 параллельных headless-сессиях —
+  держать concurrency ≤3 (anthropics/claude-code#53922, #62426).
+- Per-task USD-стоимость не персистится — только токены (`TokenUsageReported`
+  в `_smithers_events`); себестоимость считается из токенов
+  (`workflows/lib/cost.ts`).
+- Нода `output` сносит снапшот-worktree при finish → `smithers retry-task` на
+  ноде завершённого рана невозможен, только свежий ран.
+- `smithers cancel` рана с мёртвым владельцем оставляет статус running
+  навсегда + worktree (cancel некому обработать; force-флага у CLI 0.29 нет).
+  Добивать руками: `git -C <repo> worktree remove --force <path>` + `git
+  worktree prune`; в DB `UPDATE _smithers_runs SET status='cancelled',
+  finished_at_ms=<now> WHERE run_id=? AND status='running' AND
+  runtime_owner_id='<мёртвый pid>'` — guard по owner_id обязателен, чтобы не
+  тронуть живой ран.
+
 ## Провенанс и пост-approval рескан (Batch 5)
 
 Два зазора MVP закрыты (план

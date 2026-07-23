@@ -71,6 +71,10 @@ bash ~/.claude/skills/ask-agent/scripts/ask.sh pi "Add a missing null check in s
 - **opencode** prefixes its output with a banner line (e.g. `> Sisyphus · model`); the answer follows it. Ignore the banner.
 - In herdr mode the consult pane is left open; close it with `herdr pane close <pane_id>` (the id is printed on stderr when the consult finishes) or keep it to continue the conversation there.
 
+## opencode sandbox
+
+opencode one-shots (`run --dir <cwd>`) reject reads outside `--cwd`; non-interactive they **exit silently with no output** instead of asking. Stage files the consult must read into cwd, or add a scoped glob to `~/.config/opencode/opencode.json` → `permission.external_directory` (existing entries: `/tmp/ce-doc-review/**`, `~/.claude/skills/**`). Never assume a bare `/tmp` or `~/...` path is readable. Also: smithers drops `smithers.db*`/`.smithers/` into its launch cwd — launch it from a tooling dir, not the repo.
+
 ## Notes & limits
 
 - Read-only is enforced by a tool **allowlist** for claude and pi (no Bash, so no writes at all), but only by **prompt** for opencode (not a hard guarantee). Use `--rw` when you want the agent to make changes.

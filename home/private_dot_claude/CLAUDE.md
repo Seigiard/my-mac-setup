@@ -102,6 +102,20 @@ Ask the user when:
 
 </important>
 
+<important if="you are about to call AskUserQuestion or the user asked to explain/clarify">
+
+- Explanation and question tool call never share a turn — prose before a tool call may not render. Explain, END the turn; ask next turn with self-sufficient option descriptions.
+- Clarification request ("ELI12", "я не понял") = explanation only. No menu in the same turn; re-ask only when user signals readiness.
+- After pushback on a menu's format: drop AskUserQuestion for that decision. Ask once, in prose. Never re-show a declined menu.
+
+</important>
+
+<important if="you are asking interactive questions (menus, brainstorm probes, syntheses)">
+
+ELI16/KISS wording, technical terms exact. Docs, plans, commits stay English.
+
+</important>
+
 <important if="you are about to edit or modify a file">
 
 - Read the full file before editing.
@@ -166,6 +180,32 @@ Assign Linear issues to the user by default unless they explicitly request a dif
 
 </important>
 
+## Environment
+
+<important if="you are deleting files, bounding command time, using gh, or writing Monitor/watch scripts">
+
+- `rm -rf` denied by permissions. Delete via `mv <dir> $SCRATCHPAD/trash-<ts>/`.
+- No `timeout`/`gtimeout` binary installed. Bound commands via the Bash tool `timeout` parameter.
+- `gh` is authed as **Seigiard** (≠ git author "Andrew Borisenko"). PRs open as Seigiard; never request Seigiard as reviewer (HTTP 422).
+- Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
+
+</important>
+
+<important if="you are launching background agents or worktree-isolated workers">
+
+- 600s of silent output kills the worker. Stream provisioning (`… 2>&1 | tail -40`), never one silent 10-min command.
+- A failed worker's worktree with no tracked edits is auto-cleaned — setup lost. First action = a real tracked edit, then provision.
+- Cap concurrent worktree setups at 2–3; 5 parallel `make setup` CPU-starves the machine into watchdog kills.
+- For retries after a lost worktree: run in the main checkout on a pre-created branch (deps built, failures don't delete the tree).
+
+</important>
+
+<important if="you are finishing a PR or considering merging">
+
+Never merge a PR without an explicit user command in this session. Finishing sequence: open PR → CI green → triage AI-review findings → assign a human reviewer → stop and report. A plan's DoD saying "merged" describes the human's target state, not agent authorization.
+
+</important>
+
 ## Tools and search
 
 <important if="you need to search files, search code contents, look up library docs, fetch URLs, or do web research">
@@ -204,5 +244,6 @@ Meta commands (use directly):
 - `rtk gain --history` — usage history with savings
 - `rtk discover` — find missed optimization opportunities
 - `rtk proxy <cmd>` — execute without filtering (debug)
+- Bash `rg` through RTK mangles code identifiers (symbols come back as `ln`/`n`, garbled hits look real). Symbol searches: Grep / `mcp__fff__grep` / Read. Bash `rg` only for non-identifier text.
 
 </important>

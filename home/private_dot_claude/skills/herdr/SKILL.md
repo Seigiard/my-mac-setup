@@ -219,6 +219,13 @@ herdr wait agent-status <pane_id> --status done --timeout 120000
 herdr pane read <pane_id> --source recent-unwrapped --lines 100
 ```
 
+## Plugin dev gotchas
+
+- `herdr-plugin.toml` edits are picked up ONLY by re-running `herdr plugin link <dir>` (`server reload-config` reads config.toml only; `plugin disable`/`enable` flips a flag only).
+- `[[panes]] width/height` in the manifest are ignored by `plugin pane open` — pass `--width`/`--height` explicitly (PopupSize: cells or `"N%"`).
+- `defaults/commands.toml` seeds only the first run; the palette reads `~/.config/herdr/command-palette/commands.toml` (mutable user copy, not chezmoi-managed) — sync manually after editing defaults.
+- Popups are a per-workspace singleton (`plugin_pane_open_failed: popup already open`). To open a popup from the palette (itself a popup): `type = "shell"`, `pause = false`, `nohup bash -c "sleep 0.4; herdr plugin pane open …" &` — the palette closes, the detached process opens the popup into the freed slot.
+
 ## Notes & gotchas
 
 - Re-read ids from `list`/`create`/`split` responses; they renumber on close. Target agents by `terminal_id` for stability.
