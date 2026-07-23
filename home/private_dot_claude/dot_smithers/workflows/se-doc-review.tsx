@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
+import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
 
 const inputSchema = z.object({
   docPath: z.string().describe("Absolute path to the document under review."),
@@ -98,16 +99,23 @@ Execute the compound-engineering document-review workflow in HEADLESS mode on th
 
 How to execute it:
 - If your available skills include \`compound-engineering:ce-doc-review\`, invoke it with args "mode:headless ${docCopy}".
-- Otherwise, read ${skillDir}/SKILL.md and follow it directly, treating ${skillDir} as the skill's base directory (it references its own files under it). Where it dispatches subagents, use YOUR subagent tool.
+- ${skillFallbackLine(skillDir)}
 
-Hard rules:
-- NEVER invoke a skill named bare \`se-doc-review\` — that is a wrapper that spawns external consults and would recurse.
-- EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${skillDir} — not a summary you write yourself. The envelope's Coverage section must name exactly the personas actually executed as subagents; collapsing them into fewer generic reviewers is a failed run.
-- NO CHANGES, JUST REPORT: do not create, edit, or delete ANY file — including ${docCopy}. Where the workflow would apply a safe_auto fix, report it in the envelope as an applied-candidate finding with the exact suggested edit instead of making it.
-- The repo at ${repoDir} is read-only context for feasibility verification.
-- Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"envelope": "<the full headless envelope text>"}. Emit it exactly once, as the very last message; never emit placeholder JSON like {"envelope": "PENDING"} earlier in the session.
-- The envelope value is the review REPORT ITSELF, verbatim and complete: every section the workflow produced (applied-candidate fixes with exact suggested edits, proposed fixes, decisions, FYI, residual concerns, coverage), at least 500 characters, and its LAST line exactly: Review complete
-- A status note ("Document review complete", a list of reviewers used, a summary of what you did) is NOT an envelope. It fails schema validation and the ENTIRE multi-persona review is discarded and re-run from scratch — all prior work wasted.`;
+${consultHardRules({
+  forbiddenSkills: ["se-doc-review"],
+  skillDir,
+  personaListLocation: "The envelope's Coverage section",
+  noChangesRules: [
+    `NO CHANGES, JUST REPORT: do not create, edit, or delete ANY file — including ${docCopy}. Where the workflow would apply a safe_auto fix, report it in the envelope as an applied-candidate finding with the exact suggested edit instead of making it.`,
+    `The repo at ${repoDir} is read-only context for feasibility verification.`,
+  ],
+  extraRules: [
+    "The envelope value is the review REPORT ITSELF, verbatim and complete: every section the workflow produced (applied-candidate fixes with exact suggested edits, proposed fixes, decisions, FYI, residual concerns, coverage), at least 500 characters, and its LAST line exactly: Review complete",
+    'A status note ("Document review complete", a list of reviewers used, a summary of what you did) is NOT an envelope. It fails schema validation and the ENTIRE multi-persona review is discarded and re-run from scratch — all prior work wasted.',
+  ],
+  jsonField: "envelope",
+  jsonValueDescription: "<the full headless envelope text>",
+})}`;
 }
 
 export default smithers((ctx) => {

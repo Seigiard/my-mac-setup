@@ -35,7 +35,8 @@ import {
   treeHash,
   type GetRunState,
 } from "./lib/staging.ts";
-import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent, stringFieldJsonSchema } from "./lib/agents.ts";
+import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent } from "./lib/agents.ts";
+import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
 import seDocReview from "./se-doc-review.tsx";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 
@@ -105,7 +106,6 @@ const repoDir = process.env.PIPELINE_REPO ?? process.cwd();
 // legs review a work-stage diff — same workload class as se-code-review —
 // so they share the codeReview profile. The verify-code merge node is pure
 // compute. Work timeout/budget are operator inputs, not profile constants.
-const reportJsonSchema = stringFieldJsonSchema("report");
 
 // Lock/sweep staleness is decided by run STATE in smithers.db (cwd = the
 // smithers dir), never pid liveness: an Approval pause has no live process
@@ -230,14 +230,19 @@ Execute the compound-engineering code-review workflow in mode:agent on YOUR CURR
 
 How to execute it:
 - If your available skills include \`compound-engineering:ce-code-review\`, invoke it with args "mode:agent base:${baseSha}".
-- Otherwise, read ${skillDir}/SKILL.md and follow it directly, treating ${skillDir} as the skill's base directory (it references its own files under it). Where it dispatches subagents, use YOUR subagent tool.
+- ${skillFallbackLine(skillDir)}
 - Review target: the commits on this branch since ${baseSha}.
 
-Hard rules:
-- NEVER invoke skills named bare \`se-code-review\` or \`se-pipeline\` — they spawn orchestrations and would recurse.
-- EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's reviewer-persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${skillDir} — not a summary you write yourself. The report's reviewer list must name exactly the personas actually executed as subagents; collapsing them into fewer generic "review the diff" subagents is a failed run.
-- NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches.
-- Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the plugin's full mode:agent JSON review (status/verdict/findings/...) serialized as a string>"}. A final message that is not that single JSON object is a failed run.`;
+${consultHardRules({
+  forbiddenSkills: ["se-code-review", "se-pipeline"],
+  skillDir,
+  personaListLocation: "The report's reviewer list",
+  noChangesRules: [
+    "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches.",
+  ],
+  jsonField: "report",
+  jsonValueDescription: "<the plugin's full mode:agent JSON review (status/verdict/findings/...) serialized as a string>",
+})}`;
 }
 
 type StageStatus = "pending" | "green" | "stopped";

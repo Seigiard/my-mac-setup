@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
+import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
 
 const inputSchema = z.object({
   target: z
@@ -143,13 +144,18 @@ Execute the compound-engineering code-review workflow in mode:agent on YOUR CURR
 
 How to execute it:
 - If your available skills include \`compound-engineering:ce-code-review\`, invoke it with args "mode:agent ${consultTarget}".
-- Otherwise, read ${skillDir}/SKILL.md and follow it directly, treating ${skillDir} as the skill's base directory (it references its own files under it). Where it dispatches subagents, use YOUR subagent tool. Review target: ${consultTarget}.
+- ${skillFallbackLine(skillDir)} Review target: ${consultTarget}.
 
-Hard rules:
-- NEVER invoke a skill named bare \`se-code-review\` — that is a wrapper that spawns external consults and would recurse.
-- EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's reviewer-persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${skillDir} — not a summary you write yourself. The report's reviewer list must name exactly the personas actually executed as subagents; collapsing them into fewer generic "review the diff" subagents is a failed run.
-- NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches. The snapshot and the repo are read-only context.
-- Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"report": "<the plugin's full mode:agent JSON review serialized as a string>"}. A final message that is not that single JSON object is a failed run.`;
+${consultHardRules({
+  forbiddenSkills: ["se-code-review"],
+  skillDir,
+  personaListLocation: "The report's reviewer list",
+  noChangesRules: [
+    "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches. The snapshot and the repo are read-only context.",
+  ],
+  jsonField: "report",
+  jsonValueDescription: "<the plugin's full mode:agent JSON review serialized as a string>",
+})}`;
 }
 
 export default smithers((ctx) => {
