@@ -205,7 +205,40 @@ function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion:
   return { skillDir, pluginVersion: plugin.version };
 }
 
-function workPrompt(planPath: string, branch: string, smoke: boolean): string {
+// verify-doc findings below the P0/P1 gate used to be write-only — landed in
+// the report envelopes, never reached the work agent (run-1784823010502:
+// opencode's P2s predicted a spec failure the work leg then had to rediscover).
+// Envelopes live in /tmp; a resume after tmp-cleanup loses them — advisory
+// only, never fail the work stage over a missing file.
+const ADVISORY_CAP = 12_000;
+
+function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined): string {
+  if (!doc) return "";
+  const sections: string[] = [];
+  const legs: Array<[string, string | undefined]> = [
+    ["claude", doc.claudeEnvelopePath],
+    ["opencode", doc.opencodeEnvelopePath],
+  ];
+  for (const [source, envelopePath] of legs) {
+    if (!envelopePath) continue;
+    try {
+      const text = fs.readFileSync(envelopePath, "utf8").trim();
+      if (text === "") continue;
+      const capped = text.length > ADVISORY_CAP ? `${text.slice(0, ADVISORY_CAP)}\n[... truncated]` : text;
+      sections.push(`--- ${source} doc-review envelope ---\n${capped}`);
+    } catch {
+      sections.push(`--- ${source} doc-review envelope --- (unavailable: ${envelopePath})`);
+    }
+  }
+  if (sections.length === 0) return "";
+  return `
+
+ADVISORY plan-review findings (verify-doc stage, two independent external reviews; the stage gate only checks that the reviews ran — findings never block, by design). For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
+
+${sections.join("\n\n")}`;
+}
+
+function workPrompt(planPath: string, branch: string, smoke: boolean, docReviewAdvisory: string): string {
   if (smoke) {
     return `[se-pipeline-stage] Smoke wiring test. Your cwd is an isolated git worktree on branch ${branch}. Do exactly this: append one line to SMOKE.md. Do NOT run git add/commit/push — leave the change in the working tree; the pipeline commits it. Your FINAL message must be EXACTLY one JSON object {"report": "<envelope>"} where <envelope> is a JSON object serialized as a string with fields: status="complete", changed_files=["SMOKE.md"], u_ids_attempted=[], u_ids_completed=[], verification_evidence=[{"unit":"smoke","exception_reason":"smoke wiring test"}], blockers=[], behavior_change=false, standalone_shipping_skipped=true.`;
   }
@@ -217,7 +250,7 @@ Context: your cwd is an ISOLATED git worktree of the target repository, already 
 
 Do NOT commit and do NOT run git add/commit/push: leave ALL your changes in the working tree exactly as edited. The pipeline commits your work itself, deterministically, after this step — this keeps commits idempotent across crash-resume (KTD5). This instruction overrides any ce-work step that would otherwise commit.
 
-Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) serialized as a string>"}.`;
+Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) serialized as a string>"}.${docReviewAdvisory}`;
 }
 
 function codeReviewPrompt(baseSha: string, branch: string, skillDir: string, smoke: boolean): string {
@@ -532,6 +565,8 @@ export default smithers((ctx) => {
         return result;
       };
 
+      const docReviewOut = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
+      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewOut);
       const work = stageBlock({
         name: "work",
         makeAttempt: (nodeId) => (
@@ -541,7 +576,7 @@ export default smithers((ctx) => {
           // gate-0 authority row — a tampered plan-hash parks BOUND_STALE
           // before dispatch.
           <Task id={nodeId} output={outputs.agentReport} agent={workAgent} retries={0} bind={gate0Proof}>
-            {workPrompt(gate0.planPath, staged.branch, smoke)}
+            {workPrompt(gate0.planPath, staged.branch, smoke, docReviewAdvisory)}
           </Task>
         ),
         readRaw: readAgentReport,
@@ -773,7 +808,9 @@ export default smithers((ctx) => {
     children.push(
       <Task id="summary" output={outputs.summary} retries={1} bind={gate0Proof}>
         {() => {
-          const reportDir = path.join(os.tmpdir(), "se-pipeline", "reports", ctx.runId.slice(0, 8));
+          // Full runId: a slice(0,8) prefix is "run-1784" for every run of this
+          // epoch — all runs collided on one dir and overwrote each other's reports.
+          const reportDir = path.join(os.tmpdir(), "se-pipeline", "reports", ctx.runId);
           fs.mkdirSync(reportDir, { recursive: true });
           if (workReport) fs.writeFileSync(path.join(reportDir, "work.envelope.json"), workReport.report);
           if (codeReport) fs.writeFileSync(path.join(reportDir, "verify-code.report.json"), codeReport.report);
