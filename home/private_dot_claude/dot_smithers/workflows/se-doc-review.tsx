@@ -123,8 +123,7 @@ ${consultHardRules({
     'A status note ("Document review complete", a list of reviewers used, a summary of what you did) is NOT an envelope. It fails schema validation and the ENTIRE multi-persona review is discarded and re-run from scratch — all prior work wasted.',
     'Immediately before that final Review complete line, emit exactly one machine-readable severity line — nothing between it and Review complete: SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N} — one line of valid JSON, counts and maxSeverity reflecting the highest-severity findings in your review prose (maxSeverity is the top grade present, or "none" when clean). This line is machine gate input, not review content; it never affects envelope validity, so a missing or malformed SEVERITY line is tolerated (degrades to advisory), never a reason to re-run.',
   ],
-  jsonField: "envelope",
-  jsonValueDescription: "<the full headless envelope text>",
+  finalOutput: { kind: "wrapped", jsonField: "envelope", jsonValueDescription: "<the full headless envelope text>" },
 })}`;
 }
 

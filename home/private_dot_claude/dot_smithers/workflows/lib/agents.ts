@@ -11,8 +11,20 @@
 // diff, so a retry burns the whole cap again on the same failure (2026-07-23,
 // runs 89938dd6/07ffc75d: 4 attempts × ~$15-17 on one diff). JSX reads it as
 // retries={AGENT_PROFILES.<profile>.retries}.
+//
+// `idleTimeoutMs` is the spawn layer's PROCESS_IDLE_TIMEOUT: the timer resets
+// on every stdout/stderr byte, so a review CLI that goes silent dies at the
+// idle threshold instead of burning the full `timeoutMs` (run 9925bb0d ate the
+// 45-min cap on a 10-min stall). Review profiles only — 15 min for the claude
+// legs, 10 min for opencode — each strictly under its `timeoutMs`. Values sit
+// above the observed pathological floor but are provisional: a healthy leg can
+// also fall silent (rate-limit backoff, one long API call, doc-review's
+// 12-17-min subagent phases), and codeReview.retries=0 makes a false idle-kill
+// irrecoverable. The `work` profile is excluded — long locally-silent commands
+// (installs, test suites) are legitimate there.
 
 import { ClaudeCodeAgent, OpenCodeAgent } from "smithers-orchestrator";
+import { reviewLegJsonSchema } from "./review-schema.ts";
 
 // Observed burn of a sonnet-5 review leg on a big diff (run 89938dd6:
 // ~$17 in ~13 min). Budget and timeout must scale together — a budget that
@@ -29,6 +41,7 @@ export const AGENT_PROFILES = {
     model: "claude-sonnet-5",
     fallbackModel: "claude-haiku-4-5",
     timeoutMs: 45 * 60_000,
+    idleTimeoutMs: 15 * 60_000,
     maxBudgetUsd: 40,
     retries: 0,
   },
@@ -39,6 +52,7 @@ export const AGENT_PROFILES = {
     model: "claude-sonnet-5",
     fallbackModel: "claude-haiku-4-5",
     timeoutMs: 25 * 60_000,
+    idleTimeoutMs: 15 * 60_000,
     maxBudgetUsd: 15,
     retries: 1,
   },
@@ -46,6 +60,7 @@ export const AGENT_PROFILES = {
   opencodeReview: {
     model: "openai/gpt-5.5",
     timeoutMs: 15 * 60_000,
+    idleTimeoutMs: 10 * 60_000,
     retries: 1,
   },
   // Implementation leg (se-pipeline work stage): Opus for implementation,
@@ -68,11 +83,13 @@ export function stringFieldJsonSchema(field: "report" | "envelope"): string {
   });
 }
 
-export interface ClaudeReviewAgentOptions {
-  cwd: string;
-  profile: "codeReview" | "docReview";
-  jsonField: "report" | "envelope";
-}
+// codeReview captures the plugin's natural review object directly (single
+// source: lib/review-schema.ts) — no {report: string} wrapper. docReview still
+// wraps its free-form markdown in {envelope: string} (R7), so the json-schema
+// is scoped per profile and only the code-review contract unwraps.
+export type ClaudeReviewAgentOptions =
+  | { cwd: string; profile: "codeReview" }
+  | { cwd: string; profile: "docReview"; jsonField: "envelope" };
 
 // Consensus leg, not the deep one — the local personas already run on the
 // session's top model; Sonnet, never Fable. Default stream-json capture is
@@ -86,8 +103,9 @@ export function makeClaudeReviewAgent(options: ClaudeReviewAgentOptions): Claude
     model: profile.model,
     fallbackModel: profile.fallbackModel,
     timeoutMs: profile.timeoutMs,
+    idleTimeoutMs: profile.idleTimeoutMs,
     maxBudgetUsd: profile.maxBudgetUsd,
-    jsonSchema: stringFieldJsonSchema(options.jsonField),
+    jsonSchema: options.profile === "codeReview" ? reviewLegJsonSchema() : stringFieldJsonSchema(options.jsonField),
   });
 }
 
@@ -96,6 +114,7 @@ export function makeOpencodeReviewAgent(options: { cwd: string }): OpenCodeAgent
     cwd: options.cwd,
     model: AGENT_PROFILES.opencodeReview.model,
     timeoutMs: AGENT_PROFILES.opencodeReview.timeoutMs,
+    idleTimeoutMs: AGENT_PROFILES.opencodeReview.idleTimeoutMs,
   });
 }
 

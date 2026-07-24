@@ -38,6 +38,7 @@ import {
 } from "./lib/staging.ts";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent } from "./lib/agents.ts";
 import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { reviewLegSchema } from "./lib/review-schema.ts";
 import seDocReview from "./se-doc-review.tsx";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 
@@ -90,6 +91,10 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   docReview: docReviewSchema,
   agentReport: z.object({ report: z.string() }),
+  // The two verify-code review legs emit the plugin's natural review object
+  // (lib/review-schema.ts) under their own key; the shared agentReport wrapper
+  // stays for work, secret-scan, rescan, and the merged verify-code report.
+  reviewLeg: reviewLegSchema,
   failedMarker: z.object({ stage: z.string() }),
   gateVerdict: gateVerdictSchema,
   approval: approvalDecisionSchema,
@@ -316,7 +321,7 @@ Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": 
 
 function codeReviewPrompt(baseSha: string, branch: string, skillDir: string, smoke: boolean): string {
   if (smoke) {
-    return `[se-pipeline-stage] Smoke wiring test. Your FINAL message must be EXACTLY one JSON object: {"report": "<the JSON object {\\"status\\":\\"complete\\",\\"verdict\\":\\"approve\\",\\"findings\\":[]} serialized as a string>"}. Do nothing else.`;
+    return `[se-pipeline-stage] Smoke wiring test. Your FINAL message must be EXACTLY one JSON object and nothing else: {"status":"complete","verdict":"approve","findings":[]}. Do nothing else.`;
   }
   return `[se-pipeline-stage]
 
@@ -334,8 +339,10 @@ ${consultHardRules({
   noChangesRules: [
     "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches.",
   ],
-  jsonField: "report",
-  jsonValueDescription: "<the plugin's full mode:agent JSON review (status/verdict/findings/...) serialized as a string>",
+  finalOutput: {
+    kind: "rawObject",
+    objectDescription: "the plugin's full mode:agent JSON review (status/verdict/findings/...)",
+  },
 })}`;
 }
 
@@ -507,7 +514,7 @@ export default smithers((ctx) => {
       })
     : undefined;
   const codeReviewAgent = staged
-    ? makeClaudeReviewAgent({ cwd: staged.worktreePath, profile: "codeReview", jsonField: "report" })
+    ? makeClaudeReviewAgent({ cwd: staged.worktreePath, profile: "codeReview" })
     : undefined;
   const opencodeReviewAgent = staged ? makeOpencodeReviewAgent({ cwd: staged.worktreePath }) : undefined;
 
@@ -728,9 +735,9 @@ export default smithers((ctx) => {
             makeAttempt: (nodeId) => {
               const consultOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-consult-stage` });
               const consult = consultOut === undefined ? undefined : (JSON.parse(consultOut.report) as { skillDir: string });
-              const claudeOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-claude` });
+              const claudeOut = ctx.outputMaybe("reviewLeg", { nodeId: `${nodeId}-claude` });
               const claudeCrash = ctx.outputMaybe("failedMarker", { nodeId: `${nodeId}-claude-crashed` });
-              const opencodeOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-opencode` });
+              const opencodeOut = ctx.outputMaybe("reviewLeg", { nodeId: `${nodeId}-opencode` });
               const opencodeCrash = ctx.outputMaybe("failedMarker", { nodeId: `${nodeId}-opencode-crashed` });
               const legsSettled = (claudeOut !== undefined || claudeCrash !== undefined) && (opencodeOut !== undefined || opencodeCrash !== undefined);
               return (
@@ -743,7 +750,7 @@ export default smithers((ctx) => {
                       <TryCatchFinally
                         id={`guard-${nodeId}-claude`}
                         try={
-                          <Task id={`${nodeId}-claude`} output={outputs.agentReport} agent={codeReviewAgent} retries={AGENT_PROFILES.codeReview.retries} bind={gate0Proof}>
+                          <Task id={`${nodeId}-claude`} output={outputs.reviewLeg} agent={codeReviewAgent} retries={AGENT_PROFILES.codeReview.retries} bind={gate0Proof}>
                             {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
                           </Task>
                         }
@@ -756,7 +763,7 @@ export default smithers((ctx) => {
                       <TryCatchFinally
                         id={`guard-${nodeId}-opencode`}
                         try={
-                          <Task id={`${nodeId}-opencode`} output={outputs.agentReport} agent={opencodeReviewAgent} retries={AGENT_PROFILES.opencodeReview.retries} bind={gate0Proof}>
+                          <Task id={`${nodeId}-opencode`} output={outputs.reviewLeg} agent={opencodeReviewAgent} retries={AGENT_PROFILES.opencodeReview.retries} bind={gate0Proof}>
                             {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
                           </Task>
                         }
@@ -772,8 +779,8 @@ export default smithers((ctx) => {
                     <Task id={nodeId} output={outputs.agentReport} retries={0}>
                       {() => ({
                         report: mergeReviewReports([
-                          { source: "claude", raw: claudeOut?.report },
-                          { source: "opencode", raw: opencodeOut?.report },
+                          { source: "claude", raw: claudeOut ? JSON.stringify(claudeOut) : undefined },
+                          { source: "opencode", raw: opencodeOut ? JSON.stringify(opencodeOut) : undefined },
                         ]),
                       })}
                     </Task>
@@ -874,8 +881,8 @@ export default smithers((ctx) => {
     // Per-leg reports of the attempt the gate actually used — the merged report
     // strips nothing, but humans at the Approval pause want each engine's view.
     const codeAttempt = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) !== undefined ? "verify-code-extra" : "verify-code";
-    const codeClaudeReport = ctx.outputMaybe("agentReport", { nodeId: `${codeAttempt}-claude` });
-    const codeOpencodeReport = ctx.outputMaybe("agentReport", { nodeId: `${codeAttempt}-opencode` });
+    const codeClaudeReport = ctx.outputMaybe("reviewLeg", { nodeId: `${codeAttempt}-claude` });
+    const codeOpencodeReport = ctx.outputMaybe("reviewLeg", { nodeId: `${codeAttempt}-opencode` });
     const docResult = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
     children.push(
       <Task id="summary" output={outputs.summary} retries={1} bind={gate0Proof}>
@@ -886,8 +893,8 @@ export default smithers((ctx) => {
           fs.mkdirSync(reportDir, { recursive: true });
           if (workReport) fs.writeFileSync(path.join(reportDir, "work.envelope.json"), workReport.report);
           if (codeReport) fs.writeFileSync(path.join(reportDir, "verify-code.report.json"), codeReport.report);
-          if (codeClaudeReport) fs.writeFileSync(path.join(reportDir, "verify-code.claude.report.json"), codeClaudeReport.report);
-          if (codeOpencodeReport) fs.writeFileSync(path.join(reportDir, "verify-code.opencode.report.json"), codeOpencodeReport.report);
+          if (codeClaudeReport) fs.writeFileSync(path.join(reportDir, "verify-code.claude.report.json"), JSON.stringify(codeClaudeReport, null, 2));
+          if (codeOpencodeReport) fs.writeFileSync(path.join(reportDir, "verify-code.opencode.report.json"), JSON.stringify(codeOpencodeReport, null, 2));
           if (docResult) fs.writeFileSync(path.join(reportDir, "verify-doc.result.json"), JSON.stringify(docResult, null, 2));
           const headSha = gitHead(staged.worktreePath);
           // Read cost BEFORE any irreversible cleanup: a sqlite/JSON failure in

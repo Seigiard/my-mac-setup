@@ -16,6 +16,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { reviewLegSchema } from "./lib/review-schema.ts";
 
 const inputSchema = z.object({
   target: z
@@ -34,20 +35,11 @@ const stageSchema = z.object({
   consultTarget: z.string(),
 });
 
-const reviewSchema = z.object({
-  report: z
-    .string()
-    .refine((s) => {
-      if (s.startsWith("SMOKE OK")) return true;
-      try {
-        const parsed = JSON.parse(s);
-        return typeof parsed?.status === "string";
-      } catch {
-        return false;
-      }
-    }, "Not a mode:agent review report: must be the plugin's raw JSON object (with a 'status' field) serialized into this string — contract set by the consult prompt, not the plugin.")
-    .describe("The plugin's full mode:agent JSON review (status/verdict/findings/...) as a string."),
-});
+// The leg captures the plugin's natural mode:agent review object directly
+// (lib/review-schema.ts, single source shared with se-pipeline verify-code) —
+// object with a top-level string `status`, all other fields passed through.
+// Smoke returns {status:"SMOKE OK: <sha>"}, which the same schema accepts.
+const reviewSchema = reviewLegSchema;
 
 const failedSchema = z.object({ agent: z.string() });
 
@@ -136,7 +128,7 @@ function cleanupSnapshot(snapshotDir: string) {
 
 function reviewPrompt(consultTarget: string, skillDir: string, smoke: boolean): string {
   if (smoke) {
-    return `[ce-code-review-external-consult] Wiring test. Run \`git log -1 --format=%H\` in your working directory, then return report set to "SMOKE OK: <that sha>". Do nothing else.`;
+    return `[ce-code-review-external-consult] Wiring test. Run \`git log -1 --format=%H\` in your working directory, then return EXACTLY one JSON object and nothing else: {"status": "SMOKE OK: <that sha>"}. Do nothing else.`;
   }
   return `[ce-code-review-external-consult]
 
@@ -153,8 +145,10 @@ ${consultHardRules({
   noChangesRules: [
     "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches. The snapshot and the repo are read-only context.",
   ],
-  jsonField: "report",
-  jsonValueDescription: "<the plugin's full mode:agent JSON review serialized as a string>",
+  finalOutput: {
+    kind: "rawObject",
+    objectDescription: "the plugin's full mode:agent JSON review (status/verdict/findings/...)",
+  },
 })}`;
 }
 
@@ -166,7 +160,7 @@ export default smithers((ctx) => {
   // Agents are built per render because their cwd — the frozen snapshot — only
   // exists after the stage task runs.
   const claudeAgent = staged
-    ? makeClaudeReviewAgent({ cwd: staged.snapshotDir, profile: "codeReview", jsonField: "report" })
+    ? makeClaudeReviewAgent({ cwd: staged.snapshotDir, profile: "codeReview" })
     : undefined;
   const opencodeAgent = staged ? makeOpencodeReviewAgent({ cwd: staged.snapshotDir }) : undefined;
 
@@ -221,11 +215,11 @@ export default smithers((ctx) => {
               };
               if (claudeReview) {
                 result.claudeReportPath = path.join(outDir, "claude.review.json");
-                fs.writeFileSync(result.claudeReportPath, claudeReview.report);
+                fs.writeFileSync(result.claudeReportPath, JSON.stringify(claudeReview, null, 2));
               }
               if (opencodeReview) {
                 result.opencodeReportPath = path.join(outDir, "opencode.review.json");
-                fs.writeFileSync(result.opencodeReportPath, opencodeReview.report);
+                fs.writeFileSync(result.opencodeReportPath, JSON.stringify(opencodeReview, null, 2));
               }
               cleanupSnapshot(staged.snapshotDir);
               return result;

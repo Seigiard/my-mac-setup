@@ -6,8 +6,7 @@ const base = {
   skillDir: "/tmp/stage/skill",
   personaListLocation: "The report's reviewer list",
   noChangesRules: ["NO CHANGES, JUST REPORT: report-only."],
-  jsonField: "report" as const,
-  jsonValueDescription: "<the review serialized as a string>",
+  finalOutput: { kind: "wrapped", jsonField: "report", jsonValueDescription: "<the review serialized as a string>" } as const,
 };
 
 describe("consultHardRules", () => {
@@ -25,10 +24,24 @@ describe("consultHardRules", () => {
     expect(rules).toContain("failed run");
   });
 
-  test("final-JSON contract uses the workflow's field and forbids early placeholders", () => {
-    const rules = consultHardRules({ ...base, jsonField: "envelope", jsonValueDescription: "<envelope text>" });
+  test("wrapped final-JSON contract uses the workflow's field and forbids early placeholders", () => {
+    const rules = consultHardRules({
+      ...base,
+      finalOutput: { kind: "wrapped", jsonField: "envelope", jsonValueDescription: "<envelope text>" },
+    });
     expect(rules).toContain('{"envelope": "<envelope text>"}');
     expect(rules).toContain('{"envelope": "PENDING"}');
+  });
+
+  test("rawObject final contract asks for the bare review object, no wrapper", () => {
+    const rules = consultHardRules({
+      ...base,
+      finalOutput: { kind: "rawObject", objectDescription: "the plugin's full mode:agent review" },
+    });
+    expect(rules).toContain("the plugin's full mode:agent review");
+    expect(rules).toContain("top-level string `status`");
+    expect(rules).toContain('NOT wrapped in any {"report": ...}');
+    expect(rules).not.toContain('{"report": "');
   });
 
   test("keeps rule order: recursion, persona, no-changes, extras, final JSON", () => {

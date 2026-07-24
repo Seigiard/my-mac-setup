@@ -6,14 +6,30 @@
 // in as parameters so the ORDER stays fixed: recursion → persona →
 // no-changes → extras → final JSON.
 
+// The final-message contract differs by consult: doc-review wraps free-form
+// markdown in {envelope: "..."} and work wraps its envelope in {report: "..."},
+// but code-review now captures the plugin's natural review object directly
+// (no wrapper) so native structured output and the engine's JSON salvage both
+// land on the same shape. `wrapped` keeps the field-string form; `rawObject`
+// asks for the bare object with a top-level string `status`.
+export type FinalOutputContract =
+  | { kind: "wrapped"; jsonField: "report" | "envelope"; jsonValueDescription: string }
+  | { kind: "rawObject"; objectDescription: string };
+
 export interface ConsultHardRulesOptions {
   forbiddenSkills: string[];
   skillDir: string;
   personaListLocation: string;
   noChangesRules: string[];
   extraRules?: string[];
-  jsonField: "report" | "envelope";
-  jsonValueDescription: string;
+  finalOutput: FinalOutputContract;
+}
+
+function finalOutputRule(final: FinalOutputContract): string {
+  if (final.kind === "rawObject") {
+    return `Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: ${final.objectDescription}, emitted directly with a top-level string \`status\` field and NOT wrapped in any {"report": ...} or {"envelope": ...} envelope. Emit it exactly once, as the very last message; never emit a placeholder like {"status": "PENDING"} earlier in the session. A final message that is not that single JSON object is a failed run.`;
+  }
+  return `Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"${final.jsonField}": "${final.jsonValueDescription}"}. Emit it exactly once, as the very last message; never emit placeholder JSON like {"${final.jsonField}": "PENDING"} earlier in the session. A final message that is not that single JSON object is a failed run.`;
 }
 
 export function consultHardRules(options: ConsultHardRulesOptions): string {
@@ -23,7 +39,7 @@ export function consultHardRules(options: ConsultHardRulesOptions): string {
     `EXECUTE THE PERSONA MECHANICS FOR REAL: run the skill's reviewer-persona selection, then dispatch ONE subagent PER selected persona whose prompt is the FULL text of that persona's file under ${options.skillDir} — not a summary you write yourself. ${options.personaListLocation} must name exactly the personas actually executed as subagents; collapsing them into fewer generic reviewers is a failed run.`,
     ...options.noChangesRules,
     ...(options.extraRules ?? []),
-    `Your FINAL message must be EXACTLY one JSON object and nothing else — no prose before or after it: {"${options.jsonField}": "${options.jsonValueDescription}"}. Emit it exactly once, as the very last message; never emit placeholder JSON like {"${options.jsonField}": "PENDING"} earlier in the session. A final message that is not that single JSON object is a failed run.`,
+    finalOutputRule(options.finalOutput),
   ];
   return `Hard rules:\n${rules.map((r) => `- ${r}`).join("\n")}`;
 }
