@@ -15,6 +15,12 @@ Reproducible dev environment for macOS (primary) and Linux (CI/Docker), managed 
 - `browsers/` — browser extension configs (NOT managed by chezmoi)
 - `configs/`, `docs/`, `macos-settings.md` — supplementary material
 
+Reference docs (read on demand):
+
+- `docs/se-pipeline.md` — se-pipeline (Smithers) runbook: durable verify-doc → work → verify-code runs
+- `docs/agent-setup-inventory.md` — curated plugins/skills/agents for manual reinstall across Claude Code, OpenCode, Pi
+- `docs/external-agent-cli-flags.md` — headless/one-shot invocation flags for external coding-agent CLIs
+
 <important if="you need to run commands to build, test, lint, or run scripts">
 
 | Command | What it does |
@@ -44,25 +50,40 @@ Edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file i
 
 </important>
 
-<important if="you are adding a new file or directory to the chezmoi source tree">
+<important if="you are adding a new tool, app, config file, or directory">
 
-- Check `home/.chezmoiexternal.toml` first — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
-- `chezmoi add ~/.config/tool` creates the source file in `home/`. Use a `.tmpl` suffix if the file needs OS branching or secrets.
-- `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
+Where new things go:
 
-</important>
+| Adding | Destination |
+|---|---|
+| Cross-platform CLI tool | `home/private_dot_config/brewfiles/Brewfile` |
+| macOS-only cask/app | `home/private_dot_config/brewfiles/Brewfile.macos` |
+| Config file from `~/` | `home/` via `chezmoi add` |
+| External repo/archive (skills, bats-libs) | `home/.chezmoiexternal.toml` |
 
-<important if="you are adding or removing a CLI tool, app, or cask">
+Adding a managed config, step by step:
 
-- Cross-platform CLIs go in `home/private_dot_config/brewfiles/Brewfile`.
-- macOS-only casks/apps go in `home/private_dot_config/brewfiles/Brewfile.macos`.
+1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
+2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
+3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
+4. Add a smoke test in `tests/smoke.bats`.
+5. Verify: `make test-local` (diff only), then `make test-ubuntu`.
+
+`modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
 
 </important>
 
 <important if="you are working with templates, secrets, or 1Password integration">
 
 - **Never** hardcode secrets — use `onepasswordRead` in templates.
-- 1Password calls must be guarded by `lookPath "op"` so CI/Docker environments (without 1Password) still apply.
+- 1Password calls must be guarded by `lookPath "op"` so CI/Docker environments (without 1Password) still apply. Real pattern from `home/dot_zshenv.tmpl`:
+
+  ```
+  {{ if lookPath "op" }}
+  export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
+  {{- end }}
+  ```
+
 - `op` must be absent from `PATH` in test environments, otherwise 1Password templates fail.
 - Required env vars in CI: `CHEZMOI_NAME`, `CHEZMOI_EMAIL` (set in the GitHub workflow).
 
