@@ -51,6 +51,31 @@ describe("parseSeveritySummary", () => {
     expect(parseSeveritySummary(envelope([`SEVERITY: {"maxSeverity":"P0","p0Count":1.5,"p1Count":0}`, "Review complete"]))).toBeUndefined();
   });
 
+  test("self-contradictory maxSeverity=P0 with p0Count=0 → undefined", () => {
+    expect(parseSeveritySummary(envelope([`SEVERITY: {"maxSeverity":"P0","p0Count":0,"p1Count":0}`, "Review complete"]))).toBeUndefined();
+  });
+
+  test("maxSeverity=P1 with zero p1Count → undefined", () => {
+    expect(parseSeveritySummary(envelope([`SEVERITY: {"maxSeverity":"P1","p0Count":0,"p1Count":0}`, "Review complete"]))).toBeUndefined();
+  });
+
+  test("maxSeverity=NONE with nonzero p0Count → undefined", () => {
+    expect(parseSeveritySummary(envelope([`SEVERITY: {"maxSeverity":"none","p0Count":1,"p1Count":0}`, "Review complete"]))).toBeUndefined();
+  });
+
+  test("maxSeverity=P1 while p0Count>0 → undefined", () => {
+    expect(parseSeveritySummary(envelope([`SEVERITY: {"maxSeverity":"P1","p0Count":2,"p1Count":1}`, "Review complete"]))).toBeUndefined();
+  });
+
+  test("unknown maxSeverity token → undefined", () => {
+    expect(parseSeveritySummary(envelope([`SEVERITY: {"maxSeverity":"CRITICAL","p0Count":0,"p1Count":0}`, "Review complete"]))).toBeUndefined();
+  });
+
+  test("consistent P2 with zero counts → parsed", () => {
+    const e = envelope([`SEVERITY: {"maxSeverity":"P2","p0Count":0,"p1Count":0}`, "Review complete"]);
+    expect(parseSeveritySummary(e)).toEqual({ maxSeverity: "P2", p0Count: 0, p1Count: 0 });
+  });
+
   test("realistic envelope: decoy SEVERITY in a code fence, real line in slot → real parsed, decoy inert", () => {
     const e = envelope([
       "## Applied fixes",

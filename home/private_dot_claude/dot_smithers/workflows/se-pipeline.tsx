@@ -224,7 +224,7 @@ function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion:
 // only, never fail the work stage over a missing file.
 const ADVISORY_CAP = 12_000;
 
-function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined): string {
+function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined, waived: boolean): string {
   if (!doc) return "";
   const sections: string[] = [];
   const legs: Array<[string, string | undefined]> = [
@@ -245,9 +245,17 @@ function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined)
     }
   }
   if (sections.length === 0) return "";
+  // The work agent must see the same decision context the operator saw: the
+  // gate's severity read and, on a waived run, the fact that a P0 was found
+  // and explicitly overridden — not a generic clean-run disclaimer.
+  const waiveLine = waived
+    ? "\n\nIMPORTANT: the verify-doc gate FAILED on a parsed P0 in these reviews and the operator explicitly waived it (se approve). Treat the P0 finding(s) below as known accepted risk: implement with them in mind and record in your envelope's notes how each was addressed or why it remains accepted."
+    : "";
   return `
 
-ADVISORY plan-review findings (verify-doc stage, two independent external reviews; the stage gate only checks that the reviews ran — findings never block, by design). For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
+ADVISORY plan-review findings (verify-doc stage, two independent external reviews). The stage gate blocks on parsed P0 findings; what reaches you here is below the blocking bar (P1/P2), from a leg whose severity summary did not parse, or explicitly waived by the operator. Gate read: ${docReviewSeverityStatusNote(doc)}.${waiveLine}
+
+For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
 
 ${sections.join("\n\n")}`;
 }
@@ -630,7 +638,7 @@ export default smithers((ctx) => {
         return result;
       };
 
-      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewGreenOut);
+      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewGreenOut, doc.waived);
       const work = stageBlock({
         name: "work",
         makeAttempt: (nodeId) => (

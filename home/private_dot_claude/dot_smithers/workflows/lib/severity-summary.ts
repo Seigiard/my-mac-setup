@@ -49,7 +49,21 @@ export function parseSeveritySummary(envelope: string): SeveritySummary | undefi
   const record = parsed as Record<string, unknown>;
   if (!isNonNegativeInteger(record.p0Count) || !isNonNegativeInteger(record.p1Count)) return undefined;
   if (typeof record.maxSeverity !== "string") return undefined;
-  return { maxSeverity: record.maxSeverity.toUpperCase(), p0Count: record.p0Count, p1Count: record.p1Count };
+  const maxSeverity = record.maxSeverity.toUpperCase();
+  // Cross-field consistency: a schema-valid but self-contradictory summary
+  // ({maxSeverity:"P0", p0Count:0} — a plausible LLM counting slip) must not
+  // reach the gate as trustworthy input. The gate blocks on p0Count alone, so
+  // an inconsistent pair would silently pass as green. Inconsistent or unknown
+  // maxSeverity → undefined → the leg-availability-only advisory path.
+  if (!["P0", "P1", "P2", "P3", "NONE"].includes(maxSeverity)) return undefined;
+  const consistent =
+    record.p0Count > 0
+      ? maxSeverity === "P0"
+      : record.p1Count > 0
+        ? maxSeverity === "P1"
+        : maxSeverity !== "P0" && maxSeverity !== "P1";
+  if (!consistent) return undefined;
+  return { maxSeverity, p0Count: record.p0Count, p1Count: record.p1Count };
 }
 
 // The SEVERITY line is gate input, not review content: strip it before an
