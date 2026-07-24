@@ -19,6 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { mergeReviewReports } from "./lib/review-merge.ts";
+import { severitySchema, stripSeverityLine, type SeveritySummary } from "./lib/severity-summary.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
@@ -52,6 +53,9 @@ const inputSchema = z.object({
   validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required. Keep it FAST — the work gate runs it synchronously; scope to unit/type checks, not full e2e."),
   validateTimeoutMs: z.number().default(10 * 60_000).describe("Work-gate validate-cmd timeout. A slow full-suite command (e2e) blocks the engine — scope the command instead of raising this blindly."),
   smoke: z.boolean().default(false).describe("Wiring test: trivial stage prompts, real staging/gates, no ce-work invocation."),
+  smokeSeverity: severitySchema
+    .optional()
+    .describe("Smoke-only (KTD-F/U5): inject a per-leg severity summary into verify-doc so an injected P0 parks the run at gate-verify-doc without a real SEVERITY line. Ignored outside smoke mode."),
   workTimeoutMs: z.number().default(4 * 60 * 60_000).describe("Work leg timeout — hours, not review-sized minutes."),
   workBudgetUsd: z.number().default(50).describe("Runaway circuit breaker for the work leg, NOT a cost target; trips are logged."),
 });
@@ -63,6 +67,11 @@ const docReviewSchema = z.object({
   opencodeStatus: z.enum(["ok", "failed"]),
   claudeEnvelopePath: z.string().optional(),
   opencodeEnvelopePath: z.string().optional(),
+  // Mirror of se-doc-review.tsx outputSchema (KTD-C) — keep the two in sync.
+  // Optional so old persisted docReview outputs stay valid on resume, and the
+  // gate receives severity with no extra plumbing.
+  claudeSeverity: severitySchema.optional(),
+  opencodeSeverity: severitySchema.optional(),
 });
 
 const gateVerdictSchema = z.object({
@@ -70,6 +79,9 @@ const gateVerdictSchema = z.object({
   state: z.enum(["green", "failed", "degraded"]),
   reasons: z.string(),
   p1Count: z.number().optional(),
+  // Machine-readable fail cause (KTD-E) so the verify-doc waive predicate keys
+  // on it instead of parsing reason strings.
+  cause: z.enum(["severity", "availability"]).optional(),
 });
 
 const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = createSmithers({
@@ -212,7 +224,7 @@ function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion:
 // only, never fail the work stage over a missing file.
 const ADVISORY_CAP = 12_000;
 
-function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined): string {
+function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined, waived: boolean): string {
   if (!doc) return "";
   const sections: string[] = [];
   const legs: Array<[string, string | undefined]> = [
@@ -222,7 +234,9 @@ function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined)
   for (const [source, envelopePath] of legs) {
     if (!envelopePath) continue;
     try {
-      const text = fs.readFileSync(envelopePath, "utf8").trim();
+      // Strip the SEVERITY machine line — it is gate input, not review content
+      // the work agent should act on (Assumptions item 2 / U4 hygiene).
+      const text = stripSeverityLine(fs.readFileSync(envelopePath, "utf8"));
       if (text === "") continue;
       const capped = text.length > ADVISORY_CAP ? `${text.slice(0, ADVISORY_CAP)}\n[... truncated]` : text;
       sections.push(`--- ${source} doc-review envelope ---\n${capped}`);
@@ -231,11 +245,58 @@ function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined)
     }
   }
   if (sections.length === 0) return "";
+  // The work agent must see the same decision context the operator saw: the
+  // gate's severity read and, on a waived run, the fact that a P0 was found
+  // and explicitly overridden — not a generic clean-run disclaimer.
+  const waiveLine = waived
+    ? "\n\nIMPORTANT: the verify-doc gate FAILED on a parsed P0 in these reviews and the operator explicitly waived it (se approve). Treat the P0 finding(s) below as known accepted risk: implement with them in mind and record in your envelope's notes how each was addressed or why it remains accepted."
+    : "";
   return `
 
-ADVISORY plan-review findings (verify-doc stage, two independent external reviews; the stage gate only checks that the reviews ran — findings never block, by design). For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
+ADVISORY plan-review findings (verify-doc stage, two independent external reviews). The stage gate blocks on parsed P0 findings; what reaches you here is below the blocking bar (P1/P2), from a leg whose severity summary did not parse, or explicitly waived by the operator. Gate read: ${docReviewSeverityStatusNote(doc)}.${waiveLine}
+
+For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
 
 ${sections.join("\n\n")}`;
+}
+
+const WAIVE_EXCERPT_CAP = 800;
+
+function legSeverityLabel(status: string | undefined, severity: SeveritySummary | undefined): string {
+  if (status !== "ok") return "leg unavailable";
+  if (!severity) return "severity missing (advisory)";
+  return `maxSeverity=${severity.maxSeverity} P0=${severity.p0Count} P1=${severity.p1Count}`;
+}
+
+// KTD-D observability: every run records per-leg severity-parse status so a
+// systemic prompt-contract failure (all legs missing the SEVERITY line) is
+// visible in the durable notes and verify-doc.result.json instead of silently
+// draining the gate's blocking power.
+function docReviewSeverityStatusNote(doc: z.infer<typeof docReviewSchema> | undefined): string {
+  if (!doc) return "verify-doc severity: no stage output";
+  return `verify-doc severity: claude ${legSeverityLabel(doc.claudeStatus, doc.claudeSeverity)}; opencode ${legSeverityLabel(doc.opencodeStatus, doc.opencodeSeverity)}`;
+}
+
+// KTD-E: a waived P0 spec flaw lives only in /tmp envelope files that a resume
+// after tmp-cleanup loses. The durable waive note embeds the per-leg severity
+// summaries, the gate reasons, and a trimmed fail-soft excerpt of each envelope
+// — content, not just the decision — so the waiver survives in summary.notes.
+function docReviewWaiveNote(doc: z.infer<typeof docReviewSchema> | undefined, reasons: string | undefined): string {
+  const parts: string[] = [`verify-doc: P0 waived by operator — ${reasons ?? ""}`, docReviewSeverityStatusNote(doc)];
+  const envelopes: Array<[string, string | undefined]> = [
+    ["claude", doc?.claudeEnvelopePath],
+    ["opencode", doc?.opencodeEnvelopePath],
+  ];
+  for (const [source, envelopePath] of envelopes) {
+    if (!envelopePath) continue;
+    try {
+      const excerpt = fs.readFileSync(envelopePath, "utf8").trim().slice(0, WAIVE_EXCERPT_CAP);
+      if (excerpt) parts.push(`${source} envelope excerpt: ${excerpt}`);
+    } catch {
+      // fail-soft: the envelope may be gone after tmp-cleanup
+    }
+  }
+  return parts.join(" — ");
 }
 
 function workPrompt(planPath: string, branch: string, smoke: boolean, docReviewAdvisory: string): string {
@@ -317,6 +378,7 @@ export default smithers((ctx) => {
     state: r.state,
     reasons: r.reasons.join("; "),
     ...(r.p1Count === undefined ? {} : { p1Count: r.p1Count }),
+    ...(r.cause === undefined ? {} : { cause: r.cause }),
   });
 
   // One stage = attempt → gate → (red) Approval → extra attempt as a FRESH
@@ -329,7 +391,11 @@ export default smithers((ctx) => {
     makeAttempt: (nodeId: string) => unknown;
     readRaw: (nodeId: string) => { present: boolean; raw: string | undefined };
     gateFn: (raw: string | undefined) => GateResult;
-    waiveOnApprove: boolean;
+    // true/false is a blanket waive (verify-code P0, secret-scan). A predicate
+    // scopes the waive to specific fail causes (KTD-E): verify-doc waives a
+    // parsed-P0 (cause "severity") but keeps the extra-attempt path for
+    // leg-availability reds (cause "availability").
+    waiveOnApprove: boolean | ((verdict: z.infer<typeof gateVerdictSchema>) => boolean);
     makeExtraPrep?: (nodeId: string) => unknown;
   }): StageBlock {
     const { name } = opts;
@@ -365,19 +431,20 @@ export default smithers((ctx) => {
     if (!v1) return { nodes, status: "pending", waived: false };
     if (v1.state === "green") return { nodes, status: "green", waived: false, verdict: v1 };
 
+    const waive1 = typeof opts.waiveOnApprove === "function" ? opts.waiveOnApprove(v1) : opts.waiveOnApprove;
     nodes.push(
       <Approval
         id={`approve-${name}-1`}
         output={outputs.approval}
         request={{
-          title: `${name} gate is ${v1.state} — ${opts.waiveOnApprove ? "approve to WAIVE and continue" : "approve ONE extra attempt"}; deny aborts the run`,
+          title: `${name} gate is ${v1.state} — ${waive1 ? "approve to WAIVE and continue" : "approve ONE extra attempt"}; deny aborts the run`,
           summary: v1.reasons,
         }}
         onDeny="fail"
       />,
     );
     if (!ap1?.approved) return { nodes, status: "pending", waived: false, verdict: v1 };
-    if (opts.waiveOnApprove) return { nodes, status: "green", waived: true, verdict: v1 };
+    if (waive1) return { nodes, status: "green", waived: true, verdict: v1 };
 
     if (opts.makeExtraPrep) {
       nodes.push(opts.makeExtraPrep(`${name}-extra-prep`));
@@ -518,7 +585,7 @@ export default smithers((ctx) => {
         <Subflow
           id={nodeId}
           workflow={seDocReviewSubflow}
-          input={{ docPath: input.planPath, smoke }}
+          input={{ docPath: input.planPath, smoke, smokeSeverity: input.smokeSeverity }}
           output={outputs.docReview}
           retries={1}
           // Hang guard, not a scheduler: must fit the claude leg's own retry
@@ -529,12 +596,18 @@ export default smithers((ctx) => {
       ),
       readRaw: readDocReview,
       gateFn: (raw) => docReviewGate(raw === undefined ? undefined : JSON.parse(raw)),
-      waiveOnApprove: false,
+      // Predicate-scoped waive (KTD-E): approve waives only a parsed-P0 fail
+      // (cause "severity"); crash/both-legs-down reds (cause "availability")
+      // keep the existing approve = one-extra-attempt path.
+      waiveOnApprove: (verdict) => verdict.cause === "severity",
     });
     children.push(...(doc.nodes as never[]));
     if (doc.status === "stopped") terminal = "stopped-after-second-failure:verify-doc";
     if (doc.status === "green") {
-      if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
+      const docReviewGreenOut = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
+      notes.push(docReviewSeverityStatusNote(docReviewGreenOut));
+      if (doc.waived) notes.push(docReviewWaiveNote(docReviewGreenOut, doc.verdict?.reasons));
+      else if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
 
       // Work gate runs the effects itself: it commits the agent's work, then
       // proves the work by comparing tree hashes and running the operator's
@@ -565,8 +638,7 @@ export default smithers((ctx) => {
         return result;
       };
 
-      const docReviewOut = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
-      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewOut);
+      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewGreenOut, doc.waived);
       const work = stageBlock({
         name: "work",
         makeAttempt: (nodeId) => (
