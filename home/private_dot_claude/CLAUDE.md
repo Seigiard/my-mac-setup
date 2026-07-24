@@ -200,6 +200,14 @@ Assign Linear issues to the user by default unless they explicitly request a dif
 
 </important>
 
+<important if="you are writing a PR title or description">
+
+- Write for a zero-context reviewer: they see only the diff, not this session, plans, or reviews. Self-contained: what changed, why, how verified.
+- Never reference `docs/plans/`, `docs/ideation/`, `docs/brainstorms/`, plan unit IDs (U1, KTD-…), review runIds, or other session artifacts — they are local/gitignored; the reviewer cannot open them.
+- Translate the plan's rationale into the description instead of linking it.
+
+</important>
+
 <important if="you are finishing a PR or considering merging">
 
 Never merge a PR without an explicit user command in this session. Finishing sequence: open PR → CI green → triage AI-review findings → assign a human reviewer → stop and report. A plan's DoD saying "merged" describes the human's target state, not agent authorization.
