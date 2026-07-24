@@ -24,6 +24,26 @@ opencode (`openai/gpt-5.5`, кап 15 мин, скилл стейджится в
 отчёты пишутся в reportDir (`verify-code.claude.report.json` /
 `verify-code.opencode.report.json`) рядом со слитым.
 
+Verify-doc с 2026-07-24 блокирует по P0 находкам ревью плана (симметрия с
+codeReviewGate). Каждое не-smoke плечо эмитит машиночитаемую строку
+`SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N}` в защищённом
+слоте — последняя непустая строка прямо перед финальным `Review complete`;
+парсер (`lib/severity-summary.ts`) читает ТОЛЬКО этот слот (декой `SEVERITY:` в
+теле конверта инертен), при отсутствии/невалидном JSON/отрицательных счётчиках →
+`undefined`. Envelope-контракт (`≥500` симв., последняя строка `Review complete`,
+`SMOKE OK`-байпас) не тронут — severity-слой никогда не влияет на валидность
+конверта. Гейт: любое доступное плечо с `p0Count > 0` → `failed` (max-of-legs,
+fail-closed — один P0 блокирует, даже если второе плечо 0); P1 — advisory
+(суммируется, не блокирует); отсутствие severity деградирует ЭТО плечо к прежнему
+поведению «только доступность» (R5). Слоение толерантности (KTD-D): доступность
+плеч остаётся fail-closed (нет вывода → `failed`, оба плеча вниз → `degraded`),
+а severity-слой лишь ДОБАВЛЯЕТ блокирующую силу — его отсутствие возвращает гейт
+ровно к сегодняшнему поведению, никогда ниже. Пер-плечевой статус парса severity
+(parsed/missing) пишется в notes и `verify-doc.result.json` каждый прогон —
+системный отказ контракта виден, а не тихо инертен. SEVERITY-строка выстригается
+из конверта перед инъекцией в work-промпт (`readDocReviewAdvisory`) и из синтеза
+standalone-скилла — это вход гейта, не контент ревью.
+
 ## Запуск
 
 Из целевого репозитория (cwd = репо):
@@ -115,7 +135,9 @@ se resume <runId>      # продолжить после паузы/падени
 
 | Гейт | approve означает |
 |---|---|
-| verify-doc, work | одна доп. попытка стадии свежим узлом; для work — с условным сбросом ветки (конверт есть → нетронутая ветка, нет → reset на pre-stage SHA) |
+| verify-doc (P0 severity) | waive, скоупленный предикатом (cause `severity`): approve вейвит только parsed-P0 фейл и продолжает зелёным; severity-суть (пер-плечевые summary, причины гейта, усечённый fail-soft отрывок конвертов) durable ложится в `summary.notes` — не только решение, но содержание (KTD-E) |
+| verify-doc (доступность) | красные по доступности (crash `failed`, оба плеча вниз `degraded`, cause `availability`) НЕ вейвятся: approve = одна доп. попытка свежим узлом. Бланкетный флаг дал бы вейвнуть двойной таймаут в прогон вообще без ревью плана |
+| work | одна доп. попытка стадии свежим узлом с условным сбросом ветки (конверт есть → нетронутая ветка, нет → reset на pre-stage SHA) |
 | secret-scan | waive: принять риск и продолжить (находка/ошибка сканера в notes) |
 | verify-code (P0) | waive: запись в notes, продолжение |
 | rescan (пост-approval) | approve = ОДНА свежая попытка: пере-скан и пере-validate ТЕКУЩЕГО HEAD — рабочий цикл «закоммить фикс → approve»; коммиты, сделанные в паузе, сами попадают под скан. Скоуп `scannedHead..HEAD` (waived-находки base..scannedHead не пере-флагаются); rebase/amend рвёт ancestry → полный диапазон fail-closed. Второй красный → только стоп-с-отчётом |
@@ -292,6 +314,33 @@ cd "$FIXTURE"
 - **AE4 (невалидный вход):** requirements-only план / несуществующий файл /
   `--until=pr` → прогон падает сразу, причина в `error` и `se logs`.
   Продемонстрировано тремя прогонами U3 (все `status: failed`, `gate-0 refused: …`).
+- **AE5 (verify-doc P0-пауза через smoke-инъекцию severity, R8):** smoke-плечи
+  возвращают `SMOKE OK` и НЕ эмитят SEVERITY-строку, поэтому R8 недостижим без
+  тест-инъекции (KTD-F). Прокинь `smokeSeverity` на входе — output-задача
+  se-doc-review штампует его в оба severity-поля, минуя парсинг конверта:
+
+  ```bash
+  # P0-пауза: прогон паркуется waiting-approval на gate-verify-doc
+  smithers up workflows/se-pipeline.tsx --input '{
+    "planPath":"'"$FIXTURE"'/docs/plans/fixture-reverse-plan.md",
+    "smoke":true,
+    "smokeSeverity":{"maxSeverity":"P0","p0Count":1,"p1Count":0},
+    "validateCmd":"bun test"
+  }'
+  # se approve <runId> → waive: прогон продолжается зелёным, waive-заметка с
+  #   severity-сутью в summary.notes; verify-doc.result.json в reportDir несёт
+  #   severity-поля. Причина waive-скоупа — cause "severity" (не "availability").
+
+  # Регрессия pass-through: без smokeSeverity severity-поля отсутствуют,
+  #   gate-verify-doc зелёный сквозной, поведение как сегодня.
+  smithers up workflows/se-pipeline.tsx --input '{
+    "planPath":"'"$FIXTURE"'/docs/plans/fixture-reverse-plan.md",
+    "smoke":true, "validateCmd":"bun test"
+  }'
+  ```
+  Инъекция доказывает проводку гейта и waive end-to-end; корректность парсера
+  против реальных конвертов проверяется юнит-тестами `severity-summary.test.ts`
+  и `gates.test.ts` (KTD-F).
 
 ## Стоимость
 

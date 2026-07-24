@@ -14,10 +14,14 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { parseSeveritySummary, severitySchema } from "./lib/severity-summary.ts";
 
 const inputSchema = z.object({
   docPath: z.string().describe("Absolute path to the document under review."),
   smoke: z.boolean().default(false).describe("Wiring test: trivial prompts, no real review."),
+  smokeSeverity: severitySchema
+    .optional()
+    .describe("Smoke-only (KTD-F): stamp this severity summary into both legs' output fields, bypassing envelope parsing so the gate/waive wiring is testable without a real SEVERITY line."),
 });
 
 const stageSchema = z.object({
@@ -27,7 +31,7 @@ const stageSchema = z.object({
   docCopy: z.string(),
 });
 
-const reviewSchema = z.object({
+export const reviewSchema = z.object({
   envelope: z
     .string()
     .refine(
@@ -48,6 +52,11 @@ const outputSchema = z.object({
   opencodeStatus: z.enum(["ok", "failed"]),
   claudeEnvelopePath: z.string().optional(),
   opencodeEnvelopePath: z.string().optional(),
+  // Optional per-leg severity summaries (KTD-C): absent on old persisted
+  // outputs and whenever a leg's SEVERITY line is missing/unparseable. Mirror
+  // of docReviewSchema in se-pipeline.tsx — keep the two in sync.
+  claudeSeverity: severitySchema.optional(),
+  opencodeSeverity: severitySchema.optional(),
 });
 
 const { Workflow, Task, Sequence, Parallel, smithers, outputs } = createSmithers({
@@ -112,6 +121,7 @@ ${consultHardRules({
   extraRules: [
     "The envelope value is the review REPORT ITSELF, verbatim and complete: every section the workflow produced (applied-candidate fixes with exact suggested edits, proposed fixes, decisions, FYI, residual concerns, coverage), at least 500 characters, and its LAST line exactly: Review complete",
     'A status note ("Document review complete", a list of reviewers used, a summary of what you did) is NOT an envelope. It fails schema validation and the ENTIRE multi-persona review is discarded and re-run from scratch — all prior work wasted.',
+    'Immediately before that final Review complete line, emit exactly one machine-readable severity line — nothing between it and Review complete: SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N} — one line of valid JSON, counts and maxSeverity reflecting the highest-severity findings in your review prose (maxSeverity is the top grade present, or "none" when clean). This line is machine gate input, not review content; it never affects envelope validity, so a missing or malformed SEVERITY line is tolerated (degrades to advisory), never a reason to re-run.',
   ],
   jsonField: "envelope",
   jsonValueDescription: "<the full headless envelope text>",
@@ -169,13 +179,23 @@ export default smithers((ctx) => {
                 claudeStatus: claudeReview ? "ok" : "failed",
                 opencodeStatus: opencodeReview ? "ok" : "failed",
               };
+              // Smoke bypasses envelope parsing (KTD-F): stamp the injected
+              // severity into every present leg so R8's gate/waive path is
+              // reachable without a real SEVERITY line. Real runs parse the
+              // protected slot per leg; a missing/unparseable line stays absent
+              // (advisory downstream, never a failure here).
+              const smokeSeverity = ctx.input.smoke ? ctx.input.smokeSeverity : undefined;
               if (claudeReview) {
                 result.claudeEnvelopePath = path.join(outDir, "claude.envelope.md");
                 fs.writeFileSync(result.claudeEnvelopePath, claudeReview.envelope);
+                const severity = smokeSeverity ?? parseSeveritySummary(claudeReview.envelope);
+                if (severity) result.claudeSeverity = severity;
               }
               if (opencodeReview) {
                 result.opencodeEnvelopePath = path.join(outDir, "opencode.envelope.md");
                 fs.writeFileSync(result.opencodeEnvelopePath, opencodeReview.envelope);
+                const severity = smokeSeverity ?? parseSeveritySummary(opencodeReview.envelope);
+                if (severity) result.opencodeSeverity = severity;
               }
               return result;
             }}
