@@ -6,7 +6,7 @@
 #   test    - self-test: start caffeinate, confirm the pmset assertion, release
 set -u
 
-DIR=${HERDR_PLUGIN_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+DIR=${HERDR_PLUGIN_ROOT:-$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)}
 # shellcheck source=lib.sh disable=SC1091
 . "$DIR/lib.sh"
 

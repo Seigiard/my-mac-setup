@@ -8,6 +8,25 @@ teardown() {
 }
 
 # ===========================================
+# Repository linting
+# ===========================================
+
+@test "shellcheck is managed by the cross-platform Brewfile" {
+  assert_file_contains "$BATS_TEST_DIRNAME/../home/private_dot_config/brewfiles/Brewfile" '^brew "shellcheck"'
+}
+
+@test "lint target propagates shellcheck failures" {
+  local stubdir
+  stubdir="$(mktemp -d)"
+  printf '#!/bin/sh\nexit 1\n' > "$stubdir/shellcheck"
+  chmod +x "$stubdir/shellcheck"
+
+  run env PATH="$stubdir:$PATH" make -C "$BATS_TEST_DIRNAME/.." lint
+  rm -rf "$stubdir"
+  assert_failure
+}
+
+# ===========================================
 # install-packages script
 # ===========================================
 
