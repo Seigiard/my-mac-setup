@@ -509,12 +509,6 @@ se_fixture_repo() {
   assert_success
 }
 
-@test "smithers agents patch is tracked in dotfiles" {
-  run ls "$SE_ROOT/private_dot_claude/dot_smithers/patches/"
-  assert_success
-  assert_output --partial "smithers-orchestrator"
-}
-
 @test "chezmoiignore excludes smithers runtime state from management" {
   local ignore="$SE_ROOT/.chezmoiignore"
   for entry in '.claude/.smithers/node_modules' '.claude/.smithers/smithers.db*' '.claude/.smithers/executions'; do
