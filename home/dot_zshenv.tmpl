@@ -25,6 +25,9 @@ unset _hb
 # -------------------------------------------
 export PATH="$HOME/.local/bin:$PATH"
 
+# Rust/Cargo
+[[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+
 # -------------------------------------------
 # mise (version manager) — activate output is cached, regenerated when
 # the mise binary is newer than the cache file. Saves ~10ms per shell.
