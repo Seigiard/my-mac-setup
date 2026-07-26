@@ -10,6 +10,7 @@ Respond like smart caveman. Cut all filler, keep technical substance.
 - Technical terms stay exact. Code blocks unchanged.
 - Pattern: [thing] [action] [reason]. [next step].
 - Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
+- Zero context: explanations and questions self-sufficient, reader knows nothing.
 
 ## Decision-making
 
@@ -73,20 +74,20 @@ Pre-classification triggers (fire in background):
 
 <important if="you are classifying intent or deciding which skill to invoke">
 
-| Trigger                                 | Skill                                      | Notes                             |
-| --------------------------------------- | ------------------------------------------ | --------------------------------- |
-| "commit", "create commit"               | `/compound-engineering:ce-commit`          | Let skill handle git              |
-| "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr`  | Full workflow                     |
-| "review PR", "review code"              | `/se-code-review`                          | Local wrapper: plugin + external reviews |
-| Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`      | Persistent planning               |
-| Planning multi-step tasks               | `/se-plan`                                 | Local wrapper: plugin plan + external doc review |
-| Debugging, errors, test failures        | `/compound-engineering:ce-debug`           | Systematic root cause             |
-| "review plan", "review spec"            | `/se-doc-review`                           | Local wrapper: plugin + external reviews |
-| Linear issues, task tracking            | `/linear-cli`                              | Linear CLI management             |
-| Linear ticket reference (CORE-XX, etc.) | `/linear-cli` + Linear-first triage        | Fetch ticket BEFORE investigating |
-| Plan iteration ("итерация N", "дальше") | Load plan first, batch 2–3, gate on commit | See plan-iteration block          |
-| Migration / refactor                    | Scope fidelity block                       | Don't restore deleted code        |
-| Executing work efficiently              | `/compound-engineering:ce-work`            | Quality + completion              |
+| Trigger                                 | Skill                                      | Notes                                                |
+| --------------------------------------- | ------------------------------------------ | ---------------------------------------------------- |
+| "commit", "create commit"               | `/compound-engineering:ce-commit`          | Let skill handle git                                 |
+| "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr`  | Full workflow                                        |
+| "review PR", "review code"              | `/se-code-review`                          | Local wrapper: plugin + external reviews             |
+| Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`      | Persistent planning                                  |
+| Planning multi-step tasks               | `/se-plan`                                 | Local wrapper: plugin plan + external doc review     |
+| Debugging, errors, test failures        | `/compound-engineering:ce-debug`           | Systematic root cause                                |
+| "review plan", "review spec"            | `/se-doc-review`                           | Local wrapper: plugin + external reviews             |
+| Linear issues, task tracking            | `/linear-cli`                              | Linear CLI management                                |
+| Linear ticket reference (CORE-XX, etc.) | `/linear-cli` + Linear-first triage        | Fetch ticket BEFORE investigating                    |
+| Plan iteration ("итерация N", "дальше") | Load plan first, batch 2–3, gate on commit | See plan-iteration block                             |
+| Migration / refactor                    | Scope fidelity block                       | Don't restore deleted code                           |
+| Executing work efficiently              | `/compound-engineering:ce-work`            | Quality + completion                                 |
 | "запусти пайплайн", durable plan exec   | `/se-work`                                 | Local wrapper: se-pipeline launch + monitor + report |
 
 </important>
@@ -102,17 +103,18 @@ Ask the user when:
 
 </important>
 
-<important if="you are about to call AskUserQuestion or the user asked to explain/clarify">
+<important if="you are explaining something, answering a question, or asking one (AskUserQuestion menus, brainstorm probes, syntheses)">
 
+Zero context: the reader knows nothing about this session, this repo, or prior turns.
+
+- Every explanation, question, and option description stands alone. No "as discussed", no "the file", no pronouns pointing at earlier turns.
+- Name things in full on first use: what it is, where it lives (`path:line`), why it matters here.
+- Expand acronyms and project-local jargon once. Technical terms stay exact — explain, don't simplify away.
+- Never refer to plan/brainstorm artifacts by bare ID (`KT-0`, `U-12`, `P3`, `iteration 4`, `Q2`). The user does not remember what they mean. Say the thing, ID in parens at most: "the token-refresh unit (U-12)". Same for ticket IDs — name the issue.
+- ELI16/KISS wording. Docs, plans, commits stay English.
 - Explanation and question tool call never share a turn — prose before a tool call may not render. Explain, END the turn; ask next turn with self-sufficient option descriptions.
 - Clarification request ("ELI12", "я не понял") = explanation only. No menu in the same turn; re-ask only when user signals readiness.
 - After pushback on a menu's format: drop AskUserQuestion for that decision. Ask once, in prose. Never re-show a declined menu.
-
-</important>
-
-<important if="you are asking interactive questions (menus, brainstorm probes, syntheses)">
-
-ELI16/KISS wording, technical terms exact. Docs, plans, commits stay English.
 
 </important>
 
@@ -157,7 +159,7 @@ Assign Linear issues to the user by default unless they explicitly request a dif
 - Work in batches of 2–3 atomic units, not the whole plan at once.
 - After each iteration: run project validation (`bun run fix` or project equivalent), report status, STOP for user gate.
 - NEVER commit unless explicitly asked. `gc` / "commit" / "закоммить" = explicit request; iteration progress alone is not.
-- If user says "но не коммить" / "don't commit" — that overrides any default commit step for the rest of the session.
+- If user says "не коммить" / "don't commit" — that overrides any default commit step for the rest of the session.
 - If structure has shifted since the plan was written (e.g. routes renamed), adopt the current shape rather than reverting to the plan's outdated assumption — confirm with user if unclear.
 
 </important>
@@ -167,7 +169,6 @@ Assign Linear issues to the user by default unless they explicitly request a dif
 - Removed code is intentional. NEVER reintroduce routes/functions/tests/files that were deliberately deleted.
 - A broken reference to deleted code = the reference is the bug, not the deletion.
 - If genuinely unsure whether something was removed intentionally: check `git log` for the deletion commit, then ASK before restoring.
-- Adopt already-established idioms (e.g. `routes.X.$path()`, `createRoutesProxy`) instead of inventing new patterns mid-migration.
 
 </important>
 
