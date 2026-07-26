@@ -69,6 +69,12 @@ teardown() {
   assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
+@test "zshenv sources Cargo environment only when readable" {
+  run render_template "$CHEZMOI_SOURCE/dot_zshenv.tmpl"
+  assert_success
+  assert_output --partial '[[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"'
+}
+
 # ===========================================
 # dot_zshrc.tmpl
 # ===========================================

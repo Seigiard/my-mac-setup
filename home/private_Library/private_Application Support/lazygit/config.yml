@@ -1,3 +1,23 @@
+# Lazygit accepts alternate keybindings only for actions that have an explicit
+# *-alt / *-alt1 / *-alt2 field in its config schema. These keep the normal
+# default keys working while adding Russian-layout equivalents for the basics.
+keybinding:
+  universal:
+    # Vim-style navigation on the same physical keys in Russian layout:
+    # h/j/k/l -> р/о/л/д
+    prevBlock-alt: р
+    nextItem-alt: о
+    prevItem-alt: л
+    nextBlock-alt: д
+
+    # Main diff scroll on the same physical keys as Shift+J/K -> О/Л.
+    # PageUp/PageDown and ctrl-u/ctrl-d still work too.
+    scrollDownMain-alt1: О
+    scrollUpMain-alt1: Л
+
+    # Diffing menu: W -> Ц on Russian layout, while W still works.
+    diffingMenu-alt: Ц
+
 # Esc exits lazygit when there is nothing left to cancel, so Esc closes the
 # herdr lazygit popup instead of requiring q.
 quitOnTopLevelReturn: true

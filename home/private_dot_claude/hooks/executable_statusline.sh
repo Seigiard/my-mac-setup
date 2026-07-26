@@ -62,8 +62,5 @@ FOLDER_INFO="${BOLD}${FOLDER}${RESET}"
 [ -n "$GIT_BRANCH" ] && FOLDER_INFO="${FOLDER_INFO} ${PURPLE}[${GIT_BRANCH}]${RESET}"
 
 STATUS_LINE="${FOLDER_INFO}${DIM}${GRAY} ❯ ${RESET}${CC_INFO}"
-CLEAN_TEXT=$(printf '%b' "$STATUS_LINE" | sed 's/\x1b\[[0-9;]*m//g')
-TEXT_WIDTH=${#CLEAN_TEXT}
-UNDERLINE=$(printf '─%.0s' $(seq 1 $TEXT_WIDTH))
 
 printf '%b\n' "${STATUS_LINE}\n "

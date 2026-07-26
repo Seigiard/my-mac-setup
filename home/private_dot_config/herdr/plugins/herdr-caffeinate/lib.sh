@@ -3,7 +3,7 @@
 # Sourced by reconcile.sh and actions.sh. POSIX sh; macOS-only.
 
 # --- Paths ------------------------------------------------------------------
-PLUGIN_DIR=${HERDR_PLUGIN_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+PLUGIN_DIR=${HERDR_PLUGIN_ROOT:-$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)}
 STATE_DIR=${HERDR_PLUGIN_STATE_DIR:-${TMPDIR:-/tmp}/herdr-caffeinate}
 CONFIG_DIR=${HERDR_PLUGIN_CONFIG_DIR:-$HOME/.config/herdr-caffeinate}
 PIDFILE="$STATE_DIR/caffeinate.pid"

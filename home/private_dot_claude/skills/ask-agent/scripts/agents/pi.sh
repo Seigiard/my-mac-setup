@@ -14,7 +14,7 @@ args=( -p --model "$MODEL" --thinking "$EFFORT" )
 for s in "$@"; do args+=( --skill "$s" ); done
 # read-only = allowlist pi's read/search tools (no bash/edit/write, so it truly cannot mutate).
 # pi has no built-in web tool; web is only available via an extension (e.g. pi-agent-browser).
-[ "${RW:-0}" -eq 0 ] && args+=( --tools read,grep,find,ls )
+[ "${RW:-0}" -eq 0 ] && args+=( --tools "read,grep,find,ls" )
 [ -n "${CWD:-}" ] && cd "$CWD"
 
 exec pi "${args[@]}" "$(cat "$QF")"

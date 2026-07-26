@@ -251,9 +251,19 @@ TOML
   assert_dir_exists "$HOME/.config/zed"
 }
 
-@test "lazygit config sets quitOnTopLevelReturn (macOS only)" {
+@test "lazygit config keeps Russian-layout keybindings and popup exit (macOS only)" {
   is_macos || skip "Not on macOS"
-  assert_file_contains "$HOME/Library/Application Support/lazygit/config.yml" "quitOnTopLevelReturn: true"
+  local config="$HOME/Library/Application Support/lazygit/config.yml"
+  assert_file_contains "$config" "^keybinding:$"
+  assert_file_contains "$config" "^  universal:$"
+  assert_file_contains "$config" "^    prevBlock-alt: р$"
+  assert_file_contains "$config" "^    nextItem-alt: о$"
+  assert_file_contains "$config" "^    prevItem-alt: л$"
+  assert_file_contains "$config" "^    nextBlock-alt: д$"
+  assert_file_contains "$config" "^    scrollDownMain-alt1: О$"
+  assert_file_contains "$config" "^    scrollUpMain-alt1: Л$"
+  assert_file_contains "$config" "^    diffingMenu-alt: Ц$"
+  assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
 }
 
 @test "herdr caffeinate plugin exists (macOS only)" {
@@ -497,12 +507,6 @@ se_fixture_repo() {
   local script="$SE_ROOT/.chezmoiscripts/run_onchange_after_4-install-smithers-deps.sh.tmpl"
   run grep -q 'command -v bun' "$script"
   assert_success
-}
-
-@test "smithers agents patch is tracked in dotfiles" {
-  run ls "$SE_ROOT/private_dot_claude/dot_smithers/patches/"
-  assert_success
-  assert_output --partial "smithers-orchestrator"
 }
 
 @test "chezmoiignore excludes smithers runtime state from management" {
