@@ -12,11 +12,15 @@ usage() {
 Usage: se <command> [args]
 
 Commands:
-  pipeline <plan-path> [--until=branch|pr] [--validate-cmd '<cmd>'] [--attach]
+  pipeline <plan-path> [--until=branch|pr] [--validate-cmd '<cmd>'] [--doc-review] [--attach]
       Launch the se-pipeline workflow for a plan file. Run from the target
       repository: the current directory becomes PIPELINE_REPO (and
       DOC_REVIEW_REPO for the verify-doc child workflow).
         --until          stop stage: branch (default) or pr
+        --doc-review     run the verify-doc plan-review stage before work. OFF by
+                         default (the `se-work` command); the `se-review-and-work`
+                         command passes it. Simplify runs in BOTH — it is not a
+                         flag, it is always present and autonomously run-or-skipped.
         --validate-cmd   Command the work gate runs to validate work in the run
                          worktree. OPTIONAL: if omitted, it is derived from the
                          plan's own Verification Contract (the scoped test/
@@ -125,19 +129,19 @@ json_escape() {
 }
 
 build_input_json() {
-  local plan_path=$1 until=$2 validate_cmd=$3 validate_timeout_ms=$4
+  local plan_path=$1 until=$2 validate_cmd=$3 validate_timeout_ms=$4 doc_review=$5
   if command -v jq >/dev/null 2>&1; then
     jq -cn --arg planPath "$plan_path" --arg until "$until" --arg validateCmd "$validate_cmd" \
-      --argjson validateTimeoutMs "$validate_timeout_ms" \
-      '{planPath: $planPath, until: $until, validateCmd: $validateCmd, validateTimeoutMs: $validateTimeoutMs}'
+      --argjson validateTimeoutMs "$validate_timeout_ms" --argjson docReview "$doc_review" \
+      '{planPath: $planPath, until: $until, validateCmd: $validateCmd, validateTimeoutMs: $validateTimeoutMs, docReview: $docReview}'
   else
-    printf '{"planPath":"%s","until":"%s","validateCmd":"%s","validateTimeoutMs":%s}' \
-      "$(json_escape "$plan_path")" "$(json_escape "$until")" "$(json_escape "$validate_cmd")" "$validate_timeout_ms"
+    printf '{"planPath":"%s","until":"%s","validateCmd":"%s","validateTimeoutMs":%s,"docReview":%s}' \
+      "$(json_escape "$plan_path")" "$(json_escape "$until")" "$(json_escape "$validate_cmd")" "$validate_timeout_ms" "$doc_review"
   fi
 }
 
 cmd_pipeline() {
-  local plan="" until="branch" validate_cmd="" attach=0 validate_timeout_s=600
+  local plan="" until="branch" validate_cmd="" attach=0 validate_timeout_s=600 doc_review=false
 
   while (($#)); do
     case $1 in
@@ -153,6 +157,9 @@ cmd_pipeline() {
       --validate-timeout)
         [[ $# -ge 2 ]] || usage_die "--validate-timeout requires a value (seconds)"
         shift; validate_timeout_s=$1 ;;
+      # The single doc-review key (R8): the `se-review-and-work` skill passes it,
+      # `se-work` omits it. The user never types it — the command name selects it.
+      --doc-review) doc_review=true ;;
       --attach) attach=1 ;;
       -h|--help) usage; return 0 ;;
       -*) usage_die "unknown option for pipeline: $1" ;;
@@ -177,7 +184,7 @@ cmd_pipeline() {
   local plan_abs repo input
   plan_abs="$(cd "$(dirname "$plan")" && pwd -P)/$(basename "$plan")"
   repo="$(pwd -P)"
-  input="$(build_input_json "$plan_abs" "$until" "$validate_cmd" "$((validate_timeout_s * 1000))")"
+  input="$(build_input_json "$plan_abs" "$until" "$validate_cmd" "$((validate_timeout_s * 1000))" "$doc_review")"
 
   local -a args=(up "$PIPELINE_WORKFLOW")
   ((attach)) || args+=(--detach)

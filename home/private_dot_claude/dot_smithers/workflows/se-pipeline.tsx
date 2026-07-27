@@ -39,7 +39,9 @@ import {
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent } from "./lib/agents.ts";
 import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
+import { simplifyCommitDecision } from "./lib/stage-gate.ts";
 import seDocReview from "./se-doc-review.tsx";
+import seSimplify from "./se-simplify.tsx";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 
 // 0.28 types Subflow's workflow prop as WorkflowDefinition<unknown>; a
@@ -47,12 +49,17 @@ import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 // contravariant in build). Runtime only forwards the definition, so the cast
 // is safe.
 const seDocReviewSubflow = seDocReview as unknown as WorkflowDefinition<unknown>;
+const seSimplifySubflow = seSimplify as unknown as WorkflowDefinition<unknown>;
 
 const inputSchema = z.object({
   planPath: z.string().describe("Absolute path to the implementation-ready ce-unified-plan/v1 plan (read from the launcher, not the worktree — KTD11)."),
   until: z.enum(["branch", "pr"]).default("branch").describe("Run depth (R6); pr is a hard refusal in the MVP."),
   validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required. Keep it FAST — the work gate runs it synchronously; scope to unit/type checks, not full e2e."),
   validateTimeoutMs: z.number().default(10 * 60_000).describe("Work-gate validate-cmd timeout. A slow full-suite command (e2e) blocks the engine — scope the command instead of raising this blindly."),
+  docReview: z
+    .boolean()
+    .default(false)
+    .describe("Run the verify-doc plan-review stage before work (R7). Default false = `se-work` (no plan-review); true = `se-review-and-work`. The user never types this — the two skill entrypoints set it. Simplify is NOT flagged here; it is always present and autonomously run-or-skipped by its own right-sizing gate."),
   smoke: z.boolean().default(false).describe("Wiring test: trivial stage prompts, real staging/gates, no ce-work invocation."),
   smokeSeverity: severitySchema
     .optional()
@@ -90,6 +97,17 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
   gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   docReview: docReviewSchema,
+  // Mirror of se-simplify.tsx outputSchema (KTD-B) — only the fields the
+  // pipeline reads are declared; smithers persists declared columns.
+  simplify: z.object({
+    status: z.enum(["ok", "skipped", "degraded"]),
+    reason: z.string().default(""),
+    appliedEdits: z.boolean().default(false),
+    appliedCount: z.number().default(0),
+    contradictionCount: z.number().default(0),
+    reverted: z.boolean().default(false),
+    reportPath: z.string().optional(),
+  }),
   agentReport: z.object({ report: z.string() }),
   // The two verify-code review legs emit the plugin's natural review object
   // (lib/review-schema.ts) under their own key; the shared agentReport wrapper
@@ -586,36 +604,50 @@ export default smithers((ctx) => {
   }
 
   if (gate0 && staged) {
-    const doc = stageBlock({
-      name: "verify-doc",
-      makeAttempt: (nodeId) => (
-        <Subflow
-          id={nodeId}
-          workflow={seDocReviewSubflow}
-          input={{ docPath: input.planPath, smoke, smokeSeverity: input.smokeSeverity }}
-          output={outputs.docReview}
-          retries={1}
-          // Hang guard, not a scheduler: must fit the claude leg's own retry
-          // ladder (2 × 25 min) plus synthesis margin. A cap equal to the leg
-          // cap killed run-1784730393057 mid-retry after one envelope fail.
-          timeoutMs={55 * 60_000}
-        />
-      ),
-      readRaw: readDocReview,
-      gateFn: (raw) => docReviewGate(raw === undefined ? undefined : JSON.parse(raw)),
-      // Predicate-scoped waive (KTD-E): approve waives only a parsed-P0 fail
-      // (cause "severity"); crash/both-legs-down reds (cause "availability")
-      // keep the existing approve = one-extra-attempt path.
-      waiveOnApprove: (verdict) => verdict.cause === "severity",
-    });
-    children.push(...(doc.nodes as never[]));
-    if (doc.status === "stopped") terminal = "stopped-after-second-failure:verify-doc";
-    if (doc.status === "green") {
-      const docReviewGreenOut = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
-      notes.push(docReviewSeverityStatusNote(docReviewGreenOut));
-      if (doc.waived) notes.push(docReviewWaiveNote(docReviewGreenOut, doc.verdict?.reasons));
-      else if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
+    // verify-doc is CONDITIONAL (R7): only `se-review-and-work` (docReview:true)
+    // runs plan-review before work. `se-work` (default docReview:false) binds
+    // work directly to gate0. When the stage is absent, docGreen passes through
+    // and no verify-doc note/severity is emitted.
+    let docGreen: boolean;
+    let docReviewAdvisory = "";
+    if (input.docReview) {
+      const doc = stageBlock({
+        name: "verify-doc",
+        makeAttempt: (nodeId) => (
+          <Subflow
+            id={nodeId}
+            workflow={seDocReviewSubflow}
+            input={{ docPath: input.planPath, smoke, smokeSeverity: input.smokeSeverity }}
+            output={outputs.docReview}
+            retries={1}
+            // Hang guard, not a scheduler: must fit the claude leg's own retry
+            // ladder (2 × 25 min) plus synthesis margin. A cap equal to the leg
+            // cap killed run-1784730393057 mid-retry after one envelope fail.
+            timeoutMs={55 * 60_000}
+          />
+        ),
+        readRaw: readDocReview,
+        gateFn: (raw) => docReviewGate(raw === undefined ? undefined : JSON.parse(raw)),
+        // Predicate-scoped waive (KTD-E): approve waives only a parsed-P0 fail
+        // (cause "severity"); crash/both-legs-down reds (cause "availability")
+        // keep the existing approve = one-extra-attempt path.
+        waiveOnApprove: (verdict) => verdict.cause === "severity",
+      });
+      children.push(...(doc.nodes as never[]));
+      if (doc.status === "stopped") terminal = "stopped-after-second-failure:verify-doc";
+      docGreen = doc.status === "green";
+      if (docGreen) {
+        const docReviewGreenOut = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
+        notes.push(docReviewSeverityStatusNote(docReviewGreenOut));
+        if (doc.waived) notes.push(docReviewWaiveNote(docReviewGreenOut, doc.verdict?.reasons));
+        else if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
+        docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewGreenOut, doc.waived);
+      }
+    } else {
+      docGreen = true;
+    }
 
+    if (docGreen) {
       // Work gate runs the effects itself: it commits the agent's work, then
       // proves the work by comparing tree hashes and running the operator's
       // validate-cmd in the worktree — agent self-report is never ground truth
@@ -645,7 +677,8 @@ export default smithers((ctx) => {
         return result;
       };
 
-      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewGreenOut, doc.waived);
+      // docReviewAdvisory was resolved above: the verify-doc advisory when
+      // docReview ran, or "" when it did not (se-work).
       const work = stageBlock({
         name: "work",
         makeAttempt: (nodeId) => (
@@ -724,6 +757,92 @@ export default smithers((ctx) => {
         if (scan.status === "green") {
           if (scan.waived) notes.push(`secret-scan: waived by operator — ${scan.verdict?.reasons ?? ""}`);
 
+          // SIMPLIFY stage (R7/R9/KTD-H): always rendered here — AFTER the shared
+          // secret-scan (so its external report legs only ever see content the
+          // scan already cleared) and BEFORE verify-code (which then reviews the
+          // tidied code). The subflow owns its own R14 right-sizing gate, so it
+          // may return `skipped` cheaply. repoPath is the RUN WORKTREE, never the
+          // operator's launch checkout (KTD-G). When it applied edits, the
+          // pipeline commits them (R9) and rescans that commit before verify-code.
+          const simplifyOut = ctx.outputMaybe("simplify", { nodeId: "simplify" });
+          const simplifyCommitOut = ctx.outputMaybe("agentReport", { nodeId: "simplify-commit" });
+          children.push(
+            <Subflow
+              id="simplify"
+              workflow={seSimplifySubflow}
+              input={{ repoPath: staged.worktreePath, validateCmd: gate0.validateCmd, validateTimeoutMs: gate0.validateTimeoutMs, baseSha: staged.baseSha, smoke }}
+              output={outputs.simplify}
+              retries={1}
+              // Hang guard: fits two report legs (2 × 25 min retry ladder) + apply
+              // (20 min) + verify, with margin.
+              timeoutMs={75 * 60_000}
+            />,
+          );
+          let simplifyReady = false;
+          if (simplifyOut) {
+            notes.push(`simplify: ${simplifyOut.status}${simplifyOut.reason ? ` — ${simplifyOut.reason}` : ""}`);
+            const decision = simplifyCommitDecision(simplifyOut.status, simplifyOut.appliedEdits);
+            if (!decision.commit) {
+              // skipped / degraded / ok-with-no-edits → nothing to commit;
+              // verify-code runs on the work commit.
+              simplifyReady = true;
+            } else {
+              // Pipeline-owned commit of the applied tidy (R9), exactly once
+              // (commitWorkGuarded is a no-op on a clean tree), then a rescan of
+              // that new commit before verify-code's external legs run.
+              children.push(
+                <Task id="simplify-commit" output={outputs.agentReport} retries={0} bind={gate0Proof}>
+                  {() => {
+                    commitWorkGuarded(staged.worktreePath, `se-pipeline: simplify stage on ${staged.branch}`);
+                    return { report: JSON.stringify({ head: gitHead(staged.worktreePath) }) };
+                  }}
+                </Task>,
+              );
+              if (simplifyCommitOut) {
+                // scanBase = the work secret-scan's scannedHead (the pre-simplify
+                // work HEAD) when ancestry holds, so the rescan covers ONLY the
+                // simplify commit; fail-closed to baseSha otherwise.
+                const priorScan = ctx.outputMaybe("agentReport", { nodeId: "secret-scan-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "secret-scan" });
+                const srescan = stageBlock({
+                  name: "simplify-rescan",
+                  makeAttempt: (nodeId) => (
+                    <Task id={nodeId} output={outputs.agentReport} retries={0} bind={gate0Proof}>
+                      {() => {
+                        let scanBase = staged.baseSha;
+                        if (priorScan?.report) {
+                          try {
+                            const sh = (JSON.parse(priorScan.report) as { scannedHead?: string }).scannedHead;
+                            if (sh && isAncestor(staged.worktreePath, sh, "HEAD")) scanBase = sh;
+                          } catch {}
+                        }
+                        const result = secretScanDiff(staged.worktreePath, scanBase);
+                        return { report: JSON.stringify({ ...result, scannedHead: gitHead(staged.worktreePath) }) };
+                      }}
+                    </Task>
+                  ),
+                  readRaw: readAgentReport,
+                  gateFn: (raw) => {
+                    if (raw === undefined) return { state: "failed", reasons: ["simplify-rescan produced no result"] };
+                    const result = JSON.parse(raw) as { state: string; details: string };
+                    if (result.state === "clean") return { state: "green", reasons: [] };
+                    return {
+                      state: "degraded",
+                      reasons: [result.state === "found" ? `simplify-rescan found leaks in the simplify commit: ${result.details.slice(0, 500)}` : `simplify-rescan could not run: ${result.details.slice(0, 500)}`],
+                    };
+                  },
+                  waiveOnApprove: true,
+                });
+                children.push(...(srescan.nodes as never[]));
+                if (srescan.status === "stopped") terminal = "stopped-after-second-failure:simplify-rescan";
+                if (srescan.status === "green") {
+                  if (srescan.waived) notes.push(`simplify-rescan: waived by operator — ${srescan.verdict?.reasons ?? ""}`);
+                  simplifyReady = true;
+                }
+              }
+            }
+          }
+
+          if (simplifyReady) {
           // verify-code mirrors se-code-review's harness shape: two independent
           // full plugin reviews in parallel (claude + opencode, each with its
           // own guard so one engine failing never kills the stage), then a
@@ -811,7 +930,14 @@ export default smithers((ctx) => {
             // green behind us); binding the rescan to the scan row makes a
             // mutated scannedHead park BOUND_STALE instead of yielding a
             // false-clean no-op (the tamper vector the rescan itself guards).
+            // Prefer the simplify commit's scan row when simplify committed (its
+            // scannedHead is the branch HEAD verify-code will review); fall back
+            // to the work secret-scan when simplify was skipped. Keeps the
+            // post-approval rescan's baseline at the true current HEAD so it does
+            // not redundantly re-scan + re-validate the simplify commit every run.
             const scanProof =
+              ctx.prove(outputs.agentReport, { nodeId: "simplify-rescan-extra" }) ??
+              ctx.prove(outputs.agentReport, { nodeId: "simplify-rescan" }) ??
               ctx.prove(outputs.agentReport, { nodeId: "secret-scan-extra" }) ??
               ctx.prove(outputs.agentReport, { nodeId: "secret-scan" });
             const rescanBind = [gate0Proof, scanProof].filter((b) => b !== undefined);
@@ -820,7 +946,11 @@ export default smithers((ctx) => {
               makeAttempt: (nodeId) => (
                 <Task id={nodeId} output={outputs.agentReport} retries={0} bind={rescanBind as never}>
                   {() => {
-                    const prior = ctx.outputMaybe("agentReport", { nodeId: "secret-scan-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "secret-scan" });
+                    const prior =
+                      ctx.outputMaybe("agentReport", { nodeId: "simplify-rescan-extra" }) ??
+                      ctx.outputMaybe("agentReport", { nodeId: "simplify-rescan" }) ??
+                      ctx.outputMaybe("agentReport", { nodeId: "secret-scan-extra" }) ??
+                      ctx.outputMaybe("agentReport", { nodeId: "secret-scan" });
                     let scannedHead: string | undefined;
                     if (prior?.report) {
                       try {
@@ -863,6 +993,7 @@ export default smithers((ctx) => {
               terminal = "green";
             }
           }
+          } // close if (simplifyReady)
         }
       }
     }
@@ -871,11 +1002,14 @@ export default smithers((ctx) => {
   if (terminal && gate0 && staged) {
     const t = terminal;
     const stages: Record<string, unknown> = {};
-    for (const stage of ["verify-doc", "work", "secret-scan", "verify-code", "rescan"]) {
+    for (const stage of ["verify-doc", "work", "secret-scan", "simplify-rescan", "verify-code", "rescan"]) {
       const extra = ctx.outputMaybe("gateVerdict", { nodeId: `gate-${stage}-extra` });
       const first = ctx.outputMaybe("gateVerdict", { nodeId: `gate-${stage}` });
       stages[stage] = extra ?? first ?? null;
     }
+    // simplify is a Subflow (no gateVerdict row) — surface its own status/reason.
+    const simplifyResult = ctx.outputMaybe("simplify", { nodeId: "simplify" });
+    stages["simplify"] = simplifyResult ? { state: simplifyResult.status, reasons: simplifyResult.reason, appliedCount: simplifyResult.appliedCount } : null;
     const workReport = ctx.outputMaybe("agentReport", { nodeId: "work-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "work" });
     const codeReport = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) ?? ctx.outputMaybe("agentReport", { nodeId: "verify-code" });
     // Per-leg reports of the attempt the gate actually used — the merged report

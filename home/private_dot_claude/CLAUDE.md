@@ -79,6 +79,7 @@ Pre-classification triggers (fire in background):
 | "commit", "create commit"               | `/compound-engineering:ce-commit`          | Let skill handle git                                 |
 | "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr`  | Full workflow                                        |
 | "review PR", "review code"              | `/se-code-review`                          | Local wrapper: plugin + external reviews             |
+| "simplify", "tidy/refactor branch"      | `/se-simplify`                             | 2 cross-model report legs → single verified apply    |
 | Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`      | Persistent planning                                  |
 | Planning multi-step tasks               | `/se-plan`                                 | Local wrapper: plugin plan + external doc review     |
 | Debugging, errors, test failures        | `/compound-engineering:ce-debug`           | Systematic root cause                                |
@@ -88,7 +89,8 @@ Pre-classification triggers (fire in background):
 | Plan iteration ("итерация N", "дальше") | Load plan first, batch 2–3, gate on commit | See plan-iteration block                             |
 | Migration / refactor                    | Scope fidelity block                       | Don't restore deleted code                           |
 | Executing work efficiently              | `/compound-engineering:ce-work`            | Quality + completion                                 |
-| "запусти пайплайн", durable plan exec   | `/se-work`                                 | Local wrapper: se-pipeline launch + monitor + report |
+| "запусти пайплайн", durable plan exec   | `/se-work`                                 | se-pipeline, NO plan-review (work→simplify→verify)   |
+| durable exec WITH plan-review first     | `/se-review-and-work`                      | `se-work` + verify-doc; same pipeline, docReview key |
 
 </important>
 

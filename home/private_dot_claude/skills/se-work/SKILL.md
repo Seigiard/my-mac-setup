@@ -1,14 +1,18 @@
 ---
 name: se-work
-description: Execute an implementation-ready plan via the durable se-pipeline (smithers) — verify-doc → work → verify-code → branch/PR, with secret-scan gates, approval pauses, and a cost summary. Use when the user says "запусти пайплайн", "run the pipeline", "se-work по плану X", or wants a plan executed end-to-end durably instead of an in-session ce-work.
+description: Execute an already-reviewed implementation-ready plan via the durable se-pipeline (smithers) — work → simplify → verify-code → branch/PR, WITHOUT plan-review, plus secret-scan gates, approval pauses, and a cost summary. Use when the user says "запусти пайплайн", "run the pipeline", "se-work по плану X", or wants a prepared plan executed end-to-end durably. For a plan that still needs plan-review first, use `se-review-and-work`.
 argument-hint: "[plan-path] [until:pr] [validate-cmd:'<cmd>']"
 ---
 
-# Execute a plan via se-pipeline (wrapper over the `se` CLI)
+# Execute a plan via se-pipeline, no plan-review (wrapper over the `se` CLI)
+
+Runs the durable pipeline **without** the verify-doc plan-review stage: `work → simplify → verify-code → branch/PR`. Use it when the plan is already prepared and human-reviewed. To run the SAME pipeline WITH plan-review first (`verify-doc → work → simplify → verify-code`), use the sibling command **`se-review-and-work`** — it is this command with plan-review turned on. The user picks by command name; neither skill asks you to type a flag.
+
+The **simplify** stage runs in BOTH commands — it is new relative to the old `se-work`, always present, and autonomously run-or-skipped by its own right-sizing gate (no flag). It tidies the work-stage output (two cross-model report legs → one verified apply) before code review sees it.
 
 All orchestration is **code**, not prose: the `se` CLI (`~/.claude/.smithers/bin/se`, on PATH as `se`) wrapping the smithers workflow `~/.claude/.smithers/workflows/se-pipeline.tsx`. Do not re-implement stages, gates, or resume logic in instructions — launch and observe. Troubleshooting source of truth: `docs/se-pipeline.md` in the my-mac-setup repo.
 
-Argument contract: an optional plan path; `until:pr` maps to `--until=pr`; `validate-cmd:'<cmd>'` maps to `--validate-cmd` (override only — omitted, the workflow derives the command from the plan's Verification Contract).
+Argument contract: an optional plan path; `until:pr` maps to `--until=pr`; `validate-cmd:'<cmd>'` maps to `--validate-cmd` (override only — omitted, the workflow derives the command from the plan's Verification Contract). This command NEVER passes `--doc-review` (that is what `se-review-and-work` is for).
 
 ## Phase 1 — resolve and preflight
 
@@ -56,4 +60,4 @@ While it runs, keep the session free for the user; report when the task re-invok
 
 ## Cost / time
 
-Full run ≈ verify-doc (two external review envelopes: claude + opencode) + work leg (opus) + verify-code; expect 30-90 min wall clock. Cost lands in the `se list` summary table after the run. For a quick non-durable execution of a small plan, `compound-engineering:ce-work` in-session is cheaper.
+`se-work` run ≈ work leg (opus) + simplify (two Sonnet-class report legs + one apply + verify, unless the right-sizing gate skips it) + verify-code (claude + opencode). Plan-review is NOT run here — that is the `se-review-and-work` addition. Simplify has strictly more stages than nothing, so it is a real time/cost add over the old flag-less `se-work`, not neutral; a skipped simplify (empty/doc-only/borderline diff) costs almost nothing. Expect ~30-75 min wall clock. Cost lands in the `se list` summary table after the run. For a quick non-durable execution of a small plan, `compound-engineering:ce-work` in-session is cheaper.

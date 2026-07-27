@@ -414,6 +414,38 @@ se_fixture_repo() {
   assert_output --partial '"validateCmd":"make test"'
 }
 
+@test "se pipeline forwards the single doc-review key: absent=false, --doc-review=true" {
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  # se-work path: no flag → docReview:false
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test'
+  assert_success
+  assert_output --partial '"docReview":false'
+  # se-review-and-work path: --doc-review → docReview:true
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test' --doc-review
+  assert_success
+  assert_output --partial '"docReview":true'
+}
+
+@test "se-simplify skill + se-review-and-work skill + se-simplify workflow are in the source tree" {
+  assert_file_exists "$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
+  assert_file_exists "$SE_ROOT/private_dot_claude/skills/se-review-and-work/SKILL.md"
+  assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/se-simplify.tsx"
+  assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/lib/stage-gate.ts"
+}
+
+@test "opencode config allows the /tmp/ce-simplify staging directory (R11)" {
+  local cfg="$SE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
+  assert_file_exists "$cfg"
+  run grep -F '/tmp/ce-simplify/*' "$cfg"
+  assert_success
+  run grep -F '/tmp/ce-simplify/**/*' "$cfg"
+  assert_success
+  run grep -F '/private/tmp/ce-simplify/**/*' "$cfg"
+  assert_success
+}
+
 @test "se pipeline dry-run honors --until=pr and --attach (no --detach)" {
   local repo
   repo="$(se_fixture_repo)"
