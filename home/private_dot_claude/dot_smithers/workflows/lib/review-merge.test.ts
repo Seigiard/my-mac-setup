@@ -62,13 +62,15 @@ describe("mergeReviewReports", () => {
     expect(r.reasons.join(" ")).toContain("opencode");
   });
 
-  test("сквозной: одно плечо failed, P0=0 → green с advisory-пометкой", () => {
+  test("сквозной: одно плечо failed, выживший P0=0 → degraded (человеческий ack, F2/KTD-C)", () => {
+    // #given the claude leg produced a report and opencode failed, no P0 among survivors
     const merged = mergeReviewReports([
-      { source: "claude", raw: legReport([]) },
-      { source: "opencode", raw: undefined },
+      { source: "opencode", raw: legReport([]) },
+      { source: "claude", raw: undefined },
     ]);
     const r = codeReviewGate({ raw: merged });
-    expect(r.state).toBe("green");
-    expect(r.reasons.join(" ")).toContain("opencode");
+    // #then the surviving clean leg is not a silent pass — the dead leg's view is missing
+    expect(r.state).toBe("degraded");
+    expect(r.reasons.join(" ")).toContain("claude");
   });
 });

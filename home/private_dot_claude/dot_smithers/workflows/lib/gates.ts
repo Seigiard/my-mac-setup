@@ -173,27 +173,39 @@ export function codeReviewGate(input: CodeReviewGateInput): GateResult {
     return { state: "degraded", reasons: ["review report has no findings array — invalid envelope, not a silent pass"] };
   }
   // Multi-leg merged reports (lib/review-merge.ts) carry per-leg statuses.
-  // Mirror docReviewGate: every leg failed is degraded (not a silent pass),
-  // one failed leg is an advisory reason on an otherwise-green verdict.
+  // Availability is fail-closed: every leg failed is degraded (not a silent
+  // pass). A blocking finding on any surviving leg fails regardless of leg
+  // health. A partial leg failure with a clean survivor is NOT a silent
+  // single-leg green: the dead leg's view is missing (an idle-killed but
+  // healthy claude leg could have carried the only P0), so the gate degrades
+  // for a human ack instead of passing on the survivor alone. No retry — that
+  // reopens the budget incident (KTD-C); the run pauses, it does not re-bill.
   // Reports without a legs field (single-leg, smoke) keep the old behavior.
-  const advisory: string[] = [];
+  let failedLegs: string[] = [];
   const legs = report.legs;
   if (legs !== null && typeof legs === "object" && !Array.isArray(legs)) {
     const entries = Object.entries(legs as Record<string, unknown>);
-    const failed = entries.filter(([, status]) => status !== "ok").map(([source]) => source);
-    if (entries.length > 0 && failed.length === entries.length) {
-      return { state: "degraded", reasons: [`all review legs failed (${failed.join(", ")}) — not a silent pass`] };
+    failedLegs = entries.filter(([, status]) => status !== "ok").map(([source]) => source);
+    if (entries.length > 0 && failedLegs.length === entries.length) {
+      return { state: "degraded", reasons: [`all review legs failed (${failedLegs.join(", ")}) — not a silent pass`] };
     }
-    for (const source of failed) advisory.push(`${source} review leg failed (advisory — remaining leg carried the review)`);
   }
   const severityCount = (sev: string): number =>
     findings.filter((f) => typeof f === "object" && f !== null && String((f as Record<string, unknown>).severity).toUpperCase() === sev).length;
   const p0Count = severityCount("P0");
   const p1Count = severityCount("P1");
+  const legAdvisory = failedLegs.map((source) => `${source} review leg failed`);
   if (p0Count > 0) {
-    return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`, ...advisory], p1Count };
+    return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`, ...legAdvisory], p1Count };
   }
-  return { state: "green", reasons: advisory, p1Count };
+  if (failedLegs.length > 0) {
+    return {
+      state: "degraded",
+      reasons: [`review incomplete: ${failedLegs.join(", ")} leg(s) failed and the surviving leg found no P0 — needs human confirmation, not a silent single-leg pass (KTD-C)`],
+      p1Count,
+    };
+  }
+  return { state: "green", reasons: [], p1Count };
 }
 
 // Post-approval rescan verdict (R3–R5): commits an operator adds during a

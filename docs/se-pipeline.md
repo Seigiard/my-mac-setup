@@ -19,10 +19,16 @@ Verify-code с 2026-07-23 повторяет форму se-code-review: два �
 opencode (`openai/gpt-5.5`, кап 15 мин, скилл стейджится в
 `/tmp/ce-code-review`, разрешён в opencode `permission.external_directory`) —
 и детерминированное слияние (`lib/review-merge.ts`) на nodeId стадии: гейт
-считает P0 по объединённым findings (каждый тегирован `source`), оба плеча
-упали → degraded, одно → advisory на green (зеркало docReviewGate). Пер-плечевые
-отчёты пишутся в reportDir (`verify-code.claude.report.json` /
-`verify-code.opencode.report.json`) рядом со слитым.
+считает P0 по объединённым findings (каждый тегирован `source`): любое P0 →
+`failed` (блокировка важнее живости плеча), оба плеча упали → `degraded`. Одно
+упавшее плечо при чистом выжившем (0 P0) → `degraded`, НЕ тихий single-leg green:
+мёртвое плечо (например, healthy claude, убитый по `PROCESS_IDLE_TIMEOUT`) могло
+нести единственный P0, поэтому гейт паузит на человеческий ack вместо прохода по
+выжившему. Без ретрая — ретрай переоткрывает budget-инцидент (KTD-C); прогон
+паузит, не перебиливает. Это расходится с docReviewGate (там одно упавшее плечо
+остаётся advisory-green — doc-review нонблокинг для work; verify-code — последний
+гейт перед branch/PR, fail-closed жёстче). Пер-плечевые отчёты пишутся в reportDir
+(`verify-code.claude.report.json` / `verify-code.opencode.report.json`) рядом со слитым.
 
 Verify-doc с 2026-07-24 блокирует по P0 находкам ревью плана (симметрия с
 codeReviewGate). Каждое не-smoke плечо эмитит машиночитаемую строку
