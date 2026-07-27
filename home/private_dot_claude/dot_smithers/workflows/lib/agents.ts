@@ -26,6 +26,15 @@
 import { ClaudeCodeAgent, OpenCodeAgent } from "smithers-orchestrator";
 import { reviewLegJsonSchema } from "./review-schema.ts";
 
+// se-simplify apply leg (U1/R5/KTD-F): a single leg applies the cross-model
+// consensus after the two report legs agree. It executes already-decided
+// findings under a behavior-preservation guard — high-care, not
+// deep-reasoning — so Sonnet is the cost/quality point; Opus (the `work`
+// profile) stays reserved for implementation-from-scratch. Named here so the
+// apply Task reads the model from the single agent home, never a call site.
+export const SIMPLIFY_APPLY_MODEL = "claude-sonnet-5" as const;
+export const SIMPLIFY_APPLY_FALLBACK_MODEL = "claude-haiku-4-5" as const;
+
 // Observed burn of a sonnet-5 review leg on a big diff (run 89938dd6:
 // ~$17 in ~13 min). Budget and timeout must scale together — a budget that
 // does not fit in the timeout converts every over-budget run into a timeout.
@@ -49,6 +58,21 @@ export const AGENT_PROFILES = {
   // plugin workflow (~7 persona subagents) runs ~12-17 min cold and bills
   // ~$5-6. Kept deliberately cheaper than codeReview — do not merge them.
   docReview: {
+    model: "claude-sonnet-5",
+    fallbackModel: "claude-haiku-4-5",
+    timeoutMs: 25 * 60_000,
+    idleTimeoutMs: 15 * 60_000,
+    maxBudgetUsd: 15,
+    retries: 1,
+  },
+  // Simplify review legs (se-simplify externals, se-pipeline simplify stage):
+  // the ce-simplify-code reviewer personas (reuse/quality/efficiency) on the
+  // work diff. Judgment-heavy but lighter than a full code-review diff pass,
+  // so sized like docReview, not codeReview. Sonnet class matches
+  // ce-simplify-code's stated reviewer tier (KTD-F); haiku fallback rides out a
+  // Max-subscription throttle. Retries=1 is affordable — a failed leg only
+  // degrades to advisory (skip-when-unsure), never mutates.
+  simplifyReview: {
     model: "claude-sonnet-5",
     fallbackModel: "claude-haiku-4-5",
     timeoutMs: 25 * 60_000,
@@ -87,9 +111,16 @@ export function stringFieldJsonSchema(field: "report" | "envelope"): string {
 // source: lib/review-schema.ts) — no {report: string} wrapper. docReview still
 // wraps its free-form markdown in {envelope: string} (R7), so the json-schema
 // is scoped per profile and only the code-review contract unwraps.
+// simplifyReview emits the SAME raw-object json-schema as codeReview (R3): the
+// leg returns {status, findings[]} directly so mergeSimplifyLegs' parseLeg
+// (which requires a top-level findings array) reads it — a {report: "..."}
+// string wrapper would fail that parse and mark every leg failed.
 export type ClaudeReviewAgentOptions =
   | { cwd: string; profile: "codeReview" }
+  | { cwd: string; profile: "simplifyReview" }
   | { cwd: string; profile: "docReview"; jsonField: "envelope" };
+
+const RAW_OBJECT_PROFILES = new Set(["codeReview", "simplifyReview"]);
 
 // Consensus leg, not the deep one — the local personas already run on the
 // session's top model; Sonnet, never Fable. Default stream-json capture is
@@ -105,7 +136,30 @@ export function makeClaudeReviewAgent(options: ClaudeReviewAgentOptions): Claude
     timeoutMs: profile.timeoutMs,
     idleTimeoutMs: profile.idleTimeoutMs,
     maxBudgetUsd: profile.maxBudgetUsd,
-    jsonSchema: options.profile === "codeReview" ? reviewLegJsonSchema() : stringFieldJsonSchema(options.jsonField),
+    jsonSchema: RAW_OBJECT_PROFILES.has(options.profile) ? reviewLegJsonSchema() : stringFieldJsonSchema((options as { jsonField: "envelope" }).jsonField),
+  });
+}
+
+export interface SimplifyApplyAgentOptions {
+  cwd: string;
+  timeoutMs: number;
+  maxBudgetUsd: number;
+}
+
+// The single apply owner (R5/R6): applies the synthesized consensus+unique
+// findings on repoPath, re-locating each by surrounding content (line numbers
+// are advisory anchors). acceptEdits is enough — the apply leg only EDITS
+// files; the pipeline (or standalone verify Task) owns commit + validate-cmd,
+// so it never needs bypassPermissions. Sonnet per KTD-F.
+export function makeSimplifyApplyAgent(options: SimplifyApplyAgentOptions): ClaudeCodeAgent {
+  return new ClaudeCodeAgent({
+    cwd: options.cwd,
+    permissionMode: "acceptEdits",
+    model: SIMPLIFY_APPLY_MODEL,
+    fallbackModel: SIMPLIFY_APPLY_FALLBACK_MODEL,
+    timeoutMs: options.timeoutMs,
+    maxBudgetUsd: options.maxBudgetUsd,
+    jsonSchema: stringFieldJsonSchema("report"),
   });
 }
 
@@ -115,6 +169,28 @@ export function makeOpencodeReviewAgent(options: { cwd: string }): OpenCodeAgent
     model: AGENT_PROFILES.opencodeReview.model,
     timeoutMs: AGENT_PROFILES.opencodeReview.timeoutMs,
     idleTimeoutMs: AGENT_PROFILES.opencodeReview.idleTimeoutMs,
+  });
+}
+
+// se-simplify right-sizing classifier (R14/KTD-I): the cheapest tier answers
+// "is this diff substantive enough to warrant simplify?" only when the
+// deterministic stage-gate is inconclusive. Cheap and fast — a tight budget and
+// timeout, no fallback (a classifier failure defaults to SKIP, the safe bias).
+export const SIMPLIFY_CLASSIFIER_MODEL = "claude-haiku-4-5" as const;
+
+export function makeSimplifyClassifierAgent(options: { cwd: string }): ClaudeCodeAgent {
+  return new ClaudeCodeAgent({
+    cwd: options.cwd,
+    permissionMode: "default",
+    model: SIMPLIFY_CLASSIFIER_MODEL,
+    timeoutMs: 3 * 60_000,
+    idleTimeoutMs: 2 * 60_000,
+    maxBudgetUsd: 1,
+    jsonSchema: JSON.stringify({
+      type: "object",
+      properties: { run: { type: "boolean" }, reason: { type: "string" } },
+      required: ["run"],
+    }),
   });
 }
 
