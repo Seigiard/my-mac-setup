@@ -26,3 +26,8 @@ CLAUDE.local.md
 .direnv/
 
 mise.toml
+.smithers/
+.ce-doc-review-tmp/
+smithers.db
+smithers.db-shm
+smithers.db-wal
