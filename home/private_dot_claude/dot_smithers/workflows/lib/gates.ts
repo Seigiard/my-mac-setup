@@ -4,6 +4,7 @@
 // is degraded (needs a human), a broken contract is failed (retry/approval).
 import { createHash } from "node:crypto";
 import type { SecretScanResult } from "./envelopes.ts";
+import type { SeveritySummary } from "./severity-summary.ts";
 
 export type GateState = "green" | "failed" | "degraded";
 
@@ -11,6 +12,11 @@ export interface GateResult {
   state: GateState;
   reasons: string[];
   p1Count?: number;
+  // Machine-readable cause on a non-green verdict so waive predicates key on it
+  // instead of parsing reason strings (KTD-D/KTD-E): "severity" = a parsed P0
+  // (waivable on verify-doc), "availability" = crash/both-legs-down (keeps the
+  // extra-attempt path).
+  cause?: "severity" | "availability";
 }
 
 export type PlanGateResult = { ok: true; hash: string } | { ok: false; reason: string };
@@ -18,6 +24,8 @@ export type PlanGateResult = { ok: true; hash: string } | { ok: false; reason: s
 export interface DocReviewStageOutput {
   claudeStatus?: string;
   opencodeStatus?: string;
+  claudeSeverity?: SeveritySummary;
+  opencodeSeverity?: SeveritySummary;
 }
 
 export interface WorkGateInput {
@@ -75,19 +83,45 @@ export function planGate(markdown: string, until: string): PlanGateResult {
   return { ok: true, hash: createHash("sha256").update(markdown).digest("hex") };
 }
 
+// Additive severity ladder (KTD-D): leg availability stays fail-closed exactly
+// as before (no output → failed; both legs down → degraded), and everything
+// below that is new blocking power that only ever ADDS to today's behavior. Any
+// available leg with a parsed p0Count > 0 fails the gate (max-of-legs,
+// fail-closed per R4); P1 is advisory (summed, never blocking); a missing or
+// unparseable severity summary degrades that leg to leg-availability-only (R5).
 export function docReviewGate(output: DocReviewStageOutput | undefined): GateResult {
   if (!output) {
-    return { state: "failed", reasons: ["verify-doc stage produced no output (crash or timeout)"] };
+    return { state: "failed", reasons: ["verify-doc stage produced no output (crash or timeout)"], cause: "availability" };
   }
   const claudeOk = output.claudeStatus === "ok";
   const opencodeOk = output.opencodeStatus === "ok";
   if (!claudeOk && !opencodeOk) {
-    return { state: "degraded", reasons: ["both external envelopes unavailable (claude and opencode failed) — not a silent pass"] };
+    return { state: "degraded", reasons: ["both external envelopes unavailable (claude and opencode failed) — not a silent pass"], cause: "availability" };
   }
+
+  const legs: Array<{ source: string; ok: boolean; severity?: SeveritySummary }> = [
+    { source: "claude", ok: claudeOk, severity: output.claudeSeverity },
+    { source: "opencode", ok: opencodeOk, severity: output.opencodeSeverity },
+  ];
+
   const reasons: string[] = [];
-  if (!claudeOk) reasons.push("claude envelope missing (advisory — review is non-blocking for work)");
-  if (!opencodeOk) reasons.push("opencode envelope missing (advisory — review is non-blocking for work)");
-  return { state: "green", reasons };
+  for (const leg of legs) {
+    if (!leg.ok) reasons.push(`${leg.source} envelope missing (advisory — review is non-blocking for work)`);
+  }
+
+  const available = legs.filter((leg) => leg.ok);
+  const p0Legs = available.filter((leg) => leg.severity !== undefined && leg.severity.p0Count > 0);
+  let p1Count = 0;
+  for (const leg of available) {
+    if (leg.severity) p1Count += leg.severity.p1Count;
+    else reasons.push(`${leg.source} severity summary missing (advisory — leg-availability-only for this leg, R5)`);
+  }
+
+  if (p0Legs.length > 0) {
+    const detail = p0Legs.map((leg) => `${leg.source} reports ${leg.severity?.p0Count} P0`).join("; ");
+    return { state: "failed", reasons: [`plan-review P0 blocks (${detail}) — gate requires P0 = 0 (R3/R4)`, ...reasons], p1Count, cause: "severity" };
+  }
+  return { state: "green", reasons, p1Count };
 }
 
 export function workGate(input: WorkGateInput): GateResult {
@@ -139,27 +173,39 @@ export function codeReviewGate(input: CodeReviewGateInput): GateResult {
     return { state: "degraded", reasons: ["review report has no findings array — invalid envelope, not a silent pass"] };
   }
   // Multi-leg merged reports (lib/review-merge.ts) carry per-leg statuses.
-  // Mirror docReviewGate: every leg failed is degraded (not a silent pass),
-  // one failed leg is an advisory reason on an otherwise-green verdict.
+  // Availability is fail-closed: every leg failed is degraded (not a silent
+  // pass). A blocking finding on any surviving leg fails regardless of leg
+  // health. A partial leg failure with a clean survivor is NOT a silent
+  // single-leg green: the dead leg's view is missing (an idle-killed but
+  // healthy claude leg could have carried the only P0), so the gate degrades
+  // for a human ack instead of passing on the survivor alone. No retry — that
+  // reopens the budget incident (KTD-C); the run pauses, it does not re-bill.
   // Reports without a legs field (single-leg, smoke) keep the old behavior.
-  const advisory: string[] = [];
+  let failedLegs: string[] = [];
   const legs = report.legs;
   if (legs !== null && typeof legs === "object" && !Array.isArray(legs)) {
     const entries = Object.entries(legs as Record<string, unknown>);
-    const failed = entries.filter(([, status]) => status !== "ok").map(([source]) => source);
-    if (entries.length > 0 && failed.length === entries.length) {
-      return { state: "degraded", reasons: [`all review legs failed (${failed.join(", ")}) — not a silent pass`] };
+    failedLegs = entries.filter(([, status]) => status !== "ok").map(([source]) => source);
+    if (entries.length > 0 && failedLegs.length === entries.length) {
+      return { state: "degraded", reasons: [`all review legs failed (${failedLegs.join(", ")}) — not a silent pass`] };
     }
-    for (const source of failed) advisory.push(`${source} review leg failed (advisory — remaining leg carried the review)`);
   }
   const severityCount = (sev: string): number =>
     findings.filter((f) => typeof f === "object" && f !== null && String((f as Record<string, unknown>).severity).toUpperCase() === sev).length;
   const p0Count = severityCount("P0");
   const p1Count = severityCount("P1");
+  const legAdvisory = failedLegs.map((source) => `${source} review leg failed`);
   if (p0Count > 0) {
-    return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`, ...advisory], p1Count };
+    return { state: "failed", reasons: [`${p0Count} P0 finding(s) — gate requires P0 = 0 (KTD3)`, ...legAdvisory], p1Count };
   }
-  return { state: "green", reasons: advisory, p1Count };
+  if (failedLegs.length > 0) {
+    return {
+      state: "degraded",
+      reasons: [`review incomplete: ${failedLegs.join(", ")} leg(s) failed and the surviving leg found no P0 — needs human confirmation, not a silent single-leg pass (KTD-C)`],
+      p1Count,
+    };
+  }
+  return { state: "green", reasons: [], p1Count };
 }
 
 // Post-approval rescan verdict (R3–R5): commits an operator adds during a

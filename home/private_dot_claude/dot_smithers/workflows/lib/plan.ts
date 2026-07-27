@@ -5,11 +5,19 @@
 // --validate-cmd overrides this. Extraction is a heuristic; the pipeline logs
 // the derived command so a wrong pick is visible and overridable.
 
-// A command is kept only if it looks like a read-only verification runner...
-const KEEP_SIGNALS = ["test", "vitest", "jest", "pytest", "typecheck", "tsc", "check", "lint"];
-// ...and contains none of these: server/watch/e2e/visual runners (never
-// terminate or need a browser/services) and mutating commands (fix/format
-// would dirty the worktree and trip the work gate's clean-tree check).
+// A command is kept only if it looks like a read-only verification runner.
+// Keep signals match whole TOKENS, not substrings: run-1784823010502 derived
+// `(test)` from a prose annotation ("script is `e2e`, not `test`") and kept a
+// jq line because a FILENAME contained "withTests" — both always/never fail
+// regardless of the work, poisoning the gate.
+const KEEP_TOKENS = new Set(["test", "tests", "vitest", "jest", "pytest", "tsc", "typecheck", "check", "lint"]);
+// A single-word span is prose unless the word alone is a runnable runner
+// (bare `test` is the shell builtin, exit 1; bare `check`/`lint` are
+// command-not-found; bare `vitest` is watch mode).
+const STANDALONE_RUNNERS = new Set(["tsc", "pytest", "jest"]);
+// Forbid: server/watch/e2e/visual runners (never terminate or need a
+// browser/services) and mutating commands (fix/format would dirty the
+// worktree and trip the work gate's clean-tree check).
 const FORBID_SIGNALS = ["storybook", "--watch", ":watch", " dev", "serve", "start", "playwright", "e2e", "fix", "format", " vrt"];
 
 function backtickSpans(text: string): string[] {
@@ -22,8 +30,10 @@ function backtickSpans(text: string): string[] {
 
 function isRunnableVerification(cmd: string): boolean {
   const lc = cmd.toLowerCase();
-  if (!KEEP_SIGNALS.some((s) => lc.includes(s))) return false;
+  const tokens = lc.split(/[^a-z0-9]+/).filter(Boolean);
+  if (!tokens.some((t) => KEEP_TOKENS.has(t))) return false;
   if (FORBID_SIGNALS.some((s) => lc.includes(s))) return false;
+  if (!/\s/.test(cmd.trim())) return STANDALONE_RUNNERS.has(lc.trim());
   return true;
 }
 

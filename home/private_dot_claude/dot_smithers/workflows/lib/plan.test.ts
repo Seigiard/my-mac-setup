@@ -63,6 +63,51 @@ describe("extractValidateCmd", () => {
   });
 });
 
+describe("extractValidateCmd: не-командные спаны (регрессия run-1784823010502)", () => {
+  test("голый `test` из прозаической аннотации отбрасывается", () => {
+    // #given реальная строка платформенного плана: аннотация "(script is `e2e`, not `test`)"
+    const md = [
+      "## Verification Contract",
+      "",
+      "| Check | Command | Applies to |",
+      "|---|---|---|",
+      "| Page specs | `cd e2e && bun run e2e` (engine running; script is `e2e`, not `test`) | U2-U6 |",
+      "| Typecheck | `cd console && bun run typecheck` | U5 |",
+    ].join("\n");
+
+    // #when
+    const cmd = extractValidateCmd(md) ?? "";
+
+    // #then голое слово `test` — не команда (shell builtin, всегда exit 1)
+    expect(cmd).not.toContain("(test)");
+    expect(cmd).toContain("bun run typecheck");
+  });
+
+  test("keep-сигнал внутри имени файла (withTests) не делает jq-строку верификацией", () => {
+    // #given coverage-строка: jq по манифесту, "test" только как подстрока имени поля
+    const md = [
+      "## Verification Contract",
+      "",
+      "| Check | Command | Applies to |",
+      "|---|---|---|",
+      "| Coverage | `jq '.coverage.withTests' contracts/ux/ux-manifest.json` | U7 |",
+      "| Unit | `bun run test:unit` | U2 |",
+    ].join("\n");
+
+    // #when
+    const cmd = extractValidateCmd(md) ?? "";
+
+    // #then jq-строка отброшена, настоящая test-строка осталась
+    expect(cmd).not.toContain("jq");
+    expect(cmd).toContain("test:unit");
+  });
+
+  test("одиночный standalone-раннер (tsc, pytest) остаётся командой", () => {
+    const md = "## Verification Contract\n\n| Gate | Command |\n|---|---|\n| Types | `tsc` |\n| Py | `pytest` |\n";
+    expect(extractValidateCmd(md)).toBe("(tsc) && (pytest)");
+  });
+});
+
 describe("extractValidateCmd: fenced-блоки", () => {
   test("команды из ```bash-блока извлекаются как из таблицы", () => {
     // #given Verification Contract с fenced-блоком (формат ce-plan)

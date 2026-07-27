@@ -55,6 +55,8 @@ After the local review returns, wait for the background harness task. Cap the wa
 
 All three results share the envelope structure (Applied / Proposed fixes / Decisions / FYI / Residual). Merge by section + issue substance:
 
+Strip any `SEVERITY:` machine line from the envelopes before synthesizing — it is pipeline gate input (se-pipeline's `docReviewGate`), not review content, and must never appear in the human-facing synthesis.
+
 1. **Consensus** — the same finding in 2+ envelopes. Report once with all sources; agreement across model families is the strongest signal in this review. If the local review already applied or proposed it, mark as confirmed rather than re-opening.
 2. **Unique** — findings only one review produced. These are the payload of running three: name which review caught it and why the others plausibly missed it.
 3. **Contradictions** — reviews disagree on substance, or the local review's applied fix conflicts with an external finding (externals apply nothing; their safe_auto candidates are findings in the envelope). Surface explicitly with both positions; do not silently pick a side.

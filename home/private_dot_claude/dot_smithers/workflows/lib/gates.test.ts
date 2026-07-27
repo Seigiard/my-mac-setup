@@ -94,6 +94,62 @@ describe("docReviewGate", () => {
     const r = docReviewGate(undefined);
     expect(r.state).toBe("failed");
   });
+
+  const sev = (p0: number, p1: number, max = p0 ? "P0" : p1 ? "P1" : "NONE") => ({ maxSeverity: max, p0Count: p0, p1Count: p1 });
+
+  test("R3/R4: один leg p0=1, другой p0=0 → failed (max-of-legs, fail-closed)", () => {
+    const r = docReviewGate({ claudeStatus: "ok", opencodeStatus: "ok", claudeSeverity: sev(1, 0), opencodeSeverity: sev(0, 2) });
+    expect(r.state).toBe("failed");
+    expect(r.cause).toBe("severity");
+    expect(r.reasons.join(" ")).toContain("claude reports 1 P0");
+  });
+
+  test("оба leg сообщают P0 → failed, причины называют оба leg", () => {
+    const r = docReviewGate({ claudeStatus: "ok", opencodeStatus: "ok", claudeSeverity: sev(2, 0), opencodeSeverity: sev(1, 0) });
+    expect(r.state).toBe("failed");
+    const reasons = r.reasons.join(" ");
+    expect(reasons).toContain("claude reports 2 P0");
+    expect(reasons).toContain("opencode reports 1 P0");
+  });
+
+  test("только P1 → green, p1Count = сумма по leg, без блокировки", () => {
+    const r = docReviewGate({ claudeStatus: "ok", opencodeStatus: "ok", claudeSeverity: sev(0, 3), opencodeSeverity: sev(0, 4) });
+    expect(r.state).toBe("green");
+    expect(r.p1Count).toBe(7);
+    expect(r.cause).toBeUndefined();
+  });
+
+  test("R5: оба ok, оба severity отсутствуют → green (сегодняшнее поведение) + advisory", () => {
+    const r = docReviewGate({ claudeStatus: "ok", opencodeStatus: "ok" });
+    expect(r.state).toBe("green");
+    expect(r.reasons.join(" ")).toContain("severity summary missing");
+  });
+
+  test("один leg упал (нет конверта), выживший leg P0 → failed", () => {
+    const r = docReviewGate({ claudeStatus: "failed", opencodeStatus: "ok", opencodeSeverity: sev(1, 0) });
+    expect(r.state).toBe("failed");
+    expect(r.cause).toBe("severity");
+    expect(r.reasons.join(" ")).toContain("opencode reports 1 P0");
+  });
+
+  test("один leg упал, у выжившего severity отсутствует → green с двумя advisory-причинами", () => {
+    const r = docReviewGate({ claudeStatus: "failed", opencodeStatus: "ok" });
+    expect(r.state).toBe("green");
+    const reasons = r.reasons.join(" ");
+    expect(reasons).toContain("claude envelope missing");
+    expect(reasons).toContain("opencode severity summary missing");
+  });
+
+  test("оба leg упали → degraded, severity игнорируется (существующее поведение)", () => {
+    const r = docReviewGate({ claudeStatus: "failed", opencodeStatus: "failed", claudeSeverity: sev(9, 9), opencodeSeverity: sev(9, 9) });
+    expect(r.state).toBe("degraded");
+    expect(r.cause).toBe("availability");
+  });
+
+  test("cause-маркеры: no-output и both-down → availability", () => {
+    expect(docReviewGate(undefined).cause).toBe("availability");
+    expect(docReviewGate({ claudeStatus: "failed", opencodeStatus: "failed" }).cause).toBe("availability");
+  });
 });
 
 describe("workGate (KTD3, KTD14 tree-hash proof)", () => {
@@ -180,6 +236,43 @@ describe("codeReviewGate", () => {
   test("стадия без вывода → failed", () => {
     const r = codeReviewGate({ raw: undefined });
     expect(r.state).toBe("failed");
+  });
+
+  const legReport = (legs: Record<string, string>, p0: number, p1: number): string => {
+    const findings = [
+      ...Array.from({ length: p0 }, (_, i) => ({ severity: "P0", title: `p0-${i}` })),
+      ...Array.from({ length: p1 }, (_, i) => ({ severity: "P1", title: `p1-${i}` })),
+    ];
+    return JSON.stringify({ status: "complete", findings, legs });
+  };
+
+  test("один leg упал, выживший без P0 → degraded (не тихий single-leg pass, F2/KTD-C)", () => {
+    // #given a merged report where the claude leg failed and opencode is clean
+    const r = codeReviewGate({ raw: legReport({ claude: "failed", opencode: "ok" }, 0, 3) });
+    // #then the clean survivor is not trusted alone — human ack required
+    expect(r.state).toBe("degraded");
+    expect(r.reasons.join(" ")).toContain("claude");
+    expect(r.p1Count).toBe(3);
+  });
+
+  test("один leg упал, но выживший нашёл P0 → failed (блокировка важнее живости лега)", () => {
+    // #given a failed leg but a P0 on the surviving leg
+    const r = codeReviewGate({ raw: legReport({ claude: "failed", opencode: "ok" }, 1, 0) });
+    // #then blocking wins regardless of leg health, and the dead leg is noted
+    expect(r.state).toBe("failed");
+    expect(r.reasons.join(" ")).toContain("claude");
+  });
+
+  test("оба lega ok, P0=0 → green (обе стороны отревьюили)", () => {
+    const r = codeReviewGate({ raw: legReport({ claude: "ok", opencode: "ok" }, 0, 2) });
+    expect(r.state).toBe("green");
+    expect(r.p1Count).toBe(2);
+  });
+
+  test("все lega упали → degraded (не тихий pass)", () => {
+    const r = codeReviewGate({ raw: legReport({ claude: "failed", opencode: "failed" }, 0, 0) });
+    expect(r.state).toBe("degraded");
+    expect(r.reasons.join(" ")).toContain("all review legs failed");
   });
 });
 

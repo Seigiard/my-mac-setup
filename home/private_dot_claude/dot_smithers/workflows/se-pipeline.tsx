@@ -19,6 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { mergeReviewReports } from "./lib/review-merge.ts";
+import { severitySchema, stripSeverityLine, type SeveritySummary } from "./lib/severity-summary.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
@@ -37,6 +38,7 @@ import {
 } from "./lib/staging.ts";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent } from "./lib/agents.ts";
 import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { reviewLegSchema } from "./lib/review-schema.ts";
 import seDocReview from "./se-doc-review.tsx";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 
@@ -52,6 +54,9 @@ const inputSchema = z.object({
   validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required. Keep it FAST — the work gate runs it synchronously; scope to unit/type checks, not full e2e."),
   validateTimeoutMs: z.number().default(10 * 60_000).describe("Work-gate validate-cmd timeout. A slow full-suite command (e2e) blocks the engine — scope the command instead of raising this blindly."),
   smoke: z.boolean().default(false).describe("Wiring test: trivial stage prompts, real staging/gates, no ce-work invocation."),
+  smokeSeverity: severitySchema
+    .optional()
+    .describe("Smoke-only (KTD-F/U5): inject a per-leg severity summary into verify-doc so an injected P0 parks the run at gate-verify-doc without a real SEVERITY line. Ignored outside smoke mode."),
   workTimeoutMs: z.number().default(4 * 60 * 60_000).describe("Work leg timeout — hours, not review-sized minutes."),
   workBudgetUsd: z.number().default(50).describe("Runaway circuit breaker for the work leg, NOT a cost target; trips are logged."),
 });
@@ -63,6 +68,11 @@ const docReviewSchema = z.object({
   opencodeStatus: z.enum(["ok", "failed"]),
   claudeEnvelopePath: z.string().optional(),
   opencodeEnvelopePath: z.string().optional(),
+  // Mirror of se-doc-review.tsx outputSchema (KTD-C) — keep the two in sync.
+  // Optional so old persisted docReview outputs stay valid on resume, and the
+  // gate receives severity with no extra plumbing.
+  claudeSeverity: severitySchema.optional(),
+  opencodeSeverity: severitySchema.optional(),
 });
 
 const gateVerdictSchema = z.object({
@@ -70,6 +80,9 @@ const gateVerdictSchema = z.object({
   state: z.enum(["green", "failed", "degraded"]),
   reasons: z.string(),
   p1Count: z.number().optional(),
+  // Machine-readable fail cause (KTD-E) so the verify-doc waive predicate keys
+  // on it instead of parsing reason strings.
+  cause: z.enum(["severity", "availability"]).optional(),
 });
 
 const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = createSmithers({
@@ -78,6 +91,10 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   docReview: docReviewSchema,
   agentReport: z.object({ report: z.string() }),
+  // The two verify-code review legs emit the plugin's natural review object
+  // (lib/review-schema.ts) under their own key; the shared agentReport wrapper
+  // stays for work, secret-scan, rescan, and the merged verify-code report.
+  reviewLeg: reviewLegSchema,
   failedMarker: z.object({ stage: z.string() }),
   gateVerdict: gateVerdictSchema,
   approval: approvalDecisionSchema,
@@ -205,7 +222,89 @@ function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion:
   return { skillDir, pluginVersion: plugin.version };
 }
 
-function workPrompt(planPath: string, branch: string, smoke: boolean): string {
+// verify-doc findings below the P0/P1 gate used to be write-only — landed in
+// the report envelopes, never reached the work agent (run-1784823010502:
+// opencode's P2s predicted a spec failure the work leg then had to rediscover).
+// Envelopes live in /tmp; a resume after tmp-cleanup loses them — advisory
+// only, never fail the work stage over a missing file.
+const ADVISORY_CAP = 12_000;
+
+function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined, waived: boolean): string {
+  if (!doc) return "";
+  const sections: string[] = [];
+  const legs: Array<[string, string | undefined]> = [
+    ["claude", doc.claudeEnvelopePath],
+    ["opencode", doc.opencodeEnvelopePath],
+  ];
+  for (const [source, envelopePath] of legs) {
+    if (!envelopePath) continue;
+    try {
+      // Strip the SEVERITY machine line — it is gate input, not review content
+      // the work agent should act on (Assumptions item 2 / U4 hygiene).
+      const text = stripSeverityLine(fs.readFileSync(envelopePath, "utf8"));
+      if (text === "") continue;
+      const capped = text.length > ADVISORY_CAP ? `${text.slice(0, ADVISORY_CAP)}\n[... truncated]` : text;
+      sections.push(`--- ${source} doc-review envelope ---\n${capped}`);
+    } catch {
+      sections.push(`--- ${source} doc-review envelope --- (unavailable: ${envelopePath})`);
+    }
+  }
+  if (sections.length === 0) return "";
+  // The work agent must see the same decision context the operator saw: the
+  // gate's severity read and, on a waived run, the fact that a P0 was found
+  // and explicitly overridden — not a generic clean-run disclaimer.
+  const waiveLine = waived
+    ? "\n\nIMPORTANT: the verify-doc gate FAILED on a parsed P0 in these reviews and the operator explicitly waived it (se approve). Treat the P0 finding(s) below as known accepted risk: implement with them in mind and record in your envelope's notes how each was addressed or why it remains accepted."
+    : "";
+  return `
+
+ADVISORY plan-review findings (verify-doc stage, two independent external reviews). The stage gate blocks on parsed P0 findings; what reaches you here is below the blocking bar (P1/P2), from a leg whose severity summary did not parse, or explicitly waived by the operator. Gate read: ${docReviewSeverityStatusNote(doc)}.${waiveLine}
+
+For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
+
+${sections.join("\n\n")}`;
+}
+
+const WAIVE_EXCERPT_CAP = 800;
+
+function legSeverityLabel(status: string | undefined, severity: SeveritySummary | undefined): string {
+  if (status !== "ok") return "leg unavailable";
+  if (!severity) return "severity missing (advisory)";
+  return `maxSeverity=${severity.maxSeverity} P0=${severity.p0Count} P1=${severity.p1Count}`;
+}
+
+// KTD-D observability: every run records per-leg severity-parse status so a
+// systemic prompt-contract failure (all legs missing the SEVERITY line) is
+// visible in the durable notes and verify-doc.result.json instead of silently
+// draining the gate's blocking power.
+function docReviewSeverityStatusNote(doc: z.infer<typeof docReviewSchema> | undefined): string {
+  if (!doc) return "verify-doc severity: no stage output";
+  return `verify-doc severity: claude ${legSeverityLabel(doc.claudeStatus, doc.claudeSeverity)}; opencode ${legSeverityLabel(doc.opencodeStatus, doc.opencodeSeverity)}`;
+}
+
+// KTD-E: a waived P0 spec flaw lives only in /tmp envelope files that a resume
+// after tmp-cleanup loses. The durable waive note embeds the per-leg severity
+// summaries, the gate reasons, and a trimmed fail-soft excerpt of each envelope
+// — content, not just the decision — so the waiver survives in summary.notes.
+function docReviewWaiveNote(doc: z.infer<typeof docReviewSchema> | undefined, reasons: string | undefined): string {
+  const parts: string[] = [`verify-doc: P0 waived by operator — ${reasons ?? ""}`, docReviewSeverityStatusNote(doc)];
+  const envelopes: Array<[string, string | undefined]> = [
+    ["claude", doc?.claudeEnvelopePath],
+    ["opencode", doc?.opencodeEnvelopePath],
+  ];
+  for (const [source, envelopePath] of envelopes) {
+    if (!envelopePath) continue;
+    try {
+      const excerpt = fs.readFileSync(envelopePath, "utf8").trim().slice(0, WAIVE_EXCERPT_CAP);
+      if (excerpt) parts.push(`${source} envelope excerpt: ${excerpt}`);
+    } catch {
+      // fail-soft: the envelope may be gone after tmp-cleanup
+    }
+  }
+  return parts.join(" — ");
+}
+
+function workPrompt(planPath: string, branch: string, smoke: boolean, docReviewAdvisory: string): string {
   if (smoke) {
     return `[se-pipeline-stage] Smoke wiring test. Your cwd is an isolated git worktree on branch ${branch}. Do exactly this: append one line to SMOKE.md. Do NOT run git add/commit/push — leave the change in the working tree; the pipeline commits it. Your FINAL message must be EXACTLY one JSON object {"report": "<envelope>"} where <envelope> is a JSON object serialized as a string with fields: status="complete", changed_files=["SMOKE.md"], u_ids_attempted=[], u_ids_completed=[], verification_evidence=[{"unit":"smoke","exception_reason":"smoke wiring test"}], blockers=[], behavior_change=false, standalone_shipping_skipped=true.`;
   }
@@ -217,12 +316,12 @@ Context: your cwd is an ISOLATED git worktree of the target repository, already 
 
 Do NOT commit and do NOT run git add/commit/push: leave ALL your changes in the working tree exactly as edited. The pipeline commits your work itself, deterministically, after this step — this keeps commits idempotent across crash-resume (KTD5). This instruction overrides any ce-work step that would otherwise commit.
 
-Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) serialized as a string>"}.`;
+Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the skill's return-to-caller envelope (status, plan_path, changed_files, u_ids_attempted, u_ids_completed, verification_results, verification_evidence, blockers, behavior_change, standalone_shipping_skipped) serialized as a string>"}.${docReviewAdvisory}`;
 }
 
 function codeReviewPrompt(baseSha: string, branch: string, skillDir: string, smoke: boolean): string {
   if (smoke) {
-    return `[se-pipeline-stage] Smoke wiring test. Your FINAL message must be EXACTLY one JSON object: {"report": "<the JSON object {\\"status\\":\\"complete\\",\\"verdict\\":\\"approve\\",\\"findings\\":[]} serialized as a string>"}. Do nothing else.`;
+    return `[se-pipeline-stage] Smoke wiring test. Your FINAL message must be EXACTLY one JSON object and nothing else: {"status":"complete","verdict":"approve","findings":[]}. Do nothing else.`;
   }
   return `[se-pipeline-stage]
 
@@ -240,8 +339,10 @@ ${consultHardRules({
   noChangesRules: [
     "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches.",
   ],
-  jsonField: "report",
-  jsonValueDescription: "<the plugin's full mode:agent JSON review (status/verdict/findings/...) serialized as a string>",
+  finalOutput: {
+    kind: "rawObject",
+    objectDescription: "the plugin's full mode:agent JSON review (status/verdict/findings/...)",
+  },
 })}`;
 }
 
@@ -284,6 +385,7 @@ export default smithers((ctx) => {
     state: r.state,
     reasons: r.reasons.join("; "),
     ...(r.p1Count === undefined ? {} : { p1Count: r.p1Count }),
+    ...(r.cause === undefined ? {} : { cause: r.cause }),
   });
 
   // One stage = attempt → gate → (red) Approval → extra attempt as a FRESH
@@ -296,7 +398,11 @@ export default smithers((ctx) => {
     makeAttempt: (nodeId: string) => unknown;
     readRaw: (nodeId: string) => { present: boolean; raw: string | undefined };
     gateFn: (raw: string | undefined) => GateResult;
-    waiveOnApprove: boolean;
+    // true/false is a blanket waive (verify-code P0, secret-scan). A predicate
+    // scopes the waive to specific fail causes (KTD-E): verify-doc waives a
+    // parsed-P0 (cause "severity") but keeps the extra-attempt path for
+    // leg-availability reds (cause "availability").
+    waiveOnApprove: boolean | ((verdict: z.infer<typeof gateVerdictSchema>) => boolean);
     makeExtraPrep?: (nodeId: string) => unknown;
   }): StageBlock {
     const { name } = opts;
@@ -332,19 +438,20 @@ export default smithers((ctx) => {
     if (!v1) return { nodes, status: "pending", waived: false };
     if (v1.state === "green") return { nodes, status: "green", waived: false, verdict: v1 };
 
+    const waive1 = typeof opts.waiveOnApprove === "function" ? opts.waiveOnApprove(v1) : opts.waiveOnApprove;
     nodes.push(
       <Approval
         id={`approve-${name}-1`}
         output={outputs.approval}
         request={{
-          title: `${name} gate is ${v1.state} — ${opts.waiveOnApprove ? "approve to WAIVE and continue" : "approve ONE extra attempt"}; deny aborts the run`,
+          title: `${name} gate is ${v1.state} — ${waive1 ? "approve to WAIVE and continue" : "approve ONE extra attempt"}; deny aborts the run`,
           summary: v1.reasons,
         }}
         onDeny="fail"
       />,
     );
     if (!ap1?.approved) return { nodes, status: "pending", waived: false, verdict: v1 };
-    if (opts.waiveOnApprove) return { nodes, status: "green", waived: true, verdict: v1 };
+    if (waive1) return { nodes, status: "green", waived: true, verdict: v1 };
 
     if (opts.makeExtraPrep) {
       nodes.push(opts.makeExtraPrep(`${name}-extra-prep`));
@@ -407,7 +514,7 @@ export default smithers((ctx) => {
       })
     : undefined;
   const codeReviewAgent = staged
-    ? makeClaudeReviewAgent({ cwd: staged.worktreePath, profile: "codeReview", jsonField: "report" })
+    ? makeClaudeReviewAgent({ cwd: staged.worktreePath, profile: "codeReview" })
     : undefined;
   const opencodeReviewAgent = staged ? makeOpencodeReviewAgent({ cwd: staged.worktreePath }) : undefined;
 
@@ -485,7 +592,7 @@ export default smithers((ctx) => {
         <Subflow
           id={nodeId}
           workflow={seDocReviewSubflow}
-          input={{ docPath: input.planPath, smoke }}
+          input={{ docPath: input.planPath, smoke, smokeSeverity: input.smokeSeverity }}
           output={outputs.docReview}
           retries={1}
           // Hang guard, not a scheduler: must fit the claude leg's own retry
@@ -496,12 +603,18 @@ export default smithers((ctx) => {
       ),
       readRaw: readDocReview,
       gateFn: (raw) => docReviewGate(raw === undefined ? undefined : JSON.parse(raw)),
-      waiveOnApprove: false,
+      // Predicate-scoped waive (KTD-E): approve waives only a parsed-P0 fail
+      // (cause "severity"); crash/both-legs-down reds (cause "availability")
+      // keep the existing approve = one-extra-attempt path.
+      waiveOnApprove: (verdict) => verdict.cause === "severity",
     });
     children.push(...(doc.nodes as never[]));
     if (doc.status === "stopped") terminal = "stopped-after-second-failure:verify-doc";
     if (doc.status === "green") {
-      if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
+      const docReviewGreenOut = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
+      notes.push(docReviewSeverityStatusNote(docReviewGreenOut));
+      if (doc.waived) notes.push(docReviewWaiveNote(docReviewGreenOut, doc.verdict?.reasons));
+      else if (doc.verdict?.reasons) notes.push(`verify-doc: ${doc.verdict.reasons}`);
 
       // Work gate runs the effects itself: it commits the agent's work, then
       // proves the work by comparing tree hashes and running the operator's
@@ -532,6 +645,7 @@ export default smithers((ctx) => {
         return result;
       };
 
+      const docReviewAdvisory = smoke ? "" : readDocReviewAdvisory(docReviewGreenOut, doc.waived);
       const work = stageBlock({
         name: "work",
         makeAttempt: (nodeId) => (
@@ -541,7 +655,7 @@ export default smithers((ctx) => {
           // gate-0 authority row — a tampered plan-hash parks BOUND_STALE
           // before dispatch.
           <Task id={nodeId} output={outputs.agentReport} agent={workAgent} retries={0} bind={gate0Proof}>
-            {workPrompt(gate0.planPath, staged.branch, smoke)}
+            {workPrompt(gate0.planPath, staged.branch, smoke, docReviewAdvisory)}
           </Task>
         ),
         readRaw: readAgentReport,
@@ -621,9 +735,9 @@ export default smithers((ctx) => {
             makeAttempt: (nodeId) => {
               const consultOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-consult-stage` });
               const consult = consultOut === undefined ? undefined : (JSON.parse(consultOut.report) as { skillDir: string });
-              const claudeOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-claude` });
+              const claudeOut = ctx.outputMaybe("reviewLeg", { nodeId: `${nodeId}-claude` });
               const claudeCrash = ctx.outputMaybe("failedMarker", { nodeId: `${nodeId}-claude-crashed` });
-              const opencodeOut = ctx.outputMaybe("agentReport", { nodeId: `${nodeId}-opencode` });
+              const opencodeOut = ctx.outputMaybe("reviewLeg", { nodeId: `${nodeId}-opencode` });
               const opencodeCrash = ctx.outputMaybe("failedMarker", { nodeId: `${nodeId}-opencode-crashed` });
               const legsSettled = (claudeOut !== undefined || claudeCrash !== undefined) && (opencodeOut !== undefined || opencodeCrash !== undefined);
               return (
@@ -636,7 +750,7 @@ export default smithers((ctx) => {
                       <TryCatchFinally
                         id={`guard-${nodeId}-claude`}
                         try={
-                          <Task id={`${nodeId}-claude`} output={outputs.agentReport} agent={codeReviewAgent} retries={AGENT_PROFILES.codeReview.retries} bind={gate0Proof}>
+                          <Task id={`${nodeId}-claude`} output={outputs.reviewLeg} agent={codeReviewAgent} retries={AGENT_PROFILES.codeReview.retries} bind={gate0Proof}>
                             {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
                           </Task>
                         }
@@ -649,7 +763,7 @@ export default smithers((ctx) => {
                       <TryCatchFinally
                         id={`guard-${nodeId}-opencode`}
                         try={
-                          <Task id={`${nodeId}-opencode`} output={outputs.agentReport} agent={opencodeReviewAgent} retries={AGENT_PROFILES.opencodeReview.retries} bind={gate0Proof}>
+                          <Task id={`${nodeId}-opencode`} output={outputs.reviewLeg} agent={opencodeReviewAgent} retries={AGENT_PROFILES.opencodeReview.retries} bind={gate0Proof}>
                             {codeReviewPrompt(staged.baseSha, staged.branch, consult.skillDir, smoke)}
                           </Task>
                         }
@@ -665,8 +779,8 @@ export default smithers((ctx) => {
                     <Task id={nodeId} output={outputs.agentReport} retries={0}>
                       {() => ({
                         report: mergeReviewReports([
-                          { source: "claude", raw: claudeOut?.report },
-                          { source: "opencode", raw: opencodeOut?.report },
+                          { source: "claude", raw: claudeOut ? JSON.stringify(claudeOut) : undefined },
+                          { source: "opencode", raw: opencodeOut ? JSON.stringify(opencodeOut) : undefined },
                         ]),
                       })}
                     </Task>
@@ -767,18 +881,20 @@ export default smithers((ctx) => {
     // Per-leg reports of the attempt the gate actually used — the merged report
     // strips nothing, but humans at the Approval pause want each engine's view.
     const codeAttempt = ctx.outputMaybe("agentReport", { nodeId: "verify-code-extra" }) !== undefined ? "verify-code-extra" : "verify-code";
-    const codeClaudeReport = ctx.outputMaybe("agentReport", { nodeId: `${codeAttempt}-claude` });
-    const codeOpencodeReport = ctx.outputMaybe("agentReport", { nodeId: `${codeAttempt}-opencode` });
+    const codeClaudeReport = ctx.outputMaybe("reviewLeg", { nodeId: `${codeAttempt}-claude` });
+    const codeOpencodeReport = ctx.outputMaybe("reviewLeg", { nodeId: `${codeAttempt}-opencode` });
     const docResult = ctx.outputMaybe("docReview", { nodeId: "verify-doc-extra" }) ?? ctx.outputMaybe("docReview", { nodeId: "verify-doc" });
     children.push(
       <Task id="summary" output={outputs.summary} retries={1} bind={gate0Proof}>
         {() => {
-          const reportDir = path.join(os.tmpdir(), "se-pipeline", "reports", ctx.runId.slice(0, 8));
+          // Full runId: a slice(0,8) prefix is "run-1784" for every run of this
+          // epoch — all runs collided on one dir and overwrote each other's reports.
+          const reportDir = path.join(os.tmpdir(), "se-pipeline", "reports", ctx.runId);
           fs.mkdirSync(reportDir, { recursive: true });
           if (workReport) fs.writeFileSync(path.join(reportDir, "work.envelope.json"), workReport.report);
           if (codeReport) fs.writeFileSync(path.join(reportDir, "verify-code.report.json"), codeReport.report);
-          if (codeClaudeReport) fs.writeFileSync(path.join(reportDir, "verify-code.claude.report.json"), codeClaudeReport.report);
-          if (codeOpencodeReport) fs.writeFileSync(path.join(reportDir, "verify-code.opencode.report.json"), codeOpencodeReport.report);
+          if (codeClaudeReport) fs.writeFileSync(path.join(reportDir, "verify-code.claude.report.json"), JSON.stringify(codeClaudeReport, null, 2));
+          if (codeOpencodeReport) fs.writeFileSync(path.join(reportDir, "verify-code.opencode.report.json"), JSON.stringify(codeOpencodeReport, null, 2));
           if (docResult) fs.writeFileSync(path.join(reportDir, "verify-doc.result.json"), JSON.stringify(docResult, null, 2));
           const headSha = gitHead(staged.worktreePath);
           // Read cost BEFORE any irreversible cleanup: a sqlite/JSON failure in

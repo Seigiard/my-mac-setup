@@ -19,10 +19,36 @@ Verify-code с 2026-07-23 повторяет форму se-code-review: два �
 opencode (`openai/gpt-5.5`, кап 15 мин, скилл стейджится в
 `/tmp/ce-code-review`, разрешён в opencode `permission.external_directory`) —
 и детерминированное слияние (`lib/review-merge.ts`) на nodeId стадии: гейт
-считает P0 по объединённым findings (каждый тегирован `source`), оба плеча
-упали → degraded, одно → advisory на green (зеркало docReviewGate). Пер-плечевые
-отчёты пишутся в reportDir (`verify-code.claude.report.json` /
-`verify-code.opencode.report.json`) рядом со слитым.
+считает P0 по объединённым findings (каждый тегирован `source`): любое P0 →
+`failed` (блокировка важнее живости плеча), оба плеча упали → `degraded`. Одно
+упавшее плечо при чистом выжившем (0 P0) → `degraded`, НЕ тихий single-leg green:
+мёртвое плечо (например, healthy claude, убитый по `PROCESS_IDLE_TIMEOUT`) могло
+нести единственный P0, поэтому гейт паузит на человеческий ack вместо прохода по
+выжившему. Без ретрая — ретрай переоткрывает budget-инцидент (KTD-C); прогон
+паузит, не перебиливает. Это расходится с docReviewGate (там одно упавшее плечо
+остаётся advisory-green — doc-review нонблокинг для work; verify-code — последний
+гейт перед branch/PR, fail-closed жёстче). Пер-плечевые отчёты пишутся в reportDir
+(`verify-code.claude.report.json` / `verify-code.opencode.report.json`) рядом со слитым.
+
+Verify-doc с 2026-07-24 блокирует по P0 находкам ревью плана (симметрия с
+codeReviewGate). Каждое не-smoke плечо эмитит машиночитаемую строку
+`SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N}` в защищённом
+слоте — последняя непустая строка прямо перед финальным `Review complete`;
+парсер (`lib/severity-summary.ts`) читает ТОЛЬКО этот слот (декой `SEVERITY:` в
+теле конверта инертен), при отсутствии/невалидном JSON/отрицательных счётчиках →
+`undefined`. Envelope-контракт (`≥500` симв., последняя строка `Review complete`,
+`SMOKE OK`-байпас) не тронут — severity-слой никогда не влияет на валидность
+конверта. Гейт: любое доступное плечо с `p0Count > 0` → `failed` (max-of-legs,
+fail-closed — один P0 блокирует, даже если второе плечо 0); P1 — advisory
+(суммируется, не блокирует); отсутствие severity деградирует ЭТО плечо к прежнему
+поведению «только доступность» (R5). Слоение толерантности (KTD-D): доступность
+плеч остаётся fail-closed (нет вывода → `failed`, оба плеча вниз → `degraded`),
+а severity-слой лишь ДОБАВЛЯЕТ блокирующую силу — его отсутствие возвращает гейт
+ровно к сегодняшнему поведению, никогда ниже. Пер-плечевой статус парса severity
+(parsed/missing) пишется в notes и `verify-doc.result.json` каждый прогон —
+системный отказ контракта виден, а не тихо инертен. SEVERITY-строка выстригается
+из конверта перед инъекцией в work-промпт (`readDocReviewAdvisory`) и из синтеза
+standalone-скилла — это вход гейта, не контент ревью.
 
 ## Запуск
 
@@ -115,7 +141,9 @@ se resume <runId>      # продолжить после паузы/падени
 
 | Гейт | approve означает |
 |---|---|
-| verify-doc, work | одна доп. попытка стадии свежим узлом; для work — с условным сбросом ветки (конверт есть → нетронутая ветка, нет → reset на pre-stage SHA) |
+| verify-doc (P0 severity) | waive, скоупленный предикатом (cause `severity`): approve вейвит только parsed-P0 фейл и продолжает зелёным; severity-суть (пер-плечевые summary, причины гейта, усечённый fail-soft отрывок конвертов) durable ложится в `summary.notes` — не только решение, но содержание (KTD-E) |
+| verify-doc (доступность) | красные по доступности (crash `failed`, оба плеча вниз `degraded`, cause `availability`) НЕ вейвятся: approve = одна доп. попытка свежим узлом. Бланкетный флаг дал бы вейвнуть двойной таймаут в прогон вообще без ревью плана |
+| work | одна доп. попытка стадии свежим узлом с условным сбросом ветки (конверт есть → нетронутая ветка, нет → reset на pre-stage SHA) |
 | secret-scan | waive: принять риск и продолжить (находка/ошибка сканера в notes) |
 | verify-code (P0) | waive: запись в notes, продолжение |
 | rescan (пост-approval) | approve = ОДНА свежая попытка: пере-скан и пере-validate ТЕКУЩЕГО HEAD — рабочий цикл «закоммить фикс → approve»; коммиты, сделанные в паузе, сами попадают под скан. Скоуп `scannedHead..HEAD` (waived-находки base..scannedHead не пере-флагаются); rebase/amend рвёт ancestry → полный диапазон fail-closed. Второй красный → только стоп-с-отчётом |
@@ -180,6 +208,51 @@ se resume <runId>      # продолжить после паузы/падени
   finished_at_ms=<now> WHERE run_id=? AND status='running' AND
   runtime_owner_id='<мёртвый pid>'` — guard по owner_id обязателен, чтобы не
   тронуть живой ран.
+
+## Таксономия отказов review-ноги и salvage (актуально в 0.29)
+
+Когда «claude-нога померла», сначала читаем код отказа attempt, а не лезем в
+логи с нуля. Три кода на review-плечах (`verify-code`, se-code-review,
+se-doc-review):
+
+- **`PROCESS_IDLE_TIMEOUT`** — CLI замолчал (ноль байт в stdout/stderr) дольше
+  порога простоя и убит спавн-слоем. Порог живёт в профиле
+  (`AGENT_PROFILES.*.idleTimeoutMs`, `workflows/lib/agents.ts`): 15 мин у
+  claude-плеч (`codeReview`, `docReview`), 10 мин у `opencodeReview`; таймер
+  сбрасывается на каждом байте. Быстрый отказ вместо прожига полного
+  `timeoutMs` (прогон 9925bb0d съел 45-мин кап на 10-мин зависании). У `work`
+  idle-таймера нет — долгие локально-тихие команды (install, тесты) легитимны.
+  При `codeReview.retries: 0` ложный idle-kill невосстановим; значения
+  провизорны, поднимаются одной строкой профиля, если здоровая нога начнёт в
+  них упираться.
+- **`PROCESS_TIMEOUT`** — жёсткий кап `timeoutMs` (45 мин codeReview). Доходит
+  до вызывающего с reap-лагом ~+13 мин wall-clock — wait cap это учитывает.
+- **`AGENT_CLI_ERROR`** — сам процесс CLI вышел с ненулевым кодом посреди
+  ревью (прогон 89938dd6, huge-diff сессия). Текст ошибки несёт хвост вывода
+  CLI; финального сообщения нет, поэтому salvage невозможен. Класс
+  задокументирован, но НЕ чинится этим планом (отложено: корень-причина, почему
+  CLI падает на огромных диффах).
+
+Путь захвата вывода — встроенный в движок, воркфлоу-парсер не нужен: после
+финального сообщения движок прогоняет 5-стратегийный salvage-каскад (вплоть до
+`extractLastBalancedJson`), затем до `maxSchemaRetries` (дефолт 3)
+schema-correction вызовов; correction пропускается при нулевом остатке
+бюджета. Поэтому кастомный «достань последний JSON» парсер на стороне воркфлоу
+— мёртвый код.
+
+Контракт отчёта code-review-плеч — натуральный объект ревью (верхнеуровневое
+строковое поле `status`, остальные поля проходят насквозь), единый источник
+`workflows/lib/review-schema.ts`, импортируется se-code-review и verify-code —
+без обёртки `{"report": "<строка>"}`. salvage и native structured output
+приземляются на одну и ту же форму. docReview-обёртка `{"envelope": "..."}` и
+work-обёртка `{"report": "..."}` не тронуты.
+
+Диагностика кода отказа attempt:
+
+```sh
+sqlite3 ~/.claude/smithers.db \
+  "SELECT node_id, error_json FROM _smithers_attempts WHERE run_id='<runId>' ORDER BY id;"
+```
 
 ## Провенанс и пост-approval рескан (Batch 5)
 
@@ -292,6 +365,33 @@ cd "$FIXTURE"
 - **AE4 (невалидный вход):** requirements-only план / несуществующий файл /
   `--until=pr` → прогон падает сразу, причина в `error` и `se logs`.
   Продемонстрировано тремя прогонами U3 (все `status: failed`, `gate-0 refused: …`).
+- **AE5 (verify-doc P0-пауза через smoke-инъекцию severity, R8):** smoke-плечи
+  возвращают `SMOKE OK` и НЕ эмитят SEVERITY-строку, поэтому R8 недостижим без
+  тест-инъекции (KTD-F). Прокинь `smokeSeverity` на входе — output-задача
+  se-doc-review штампует его в оба severity-поля, минуя парсинг конверта:
+
+  ```bash
+  # P0-пауза: прогон паркуется waiting-approval на gate-verify-doc
+  smithers up workflows/se-pipeline.tsx --input '{
+    "planPath":"'"$FIXTURE"'/docs/plans/fixture-reverse-plan.md",
+    "smoke":true,
+    "smokeSeverity":{"maxSeverity":"P0","p0Count":1,"p1Count":0},
+    "validateCmd":"bun test"
+  }'
+  # se approve <runId> → waive: прогон продолжается зелёным, waive-заметка с
+  #   severity-сутью в summary.notes; verify-doc.result.json в reportDir несёт
+  #   severity-поля. Причина waive-скоупа — cause "severity" (не "availability").
+
+  # Регрессия pass-through: без smokeSeverity severity-поля отсутствуют,
+  #   gate-verify-doc зелёный сквозной, поведение как сегодня.
+  smithers up workflows/se-pipeline.tsx --input '{
+    "planPath":"'"$FIXTURE"'/docs/plans/fixture-reverse-plan.md",
+    "smoke":true, "validateCmd":"bun test"
+  }'
+  ```
+  Инъекция доказывает проводку гейта и waive end-to-end; корректность парсера
+  против реальных конвертов проверяется юнит-тестами `severity-summary.test.ts`
+  и `gates.test.ts` (KTD-F).
 
 ## Стоимость
 
