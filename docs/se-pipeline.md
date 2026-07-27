@@ -50,12 +50,72 @@ fail-closed — один P0 блокирует, даже если второе �
 из конверта перед инъекцией в work-промпт (`readDocReviewAdvisory`) и из синтеза
 standalone-скилла — это вход гейта, не контент ревью.
 
+## Стадия simplify и два входа (se-work / se-review-and-work)
+
+С 2026-07-27 у пайплайна два именованных входа над ОДНИМ `se-pipeline.tsx` и
+одним внутренним ключом `docReview` (пользователь его не печатает — вход выбирает
+команда):
+
+- **`se-work`** — `docReview:false`: `work → simplify → verify-code → branch/PR`,
+  БЕЗ plan-review. Для уже подготовленного, отревьюенного человеком плана.
+- **`se-review-and-work`** — `docReview:true`: то же плюс `verify-doc` впереди
+  (`verify-doc → work → simplify → verify-code`). CLI: `se pipeline … --doc-review`.
+
+Стадия `verify-doc` теперь условная (рендерится только при `docReview:true`); при
+`false` `work` привязан прямо к gate-0, и в summary `verify-doc` = `null`.
+
+**Simplify — постоянная стадия в ОБОИХ командах**, не флаг. Вставлена ПОСЛЕ
+общего secret-scan (её внешние отчётные ноги видят только уже прочищенный
+сканом контент — KTD10) и ПЕРЕД verify-code (ревью идёт по уже прибранному коду).
+Это `Subflow` над `se-simplify.tsx` (тот же приём, что `se-doc-review.tsx`), с
+`repoPath: staged.worktreePath` — ИЗОЛИРОВАННЫЙ worktree прогона, никогда не
+launch-checkout оператора (KTD-G).
+
+Форма `se-simplify.tsx` (общий модуль, он же standalone-скилл `se-simplify`):
+right-sizing gate (R14) → заморозка снапшота → `Parallel` двух ОТЧЁТНЫХ ног
+(claude `claude-sonnet-5`, opencode `openai/gpt-5.5`), гоняющих ревьюеров
+`ce-simplify-code` (Steps 1-2, не применяя ничего; скилл стейджится в
+`/tmp/ce-simplify`, разрешён в opencode `permission.external_directory`) →
+`mergeSimplifyLegs` (`lib/review-merge.ts`): consensus (обе ноги, совпало по
+файл+строка±3+сходство `suggested_change`) / unique (одна нога) в apply-набор,
+**contradiction** (одно место, расходящиеся правки) — advisory, ИСКЛЮЧЕНА из
+apply → ОДНА apply-нога (`claude-sonnet-5`, `permissionMode: acceptEdits`,
+re-locate по контенту т.к. батч сдвигает строки, denylist: креды / `op://`
+шаблоны / `dot_zshenv*` / permission/shell-init) → verify через validate-cmd.
+Фейл verify или ноль выживших ног → **revert всего apply + `degraded`**, никогда
+тихий success. Одна выжившая нога → её находки как unique (usable), без
+cross-model консенсуса. `smoke:true` — синтетика без реального `ce-simplify-code`.
+
+Right-sizing gate (`lib/stage-gate.ts`, R14) решает run/skip БЕЗ флага, смещение
+**skip-when-unsure** (обратное review-стадиям — неверный run авто-мутирует
+малоценный код, неверный skip лишь оставляет неприбранным): пустой / doc-only /
+generated / vendored / lockfile / binary дифф → skip; ≥20 строк исполняемого кода
+→ run; между — `inconclusive`, отдаётся дешёвому Haiku-классификатору (тоже
+skip-when-unsure). `skipped` рапортуется с причиной, не тихий проход.
+
+Коммит и рескан simplify — **pipeline-owned и условные** (`simplifyCommitDecision`):
+только `ok`-с-правками коммитится (`commitWorkGuarded`, «se-pipeline: simplify
+stage on <branch>») и потом пере-сканируется (`simplify-rescan`, диапазон
+work-HEAD..simplify-commit) перед внешними ногами verify-code — т.к. simplify идёт
+ПОСЛЕ первого secret-scan, его коммит ещё не покрыт (R9). `skipped` / `degraded` /
+`ok`-без-правок → нет коммита, нет рескана, verify-code идёт по work-коммиту.
+Пост-approval рескан после verify-code берёт scannedHead из simplify-rescan (если
+был), чтобы не пере-валидировать simplify-коммит каждый прогон.
+
+Модели simplify запинены в `lib/agents.ts`: `simplifyReview` (`claude-sonnet-5` /
+fallback `claude-haiku-4-5`, размер как docReview) для отчётных ног,
+`SIMPLIFY_APPLY_MODEL` = `claude-sonnet-5` для apply (не Opus — apply исполняет уже
+решённые находки под guard'ом сохранения поведения, KTD-F), классификатор —
+`claude-haiku-4-5`. Standalone `se-simplify` ТРЕБУЕТ явный `validate-cmd` (вне
+пайплайна нет gate-0 / Verification Contract), иначе отказывается применять.
+
 ## Запуск
 
 Из целевого репозитория (cwd = репо):
 
 ```bash
-se pipeline docs/plans/<план>.md --validate-cmd 'bun test'
+se pipeline docs/plans/<план>.md --validate-cmd 'bun test'                 # se-work: без plan-review, с simplify
+se pipeline docs/plans/<план>.md --validate-cmd 'bun test' --doc-review    # se-review-and-work: + verify-doc впереди
 ```
 
 - План обязан быть `ce-unified-plan/v1` с `artifact_readiness: implementation-ready`
@@ -70,6 +130,10 @@ se pipeline docs/plans/<план>.md --validate-cmd 'bun test'
   `se resume <runId>`.
 - `--until=branch` (дефолт) — стоп на локальной закоммиченной ветке
   `se/<план>-<runid8>`. `--until=pr` пока не реализован (явный отказ).
+- `--doc-review` — включить стадию verify-doc (plan-review) впереди. По умолчанию
+  выключено (`se-work`); скилл `se-review-and-work` его передаёт. Simplify в флаг
+  НЕ входит — всегда присутствует и авто-run/skip. Пользователь выбирает командой,
+  не флагом.
 
 ## validate-cmd: по умолчанию из плана
 
