@@ -50,6 +50,18 @@ Edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file i
 
 </important>
 
+<important if="you edited a managed file and expect the change to take effect, or you ran chezmoi and got surprising results">
+
+**chezmoi reads its own clone, NOT this working checkout.** There are THREE copies of every managed file:
+
+1. **This repo checkout** (`~/Projects/my-mac-setup/home/...`) — where you edit and commit. `chezmoi` does **not** read it.
+2. **chezmoi source** (`~/.local/share/chezmoi/home/...`) — a **separate git clone** of the same repo. Every `chezmoi` command (`source-path`, `managed`, `diff`, `apply`) reads this, not copy 1.
+3. **Live file** (`~/.config/...`, `~/.claude/...`) — what tools actually run. `chezmoi apply` deploys it from copy 2.
+
+Consequence: an edit in this checkout is **commit-ready but NOT live** — it hasn't reached copy 2 or 3. The path to live is commit here → sync into copy 2 (`git pull` there) → `chezmoi apply` (forbidden on host per the rule above, so the user runs it). Never assume your edit took effect in-session. Verify a file's chezmoi source with `chezmoi source-path ~/<live-path>` — it returns a path under `~/.local/share/chezmoi`, confirming the split.
+
+</important>
+
 <important if="you are adding a new tool, app, config file, or directory">
 
 Where new things go:
