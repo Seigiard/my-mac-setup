@@ -122,6 +122,16 @@ export type ClaudeReviewAgentOptions =
 
 const RAW_OBJECT_PROFILES = new Set(["codeReview", "simplifyReview"]);
 
+// System-level reinforcement of the consult prompt's synchronous-dispatch rule
+// (lib/consult-prompt.ts): the claude review legs run personas as subagents, and
+// a leg that backgrounded them lost that detached state across a turn,
+// re-dispatched a reviewer, and doubled wall time (24 min vs ~8, run cfab0f58).
+// The claude CLI has no flag to disable background execution (it is a Task/Bash
+// parameter, and Task itself is required for personas), so this pins the rule at
+// the system level where adherence beats the user-message rule alone.
+const SYNCHRONOUS_SUBAGENTS_SYSTEM_PROMPT =
+  "When you run reviewer personas as subagents, dispatch all of them in one message as parallel BLOCKING calls and wait for every one within that same turn. Never background or detach a subagent, never use any run-in-background mode, and never arm a file-watch monitor or poll for completion: detached subagent state is not durable across turns and forces a full, wasteful re-run.";
+
 // Consensus leg, not the deep one — the local personas already run on the
 // session's top model; Sonnet, never Fable. Default stream-json capture is
 // safe: the chunk-join corruption on subagent-heavy runs was fixed by
@@ -131,6 +141,7 @@ export function makeClaudeReviewAgent(options: ClaudeReviewAgentOptions): Claude
   return new ClaudeCodeAgent({
     cwd: options.cwd,
     permissionMode: "acceptEdits",
+    appendSystemPrompt: SYNCHRONOUS_SUBAGENTS_SYSTEM_PROMPT,
     model: profile.model,
     fallbackModel: profile.fallbackModel,
     timeoutMs: profile.timeoutMs,
