@@ -1,4 +1,4 @@
-/** @jsxImportSource smithers-orchestrator */
+/** @jsxImportSource smthrs */
 // se-simplify: the shared simplify stage — standalone skill AND se-pipeline
 // Subflow. Right-sizing gate → freeze snapshot → Parallel(claude, opencode)
 // REPORT-ONLY ce-simplify-code reviewer legs → mergeSimplifyLegs (consensus/
@@ -16,7 +16,7 @@
 // Standalone:
 //   cd ~/.claude/.smithers && ./node_modules/.bin/smithers up workflows/se-simplify.tsx \
 //     --input '{"repoPath":"/abs/repo","validateCmd":"bun test"}'
-import { createSmithers, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, TryCatchFinally } from "smthrs";
 import { z } from "zod/v4";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";

@@ -3,13 +3,13 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "smithers-orchestrator": "0.29.0",
+    "smthrs": "^0.33.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "26.1.1"
   },
   "trustedDependencies": [
-    "@smithers-orchestrator/jj-darwin-arm64"
+    "@smthrs/jj-darwin-arm64"
   ]
 }

@@ -1,4 +1,4 @@
-/** @jsxImportSource smithers-orchestrator */
+/** @jsxImportSource smthrs */
 // External doc-review harness: stage → Parallel(claude, opencode full plugin
 // review) → collect. Deterministic orchestration lives here; the calling skill
 // only reads the run output. Run from THIS directory so smithers state
@@ -7,7 +7,7 @@
 //     --input '{"docPath":"/abs/path/plan.md"}'
 // Staging lives in /tmp/ce-doc-review — opencode reads it via the
 // permission.external_directory allow in ~/.config/opencode/opencode.json.
-import { createSmithers, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, TryCatchFinally } from "smthrs";
 import { z } from "zod/v4";
 import * as fs from "node:fs";
 import * as path from "node:path";

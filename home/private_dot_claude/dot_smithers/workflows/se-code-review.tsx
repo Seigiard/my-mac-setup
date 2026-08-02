@@ -1,4 +1,4 @@
-/** @jsxImportSource smithers-orchestrator */
+/** @jsxImportSource smthrs */
 // External code-review harness: stage (frozen worktree snapshot) →
 // Parallel(claude, opencode full plugin review in mode:agent) → collect.
 // Deterministic orchestration lives here; the calling skill only reads the
@@ -8,7 +8,7 @@
 //     --input '{"target":""}'
 // Staging lives in /tmp/ce-code-review — opencode reads it via the
 // permission.external_directory allow in ~/.config/opencode/opencode.json.
-import { createSmithers, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, TryCatchFinally } from "smthrs";
 import { z } from "zod/v4";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";

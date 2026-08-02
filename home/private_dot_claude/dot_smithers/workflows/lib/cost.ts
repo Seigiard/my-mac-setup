@@ -1,12 +1,12 @@
 // Run cost accounting (R8/KTD6, U6→U9-Батч4). Adapters persist per-task
 // TOKENS only (TokenUsageReported events); no adapter fills USD. Tokens are
 // therefore the authoritative metric; estUsd is an APPROXIMATION priced by
-// the official smithers-orchestrator/scorers table (estimateCostUsd /
+// the official smthrs/scorers table (estimateCostUsd /
 // modelTokenPrices) instead of a hand-rolled copy. The single authoritative
 // store is the run's summary output, which embeds this aggregation;
 // `se list` and audits read only from there.
 
-import { estimateCostUsd, modelTokenPrices } from "smithers-orchestrator/scorers";
+import { estimateCostUsd, modelTokenPrices } from "smthrs/scorers";
 
 // Unknown ids price at $0 in the official table, but a real leg is never
 // free — the CLI just failed to report a concrete id (bare "claude", null,
