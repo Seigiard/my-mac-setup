@@ -8,7 +8,7 @@ argument-hint: "validate-cmd:'<test/typecheck command>' [blank to simplify curre
 
 Wrapper over `compound-engineering:ce-simplify-code`. Two external agents (claude on Sonnet, opencode on GPT-5.5) each run the ce-simplify-code **reviewer phase only** (Steps 1-2: scope + the reuse/quality/efficiency personas) on a **frozen snapshot** of the branch, returning findings and changing nothing. A deterministic merge keeps cross-model **consensus** + **unique** findings and **excludes contradictions**; then ONE workflow-owned apply leg (Sonnet) applies that set to the live repo, re-locating each finding by content, and a **validate-cmd** proves behavior is preserved — reverting the whole apply and degrading on failure.
 
-All orchestration (right-sizing gate, snapshotting, staging, parallel launches, merge, apply, verify, revert) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-simplify.tsx` (pinned `smithers-orchestrator`). Do not re-implement any of it — launch it and read its outputs.
+All orchestration (right-sizing gate, snapshotting, staging, parallel launches, merge, apply, verify, revert) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-simplify.tsx` (pinned `smthrs`). Do not re-implement any of it — launch it and read its outputs.
 
 **The workflow's apply leg is the SINGLE apply owner.** This wrapper does NOT run a separately-applying local `ce-simplify-code` pass: that would give two apply owners mutating the live repo while the report legs analyze a frozen snapshot (stale line refs, double/conflicting edits). Any local pass, if you want a third finding source, must run **report-only** and feed the synthesis; the workflow applies exactly once.
 

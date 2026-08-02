@@ -462,7 +462,7 @@ cd "$FIXTURE"
 Smithers (и 0.28.0) не персистит USD — только токены (`TokenUsageReported`).
 Авторитетный стор — выходная `summary` прогона: токены по плечам +
 `est_cost_usd`, посчитанный официальной таблицей
-`smithers-orchestrator/scorers` (`estimateCostUsd`/`modelTokenPrices`) через
+`smthrs/scorers` (`estimateCostUsd`/`modelTokenPrices`) через
 `workflows/lib/cost.ts` (приближение; первичная метрика — токены).
 Особенности прайсинга: провайдер-префикс (`openai/…`) срезается перед
 лукапом; неизвестная таблице модель (голый `claude`, null) прайсится как

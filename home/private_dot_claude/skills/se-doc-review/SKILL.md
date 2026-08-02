@@ -8,7 +8,7 @@ argument-hint: "[mode:headless] [path/to/document.md]"
 
 Wrapper over `compound-engineering:ce-doc-review`. Runs the plugin review locally AND has two external agents (claude and opencode) each execute the **same plugin workflow** end-to-end — dispatching their own persona subagents on their own model family — then synthesizes the three result envelopes.
 
-All external orchestration (staging, parallel CLI launches, timeouts, budget caps, envelope collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-doc-review.tsx` (pinned `smithers-orchestrator`, see `~/.claude/.smithers/package.json`). Do not re-implement any of it in instructions — launch it and read its outputs.
+All external orchestration (staging, parallel CLI launches, timeouts, budget caps, envelope collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-doc-review.tsx` (pinned `smthrs`, see `~/.claude/.smithers/package.json`). Do not re-implement any of it in instructions — launch it and read its outputs.
 
 Argument contract is identical to the plugin skill: tokens starting with `mode:` are flags; the remaining token (if any) is the document path. `mode:headless` is passed through.
 

@@ -23,7 +23,7 @@
 // irrecoverable. The `work` profile is excluded — long locally-silent commands
 // (installs, test suites) are legitimate there.
 
-import { ClaudeCodeAgent, OpenCodeAgent } from "smithers-orchestrator";
+import { ClaudeCodeAgent, OpenCodeAgent } from "smthrs";
 import { reviewLegJsonSchema } from "./review-schema.ts";
 
 // se-simplify apply leg (U1/R5/KTD-F): a single leg applies the cross-model

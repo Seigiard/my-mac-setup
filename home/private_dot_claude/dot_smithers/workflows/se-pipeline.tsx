@@ -1,4 +1,4 @@
-/** @jsxImportSource smithers-orchestrator */
+/** @jsxImportSource smthrs */
 // se-pipeline: durable spine verify-doc → work → verify-code over a target
 // repo (env PIPELINE_REPO), from an implementation-ready ce-unified-plan/v1.
 // Gates are code (lib/gates.ts), stage effects live at stage boundaries
@@ -11,7 +11,7 @@
 //   cd ~/.claude/.smithers && PIPELINE_REPO=/abs/repo DOC_REVIEW_REPO=/abs/repo \
 //     ./node_modules/.bin/smithers up workflows/se-pipeline.tsx \
 //     --input '{"planPath":"/abs/plan.md","until":"branch","validateCmd":"bun test"}'
-import { createSmithers, Subflow, TryCatchFinally, approvalDecisionSchema } from "smithers-orchestrator";
+import { createSmithers, Subflow, TryCatchFinally, approvalDecisionSchema } from "smthrs";
 import { z } from "zod/v4";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
@@ -42,7 +42,7 @@ import { reviewLegSchema } from "./lib/review-schema.ts";
 import { simplifyCommitDecision } from "./lib/stage-gate.ts";
 import seDocReview from "./se-doc-review.tsx";
 import seSimplify from "./se-simplify.tsx";
-import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
+import type { WorkflowDefinition } from "@smthrs/driver";
 
 // 0.28 types Subflow's workflow prop as WorkflowDefinition<unknown>; a
 // workflow typed with a concrete input schema can't satisfy it (ctx.input is

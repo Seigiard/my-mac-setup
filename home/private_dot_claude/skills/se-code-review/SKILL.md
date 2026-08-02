@@ -8,7 +8,7 @@ argument-hint: "[mode:agent] [blank to review current branch, or PR link / base:
 
 Wrapper over `compound-engineering:ce-code-review`. Runs the plugin review locally AND has two external agents (claude and opencode) each execute the **same plugin workflow** in `mode:agent` on a **frozen snapshot** of the checkout — dispatching their own reviewer subagents on their own model family — then synthesizes the three result reports.
 
-All external orchestration (snapshotting, staging, parallel CLI launches, timeouts, budget caps, report collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-code-review.tsx` (pinned `smithers-orchestrator`, see `~/.claude/.smithers/package.json`). Do not re-implement any of it in instructions — launch it and read its outputs.
+All external orchestration (snapshotting, staging, parallel CLI launches, timeouts, budget caps, report collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-code-review.tsx` (pinned `smthrs`, see `~/.claude/.smithers/package.json`). Do not re-implement any of it in instructions — launch it and read its outputs.
 
 Argument contract is identical to the plugin skill: `mode:` / `base:` / `plan:` / `depth:` / `grouping:` tokens plus an optional PR number/URL/branch target. Everything is passed through to the local review unchanged.
 
