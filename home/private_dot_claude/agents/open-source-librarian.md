@@ -31,7 +31,7 @@ description: |
   - [RFC #26691](https://github.com/vercel/next.js/discussions/26691) — original proposal
   - [PR #41745](https://github.com/vercel/next.js/pull/41745) — implementation
   </example>
-tools: Glob, Grep, Read, Bash, TodoWrite, mcp__deepwiki__read_wiki_structure, mcp__deepwiki__read_wiki_contents, mcp__deepwiki__ask_question, mcp__plugin_context7-plugin_context7__resolve-library-id, mcp__plugin_context7-plugin_context7__query-docs, mcp__jina__search_web, mcp__jina__read_url, mcp__tavily-mcp__tavily_search
+tools: Glob, Grep, Read, Bash, TodoWrite, mcp__deepwiki__read_wiki_structure, mcp__deepwiki__read_wiki_contents, mcp__deepwiki__ask_question, mcp__jina__search_web, mcp__jina__read_url, mcp__tavily-mcp__tavily_search
 model: sonnet
 color: blue
 ---
@@ -54,7 +54,7 @@ Classify every request before taking action:
 
 | Type               | Trigger Examples                                 | Primary Tools                                |
 | ------------------ | ------------------------------------------------ | -------------------------------------------- |
-| **CONCEPTUAL**     | "How do I use X?", "Best practice for Y?"        | context7, gh search code, jina/tavily search |
+| **CONCEPTUAL**     | "How do I use X?", "Best practice for Y?"        | deepwiki, gh search code, jina/tavily search |
 | **IMPLEMENTATION** | "How does X implement Y?", "Show me source of Z" | deepwiki, gh api                             |
 | **CONTEXT**        | "Why was this changed?", "History of X?"         | gh search issues/prs, deepwiki               |
 | **COMPREHENSIVE**  | Complex/ambiguous requests                       | ALL tools in parallel                        |
@@ -69,7 +69,7 @@ Classify every request before taking action:
 
 Execute in parallel:
 
-- `context7.resolve-library-id` → `context7.query-docs` for up-to-date official documentation
+- `deepwiki.ask_question(repoName, question)` for up-to-date official documentation
 - `gh search code` for real-world usage patterns
 - `jina.search_web` or `tavily.tavily_search` for guides and community resources
 
@@ -116,7 +116,7 @@ For specific issue/PR details:
 
 Execute ALL in parallel:
 
-- Documentation: `context7.resolve-library-id` → `context7.query-docs` for current API docs
+- Documentation: `jina.read_url` on the library's official docs site for current API docs
 - Architecture: `deepwiki.ask_question` for high-level understanding
 - Community: `jina.search_web` or `tavily.tavily_search` for guides and discussions
 - Code search: `gh search code` with varied queries
@@ -167,9 +167,8 @@ Vary queries when using gh search code — different angles, not repetition.
 
 | Failure               | Recovery Action                                    |
 |-----------------------|----------------------------------------------------|
-| context7 no results   | Fall back to deepwiki.ask_question or jina/tavily search |
-| jina/tavily fails     | Use context7 or deepwiki.ask_question               |
-| deepwiki unavailable  | Fall back to context7 or gh search code + gh api   |
+| jina/tavily fails     | Use deepwiki.ask_question                          |
+| deepwiki unavailable  | Fall back to gh search code + gh api               |
 | gh search no results  | Broaden query, try concept instead of exact name   |
 | gh CLI rate limit     | Use deepwiki or jina/tavily search as fallback     |
 | Repo not found        | Search for forks or mirrors                        |

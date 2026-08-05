@@ -17,6 +17,9 @@ Icon?
 # Git worktrees
 .worktrees/
 
+# Agent trash directory (see ~/.claude/CLAUDE.md, Environment section)
+.scratchpad/
+
 # Claude Code local state
 .claude/settings.local.json
 CLAUDE.local.md

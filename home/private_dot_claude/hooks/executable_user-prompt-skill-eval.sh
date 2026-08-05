@@ -23,8 +23,7 @@ TOOL ROUTING — use the right tool for the job:
 WEB SEARCH: mcp__jina__search_web or mcp__tavily-mcp__tavily_search (NOT Bash curl)
 DEEP RESEARCH: mcp__tavily-mcp__tavily_research (multi-step, citations)
 READ URL: mcp__jina__read_url (PDFs, selectors, auth). Fallback: Skill(markdown-new) for simple pages
-LIBRARY DOCS / API (quick inline): mcp__plugin_context7-plugin_context7 tools directly. Fallback: mcp__deepwiki
-LIBRARY DOCS (background, keeps context clean): Agent(context7-plugin:docs-researcher)
+LIBRARY DOCS / API (quick inline): mcp__deepwiki__ask_question. Fallback: mcp__jina__search_web
 LIBRARY DEEP RESEARCH (source code, PRs, history, versions, breaking changes): Agent(open-source-librarian) — background
 SITE CRAWL: mcp__tavily-mcp__tavily_crawl or mcp__tavily-mcp__tavily_map
 

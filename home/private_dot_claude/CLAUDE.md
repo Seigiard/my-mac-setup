@@ -91,23 +91,25 @@ Ask the user when:
 
 ## Skill routing
 
-| Trigger                                 | Skill                                      | Notes                                                |
-| --------------------------------------- | ------------------------------------------ | ---------------------------------------------------- |
-| "commit", "create commit"               | `/compound-engineering:ce-commit`          | Let skill handle git                                 |
-| "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr`  | Full workflow                                        |
-| "review PR", "review code"              | `/se-code-review`                          | Local wrapper: plugin + external reviews             |
-| "simplify", "tidy/refactor branch"      | `/se-simplify`                             | 2 cross-model report legs → single verified apply    |
-| Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`      | Persistent planning                                  |
-| Planning multi-step tasks               | `/se-plan`                                 | Local wrapper: plugin plan + external doc review     |
-| Debugging, errors, test failures        | `/compound-engineering:ce-debug`           | Systematic root cause                                |
-| "review plan", "review spec"            | `/se-doc-review`                           | Local wrapper: plugin + external reviews             |
-| Linear issues, task tracking            | `/linear-cli`                              | Linear CLI management                                |
-| Linear ticket reference (CORE-XX, etc.) | `/linear-cli` + Linear-first triage        | Fetch ticket BEFORE investigating                    |
-| Plan iteration ("итерация N", "дальше") | Load plan first, batch 2–3, gate on commit | See plan-iteration block                             |
-| Migration / refactor                    | Scope fidelity block                       | Don't restore deleted code                           |
-| Executing work efficiently              | `/compound-engineering:ce-work`            | Quality + completion                                 |
-| "запусти пайплайн", durable plan exec   | `/se-work`                                 | se-pipeline, NO plan-review (work→simplify→verify)   |
-| durable exec WITH plan-review first     | `/se-review-and-work`                      | `se-work` + verify-doc; same pipeline, docReview key |
+| Trigger                                 | Skill                                     | Notes                                                                 |
+| --------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
+| "commit", "create commit"               | `/compound-engineering:ce-commit`         | Let skill handle git                                                  |
+| "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr` | Full workflow                                                         |
+| "review PR", "review code"              | `/se-code-review`                         | Local wrapper: plugin + external reviews                              |
+| "simplify", "tidy/refactor branch"      | `/se-simplify`                            | 2 cross-model report legs → single verified apply                     |
+| Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`     | Persistent planning                                                   |
+| Planning multi-step tasks               | `/se-plan`                                | Local wrapper: plugin plan + external doc review                      |
+| Debugging, errors, test failures        | `/compound-engineering:ce-debug`          | Systematic root cause                                                 |
+| "review plan", "review spec"            | `/se-doc-review`                          | Local wrapper: plugin + external reviews                              |
+| Linear issues, task tracking            | `/linear-cli`                             | Linear CLI management                                                 |
+| Linear ticket reference (CORE-XX, etc.) | `/linear-cli` + Linear-first triage       | Fetch ticket BEFORE investigating                                     |
+| Plan iteration ("итерация N", "дальше") | Load the plan file first                  | Batch 2–3 units per pass. Gate each batch on a commit.                |
+| Migration / refactor                    | `/compound-engineering:ce-work`           | Keep scope fidelity. Never restore code the migration deleted.        |
+| Executing work efficiently              | `/compound-engineering:ce-work`           | Quality + completion                                                  |
+| "запусти пайплайн", durable plan exec   | `/se-work`                                | se-pipeline, NO plan-review (work→simplify→verify)                    |
+| durable exec WITH plan-review first     | `/se-review-and-work`                     | `se-work` + verify-doc; same pipeline, docReview key                  |
+| "ask opencode/pi", second opinion       | `/ask-agent`                              | One-shot question to a peer agent; read-only                          |
+| "orchestrate agents", durable workflow  | `/smithers`                               | Control plane under se-work and se-plan; use directly for custom runs |
 
 ## Working with code
 
@@ -169,8 +171,10 @@ Don't blend conflicting patterns.
 
 **Files and shell**
 
-- `rm -rf` denied by permissions. Delete via `mv <dir> $SCRATCHPAD/trash-<ts>/`.
-- No `timeout`/`gtimeout` binary installed. Bound commands via the Bash tool `timeout` parameter.
+- The permission deny list blocks `Bash(rm -rf:*)`, `Bash(rm -fr:*)`, and `Bash(rm -r:*)`. Recursive delete is not available. Do not look for a flag spelling that gets around it.
+- Delete by moving the target into the trash directory `~/.scratchpad`. Run: `mkdir -p ~/.scratchpad && mv <target> ~/.scratchpad/<name>-$(date +%s)`. The timestamp suffix prevents a collision with an earlier move.
+- `~/.scratchpad` is the trash directory only. Temporary working files still go to the per-session scratchpad path that the system prompt gives you. There is no `$SCRATCHPAD` environment variable — never write that literal string into a command.
+- Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
 
 **RTK (Rust Token Killer)**
@@ -199,17 +203,16 @@ For an exhaustive search, or when you need a path you can open, run the tool unf
 
 **MCP / agent tool selection:**
 
-| Need                         | Primary tool                                                | Fallback        |
-| ---------------------------- | ----------------------------------------------------------- | --------------- |
-| Find files by topic/name     | `mcp__fff__find_files`                                      | Glob            |
-| Search file contents         | `mcp__fff__grep` (bare identifiers only)                    | Grep            |
-| Multi-pattern content search | `mcp__fff__multi_grep` (OR across patterns)                 | Grep            |
-| Library docs / API (inline)  | `mcp__plugin_context7-plugin_context7` (resolve → query)    | `mcp__deepwiki` |
-| Library docs (background)    | Agent(`context7-plugin:docs-researcher`)                    | `mcp__deepwiki` |
-| Library deep research        | Agent(`open-source-librarian`) — background                 | `mcp__deepwiki` |
-| How a specific repo works    | `mcp__deepwiki`                                             | Agent(Explore)  |
-| Quick URL → markdown, no key | `/markdown-new`                                             | `WebFetch`      |
-| URL with selectors/auth/PDFs | `mcp__jina__read_url`                                       | `/markdown-new` |
-| Web search                   | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `WebSearch`     |
-| Deep multi-step research     | `mcp__tavily-mcp__tavily_research`                          | `mcp__jina__*`  |
-| Site crawl / map             | `mcp__tavily-mcp__tavily_crawl`                             | `mcp__jina__*`  |
+| Need                         | Primary tool                                                | Fallback                |
+| ---------------------------- | ----------------------------------------------------------- | ----------------------- |
+| Find files by topic/name     | `mcp__fff__find_files`                                      | Glob                    |
+| Search file contents         | `mcp__fff__grep` (bare identifiers only)                    | Grep                    |
+| Multi-pattern content search | `mcp__fff__multi_grep` (OR across patterns)                 | Grep                    |
+| Library docs / API (inline)  | `mcp__deepwiki__ask_question`                               | `mcp__jina__search_web` |
+| Library deep research        | Agent(`open-source-librarian`) — background                 | `mcp__deepwiki`         |
+| How a specific repo works    | `mcp__deepwiki`                                             | Agent(Explore)          |
+| Quick URL → markdown, no key | `/markdown-new`                                             | `WebFetch`              |
+| URL with selectors/auth/PDFs | `mcp__jina__read_url`                                       | `/markdown-new`         |
+| Web search                   | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `WebSearch`             |
+| Deep multi-step research     | `mcp__tavily-mcp__tavily_research`                          | `mcp__jina__*`          |
+| Site crawl / map             | `mcp__tavily-mcp__tavily_crawl`                             | `mcp__jina__*`          |
