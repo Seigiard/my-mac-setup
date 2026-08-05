@@ -32,6 +32,31 @@ else
 fi
 export CHEZMOI_SOURCE
 
+# Root of the chezmoi source tree — the repo's `home/` directory.
+# Host: tests/ and home/ are repo-root siblings, so the working checkout wins and
+# tests read the edits you have not committed yet.
+# Docker: home/ mounts at $HOME/dotfiles while tests/ mounts separately, so
+# ../home does not exist — fall back to the mount, then to the chezmoi source copy.
+#
+# Use SOURCE_ROOT to READ files from the source tree.
+# Use CHEZMOI_SOURCE to drive chezmoi itself (apply/diff/verify --source=...).
+resolve_source_root() {
+  local root
+  for root in \
+    "${HELPERS_DIR}/../../home" \
+    "$HOME/dotfiles" \
+    "$CHEZMOI_SOURCE"; do
+    if [[ -f "$root/.chezmoiignore" ]]; then
+      (cd "$root" && pwd)
+      return 0
+    fi
+  done
+  echo "$CHEZMOI_SOURCE"
+}
+
+SOURCE_ROOT="$(resolve_source_root)"
+export SOURCE_ROOT
+
 CHEZMOI_TEST_CONFIG="/tmp/chezmoi-test.yaml"
 export CHEZMOI_TEST_CONFIG
 

@@ -41,6 +41,11 @@ load 'helpers/common'
   assert_file_exists "$HOME/.gitignore"
 }
 
+@test ".gitignore ignores the agent trash directory" {
+  run grep -qx '\.scratchpad/' "$HOME/.gitignore"
+  [ "$status" -eq 0 ]
+}
+
 @test ".editorconfig exists" {
   assert_file_exists "$HOME/.editorconfig"
 }
@@ -357,24 +362,7 @@ TOML
 # se CLI wrapper (source tree, SE_DRY_RUN)
 # ===========================================
 
-# Resolve the chezmoi source root across layouts: on the host, tests/ and home/
-# are repo-root siblings ($BATS_TEST_DIRNAME/../home). In Docker, home/ mounts at
-# $HOME/dotfiles while tests/ mounts separately, so ../home does not exist —
-# fall back to the mount, then to the chezmoi source copy.
-se_source_root() {
-  for root in \
-    "$BATS_TEST_DIRNAME/../home" \
-    "$HOME/dotfiles" \
-    "${CHEZMOI_SOURCE:-$HOME/.local/share/chezmoi}"; do
-    if [[ -e "$root/private_dot_claude/dot_smithers/bin/executable_se" ]]; then
-      echo "$root"
-      return 0
-    fi
-  done
-  echo "$BATS_TEST_DIRNAME/../home"
-}
-
-SE_ROOT="$(se_source_root)"
+SE_ROOT="$SOURCE_ROOT"
 SE_SRC="$SE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
 
 se_fixture_repo() {

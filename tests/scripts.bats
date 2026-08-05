@@ -12,16 +12,20 @@ teardown() {
 # ===========================================
 
 @test "shellcheck is managed by the cross-platform Brewfile" {
-  assert_file_contains "$BATS_TEST_DIRNAME/../home/private_dot_config/brewfiles/Brewfile" '^brew "shellcheck"'
+  assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile" '^brew "shellcheck"'
 }
 
+# Docker mounts only home/ and tests/, so the repo-root Makefile is absent there.
 @test "lint target propagates shellcheck failures" {
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
+
   local stubdir
   stubdir="$(mktemp -d)"
   printf '#!/bin/sh\nexit 1\n' > "$stubdir/shellcheck"
   chmod +x "$stubdir/shellcheck"
 
-  run env PATH="$stubdir:$PATH" make -C "$BATS_TEST_DIRNAME/.." lint
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
   rm -rf "$stubdir"
   assert_failure
 }
@@ -32,7 +36,7 @@ teardown() {
 
 @test "install-packages script renders as valid bash" {
   skip_if_no_chezmoi
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
 
   BATS_TEST_TMPFILE="$(mktemp /tmp/install-packages-XXXXXX.sh)"
@@ -42,7 +46,7 @@ teardown() {
 }
 
 @test "install-packages script uses set -e" {
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
   run grep -q "set -e" "$script"
   assert_success
@@ -50,7 +54,7 @@ teardown() {
 
 @test "install-packages template has no rendering errors" {
   skip_if_no_chezmoi
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" execute-template < "$script"
   assert_success
@@ -61,17 +65,17 @@ teardown() {
 # ===========================================
 
 @test "macos-tunes script exists in darwin-specific directory" {
-  assert_file_exists "$CHEZMOI_SOURCE/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
+  assert_file_exists "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
 }
 
 @test "macos-tunes script is valid bash" {
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
+  local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
   run bash -n "$script"
   assert_success
 }
 
 @test "macos-tunes script uses set -e" {
-  local script="$CHEZMOI_SOURCE/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
+  local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
   run grep -q "set -e" "$script"
   assert_success
 }
@@ -87,7 +91,7 @@ teardown() {
 # ask-agent skill scripts
 # ===========================================
 
-ASK_AGENT_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/ask-agent/scripts"
+ASK_AGENT_DIR="$SOURCE_ROOT/private_dot_claude/skills/ask-agent/scripts"
 
 @test "ask-agent scripts are valid bash" {
   for s in ask.sh agents/claude.sh agents/opencode.sh agents/pi.sh; do
@@ -156,7 +160,7 @@ ASK_AGENT_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/ask-agent/scripts"
 # herdr-pair skill scripts
 # ===========================================
 
-PAIR_DIR="$CHEZMOI_SOURCE/private_dot_claude/skills/herdr-pair/scripts"
+PAIR_DIR="$SOURCE_ROOT/private_dot_claude/skills/herdr-pair/scripts"
 
 # Each session test points the session store at a throwaway dir so it never
 # touches the real ~/.herdr-coworkers. teardown removes PAIR_COWORKERS.
@@ -302,7 +306,7 @@ PY
 # herdr-integrations run-script
 # ===========================================
 
-HERDR_INTEGRATIONS_TMPL="$CHEZMOI_SOURCE/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
+HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 
 @test "herdr-integrations script renders to valid bash" {
   skip_if_no_chezmoi
@@ -512,7 +516,7 @@ EOF
 # herdr-pair skill structure (source tree)
 # ===========================================
 
-PAIR_SKILL="$CHEZMOI_SOURCE/private_dot_claude/skills/herdr-pair"
+PAIR_SKILL="$SOURCE_ROOT/private_dot_claude/skills/herdr-pair"
 
 @test "herdr-pair skill source has all expected files" {
   assert_file_exists "$PAIR_SKILL/SKILL.md"

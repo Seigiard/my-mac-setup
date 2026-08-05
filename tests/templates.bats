@@ -34,23 +34,23 @@ teardown() {
 # ===========================================
 
 @test "gitconfig template renders successfully" {
-  run render_template "$CHEZMOI_SOURCE/dot_gitconfig.tmpl"
+  run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
   assert_success
 }
 
 @test "gitconfig template contains user name" {
-  run render_template "$CHEZMOI_SOURCE/dot_gitconfig.tmpl"
+  run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
   assert_output --partial "name = "
 }
 
 @test "gitconfig template contains user email" {
-  run render_template "$CHEZMOI_SOURCE/dot_gitconfig.tmpl"
+  run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
   assert_output --partial "email = "
 }
 
 @test "gitconfig template has no unresolved markers" {
   BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$CHEZMOI_SOURCE/dot_gitconfig.tmpl" > "$BATS_TEST_TMPFILE"
+  render_template "$SOURCE_ROOT/dot_gitconfig.tmpl" > "$BATS_TEST_TMPFILE"
   assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
@@ -59,18 +59,18 @@ teardown() {
 # ===========================================
 
 @test "zshenv template renders without op in PATH" {
-  run render_template "$CHEZMOI_SOURCE/dot_zshenv.tmpl"
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
   assert_success
 }
 
 @test "zshenv template output has no unresolved markers" {
   BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$CHEZMOI_SOURCE/dot_zshenv.tmpl" > "$BATS_TEST_TMPFILE" || true
+  render_template "$SOURCE_ROOT/dot_zshenv.tmpl" > "$BATS_TEST_TMPFILE" || true
   assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
 @test "zshenv sources Cargo environment only when readable" {
-  run render_template "$CHEZMOI_SOURCE/dot_zshenv.tmpl"
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
   assert_success
   assert_output --partial '[[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"'
 }
@@ -80,13 +80,13 @@ teardown() {
 # ===========================================
 
 @test "zshrc template renders successfully" {
-  run render_template "$CHEZMOI_SOURCE/dot_zshrc.tmpl"
+  run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
   assert_success
 }
 
 @test "zshrc template has no unresolved markers" {
   BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$CHEZMOI_SOURCE/dot_zshrc.tmpl" > "$BATS_TEST_TMPFILE"
+  render_template "$SOURCE_ROOT/dot_zshrc.tmpl" > "$BATS_TEST_TMPFILE"
   assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
@@ -96,7 +96,7 @@ teardown() {
 
 @test "opencode.json.tmpl renders valid JSON" {
   BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$CHEZMOI_SOURCE/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
+  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
   if command_exists jq; then
     run jq empty "$BATS_TEST_TMPFILE"
   elif command_exists python3; then
@@ -111,12 +111,12 @@ teardown() {
 
 @test "opencode.json.tmpl renders with no unresolved template markers" {
   BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$CHEZMOI_SOURCE/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
+  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
   assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
 @test "opencode.json.tmpl omits the macOS brew plugin path on Linux" {
   is_linux || skip "Only relevant on Linux"
-  run render_template "$CHEZMOI_SOURCE/private_dot_config/opencode/opencode.json.tmpl"
+  run render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
   refute_output --partial "/opt/homebrew"
 }
