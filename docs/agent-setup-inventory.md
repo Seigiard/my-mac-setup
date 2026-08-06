@@ -55,7 +55,7 @@ https://ccsafetynet.com/docs/installation
 | handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
 | herdr             | `repo`                              | repo        |
 | improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
-| linear-cli        | `gh:schpet/linear-cli`              | chezmoi-ext |
+| linear            | `gh:schpet/linear-cli`              | chezmoi-ext |
 | markdown-new      | `repo`                              | repo        |
 | se-code-review    | `repo` (local CE wrapper)           | repo        |
 | se-doc-review     | `repo` (local CE wrapper)           | repo        |
@@ -66,10 +66,10 @@ Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
 
 ### Smithers workflows (`~/.claude/.smithers/`)
 
-| Workflow        | Source | Managed |
-| --------------- | ------ | ------- |
-| se-code-review  | `repo` | repo    |
-| se-doc-review   | `repo` | repo    |
+| Workflow       | Source | Managed |
+| -------------- | ------ | ------- |
+| se-code-review | `repo` | repo    |
+| se-doc-review  | `repo` | repo    |
 
 Shared package for local `se-*` wrappers. Runtime deps/state are ignored.
 

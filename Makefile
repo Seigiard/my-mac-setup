@@ -42,7 +42,7 @@ test-docker: build-docker
 
 lint:
 	@echo "=== Running shellcheck ==="
-	find . -name "*.sh" -type f -not -path "./.git/*" | xargs shellcheck --severity=warning
+	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "*/node_modules/*" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 

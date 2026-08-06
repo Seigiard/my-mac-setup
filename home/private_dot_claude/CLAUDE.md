@@ -115,17 +115,6 @@ Ask the user when:
 
 **Editing files**
 
-- Read the full file before editing.
-- Plan changes, then make ONE edit per pass.
-- If you find yourself 3+ edits into the same file — stop, re-read the requirements.
-
-<important if="you are implementing a new feature or behavior">
-
-- Check non-happy paths and failure conditions before implementing.
-- Iterate TDD-style (Red → Green → Refactor) for new features.
-
-</important>
-
 <important if="you are choosing between writing code and asking a model to reason, for a subtask of your own work or for a step in a system you are building">
 
 - A model suits work with no single correct answer: classification, drafting, summarization, extraction.
@@ -153,13 +142,12 @@ Don't blend conflicting patterns.
 - Write for a zero-context reviewer: they see only the diff, not this session, plans, or reviews. Self-contained: what changed, why, how verified.
 - Never reference `docs/plans/`, `docs/ideation/`, `docs/brainstorms/`, plan unit IDs (U1, KTD-…), review runIds, or other session artifacts — they are local/gitignored; the reviewer cannot open them.
 - Translate the plan's rationale into the description instead of linking it.
-- Never merge a PR without an explicit user command in this session. Finishing sequence: open PR → CI green → triage AI-review findings → assign a human reviewer → stop and report. A plan's DoD saying "merged" describes the human's target state, not agent authorization.
 
 </important>
 
 <important if="user references a ticket ID (CORE-XX, LIN-XX, etc.), asks to fix a bug from an issue tracker, or asks to create a Linear issue">
 
-- Fetch the Linear/GitHub issue first via `/linear-cli` or `gh issue view`. Don't start investigation from the user's prompt alone.
+- Fetch the issue first. Don't start investigation from the user's prompt alone.
 - Confirm reproduction steps from the ticket before diving into code.
 - If the ticket description and user's request diverge — flag the divergence and ask which to follow.
 - Only after ticket + repro are confirmed: proceed to investigation.
@@ -173,7 +161,7 @@ Don't blend conflicting patterns.
 
 - The permission deny list blocks `Bash(rm -rf:*)`, `Bash(rm -fr:*)`, and `Bash(rm -r:*)`. Recursive delete is not available. Do not look for a flag spelling that gets around it.
 - Delete by moving the target into the trash directory `~/.scratchpad`. Run: `mkdir -p ~/.scratchpad && mv <target> ~/.scratchpad/<name>-$(date +%s)`. The timestamp suffix prevents a collision with an earlier move.
-- `~/.scratchpad` is the trash directory only. Temporary working files still go to the per-session scratchpad path that the system prompt gives you. There is no `$SCRATCHPAD` environment variable — never write that literal string into a command.
+- `~/.scratchpad` is the trash directory only. Temporary working files still go to the per-session scratchpad path that the system prompt gives you.
 - Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
 
@@ -200,19 +188,18 @@ For an exhaustive search, or when you need a path you can open, run the tool unf
 
 - `jq` — JSON transforms and parsing
 - `rg` with flags (`-t`, `-g`, `--json`) — when specific output format needed
+- `fd` — find files by glob, extension, or mtime: `fd -g '<Name>.tsx' <dir>`, `fd -e ts -e tsx . <dir>`, `fd -HI --changed-within 1d . <dir>`. It respects `.gitignore`, so drop the manual `node_modules` exclude chain.
+- `magick` — the Read tool cannot open a GIF. Split it into frames: `magick <file>.gif -coalesce frame-%02d.png`. Crop one region: `magick frame-01.png -crop <W>x<H>+<X>+<Y> +repage crop.png`.
+- `npx -y agent-browser` — inspect a local dev server, or an app behind PAT auth: `open <url>`, then `snapshot -i`, `eval`, `click @<ref>`, `screenshot <path>`, `close`. Public pages stay with the browser MCP tools and WebFetch.
+- Aliases replace `du` with dust and `df` with duf in the agent shell. For POSIX flags write `command du -sh <dir>` and `command df -h <path>`.
 
 **MCP / agent tool selection:**
 
-| Need                         | Primary tool                                                | Fallback                |
-| ---------------------------- | ----------------------------------------------------------- | ----------------------- |
-| Find files by topic/name     | `mcp__fff__find_files`                                      | Glob                    |
-| Search file contents         | `mcp__fff__grep` (bare identifiers only)                    | Grep                    |
-| Multi-pattern content search | `mcp__fff__multi_grep` (OR across patterns)                 | Grep                    |
-| Library docs / API (inline)  | `mcp__deepwiki__ask_question`                               | `mcp__jina__search_web` |
-| Library deep research        | Agent(`open-source-librarian`) — background                 | `mcp__deepwiki`         |
-| How a specific repo works    | `mcp__deepwiki`                                             | Agent(Explore)          |
-| Quick URL → markdown, no key | `/markdown-new`                                             | `WebFetch`              |
-| URL with selectors/auth/PDFs | `mcp__jina__read_url`                                       | `/markdown-new`         |
-| Web search                   | `mcp__jina__search_web` or `mcp__tavily-mcp__tavily_search` | `WebSearch`             |
-| Deep multi-step research     | `mcp__tavily-mcp__tavily_research`                          | `mcp__jina__*`          |
-| Site crawl / map             | `mcp__tavily-mcp__tavily_crawl`                             | `mcp__jina__*`          |
+| Need                              | Primary tool                                                                                                                                                                             | Fallback                                                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Code search: files and contents   | `mcp__fff__grep` — ONE bare identifier per query. A query with a space returns "0 exact matches". Several identifiers → `mcp__fff__multi_grep`, `patterns` as a JSON array. A file by topic or name → `mcp__fff__find_files` | Grep / Glob — for a regex, a quoted string, or a path-scoped search                                                             |
+| How an external repo works        | Agent(`open-source-librarian`) — in the background when it precedes planning, blocking when its verdict gates the next step                                                              | `mcp__deepwiki__ask_question` for orientation only; confirm every claim with `gh api`                                            |
+| Broad question about local code   | Agent(Explore)                                                                                                                                                                          | Grep by hand                                                                                                                    |
+| URL → text                        | `/markdown-new` — clean markdown, no API key, survives JS-heavy SPAs. Use it first for every URL                                                                                          | `WebFetch`. For several pages in one call: `mcp__jina__read_url` with a URL array — it returns full page text, long pages overflow |
+| Web search                        | A named project, library, or error string → `mcp__tavily-mcp__tavily_search`; it wins on niche recall. A broad topic, or when the age of a result matters → `mcp__jina__search_web`; it returns a date field and 9 results per call, tavily returns neither | `WebSearch`                                                                                                                     |
+| UI check in the running local app | `mcp__claude-in-chrome__*` — `navigate`, `computer`, and `gif_creator` for a repro GIF                                                                                                    | `npx -y agent-browser` for a headless check or a screenshot written to a file path                                              |

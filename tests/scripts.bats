@@ -546,3 +546,96 @@ assert keys.get("user-invocable") == "true", keys
 PY
   assert_success
 }
+
+# ===========================================
+# Claude Code PreToolUse hooks
+# ===========================================
+
+HOOKS_DIR="$SOURCE_ROOT/private_dot_claude/hooks"
+FFF_GUARD="$HOOKS_DIR/executable_fff-grep-guard.sh"
+WEBFETCH_HINT="$HOOKS_DIR/executable_webfetch-markdown-hint.sh"
+
+@test "PreToolUse hook scripts are valid bash" {
+  run bash -n "$FFF_GUARD"
+  assert_success
+  run bash -n "$WEBFETCH_HINT"
+  assert_success
+}
+
+@test "fff-grep-guard denies a query of several bare words" {
+  command -v jq >/dev/null || skip "jq not available"
+  run bash "$FFF_GUARD" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output --partial '"permissionDecision": "deny"'
+  assert_output --partial "mcp__fff__multi_grep"
+}
+
+@test "fff-grep-guard stays silent on a single identifier" {
+  command -v jq >/dev/null || skip "jq not available"
+  run bash "$FFF_GUARD" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"AGENT_PROFILES"}}
+EOF
+  assert_success
+  assert_output ""
+}
+
+# Path-scoped and glob-scoped queries were the multi-token calls that actually
+# returned hits, so the guard must let them through.
+@test "fff-grep-guard stays silent on a path-scoped or glob-scoped query" {
+  command -v jq >/dev/null || skip "jq not available"
+  run bash "$FFF_GUARD" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"KnowledgeContextField console/"}}
+EOF
+  assert_success
+  assert_output ""
+  run bash "$FFF_GUARD" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"useRouter *.tsx"}}
+EOF
+  assert_success
+  assert_output ""
+}
+
+@test "fff-grep-guard fails open on malformed input" {
+  run bash "$FFF_GUARD" <<<'not json at all'
+  assert_success
+  assert_output ""
+}
+
+@test "webfetch-markdown-hint adds context for a plain URL" {
+  command -v jq >/dev/null || skip "jq not available"
+  run bash "$WEBFETCH_HINT" <<'EOF'
+{"tool_name":"WebFetch","tool_input":{"url":"https://smithers.sh/docs"}}
+EOF
+  assert_success
+  assert_output --partial '"additionalContext"'
+  assert_output --partial "/markdown-new"
+  refute_output --partial "permissionDecision"
+}
+
+@test "webfetch-markdown-hint stays silent when the URL already uses markdown.new" {
+  command -v jq >/dev/null || skip "jq not available"
+  run bash "$WEBFETCH_HINT" <<'EOF'
+{"tool_name":"WebFetch","tool_input":{"url":"https://markdown.new/https://smithers.sh/docs"}}
+EOF
+  assert_success
+  assert_output ""
+}
+
+@test "settings template registers both PreToolUse hooks with their matchers" {
+  skip_if_no_chezmoi
+  local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
+  BATS_TEST_TMPFILE="$(mktemp /tmp/claude-settings-XXXXXX.json)"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
+  run python3 - "$BATS_TEST_TMPFILE" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+matchers = {e["matcher"]: e for e in s["hooks"]["PreToolUse"]}
+assert "mcp__fff__grep" in matchers, matchers.keys()
+assert "WebFetch" in matchers, matchers.keys()
+assert "fff-grep-guard.sh" in matchers["mcp__fff__grep"]["hooks"][0]["command"]
+assert "webfetch-markdown-hint.sh" in matchers["WebFetch"]["hooks"][0]["command"]
+PY
+  assert_success
+}
