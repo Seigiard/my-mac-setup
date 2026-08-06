@@ -165,14 +165,6 @@ Don't blend conflicting patterns.
 - Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
 
-**RTK (Rust Token Killer)**
-
-RTK is a token-optimized CLI proxy. A hook rewrites every CLI command (`git status` → `rtk git status`).
-
-RTK truncates search output and shortens paths to an unopenable form (`/.../mod00.ts`). It marks what it dropped (`+33 more files`) and writes the full output to a log file. Read that marker before you conclude a search is complete.
-
-For an exhaustive search, or when you need a path you can open, run the tool unfiltered: `rtk proxy rg ...`, `rtk proxy grep ...`.
-
 <important if="you are launching background agents or worktree-isolated workers">
 
 - 600s of silent output kills the worker. Stream provisioning (`… 2>&1 | tail -40`), never one silent 10-min command.
@@ -195,11 +187,21 @@ For an exhaustive search, or when you need a path you can open, run the tool unf
 
 **MCP / agent tool selection:**
 
-| Need                              | Primary tool                                                                                                                                                                             | Fallback                                                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Code search: files and contents   | `mcp__fff__grep` — ONE bare identifier per query. A query with a space returns "0 exact matches". Several identifiers → `mcp__fff__multi_grep`, `patterns` as a JSON array. A file by topic or name → `mcp__fff__find_files` | Grep / Glob — for a regex, a quoted string, or a path-scoped search                                                             |
-| How an external repo works        | Agent(`open-source-librarian`) — in the background when it precedes planning, blocking when its verdict gates the next step                                                              | `mcp__deepwiki__ask_question` for orientation only; confirm every claim with `gh api`                                            |
-| Broad question about local code   | Agent(Explore)                                                                                                                                                                          | Grep by hand                                                                                                                    |
-| URL → text                        | `/markdown-new` — clean markdown, no API key, survives JS-heavy SPAs. Use it first for every URL                                                                                          | `WebFetch`. For several pages in one call: `mcp__jina__read_url` with a URL array — it returns full page text, long pages overflow |
-| Web search                        | A named project, library, or error string → `mcp__tavily-mcp__tavily_search`; it wins on niche recall. A broad topic, or when the age of a result matters → `mcp__jina__search_web`; it returns a date field and 9 results per call, tavily returns neither | `WebSearch`                                                                                                                     |
-| UI check in the running local app | `mcp__claude-in-chrome__*` — `navigate`, `computer`, and `gif_creator` for a repro GIF                                                                                                    | `npx -y agent-browser` for a headless check or a screenshot written to a file path                                              |
+| Need                              | Primary tool                                                                                                                                                                                                                                                | Fallback                                                                                                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Code search: files and contents   | `mcp__fff__grep` — ONE bare identifier per query. A query with a space returns "0 exact matches". Several identifiers → `mcp__fff__multi_grep`, `patterns` as a JSON array. A file by topic or name → `mcp__fff__find_files`                                | Grep / Glob — for a regex, a quoted string, or a path-scoped search                                                                |
+| How an external repo works        | Agent(`open-source-librarian`) — in the background when it precedes planning, blocking when its verdict gates the next step                                                                                                                                 | `mcp__deepwiki__ask_question` for orientation only; confirm every claim with `gh api`                                              |
+| Broad question about local code   | Agent(Explore)                                                                                                                                                                                                                                              | Grep by hand                                                                                                                       |
+| URL → text                        | `/markdown-new` — clean markdown, no API key, survives JS-heavy SPAs. Use it first for every URL                                                                                                                                                            | `WebFetch`. For several pages in one call: `mcp__jina__read_url` with a URL array — it returns full page text, long pages overflow |
+| Web search                        | A named project, library, or error string → `mcp__tavily-mcp__tavily_search`; it wins on niche recall. A broad topic, or when the age of a result matters → `mcp__jina__search_web`; it returns a date field and 9 results per call, tavily returns neither | `WebSearch`                                                                                                                        |
+| UI check in the running local app | `mcp__claude-in-chrome__*` — `navigate`, `computer`, and `gif_creator` for a repro GIF                                                                                                                                                                      | `npx -y agent-browser` for a headless check or a screenshot written to a file path                                                 |
+
+**RTK (Rust Token Killer)**
+
+RTK is a token-optimized CLI proxy. A hook rewrites every CLI command (`git status` → `rtk git status`).
+
+RTK truncates search output and shortens paths to an unopenable form (`/.../mod00.ts`). It marks what it dropped (`+33 more files`) and writes the full output to a log file. Read that marker before you conclude a search is complete.
+
+For an exhaustive search, or when you need a path you can open, run the tool unfiltered: `rtk proxy rg ...`, `rtk proxy grep ...`.
+
+@RTK.md
