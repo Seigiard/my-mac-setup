@@ -24,6 +24,12 @@ describe("consultHardRules", () => {
     expect(rules).toContain("failed run");
   });
 
+  test("persona contract requires deciding the full set and dispatching it in one message", () => {
+    const rules = consultHardRules(base);
+    expect(rules).toContain("COMPLETE persona set BEFORE dispatching");
+    expect(rules).toContain("ALL persona subagent calls as tool uses in that one message");
+  });
+
   test("wrapped final-JSON contract uses the workflow's field and forbids early placeholders", () => {
     const rules = consultHardRules({
       ...base,
