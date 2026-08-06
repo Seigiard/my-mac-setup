@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
-import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { parseSeveritySummary, severitySchema } from "./lib/severity-summary.ts";
 
 const inputSchema = z.object({
@@ -119,6 +119,7 @@ ${consultHardRules({
     `The repo at ${repoDir} is read-only context for feasibility verification.`,
   ],
   extraRules: [
+    REVIEWER_BREVITY_RULE,
     "The envelope value is the review REPORT ITSELF, verbatim and complete: every section the workflow produced (applied-candidate fixes with exact suggested edits, proposed fixes, decisions, FYI, residual concerns, coverage), at least 500 characters, and its LAST line exactly: Review complete",
     'A status note ("Document review complete", a list of reviewers used, a summary of what you did) is NOT an envelope. It fails schema validation and the ENTIRE multi-persona review is discarded and re-run from scratch — all prior work wasted.',
     'Immediately before that final Review complete line, emit exactly one machine-readable severity line — nothing between it and Review complete: SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N} — one line of valid JSON, counts and maxSeverity reflecting the highest-severity findings in your review prose (maxSeverity is the top grade present, or "none" when clean). This line is machine gate input, not review content; it never affects envelope validity, so a missing or malformed SEVERITY line is tolerated (degrades to advisory), never a reason to re-run.',

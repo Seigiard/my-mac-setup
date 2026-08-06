@@ -37,7 +37,7 @@ import {
   type GetRunState,
 } from "./lib/staging.ts";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent } from "./lib/agents.ts";
-import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
 import { simplifyCommitDecision } from "./lib/stage-gate.ts";
 import seDocReview from "./se-doc-review.tsx";
@@ -357,6 +357,7 @@ ${consultHardRules({
   noChangesRules: [
     "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches.",
   ],
+  extraRules: [REVIEWER_BREVITY_RULE],
   finalOutput: {
     kind: "rawObject",
     objectDescription: "the plugin's full mode:agent JSON review (status/verdict/findings/...)",

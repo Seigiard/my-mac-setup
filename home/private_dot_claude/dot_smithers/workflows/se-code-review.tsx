@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
-import { consultHardRules, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
 
 const inputSchema = z.object({
@@ -145,6 +145,7 @@ ${consultHardRules({
   noChangesRules: [
     "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches. The snapshot and the repo are read-only context.",
   ],
+  extraRules: [REVIEWER_BREVITY_RULE],
   finalOutput: {
     kind: "rawObject",
     objectDescription: "the plugin's full mode:agent JSON review (status/verdict/findings/...)",

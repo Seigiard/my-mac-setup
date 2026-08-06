@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { consultHardRules, skillFallbackLine } from "./consult-prompt.ts";
+import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./consult-prompt.ts";
 
 const base = {
   forbiddenSkills: ["se-code-review"],
@@ -60,6 +60,19 @@ describe("consultHardRules", () => {
     expect(lines[4]).toBe("- EXTRA RULE");
     expect(lines[5]).toContain("FINAL message");
     expect(lines).toHaveLength(6);
+  });
+});
+
+describe("REVIEWER_BREVITY_RULE", () => {
+  test("caps reviewer prose but exempts verification depth", () => {
+    expect(REVIEWER_BREVITY_RULE).toContain("never skip a verification step");
+    expect(REVIEWER_BREVITY_RULE).toContain("~150 words");
+    expect(REVIEWER_BREVITY_RULE).toContain("prose volume only");
+  });
+
+  test("passes through consultHardRules extraRules verbatim", () => {
+    const rules = consultHardRules({ ...base, extraRules: [REVIEWER_BREVITY_RULE] });
+    expect(rules).toContain(REVIEWER_BREVITY_RULE);
   });
 });
 

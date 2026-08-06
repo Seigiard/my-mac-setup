@@ -44,6 +44,16 @@ export function consultHardRules(options: ConsultHardRulesOptions): string {
   return `Hard rules:\n${rules.map((r) => `- ${r}`).join("\n")}`;
 }
 
+// Reviewer-brevity contract for the review legs (se-code-review, se-doc-review,
+// se-pipeline verify-code; verify-doc inherits via the se-doc-review Subflow).
+// The claude leg's persona subagents narrate exploration and restate the diff,
+// which puts the leg at ~70k output tokens and makes generation the wall-clock
+// driver (observed ~68 tok/s ⇒ prose volume ≈ leg latency). The cap targets
+// prose only: tool-verified depth is the leg's differentiated value (it is the
+// only leg that has produced P0s), so verification steps are explicitly exempt.
+export const REVIEWER_BREVITY_RULE: string =
+  'When composing each persona/reviewer subagent prompt, append to it verbatim: "Investigate with tools as thoroughly as your persona requires — the tool budget is not limited, and never skip a verification step to save words. But write tersely: do not narrate your exploration, do not restate the diff or the document, and keep analysis prose only where it justifies a finding. Your final report is the persona\'s required structured output plus at most ~150 words of supporting context per finding." Terseness applies to prose volume only — never to the number of findings, their severity, or the evidence behind them.';
+
 // The skill-fallback line is verbatim-identical across all three consults;
 // workflow-specific tails (review target, doc path) are appended by the
 // caller.
