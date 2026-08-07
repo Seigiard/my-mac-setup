@@ -155,16 +155,6 @@ Don't blend conflicting patterns.
 
 </important>
 
-<important if="you are creating a git branch, or a worktree, for work that has a Linear issue">
-
-- Name the branch `{issue-id}-{slug}`, all lowercase. Example: `prd-2632-surface-an-ongoing-jobs-living-artifact-on-its-overview`.
-- Put the issue ID first and lowercase it: `prd-2632`, not `PRD-2632`. Linear matches the ID in the branch name and links the branch to the issue.
-- Build the slug from the issue title. Lowercase every word, replace each space with a hyphen, drop punctuation.
-- If the title is long, shorten the slug. Never shorten or drop the issue ID.
-- If no Linear issue covers the work, use the repository's normal branch naming instead.
-
-</important>
-
 ## Environment
 
 **Files and shell**
