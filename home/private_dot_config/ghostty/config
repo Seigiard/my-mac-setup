@@ -31,7 +31,10 @@ window-padding-x = 0
 window-padding-y = 0
 
 clipboard-trim-trailing-spaces = true
-copy-on-select = clipboard
+# copy-on-select = clipboard silently replaced the system clipboard on
+# every mouse selection (accidental focus-click drags included), making
+# cmd+v "randomly" paste garbage. Copying is explicit now: select, cmd+c.
+copy-on-select = false
 
 font-feature = -calt
 font-feature = -liga
