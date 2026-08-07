@@ -222,6 +222,12 @@ TOML
   assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
 }
 
+@test "divine and inscribe skills are deployed with the grimoire" {
+  assert_file_exists "$HOME/.claude/skills/divine/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/inscribe/SKILL.md"
+  assert_file_exists "$HOME/.claude/grimoire.md"
+}
+
 @test "herdr-pair skill is deployed" {
   assert_file_exists "$HOME/.claude/skills/herdr-pair/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/herdr-pair/references/peer-protocol.md"
