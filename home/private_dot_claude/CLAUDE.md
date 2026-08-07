@@ -165,6 +165,17 @@ Don't blend conflicting patterns.
 - Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
 
+<important if="you are about to start a long-running or observable process — dev server, test watcher, log tail, build — and HERDR_ENV=1 is set">
+
+- You are inside herdr, a terminal multiplexer. The user watches panes, not your background processes.
+- Load the `herdr` skill, then run the process in a sibling pane of the current tab. The pane stays visible to the user and survives your session.
+- Do not start it as a background Bash process — the user cannot see those.
+- Read the process output through the herdr CLI (the skill documents it), not by re-running the command in your own shell.
+- Short one-shot commands (a single test run, lint, typecheck) stay in your own Bash tool. Do not create panes for them.
+- If HERDR_ENV is not set, this block does not apply; use normal background processes.
+
+</important>
+
 <important if="you are launching background agents or worktree-isolated workers">
 
 - 600s of silent output kills the worker. Stream provisioning (`… 2>&1 | tail -40`), never one silent 10-min command.
