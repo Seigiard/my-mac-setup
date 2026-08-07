@@ -20,6 +20,7 @@ cask "font-iosevka-term-nerd-font"
 
 # Terminal & editors
 cask "ghostty"
+cask "kitty"
 cask "zed"
 cask "obsidian"
 

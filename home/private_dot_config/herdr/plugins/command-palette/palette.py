@@ -520,53 +520,79 @@ def write_line(text: str = "", style: str = "") -> None:
     sys.stdout.write(f"{style}{text}\x1b[K{ESC}0m\r\n")
 
 
-def key_bindings_config_path() -> Path:
+def running_under_kitty() -> bool:
+    """Detect kitty as the host terminal of this Herdr pane.
+
+    Herdr panes inherit the environment of the terminal that started the
+    Herdr server. kitty does not set TERM_PROGRAM, so it is recognised by
+    the variables it does export into every child process.
+    """
+    return bool(os.environ.get("KITTY_WINDOW_ID") or os.environ.get("KITTY_PID"))
+
+
+def key_bindings_config_paths() -> list[Path]:
+    """Return the terminal config files that may carry palette hints.
+
+    The host terminal's files come first, so its key labels win when both
+    Ghostty and kitty are installed. kitty keeps its Herdr bindings in a
+    separate included file, so both kitty files are listed.
+    """
     explicit = os.environ.get("HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG")
     if explicit:
-        return Path(explicit).expanduser()
-    return xdg_config_home() / "ghostty" / "config"
+        return [Path(explicit).expanduser()]
+
+    config_home = xdg_config_home()
+    ghostty = [config_home / "ghostty" / "config"]
+    kitty = [
+        config_home / "kitty" / "herdr.conf",
+        config_home / "kitty" / "kitty.conf",
+    ]
+    if running_under_kitty():
+        return kitty + ghostty
+    return ghostty + kitty
 
 
 def load_key_binding_groups() -> list[tuple[str, list[tuple[str, str]]]]:
-    """Read palette keybinding hints from Ghostty config comments.
+    """Read palette keybinding hints from terminal config comments.
 
-    Hints use a deliberately simple inline format on keybind lines:
+    Ghostty and kitty are both supported. Hints use a deliberately simple
+    inline format on keybinding lines:
 
         # palette: Group | Key label | Description
 
     If no hints are found, return an empty list. The palette then omits the
     right-hand keybinding panel instead of falling back to hardcoded data.
     """
-    path = key_bindings_config_path()
-    if not path.exists():
-        return []
-
     groups: list[tuple[str, list[tuple[str, str]]]] = []
     group_index: dict[str, int] = {}
     seen: set[tuple[str, str, str]] = set()
-    try:
-        lines = path.read_text(errors="ignore").splitlines()
-    except OSError:
-        return []
 
-    for line in lines:
-        if "# palette:" not in line:
+    for path in key_bindings_config_paths():
+        if not path.exists():
             continue
-        hint = line.split("# palette:", 1)[1].strip()
-        parts = [part.strip() for part in hint.split("|", 2)]
-        if len(parts) != 3:
+        try:
+            lines = path.read_text(errors="ignore").splitlines()
+        except OSError:
             continue
-        group, key, description = parts
-        if not group or not key or not description:
-            continue
-        marker = (group, key, description)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        if group not in group_index:
-            group_index[group] = len(groups)
-            groups.append((group, []))
-        groups[group_index[group]][1].append((key, description))
+
+        for line in lines:
+            if "# palette:" not in line:
+                continue
+            hint = line.split("# palette:", 1)[1].strip()
+            parts = [part.strip() for part in hint.split("|", 2)]
+            if len(parts) != 3:
+                continue
+            group, key, description = parts
+            if not group or not key or not description:
+                continue
+            marker = (group, key, description)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            if group not in group_index:
+                group_index[group] = len(groups)
+                groups.append((group, []))
+            groups[group_index[group]][1].append((key, description))
     return groups
 
 

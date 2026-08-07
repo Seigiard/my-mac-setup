@@ -16,6 +16,7 @@ setup() {
   refute_output --partial ".hammerspoon"
   refute_output --partial "Library"
   refute_output --partial ".config/ghostty"
+  refute_output --partial ".config/kitty"
   refute_output --partial ".config/karabiner"
   refute_output --partial ".config/zed"
 }
@@ -25,6 +26,7 @@ setup() {
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
   assert_output --partial ".hammerspoon"
   assert_output --partial ".config/ghostty"
+  assert_output --partial ".config/kitty"
   assert_output --partial ".config/karabiner"
   assert_output --partial ".config/zed"
 }
@@ -46,4 +48,9 @@ setup() {
 @test "ghostty config absent on Linux" {
   is_linux || skip "Only relevant on Linux"
   assert_dir_not_exists "$HOME/.config/ghostty"
+}
+
+@test "kitty config absent on Linux" {
+  is_linux || skip "Only relevant on Linux"
+  assert_dir_not_exists "$HOME/.config/kitty"
 }

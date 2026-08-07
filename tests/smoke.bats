@@ -252,6 +252,75 @@ TOML
   assert_dir_exists "$HOME/.config/ghostty"
 }
 
+@test "kitty config exists (macOS only)" {
+  is_macos || skip "Not on macOS"
+  assert_dir_exists "$HOME/.config/kitty"
+  assert_file_exists "$HOME/.config/kitty/kitty.conf"
+  assert_file_exists "$HOME/.config/kitty/herdr.conf"
+}
+
+@test "kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)" {
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/kitty.conf"
+  assert_file_contains "$config" "^include herdr.conf$"
+  assert_file_contains "$config" "^include Alabaster.conf$"
+}
+
+@test "kitty font family is one kitty accepts as monospaced (macOS only)" {
+  is_macos || skip "Not on macOS"
+  # kitty rejects the non-Mono "IosevkaTerm Nerd Font" that ghostty uses and
+  # falls back to Menlo without failing, so pin the Mono family explicitly.
+  assert_file_contains "$HOME/.config/kitty/kitty.conf" \
+    "^font_family  *IosevkaTerm Nerd Font Mono$"
+}
+
+@test "kitty auto-launches herdr without exec'ing it (macOS only)" {
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  # Detaching from herdr must return to a plain login shell, so herdr is run
+  # as a normal command and the shell is exec'd afterwards.
+  assert_file_contains "$config" "^shell /bin/zsh -lc .*herdr"
+  assert_file_contains "$config" "^shell /bin/zsh -lc .*exec /bin/zsh -l"
+}
+
+@test "kitty sends the herdr prefix for macOS-style shortcuts (macOS only)" {
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  # \x02 is herdr's ctrl+b prefix; these must match the ghostty keybindings.
+  assert_file_contains "$config" 'cmd+t send_text all .x02c$'
+  assert_file_contains "$config" 'cmd+d send_text all .x02v$'
+  assert_file_contains "$config" 'cmd+w send_text all .x02x$'
+  assert_file_contains "$config" 'ctrl+shift+1 send_text all .x1b\[49;6u$'
+  assert_file_contains "$config" '^map shift+alt+left send_text all .x1b\[1;4D$'
+}
+
+@test "kitty herdr bindings survive a non-Latin keyboard layout (macOS only)" {
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  # Without --allow-fallback=shifted,ascii kitty drops a letter-key override
+  # from the physical-key lookup on a non-Latin layout, and its own built-in
+  # action fires instead: cmd+t would open a kitty tab, not a herdr tab.
+  # This is the kitty counterpart of ghostty's cmd+KeyT physical-key syntax.
+  assert_file_contains "$config" \
+    "^map --allow-fallback=shifted,ascii cmd+t send_text all "
+  assert_file_contains "$config" \
+    "^map --allow-fallback=shifted,ascii ctrl+shift+h send_text all "
+  # Every letter, digit and bracket binding needs the flag. Arrow, Tab and
+  # Enter keys do not, because the keyboard layout does not change them.
+  local risky
+  risky=$(grep '^map [^-]' "$config" \
+    | grep ' send_text ' \
+    | grep -vE '[+ ](enter|tab|left|right|up|down) send_text ' || true)
+  [ -z "$risky" ] || fail "bindings missing --allow-fallback: $risky"
+}
+
+@test "kitty carries command-palette hints for the herdr plugin (macOS only)" {
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  assert_file_contains "$config" "^# palette: Tabs & workspaces | ⌘T | New tab$"
+  assert_file_contains "$config" "^# palette: Panes | ⌘D | Split right$"
+}
+
 @test "karabiner config exists (macOS only)" {
   is_macos || skip "Not on macOS"
   assert_dir_exists "$HOME/.config/karabiner"

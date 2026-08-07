@@ -86,6 +86,7 @@ home/
 │   │   ├── Brewfile          # Cross-platform CLI tools
 │   │   └── Brewfile.macos    # macOS apps and casks
 │   ├── ghostty/
+│   ├── kitty/                # kitty.conf + herdr.conf (herdr integration)
 │   ├── karabiner/
 │   └── yazi/
 ├── dot_zshrc.tmpl            # Uses 1Password for API keys
