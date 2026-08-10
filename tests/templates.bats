@@ -120,3 +120,38 @@ teardown() {
   run render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
   refute_output --partial "/opt/homebrew"
 }
+
+# ===========================================
+# private_settings.json.tmpl (Claude Code settings)
+# ===========================================
+
+@test "private_settings.json.tmpl renders valid JSON" {
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+  if command_exists jq; then
+    run jq empty "$BATS_TEST_TMPFILE"
+  elif command_exists python3; then
+    run python3 -m json.tool "$BATS_TEST_TMPFILE"
+  elif command_exists node; then
+    run node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$BATS_TEST_TMPFILE"
+  else
+    skip "no JSON parser available (jq/python3/node)"
+  fi
+  assert_success
+}
+
+@test "private_settings.json.tmpl renders the task-sync hook on all three events" {
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+  assert_file_contains "$BATS_TEST_TMPFILE" '"UserPromptSubmit"'
+  assert_file_contains "$BATS_TEST_TMPFILE" '"PreCompact"'
+  run grep -c "herdr-task-sync-hook.sh" "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output "3"
+}
+
+@test "private_settings.json.tmpl has no unresolved template markers" {
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+  assert_no_template_markers "$BATS_TEST_TMPFILE"
+}

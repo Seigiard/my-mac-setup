@@ -1,0 +1,367 @@
+#!/usr/bin/env bash
+# herdr-task-sync — name the herdr pane after the coding-agent session's task.
+#
+# Adapters (the Claude Code hook, the pi extension, the opencode plugin) call
+# this script with the submitted prompt on stdin. It returns immediately and
+# lets a detached worker do the slow part: ask a naming model for a short
+# English slug and publish it as the pane's `task` metadata token, which the
+# herdr agents sidebar renders under the agent row.
+#
+# Usage:
+#   herdr-task-sync --agent <name> --session <id> [--pane <id>]
+#                   [--transcript <path>] [--set <name>]
+#
+#   --set <name>   publish <name> directly (normalized, no model call)
+#   --transcript   derive the naming context from a Claude Code JSONL
+#                  transcript instead of stdin (session start / pre-compact)
+#
+# Environment overrides:
+#   HERDR_TASK_SYNC_PI_MODEL, HERDR_TASK_SYNC_CLAUDE_MODEL,
+#   HERDR_TASK_SYNC_TIMEOUT (seconds per engine), HERDR_TASK_SYNC_STATE_DIR
+#
+# Nothing here may fail loudly: every guard exits 0 so an agent never breaks
+# because naming is unavailable.
+
+set -uo pipefail
+
+STATE_DIR="${HERDR_TASK_SYNC_STATE_DIR:-$HOME/.cache/herdr-task-sync}"
+ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"
+PI_MODEL="${HERDR_TASK_SYNC_PI_MODEL:-openai-codex/gpt-5.4-mini}"
+CLAUDE_MODEL="${HERDR_TASK_SYNC_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
+STATE_MAX_AGE_DAYS=14
+SOURCE_ID="task-sync"
+SLUG_MAX_LEN=40
+# R4 asks for 2-4 words. A wordier answer is prose, not a name — an engine that
+# explains itself instead of naming the session counts as a failed call, so the
+# chain advances rather than putting a sentence in the sidebar.
+SLUG_MAX_WORDS=5
+
+agent=""
+session=""
+pane="${HERDR_PANE_ID:-}"
+transcript=""
+set_name=""
+seq=""
+worker_mode=0
+prompt_file=""
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: herdr-task-sync --agent <name> --session <id> [--pane <id>]
+                       [--transcript <path>] [--set <name>]
+The prompt is read from stdin.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --agent) agent="${2:-}"; shift 2 ;;
+    --session) session="${2:-}"; shift 2 ;;
+    --pane) pane="${2:-}"; shift 2 ;;
+    --transcript) transcript="${2:-}"; shift 2 ;;
+    --set) set_name="${2:-}"; shift 2 ;;
+    --seq) seq="${2:-}"; shift 2 ;;
+    --prompt-file) prompt_file="${2:-}"; shift 2 ;;
+    --worker) worker_mode=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) shift ;;
+  esac
+done
+
+# ---------------------------------------------------------------- utilities
+
+# Bound LLM output before it reaches the --token argument and the sidebar:
+# lowercase, keep [a-z0-9-] only, collapse runs, trim, cap the length.
+normalize_slug() {
+  LC_ALL=C printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed -e 's/--*/-/g' -e 's/^-//' -e 's/-$//' \
+    | cut -c "1-$SLUG_MAX_LEN" \
+    | sed -e 's/-$//'
+}
+
+first_nonempty_line() {
+  printf '%s\n' "$1" | sed -e 's/\r$//' | grep -m1 '[^[:space:]]' || true
+}
+
+slug_word_count() {
+  printf '%s' "$1" | tr '-' '\n' | grep -c '.' || true
+}
+
+# A microsecond stamp so a newer prompt's worker wins the pane even when an
+# older worker's model call finishes later (herdr keeps the highest --seq).
+now_seq() {
+  if command -v python3 >/dev/null 2>&1; then
+    local value
+    value="$(python3 -c 'import time; print(int(time.time()*1000000))' 2>/dev/null)"
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  fi
+  printf '%s000000' "$(date +%s)"
+}
+
+sanitize_key() {
+  LC_ALL=C printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-64
+}
+
+state_file_path() {
+  printf '%s/%s.state' "$STATE_DIR" \
+    "$(sanitize_key "${agent}-${pane}-${session}")"
+}
+
+# Run a command with the prompt on stdin under a hard timeout. macOS ships no
+# coreutils `timeout`, so a watchdog subshell SIGKILLs the engine on expiry.
+run_with_timeout() {
+  local secs="$1" infile="$2" outfile="$3"
+  shift 3
+  "$@" <"$infile" >"$outfile" 2>/dev/null &
+  local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" ) >/dev/null 2>&1 &
+  local watchdog=$!
+  local rc=0
+  wait "$pid" || rc=$?
+  kill "$watchdog" >/dev/null 2>&1
+  wait "$watchdog" 2>/dev/null
+  return "$rc"
+}
+
+# ------------------------------------------------------------------- guards
+
+# Every entry point exits silently outside herdr, so the same files apply on
+# Linux/CI without a .chezmoiignore rule.
+[ "${HERDR_ENV:-}" = "1" ] || exit 0
+# Recursion guard: a naming call that itself fires agent hooks must not spawn
+# another worker.
+[ -z "${HERDR_TASK_SYNC_ACTIVE:-}" ] || exit 0
+[ -n "$pane" ] || exit 0
+[ -n "$agent" ] || exit 0
+command -v herdr >/dev/null 2>&1 || exit 0
+
+# ------------------------------------------------------------------- worker
+
+read_state_field() {
+  local file="$1" key="$2" encoded
+  [ -f "$file" ] || return 0
+  encoded="$(grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2-)"
+  [ -n "$encoded" ] || return 0
+  printf '%s' "$encoded" | base64 -d 2>/dev/null || true
+}
+
+write_state() {
+  local file="$1" slug="$2" first="$3" latest="$4"
+  {
+    printf 'slug=%s\n' "$(printf '%s' "$slug" | base64 | tr -d '\n')"
+    printf 'first_prompt=%s\n' "$(printf '%s' "$first" | base64 | tr -d '\n')"
+    printf 'latest_prompt=%s\n' "$(printf '%s' "$latest" | base64 | tr -d '\n')"
+  } >"$file" 2>/dev/null
+}
+
+publish() {
+  herdr pane report-metadata "$pane" \
+    --source "$SOURCE_ID" \
+    --token "task=$1" \
+    --seq "$seq" >/dev/null 2>&1
+}
+
+# Claude Code writes one JSON object per line. Keep user entries that carry
+# real prose: drop meta entries, tool results, and slash-command envelopes.
+transcript_user_entries() {
+  local path="$1"
+  [ -f "$path" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -r '
+    select(.type == "user")
+    | select(.isMeta != true)
+    | select(.agent_id == null)
+    | .message.content
+    | if type == "string" then .
+      elif type == "array" then (map(select(.type == "text") | .text) | join("\n"))
+      else empty end
+  ' "$path" 2>/dev/null \
+    | grep -v '^[[:space:]]*$' \
+    | grep -v '^<' \
+    | grep -v '^Caveat:' \
+    || true
+}
+
+build_naming_prompt() {
+  local previous="$1" first="$2" latest="$3"
+  cat <<EOF
+You name coding-agent sessions for a sidebar. Answer with the name only.
+
+Output rules:
+- 2 to 4 English words, lowercase, hyphen-separated, for example: cache-review
+- no quotes, no punctuation, no explanation, no extra lines
+
+Naming rules:
+- Name the session's overall task, not the newest message.
+- If the overall task has not changed, repeat the current name exactly.
+- Acknowledgements and continuations ("continue", "продолжай", "да", "ok",
+  "go on", "yes") never change the name.
+- Change the name only when the session starts a different piece of work.
+- With no current name, name the session from its first task.
+
+Current name: ${previous:-(none)}
+
+First prompt of the session:
+${first:-(none)}
+
+Latest prompt:
+${latest:-(none)}
+EOF
+}
+
+# The naming engine chain, isolated in one function per KTD1: one-shot pi
+# first (faster and cheaper), then claude with a haiku-class model, then
+# nothing. Prompts always travel on stdin, never as argv.
+call_engine_chain() {
+  local naming_prompt="$1"
+  local infile outfile raw candidate
+  infile="$(mktemp "${TMPDIR:-/tmp}/herdr-task-sync-in.XXXXXX")" || return 1
+  outfile="$(mktemp "${TMPDIR:-/tmp}/herdr-task-sync-out.XXXXXX")" || {
+    rm -f "$infile"
+    return 1
+  }
+  printf '%s\n' "$naming_prompt" >"$infile"
+
+  export HERDR_TASK_SYNC_ACTIVE=1
+  cd "${TMPDIR:-/tmp}" 2>/dev/null || true
+
+  if command -v pi >/dev/null 2>&1; then
+    if run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
+      pi -p --model "$PI_MODEL" --thinking off \
+      --no-tools --no-session --no-extensions --no-skills \
+      --no-context-files --no-prompt-templates; then
+      raw="$(cat "$outfile" 2>/dev/null)"
+      candidate="$(normalize_slug "$(first_nonempty_line "$raw")")"
+      if [ -n "$candidate" ] && [ "$(slug_word_count "$candidate")" -le "$SLUG_MAX_WORDS" ]; then
+        rm -f "$infile" "$outfile"
+        printf '%s' "$candidate"
+        return 0
+      fi
+    fi
+  fi
+
+  if command -v claude >/dev/null 2>&1; then
+    if run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
+      claude -p --model "$CLAUDE_MODEL"; then
+      raw="$(cat "$outfile" 2>/dev/null)"
+      candidate="$(normalize_slug "$(first_nonempty_line "$raw")")"
+      if [ -n "$candidate" ] && [ "$(slug_word_count "$candidate")" -le "$SLUG_MAX_WORDS" ]; then
+        rm -f "$infile" "$outfile"
+        printf '%s' "$candidate"
+        return 0
+      fi
+    fi
+  fi
+
+  rm -f "$infile" "$outfile"
+  return 1
+}
+
+run_worker() {
+  local prompt="" file previous first latest naming_prompt slug
+
+  if [ -n "$prompt_file" ] && [ -f "$prompt_file" ]; then
+    prompt="$(cat "$prompt_file" 2>/dev/null)"
+    rm -f "$prompt_file"
+  fi
+
+  mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+  chmod 700 "$STATE_DIR" 2>/dev/null
+  umask 077
+  find "$STATE_DIR" -type f -name '*.state' -mtime "+$STATE_MAX_AGE_DAYS" -delete 2>/dev/null
+  # Prompt hand-off files outlive only a worker that died before reading them.
+  find "$STATE_DIR" -type f -name 'prompt.*' -mtime +1 -delete 2>/dev/null
+
+  file="$(state_file_path)"
+
+  # --set is the pi session-name seed: publish it as given, no model call.
+  if [ -n "$set_name" ]; then
+    slug="$(normalize_slug "$set_name")"
+    [ -n "$slug" ] || exit 0
+    write_state "$file" "$slug" "$(read_state_field "$file" first_prompt)" \
+      "$(read_state_field "$file" latest_prompt)"
+    publish "$slug"
+    exit 0
+  fi
+
+  if [ -z "$(printf '%s' "$prompt" | tr -d '[:space:]')" ] && [ -n "$transcript" ]; then
+    # Transcript mode (session start, resume, pre-compact): the naming context
+    # comes from the transcript's substantive user entries, not from stdin.
+    local entries
+    entries="$(transcript_user_entries "$transcript")"
+    [ -n "$entries" ] || exit 0
+    first="$(printf '%s\n' "$entries" | head -1)"
+    latest="$(printf '%s\n' "$entries" | tail -1)"
+  else
+    # KTD6's only local filter: an empty or whitespace-only prompt.
+    [ -n "$(printf '%s' "$prompt" | tr -d '[:space:]')" ] || exit 0
+    first="$(read_state_field "$file" first_prompt)"
+    [ -n "$first" ] || first="$prompt"
+    latest="$prompt"
+  fi
+
+  previous="$(read_state_field "$file" slug)"
+
+  naming_prompt="$(build_naming_prompt "$previous" "$first" "$latest")"
+  slug="$(call_engine_chain "$naming_prompt")" || slug=""
+
+  # An exhausted chain publishes nothing: the previous slug stays and the
+  # sidebar never shows a stale error.
+  [ -n "$slug" ] || exit 0
+
+  write_state "$file" "$slug" "$first" "$latest"
+  publish "$slug"
+  exit 0
+}
+
+if [ "$worker_mode" -eq 1 ]; then
+  run_worker
+  exit 0
+fi
+
+# -------------------------------------------------------------- entry point
+
+# A new session id must reset the stored context, so the state file is keyed by
+# pane id plus session id and a fresh key simply starts empty.
+[ -n "$session" ] || session="unknown"
+
+prompt=""
+if [ ! -t 0 ]; then
+  prompt="$(cat 2>/dev/null)"
+fi
+
+if [ -z "$set_name" ] && [ -z "$transcript" ] &&
+  [ -z "$(printf '%s' "$prompt" | tr -d '[:space:]')" ]; then
+  exit 0
+fi
+
+seq="$(now_seq)"
+
+self="$0"
+case "$self" in
+  */*) ;;
+  *) self="$(command -v "$self" 2>/dev/null)" ;;
+esac
+[ -n "$self" ] || exit 0
+
+mkdir -p "$STATE_DIR" 2>/dev/null
+chmod 700 "$STATE_DIR" 2>/dev/null
+prompt_file="$(umask 077; mktemp "$STATE_DIR/prompt.XXXXXX" 2>/dev/null)" || exit 0
+printf '%s' "$prompt" >"$prompt_file" 2>/dev/null
+
+# Hand the slow part to a detached worker so prompt handling, agent startup,
+# and shutdown never wait on a model call.
+# `bash "$self"` rather than "$self": the worker must start even when the file
+# has no execute bit (a chezmoi source checkout, or a test running it in place).
+nohup bash "$self" --worker \
+  --agent "$agent" --session "$session" --pane "$pane" \
+  --transcript "$transcript" --set "$set_name" \
+  --seq "$seq" --prompt-file "$prompt_file" \
+  </dev/null >/dev/null 2>&1 &
+
+exit 0

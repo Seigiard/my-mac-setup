@@ -670,3 +670,56 @@ se_fixture_repo() {
   assert_output "$tmp/parent/.smithers/smithers.db"
   rm -rf "$tmp"
 }
+
+# ===========================================
+# herdr task sync (engine, adapters, sidebar)
+# ===========================================
+
+@test "herdr-task-sync engine is deployed and executable" {
+  assert_file_exists "$HOME/.local/bin/herdr-task-sync"
+  assert_file_executable "$HOME/.local/bin/herdr-task-sync"
+}
+
+@test "herdr-task-sync Claude Code hook is deployed and executable" {
+  assert_file_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+  assert_file_executable "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+}
+
+@test "claude settings wire the task-sync hook to prompt, session, and compact" {
+  local settings="$HOME/.claude/settings.json"
+  assert_file_exists "$settings"
+  run python3 - "$settings" <<'PY'
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]
+for event, action in (("UserPromptSubmit", "prompt"),
+                      ("SessionStart", "session"),
+                      ("PreCompact", "compact")):
+    commands = [h["command"] for entry in hooks[event] for h in entry["hooks"]]
+    matching = [c for c in commands if "herdr-task-sync-hook.sh" in c]
+    assert len(matching) == 1, (event, commands)
+    assert matching[0].endswith(f"' {action}"), (event, matching[0])
+PY
+  assert_success
+}
+
+@test "herdr-task-sync pi extension is deployed beside herdr's own" {
+  local ext="$HOME/.pi/agent/extensions/herdr-task-sync.ts"
+  assert_file_exists "$ext"
+  assert_file_contains "$ext" 'before_agent_start'
+  assert_file_contains "$ext" 'session_start'
+  assert_file_contains "$ext" 'getSessionName'
+}
+
+@test "herdr-task-sync opencode plugin is deployed and filters child sessions" {
+  local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
+  assert_file_exists "$plugin"
+  assert_file_contains "$plugin" 'chat.message'
+  # Static stand-in for AE4: subagent messages must not rename the pane.
+  assert_file_contains "$plugin" 'parentID'
+}
+
+@test "herdr agents sidebar renders the task token" {
+  local config="$HOME/.config/herdr/config.toml"
+  assert_file_contains "$config" '^\[ui.sidebar.agents\]'
+  assert_file_contains "$config" '\$task'
+}

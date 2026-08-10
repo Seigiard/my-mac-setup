@@ -46,6 +46,12 @@ description = "close pane, then tab, but keep workspace"
 [ui]
 prompt_new_tab_name = false
 
+# $task is a custom token fed from pane metadata, published by herdr-task-sync
+# (~/.local/bin/herdr-task-sync). A pane with no task name yet renders the row
+# empty.
+[ui.sidebar.agents]
+rows = [["state_icon", "agent"], ["$task"]]
+
 [ui.toast]
 delivery = "system"   # off | herdr | terminal | system
 delay_seconds = 1

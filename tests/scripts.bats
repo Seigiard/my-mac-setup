@@ -5,6 +5,7 @@ load 'helpers/common'
 teardown() {
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${PAIR_COWORKERS:-}" ]] && rm -rf "$PAIR_COWORKERS" || true
+  [[ -n "${HTS_WORK:-}" ]] && rm -rf "$HTS_WORK" || true
 }
 
 # ===========================================
@@ -636,6 +637,404 @@ assert "mcp__fff__grep" in matchers, matchers.keys()
 assert "WebFetch" in matchers, matchers.keys()
 assert "fff-grep-guard.sh" in matchers["mcp__fff__grep"]["hooks"][0]["command"]
 assert "webfetch-markdown-hint.sh" in matchers["WebFetch"]["hooks"][0]["command"]
+PY
+  assert_success
+}
+
+# ===========================================
+# herdr-task-sync engine
+# ===========================================
+
+HTS_ENGINE="$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync"
+
+# Build a sandbox with a stub `herdr` that records its argv. PATH is pinned to
+# the stub directory plus the system directories, so a real `pi` or `claude`
+# outside them can never be reached: a missing engine is then a property of the
+# test, not of the machine that runs it.
+hts_setup() {
+  HTS_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hts.XXXXXX")"
+  HTS_STUB="$HTS_WORK/stub"
+  HTS_STATE="$HTS_WORK/state"
+  HTS_LOG="$HTS_WORK/herdr.log"
+  mkdir -p "$HTS_STUB" "$HTS_STATE"
+  : > "$HTS_LOG"
+  cat > "$HTS_STUB/herdr" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$HTS_LOG"
+SH
+  chmod +x "$HTS_STUB/herdr"
+  # jq lives outside /usr/bin on Homebrew installs (macOS and the Linux test
+  # container alike), so link it in rather than widening the pinned PATH — a
+  # wider PATH would also expose the real pi and claude.
+  local jq_bin
+  jq_bin="$(command -v jq 2>/dev/null || true)"
+  [[ -n "$jq_bin" ]] && ln -s "$jq_bin" "$HTS_STUB/jq"
+  return 0
+}
+
+# $1 = binary name, $2 = text printed on stdout, $3 = exit code, $4 = sleep seconds
+hts_stub_engine() {
+  cat > "$HTS_STUB/$1" <<SH
+#!/usr/bin/env bash
+cat > "$HTS_WORK/$1-stdin.txt"
+sleep ${4:-0}
+printf '%s\n' '$2'
+exit ${3:-0}
+SH
+  chmod +x "$HTS_STUB/$1"
+}
+
+hts_run() {
+  env PATH="$HTS_STUB:/usr/bin:/bin" \
+    HERDR_ENV=1 \
+    HERDR_PANE_ID=pane-1 \
+    HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    bash "$HTS_ENGINE" "$@"
+}
+
+hts_wait_for_publish() {
+  local i
+  for i in $(seq 1 60); do
+    [[ -s "$HTS_LOG" ]] && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+hts_token() {
+  sed -n 's/.*--token task=\([^ ]*\).*/\1/p' "$HTS_LOG" | tail -1
+}
+
+hts_state_file() {
+  printf '%s/%s.state' "$HTS_STATE" "$1"
+}
+
+hts_state_field() {
+  grep -m1 "^${2}=" "$1" | cut -d= -f2- | base64 -d
+}
+
+@test "herdr-task-sync passes bash syntax check" {
+  run bash -n "$HTS_ENGINE"
+  assert_success
+}
+
+@test "herdr-task-sync stays silent outside herdr" {
+  hts_setup
+  hts_stub_engine pi never-used 0 0
+  run env -u HERDR_ENV PATH="$HTS_STUB:/usr/bin:/bin" \
+    HERDR_PANE_ID=pane-1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    bash "$HTS_ENGINE" --agent claude --session s1 <<< 'review the cache layer'
+  assert_success
+  sleep 2
+  assert_equal "$(cat "$HTS_LOG")" ""
+}
+
+@test "herdr-task-sync publishes the engine slug and stores it (R4, R7)" {
+  hts_setup
+  hts_stub_engine pi cache-review 0 0
+  run hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  assert_success
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" "cache-review"
+  local state; state="$(hts_state_file claude-pane-1-s1)"
+  assert_file_exists "$state"
+  assert_equal "$(hts_state_field "$state" slug)" "cache-review"
+  assert_equal "$(hts_state_field "$state" first_prompt)" "review the cache layer please"
+}
+
+# AE1: a continuation prompt must not rename the session. The model decides
+# stability (KTD6), so the stub stands in for a model that repeats the name.
+@test "herdr-task-sync keeps the slug on a continuation prompt (AE1)" {
+  hts_setup
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_publish
+  : > "$HTS_LOG"
+  hts_run --agent claude --session s1 <<< 'продолжай'
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" "cache-review"
+  # The naming call sees the session's first prompt, not only the newest one.
+  run cat "$HTS_WORK/pi-stdin.txt"
+  assert_output --partial "Current name: cache-review"
+  assert_output --partial "review the cache layer please"
+}
+
+# AE3: with no usable naming engine the pane keeps whatever it had.
+@test "herdr-task-sync publishes nothing when no engine is usable (AE3, R5)" {
+  hts_setup
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_publish
+  local state before
+  state="$(hts_state_file claude-pane-1-s1)"
+  before="$(cat "$state")"
+
+  rm -f "$HTS_STUB/pi"
+  : > "$HTS_LOG"
+  run hts_run --agent claude --session s1 <<< 'now fix the flaky login test'
+  assert_success
+  sleep 2
+  assert_equal "$(cat "$HTS_LOG")" ""
+  assert_equal "$(cat "$state")" "$before"
+}
+
+@test "herdr-task-sync resets the stored context on a new session id" {
+  hts_setup
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_publish
+  : > "$HTS_LOG"
+  hts_run --agent claude --session s2 <<< 'now fix the flaky login test'
+  hts_wait_for_publish
+  local state; state="$(hts_state_file claude-pane-1-s2)"
+  assert_equal "$(hts_state_field "$state" first_prompt)" "now fix the flaky login test"
+  run cat "$HTS_WORK/pi-stdin.txt"
+  assert_output --partial "Current name: (none)"
+}
+
+# R8: the adapter's call must not wait on the model.
+@test "herdr-task-sync returns before the naming engine finishes (R8)" {
+  hts_setup
+  hts_stub_engine pi late-slug 0 4
+  local start end
+  start="$(date +%s)"
+  run hts_run --agent claude --session s1 <<< 'a slow substantive prompt'
+  end="$(date +%s)"
+  assert_success
+  [[ $((end - start)) -le 2 ]] || fail "entry point blocked for $((end - start))s"
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" "late-slug"
+}
+
+# KTD8: the token reaching herdr and the sidebar is bounded whatever the model
+# returns — no shell metacharacters, no ANSI escapes, no newlines. The stub's
+# output normalizes to five hyphen-separated words, the engine's cap for a
+# published slug; wordier output is treated as a failed naming call instead.
+@test "herdr-task-sync normalizes a hostile engine slug (KTD8)" {
+  hts_setup
+  cat > "$HTS_STUB/pi" <<'SH'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '\n  cache $(touch /tmp/htspwn) \033[31mREVIEW\nsecond line\n'
+SH
+  chmod +x "$HTS_STUB/pi"
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_publish
+  run bash -c "printf '%s' '$(hts_token)' | grep -Eq '^[a-z0-9-]{1,40}\$'"
+  assert_success
+  assert_file_not_exists /tmp/htspwn
+}
+
+# KTD7: a naming call that fires the agent's own hooks must not recurse.
+@test "herdr-task-sync exits under the recursion guard (KTD7)" {
+  hts_setup
+  hts_stub_engine pi never-used 0 0
+  run env PATH="$HTS_STUB:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
+    HERDR_TASK_SYNC_ACTIVE=1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    bash "$HTS_ENGINE" --agent claude --session s1 <<< 'review the cache layer'
+  assert_success
+  sleep 2
+  assert_equal "$(cat "$HTS_LOG")" ""
+}
+
+# KTD1 chain order: pi first, claude second, then nothing.
+@test "herdr-task-sync falls back to claude when pi fails (KTD1)" {
+  hts_setup
+  hts_stub_engine pi '' 1 0
+  hts_stub_engine claude flaky-login-test 0 0
+  hts_run --agent claude --session s1 <<< 'now fix the flaky login test'
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" "flaky-login-test"
+}
+
+@test "herdr-task-sync publishes nothing when both engines time out (KTD1)" {
+  hts_setup
+  hts_stub_engine pi slow-one 0 5
+  hts_stub_engine claude slow-two 0 5
+  HTS_TIMEOUT=1 hts_run --agent claude --session s1 <<< 'a substantive prompt here'
+  sleep 6
+  assert_equal "$(cat "$HTS_LOG")" ""
+}
+
+@test "herdr-task-sync creates its state directory with mode 700 (KTD3)" {
+  hts_setup
+  rmdir "$HTS_STATE"
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_publish
+  run bash -c "ls -ld '$HTS_STATE' | cut -c1-10"
+  assert_output "drwx------"
+}
+
+# AE5: a resumed Claude Code session is named from its transcript, before any
+# prompt arrives.
+@test "herdr-task-sync names a session from its transcript (AE5)" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_stub_engine pi uploader-retry 0 0
+  local transcript="$HTS_WORK/transcript.jsonl"
+  {
+    printf '%s\n' '{"type":"user","isMeta":true,"message":{"role":"user","content":"<command-name>/init</command-name>"}}'
+    printf '%s\n' '{"type":"user","message":{"role":"user","content":"add retry logic to the uploader"}}'
+    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}'
+    printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"also add a test"}]}}'
+  } > "$transcript"
+  hts_run --agent claude --session s1 --transcript "$transcript" < /dev/null
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" "uploader-retry"
+  run cat "$HTS_WORK/pi-stdin.txt"
+  assert_output --partial "add retry logic to the uploader"
+  refute_output --partial "<command-name>"
+}
+
+@test "herdr-task-sync publishes nothing for an empty prompt without a transcript" {
+  hts_setup
+  hts_stub_engine pi never-used 0 0
+  run hts_run --agent claude --session s1 < /dev/null
+  assert_success
+  sleep 2
+  assert_equal "$(cat "$HTS_LOG")" ""
+}
+
+# AE6: the pi session-name seed path publishes without a model call.
+@test "herdr-task-sync --set publishes a normalized name with no engine call (AE6)" {
+  hts_setup
+  hts_stub_engine pi never-used 0 0
+  hts_run --agent pi --session pis1 --set 'Fix CI Flake!' < /dev/null
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" "fix-ci-flake"
+  local state; state="$(hts_state_file pi-pane-1-pis1)"
+  assert_equal "$(hts_state_field "$state" slug)" "fix-ci-flake"
+  assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
+}
+
+# ===========================================
+# herdr-task-sync Claude Code hook
+# ===========================================
+
+HTS_HOOK="$HOOKS_DIR/executable_herdr-task-sync-hook.sh"
+
+# Put a recording stub named `herdr-task-sync` on PATH so the hook's own
+# argument handling can be checked without running the real engine.
+hts_hook_setup() {
+  hts_setup
+  cat > "$HTS_STUB/herdr-task-sync" <<SH
+#!/usr/bin/env bash
+{ printf 'ARGS[%s]\n' "\$*"; printf 'STDIN[%s]\n' "\$(cat)"; } >> "$HTS_WORK/engine.log"
+SH
+  chmod +x "$HTS_STUB/herdr-task-sync"
+}
+
+hts_hook_run() {
+  env PATH="$HTS_STUB:/usr/bin:/bin" bash "$HTS_HOOK" "$@"
+}
+
+@test "herdr-task-sync hook passes bash syntax check" {
+  run bash -n "$HTS_HOOK"
+  assert_success
+}
+
+# Claude Code injects a UserPromptSubmit hook's stdout into the conversation,
+# so the hook must stay silent on every path. This one drives the real engine
+# with HERDR_ENV unset: the guard lives there, not in the hook.
+@test "herdr-task-sync hook stays silent and publishes nothing outside herdr" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # A copy, not a symlink: the source file is mode 644 and only chezmoi's
+  # `executable_` prefix makes the deployed engine executable.
+  cp "$HTS_ENGINE" "$HTS_STUB/herdr-task-sync"
+  chmod +x "$HTS_STUB/herdr-task-sync"
+  run env -u HERDR_ENV PATH="$HTS_STUB:/usr/bin:/bin" \
+    HERDR_PANE_ID=pane-1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    bash "$HTS_HOOK" prompt <<'EOF'
+{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/tmp/none.jsonl","prompt":"review the cache layer"}
+EOF
+  assert_success
+  assert_output ""
+  sleep 2
+  assert_equal "$(cat "$HTS_LOG")" ""
+}
+
+@test "herdr-task-sync hook writes nothing to stdout when the engine runs" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_hook_setup
+  run hts_hook_run prompt <<'EOF'
+{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/tmp/none.jsonl","prompt":"review the cache layer"}
+EOF
+  assert_success
+  assert_output ""
+}
+
+@test "herdr-task-sync hook forwards the prompt, session, and transcript" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_hook_setup
+  hts_hook_run prompt <<'EOF'
+{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/tmp/t.jsonl","prompt":"review the cache layer"}
+EOF
+  run cat "$HTS_WORK/engine.log"
+  assert_output --partial "--agent claude --session s1 --transcript /tmp/t.jsonl"
+  assert_output --partial "STDIN[review the cache layer]"
+}
+
+# KTD9: session start and pre-compact name the session from the transcript,
+# with no prompt on stdin.
+@test "herdr-task-sync hook calls transcript mode on session start and compact" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_hook_setup
+  hts_hook_run session <<'EOF'
+{"hook_event_name":"SessionStart","session_id":"s1","transcript_path":"/tmp/t.jsonl","source":"resume"}
+EOF
+  hts_hook_run compact <<'EOF'
+{"hook_event_name":"PreCompact","session_id":"s1","transcript_path":"/tmp/t.jsonl","trigger":"manual"}
+EOF
+  run cat "$HTS_WORK/engine.log"
+  assert_output --partial "--transcript /tmp/t.jsonl"
+  assert_output --partial "STDIN[]"
+  refute_output --partial "STDIN[review"
+}
+
+# agent_id is present only when a hook fires inside a subagent call, so the
+# pane's task name never follows subagent traffic (R3).
+@test "herdr-task-sync hook drops subagent traffic (R3)" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_hook_setup
+  run hts_hook_run prompt <<'EOF'
+{"hook_event_name":"UserPromptSubmit","session_id":"s1","agent_id":"agent-abc123","transcript_path":"/tmp/t.jsonl","prompt":"subagent prompt"}
+EOF
+  assert_success
+  assert_file_not_exists "$HTS_WORK/engine.log"
+}
+
+@test "herdr-task-sync hook survives malformed stdin" {
+  hts_hook_setup
+  run hts_hook_run prompt <<< 'not json at all'
+  assert_success
+  assert_output ""
+}
+
+@test "settings template wires the task-sync hook to all three events" {
+  skip_if_no_chezmoi
+  local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
+  BATS_TEST_TMPFILE="$(mktemp /tmp/claude-settings-XXXXXX.json)"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
+  run python3 - "$BATS_TEST_TMPFILE" <<'PY'
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]
+def commands(event):
+    return [h["command"] for entry in hooks[event] for h in entry["hooks"]]
+
+for event, action in (("UserPromptSubmit", "prompt"),
+                      ("SessionStart", "session"),
+                      ("PreCompact", "compact")):
+    matching = [c for c in commands(event) if "herdr-task-sync-hook.sh" in c]
+    assert len(matching) == 1, (event, commands(event))
+    assert matching[0].endswith(f"' {action}"), (event, matching[0])
+
+# UserPromptSubmit has no matcher support; the herdr agent-state SessionStart
+# hook must stay wired alongside the new one.
+assert all("matcher" not in e for e in hooks["UserPromptSubmit"]), hooks["UserPromptSubmit"]
+assert any("herdr-agent-state.sh" in c for c in commands("SessionStart")), commands("SessionStart")
 PY
   assert_success
 }
