@@ -216,6 +216,20 @@ TOML
   assert_file_exists "$HOME/.claude/CLAUDE.md"
 }
 
+@test "writing-style output style is deployed and enabled in settings" {
+  assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
+  run grep -q 'keep-coding-instructions: true' "$HOME/.claude/output-styles/writing-style.md"
+  assert_success
+  run grep -q '"outputStyle": "writing-style"' "$HOME/.claude/settings.json"
+  assert_success
+}
+
+@test "pi APPEND_SYSTEM.md points at the shared Writing style rules" {
+  assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
+  run grep -q 'Writing style' "$HOME/.pi/agent/APPEND_SYSTEM.md"
+  assert_success
+}
+
 @test "ask-agent skill is deployed" {
   assert_file_exists "$HOME/.claude/skills/ask-agent/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/ask.sh"

@@ -1,0 +1,7 @@
+---
+name: writing-style
+description: Delegates response style to the Writing style section of the global CLAUDE.md.
+keep-coding-instructions: true
+---
+
+The user's global instructions file (`~/.claude/CLAUDE.md`, loaded into context every session) contains a section titled "Writing style". Those rules define how every user-facing message must be written. Follow them exactly, in every reply, with no exception for short replies. When a rule there conflicts with any default preference for brevity, the Writing style rule wins: cut words, not technical facts.
