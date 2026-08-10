@@ -8,7 +8,7 @@ Not a command. This file holds the mechanics shared by the three-spell developme
 | ----------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `/divine`   | Gather everything relevant; narrate what is and what should become. No repo changes.                                    | The **divination** — a narrative HTML the user confirms              |
 | `/inscribe` | Write the approved divination into the product contracts; open the **inscription PR**; iterate until it matches theory. | Contract deltas in the inscription PR + the **inscription narrative** |
-| `/cast`     | Implement the inscription in real code via Codex sub-issue PRs auto-merged into the inscription branch; prove it live.  | The **demo** — walkthrough + discrepancy report vs the inscription    |
+| `/cast`     | Implement the inscription in real code via opencode sub-issue PRs auto-merged into the inscription branch; prove it live. | The **demo** — walkthrough + discrepancy report vs the inscription    |
 
 **The inscription PR lifecycle:** `/inscribe` opens it (base `main`, contracts only, green) and it **stays open**. `/cast` merges implementation PRs into its branch, so it grows into the single big PR carrying contracts + code. The **user** reviews that final PR with the demo and merges it — the only merge to `main` in the whole cycle. Merging to main deploys to prod; the cycle deliberately batches that into one reviewed moment.
 

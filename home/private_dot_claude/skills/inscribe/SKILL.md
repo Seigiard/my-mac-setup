@@ -42,18 +42,18 @@ Build the inscription narrative HTML (grimoire → artifact storage + HTML mecha
 - **Deferred deltas** — the explicit list `/cast` must produce, each with its expected artifact diff.
 - **Iteration ledger** — dated rounds: feedback → classification (rite of priors) → what changed and where any prior landed.
 
-## Step 4 — Frontier review pass (Codex)
+## Step 4 — Frontier review pass (opencode)
 
-Before presenting each substantive revision to the user, run the inscription past Codex on the **frontier tier** and fold in what survives your judgement. This is the deliberate, user-mandated exception to the terra-only Codex rule: frontier is allowed for exactly this review, never for implementation dispatches.
+Before presenting each substantive revision to the user, run the inscription past opencode on the **frontier tier** and fold in what survives your judgement. This is the deliberate, user-mandated exception to the terra-only opencode rule (implementation dispatches stay on `openai/gpt-5.6-terra`): frontier is allowed for exactly this review, never for implementation dispatches.
 
 ```bash
-codex exec -C <inscription worktree> -s read-only \
-  -m gpt-5.6-sol \
-  -i <screenshot1.png> -i <screenshot2.png> ... \
-  "<review prompt>" < /dev/null
+opencode run --dir <inscription worktree> \
+  -m openai/gpt-5.6-sol \
+  -f <screenshot1.png> -f <screenshot2.png> ... \
+  "<review prompt>"
 ```
 
-Always redirect stdin or Codex blocks on "Reading additional input…". If the frontier slug has rotated off `gpt-5.6-sol`, use the current frontier model and note the new slug in your report. Hand it exactly what the user gets, each named with its path: the narrative HTML (plus **every screenshot as a real PNG via repeated `-i` flags** — inlined base64 is opaque to a model), the divination source, the branch name with instructions to read the actual diff (`git diff origin/main...<branch>`). Ask for numbered findings with severity, judged as a *contract* review: wrong/missing/inconsistent deltas; decisions left to implementer discretion; deferred deltas that could land now; incoherence between the narrative and the diff; deploy risks the inscription doesn't carry. Tell it explicitly to challenge decisions, not restyle prose. Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "Codex frontier review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
+opencode has no hard read-only mode in a headless run — open the review prompt with an explicit instruction: review only, do not edit, write, create, or delete anything; and run **without** `--auto`, so an attempted edit dies on the permission gate instead of landing. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report. Hand it exactly what the user gets, each named with its path: the narrative HTML (plus **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to a model), the divination source, the branch name with instructions to read the actual diff (`git diff origin/main...<branch>`). Ask for numbered findings with severity, judged as a *contract* review: wrong/missing/inconsistent deltas; decisions left to implementer discretion; deferred deltas that could land now; incoherence between the narrative and the diff; deploy risks the inscription doesn't carry. Tell it explicitly to challenge decisions, not restyle prose. Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "frontier review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
 
 ## Step 5 — Iterate with the user
 
