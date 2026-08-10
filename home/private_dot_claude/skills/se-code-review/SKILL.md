@@ -50,7 +50,7 @@ Never invoke bare `se-code-review` from here — that is this wrapper.
 
 ## Phase 4: Collect external reports
 
-After the local review returns, wait for the background harness task. Cap the wait at ~60 min — the harness's own worst case is a single 45-min attempt on the claude leg (retries=0), plus smithers reap lag on a timed-out attempt (observed +13 min on run 46dec4cf); past the cap, treat the harness as hung and its reports as failed. Then read the report path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error). Each report is the plugin's `mode:agent` JSON (`status`, `verdict`, `findings[]`, `actionable_findings[]`, …); a report with `"status": "failed"` / `"degraded"` / `"skipped"` counts as that agent's honest result, not a harness failure.
+After the local review returns, wait for the background harness task. Cap the wait at ~65 min — the harness's own worst case is 2 attempts × 25-min timeout on the opencode leg (the claude leg is a single 45-min attempt, retries=0), plus smithers reap lag on a timed-out attempt (observed +13 min on run 46dec4cf); past the cap, treat the harness as hung and its reports as failed. Then read the report path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error). Each report is the plugin's `mode:agent` JSON (`status`, `verdict`, `findings[]`, `actionable_findings[]`, …); a report with `"status": "failed"` / `"degraded"` / `"skipped"` counts as that agent's honest result, not a harness failure.
 
 ## Phase 5: Synthesize the three reports
 

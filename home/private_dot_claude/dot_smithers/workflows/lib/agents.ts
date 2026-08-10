@@ -80,10 +80,13 @@ export const AGENT_PROFILES = {
     maxBudgetUsd: 15,
     retries: 1,
   },
-  // Opencode finishes in 3-6 min and is cheap — a retry is affordable.
+  // Opencode usually finishes in 3-7.5 min and is cheap — a retry is
+  // affordable. A 15-min cap killed a still-streaming attempt 1 second before
+  // its last event (run c334e5f2), doubling the leg's wall clock — hence 25
+  // min; the 10-min idle threshold still catches genuine stalls.
   opencodeReview: {
     model: "openai/gpt-5.5",
-    timeoutMs: 15 * 60_000,
+    timeoutMs: 25 * 60_000,
     idleTimeoutMs: 10 * 60_000,
     retries: 1,
   },

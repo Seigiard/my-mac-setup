@@ -49,7 +49,7 @@ Never invoke bare `se-doc-review` from here — that is this wrapper.
 
 ## Phase 4: Collect external envelopes
 
-After the local review returns, wait for the background harness task. Cap the wait at ~55 min — the harness's own worst case is 2 attempts × 25-min per-attempt timeout on the claude leg (opencode: 2 × 15 min), so it always exits before that; past the cap, treat the harness as hung and its envelopes as failed. Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
+After the local review returns, wait for the background harness task. Cap the wait at ~65 min — the harness's own worst case is 2 attempts × 25-min per-attempt timeout on either leg (claude and opencode both cap at 25 min), plus smithers reap lag on a timed-out attempt (observed +13 min on run 46dec4cf); past the cap, treat the harness as hung and its envelopes as failed. Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
 
 ## Phase 5: Synthesize the three envelopes
 
