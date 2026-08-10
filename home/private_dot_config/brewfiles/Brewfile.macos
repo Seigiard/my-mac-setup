@@ -2,12 +2,12 @@
 
 # Third-party taps (declare before their formulas; trusted so `brew bundle`
 # will install formulas from them on a clean machine)
-tap "lazywalker/rgrc", trusted: true
+tap "lazywalker/tap", trusted: true
 tap "schpet/tap", trusted: true
 
 # CLI tools (macOS only)
 brew "elio"         # terminal file manager (theme synced under Library/)
-brew "lazywalker/rgrc/rgrc"
+brew "lazywalker/tap/rgrc"
 brew "terminal-notifier"
 brew "schpet/tap/linear"
 
