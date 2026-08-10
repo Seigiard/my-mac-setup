@@ -50,7 +50,7 @@ prompt_new_tab_name = false
 # (~/.local/bin/herdr-task-sync). A pane with no task name yet renders the row
 # empty.
 [ui.sidebar.agents]
-rows = [["state_icon", "agent"], ["$task"]]
+rows = [["state_icon", "workspace", "tab"], ["agent", "$task"]]
 
 [ui.toast]
 delivery = "system"   # off | herdr | terminal | system
