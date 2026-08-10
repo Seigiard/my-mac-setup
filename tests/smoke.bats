@@ -236,9 +236,10 @@ TOML
   assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
 }
 
-@test "divine and inscribe skills are deployed with the grimoire" {
+@test "divine, inscribe, and cast skills are deployed with the grimoire" {
   assert_file_exists "$HOME/.claude/skills/divine/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/inscribe/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/cast/SKILL.md"
   assert_file_exists "$HOME/.claude/grimoire.md"
 }
 
