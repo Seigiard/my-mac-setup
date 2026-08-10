@@ -25,8 +25,8 @@ test-ubuntu: build-docker
 	docker compose -f docker/docker-compose.yml run --rm test-quick
 
 test-templates: build-docker
-	docker compose -f docker/docker-compose.yml run --rm test-quick /bin/bash -c \
-		'set -e && cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/ && \
+	docker compose -f docker/docker-compose.yml run --rm -T test-quick \
+		'set -e && (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/) && \
 		chezmoi init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
 		bats tests/templates.bats'
 
