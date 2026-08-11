@@ -658,13 +658,17 @@ hts_setup() {
   HTS_LOG="$HTS_WORK/herdr.log"
   mkdir -p "$HTS_STUB" "$HTS_STATE"
   : > "$HTS_LOG"
-  # `pane list` is the only herdr call whose answer the engine reads back, so
-  # the stub records every call and replays a fixture for that one command.
+  # `pane list` and `pane process-info` are the herdr calls whose answers the
+  # engine reads back, so the stub records every call and replays a fixture for
+  # those two.
   cat > "$HTS_STUB/herdr" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$HTS_LOG"
 if [ "\$1" = "pane" ] && [ "\$2" = "list" ]; then
   cat "$HTS_WORK/pane-list.json" 2>/dev/null
+fi
+if [ "\$1" = "pane" ] && [ "\$2" = "process-info" ]; then
+  cat "$HTS_WORK/proc-\$4.json" 2>/dev/null
 fi
 exit 0
 SH
@@ -704,6 +708,11 @@ hts_pane_list() {
   printf '%s' "$1" > "$HTS_WORK/pane-list.json"
 }
 
+# $1 = pane id, $2 = the `pane process-info` payload the stub replays for it
+hts_proc_info() {
+  printf '%s' "$2" > "$HTS_WORK/proc-$1.json"
+}
+
 hts_wait_for_publish() {
   local i
   for i in $(seq 1 60); do
@@ -729,7 +738,7 @@ hts_token() {
 }
 
 hts_pane_label() {
-  sed -n 's/^pane rename pane-1 //p' "$HTS_LOG" | tail -1
+  sed -n "s/^pane rename ${1:-pane-1} //p" "$HTS_LOG" | tail -1
 }
 
 hts_state_file() {
@@ -956,20 +965,96 @@ SH
 }
 
 # Herdr keeps one label per tab and composes nothing itself. The engine joins
-# the labels of the tab's own panes; a pane with no label contributes nothing.
+# the labels of the tab's own agent panes; another tab's panes stay out.
 @test "herdr-task-sync rebuilds the tab label from the pane labels" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   hts_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","label":"first"},
-    {"pane_id":"pane-2","tab_id":"tab-1","label":"second"},
-    {"pane_id":"pane-3","tab_id":"tab-1","label":null},
-    {"pane_id":"pane-4","tab_id":"tab-2","label":"other tab"}]}}'
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"first"},
+    {"pane_id":"pane-2","tab_id":"tab-1","agent":"pi","label":"second"},
+    {"pane_id":"pane-3","tab_id":"tab-1","agent":"opencode","label":null},
+    {"pane_id":"pane-4","tab_id":"tab-2","agent":"claude","label":"other tab"}]}}'
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_call 'tab rename'
   run grep -m1 '^tab rename' "$HTS_LOG"
   assert_output "tab rename tab-1 first | second"
+}
+
+# A pane with no agent is named after its command. The name belongs to the
+# leader of the foreground process group (pid 200 here), not to the `node`
+# child that `bun run dev` spawns and that the payload lists first.
+@test "herdr-task-sync names a command pane after the process group leader" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
+    {"pane_id":"pane-2","tab_id":"tab-1","agent":null,"label":null}]}}'
+  hts_proc_info pane-2 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
+      {"pid":201,"name":"node","argv0":"node","argv":["node","-e","timer"]},
+      {"pid":200,"name":"bun","argv0":"bun","argv":["bun","run","dev"]}]}}}'
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'tab rename'
+  assert_equal "$(hts_pane_label pane-2)" "bun run dev"
+  run grep -m1 '^tab rename' "$HTS_LOG"
+  assert_output "tab rename tab-1 agent-label | bun run dev"
+}
+
+# A pane whose foreground process group is its own shell runs nothing. It keeps
+# its slot in the tab label under a placeholder instead of disappearing.
+@test "herdr-task-sync names an idle pane with the placeholder" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
+    {"pane_id":"pane-2","tab_id":"tab-1","agent":null,"label":"btop"}]}}'
+  hts_proc_info pane-2 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
+      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'tab rename'
+  assert_equal "$(hts_pane_label pane-2)" "~"
+  run grep -m1 '^tab rename' "$HTS_LOG"
+  assert_output "tab rename tab-1 agent-label | ~"
+}
+
+# Every all-idle tab would be renamed to the same `~`, and the tab row would
+# show tabs the eye cannot tell apart. Such a tab keeps the label herdr gave it.
+@test "herdr-task-sync leaves an all-idle tab label alone" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null}]}}'
+  hts_proc_info pane-1 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
+      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'pane rename pane-1 ~'
+  sleep 1
+  run cat "$HTS_LOG"
+  refute_output --partial "tab rename"
+}
+
+# One pane must not eat the whole tab label, so a long command name is cut to
+# 24 characters with a trailing ellipsis. Flags and paths drop out entirely.
+@test "herdr-task-sync truncates a long command name" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null}]}}'
+  hts_proc_info pane-1 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
+      {"pid":200,"name":"long","argv0":"/opt/bin/averyveryverylongcommandname",
+       "argv":["/opt/bin/averyveryverylongcommandname","--flag","/tmp/path","sub"]}]}}}'
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'tab rename'
+  run grep -m1 '^tab rename' "$HTS_LOG"
+  assert_output "tab rename tab-1 averyveryverylongcomman…"
 }
 
 # ===========================================

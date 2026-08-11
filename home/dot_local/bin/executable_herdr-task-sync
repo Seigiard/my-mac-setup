@@ -5,7 +5,8 @@
 # this script with the submitted prompt on stdin. It returns immediately and
 # lets a detached worker do the slow part: ask a naming model for a short
 # English slug, then name the pane `<agent badge> <slug>` and rebuild the tab
-# label from the labels of every pane in that tab.
+# label from every pane in that tab. A pane with no agent is named after the
+# command running in it, so `bun run dev` joins the tab label on its own.
 #
 # The slug also stays published as the pane's `task` metadata token, so a
 # sidebar row configured with `$task` keeps working.
@@ -38,6 +39,12 @@ SLUG_MAX_LEN=40
 # explains itself instead of naming the session counts as a failed call, so the
 # chain advances rather than putting a sentence in the sidebar.
 SLUG_MAX_WORDS=5
+# A command name shares the tab label with every other pane of the tab, so it
+# is capped harder than a task slug and ends in an ellipsis when it is cut.
+PROC_LABEL_MAX_LEN=24
+# An idle pane still holds a slot in the tab, so it is named rather than
+# dropped: the tab label then shows how many panes the tab has.
+IDLE_PANE_LABEL="~"
 
 agent=""
 session=""
@@ -188,23 +195,83 @@ pane_label() {
     "$slug"
 }
 
+# A pane running no agent is named after its command. The name comes from the
+# leader of the foreground process group, never from the first entry of the
+# list: the list runs from children up to the leader, so `bun run dev` reports
+# a `node` child first and only the leader carries the command as typed.
+#
+# A pane whose foreground process group is the shell itself sits idle and gets
+# no name. Arguments that start with `-` or `/` are dropped, because a flag or
+# a path says nothing at a glance and eats the whole width.
+pane_process_label() {
+  local target="$1" info
+  info="$(herdr pane process-info --pane "$target" 2>/dev/null)" || return 0
+  [ -n "$info" ] || return 0
+  printf '%s' "$info" | jq -r --argjson max "$PROC_LABEL_MAX_LEN" '
+    def base: sub(".*/"; "");
+    .result.process_info as $i
+    | select($i.foreground_process_group_id != $i.shell_pid)
+    | [$i.foreground_processes[]? | select(.pid == $i.foreground_process_group_id)][0]
+    | select(. != null)
+    | ((.argv // []) | if length == 0 then [(.argv0 // .name // "")] else . end) as $argv
+    | ([($argv[0] // "") | base] + [$argv[1:3][] | select(test("^[-/]") | not)])
+    | join(" ")
+    | select(. != "")
+    | if (length > $max) then (.[0:$max - 1] + "…") else . end
+  ' 2>/dev/null
+}
+
 # Herdr stores one string per tab and composes nothing itself. Every publish
-# rebuilds the whole label from the pane labels of the tab, so a renamed
-# neighbour is picked up on the next naming call. A pane with no label yet — a
-# plain command pane, an agent that never called this script — contributes
-# nothing.
+# rebuilds the whole label from the panes of the tab: an agent pane contributes
+# the label the naming call gave it, any other pane contributes its command.
+#
+# The command name is written back as that pane's label too, so it also shows
+# on the pane border. A pane that falls idle becomes `~`. Both writes overwrite
+# a name set by hand — only a pane running an agent is left alone.
 compose_tab_label() {
   command -v jq >/dev/null 2>&1 || return 0
-  local panes tab_id label
+  local panes tab_id rows id agent_of label name parts="" named=0
   panes="$(herdr pane list 2>/dev/null)" || return 0
   tab_id="$(printf '%s' "$panes" \
     | jq -r --arg p "$pane" '.result.panes[] | select(.pane_id == $p) | .tab_id' 2>/dev/null)"
   [ -n "$tab_id" ] && [ "$tab_id" != "null" ] || return 0
-  label="$(printf '%s' "$panes" \
-    | jq -r --arg t "$tab_id" \
-      '[.result.panes[] | select(.tab_id == $t) | .label // empty] | join(" | ")' 2>/dev/null)"
-  [ -n "$label" ] || return 0
-  herdr tab rename "$tab_id" "$label" >/dev/null 2>&1
+  # The fields are joined with the unit separator, not a tab: a tab is IFS
+  # whitespace, so `read` would collapse the empty agent field of a plain
+  # command pane and shift its label into the wrong variable.
+  rows="$(printf '%s' "$panes" | jq -r --arg t "$tab_id" \
+    '.result.panes[] | select(.tab_id == $t)
+     | [.pane_id, (.agent // ""), (.label // "")] | join("\u001f")' 2>/dev/null)"
+  [ -n "$rows" ] || return 0
+
+  # A here-doc rather than a pipe: a piped `while` runs in a subshell, and the
+  # joined label built inside it would not survive the loop.
+  while IFS="$(printf '\037')" read -r id agent_of label; do
+    [ -n "$id" ] || continue
+    if [ -n "$agent_of" ]; then
+      name="$label"
+    else
+      name="$(pane_process_label "$id")"
+      [ -n "$name" ] || name="$IDLE_PANE_LABEL"
+      [ "$name" = "$label" ] || herdr pane rename "$id" "$name" >/dev/null 2>&1
+    fi
+    [ -n "$name" ] || continue
+    [ "$name" = "$IDLE_PANE_LABEL" ] || named=1
+    if [ -z "$parts" ]; then
+      parts="$name"
+    else
+      parts="$parts | $name"
+    fi
+  done <<EOF
+$rows
+EOF
+
+  # A tab of nothing but idle panes would be renamed to `~`, and every such tab
+  # would carry the same name. Herdr allows that — it identifies a tab by id,
+  # not by label — but the tab row would show several tabs the eye cannot tell
+  # apart, so the label herdr gave the tab stays.
+  [ "$named" -eq 1 ] || return 0
+  [ -n "$parts" ] || return 0
+  herdr tab rename "$tab_id" "$parts" >/dev/null 2>&1
 }
 
 publish() {
