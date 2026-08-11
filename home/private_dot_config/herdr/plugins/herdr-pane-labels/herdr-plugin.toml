@@ -1,0 +1,37 @@
+id = "seigi.pane-labels"
+name = "Pane Labels"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Keep pane and tab labels in step with what each pane runs."
+platforms = ["macos", "linux"]
+
+# The labels are written by ~/.local/bin/herdr-task-sync. Its naming call only
+# ever refreshes its own tab, so a command that ends and an agent that quits
+# would leave a stale label behind. This plugin owns the sweep daemon that
+# watches for both.
+
+# Starts the daemon with the herdr server.
+[[startup]]
+command = ["sh", "ensure.sh"]
+
+# A killed daemon comes back on the next agent state change instead of staying
+# dead until the next herdr restart. A live daemon makes the call a no-op.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["sh", "ensure.sh"]
+
+# `pane.exited` covers a process that ends on its own; closing a pane through
+# herdr raises `pane.closed` instead, so both are wired.
+[[events]]
+on = "pane.exited"
+command = ["sh", "ensure.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["sh", "ensure.sh"]
+
+[[actions]]
+id = "sweep"
+title = "Pane labels: refresh now"
+contexts = ["workspace"]
+command = ["sh", "sweep.sh"]

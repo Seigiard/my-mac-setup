@@ -45,6 +45,10 @@ PROC_LABEL_MAX_LEN=24
 # An idle pane still holds a slot in the tab, so it is named rather than
 # dropped: the tab label then shows how many panes the tab has.
 IDLE_PANE_LABEL="~"
+# Seconds between two sweeps of the daemon. Five keeps a finished command
+# visible for at most one glance without hammering the herdr socket.
+SWEEP_INTERVAL="${HERDR_TASK_SYNC_SWEEP_INTERVAL:-5}"
+SWEEP_LOCK_DIR="$STATE_DIR/sweep.lock"
 
 agent=""
 session=""
@@ -55,10 +59,13 @@ seq=""
 worker_mode=0
 prompt_file=""
 
+mode="name"
+
 usage() {
   cat >&2 <<'EOF'
 Usage: herdr-task-sync --agent <name> --session <id> [--pane <id>]
                        [--transcript <path>] [--set <name>]
+       herdr-task-sync --sweep | --sweep-daemon | --ensure-daemon
 The prompt is read from stdin.
 EOF
 }
@@ -73,6 +80,9 @@ while [ $# -gt 0 ]; do
     --seq) seq="${2:-}"; shift 2 ;;
     --prompt-file) prompt_file="${2:-}"; shift 2 ;;
     --worker) worker_mode=1; shift ;;
+    --sweep) mode="sweep"; shift ;;
+    --sweep-daemon) mode="sweep-daemon"; shift ;;
+    --ensure-daemon) mode="ensure-daemon"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) shift ;;
   esac
@@ -140,15 +150,24 @@ run_with_timeout() {
 
 # ------------------------------------------------------------------- guards
 
-# Every entry point exits silently outside herdr, so the same files apply on
-# Linux/CI without a .chezmoiignore rule.
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-# Recursion guard: a naming call that itself fires agent hooks must not spawn
-# another worker.
-[ -z "${HERDR_TASK_SYNC_ACTIVE:-}" ] || exit 0
-[ -n "$pane" ] || exit 0
-[ -n "$agent" ] || exit 0
 command -v herdr >/dev/null 2>&1 || exit 0
+
+# The sweep modes belong to no pane and no agent, and the herdr plugin that
+# starts them runs outside an agent's environment, so they clear the guards
+# below on their own: a reachable herdr CLI is all they need.
+case "$mode" in
+  sweep | sweep-daemon | ensure-daemon) ;;
+  *)
+    # Every entry point exits silently outside herdr, so the same files apply on
+    # Linux/CI without a .chezmoiignore rule.
+    [ "${HERDR_ENV:-}" = "1" ] || exit 0
+    # Recursion guard: a naming call that itself fires agent hooks must not spawn
+    # another worker.
+    [ -z "${HERDR_TASK_SYNC_ACTIVE:-}" ] || exit 0
+    [ -n "$pane" ] || exit 0
+    [ -n "$agent" ] || exit 0
+    ;;
+esac
 
 # ------------------------------------------------------------------- worker
 
@@ -221,20 +240,19 @@ pane_process_label() {
   ' 2>/dev/null
 }
 
-# Herdr stores one string per tab and composes nothing itself. Every publish
-# rebuilds the whole label from the panes of the tab: an agent pane contributes
-# the label the naming call gave it, any other pane contributes its command.
+# Herdr stores one string per tab and composes nothing itself. The label is
+# built from the panes of the tab: an agent pane contributes the label its
+# naming call gave it, any other pane contributes its command.
 #
 # The command name is written back as that pane's label too, so it also shows
 # on the pane border. A pane that falls idle becomes `~`. Both writes overwrite
 # a name set by hand — only a pane running an agent is left alone.
-compose_tab_label() {
-  command -v jq >/dev/null 2>&1 || return 0
-  local panes tab_id rows id agent_of label name parts="" named=0
-  panes="$(herdr pane list 2>/dev/null)" || return 0
-  tab_id="$(printf '%s' "$panes" \
-    | jq -r --arg p "$pane" '.result.panes[] | select(.pane_id == $p) | .tab_id' 2>/dev/null)"
-  [ -n "$tab_id" ] && [ "$tab_id" != "null" ] || return 0
+#
+# $1 = tab id, $2 = a `pane list` payload. Prints the composed label, or
+# nothing when the tab holds no pane worth naming.
+tab_label_for() {
+  local tab_id="$1" panes="$2"
+  local rows id agent_of label name parts="" named=0
   # The fields are joined with the unit separator, not a tab: a tab is IFS
   # whitespace, so `read` would collapse the empty agent field of a plain
   # command pane and shift its label into the wrong variable.
@@ -265,13 +283,132 @@ compose_tab_label() {
 $rows
 EOF
 
-  # A tab of nothing but idle panes would be renamed to `~`, and every such tab
-  # would carry the same name. Herdr allows that — it identifies a tab by id,
-  # not by label — but the tab row would show several tabs the eye cannot tell
-  # apart, so the label herdr gave the tab stays.
-  [ "$named" -eq 1 ] || return 0
-  [ -n "$parts" ] || return 0
-  herdr tab rename "$tab_id" "$parts" >/dev/null 2>&1
+  # Status 1 says the tab holds no pane worth naming: every pane of it is idle.
+  # The label is still printed, so a caller that has the tab's position can turn
+  # it into a numbered placeholder instead of dropping the tab.
+  printf '%s' "$parts"
+  [ "$named" -eq 1 ] || return 1
+  return 0
+}
+
+# The naming call refreshes the tab of the agent that just published a name, so
+# that tab always holds one real name. An all-idle tab is left to the sweep,
+# which knows the tab's position and can number the placeholder.
+compose_tab_label() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local panes tab_id label
+  panes="$(herdr pane list 2>/dev/null)" || return 0
+  tab_id="$(printf '%s' "$panes" \
+    | jq -r --arg p "$pane" '.result.panes[] | select(.pane_id == $p) | .tab_id' 2>/dev/null)"
+  [ -n "$tab_id" ] && [ "$tab_id" != "null" ] || return 0
+  label="$(tab_label_for "$tab_id" "$panes")" || return 0
+  [ -n "$label" ] || return 0
+  herdr tab rename "$tab_id" "$label" >/dev/null 2>&1
+}
+
+# One pass over every tab herdr knows. A naming call refreshes only its own
+# tab, so nothing notices a command that ends or an agent that quits. The sweep
+# is that missing observer, and the daemon below repeats it.
+#
+# Both listings are fetched once per pass, and a tab is renamed only when its
+# label really changed — a rename every few seconds would churn the tab row and
+# the socket for nothing.
+sweep_tabs() {
+  command -v jq >/dev/null 2>&1 || return 1
+  local panes tabs rows tab_id current index label
+  panes="$(herdr pane list 2>/dev/null)" || return 1
+  tabs="$(herdr tab list 2>/dev/null)" || return 1
+  [ -n "$panes" ] && [ -n "$tabs" ] || return 1
+  # Each row carries the tab's position inside its own workspace, counted in
+  # listing order. A tab row shows one workspace at a time, so that position is
+  # what makes a numbered placeholder unique where the eye can see it.
+  rows="$(printf '%s' "$tabs" | jq -r '
+    reduce .result.tabs[]? as $t ({counts: {}, out: []};
+      ($t.workspace_id // "") as $ws
+      | .counts[$ws] = ((.counts[$ws] // 0) + 1)
+      | .out += [[$t.tab_id, ($t.label // ""), (.counts[$ws] | tostring)]])
+    | .out[] | join("\u001f")' 2>/dev/null)"
+  [ -n "$rows" ] || return 0
+  while IFS="$(printf '\037')" read -r tab_id current index; do
+    [ -n "$tab_id" ] || continue
+    # An all-idle tab is named `~ <n>` rather than skipped: skipping froze its
+    # last composed label, which then outlived the pane that produced it.
+    if label="$(tab_label_for "$tab_id" "$panes")"; then
+      [ -n "$label" ] || continue
+    else
+      label="$IDLE_PANE_LABEL $index"
+    fi
+    [ "$label" = "$current" ] && continue
+    herdr tab rename "$tab_id" "$label" >/dev/null 2>&1
+  done <<EOF
+$rows
+EOF
+  return 0
+}
+
+# The sweep runs on a clock of its own rather than on herdr events, because the
+# change that matters most has no event: a command started or ended inside a
+# pane that already exists. The lock directory is created atomically, so a
+# second daemon exits instead of doubling the rename traffic.
+run_sweep_daemon() {
+  mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+  # A daemon started right after its predecessor was killed finds the lock still
+  # there for a moment. Waiting a few seconds beats exiting, which would leave
+  # the machine with no daemon at all until the next herdr event.
+  local tries=0
+  until mkdir "$SWEEP_LOCK_DIR" 2>/dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -ge 3 ] && exit 0
+    sleep 1
+  done
+  printf '%s' "$$" > "$SWEEP_LOCK_DIR/pid" 2>/dev/null
+  # Two traps, not one: a TERM handler that only cleans up would let the loop
+  # carry on after it dropped its own lock, and the next hook would then start
+  # a second daemon beside the first.
+  #
+  # The cleanup releases the lock only while this daemon still owns it. A
+  # dying daemon that cleared its successor's lock left no daemon running.
+  trap 'if [ "$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
+          rm -f "$SWEEP_LOCK_DIR/pid"
+          rmdir "$SWEEP_LOCK_DIR" 2>/dev/null
+        fi' EXIT
+  trap 'exit 0' INT TERM
+  local misses=0
+  while :; do
+    # Whoever holds the pid file owns the sweep. Losing it means another daemon
+    # took over, and two daemons would rename every tab twice per interval.
+    [ "$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || exit 0
+    if sweep_tabs; then
+      misses=0
+    else
+      # herdr stopped answering: the server is gone, and with it the reason to
+      # keep sweeping. Three misses rather than one, to ride out a restart.
+      misses=$((misses + 1))
+      [ "$misses" -ge 3 ] && exit 0
+    fi
+    sleep "$SWEEP_INTERVAL"
+  done
+}
+
+# Called by the herdr plugin on startup and on agent-status events. A live
+# daemon makes this a no-op; a lock left behind by a killed daemon is cleared.
+ensure_sweep_daemon() {
+  local self="$1" pid
+  if [ -d "$SWEEP_LOCK_DIR" ]; then
+    pid="$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    rm -f "$SWEEP_LOCK_DIR/pid" 2>/dev/null
+    rmdir "$SWEEP_LOCK_DIR" 2>/dev/null
+  fi
+  # herdr reaps the process group of a plugin hook once the hook exits, and a
+  # plain background child shares that group — it was killed within the second.
+  # Job control puts the daemon in a process group of its own, out of reach.
+  set -m
+  nohup bash "$self" --sweep-daemon </dev/null >/dev/null 2>&1 &
+  set +m
+  return 0
 }
 
 publish() {
@@ -436,6 +573,34 @@ run_worker() {
   exit 0
 }
 
+# `$0` is a bare name when the script came from PATH, and a re-entry must run
+# even when the file has no execute bit (a chezmoi source checkout, or a test
+# running it in place), so every re-entry goes through `bash <resolved path>`.
+script_path() {
+  local self="$0"
+  case "$self" in
+    */*) ;;
+    *) self="$(command -v "$self" 2>/dev/null)" ;;
+  esac
+  [ -n "$self" ] || return 1
+  printf '%s' "$self"
+}
+
+case "$mode" in
+  sweep)
+    sweep_tabs
+    exit 0
+    ;;
+  sweep-daemon)
+    run_sweep_daemon
+    exit 0
+    ;;
+  ensure-daemon)
+    ensure_sweep_daemon "$(script_path)"
+    exit 0
+    ;;
+esac
+
 if [ "$worker_mode" -eq 1 ]; then
   run_worker
   exit 0
@@ -459,11 +624,7 @@ fi
 
 seq="$(now_seq)"
 
-self="$0"
-case "$self" in
-  */*) ;;
-  *) self="$(command -v "$self" 2>/dev/null)" ;;
-esac
+self="$(script_path)" || exit 0
 [ -n "$self" ] || exit 0
 
 mkdir -p "$STATE_DIR" 2>/dev/null

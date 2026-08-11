@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Link and enable the local Herdr pane-labels plugin after the managed files change.
+#
+# Hash triggers:
+# # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" | sha256sum }}
+
+# Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
+set -u
+
+plugin_dir="$HOME/.config/herdr/plugins/herdr-pane-labels"
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping pane-labels plugin link"
+  exit 0
+fi
+
+if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
+  echo "Herdr pane-labels plugin manifest not found at $plugin_dir; skipping"
+  exit 0
+fi
+
+if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
+  echo "Linked Herdr pane-labels plugin"
+  if herdr plugin enable seigi.pane-labels >/dev/null 2>&1; then
+    echo "Enabled seigi.pane-labels"
+  else
+    echo "Warning: linked but failed to enable; run manually: herdr plugin enable seigi.pane-labels" >&2
+  fi
+  if herdr server reload-config >/dev/null 2>&1; then
+    echo "Reloaded Herdr config"
+  else
+    echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+  fi
+else
+  echo "Warning: failed to link Herdr pane-labels plugin. Run manually: herdr plugin link $plugin_dir" >&2
+fi

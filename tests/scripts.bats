@@ -658,9 +658,9 @@ hts_setup() {
   HTS_LOG="$HTS_WORK/herdr.log"
   mkdir -p "$HTS_STUB" "$HTS_STATE"
   : > "$HTS_LOG"
-  # `pane list` and `pane process-info` are the herdr calls whose answers the
-  # engine reads back, so the stub records every call and replays a fixture for
-  # those two.
+  # `pane list`, `pane process-info` and `tab list` are the herdr calls whose
+  # answers the engine reads back, so the stub records every call and replays a
+  # fixture for those three.
   cat > "$HTS_STUB/herdr" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$HTS_LOG"
@@ -669,6 +669,9 @@ if [ "\$1" = "pane" ] && [ "\$2" = "list" ]; then
 fi
 if [ "\$1" = "pane" ] && [ "\$2" = "process-info" ]; then
   cat "$HTS_WORK/proc-\$4.json" 2>/dev/null
+fi
+if [ "\$1" = "tab" ] && [ "\$2" = "list" ]; then
+  cat "$HTS_WORK/tab-list.json" 2>/dev/null
 fi
 exit 0
 SH
@@ -711,6 +714,19 @@ hts_pane_list() {
 # $1 = pane id, $2 = the `pane process-info` payload the stub replays for it
 hts_proc_info() {
   printf '%s' "$2" > "$HTS_WORK/proc-$1.json"
+}
+
+hts_tab_list() {
+  printf '%s' "$1" > "$HTS_WORK/tab-list.json"
+}
+
+# The sweep modes carry no agent and no pane, so they run the script directly
+# rather than through hts_run.
+hts_sweep_run() {
+  env PATH="$HTS_STUB:/usr/bin:/bin" \
+    HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    HERDR_TASK_SYNC_SWEEP_INTERVAL="${HTS_SWEEP_INTERVAL:-1}" \
+    bash "$HTS_ENGINE" "$@"
 }
 
 hts_wait_for_publish() {
@@ -1021,9 +1037,9 @@ SH
   assert_output "tab rename tab-1 agent-label | ~"
 }
 
-# Every all-idle tab would be renamed to the same `~`, and the tab row would
-# show tabs the eye cannot tell apart. Such a tab keeps the label herdr gave it.
-@test "herdr-task-sync leaves an all-idle tab label alone" {
+# The naming call knows one tab and not its position, so it cannot number a
+# placeholder. It leaves an all-idle tab to the sweep, which can.
+@test "herdr-task-sync leaves an all-idle tab label to the sweep" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   hts_pane_list '{"result":{"panes":[
@@ -1055,6 +1071,112 @@ SH
   hts_wait_for_call 'tab rename'
   run grep -m1 '^tab rename' "$HTS_LOG"
   assert_output "tab rename tab-1 averyveryverylongcomman…"
+}
+
+# A naming call refreshes only its own tab, so a command that ends and an agent
+# that quits leave a stale label behind. The sweep is the observer for both: it
+# walks every tab herdr knows, not just the one that triggered it.
+@test "herdr-task-sync --sweep relabels every tab" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_tab_list '{"result":{"tabs":[
+    {"tab_id":"tab-1","label":"1"},
+    {"tab_id":"tab-2","label":"2"}]}}'
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
+    {"pane_id":"pane-2","tab_id":"tab-2","agent":null,"label":null}]}}'
+  hts_proc_info pane-2 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
+      {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  run hts_sweep_run --sweep
+  assert_success
+  run grep -c '^tab rename' "$HTS_LOG"
+  assert_output "2"
+  run grep '^tab rename tab-2' "$HTS_LOG"
+  assert_output "tab rename tab-2 btop"
+}
+
+# The daemon sweeps every few seconds. Renaming a tab to the label it already
+# carries would churn the tab row and the socket for nothing.
+@test "herdr-task-sync --sweep leaves an unchanged tab label alone" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"btop"}]}}'
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":"btop"}]}}'
+  hts_proc_info pane-1 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
+      {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  run hts_sweep_run --sweep
+  assert_success
+  run cat "$HTS_LOG"
+  refute_output --partial "tab rename"
+  refute_output --partial "pane rename"
+}
+
+# An all-idle tab is numbered instead of skipped, or its last composed label
+# would outlive the pane that produced it. The number counts tabs inside one
+# workspace, because a tab row shows one workspace at a time.
+@test "herdr-task-sync --sweep numbers all-idle tabs per workspace" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_tab_list '{"result":{"tabs":[
+    {"tab_id":"tab-1","workspace_id":"ws-1","label":"1"},
+    {"tab_id":"tab-2","workspace_id":"ws-1","label":"stale name"},
+    {"tab_id":"tab-3","workspace_id":"ws-2","label":"2"}]}}'
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null},
+    {"pane_id":"pane-2","tab_id":"tab-2","agent":null,"label":null},
+    {"pane_id":"pane-3","tab_id":"tab-3","agent":null,"label":null}]}}'
+  hts_proc_info pane-1 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
+      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  hts_proc_info pane-2 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
+      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  hts_proc_info pane-3 '{"result":{"process_info":{
+    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
+      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  run hts_sweep_run --sweep
+  assert_success
+  run grep '^tab rename' "$HTS_LOG"
+  assert_line "tab rename tab-1 ~ 1"
+  assert_line "tab rename tab-2 ~ 2"
+  assert_line "tab rename tab-3 ~ 1"
+}
+
+# herdr fires the plugin hook on every agent state change, so the guard has to
+# be cheap and exact: one daemon per machine, however often it is called.
+@test "herdr-task-sync --ensure-daemon keeps a single daemon" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  sleep 30 &
+  local live=$!
+  mkdir -p "$HTS_STATE/sweep.lock"
+  printf '%s' "$live" > "$HTS_STATE/sweep.lock/pid"
+  run hts_sweep_run --ensure-daemon
+  assert_success
+  assert_equal "$(cat "$HTS_STATE/sweep.lock/pid")" "$live"
+  kill "$live" 2>/dev/null || true
+}
+
+# A daemon killed with its herdr session leaves the lock behind. The next hook
+# must clear it and start a new daemon, or labels stay frozen until a restart.
+@test "herdr-task-sync --ensure-daemon replaces a dead daemon" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}'
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"}]}}'
+  mkdir -p "$HTS_STATE/sweep.lock"
+  # A pid that cannot be running: process ids are allocated from 1 upwards.
+  printf '%s' "999999" > "$HTS_STATE/sweep.lock/pid"
+  run hts_sweep_run --ensure-daemon
+  assert_success
+  hts_wait_for_call 'tab rename'
+  local pid; pid="$(cat "$HTS_STATE/sweep.lock/pid" 2>/dev/null)"
+  [ -n "$pid" ] && [ "$pid" != "999999" ]
+  kill "$pid" 2>/dev/null || true
 }
 
 # ===========================================
