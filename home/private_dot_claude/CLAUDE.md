@@ -143,13 +143,7 @@ Don't blend conflicting patterns.
 - Prefer `gh pr view`, `gh issue list`, `gh search prs` over `gh api`. Fall back to `gh api` only when the subcommands can't return the data you need.
 - `gh` is authed as **Seigiard** (≠ git author "Andrew Borisenko"). PRs open as Seigiard; never request Seigiard as reviewer.
 
-<important if="you are writing a PR title or description, finishing a PR, or considering merging">
-
-- Write for a zero-context reviewer: they see only the diff, not this session, plans, or reviews. Self-contained: what changed, why, how verified.
-- Never reference `docs/plans/`, `docs/ideation/`, `docs/brainstorms/`, plan unit IDs (U1, KTD-…), review runIds, or other session artifacts — they are local/gitignored; the reviewer cannot open them.
-- Translate the plan's rationale into the description instead of linking it.
-
-</important>
+<!-- PR title/description rules moved to ~/.claude/rules/pull-requests.md (auto-loaded, no import needed) -->
 
 <important if="user references a ticket ID (CORE-XX, LIN-XX, etc.), asks to fix a bug from an issue tracker, or asks to create a Linear issue">
 
