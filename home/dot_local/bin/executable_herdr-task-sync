@@ -4,8 +4,11 @@
 # Adapters (the Claude Code hook, the pi extension, the opencode plugin) call
 # this script with the submitted prompt on stdin. It returns immediately and
 # lets a detached worker do the slow part: ask a naming model for a short
-# English slug and publish it as the pane's `task` metadata token, which the
-# herdr agents sidebar renders under the agent row.
+# English slug, then name the pane `<agent badge> <slug>` and rebuild the tab
+# label from the labels of every pane in that tab.
+#
+# The slug also stays published as the pane's `task` metadata token, so a
+# sidebar row configured with `$task` keeps working.
 #
 # Usage:
 #   herdr-task-sync --agent <name> --session <id> [--pane <id>]
@@ -159,11 +162,58 @@ write_state() {
   } >"$file" 2>/dev/null
 }
 
+# A pane label opens with a one-cell badge for the agent, so several labels
+# still fit in the tab label. The badges are Nerd Fonts 3.5.0 glyphs:
+#
+#   claude    U+EC82   cod-claude
+#   opencode  U+EAC4   cod-code    (Nerd Fonts ships no opencode logo)
+#   pi        U+F03FF  md-pi
+#   codex     U+EC81   cod-openai
+#
+# Those glyphs live in the Unicode private use area, so the terminal attached
+# to herdr must render a Nerd Font. Set HERDR_TASK_SYNC_ICONS=0 to fall back to
+# `c:slug`, which the same fallback gives any agent with no badge of its own.
+pane_label() {
+  local name="$1" slug="$2"
+  if [ "${HERDR_TASK_SYNC_ICONS:-1}" != "0" ]; then
+    case "$name" in
+      claude) printf ' %s' "$slug"; return 0 ;;
+      opencode) printf ' %s' "$slug"; return 0 ;;
+      pi) printf '󰏿 %s' "$slug"; return 0 ;;
+      codex) printf ' %s' "$slug"; return 0 ;;
+    esac
+  fi
+  printf '%s:%s' \
+    "$(LC_ALL=C printf '%s' "$name" | cut -c1 | tr '[:upper:]' '[:lower:]')" \
+    "$slug"
+}
+
+# Herdr stores one string per tab and composes nothing itself. Every publish
+# rebuilds the whole label from the pane labels of the tab, so a renamed
+# neighbour is picked up on the next naming call. A pane with no label yet — a
+# plain command pane, an agent that never called this script — contributes
+# nothing.
+compose_tab_label() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local panes tab_id label
+  panes="$(herdr pane list 2>/dev/null)" || return 0
+  tab_id="$(printf '%s' "$panes" \
+    | jq -r --arg p "$pane" '.result.panes[] | select(.pane_id == $p) | .tab_id' 2>/dev/null)"
+  [ -n "$tab_id" ] && [ "$tab_id" != "null" ] || return 0
+  label="$(printf '%s' "$panes" \
+    | jq -r --arg t "$tab_id" \
+      '[.result.panes[] | select(.tab_id == $t) | .label // empty] | join(" | ")' 2>/dev/null)"
+  [ -n "$label" ] || return 0
+  herdr tab rename "$tab_id" "$label" >/dev/null 2>&1
+}
+
 publish() {
   herdr pane report-metadata "$pane" \
     --source "$SOURCE_ID" \
     --token "task=$1" \
     --seq "$seq" >/dev/null 2>&1
+  herdr pane rename "$pane" "$(pane_label "$agent" "$1")" >/dev/null 2>&1
+  compose_tab_label
 }
 
 # Claude Code writes one JSON object per line. Keep user entries that carry

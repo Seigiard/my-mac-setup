@@ -658,9 +658,15 @@ hts_setup() {
   HTS_LOG="$HTS_WORK/herdr.log"
   mkdir -p "$HTS_STUB" "$HTS_STATE"
   : > "$HTS_LOG"
+  # `pane list` is the only herdr call whose answer the engine reads back, so
+  # the stub records every call and replays a fixture for that one command.
   cat > "$HTS_STUB/herdr" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$HTS_LOG"
+if [ "\$1" = "pane" ] && [ "\$2" = "list" ]; then
+  cat "$HTS_WORK/pane-list.json" 2>/dev/null
+fi
+exit 0
 SH
   chmod +x "$HTS_STUB/herdr"
   # jq lives outside /usr/bin on Homebrew installs (macOS and the Linux test
@@ -690,7 +696,12 @@ hts_run() {
     HERDR_PANE_ID=pane-1 \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_ICONS="${HTS_ICONS:-1}" \
     bash "$HTS_ENGINE" "$@"
+}
+
+hts_pane_list() {
+  printf '%s' "$1" > "$HTS_WORK/pane-list.json"
 }
 
 hts_wait_for_publish() {
@@ -702,8 +713,23 @@ hts_wait_for_publish() {
   return 1
 }
 
+# The worker logs several herdr calls in a row, so a test that reads a later
+# call must wait for that call and not for the first line of the log.
+hts_wait_for_call() {
+  local i
+  for i in $(seq 1 60); do
+    grep -q "$1" "$HTS_LOG" && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
 hts_token() {
   sed -n 's/.*--token task=\([^ ]*\).*/\1/p' "$HTS_LOG" | tail -1
+}
+
+hts_pane_label() {
+  sed -n 's/^pane rename pane-1 //p' "$HTS_LOG" | tail -1
 }
 
 hts_state_file() {
@@ -907,6 +933,43 @@ SH
   local state; state="$(hts_state_file pi-pane-1-pis1)"
   assert_equal "$(hts_state_field "$state" slug)" "fix-ci-flake"
   assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
+}
+
+# The pane label opens with a Nerd Font badge for the agent. Claude's badge is
+# U+EC82 (cod-claude), written here as its UTF-8 bytes so this file stays ASCII.
+@test "herdr-task-sync names the pane with the agent badge" {
+  hts_setup
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'pane rename'
+  assert_equal "$(hts_pane_label)" "$(printf '\xee\xb2\x82') cache-review"
+}
+
+# A terminal without a Nerd Font renders the badge as an empty box, so the
+# icons are switchable and the fallback names the agent by its first letter.
+@test "herdr-task-sync falls back to a letter badge when icons are off" {
+  hts_setup
+  hts_stub_engine pi cache-review 0 0
+  HTS_ICONS=0 hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'pane rename'
+  assert_equal "$(hts_pane_label)" "c:cache-review"
+}
+
+# Herdr keeps one label per tab and composes nothing itself. The engine joins
+# the labels of the tab's own panes; a pane with no label contributes nothing.
+@test "herdr-task-sync rebuilds the tab label from the pane labels" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","label":"first"},
+    {"pane_id":"pane-2","tab_id":"tab-1","label":"second"},
+    {"pane_id":"pane-3","tab_id":"tab-1","label":null},
+    {"pane_id":"pane-4","tab_id":"tab-2","label":"other tab"}]}}'
+  hts_stub_engine pi cache-review 0 0
+  hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_wait_for_call 'tab rename'
+  run grep -m1 '^tab rename' "$HTS_LOG"
+  assert_output "tab rename tab-1 first | second"
 }
 
 # ===========================================

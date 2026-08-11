@@ -46,11 +46,13 @@ description = "close pane, then tab, but keep workspace"
 [ui]
 prompt_new_tab_name = false
 
-# $task is a custom token fed from pane metadata, published by herdr-task-sync
-# (~/.local/bin/herdr-task-sync). A pane with no task name yet renders the row
-# empty.
+# The `pane` row renders the pane label, which herdr-task-sync
+# (~/.local/bin/herdr-task-sync) sets to `<agent badge> <task slug>`. The same
+# script rebuilds each tab label from the labels of its panes, so the agent and
+# the task appear once per pane instead of once per row. A pane the script has
+# never named renders the row empty.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace", "tab"], ["agent", "$task"]]
+rows = [["state_icon", "workspace"], ["pane"]]
 
 [ui.toast]
 delivery = "system"   # off | herdr | terminal | system
