@@ -994,7 +994,7 @@ SH
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_call 'tab rename'
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 first | second"
+  assert_output "tab rename tab-1 first · second"
 }
 
 # A pane with no agent is named after its command. The name belongs to the
@@ -1015,7 +1015,7 @@ SH
   hts_wait_for_call 'tab rename'
   assert_equal "$(hts_pane_label pane-2)" "bun run dev"
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 agent-label | bun run dev"
+  assert_output "tab rename tab-1 agent-label · bun run dev"
 }
 
 # A pane whose foreground process group is its own shell runs nothing. It keeps
@@ -1034,7 +1034,7 @@ SH
   hts_wait_for_call 'tab rename'
   assert_equal "$(hts_pane_label pane-2)" "~"
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 agent-label | ~"
+  assert_output "tab rename tab-1 agent-label · ~"
 }
 
 # The naming call knows one tab and not its position, so it cannot number a

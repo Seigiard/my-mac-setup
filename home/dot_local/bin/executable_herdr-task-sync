@@ -45,6 +45,9 @@ PROC_LABEL_MAX_LEN=24
 # An idle pane still holds a slot in the tab, so it is named rather than
 # dropped: the tab label then shows how many panes the tab has.
 IDLE_PANE_LABEL="~"
+# Panes are joined with a middle dot (U+00B7): a full-height bar drew a wall
+# through the tab row. Override with HERDR_TASK_SYNC_SEPARATOR.
+LABEL_SEPARATOR="${HERDR_TASK_SYNC_SEPARATOR:- · }"
 # Seconds between two sweeps of the daemon. Five keeps a finished command
 # visible for at most one glance without hammering the herdr socket.
 SWEEP_INTERVAL="${HERDR_TASK_SYNC_SWEEP_INTERVAL:-5}"
@@ -277,7 +280,7 @@ tab_label_for() {
     if [ -z "$parts" ]; then
       parts="$name"
     else
-      parts="$parts | $name"
+      parts="$parts$LABEL_SEPARATOR$name"
     fi
   done <<EOF
 $rows
