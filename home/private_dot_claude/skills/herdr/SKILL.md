@@ -121,6 +121,8 @@ herdr pane read <pane_id> --source recent-unwrapped --lines 50
 
 Pane commands control raw terminals; agent commands control the recognized coding agent occupying a pane, with lifecycle validation. Agent targets are a **unique live agent name** or the **hosting pane ID** — not terminal IDs, not bare kind labels. Names match `[a-z][a-z0-9_-]{0,31}`, must be unique among live agents, and clear when the agent exits.
 
+**Name every agent after its tracker ID when the work has one.** Put the ID first, lowercase, then a two-or-three-word topic: `prd-2727-fix-vrt`, not `fix-vrt-walkback`. The user reads pane names to match a pane against a ticket, and a topic alone does not tell them which task a pane belongs to. With no tracker ID, use the branch name or the topic. The 32-character limit covers the whole name, and a prefix such as `prd-2727-` already spends 9 of it.
+
 `agent start` requires an existing available shell pane (interactive prompt, no foreground command) and never creates or splits layout — split first, then start:
 
 ```bash
@@ -174,7 +176,7 @@ herdr tab create --workspace <workspace_id> --label "logs"
 herdr pane close <pane_id>
 ```
 
-Without `--label`, create keeps the default cwd-/number-based name.
+Without `--label`, create keeps the default cwd-/number-based name. A `--label` for ticket work follows the agent naming rule above: tracker ID first, then the topic (`prd-2727-fix-vrt`).
 
 ## Notifications (best-effort)
 
