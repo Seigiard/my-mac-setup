@@ -1,14 +1,8 @@
 # se-pipeline — раннбук
 
 Durable-прогон `verify-doc → work → verify-code` над целевым репозиторием на
-Smithers 0.32.0 (апгрейд 0.29→0.32 2026-08-12: hardening-релиз, завершённая
-Effect-4-миграция диспатча, `--accept-workflow-change` для resume после правки
-workflow-исходников; smoke green `run-1786538882578`, реальный фикстурный
-green `run-1786539437958` — все 4 гейта, $1.46; 200/200 тестов).
-Без локальных патчей (фикс false-positive квота-классификатора
-org_level_disabled, upstream smithersai/smithers#1342, влит в 0.29.0 — `patches/`
-и `patchedDependencies` удалены при апгрейде 2026-07-22; detached-логи теперь в
-`.smithers/logs/` с ретеншном). План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
+Smithers 0.32.0 (без локальных патчей; detached-логи в `.smithers/logs/` с
+ретеншном). План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
 (gitignored). Исходники: `home/private_dot_claude/dot_smithers/` (chezmoi →
 `~/.claude/.smithers`); состояние прогонов (`smithers.db`, `.smithers/`) живёт в
 рантайм-дире и в git не попадает.
@@ -18,7 +12,7 @@ org_level_disabled, upstream smithersai/smithers#1342, влит в 0.29.0 — `p
 (fallback `claude-haiku-4-5`); донор doc-review (`se-doc-review.tsx`) —
 `claude-sonnet-5`/`claude-haiku-4-5`.
 
-Verify-code с 2026-07-23 повторяет форму se-code-review: два независимых
+Verify-code повторяет форму se-code-review: два независимых
 полных plugin-ревью параллельно — claude (`claude-sonnet-5`, кап 25 мин) +
 opencode (`openai/gpt-5.5`, кап 15 мин, скилл стейджится в
 `/tmp/ce-code-review`, разрешён в opencode `permission.external_directory`) —
@@ -34,7 +28,7 @@ opencode (`openai/gpt-5.5`, кап 15 мин, скилл стейджится в
 гейт перед branch/PR, fail-closed жёстче). Пер-плечевые отчёты пишутся в reportDir
 (`verify-code.claude.report.json` / `verify-code.opencode.report.json`) рядом со слитым.
 
-Verify-doc с 2026-07-24 блокирует по P0 находкам ревью плана (симметрия с
+Verify-doc блокирует по P0 находкам ревью плана (симметрия с
 codeReviewGate). Каждое не-smoke плечо эмитит машиночитаемую строку
 `SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N}` в защищённом
 слоте — последняя непустая строка прямо перед финальным `Review complete`;
@@ -44,11 +38,11 @@ codeReviewGate). Каждое не-smoke плечо эмитит машиноч�
 `SMOKE OK`-байпас) не тронут — severity-слой никогда не влияет на валидность
 конверта. Гейт: любое доступное плечо с `p0Count > 0` → `failed` (max-of-legs,
 fail-closed — один P0 блокирует, даже если второе плечо 0); P1 — advisory
-(суммируется, не блокирует); отсутствие severity деградирует ЭТО плечо к прежнему
+(суммируется, не блокирует); отсутствие severity деградирует ЭТО плечо к
 поведению «только доступность» (R5). Слоение толерантности (KTD-D): доступность
 плеч остаётся fail-closed (нет вывода → `failed`, оба плеча вниз → `degraded`),
-а severity-слой лишь ДОБАВЛЯЕТ блокирующую силу — его отсутствие возвращает гейт
-ровно к сегодняшнему поведению, никогда ниже. Пер-плечевой статус парса severity
+а severity-слой лишь ДОБАВЛЯЕТ блокирующую силу — его отсутствие никогда не
+ослабляет гейт ниже чистой доступности. Пер-плечевой статус парса severity
 (parsed/missing) пишется в notes и `verify-doc.result.json` каждый прогон —
 системный отказ контракта виден, а не тихо инертен. SEVERITY-строка выстригается
 из конверта перед инъекцией в work-промпт (`readDocReviewAdvisory`) и из синтеза
@@ -56,7 +50,7 @@ standalone-скилла — это вход гейта, не контент ре
 
 ## Стадия simplify и два входа (se-work / se-review-and-work)
 
-С 2026-07-27 у пайплайна два именованных входа над ОДНИМ `se-pipeline.tsx` и
+У пайплайна два именованных входа над ОДНИМ `se-pipeline.tsx` и
 одним внутренним ключом `docReview` (пользователь его не печатает — вход выбирает
 команда):
 
@@ -65,10 +59,10 @@ standalone-скилла — это вход гейта, не контент ре
 - **`se-review-and-work`** — `docReview:true`: то же плюс `verify-doc` впереди
   (`verify-doc → work → simplify → verify-code`). CLI: `se pipeline … --doc-review`.
 
-Стадия `verify-doc` теперь условная (рендерится только при `docReview:true`); при
+Стадия `verify-doc` условная (рендерится только при `docReview:true`); при
 `false` `work` привязан прямо к gate-0, и в summary `verify-doc` = `null`.
 
-**Simplify — постоянная стадия в ОБОИХ командах**, не флаг. Вставлена ПОСЛЕ
+**Simplify — постоянная стадия в ОБЕИХ командах**, не флаг. Вставлена ПОСЛЕ
 общего secret-scan (её внешние отчётные ноги видят только уже прочищенный
 сканом контент — KTD10) и ПЕРЕД verify-code (ревью идёт по уже прибранному коду).
 Это `Subflow` над `se-simplify.tsx` (тот же приём, что `se-doc-review.tsx`), с
@@ -93,10 +87,9 @@ cross-model консенсуса. `smoke:true` — синтетика без р�
 Заморозка снапшота (и в se-simplify, и в стейджинге se-code-review/verify-code)
 идёт через `stashCreateSafe` (`lib/staging.ts`): `git update-index -q --refresh`
 перед `git stash create`, плюс страховка «тихий exit 1 без вывода = нечего
-стешить». Голый `stash create` на stat-dirty дереве — validate-cmd переписал
-tracked-файл байт-в-байт ПОСЛЕ gate-коммита, индекс не освежался — молча
-выходит с кодом 1 и ронял стадию мгновенно (run-1786528537862, 2026-08-12,
-platform). Диагностический признак в `_smithers_attempts`: у ноды `stage`
+стешить» — голый `stash create` на stat-dirty дереве (validate-cmd переписал
+tracked-файл байт-в-байт, индекс не освежён) молча выходит с кодом 1.
+Диагностический признак такого отказа в `_smithers_attempts`: у ноды `stage`
 error_json c `status: 1` и пустыми stdout/stderr.
 
 Right-sizing gate (`lib/stage-gate.ts`, R14) решает run/skip БЕЗ флага, смещение
@@ -180,9 +173,6 @@ Verification Contract). KTD8: из плана (доверенный вход) и
 - **`bun test` ≠ `bun run test`.** `bun test` — встроенный раннер bun,
   рекурсивно берёт ВСЕ `*.test/*.spec` (включая e2e/playwright) → таймаут.
   Нужен проектный скрипт: `bun run test`, `npm test`, `pnpm test`, `make test`.
-  На первом реальном прогоне (platform, PRD-2099) именно `bun test` в корне
-  утянул playwright и упал по ETIMEDOUT — гейт покраснел на таймауте, не на
-  провале тестов.
 - **Скоупь по затронутой области, не по корню.** Смотри `Files:` юнитов плана
   / где легли коммиты work. Монорепа: фильтруй пакет
   (`turbo run test --filter=<pkg>`, `nx test <pkg>`, `pnpm --filter <pkg> test`).
@@ -197,12 +187,12 @@ Verification Contract). KTD8: из плана (доверенный вход) и
   но синхронный длинный прогон блокирует heartbeat движка (spawnSync) — правильно
   сузить команду.
 
-Пример (platform PRD-2099, тронул `@membranehq/api` + `@membranehq/console`):
+Пример (монорепа, план тронул два пакета):
 ```bash
 se pipeline docs/plans/<план>.md \
   --validate-cmd 'bun run test:engine-api && bun run test:console'
 # оба — vitest по конкретным пакетам (api на pglite, console --project=unit),
-# без e2e; вместо утянувшего playwright 'bun test' в корне.
+# без e2e.
 ```
 
 ## Наблюдение и управление
@@ -232,22 +222,20 @@ se resume <runId>      # продолжить после паузы/падени
 `deny` всегда роняет прогон. Rollback ветки не автоматизирован — откатывай
 ветку целевого репо руками (`git branch -D se/<...>`).
 
-Известные особенности resume (проверено спайком U1):
+Особенности resume:
 
 - Убитый прогон резюмится `se resume <runId>`; если smithers отвечает
   `RUN_STILL_RUNNING` — heartbeat мёртвого owner'а ещё свеж, подожди 30–45 с;
   `se resume` печатает подсказку и вывод `smithers why`.
 - Правка исходников workflow между запуском и resume даёт
-  `RESUME_METADATA_MISMATCH`. С 0.32 такой прогон можно продолжить:
-  `smithers up workflows/se-pipeline.tsx --run-id <id> --resume true
-  --accept-workflow-change` (проверено вживую 2026-08-12: retry-task на
-  ране, чьи исходники менялись, с флагом прошёл re-bless и резюмировал;
-  движок предупреждает, что replay-детерминизм теперь на операторе).
-  До 0.32 — только перезапуск заново.
-- **0.28 state walk-up:** рантайм-дир зовётся `.smithers`, и smithers считает
+  `RESUME_METADATA_MISMATCH`. Лечится флагом: `smithers up
+  workflows/se-pipeline.tsx --run-id <id> --resume true
+  --accept-workflow-change` — re-bless метаданных; replay-детерминизм с этого
+  момента на операторе (движок предупреждает об этом явно).
+- **State walk-up:** рантайм-дир зовётся `.smithers`, и smithers считает
   его ЧУЖИМ state-диром → реальная БД лежит уровнем выше
   (`~/.claude/smithers.db`). `se db-path` печатает разрезолвленный путь;
-  `se list/show/resume` ходят через него. Свежая 0.28-БД не имеет
+  `se list/show/resume` ходят через него. Свежая БД не имеет
   `_smithers_events` до первой записи — cost-агрегация в summary fail-soft
   (нулевая стоимость лучше упавшего прогона).
 - **Упавшая последняя задача с retries=0 не пере-запускается на resume** —
@@ -261,67 +249,41 @@ se resume <runId>      # продолжить после паузы/падени
   чужие незакоммиченные правки. Проверяй `echo $SE_SMITHERS_DIR` перед
   запуском; должен быть пуст (дефолт — рантайм).
 
-## Smithers-причуды (ревизия 2026-08-12 на 0.32, целевыми пробами)
+## Smithers-причуды (актуально в 0.32)
 
-Каждый пункт помечен статусом по 0.32. Пробы: compute-workflow'ы в
-`qa-032/` (одноразовые, снесены), envelope-проба с haiku-агентом, retry-task
-на завершённом smoke-ране.
-
-**Держатся на 0.32:**
+Правила авторинга и эксплуатации воркфлоу:
 
 - Task без явного `retries` ретраится бесконечно с растущим бэкоффом, прогон
-  висит в running (проба `run-1786539487228`: 4→7 попыток за 80 с) — каждая
-  Task обязана иметь `retries={0|1}`.
+  висит в running — каждая Task обязана иметь `retries={0|1}`.
+- Отсутствующее опциональное поле `ctx.input` приходит как `null`, не
+  `undefined` (Zod-дефолты при этом применяются). `?? default` корректен;
+  проверки `=== undefined` не годятся.
+- **null на Subflow-границе.** Output subflow'а едет к родителю через
+  типизированную SQLite-строку: отсутствующее опциональное поле возвращается
+  как NULL, и `z.string().optional()` роняет валидацию ноды. На output-схемах
+  subflow-границ — только `.nullish()`, не `.optional()`. Внутрипрогонные
+  read-back'и (`ctx.outputMaybe`) NULL терпят — правило касается только границ.
+- ClaudeCodeAgent исполняет `jsonSchema` как native structured output — схема
+  принуждается движком даже против несговорчивого промпта. Envelope-контракты
+  в промптах — страховка, не единственный механизм.
+- runId неоднороден: detached `up` даёт `run-<epoch-ms>`, attached `up` — UUID.
+  `runIdTail` (последние 8 алфанум) работает для обоих форматов.
 - Per-task USD-стоимость не персистится — `TokenUsageReported` несёт только
-  токены; usd-цифры встречаются лишь внутри сырых `AgentEvent`-блобов
-  claude-code, первоклассного cost-события нет. Себестоимость по-прежнему
-  считается из токенов (`workflows/lib/cost.ts`).
+  токены (usd-цифры встречаются лишь внутри сырых `AgentEvent`-блобов);
+  себестоимость считается из токенов (`workflows/lib/cost.ts`).
 - Нода `output` сносит снапшот-worktree при finish → `smithers retry-task` на
-  ноде завершённого рана невозможен (проверено: retry дошёл до ноды и упал с
-  `cannot change to <worktree>: No such file or directory`), только свежий ран.
-- Burst-лимитер Anthropic (concurrency ≤3) — НЕ пере-проверялся намеренно;
-  считать действующим (anthropics/claude-code#53922, #62426).
-- `timeoutMs` reap-лаг ~+13 мин — НЕ пере-проверен (дорог по wall-clock);
-  wait cap вызывающего продолжаем считать = maxAttempts × cap + ~15 мин.
+  ноде завершённого рана невозможен (падает на исчезнувшем worktree), только
+  свежий ран.
+- `smithers cancel`: ран с мёртвым owner отменяется синхронно из CLI; живой
+  owner обрабатывает cancel асинхронно — до 1–2 мин, если задача в
+  backoff-паузе. Осиротевшие worktree подчищать руками
+  (`git worktree remove --force` + `git worktree prune`).
+- Burst-лимитер Anthropic бьёт при 5–6 параллельных headless-сессиях —
+  держать concurrency ≤3 (anthropics/claude-code#53922, #62426).
+- `timeoutMs` срабатывает с reap-лагом (~+13 мин wall-clock). Wait cap
+  вызывающего = maxAttempts × cap + ~15 мин.
 
-**Сняты в 0.32 (проверено):**
-
-- ~~`ctx.input` без Zod-дефолтов~~ — дефолты ПРИМЕНЯЮТСЯ (проба
-  qa-input-defaults: `.default("x")` доехал). Новый нюанс: отсутствующее
-  опциональное поле приходит как `null`, не `undefined` — `?? default`
-  остаётся корректным, проверки `=== undefined` не годятся. Коалесценции в
-  воркфлоу не трогать.
-- ~~ClaudeCodeAgent не умеет native structured output / невалидный envelope →
-  молчаливый ре-ран~~ — structured output РАБОТАЕТ: haiku-агент с промптом
-  «отвечай только BANANA» вернул объект, точно матчащий regex-паттерн
-  jsonSchema, за одну попытку/20 с (`run-1786539819131`). Envelope-контракты
-  в промптах остаются как belt-and-suspenders, но больше не единственный
-  механизм; кап «≥2× самой долгой ноги» можно пересмотреть после пары
-  реальных прогонов.
-- ~~`smithers cancel` с мёртвым owner оставляет running навсегда~~ — cancel
-  мёртво-owner'ного рана теперь СИНХРОННО ставит `cancelled` из CLI
-  (проверено на осиротевшем `run-1786538882578`); ручной `UPDATE` в DB больше
-  не нужен. Живой owner обрабатывает cancel асинхронно — до 1–2 мин, если
-  задача в backoff-паузе. Осиротевшие worktree всё ещё подчищать руками
-  (`git worktree remove --force` + `prune`).
-
-**Изменилось:**
-
-- runId больше не единообразен: detached `up` даёт `run-<epoch-ms>`, attached
-  `up` — UUID. `runIdTail` (последние 8 алфанум) работает для обоих форматов.
-- Политика «NEVER commit unless asked» в headless-протечке не наблюдаема
-  после KTD5 (work-агент вообще не коммитит — коммитит gate-задача);
-  пункт исторический.
-- **НОВАЯ причуда — null на Subflow-границе.** Output subflow'а едет к
-  родителю через типизированную SQLite-строку: отсутствующее опциональное
-  поле возвращается как NULL, и `z.string().optional()` роняет валидацию
-  ноды (первый реальный прогон 0.32 `run-1786539085328` упал так на
-  simplify-skip). Правило авторинга: на output-схемах subflow-границ —
-  `.nullish()`, не `.optional()` (пофикшено в трёх воркфлоу, коммит 5c042dc).
-  Внутрипрогонные read-back'и (`ctx.outputMaybe`) NULL терпят — фикс нужен
-  только границам.
-
-## Таксономия отказов review-ноги и salvage (актуально в 0.29)
+## Таксономия отказов review-ноги и salvage
 
 Когда «claude-нога померла», сначала читаем код отказа attempt, а не лезем в
 логи с нуля. Три кода на review-плечах (`verify-code`, se-code-review,
@@ -332,18 +294,16 @@ se-doc-review):
   (`AGENT_PROFILES.*.idleTimeoutMs`, `workflows/lib/agents.ts`): 15 мин у
   claude-плеч (`codeReview`, `docReview`), 10 мин у `opencodeReview`; таймер
   сбрасывается на каждом байте. Быстрый отказ вместо прожига полного
-  `timeoutMs` (прогон 9925bb0d съел 45-мин кап на 10-мин зависании). У `work`
-  idle-таймера нет — долгие локально-тихие команды (install, тесты) легитимны.
-  При `codeReview.retries: 0` ложный idle-kill невосстановим; значения
-  провизорны, поднимаются одной строкой профиля, если здоровая нога начнёт в
-  них упираться.
+  `timeoutMs`. У `work` idle-таймера нет — долгие локально-тихие команды
+  (install, тесты) легитимны. При `codeReview.retries: 0` ложный idle-kill
+  невосстановим; значения провизорны, поднимаются одной строкой профиля, если
+  здоровая нога начнёт в них упираться.
 - **`PROCESS_TIMEOUT`** — жёсткий кап `timeoutMs` (45 мин codeReview). Доходит
   до вызывающего с reap-лагом ~+13 мин wall-clock — wait cap это учитывает.
 - **`AGENT_CLI_ERROR`** — сам процесс CLI вышел с ненулевым кодом посреди
-  ревью (прогон 89938dd6, huge-diff сессия). Текст ошибки несёт хвост вывода
-  CLI; финального сообщения нет, поэтому salvage невозможен. Класс
-  задокументирован, но НЕ чинится этим планом (отложено: корень-причина, почему
-  CLI падает на огромных диффах).
+  ревью (наблюдался на huge-diff сессиях). Текст ошибки несёт хвост вывода
+  CLI; финального сообщения нет, поэтому salvage невозможен. Корень-причина
+  (почему CLI падает на огромных диффах) открыта.
 
 Путь захвата вывода — встроенный в движок, воркфлоу-парсер не нужен: после
 финального сообщения движок прогоняет 5-стратегийный salvage-каскад (вплоть до
@@ -363,15 +323,12 @@ work-обёртка `{"report": "..."}` не тронуты.
 
 ```sh
 sqlite3 ~/.claude/smithers.db \
-  "SELECT node_id, error_json FROM _smithers_attempts WHERE run_id='<runId>' ORDER BY id;"
+  "SELECT node_id, error_json FROM _smithers_attempts WHERE run_id='<runId>';"
 ```
 
-## Провенанс и пост-approval рескан (Batch 5)
+## Провенанс и пост-approval рескан
 
-Два зазора MVP закрыты (план
-`docs/plans/2026-07-16-001-feat-se-pipeline-provenance-rescan-plan.md`):
-
-- **Провенанс gate-0 (R1/R2).** Строка-хэш плана (`gate0`) теперь авторитет с
+- **Провенанс gate-0 (R1/R2).** Строка-хэш плана (`gate0`) — авторитет с
   привязкой: `ctx.prove(outputs.gate0)` даёт digest строки, а `bind={gate0Proof}`
   висит на дорогих плечах (`work`, `work-extra`, `summary`). Движок сверяет
   digest на каждом рендере и прямо перед каждым dispatch; любая позднейшая
@@ -381,20 +338,18 @@ sqlite3 ~/.claude/smithers.db \
   целостность строки-цепочки: он не читает ФС, поэтому ре-хэш плана-файла в
   work-гейте остаётся файловым стражем (правка самого файла плана по-прежнему
   роняет work-гейт по mismatch, R2).
-- **Пост-approval рескан (R3–R6).** Коммиты, которые оператор добавляет на ветку
-  во время verify-code паузы, раньше проходили мимо секрет-скана (сканировал
-  `base..HEAD` раньше) и validate-cmd (гонялся на work-гейте) — утёкший секрет
-  или сломанный билд мог доехать до зелёного на waive. Теперь между зелёным
-  verify-code и терминальным зелёным стоит стадия `rescan`: compute-задача
-  читает SHA, отсканированный секрет-сканом (`scannedHead` в его отчёте), и
-  сравнивает с текущим HEAD worktree. HEAD не двигался → детерминированный
-  no-op green (прогоны без коммитов оператора ведут себя как раньше, +1
-  compute-узел). HEAD сдвинулся (или `scannedHead` отсутствует — fail-closed) →
-  повторный `secretScanDiff` + `runValidateCmd` по новым коммитам; вердикт —
-  `rescanGate` (fail-closed: утечка/краш сканера → degraded, красный/отсутствующий
-  validate или непарсимый отчёт → failed). Красный рескан паузит на Approval с
-  waive-семантикой (см. таблицу): approve = принять свои коммиты (waive в notes),
-  deny = fail, вторая красная — стоп с отчётом.
+- **Пост-approval рескан (R3–R6).** Между зелёным verify-code и терминальным
+  зелёным стоит стадия `rescan`: compute-задача читает SHA, отсканированный
+  секрет-сканом (`scannedHead` в его отчёте), и сравнивает с текущим HEAD
+  worktree. HEAD не двигался → детерминированный no-op green. HEAD сдвинулся
+  (или `scannedHead` отсутствует — fail-closed) → повторный `secretScanDiff` +
+  `runValidateCmd` по новым коммитам; вердикт — `rescanGate` (fail-closed:
+  утечка/краш сканера → degraded, красный/отсутствующий validate или
+  непарсимый отчёт → failed). Так коммиты, которые оператор добавляет на ветку
+  во время verify-code паузы, не проходят мимо секрет-скана и validate-cmd.
+  Красный рескан паузит на Approval с waive-семантикой (см. таблицу): approve =
+  принять свои коммиты (waive в notes), deny = fail, вторая красная — стоп с
+  отчётом.
 
 **Восстановление после `BOUND_STALE`:** прогон встал в `waiting-event`, привязанная
 задача — `bound-stale`. Причина — строка `gate0` больше не совпадает с digest,
@@ -406,10 +361,10 @@ sqlite3 ~/.claude/smithers.db \
 историю; уже отработавшее плечо не откатывается задним числом при позднейшем
 рассинхроне.
 
-### Приёмка Batch 5 (провенанс + рескан)
+### Приёмка провенанса и рескана
 
 Отдельные от базовых AE1–AE4 ниже — эти проверяют рескан и bind (движковое
-поведение, не покрываемое юнит-тестами; U1 покрыт юнит-тестами `rescanGate`):
+поведение, не покрываемое юнит-тестами; сам `rescanGate` покрыт юнит-тестами):
 
 - **AE1 (секрет в коммите оператора → красный рескан):** запусти прогон до
   verify-code паузы (например, waive P0 или красный P0). На ветке прогона в
@@ -422,18 +377,16 @@ sqlite3 ~/.claude/smithers.db \
   скан чист, validate ≠ 0 → failed → та же Approval-семантика.
 - **AE3 (нет коммитов оператора → no-op green):** обычный прогон без ручных
   коммитов в паузе. Рескан-compute видит неподвижный HEAD (`currentHead ==
-  scannedHead`) → green без повторного скана/validate; набор вердиктов и состояние
-  ветки совпадают с прогоном до Batch 5 (кроме лишнего узла `rescan` в дереве).
+  scannedHead`) → green без повторного скана/validate.
 - **AE4 (мутация строки gate0 → BOUND_STALE):** на паузе прогона (любой Approval)
   `sqlite3 ~/.claude/.smithers/smithers.db "UPDATE gate0 SET plan_hash='tampered'
   WHERE run_id LIKE '%<runid8>%'"`, затем `se resume <runId>`. Ожидание: прогон
   паркуется `waiting-event` + `BOUND_STALE` в `smithers why`, а не продолжает
-  против устаревшей authority. Проверяется вживую однократно как фикстурная демо
-  (движковое поведение, не юнит-тест).
+  против устаревшей authority.
 
 ## Фикстурные демо базового конвейера (AE1–AE4)
 
-(Базовые приёмочные примеры конвейера; приёмка Batch 5 — в разделе выше.)
+(Базовые приёмочные примеры конвейера; приёмка рескана — в разделе выше.)
 Фикстурный мини-репо генерируется скриптом (воспроизводимо):
 
 ```bash
@@ -443,40 +396,23 @@ cd "$FIXTURE"
 
 - **AE1 (полный зелёный прогон):**
   `se pipeline docs/plans/fixture-reverse-plan.md --validate-cmd 'bun test'` →
-  ветка с ОДНИМ коммитом от work-гейта (агент не коммитит — см. KTD5 ниже),
-  proof-of-work = tree-хэш (`baseTree ≠ headTree`), `final_commit_sha` в
-  конверте advisory; ревью-отчёт, `se list` со стоимостью. Последняя демонстрация — по этому
-  раннбуку на фикстуре из скрипта: runId `run-1784105778671` (2026-07-15,
-  запуск через `se`, ветка `se/fixture-reverse-plan-05778671`, коммит
-  `496c8a9 feat(reverse)`, ревью P0=0, 1.05M токенов ≈ $0.75 старой
-  таблицей, ≈$0.83 официальной с cacheWrite; ранее —
-  `run-1784104646189`, «Ready to merge»). Smoke-путь 0.28 после патча:
-  `run-1784198676339` (4 гейта green, один gate-коммит).
+  ветка с ОДНИМ коммитом от work-гейта (агент не коммитит — коммитит
+  мемоизируемая gate-задача через `commitWorkGuarded`, только если дерево
+  грязное), proof-of-work = tree-хэш (`baseTree ≠ headTree`), `final_commit_sha`
+  в конверте advisory; ревью-отчёт, `se list` со стоимостью.
 - **AE2 (красный гейт → Approval):** детерминированный вариант — секрет в
   диффе: до запуска добавь в план юнита требование записать строку
   `awsAccessKeyId = "AKIA<16 заглавных>"` в файл конфига; секрет-скан gitleaks
   переведёт гейт в degraded → пауза ДО внешней отправки кода; `se approve` =
-  waive, `se deny` = стоп. Механика Approval вживую: runId `ac93562e-…`
-  (U3, красный work-гейт → approve → доп. попытка → finished),
-  `2639cd70-…` (waive P0). Реальный P0-кейс — материал сравнительной фазы.
+  waive, `se deny` = стоп.
 - **AE3 (терминал умер — прогон жив):** запусти detached, `kill -9 <pid>` во
   время work, подожди 45 с, `se resume <runId>` — пройденные стадии
   мемоизированы (не переоплачиваются), work перезапускается, прогон доходит до
-  green. Демонстрации: `run-1784109630941` (2026-07-15, live U4, smoke: kill
-  посреди work → resume восстановил repo из gate0 → finished green; заодно
-  подтвердил sweep осиротевшего лока предыдущего terminal-прогона).
-  **KTD5 (дубль коммита) закрыт git-only фиксом (U9, 2026-07-16):** work-агент
-  больше НЕ коммитит; коммитит одна мемоизируемая gate-задача через
-  `commitWorkGuarded` (только если дерево грязное) → kill в окне
-  commit→persist безопасен: resume видит чистое дерево, guard пропускает,
-  дубля нет. Подтверждено e2e `run-1784204259645` (owner убит в момент
-  появления gate-коммита → force-resume → finished, на ветке ровно один
-  коммит). Историческая демонстрация дубля на 0.27: `run-1784109630941`
-  (2× `chore: smoke commit`). Ранее: `run-1784036851218` (U1-спайк: kill
-  после ЗАВЕРШЁННОЙ задачи → мемоизация → без дублей).
+  green. Дубля коммита нет и на kill в окне commit→persist: guard
+  `commitWorkGuarded` коммитит только грязное дерево, resume видит чистое и
+  пропускает.
 - **AE4 (невалидный вход):** requirements-only план / несуществующий файл /
   `--until=pr` → прогон падает сразу, причина в `error` и `se logs`.
-  Продемонстрировано тремя прогонами U3 (все `status: failed`, `gate-0 refused: …`).
 - **AE5 (verify-doc P0-пауза через smoke-инъекцию severity, R8):** smoke-плечи
   возвращают `SMOKE OK` и НЕ эмитят SEVERITY-строку, поэтому R8 недостижим без
   тест-инъекции (KTD-F). Прокинь `smokeSeverity` на входе — output-задача
@@ -495,7 +431,7 @@ cd "$FIXTURE"
   #   severity-поля. Причина waive-скоупа — cause "severity" (не "availability").
 
   # Регрессия pass-through: без smokeSeverity severity-поля отсутствуют,
-  #   gate-verify-doc зелёный сквозной, поведение как сегодня.
+  #   gate-verify-doc зелёный сквозной — штатное поведение.
   smithers up workflows/se-pipeline.tsx --input '{
     "planPath":"'"$FIXTURE"'/docs/plans/fixture-reverse-plan.md",
     "smoke":true, "validateCmd":"bun test"
@@ -507,7 +443,7 @@ cd "$FIXTURE"
 
 ## Стоимость
 
-Smithers (и 0.28.0) не персистит USD — только токены (`TokenUsageReported`).
+Smithers не персистит USD — только токены (`TokenUsageReported`).
 Авторитетный стор — выходная `summary` прогона: токены по плечам +
 `est_cost_usd`, посчитанный официальной таблицей
 `smithers-orchestrator/scorers` (`estimateCostUsd`/`modelTokenPrices`) через
@@ -515,10 +451,9 @@ Smithers (и 0.28.0) не персистит USD — только токены (
 Особенности прайсинга: провайдер-префикс (`openai/…`) срезается перед
 лукапом; неизвестная таблице модель (голый `claude`, null) прайсится как
 sonnet-класс, не $0; `cacheWriteTokens` входит в цену и totalTokens.
-`se list` читает только оттуда. Ориентир: смоук ≈ $0.13; полный фикстурный
-прогон (реальные doc-review + work + review) — единицы долларов (AE1 ≈
-$0.83); рабочая задача — десятки (бюджеты-предохранители: $15 ревью-плечи,
-$50 work).
+`se list` читает только оттуда. Ориентир: смоук ≈ $0.15; полный фикстурный
+прогон (реальные work + simplify + review) ≈ $1–1.5; рабочая задача — десятки
+(бюджеты-предохранители: $15 ревью-плечи, $50 work).
 
 ## Сравнительная фаза (F3, приёмка)
 
@@ -537,24 +472,19 @@ Criteria):
 - [ ] ни одного зависшего/потерянного прогона (resume всегда доводил);
 - [ ] дельта стоимости к ручному треку приемлема (решает оператор).
 
-## Известные ограничения (MVP)
+## Известные ограничения
 
-- ~~KTD5-отклонение (дубль коммита на kill-пути)~~ **закрыто** git-only
-  фиксом U9 (guarded gate commit + tree-хэш proof), подтверждено e2e
-  `run-1784204259645`. Branch-reset по-прежнему только на approve-пути —
-  теперь этого достаточно.
-- ~~Остаток ревью U4–U7 п.1 (коммиты оператора в verify-code паузе минуют
-  секрет-скан и validate-cmd)~~ **закрыто** пост-approval рескан-стадией
-  (Batch 5, R3–R6) — см. «Провенанс и пост-approval рескан».
 - **KTD12:** work-агент без allow/deny-листа инструментов
   (`bypassPermissions` — headless-коммиты требуют Bash; изоляция — worktree и
   cwd). Гонять только на доверенных задачах до dev-container-фазы.
 - **Мемоизация bind:** завершённые задачи не пере-сверяют ProofBinding —
   привязка стережёт планирование, не историю. Мутация строки `gate0` паркует
   ещё не запущенные привязанные плечи (`BOUND_STALE`), но не откатывает уже
-  отработавшие (Batch 5, KTD-A).
+  отработавшие (KTD-A).
 - Self-reported P0-счётчик ревью не сверяется независимо (KTD3, принятый риск).
 - USD — оценка по прайс-таблице, не биллинг.
 - Бэкап `~/.claude/.smithers/` не делается — переустановка машины теряет
   историю прогонов (принято).
-- Правка workflow-исходников делает in-flight прогоны нерезюмируемыми.
+- Правка workflow-исходников между запуском и resume требует
+  `--accept-workflow-change` (см. «Особенности resume»); replay-детерминизм
+  после re-bless — на операторе.
