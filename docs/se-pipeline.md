@@ -3,7 +3,8 @@
 Durable-прогон `verify-doc → work → verify-code` над целевым репозиторием на
 Smithers 0.32.0 (апгрейд 0.29→0.32 2026-08-12: hardening-релиз, завершённая
 Effect-4-миграция диспатча, `--accept-workflow-change` для resume после правки
-workflow-исходников; smoke green `run-1786538882578`, 200/200 тестов).
+workflow-исходников; smoke green `run-1786538882578`, реальный фикстурный
+green `run-1786539437958` — все 4 гейта, $1.46; 200/200 тестов).
 Без локальных патчей (фикс false-positive квота-классификатора
 org_level_disabled, upstream smithersai/smithers#1342, влит в 0.29.0 — `patches/`
 и `patchedDependencies` удалены при апгрейде 2026-07-22; detached-логи теперь в
@@ -239,8 +240,10 @@ se resume <runId>      # продолжить после паузы/падени
 - Правка исходников workflow между запуском и resume даёт
   `RESUME_METADATA_MISMATCH`. С 0.32 такой прогон можно продолжить:
   `smithers up workflows/se-pipeline.tsx --run-id <id> --resume true
-  --accept-workflow-change` (флаг из upgrade-notes 0.32; на реальном
-  прогоне пока не проверен). До 0.32 — только перезапуск заново.
+  --accept-workflow-change` (проверено вживую 2026-08-12: retry-task на
+  ране, чьи исходники менялись, с флагом прошёл re-bless и резюмировал;
+  движок предупреждает, что replay-детерминизм теперь на операторе).
+  До 0.32 — только перезапуск заново.
 - **0.28 state walk-up:** рантайм-дир зовётся `.smithers`, и smithers считает
   его ЧУЖИМ state-диром → реальная БД лежит уровнем выше
   (`~/.claude/smithers.db`). `se db-path` печатает разрезолвленный путь;
@@ -258,40 +261,65 @@ se resume <runId>      # продолжить после паузы/падени
   чужие незакоммиченные правки. Проверяй `echo $SE_SMITHERS_DIR` перед
   запуском; должен быть пуст (дефолт — рантайм).
 
-## Smithers-причуды (проверено прогонами; актуально в 0.29, на 0.32 не пере-проверены)
+## Smithers-причуды (ревизия 2026-08-12 на 0.32, целевыми пробами)
 
-Правила авторинга воркфлоу; не изменились в 0.28/0.29. После апгрейда на
-0.32 (hardening-батч, 251 фикс) каждая причуда — кандидат на снятие, но ни
-одна не пере-проверена реальным прогоном — сверяй при первом столкновении:
+Каждый пункт помечен статусом по 0.32. Пробы: compute-workflow'ы в
+`qa-032/` (одноразовые, снесены), envelope-проба с haiku-агентом, retry-task
+на завершённом smoke-ране.
 
-- Task без явного `retries` ретраится бесконечно (прогон висит в running) —
-  каждая Task обязана иметь `retries={0|1}`.
-- `ctx.input` приходит без Zod-дефолтов — коалесцировать каждое опциональное
-  поле (`?? default`).
-- ClaudeCodeAgent не умеет native structured output — envelope-контракт в
-  промпте обязателен. Невалидный envelope → smithers МОЛЧА перезапускает весь
-  агентный прогон внутри той же attempt: кап Subflow ≥ 2× длительности самой
-  долгой ноги.
-- `timeoutMs` срабатывает с reap-лагом (~+13 мин wall-clock). Wait cap
-  вызывающего = maxAttempts × cap + ~15 мин.
-- runId `run-<epoch-ms>` уникален только хвостом (`runIdTail`, последние
-  8 алфанум).
-- Глобальная политика «NEVER commit unless asked» из ~/.claude/CLAUDE.md
-  протекает в headless `claude -p` — work-промпт обязан явно просить коммит.
-- Burst-лимитер Anthropic бьёт при 5–6 параллельных headless-сессиях —
-  держать concurrency ≤3 (anthropics/claude-code#53922, #62426).
-- Per-task USD-стоимость не персистится — только токены (`TokenUsageReported`
-  в `_smithers_events`); себестоимость считается из токенов
-  (`workflows/lib/cost.ts`).
+**Держатся на 0.32:**
+
+- Task без явного `retries` ретраится бесконечно с растущим бэкоффом, прогон
+  висит в running (проба `run-1786539487228`: 4→7 попыток за 80 с) — каждая
+  Task обязана иметь `retries={0|1}`.
+- Per-task USD-стоимость не персистится — `TokenUsageReported` несёт только
+  токены; usd-цифры встречаются лишь внутри сырых `AgentEvent`-блобов
+  claude-code, первоклассного cost-события нет. Себестоимость по-прежнему
+  считается из токенов (`workflows/lib/cost.ts`).
 - Нода `output` сносит снапшот-worktree при finish → `smithers retry-task` на
-  ноде завершённого рана невозможен, только свежий ран.
-- `smithers cancel` рана с мёртвым владельцем оставляет статус running
-  навсегда + worktree (cancel некому обработать; force-флага у CLI 0.29 нет).
-  Добивать руками: `git -C <repo> worktree remove --force <path>` + `git
-  worktree prune`; в DB `UPDATE _smithers_runs SET status='cancelled',
-  finished_at_ms=<now> WHERE run_id=? AND status='running' AND
-  runtime_owner_id='<мёртвый pid>'` — guard по owner_id обязателен, чтобы не
-  тронуть живой ран.
+  ноде завершённого рана невозможен (проверено: retry дошёл до ноды и упал с
+  `cannot change to <worktree>: No such file or directory`), только свежий ран.
+- Burst-лимитер Anthropic (concurrency ≤3) — НЕ пере-проверялся намеренно;
+  считать действующим (anthropics/claude-code#53922, #62426).
+- `timeoutMs` reap-лаг ~+13 мин — НЕ пере-проверен (дорог по wall-clock);
+  wait cap вызывающего продолжаем считать = maxAttempts × cap + ~15 мин.
+
+**Сняты в 0.32 (проверено):**
+
+- ~~`ctx.input` без Zod-дефолтов~~ — дефолты ПРИМЕНЯЮТСЯ (проба
+  qa-input-defaults: `.default("x")` доехал). Новый нюанс: отсутствующее
+  опциональное поле приходит как `null`, не `undefined` — `?? default`
+  остаётся корректным, проверки `=== undefined` не годятся. Коалесценции в
+  воркфлоу не трогать.
+- ~~ClaudeCodeAgent не умеет native structured output / невалидный envelope →
+  молчаливый ре-ран~~ — structured output РАБОТАЕТ: haiku-агент с промптом
+  «отвечай только BANANA» вернул объект, точно матчащий regex-паттерн
+  jsonSchema, за одну попытку/20 с (`run-1786539819131`). Envelope-контракты
+  в промптах остаются как belt-and-suspenders, но больше не единственный
+  механизм; кап «≥2× самой долгой ноги» можно пересмотреть после пары
+  реальных прогонов.
+- ~~`smithers cancel` с мёртвым owner оставляет running навсегда~~ — cancel
+  мёртво-owner'ного рана теперь СИНХРОННО ставит `cancelled` из CLI
+  (проверено на осиротевшем `run-1786538882578`); ручной `UPDATE` в DB больше
+  не нужен. Живой owner обрабатывает cancel асинхронно — до 1–2 мин, если
+  задача в backoff-паузе. Осиротевшие worktree всё ещё подчищать руками
+  (`git worktree remove --force` + `prune`).
+
+**Изменилось:**
+
+- runId больше не единообразен: detached `up` даёт `run-<epoch-ms>`, attached
+  `up` — UUID. `runIdTail` (последние 8 алфанум) работает для обоих форматов.
+- Политика «NEVER commit unless asked» в headless-протечке не наблюдаема
+  после KTD5 (work-агент вообще не коммитит — коммитит gate-задача);
+  пункт исторический.
+- **НОВАЯ причуда — null на Subflow-границе.** Output subflow'а едет к
+  родителю через типизированную SQLite-строку: отсутствующее опциональное
+  поле возвращается как NULL, и `z.string().optional()` роняет валидацию
+  ноды (первый реальный прогон 0.32 `run-1786539085328` упал так на
+  simplify-skip). Правило авторинга: на output-схемах subflow-границ —
+  `.nullish()`, не `.optional()` (пофикшено в трёх воркфлоу, коммит 5c042dc).
+  Внутрипрогонные read-back'и (`ctx.outputMaybe`) NULL терпят — фикс нужен
+  только границам.
 
 ## Таксономия отказов review-ноги и salvage (актуально в 0.29)
 
