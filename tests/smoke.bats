@@ -251,6 +251,12 @@ TOML
   assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
 }
 
+@test "work-summary skill is deployed with both format references" {
+  assert_file_exists "$HOME/.claude/skills/work-summary/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/work-summary/references/update-format.md"
+  assert_file_exists "$HOME/.claude/skills/work-summary/references/report-format.md"
+}
+
 @test "divine, inscribe, and cast skills are deployed with the grimoire" {
   assert_file_exists "$HOME/.claude/skills/divine/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/inscribe/SKILL.md"
