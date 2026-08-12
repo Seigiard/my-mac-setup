@@ -203,6 +203,32 @@ export function commitWorkGuarded(worktreePath: string, message: string): boolea
   return true;
 }
 
+// Snapshot-freeze wrapper around `git stash create`. Raw `stash create` is
+// unsafe on a stat-dirty tree (tracked files rewritten byte-identically since
+// the last index refresh — e.g. by a validate-cmd run after the gate commit):
+// its first change-check reads the stale index and sees "changes", its
+// internal refresh then finds none, and it exits 1 printing NOTHING
+// (killed run-1786528537862 at the simplify stage). Refresh the index first
+// so a stat-dirty tree reads as clean; keep a guard that maps the
+// silent-empty exit 1 to "nothing to stash" in case the tree changes between
+// the two calls. Returns the stash commit SHA, or "" when there is nothing
+// to freeze.
+export function stashCreateSafe(worktreePath: string): string {
+  try {
+    git(worktreePath, "update-index", "-q", "--refresh");
+  } catch {
+    // non-zero when genuine modifications exist; stash create handles those
+  }
+  try {
+    return git(worktreePath, "stash", "create");
+  } catch (err) {
+    const e = err as { status?: number | null; stdout?: unknown; stderr?: unknown };
+    const silent = e.status === 1 && !String(e.stdout ?? "").trim() && !String(e.stderr ?? "").trim();
+    if (silent) return "";
+    throw err;
+  }
+}
+
 // Content hash of a ref's tree object (KTD3/KTD14 proof of work): compares
 // CONTENT, not git dirty-state, so proving that the work stage changed anything
 // is independent of how or when commits are arranged. `ref` defaults to HEAD.

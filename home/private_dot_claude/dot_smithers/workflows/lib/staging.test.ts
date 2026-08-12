@@ -13,6 +13,7 @@ import {
   runBranchName,
   slugify,
   stageRunWorktree,
+  stashCreateSafe,
   sweepOrphans,
   treeHash,
   type GetRunState,
@@ -370,5 +371,51 @@ describe("isAncestor", () => {
     expect(isAncestor(repo, first, second)).toBe(true);
     expect(isAncestor(repo, second, first)).toBe(false);
     expect(isAncestor(repo, "0000000000000000000000000000000000000000", second)).toBe(false);
+  });
+});
+
+describe("stashCreateSafe (snapshot freeze)", () => {
+  // Rewrites a tracked file byte-identically via tmp+rename WITHOUT any
+  // interleaving index-refreshing git command (status/diff would write the
+  // refreshed index and destroy the condition). The index entry keeps stale
+  // stat info while content matches HEAD — the state that made raw
+  // `git stash create` exit 1 with empty output and killed a pipeline run's
+  // simplify stage.
+  function makeStatDirty(repo: string, file: string): void {
+    const target = path.join(repo, file);
+    const tmp = path.join(repo, `${file}.tmp`);
+    fs.writeFileSync(tmp, fs.readFileSync(target));
+    fs.renameSync(tmp, target);
+  }
+
+  test("clean tree → empty string (nothing to freeze)", () => {
+    const repo = makeRepo();
+    expect(stashCreateSafe(repo)).toBe("");
+  });
+
+  test("genuinely dirty tree → stash SHA, worktree untouched", () => {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "file.txt"), "modified\n");
+
+    const sha = stashCreateSafe(repo);
+
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    // #then the snapshot carries the change and the working tree stays dirty
+    expect(git(repo, "show", `${sha}:file.txt`)).toBe("modified");
+    expect(fs.readFileSync(path.join(repo, "file.txt"), "utf8")).toBe("modified\n");
+  });
+
+  test("stat-dirty-only tree (content == HEAD, mtime/inode moved) → empty string, NO throw", () => {
+    // #given an index with stale stat info: a file rewritten with identical
+    // content right after the commit, no refreshing git command in between
+    const repo = makeRepo();
+    makeStatDirty(repo, "file.txt");
+    // #precondition: non-refreshing plumbing sees a "change" — if this stops
+    // holding, the setup no longer reproduces stat-dirtiness and the test
+    // would pass vacuously
+    expect(git(repo, "diff-index", "HEAD", "--")).toContain("file.txt");
+
+    // #then raw `git stash create` used to exit 1 silently here
+    expect(stashCreateSafe(repo)).toBe("");
   });
 });

@@ -40,6 +40,7 @@ import { reviewLegSchema } from "./lib/review-schema.ts";
 import { mergeSimplifyLegs, type ReviewLeg, type SimplifyMergeResult } from "./lib/review-merge.ts";
 import { parseNumstat, shouldRunSimplify } from "./lib/stage-gate.ts";
 import { runValidateCmd } from "./lib/envelopes.ts";
+import { stashCreateSafe } from "./lib/staging.ts";
 
 const STAGE_ROOT = "/tmp/ce-simplify";
 const APPLY_TIMEOUT_MS = 20 * 60_000;
@@ -174,7 +175,7 @@ function stage(repoPath: string, target: string, baseSha: string, smoke: boolean
   const plugin = resolveSimplifySkillDir();
   fs.cpSync(plugin.dir, skillDir, { recursive: true });
 
-  const snapshotSha = git(repoPath, "stash", "create") || git(repoPath, "rev-parse", "HEAD");
+  const snapshotSha = stashCreateSafe(repoPath) || git(repoPath, "rev-parse", "HEAD");
   const snapshotDir = path.join(stageDir, "repo");
   git(repoPath, "worktree", "add", "--detach", snapshotDir, snapshotSha);
 
@@ -358,7 +359,7 @@ export default smithers((ctx) => {
         <Task id="pre-apply" output={outputs.preApply} retries={0}>
           {() => {
             const head = git(repoPath, "rev-parse", "HEAD");
-            const stashRef = git(repoPath, "stash", "create");
+            const stashRef = stashCreateSafe(repoPath);
             const dirtyBefore = git(repoPath, "status", "--porcelain");
             return { head, stashRef, dirtyBefore };
           }}

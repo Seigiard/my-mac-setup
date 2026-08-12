@@ -86,6 +86,15 @@ re-locate по контенту т.к. батч сдвигает строки, d
 тихий success. Одна выжившая нога → её находки как unique (usable), без
 cross-model консенсуса. `smoke:true` — синтетика без реального `ce-simplify-code`.
 
+Заморозка снапшота (и в se-simplify, и в стейджинге se-code-review/verify-code)
+идёт через `stashCreateSafe` (`lib/staging.ts`): `git update-index -q --refresh`
+перед `git stash create`, плюс страховка «тихий exit 1 без вывода = нечего
+стешить». Голый `stash create` на stat-dirty дереве — validate-cmd переписал
+tracked-файл байт-в-байт ПОСЛЕ gate-коммита, индекс не освежался — молча
+выходит с кодом 1 и ронял стадию мгновенно (run-1786528537862, 2026-08-12,
+platform). Диагностический признак в `_smithers_attempts`: у ноды `stage`
+error_json c `status: 1` и пустыми stdout/stderr.
+
 Right-sizing gate (`lib/stage-gate.ts`, R14) решает run/skip БЕЗ флага, смещение
 **skip-when-unsure** (обратное review-стадиям — неверный run авто-мутирует
 малоценный код, неверный skip лишь оставляет неприбранным): пустой / doc-only /

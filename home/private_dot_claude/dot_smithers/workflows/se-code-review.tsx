@@ -17,6 +17,7 @@ import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
+import { stashCreateSafe } from "./lib/staging.ts";
 
 const inputSchema = z.object({
   target: z
@@ -108,7 +109,7 @@ function stage(target: string) {
   const plugin = resolvePluginSkillDir();
   fs.cpSync(plugin.dir, skillDir, { recursive: true });
 
-  const snapshotSha = git(repoDir, "stash", "create") || git(repoDir, "rev-parse", "HEAD");
+  const snapshotSha = stashCreateSafe(repoDir) || git(repoDir, "rev-parse", "HEAD");
   const snapshotDir = path.join(stageDir, "repo");
   git(repoDir, "worktree", "add", "--detach", snapshotDir, snapshotSha);
 
