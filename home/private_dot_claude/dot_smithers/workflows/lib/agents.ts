@@ -132,6 +132,15 @@ const RAW_OBJECT_PROFILES = new Set(["codeReview", "simplifyReview"]);
 // The claude CLI has no flag to disable background execution (it is a Task/Bash
 // parameter, and Task itself is required for personas), so this pins the rule at
 // the system level where adherence beats the user-message rule alone.
+// Hard layer under the prompt rule: claude >=2.1.198 backgrounds subagents by
+// default, and a headless `-p` session waits for background subagents at most
+// 10 minutes (CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS default) — a six-persona
+// review leg hits that ceiling and dies before synthesis, salvaging an
+// in-flight object ("waiting_for_reviewers"/"failed") as its report. The env
+// var below disables background tasks entirely for the spawned CLI; the
+// system-prompt rule stays as the readable statement of intent.
+const DISABLE_BACKGROUND_TASKS_ENV = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" };
+
 const SYNCHRONOUS_SUBAGENTS_SYSTEM_PROMPT =
   "When you run reviewer personas as subagents, dispatch all of them in one message as parallel BLOCKING calls and wait for every one within that same turn. Never background or detach a subagent, never use any run-in-background mode, and never arm a file-watch monitor or poll for completion: detached subagent state is not durable across turns and forces a full, wasteful re-run.";
 
@@ -144,6 +153,7 @@ export function makeClaudeReviewAgent(options: ClaudeReviewAgentOptions): Claude
   return new ClaudeCodeAgent({
     cwd: options.cwd,
     permissionMode: "acceptEdits",
+    env: DISABLE_BACKGROUND_TASKS_ENV,
     appendSystemPrompt: SYNCHRONOUS_SUBAGENTS_SYSTEM_PROMPT,
     model: profile.model,
     fallbackModel: profile.fallbackModel,
@@ -169,6 +179,7 @@ export function makeSimplifyApplyAgent(options: SimplifyApplyAgentOptions): Clau
   return new ClaudeCodeAgent({
     cwd: options.cwd,
     permissionMode: "acceptEdits",
+    env: DISABLE_BACKGROUND_TASKS_ENV,
     model: SIMPLIFY_APPLY_MODEL,
     fallbackModel: SIMPLIFY_APPLY_FALLBACK_MODEL,
     timeoutMs: options.timeoutMs,

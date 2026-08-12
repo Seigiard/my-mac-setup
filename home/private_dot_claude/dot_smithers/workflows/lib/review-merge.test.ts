@@ -152,3 +152,35 @@ describe("mergeSimplifyLegs", () => {
     expect(merged.reasons.join(" ")).toContain("zero simplify legs");
   });
 });
+
+describe("parseLeg via mergeReviewReports — нетерминальный статус ноги", () => {
+  test("нога со status waiting_for_reviewers считается failed, её findings отброшены", () => {
+    const merged = JSON.parse(
+      mergeReviewReports([
+        { source: "claude", raw: JSON.stringify({ status: "waiting_for_reviewers", findings: [{ severity: "P0", title: "partial" }] }) },
+        { source: "opencode", raw: JSON.stringify({ status: "complete", findings: [] }) },
+      ]),
+    );
+    expect(merged.legs.claude).toBe("failed");
+    expect(merged.legs.opencode).toBe("ok");
+    expect(merged.findings).toHaveLength(0);
+  });
+
+  test("нога со status failed считается failed даже с валидной формой", () => {
+    const merged = JSON.parse(
+      mergeReviewReports([
+        { source: "claude", raw: JSON.stringify({ status: "failed", findings: [] }) },
+        { source: "opencode", raw: JSON.stringify({ status: "completed", findings: [{ severity: "P1" }] }) },
+      ]),
+    );
+    expect(merged.legs.claude).toBe("failed");
+    expect(merged.findings).toHaveLength(1);
+  });
+
+  test("терминальные варианты статуса проходят: complete/completed/ok/done/success", () => {
+    for (const status of ["complete", "Completed", "ok", "done", "SUCCESS"]) {
+      const merged = JSON.parse(mergeReviewReports([{ source: "leg", raw: JSON.stringify({ status, findings: [] }) }]));
+      expect(merged.legs.leg).toBe("ok");
+    }
+  });
+});

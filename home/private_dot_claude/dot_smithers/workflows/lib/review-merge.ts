@@ -6,6 +6,8 @@
 // lacks a findings array is recorded as failed in `legs`; the gate turns
 // all-legs-failed into degraded and a single failed leg into an advisory
 // reason (mirrors docReviewGate).
+import { isTerminalReviewStatus } from "./review-schema.ts";
+
 export interface ReviewLeg {
   source: string;
   raw: string | undefined;
@@ -22,6 +24,10 @@ function parseLeg(leg: ReviewLeg): ParsedLeg {
   try {
     const report = JSON.parse(leg.raw) as Record<string, unknown>;
     if (!Array.isArray(report.findings)) return { source: leg.source, ok: false, findings: [] };
+    // A non-terminal status ("waiting_for_reviewers", "failed", any progress
+    // state salvaged from a session that died before synthesis) is a dead leg
+    // wearing a valid shape — its findings are partial at best.
+    if (!isTerminalReviewStatus(report.status)) return { source: leg.source, ok: false, findings: [] };
     return { source: leg.source, ok: true, findings: report.findings };
   } catch {
     return { source: leg.source, ok: false, findings: [] };

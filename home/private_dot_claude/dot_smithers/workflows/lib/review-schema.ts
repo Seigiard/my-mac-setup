@@ -23,6 +23,21 @@ export const reviewLegSchema = z.looseObject({
 
 export type NaturalReviewReport = z.infer<typeof reviewLegSchema>;
 
+// Terminal-success detection for a leg's free-form status. Real history holds
+// "complete", "completed", "ok", "SMOKE OK", "reviewers complete", and
+// "completed: <reviewer list>" as healthy values — so this is word-boundary
+// containment, not exact match. Anything without a terminal word — "failed",
+// "pending", "in_progress", "waiting_for_reviewers", any state the salvage
+// cascade captured from a session that ended before synthesis — marks the LEG
+// failed, so the gate's degraded/pause semantics apply instead of counting a
+// dead leg as healthy-with-zero-findings. False-failing an exotic healthy
+// status is the safe direction: it pauses for a human instead of passing.
+const TERMINAL_REVIEW_STATUS = /\b(complete|completed|done|ok|success|succeeded)\b/i;
+
+export function isTerminalReviewStatus(status: unknown): boolean {
+  return typeof status === "string" && TERMINAL_REVIEW_STATUS.test(status);
+}
+
 // The claude CLI --json-schema payload for profile:'codeReview'. Mirrors
 // reviewLegSchema — required string `status`, additional properties allowed so
 // the plugin's verdict/findings survive capture. Serialized because the agent
