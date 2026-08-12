@@ -12,7 +12,7 @@ usage() {
 Usage: se <command> [args]
 
 Commands:
-  pipeline <plan-path> [--until=branch|pr] [--validate-cmd '<cmd>'] [--doc-review] [--attach]
+  pipeline <plan-path> [--until=branch|pr] [--validate-cmd '<cmd>'] [--setup-cmd '<cmd>'] [--doc-review] [--attach]
       Launch the se-pipeline workflow for a plan file. Run from the target
       repository: the current directory becomes PIPELINE_REPO (and
       DOC_REVIEW_REPO for the verify-doc child workflow).
@@ -27,6 +27,9 @@ Commands:
                          typecheck commands the plan already declares). Pass this
                          only to override. Keep it FAST — it runs synchronously;
                          unit/type checks, NOT full e2e.
+        --setup-cmd      Worktree provisioning command, run once in the staged
+                         worktree before work (installs, workspace dist builds
+                         the validate-cmd needs). Non-zero exit fails the run.
         --validate-timeout N   seconds before validate-cmd is killed (default
                          600). A too-broad command (e2e) that hits this fails
                          the gate — scope the command rather than raising this.
@@ -129,19 +132,20 @@ json_escape() {
 }
 
 build_input_json() {
-  local plan_path=$1 until=$2 validate_cmd=$3 validate_timeout_ms=$4 doc_review=$5
+  local plan_path=$1 until=$2 validate_cmd=$3 validate_timeout_ms=$4 doc_review=$5 setup_cmd=$6
   if command -v jq >/dev/null 2>&1; then
     jq -cn --arg planPath "$plan_path" --arg until "$until" --arg validateCmd "$validate_cmd" \
+      --arg setupCmd "$setup_cmd" \
       --argjson validateTimeoutMs "$validate_timeout_ms" --argjson docReview "$doc_review" \
-      '{planPath: $planPath, until: $until, validateCmd: $validateCmd, validateTimeoutMs: $validateTimeoutMs, docReview: $docReview}'
+      '{planPath: $planPath, until: $until, validateCmd: $validateCmd, validateTimeoutMs: $validateTimeoutMs, docReview: $docReview, setupCmd: $setupCmd}'
   else
-    printf '{"planPath":"%s","until":"%s","validateCmd":"%s","validateTimeoutMs":%s,"docReview":%s}' \
-      "$(json_escape "$plan_path")" "$(json_escape "$until")" "$(json_escape "$validate_cmd")" "$validate_timeout_ms" "$doc_review"
+    printf '{"planPath":"%s","until":"%s","validateCmd":"%s","validateTimeoutMs":%s,"docReview":%s,"setupCmd":"%s"}' \
+      "$(json_escape "$plan_path")" "$(json_escape "$until")" "$(json_escape "$validate_cmd")" "$validate_timeout_ms" "$doc_review" "$(json_escape "$setup_cmd")"
   fi
 }
 
 cmd_pipeline() {
-  local plan="" until="branch" validate_cmd="" attach=0 validate_timeout_s=600 doc_review=false
+  local plan="" until="branch" validate_cmd="" attach=0 validate_timeout_s=600 doc_review=false setup_cmd=""
 
   while (($#)); do
     case $1 in
@@ -153,6 +157,10 @@ cmd_pipeline() {
       --validate-cmd)
         [[ $# -ge 2 ]] || usage_die "--validate-cmd requires a value"
         shift; validate_cmd=$1 ;;
+      --setup-cmd=*) setup_cmd=${1#--setup-cmd=} ;;
+      --setup-cmd)
+        [[ $# -ge 2 ]] || usage_die "--setup-cmd requires a value"
+        shift; setup_cmd=$1 ;;
       --validate-timeout=*) validate_timeout_s=${1#--validate-timeout=} ;;
       --validate-timeout)
         [[ $# -ge 2 ]] || usage_die "--validate-timeout requires a value (seconds)"
@@ -184,7 +192,7 @@ cmd_pipeline() {
   local plan_abs repo input
   plan_abs="$(cd "$(dirname "$plan")" && pwd -P)/$(basename "$plan")"
   repo="$(pwd -P)"
-  input="$(build_input_json "$plan_abs" "$until" "$validate_cmd" "$((validate_timeout_s * 1000))" "$doc_review")"
+  input="$(build_input_json "$plan_abs" "$until" "$validate_cmd" "$((validate_timeout_s * 1000))" "$doc_review" "$setup_cmd")"
 
   local -a args=(up "$PIPELINE_WORKFLOW")
   ((attach)) || args+=(--detach)

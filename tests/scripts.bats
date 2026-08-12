@@ -1306,3 +1306,14 @@ assert any("herdr-agent-state.sh" in c for c in commands("SessionStart")), comma
 PY
   assert_success
 }
+
+@test "se pipeline --setup-cmd lands in the workflow input JSON" {
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local plan
+  plan="$(mktemp /tmp/se-dryrun-plan-XXXXXX.md)"
+  printf -- '---\nartifact_contract: ce-unified-plan/v1\n---\n# t\n' > "$plan"
+  run env SE_DRY_RUN=1 "$se_bin" pipeline "$plan" --setup-cmd 'bun install && bunx turbo run build --filter=@x/y'
+  rm -f "$plan"
+  assert_success
+  assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
+}

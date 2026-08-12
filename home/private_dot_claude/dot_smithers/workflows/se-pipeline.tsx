@@ -56,6 +56,8 @@ const inputSchema = z.object({
   until: z.enum(["branch", "pr"]).default("branch").describe("Run depth (R6); pr is a hard refusal in the MVP."),
   validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required. Keep it FAST — the work gate runs it synchronously; scope to unit/type checks, not full e2e."),
   validateTimeoutMs: z.number().default(10 * 60_000).describe("Work-gate validate-cmd timeout. A slow full-suite command (e2e) blocks the engine — scope the command instead of raising this blindly."),
+  setupCmd: z.string().default("").describe("Operator-supplied worktree provisioning command (KTD8-trusted, like validateCmd), run once in the staged worktree before work. For validate-cmds that need built workspace dists (e.g. `bun install && bunx turbo run build --filter=<pkg>`). Empty = no setup."),
+  setupTimeoutMs: z.number().default(15 * 60_000).describe("setup-cmd timeout. Installs and builds are allowed to be slower than validate."),
   docReview: z
     .boolean()
     .default(false)
@@ -96,6 +98,7 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
   input: inputSchema,
   gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
+  setup: z.object({ exitCode: z.number() }),
   docReview: docReviewSchema,
   // Mirror of se-simplify.tsx outputSchema (KTD-B) — only the fields the
   // pipeline reads are declared; smithers persists declared columns.
@@ -251,8 +254,8 @@ function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined,
   if (!doc) return "";
   const sections: string[] = [];
   const legs: Array<[string, string | undefined]> = [
-    ["claude", doc.claudeEnvelopePath],
-    ["opencode", doc.opencodeEnvelopePath],
+    ["claude", doc.claudeEnvelopePath ?? undefined],
+    ["opencode", doc.opencodeEnvelopePath ?? undefined],
   ];
   for (const [source, envelopePath] of legs) {
     if (!envelopePath) continue;
@@ -297,7 +300,7 @@ function legSeverityLabel(status: string | undefined, severity: SeveritySummary 
 // draining the gate's blocking power.
 function docReviewSeverityStatusNote(doc: z.infer<typeof docReviewSchema> | undefined): string {
   if (!doc) return "verify-doc severity: no stage output";
-  return `verify-doc severity: claude ${legSeverityLabel(doc.claudeStatus, doc.claudeSeverity)}; opencode ${legSeverityLabel(doc.opencodeStatus, doc.opencodeSeverity)}`;
+  return `verify-doc severity: claude ${legSeverityLabel(doc.claudeStatus, doc.claudeSeverity ?? undefined)}; opencode ${legSeverityLabel(doc.opencodeStatus, doc.opencodeSeverity ?? undefined)}`;
 }
 
 // KTD-E: a waived P0 spec flaw lives only in /tmp envelope files that a resume
@@ -307,8 +310,8 @@ function docReviewSeverityStatusNote(doc: z.infer<typeof docReviewSchema> | unde
 function docReviewWaiveNote(doc: z.infer<typeof docReviewSchema> | undefined, reasons: string | undefined): string {
   const parts: string[] = [`verify-doc: P0 waived by operator — ${reasons ?? ""}`, docReviewSeverityStatusNote(doc)];
   const envelopes: Array<[string, string | undefined]> = [
-    ["claude", doc?.claudeEnvelopePath],
-    ["opencode", doc?.opencodeEnvelopePath],
+    ["claude", doc?.claudeEnvelopePath ?? undefined],
+    ["opencode", doc?.opencodeEnvelopePath ?? undefined],
   ];
   for (const [source, envelopePath] of envelopes) {
     if (!envelopePath) continue;
@@ -383,9 +386,12 @@ export default smithers((ctx) => {
   const smoke = input.smoke ?? false;
   const workTimeoutMs = input.workTimeoutMs ?? 4 * 60 * 60_000;
   const workBudgetUsd = input.workBudgetUsd ?? 50;
+  const setupCmd = (input.setupCmd ?? "").trim();
+  const setupTimeoutMs = input.setupTimeoutMs ?? 15 * 60_000;
 
   const gate0 = ctx.outputMaybe("gate0", { nodeId: "gate0" });
   const staged = ctx.outputMaybe("staging", { nodeId: "staging" });
+  const setupOut = ctx.outputMaybe("setup", { nodeId: "setup" });
 
   // ProofBinding chain (R1/KTD-A/KTD-B): digest the persisted gate-0 output row
   // (the plan-hash authority) and bind the expensive legs to it. The engine
@@ -604,7 +610,27 @@ export default smithers((ctx) => {
     );
   }
 
-  if (gate0 && staged) {
+  // Worktree provisioning (operator-trusted setupCmd, KTD8-symmetric with
+  // validateCmd): a staged worktree is a bare checkout — validate-cmds that
+  // import built workspace dists fail without it. Non-zero exit fails the run
+  // here, before any agent spend: a broken setup makes every later validate
+  // verdict meaningless.
+  if (staged && setupCmd !== "" && !setupOut) {
+    children.push(
+      <Task id="setup" output={outputs.setup} retries={0}>
+        {() => {
+          const r = runValidateCmd(setupCmd, staged.worktreePath, setupTimeoutMs);
+          if (r.exitCode !== 0) {
+            throw new Error(`setup-cmd failed (exit ${r.exitCode}) in the run worktree. Tail: ${r.output.slice(-800)}`);
+          }
+          return { exitCode: 0 };
+        }}
+      </Task>,
+    );
+  }
+  const setupReady = setupCmd === "" || setupOut !== undefined;
+
+  if (gate0 && staged && setupReady) {
     // verify-doc is CONDITIONAL (R7): only `se-review-and-work` (docReview:true)
     // runs plan-review before work. `se-work` (default docReview:false) binds
     // work directly to gate0. When the stage is absent, docGreen passes through
