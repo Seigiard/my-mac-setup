@@ -122,6 +122,51 @@ teardown() {
 }
 
 # ===========================================
+# Shared writing-style template (.chezmoitemplates/writing-style.md)
+# rendered into each agent's native style mechanism
+# ===========================================
+
+# includeTemplate resolves against .chezmoitemplates in the chezmoi source dir,
+# so these renders must point --source at the checkout under test, not at the
+# host's chezmoi clone.
+render_with_source() {
+  local template_file="$1"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
+}
+
+@test "claude output style renders the shared writing-style rules" {
+  run render_with_source "$SOURCE_ROOT/private_dot_claude/output-styles/writing-style.md.tmpl"
+  assert_success
+  assert_output --partial 'keep-coding-instructions: true'
+  assert_output --partial 'Answer first: the conclusion is line one.'
+}
+
+@test "pi APPEND_SYSTEM renders the shared writing-style rules" {
+  run render_with_source "$SOURCE_ROOT/dot_pi/agent/APPEND_SYSTEM.md.tmpl"
+  assert_success
+  assert_output --partial '# Writing style'
+  assert_output --partial 'Answer first: the conclusion is line one.'
+}
+
+@test "shared agents/writing-style.md renders the shared rules" {
+  run render_with_source "$SOURCE_ROOT/private_dot_config/agents/writing-style.md.tmpl"
+  assert_success
+  assert_output --partial 'Answer first: the conclusion is line one.'
+}
+
+@test "opencode instructions point at the shared writing-style file" {
+  run render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
+  assert_success
+  assert_output --partial '"instructions"'
+  assert_output --partial '"~/.config/agents/writing-style.md"'
+}
+
+@test "CLAUDE.md source no longer carries the Writing style section" {
+  run grep '^## Writing style' "$SOURCE_ROOT/private_dot_claude/CLAUDE.md"
+  assert_failure
+}
+
+# ===========================================
 # private_settings.json.tmpl (Claude Code settings)
 # ===========================================
 

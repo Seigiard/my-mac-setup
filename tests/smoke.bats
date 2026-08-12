@@ -220,14 +220,29 @@ TOML
   assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
   run grep -q 'keep-coding-instructions: true' "$HOME/.claude/output-styles/writing-style.md"
   assert_success
+  run grep -q 'Answer first: the conclusion is line one.' "$HOME/.claude/output-styles/writing-style.md"
+  assert_success
   run grep -q '"outputStyle": "writing-style"' "$HOME/.claude/settings.json"
   assert_success
 }
 
-@test "pi APPEND_SYSTEM.md points at the shared Writing style rules" {
+@test "pi APPEND_SYSTEM.md carries the full writing-style rules" {
   assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
-  run grep -q 'Writing style' "$HOME/.pi/agent/APPEND_SYSTEM.md"
+  run grep -q 'Answer first: the conclusion is line one.' "$HOME/.pi/agent/APPEND_SYSTEM.md"
   assert_success
+}
+
+@test "opencode reads the shared writing-style file via instructions" {
+  assert_file_exists "$HOME/.config/agents/writing-style.md"
+  run grep -q 'Answer first: the conclusion is line one.' "$HOME/.config/agents/writing-style.md"
+  assert_success
+  run grep -q '"~/.config/agents/writing-style.md"' "$HOME/.config/opencode/opencode.json"
+  assert_success
+}
+
+@test "CLAUDE.md no longer duplicates the Writing style section" {
+  run grep '^## Writing style' "$HOME/.claude/CLAUDE.md"
+  assert_failure
 }
 
 @test "ask-agent skill is deployed" {
