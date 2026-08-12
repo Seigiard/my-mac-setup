@@ -1,7 +1,10 @@
 # se-pipeline — раннбук
 
 Durable-прогон `verify-doc → work → verify-code` над целевым репозиторием на
-Smithers 0.29.0 (без локальных патчей: фикс false-positive квота-классификатора
+Smithers 0.32.0 (апгрейд 0.29→0.32 2026-08-12: hardening-релиз, завершённая
+Effect-4-миграция диспатча, `--accept-workflow-change` для resume после правки
+workflow-исходников; smoke green `run-1786538882578`, 200/200 тестов).
+Без локальных патчей (фикс false-positive квота-классификатора
 org_level_disabled, upstream smithersai/smithers#1342, влит в 0.29.0 — `patches/`
 и `patchedDependencies` удалены при апгрейде 2026-07-22; detached-логи теперь в
 `.smithers/logs/` с ретеншном). План: `docs/plans/2026-07-14-001-feat-smithers-pipeline-plan.md`
@@ -233,8 +236,11 @@ se resume <runId>      # продолжить после паузы/падени
 - Убитый прогон резюмится `se resume <runId>`; если smithers отвечает
   `RUN_STILL_RUNNING` — heartbeat мёртвого owner'а ещё свеж, подожди 30–45 с;
   `se resume` печатает подсказку и вывод `smithers why`.
-- Правка исходников workflow между запуском и resume ломает resume
-  (`RESUME_METADATA_MISMATCH`) — прогон перезапускается заново.
+- Правка исходников workflow между запуском и resume даёт
+  `RESUME_METADATA_MISMATCH`. С 0.32 такой прогон можно продолжить:
+  `smithers up workflows/se-pipeline.tsx --run-id <id> --resume true
+  --accept-workflow-change` (флаг из upgrade-notes 0.32; на реальном
+  прогоне пока не проверен). До 0.32 — только перезапуск заново.
 - **0.28 state walk-up:** рантайм-дир зовётся `.smithers`, и smithers считает
   его ЧУЖИМ state-диром → реальная БД лежит уровнем выше
   (`~/.claude/smithers.db`). `se db-path` печатает разрезолвленный путь;
@@ -252,9 +258,11 @@ se resume <runId>      # продолжить после паузы/падени
   чужие незакоммиченные правки. Проверяй `echo $SE_SMITHERS_DIR` перед
   запуском; должен быть пуст (дефолт — рантайм).
 
-## Smithers-причуды (проверено прогонами, актуально в 0.29)
+## Smithers-причуды (проверено прогонами; актуально в 0.29, на 0.32 не пере-проверены)
 
-Правила авторинга воркфлоу; не изменились в 0.28/0.29:
+Правила авторинга воркфлоу; не изменились в 0.28/0.29. После апгрейда на
+0.32 (hardening-батч, 251 фикс) каждая причуда — кандидат на снятие, но ни
+одна не пере-проверена реальным прогоном — сверяй при первом столкновении:
 
 - Task без явного `retries` ретраится бесконечно (прогон висит в running) —
   каждая Task обязана иметь `retries={0|1}`.
