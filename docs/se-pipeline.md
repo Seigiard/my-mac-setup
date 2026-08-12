@@ -115,6 +115,31 @@ fallback `claude-haiku-4-5`, размер как docReview) для отчётн�
 `claude-haiku-4-5`. Standalone `se-simplify` ТРЕБУЕТ явный `validate-cmd` (вне
 пайплайна нет gate-0 / Verification Contract), иначе отказывается применять.
 
+## Дев-цикл, доставка и апгрейд
+
+Правки воркфлоу делаются в source-дире рабочего репо
+(`home/private_dot_claude/dot_smithers/`): там же `bun install`, `bun test`
+(state — `node_modules`, `smithers.db` — gitignored). Доставка в рантайм:
+commit → push → `chezmoi git pull` → `chezmoi apply ~/.claude/.smithers` →
+**пофайловая сверка** (`diff -r <source>/workflows ~/.claude/.smithers/workflows`)
+— `chezmoi diff` по КАТАЛОГУ может вернуть ложную пустоту при реальном дрейфе,
+сверять только пофайлово или прямым diff. Правка исходников между запуском и
+resume ломает resume без `--accept-workflow-change` — доставлять при нуле
+in-flight прогонов.
+
+Апгрейд smithers-orchestrator (всегда на последнюю версию):
+
+1. Ноль in-flight прогонов (`se list`).
+2. Бамп в `package.json` source-дира → `bun install` → `bun test` →
+   `bunx smithers-orchestrator graph` на каждый workflow (грузится ли новым
+   движком).
+3. Commit/push → доставка как выше → `bun install` в `~/.claude/.smithers` →
+   `bunx smithers-orchestrator --version`.
+4. Smoke на фикстуре (`make-pipeline-fixture.sh`, `smoke:true`), затем полный
+   фикстурный прогон с реальными агентами.
+5. Секцию «Smithers-причуды» сверить с релиз-нотами и первым реальным
+   прогоном; обновить под текущую версию.
+
 ## Запуск
 
 Из целевого репозитория (cwd = репо):

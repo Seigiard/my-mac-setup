@@ -1,7 +1,5 @@
 # External coding-agent CLI flags (headless invocation)
 
-Created: 2026-06-28
-
 Reference for invoking external coding-agent CLIs in **headless / one-shot** mode —
 kept for a possible future `ask-agent` "yolo" mode that consults providers beyond
 the current `claude` / `pi` / `opencode` trio.

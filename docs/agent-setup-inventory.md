@@ -130,8 +130,7 @@ Local plugins kept in repo: `herdr-agent-state.js`, `rtk.ts`.
 
 ## Codex / Gemini / Copilot
 
-Ignored on purpose. `~/.codex/skills/` is now empty (`react-doctor`, `web-perf`
-removed). Not reproduced by this repo.
+Ignored on purpose; not reproduced by this repo.
 
 ---
 
