@@ -50,13 +50,13 @@ const outputSchema = z.object({
   pluginVersion: z.string(),
   claudeStatus: z.enum(["ok", "failed"]),
   opencodeStatus: z.enum(["ok", "failed"]),
-  claudeEnvelopePath: z.string().optional(),
-  opencodeEnvelopePath: z.string().optional(),
+  claudeEnvelopePath: z.string().nullish(),
+  opencodeEnvelopePath: z.string().nullish(),
   // Optional per-leg severity summaries (KTD-C): absent on old persisted
   // outputs and whenever a leg's SEVERITY line is missing/unparseable. Mirror
   // of docReviewSchema in se-pipeline.tsx — keep the two in sync.
-  claudeSeverity: severitySchema.optional(),
-  opencodeSeverity: severitySchema.optional(),
+  claudeSeverity: severitySchema.nullish(),
+  opencodeSeverity: severitySchema.nullish(),
 });
 
 const { Workflow, Task, Sequence, Parallel, smithers, outputs } = createSmithers({

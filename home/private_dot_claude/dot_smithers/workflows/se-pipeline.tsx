@@ -73,13 +73,13 @@ const docReviewSchema = z.object({
   pluginVersion: z.string(),
   claudeStatus: z.enum(["ok", "failed"]),
   opencodeStatus: z.enum(["ok", "failed"]),
-  claudeEnvelopePath: z.string().optional(),
-  opencodeEnvelopePath: z.string().optional(),
+  claudeEnvelopePath: z.string().nullish(),
+  opencodeEnvelopePath: z.string().nullish(),
   // Mirror of se-doc-review.tsx outputSchema (KTD-C) — keep the two in sync.
   // Optional so old persisted docReview outputs stay valid on resume, and the
   // gate receives severity with no extra plumbing.
-  claudeSeverity: severitySchema.optional(),
-  opencodeSeverity: severitySchema.optional(),
+  claudeSeverity: severitySchema.nullish(),
+  opencodeSeverity: severitySchema.nullish(),
 });
 
 const gateVerdictSchema = z.object({
@@ -106,7 +106,7 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
     appliedCount: z.number().default(0),
     contradictionCount: z.number().default(0),
     reverted: z.boolean().default(false),
-    reportPath: z.string().optional(),
+    reportPath: z.string().nullish(),
   }),
   agentReport: z.object({ report: z.string() }),
   // The two verify-code review legs emit the plugin's natural review object

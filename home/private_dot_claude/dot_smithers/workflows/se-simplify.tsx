@@ -98,8 +98,8 @@ const verifySchema = z.object({
 const outputSchema = z.object({
   status: z.enum(["ok", "skipped", "degraded"]),
   reason: z.string(),
-  stageDir: z.string().optional(),
-  consultTarget: z.string().optional(),
+  stageDir: z.string().nullish(),
+  consultTarget: z.string().nullish(),
   claudeStatus: z.enum(["ok", "failed", "n/a"]),
   opencodeStatus: z.enum(["ok", "failed", "n/a"]),
   appliedEdits: z.boolean(),
@@ -107,7 +107,7 @@ const outputSchema = z.object({
   contradictionCount: z.number(),
   validateExitCode: z.number().nullable(),
   reverted: z.boolean(),
-  reportPath: z.string().optional(),
+  reportPath: z.string().nullish(),
 });
 
 const { Workflow, Task, Sequence, Parallel, smithers, outputs } = createSmithers({
