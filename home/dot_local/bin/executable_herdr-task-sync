@@ -191,27 +191,18 @@ write_state() {
   } >"$file" 2>/dev/null
 }
 
-# A pane label opens with a one-cell badge for the agent, so several labels
-# still fit in the tab label. The badges are Nerd Fonts 3.5.0 glyphs:
-#
-#   claude    U+EC82   cod-claude
-#   opencode  U+EAC4   cod-code    (Nerd Fonts ships no opencode logo)
-#   pi        U+F03FF  md-pi
-#   codex     U+EC81   cod-openai
-#
-# Those glyphs live in the Unicode private use area, so the terminal attached
-# to herdr must render a Nerd Font. Set HERDR_TASK_SYNC_ICONS=0 to fall back to
-# `c:slug`, which the same fallback gives any agent with no badge of its own.
+# A pane label opens with a short agent prefix, so several labels still fit
+# in the tab label. Plain ASCII on purpose: the earlier Nerd Font glyph badges
+# rendered as empty boxes on any terminal without a patched font. An agent
+# with no prefix of its own falls back to its first letter.
 pane_label() {
   local name="$1" slug="$2"
-  if [ "${HERDR_TASK_SYNC_ICONS:-1}" != "0" ]; then
-    case "$name" in
-      claude) printf ' %s' "$slug"; return 0 ;;
-      opencode) printf ' %s' "$slug"; return 0 ;;
-      pi) printf '󰏿 %s' "$slug"; return 0 ;;
-      codex) printf ' %s' "$slug"; return 0 ;;
-    esac
-  fi
+  case "$name" in
+    claude) printf 'cc:%s' "$slug"; return 0 ;;
+    opencode) printf 'oc:%s' "$slug"; return 0 ;;
+    pi) printf 'pi:%s' "$slug"; return 0 ;;
+    codex) printf 'cx:%s' "$slug"; return 0 ;;
+  esac
   printf '%s:%s' \
     "$(LC_ALL=C printf '%s' "$name" | cut -c1 | tr '[:upper:]' '[:lower:]')" \
     "$slug"

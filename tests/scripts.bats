@@ -703,7 +703,6 @@ hts_run() {
     HERDR_PANE_ID=pane-1 \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
-    HERDR_TASK_SYNC_ICONS="${HTS_ICONS:-1}" \
     bash "$HTS_ENGINE" "$@"
 }
 
@@ -960,24 +959,23 @@ SH
   assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
 }
 
-# The pane label opens with a Nerd Font badge for the agent. Claude's badge is
-# U+EC82 (cod-claude), written here as its UTF-8 bytes so this file stays ASCII.
-@test "herdr-task-sync names the pane with the agent badge" {
+# The pane label opens with a short ASCII prefix for the agent, so it renders
+# the same on any terminal, patched font or not.
+@test "herdr-task-sync names the pane with the agent prefix" {
   hts_setup
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_call 'pane rename'
-  assert_equal "$(hts_pane_label)" "$(printf '\xee\xb2\x82') cache-review"
+  assert_equal "$(hts_pane_label)" "cc:cache-review"
 }
 
-# A terminal without a Nerd Font renders the badge as an empty box, so the
-# icons are switchable and the fallback names the agent by its first letter.
-@test "herdr-task-sync falls back to a letter badge when icons are off" {
+# An agent outside the known set still gets a readable label: its first letter.
+@test "herdr-task-sync falls back to a letter prefix for an unknown agent" {
   hts_setup
   hts_stub_engine pi cache-review 0 0
-  HTS_ICONS=0 hts_run --agent claude --session s1 <<< 'review the cache layer please'
+  hts_run --agent aider --session s1 <<< 'review the cache layer please'
   hts_wait_for_call 'pane rename'
-  assert_equal "$(hts_pane_label)" "c:cache-review"
+  assert_equal "$(hts_pane_label)" "a:cache-review"
 }
 
 # Herdr keeps one label per tab and composes nothing itself. The engine joins
