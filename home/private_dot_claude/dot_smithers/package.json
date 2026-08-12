@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "smithers-orchestrator": "0.29.0",
+    "smithers-orchestrator": "0.32.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
