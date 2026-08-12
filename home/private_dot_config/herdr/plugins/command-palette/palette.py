@@ -15,7 +15,6 @@ import locale
 import os
 import select
 import shlex
-import shutil
 import subprocess
 import sys
 import termios
@@ -89,10 +88,6 @@ def plugin_config_path() -> Path:
     ) / "commands.toml"
 
 
-def bundled_defaults_path() -> Path:
-    return Path(os.environ.get("HERDR_PLUGIN_ROOT", Path(__file__).resolve().parent)) / "defaults" / "commands.toml"
-
-
 def command_config_path() -> Path:
     explicit = os.environ.get("HERDR_COMMAND_PALETTE_CONFIG")
     if explicit:
@@ -109,11 +104,7 @@ def ensure_config() -> Path:
     path = command_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        defaults = bundled_defaults_path()
-        if defaults.exists():
-            shutil.copyfile(defaults, path)
-        else:
-            path.write_text("\n")
+        path.write_text("\n")
     return path
 
 
@@ -330,7 +321,7 @@ def validate_command_files(paths: list[Path]) -> list[tuple[Path, int]]:
 
 
 def validate_cli(args: list[str]) -> int:
-    paths = [Path(arg).expanduser() for arg in args] if args else [bundled_defaults_path()]
+    paths = [Path(arg).expanduser() for arg in args] if args else [command_config_path()]
     try:
         results = validate_command_files(paths)
     except Exception as exc:

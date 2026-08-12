@@ -41,16 +41,17 @@ change this to a prefix binding such as `prefix+space` or `prefix+shift+p`.
 
 ## Commands
 
-The plugin ships read-only defaults in `defaults/commands.toml`. On first run it
-seeds the user-editable global command list at:
+The global command list lives at:
 
 ```bash
 ~/.config/herdr/command-palette/commands.toml
 ```
 
-That runtime file is intentionally not managed by chezmoi, so live edits are not
-overwritten by `chezmoi apply`. The palette also supports
-`HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.toml` for experiments.
+That file is managed by chezmoi from
+`home/private_dot_config/herdr/command-palette/commands.toml`. Edit the source in
+the dotfiles repo, not the live file: `chezmoi apply` overwrites the live copy.
+The palette also supports `HERDR_COMMAND_PALETTE_CONFIG=/path/to/commands.toml`
+for experiments.
 
 You can also add one command per file beside it:
 

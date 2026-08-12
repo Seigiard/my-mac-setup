@@ -60,17 +60,17 @@ load 'helpers/common'
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/palette.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml"
+  assert_file_exists "$HOME/.config/herdr/command-palette/commands.toml"
 }
 
 @test "herdr command palette keybinding is configured" {
   assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
-  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml" "Edit command palette config"
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
 }
 
 @test "herdr lazygit popup entrypoint is configured" {
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
-  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml" "Lazygit in popup"
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Lazygit in popup"
 }
 
 @test "herdr command palette sources are valid" {
@@ -80,11 +80,11 @@ load 'helpers/common'
     "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
   assert_success
 
-  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); assert len(mod.load_command_data_file(__import__("pathlib").Path(os.path.expanduser("~/.config/herdr/plugins/command-palette/defaults/commands.toml")))) > 0'
+  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); assert len(mod.load_command_data_file(__import__("pathlib").Path(os.path.expanduser("~/.config/herdr/command-palette/commands.toml")))) > 0'
   assert_success
 
   run python3 "$HOME/.config/herdr/plugins/command-palette/palette.py" --validate \
-    "$HOME/.config/herdr/plugins/command-palette/defaults/commands.toml"
+    "$HOME/.config/herdr/command-palette/commands.toml"
   assert_success
 }
 
@@ -128,7 +128,7 @@ PY
   assert_success
 }
 
-@test "herdr command palette can load and seed commands" {
+@test "herdr command palette can load commands" {
   run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); cfg, cmds = mod.load_commands(); assert cfg.name == "commands.toml"; assert len(cmds) > 0'
   assert_success
   assert_file_exists "$HOME/.config/herdr/command-palette/commands.toml"

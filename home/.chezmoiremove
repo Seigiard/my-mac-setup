@@ -1,0 +1,3 @@
+# The palette's global commands.toml is managed directly now. Drop the old
+# read-only seed that earlier applies left inside the plugin directory.
+.config/herdr/plugins/command-palette/defaults
