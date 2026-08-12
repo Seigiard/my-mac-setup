@@ -40,11 +40,18 @@ function isRunnableVerification(cmd: string): boolean {
 // Returns the joined validate command, or null when the plan has no
 // Verification Contract or no runnable commands in it.
 export function extractValidateCmd(markdown: string): string | null {
-  const header = markdown.search(/^##\s+Verification Contract\s*$/m);
-  if (header === -1) return null;
-  const rest = markdown.slice(header);
-  const nextSection = rest.slice(1).search(/^##\s+/m);
-  const section = nextSection === -1 ? rest : rest.slice(0, nextSection + 1);
+  // The ce-plan section contract puts the heading at H2, but plans are
+  // agent-authored markdown and the level drifts — one real plan nested the
+  // contract at H3 under Planning Contract and gate-0 refused the run. Accept
+  // any depth and end the section at the next heading of the same or
+  // shallower depth, so a nested contract never swallows sibling sections
+  // (a Sources glob line like `include: ['**/*.test.ts']` would pass the
+  // token filter and be executed as a command).
+  const heading = /^(#{2,6})\s+Verification Contract\s*$/m.exec(markdown);
+  if (!heading) return null;
+  const body = markdown.slice(heading.index + heading[0].length);
+  const nextSection = body.search(new RegExp(`^#{1,${heading[1].length}}\\s+`, "m"));
+  const section = nextSection === -1 ? body : body.slice(0, nextSection);
 
   const commands: string[] = [];
   const seen = new Set<string>();

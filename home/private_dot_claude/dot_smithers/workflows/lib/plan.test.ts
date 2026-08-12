@@ -143,3 +143,50 @@ describe("extractValidateCmd: fenced-блоки", () => {
     expect(extractValidateCmd(md)).toBe(null);
   });
 });
+
+describe("extractValidateCmd (contract heading nested below H2)", () => {
+  test("finds an H3 contract and stops at the next H3 sibling — Sources globs never read as commands", () => {
+    // #given the shape that killed a real gate-0: the contract nested under
+    // Planning Contract, with a sibling section whose fenced glob line
+    // carries a `test` token
+    const md = [
+      "# Plan",
+      "",
+      "## Planning Contract",
+      "",
+      "### Verification Contract",
+      "",
+      "| Gate | Command | Covers |",
+      "|---|---|---|",
+      "| Unit | `bun run test:unit` | U1 |",
+      "",
+      "### Sources",
+      "",
+      "```",
+      "include: ['**/*.test.ts', '**/*.test.tsx']",
+      "```",
+      "",
+    ].join("\n");
+
+    expect(extractValidateCmd(md)).toBe("(bun run test:unit)");
+  });
+
+  test("H3 contract is also terminated by a following H2 heading", () => {
+    const md = [
+      "## Planning Contract",
+      "",
+      "### Verification Contract",
+      "",
+      "| Gate | Command |",
+      "|---|---|",
+      "| Types | `bun run typecheck` |",
+      "",
+      "## Appendix",
+      "",
+      "| Note | `vitest run --project=unit not-a-gate` |",
+      "",
+    ].join("\n");
+
+    expect(extractValidateCmd(md)).toBe("(bun run typecheck)");
+  });
+});
