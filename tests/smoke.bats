@@ -739,8 +739,10 @@ PY
   assert_file_contains "$plugin" 'parentID'
 }
 
-@test "herdr agents sidebar renders the task token" {
+@test "herdr agents sidebar renders the pane label" {
   local config="$HOME/.config/herdr/config.toml"
   assert_file_contains "$config" '^\[ui.sidebar.agents\]'
-  assert_file_contains "$config" '\$task'
+  # herdr-task-sync writes '<agent badge> <task slug>' into the pane label, so
+  # the sidebar shows the agent and its task through the `pane` row.
+  assert_file_contains "$config" '^rows = .*"pane"'
 }
