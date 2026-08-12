@@ -1,25 +1,4 @@
 [[commands]]
-group = "Panes"
-title = "Split pane right"
-description = "Split the active pane to the right"
-type = "herdr"
-args = ["pane", "split", "{target_pane}", "--direction", "right", "--focus"]
-
-[[commands]]
-group = "Panes"
-title = "Split pane down"
-description = "Split the active pane downward"
-type = "herdr"
-args = ["pane", "split", "{target_pane}", "--direction", "down", "--focus"]
-
-[[commands]]
-group = "Panes"
-title = "Close active pane"
-description = "Close the pane that opened the palette"
-type = "herdr"
-args = ["pane", "close", "{target_pane}"]
-
-[[commands]]
 group = "Git"
 title = "Lazygit in new tab"
 description = "Open a new tab in the current pane's directory and run lazygit"
@@ -37,24 +16,32 @@ command = "nohup bash -c \"sleep 0.4; herdr plugin pane open --plugin seigi.comm
 
 [[commands]]
 group = "Git"
-title = "Update main branch"
-description = "Run gpmain in the current pane's directory"
+title = "Switch to the latest main"
+description = "Switch to the latest main branch, pull changes and update"
 type = "shell"
-command = "zsh -ic 'gpmain'"
+command = "zsh -ic 'git checkout main && gpmain && check-deps'"
 
 [[commands]]
 group = "Git"
 title = "Merge main branch"
 description = "Run gmmain in the current pane's directory"
 type = "shell"
-command = "zsh -ic 'gmmain'"
+command = "zsh -ic 'gmmain && check-deps'"
 
 [[commands]]
-group = "Herdr"
-title = "New tab"
-description = "Create and focus a new tab in the active workspace"
-type = "herdr"
-args = ["tab", "create", "--focus"]
+group = "Git"
+title = "Update main branch"
+description = "Run gpmain in the current pane's directory"
+type = "shell"
+command = "zsh -ic 'gpmain'"
+
+[[commands]]
+group = "Editor"
+title = "Open in Zed"
+description = "Open the current pane's directory in Zed"
+type = "shell"
+pause = false
+command = "zed {target_cwd_q}"
 
 [[commands]]
 group = "Herdr"
@@ -65,9 +52,9 @@ type = "workspace_picker"
 [[commands]]
 group = "Smithers"
 title = "sm monitor"
-description = "Open the smithers live web UI (Gateway :7331) in a new tab"
-type = "tab_run"
-label = "sm monitor"
+description = "Open the smithers live web UI (Gateway :7331) in the browser"
+type = "shell"
+pause = false
 command = "se monitor"
 
 [[commands]]
