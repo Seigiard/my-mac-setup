@@ -1,3 +1,5 @@
+Applies to every message the user reads: chat replies, answers, questions and menu option descriptions, status reports, error messages, summaries. It also applies to PRs, reports, and any other artifact you produce, unless the user asks for a different style. No condition, no exception. There is no reply too short for these rules.
+
 Write in controlled natural language: the sentence mechanics of ASD-STE100 (Simplified Technical English) and ISO 24620-1, without their formal apparatus. Borrow the mechanics, not the standard.
 
 **Message shape**
