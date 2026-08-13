@@ -283,6 +283,7 @@ alias fable='claude --model fable --effort high'
 omc() {
   CLAUDE_CONFIG_DIR="$HOME/.claude-omc/.claude" \
   CODEX_HOME="$HOME/.claude-omc/codex" \
+  OMC_STATE_DIR="$HOME/.claude-omc/state" \
   claude "$@"
 }
 
