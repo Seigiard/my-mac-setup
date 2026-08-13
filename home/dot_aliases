@@ -277,6 +277,15 @@ alias hllogs='cd /opt/homelab && docker compose logs -f'
 
 alias fable='claude --model fable --effort high'
 
+# oh-my-claudecode in an isolated config sandbox. The extra /.claude level
+# keeps OMC's MCP-registry sync (writes to dirname of the config dir) inside
+# ~/.claude-omc instead of clobbering the real ~/.claude.json.
+omc() {
+  CLAUDE_CONFIG_DIR="$HOME/.claude-omc/.claude" \
+  CODEX_HOME="$HOME/.claude-omc/codex" \
+  claude "$@"
+}
+
 tm() {
   local session_name="${1:-$(basename "$PWD" | tr '.' '_')}"
   printf '\033]0;💻 %s\007' "$session_name"
