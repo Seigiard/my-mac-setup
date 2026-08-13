@@ -20,6 +20,17 @@ log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG"; }
 omc_count=0
 wt_count=0
 br_count=0
+trash_count=0
+
+# 0) Purge trash entries older than 2 days. ctime is keyed to the moment the
+# entry was moved into the trash (rename updates it), not its original mtime,
+# so fresh moves keep a two-day undo window.
+while IFS= read -r entry; do
+  if rm -rf "$entry"; then
+    log "purged trash: $entry"
+    trash_count=$((trash_count + 1))
+  fi
+done < <(find "$TRASH" -mindepth 1 -maxdepth 1 -ctime +2 2>/dev/null)
 
 # 1) .omc runtime state in project checkouts. Files touched in the last 12h
 # can belong to a live OMC run — leave those dirs alone.
@@ -65,10 +76,10 @@ if git -C "$PLATFORM" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 echo "$today" >"$STAMP"
-summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count"
+summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count"
 log "done — $summary"
 
-if [[ $((omc_count + wt_count + br_count)) -gt 0 && -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
+if [[ $((omc_count + wt_count + br_count + trash_count)) -gt 0 && -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
   command -v osascript >/dev/null 2>&1; then
   osascript -e "display notification \"$summary\" with title \"Morning cleanup\"" 2>>"$LOG" || true
 fi

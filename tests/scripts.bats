@@ -1360,3 +1360,14 @@ PY
   assert_success
   [ -d "$fake_home/Projects/late/.omc" ]
 }
+
+@test "morning-cleanup keeps fresh trash entries" {
+  local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
+  local fake_home="$BATS_TEST_TMPDIR/mc-home-trash"
+  mkdir -p "$fake_home/Projects" "$fake_home/.scratchpad/fresh-entry"
+  printf 'x' > "$fake_home/.scratchpad/fresh-entry/file"
+
+  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
+  assert_success
+  [ -d "$fake_home/.scratchpad/fresh-entry" ]
+}
