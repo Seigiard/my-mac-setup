@@ -45,7 +45,6 @@ brew "agent-browser"
 brew "pi-coding-agent"
 brew "herdr"        # agent multiplexer
 brew "crit"         # local plan/code review
-brew "rtk"          # LLM token-saving CLI proxy
 
 # Dev tools
 brew "act"          # run GitHub Actions locally

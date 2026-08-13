@@ -87,7 +87,7 @@ Shared package for local `se-*` wrappers. Runtime deps/state are ignored.
 
 No OpenCode plugins are installed via `plugin[]`.
 
-Local plugins kept in repo: `herdr-agent-state.js`, `rtk.ts`.
+Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Skills (`~/.config/opencode/skills/` — 39)
 
@@ -109,7 +109,6 @@ Local plugins kept in repo: `herdr-agent-state.js`, `rtk.ts`.
 | ----------------------- | ------------------------------------------------ |
 | pi-theme-flexoki        | `git:github.com/markacianfrani/pi-theme-flexoki` |
 | pi-fff                  | `npm:@ff-labs/pi-fff`                            |
-| pi-rtk                  | `npm:@sherif-fanous/pi-rtk`                      |
 | pi-codex-conversion     | `npm:@howaboua/pi-codex-conversion`              |
 | pi-agents               | `npm:pi-agents`                                  |
 | pi-subagents            | `npm:pi-subagents`                               |

@@ -60,15 +60,6 @@
       {
         "hooks": [
           {
-            "command": "rtk hook claude",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash"
-      },
-      {
-        "hooks": [
-          {
             "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/fff-grep-guard.sh'",
             "timeout": 5,
             "type": "command"
