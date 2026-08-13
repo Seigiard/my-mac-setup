@@ -1317,3 +1317,46 @@ PY
   assert_success
   assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
 }
+
+# ===========================================
+# morning-cleanup script
+# ===========================================
+
+@test "morning-cleanup trashes stale .omc state and stamps the day" {
+  local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
+  local fake_home="$BATS_TEST_TMPDIR/mc-home"
+  mkdir -p "$fake_home/Projects/demo/.omc"
+  printf '{}' > "$fake_home/Projects/demo/.omc/state.json"
+  touch -t 202001010000 "$fake_home/Projects/demo/.omc/state.json"
+
+  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
+  assert_success
+  [ ! -d "$fake_home/Projects/demo/.omc" ]
+  [ -f "$fake_home/.local/state/morning-cleanup/last-run" ]
+}
+
+@test "morning-cleanup keeps a recently active .omc dir" {
+  local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
+  local fake_home="$BATS_TEST_TMPDIR/mc-home-live"
+  mkdir -p "$fake_home/Projects/demo/.omc"
+  printf '{}' > "$fake_home/Projects/demo/.omc/state.json"
+
+  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
+  assert_success
+  [ -d "$fake_home/Projects/demo/.omc" ]
+}
+
+@test "morning-cleanup is a no-op on its second run of the day" {
+  local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
+  local fake_home="$BATS_TEST_TMPDIR/mc-home-stamp"
+  mkdir -p "$fake_home/Projects"
+  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
+  assert_success
+
+  mkdir -p "$fake_home/Projects/late/.omc"
+  printf '{}' > "$fake_home/Projects/late/.omc/state.json"
+  touch -t 202001010000 "$fake_home/Projects/late/.omc/state.json"
+  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
+  assert_success
+  [ -d "$fake_home/Projects/late/.omc" ]
+}
