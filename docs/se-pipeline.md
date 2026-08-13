@@ -169,6 +169,54 @@ se pipeline docs/plans/<план>.md --validate-cmd 'bun test' --doc-review    #
   НЕ входит — всегда присутствует и авто-run/skip. Пользователь выбирает командой,
   не флагом.
 
+## Динамическая композиция флоу (`se flow`)
+
+`se pipeline` — фиксированный порядок стадий. `se flow` — единый вход
+динамической композиции: оркестратор классифицирует задачу, собирает **флоу-спек**
+(декларативные данные, не код) из библиотеки типизированных блоков и запускает его
+через один статический интерпретатор `workflows/se-flow.tsx`. Файл интерпретатора
+не меняется между прогонами — варьируется только спек на входе (R7/KTD1), поэтому
+`workflowHash` стабилен и resume работает для любого собранного флоу. Шесть ручных
+`se-*` скиллов остаются рабочими без изменений (KD6).
+
+```bash
+se blocks --json                                    # каталог блоков, из которого композируется спек (KTD6)
+se flow spec.json --budget 25 --setup-cmd 'make setup'   # запуск собранного спека
+se flow spec.json --dry-run                         # печать input JSON + команды без запуска
+```
+
+- Спек — операторские данные. Командные поля несут **референс источника**
+  (`flag:`/`plan:`/`ref:`/`{ref}`), не инлайн-строку команды (KTD15).
+- Валидатор (`workflows/lib/flow-validate.ts`) проверяет спек до запуска и на
+  gate-0: грамматика id и запрет зарезервированных аффиксов, DAG по `after`,
+  достижимость `bindTo` через `after`-предков, совместимость границ по
+  идентичности схемы (KTD14), `secret-scan` перед каждым `external`-блоком
+  (R6/AE1), обязательные `retries`/`timeoutMs`, провенанс команд, наличие
+  архива `artifactsFrom`. Отказ — машиночитаемый `{invariant, blockId|edge, hint}`.
+- `--budget N` — потолок стоимости прогона: превышение **паркует** прогон под
+  ack оператора, никогда не убивает (KTD9).
+- Флоу без workspace-нужных блоков (research, doc-review) не берёт лок и не
+  стейджит worktree — условие считает интерпретатор по флагам каталога, спеком
+  оно не выражается (KTD2).
+
+Форма спека (директивно):
+
+```text
+flowSpec {
+  task: { description, classification }
+  repo, setupCmdRef?, budgetUsd?, artifactsFrom?
+  blocks: [ { id, block: <имя из каталога>, input, retries, timeoutMs,
+              after: [id...], bindTo: [id...], waive: none|approval } ]
+}
+```
+
+Каталог блоков v1: `secret-scan`, `rescan`, `commit-work`, `run-validate`,
+`proof-artifacts`, `pr` (compute); `work`, `repro`, `analysis`, `subtasks`
+(agent); `code-review`, `simplify`, `doc-review` (subflow с mirror-ключом
+KTD3). `code-review`/`doc-review` — `external: true` и требуют `secret-scan`
+среди `after`-предков. Терминальный ревьюер и outcome-record — эпилог
+интерпретатора (KTD2/KTD10), не блоки спека.
+
 ## validate-cmd: по умолчанию из плана
 
 work-гейт гоняет validate-cmd **синхронно с таймаутом** (дефолт 600 с,
