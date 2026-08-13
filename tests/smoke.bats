@@ -257,11 +257,11 @@ TOML
   assert_file_exists "$HOME/.claude/skills/work-summary/references/report-format.md"
 }
 
-@test "divine, inscribe, and cast skills are deployed with the grimoire" {
-  assert_file_exists "$HOME/.claude/skills/divine/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/inscribe/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/cast/SKILL.md"
-  assert_file_exists "$HOME/.claude/grimoire.md"
+@test "pf-research, pf-spec, and pf-build skills are deployed with the shared cycle doc" {
+  assert_file_exists "$HOME/.claude/skills/pf-research/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/pf-spec/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/pf-build/SKILL.md"
+  assert_file_exists "$HOME/.claude/pf-cycle.md"
 }
 
 @test "herdr-pair skill is deployed" {

@@ -1,47 +1,36 @@
-# The Grimoire — shared lore for `/divine`, `/inscribe`, `/cast`
+# The pf cycle — shared mechanics for `/pf-research`, `/pf-spec`, `/pf-build`
 
-Not a command. This file holds the mechanics shared by the three-spell development cycle so each command file states them once. Each command tells you when to read this; follow it as part of that command.
+Not a command. This file holds the mechanics shared by the three-step development cycle so each command file states them once. Each command tells you when to read this; follow it as part of that command.
 
 ## The cycle
 
-| Spell       | Does                                                                                                                    | Artifact                                                             |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `/divine`   | Gather everything relevant; narrate what is and what should become. No repo changes.                                    | The **divination** — a narrative HTML the user confirms              |
-| `/inscribe` | Write the approved divination into the product contracts; open the **inscription PR**; iterate until it matches theory. | Contract deltas in the inscription PR + the **inscription narrative** |
-| `/cast`     | Implement the inscription in real code via opencode sub-issue PRs auto-merged into the inscription branch; prove it live. | The **demo** — walkthrough + discrepancy report vs the inscription    |
+| Step           | Does                                                                                                                      | Artifact                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `/pf-research` | Gather everything relevant; narrate what is and what should become. No repo changes.                                      | The **research narrative** — an HTML page the user confirms          |
+| `/pf-spec`     | Write the approved research into the product contracts; open the **epic PR**; iterate until it matches theory.            | Contract deltas in the epic PR + the **spec narrative**              |
+| `/pf-build`    | Implement the contract spec in real code via opencode sub-issue PRs auto-merged into the epic branch; prove it live.      | The **demo** — walkthrough + discrepancy report vs the contract spec |
 
-**The inscription PR lifecycle:** `/inscribe` opens it (base `main`, contracts only, green) and it **stays open**. `/cast` merges implementation PRs into its branch, so it grows into the single big PR carrying contracts + code. The **user** reviews that final PR with the demo and merges it — the only merge to `main` in the whole cycle. Merging to main deploys to prod; the cycle deliberately batches that into one reviewed moment.
+**The epic PR lifecycle:** `/pf-spec` opens it (base `main`, contracts only, green) and it **stays open**. `/pf-build` merges implementation PRs into its branch, so it grows into the single big PR carrying contracts + code. The **user** reviews that final PR with the demo and merges it — the only merge to `main` in the whole cycle. Merging to main deploys to prod; the cycle deliberately batches that into one reviewed moment.
 
 ## Linear is opt-in — the cycle tracks itself in local artifacts
 
-By default the cycle creates **nothing in Linear**: no epics, no sub-issues, no comments, no attachments. The artifact directory (below) is the tracker — divination, inscription narrative, sub-task files, statuses all live there. Reading Linear as history (a pre-existing epic, prior issues) is always fine. Writing to Linear happens only when the user **explicitly asks** for Linear tracking, or a pre-existing epic makes an attachment obviously wanted and the user confirmed the flow uses it. When Linear is used, Public wording applies, and one CLI caveat: Linear's renderer mangles round-trip patches (strips `**bold**` around code spans, auto-links bare domains, rewrites bullets) — never patch rendered text; edit the local file, re-push the whole description, re-fetch to verify.
+By default the cycle creates **nothing in Linear**: no epics, no sub-issues, no comments, no attachments. The artifact directory (below) is the tracker — research narrative, spec narrative, sub-task files, statuses all live there. Reading Linear as history (a pre-existing epic, prior issues) is always fine. Writing to Linear happens only when the user **explicitly asks** for Linear tracking, or a pre-existing epic makes an attachment obviously wanted and the user confirmed the flow uses it. When Linear is used, the naming rules below apply, and one CLI caveat: Linear's renderer mangles round-trip patches (strips `**bold**` around code spans, auto-links bare domains, rewrites bullets) — never patch rendered text; edit the local file, re-push the whole description, re-fetch to verify.
 
-## Public wording — internal names never leave the house
+## Naming on public surfaces
 
-The cycle's vocabulary (divine/divination, inscribe/inscription, cast/casting, spell, grimoire, rite of priors) is **internal**: it lives in these command files, in chat with the user, and in private artifact filenames — nowhere else. Anything a teammate, reviewer, or external tool reads uses plain product/engineering terms. That covers: **PR titles and bodies, commit messages, branch names you choose, Linear epic/issue titles, descriptions, and comments, GitHub review comments, prompts to implementation agents, and all visible text of published HTML pages** (narratives, demos — the pages are shared with the team even when the source files are private).
+The cycle's terms — research narrative, contract spec, epic PR, demo — are plain engineering language, safe anywhere. Two rules still bind everything a teammate, reviewer, or external tool reads (PR titles and bodies, commit messages, branch names, Linear epic/issue titles, descriptions, and comments, GitHub review comments, prompts to implementation agents, and all visible text of published HTML pages):
 
-Translate:
-
-| Internal term             | In public text                                                       |
-| ------------------------- | -------------------------------------------------------------------- |
-| divination                | product research / research narrative                                |
-| inscription (the deltas)  | contract spec / contract deltas                                      |
-| inscription PR / branch   | the epic PR / the epic branch                                        |
-| cast / casting            | implementation / implementing                                        |
-| spell                     | the change / the epic                                                |
-| demo                      | demo (fine as-is)                                                    |
-| grimoire, rite of priors  | never appear in public text                                          |
-
-Before publishing or pushing any public surface, scan it for these words. A PR titled "PRD-1234: Inscribe deliverable views" fails the check; "PRD-1234: Deliverable views" passes. (Note the passing title names the product change, not "Contract spec for …" — the epic PR is named for what it will contain when it merges; see `/inscribe` Step 2.)
+- **Name the product change, not the process stage.** The epic PR is named for what it will contain when it merges: "PRD-1234: Deliverable views" passes; "Contract spec for deliverable views" fails (see `/pf-spec` Step 2). The same applies to Linear epic titles and published page titles.
+- **Don't narrate the cycle.** Public text describes the product and the change; which command of the cycle produced it is irrelevant to the reader and never appears.
 
 ## Artifact storage
 
 Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic exists (pre-existing, or created on explicit request), use the epic id instead and rename a slug-named directory to it.
 
-- Canonical sources: `divination.md`, `inscription.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/cast`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current.
-- Built pages: `divination.html`, `inscription.html`, `demo.html`.
+- Canonical sources: `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
+- Built pages: `research.html`, `spec.html`, `demo.html`.
 - Publish each page with the Artifact tool and **republish the same file path every iteration** so the shared link stays current; label versions. The raw file doubles as a Slack/Linear attachment when a snapshot is wanted.
-- The built pages get shared beyond this chat, so their visible text — `<title>`, headings, badges, prose — follows **Public wording** above; the internal names stay confined to the private source filenames.
+- The built pages get shared beyond this chat, so their visible text — `<title>`, headings, badges, prose — follows **Naming on public surfaces** above.
 
 ## Narrative HTML mechanics
 
@@ -76,13 +65,13 @@ Mechanics that keep it cheap to update:
 
 ## Rendering contract diffs
 
-Render contract deltas, don't paste them: `bun run contracts:diff <refA> <refB> [--contract <name>]` (or the artifact diffs off the inscription branch) rendered into an HTML section — per contract: added / changed / removed entries and the computed impact label. The user approves the contract surface visually, alongside the screenshots of what it becomes.
+Render contract deltas, don't paste them: `bun run contracts:diff <refA> <refB> [--contract <name>]` (or the artifact diffs off the epic branch) rendered into an HTML section — per contract: added / changed / removed entries and the computed impact label. The user approves the contract surface visually, alongside the screenshots of what it becomes.
 
-## The rite of priors — feedback analysis
+## Missing-prior analysis — feedback handling
 
 Every round of user feedback on any artifact of the cycle gets analyzed item by item, not just applied:
 
-1. **Under-specified spell** — the divination/inscription/instruction simply didn't say. Fine: apply the feedback, note it in the iteration log.
+1. **Under-specified instruction** — the narrative/spec/instruction simply didn't say. Fine: apply the feedback, note it in the iteration log.
 2. **Missing prior** — the repo context should already have told the AI: a standing convention, product fact, constraint, or taste the user has stated before or plainly holds as policy. Apply the feedback **and** write the prior into its single right home in the repository — repo `CLAUDE.md` only if every session needs it; otherwise the area `README.md`, the contract overview, or a skill. Ship it in the currently open PR when one exists, else a small standalone PR.
 
 The test: *would a fresh session with no chat history have gotten this right from the repo alone?* If no, and the user expects it as standing policy, it is a missing prior. Log every item in the narrative's iteration ledger: feedback → classification → where the prior landed (or why none was needed).
