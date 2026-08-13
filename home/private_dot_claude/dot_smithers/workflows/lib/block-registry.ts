@@ -54,6 +54,12 @@ interface BlockDefinitionBase {
   inputSchemaId: string;
   outputSchemaId: string;
   external: boolean;
+  // Egress that is not vendor egress: a block that pushes a branch, opens a PR,
+  // or otherwise writes run content somewhere durable and outside the worktree.
+  // It carries no ExternalContract because nothing is dispatched to an LLM, but
+  // it must still be scanned before it runs — KTD13's publication-time surface.
+  // Defaults to false; the validator treats `external || publishes` alike.
+  publishes?: boolean;
   needsWorkspace: boolean;
   scan: boolean;
   preconditions: string[];
@@ -96,6 +102,7 @@ export interface CatalogEntry {
   inputSchemaId: string;
   outputSchemaId: string;
   external: boolean;
+  publishes: boolean;
   needsWorkspace: boolean;
   scan: boolean;
   preconditions: string[];
@@ -154,6 +161,7 @@ export class BlockRegistry {
         return {
           kind: def.kind,
           external: def.external,
+          publishes: def.publishes === true,
           needsWorkspace: def.needsWorkspace,
           inputSchemaId: def.inputSchemaId,
           outputSchemaId: def.outputSchemaId,
@@ -181,6 +189,7 @@ export class BlockRegistry {
       inputSchemaId: def.inputSchemaId,
       outputSchemaId: def.outputSchemaId,
       external: def.external,
+      publishes: def.publishes === true,
       needsWorkspace: def.needsWorkspace,
       scan: def.scan,
       preconditions: def.preconditions,

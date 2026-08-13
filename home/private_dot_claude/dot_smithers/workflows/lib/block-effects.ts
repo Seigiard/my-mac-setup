@@ -58,9 +58,20 @@ export function runComputeEffect(name: string, input: unknown, ctx: ComputeEffec
   return effect(input, ctx);
 }
 
-function secretScanEffect(input: unknown, ctx: ComputeEffectContext): SecretScanResult {
-  const base = (input as { baseShaRef?: string | null })?.baseShaRef ?? ctx.baseSha;
-  return secretScanDiff(ctx.worktreePath, base, { bin: ctx.gitleaksBin, timeoutMs: ctx.scanTimeoutMs });
+// The scan base is the staged worktree's own base, never a spec field. A
+// composer-supplied base could name the current HEAD, leave gitleaks an empty
+// commit range, and turn "nothing scanned" into a green gate — which defeats
+// the one control KTD13 rests on. For the same reason an empty range is an
+// error state here, not clean: a scan that examined no commits has proved
+// nothing, and the gateFn fails closed on anything that is not "clean".
+function secretScanEffect(_input: unknown, ctx: ComputeEffectContext): SecretScanResult {
+  if (gitHead(ctx.worktreePath) === ctx.baseSha) {
+    return {
+      state: "error",
+      details: `scan range ${ctx.baseSha}..HEAD is empty — no commits to scan, which is not a clean result (KTD13)`,
+    };
+  }
+  return secretScanDiff(ctx.worktreePath, ctx.baseSha, { bin: ctx.gitleaksBin, timeoutMs: ctx.scanTimeoutMs });
 }
 
 // KTD3: a rescan only re-runs when the operator moved HEAD during an approval
@@ -115,12 +126,24 @@ function runValidateEffect(input: unknown, ctx: ComputeEffectContext): { exitCod
 // consumes. Only files that actually exist in the worktree enter the manifest;
 // a requested name with no file is dropped, so a downstream reader never
 // resolves a manifest entry to a missing path.
+//
+// Artifact names come from the spec, so they are composer-controlled: "../.ssh/id_rsa"
+// or a symlink planted in the worktree would otherwise resolve outside the
+// worktree and get copied into the durable run archive. Every entry is confined
+// to the worktree after symlink resolution, and an escaping name is dropped.
 function proofArtifactsEffect(input: unknown, ctx: ComputeEffectContext): { manifest: { name: string; path: string }[] } {
   const names = (input as { names?: string[] })?.names ?? [];
+  const root = fs.realpathSync(ctx.worktreePath);
   const manifest = names
     .map((name) => ({ name, path: path.resolve(ctx.worktreePath, name) }))
-    .filter((entry) => fs.existsSync(entry.path));
+    .filter((entry) => fs.existsSync(entry.path))
+    .filter((entry) => isInside(root, fs.realpathSync(entry.path)));
   return { manifest };
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const rel = path.relative(root, candidate);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
 // R11/KTD11/KTD13: push the run-id branch through the pre-push guard and open a

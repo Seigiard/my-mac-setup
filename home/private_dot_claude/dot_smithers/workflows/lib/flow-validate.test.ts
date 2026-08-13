@@ -6,11 +6,11 @@ import { type RegistryBlockView, type RegistryView, validateFlowSpec, type Valid
 // A fake registry standing in for U2: the validator only needs schema
 // identities, kinds, flags, and waive policies — never the block source.
 const CATALOG: Record<string, RegistryBlockView> = {
-  "secret-scan": { kind: "compute", external: false, needsWorkspace: true, inputSchemaId: "scan.in", outputSchemaId: "scan.out", waivePolicies: ["none"], scan: true },
-  repro: { kind: "agent", external: false, needsWorkspace: true, inputSchemaId: "repro.in", outputSchemaId: "repro.out", waivePolicies: ["none", "approval"], scan: false },
-  work: { kind: "agent", external: false, needsWorkspace: true, inputSchemaId: "repro.out", outputSchemaId: "work.out", waivePolicies: ["none", "approval"], scan: false },
-  "code-review": { kind: "subflow", external: true, needsWorkspace: true, inputSchemaId: "work.out", outputSchemaId: "review.out", waivePolicies: ["none", "approval"], scan: false },
-  pr: { kind: "agent", external: false, needsWorkspace: true, inputSchemaId: "review.out", outputSchemaId: "pr.out", waivePolicies: ["none"], scan: false },
+  "secret-scan": { kind: "compute", external: false, publishes: false, needsWorkspace: true, inputSchemaId: "scan.in", outputSchemaId: "scan.out", waivePolicies: ["none"], scan: true },
+  repro: { kind: "agent", external: false, publishes: false, needsWorkspace: true, inputSchemaId: "repro.in", outputSchemaId: "repro.out", waivePolicies: ["none", "approval"], scan: false },
+  work: { kind: "agent", external: false, publishes: false, needsWorkspace: true, inputSchemaId: "repro.out", outputSchemaId: "work.out", waivePolicies: ["none", "approval"], scan: false },
+  "code-review": { kind: "subflow", external: true, publishes: false, needsWorkspace: true, inputSchemaId: "work.out", outputSchemaId: "review.out", waivePolicies: ["none", "approval"], scan: false },
+  pr: { kind: "agent", external: false, publishes: true, needsWorkspace: true, inputSchemaId: "review.out", outputSchemaId: "pr.out", waivePolicies: ["none"], scan: false },
 };
 
 const ADAPTERS = new Set<string>(["repro.out|scan.in", "work.out|scan.in", "scan.out|work.out"]);
@@ -53,6 +53,41 @@ describe("validateFlowSpec", () => {
       expect(result.spec.artifactsFrom).toBeNull();
       expect(result.spec.blocks[0].retries).toBe(1);
     }
+  });
+
+  test("a pr block without a preceding secret-scan is rejected, like an external leg", () => {
+    // #given a flow that opens a PR with no scan ancestor. The pr block is not
+    // `external` — it dispatches nothing to a vendor — but it publishes run
+    // content, which reaches the same KTD13 surface.
+    const s = spec([
+      block({ id: "fix", block: "work" }),
+      block({ id: "ship", block: "pr", after: ["fix"], bindTo: ["fix"] }),
+    ]);
+
+    // #when
+    const result = validateFlowSpec(s, deps);
+
+    // #then
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const err = result.errors.find((e) => e.invariant === "scan-before-external");
+      expect(err?.blockId).toBe("ship");
+      expect(err?.hint).toContain("publishing block");
+    }
+  });
+
+  test("a pr block with a secret-scan ancestor is accepted", () => {
+    // #given the same flow with the scan inserted
+    const s = spec([
+      block({ id: "fix", block: "work" }),
+      block({ id: "scan", block: "secret-scan", after: ["fix"], bindTo: ["fix"] }),
+      block({ id: "ship", block: "pr", after: ["scan"], bindTo: ["scan"] }),
+    ]);
+
+    // #when / #then
+    const result = validateFlowSpec(s, deps);
+    const scanErrors = result.ok ? [] : result.errors.filter((e) => e.invariant === "scan-before-external");
+    expect(scanErrors).toEqual([]);
   });
 
   test("AE1: external review without a preceding secret-scan is rejected naming the block", () => {

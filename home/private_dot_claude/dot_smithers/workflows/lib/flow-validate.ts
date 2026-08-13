@@ -21,6 +21,9 @@ type ParsedSpec = z.infer<typeof flowSpecSchema>;
 export interface RegistryBlockView {
   kind: "agent" | "compute" | "subflow";
   external: boolean;
+  // Non-vendor egress (branch push, PR open). Distinct from `external` because
+  // no LLM payload is dispatched, but it reaches the same scan-first invariant.
+  publishes: boolean;
   needsWorkspace: boolean;
   // Boundary compatibility (KTD14) keys on schema *identity*, not structural
   // subsumption: two blocks connect only when the producer's outputSchemaId
@@ -150,15 +153,20 @@ export function validateFlowSpec(raw: unknown, deps: ValidatorDeps): ValidateRes
         }
       }
 
-      // Secret-scan before every external leg (R6/AE1): an `external` block must
-      // have a `scan` block among its after-ancestors.
+      // Secret-scan before every egress (R6/AE1): a block that ships run content
+      // out — to an LLM vendor (`external`) or to a durable public target such as
+      // a pushed branch or an opened PR (`publishes`) — must have a `scan` block
+      // among its after-ancestors. Both reach the same KTD13 surface, so the
+      // invariant covers both; keying it on `external` alone let the pr block
+      // publish unscanned.
       for (const block of spec.blocks) {
         const entry = deps.registry.get(block.block);
-        if (!entry?.external) continue;
+        if (!entry || !(entry.external || entry.publishes)) continue;
+        const egress = entry.external ? "external" : "publishing";
         const anc = ancestors.get(block.id) ?? new Set<string>();
         const scanned = [...anc].some((a) => deps.registry.get(byId.get(a)?.block ?? "")?.scan);
         if (!scanned) {
-          errors.push({ invariant: "scan-before-external", blockId: block.id, hint: `external block "${block.id}" has no secret-scan block among its \`after\`-ancestors; insert a scan block before it (KTD13)` });
+          errors.push({ invariant: "scan-before-external", blockId: block.id, hint: `${egress} block "${block.id}" has no secret-scan block among its \`after\`-ancestors; insert a scan block before it (KTD13)` });
         }
       }
     }

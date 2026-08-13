@@ -31,6 +31,14 @@ function makeRepo(): string {
   return dir;
 }
 
+// Advances HEAD past ctx.baseSha, the state secret-scan actually runs in: the
+// interpreter scans baseSha..HEAD after commit-work has landed the agent's work.
+function commitOnTop(repo: string, fileName: string): void {
+  fs.writeFileSync(path.join(repo, fileName), "work\n");
+  rawGit(repo, "add", ".");
+  rawGit(repo, "commit", "-qm", `work: ${fileName}`);
+}
+
 function ctxFor(worktreePath: string, over: Partial<ComputeEffectContext> = {}): ComputeEffectContext {
   return {
     worktreePath,
@@ -63,19 +71,52 @@ afterAll(() => {
 
 describe("secret-scan effect", () => {
   test("clean scan → clean state, green gate", () => {
+    // #given a run that committed work on top of its staged base
     const repo = makeRepo();
     const ctx = ctxFor(repo, { gitleaksBin: fakeGitleaks(0) });
+    commitOnTop(repo, "work.txt");
+
+    // #when / #then
     const out = runComputeEffect("secret-scan", {}, ctx) as { state: string };
     expect(out.state).toBe("clean");
     expect(gate("secret-scan")(out).state).toBe("green");
   });
 
   test("scanner reports a leak → found state, red gate", () => {
+    // #given
     const repo = makeRepo();
     const ctx = ctxFor(repo, { gitleaksBin: fakeGitleaks(2) });
+    commitOnTop(repo, "work.txt");
+
+    // #when / #then
     const out = runComputeEffect("secret-scan", {}, ctx) as { state: string };
     expect(out.state).toBe("found");
     expect(gate("secret-scan")(out).state).toBe("failed");
+  });
+
+  test("an empty baseSha..HEAD range is an error, never a clean pass", () => {
+    // #given a worktree whose HEAD never moved past the staged base, so there
+    // is nothing to scan — the shape a spec-supplied base could have forced
+    const repo = makeRepo();
+    const ctx = ctxFor(repo, { gitleaksBin: fakeGitleaks(0) });
+
+    // #when / #then the gate fails closed rather than reading "clean"
+    const out = runComputeEffect("secret-scan", {}, ctx) as { state: string };
+    expect(out.state).toBe("error");
+    expect(gate("secret-scan")(out).state).toBe("failed");
+  });
+
+  test("a spec-supplied scan base is ignored; the staged base is authoritative", () => {
+    // #given a spec trying to move the scan base to the current HEAD, which
+    // would leave gitleaks an empty range and a trivial clean verdict
+    const repo = makeRepo();
+    const ctx = ctxFor(repo, { gitleaksBin: fakeGitleaks(2) });
+    commitOnTop(repo, "work.txt");
+    const head = gitHead(repo);
+
+    // #when / #then the leak is still found, because the input is not read
+    const out = runComputeEffect("secret-scan", { baseShaRef: head }, ctx) as { state: string };
+    expect(out.state).toBe("found");
   });
 
   test.skipIf(!gitleaksAvailable)("real gitleaks catches a planted private key in the run commits → red gate", () => {
@@ -83,6 +124,11 @@ describe("secret-scan effect", () => {
     const base = rawGit(repo, "rev-parse", "HEAD");
     fs.writeFileSync(
       path.join(repo, "leak.pem"),
+      // A truncated, non-functional PEM. It is the fixture that proves the scan
+      // block detects a private key, so gitleaks flags this very line on every
+      // run of the pipeline's own secret-scan; the allow marker keeps that
+      // self-reference from parking each run on a known test constant.
+      // gitleaks:allow
       "-----BEGIN PRIVATE KEY-----\nMIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEA\n-----END PRIVATE KEY-----\n",
     );
     rawGit(repo, "add", ".");
@@ -142,6 +188,35 @@ describe("proof-artifacts effect", () => {
     };
     expect(out.manifest.map((m) => m.name)).toEqual(["report.md"]);
     expect(out.manifest[0]!.path).toBe(path.resolve(repo, "report.md"));
+  });
+
+  test("a name escaping the worktree by traversal is dropped", () => {
+    // #given artifact names come from the spec, so a composer can ask for a
+    // path above the worktree; copying it would pull it into the run archive
+    const repo = makeRepo();
+    const outside = path.join(tempDir("outside-"), "stolen.txt");
+    fs.writeFileSync(outside, "secret\n");
+    const relative = path.relative(repo, outside);
+
+    // #when / #then
+    const out = runComputeEffect("proof-artifacts", { names: [relative] }, ctxFor(repo)) as {
+      manifest: { name: string }[];
+    };
+    expect(out.manifest).toEqual([]);
+  });
+
+  test("a symlink pointing outside the worktree is dropped", () => {
+    // #given a name that exists inside the worktree but resolves outside it
+    const repo = makeRepo();
+    const outside = path.join(tempDir("outside-"), "stolen.txt");
+    fs.writeFileSync(outside, "secret\n");
+    fs.symlinkSync(outside, path.join(repo, "link.txt"));
+
+    // #when / #then containment is checked after symlink resolution
+    const out = runComputeEffect("proof-artifacts", { names: ["link.txt"] }, ctxFor(repo)) as {
+      manifest: { name: string }[];
+    };
+    expect(out.manifest).toEqual([]);
     expect(gate("proof-artifacts")(out).state).toBe("green");
   });
 });

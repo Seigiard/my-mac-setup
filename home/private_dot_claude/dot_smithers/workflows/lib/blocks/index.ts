@@ -39,7 +39,10 @@ const secretScan: ComputeBlockDefinition = {
   name: "secret-scan",
   kind: "compute",
   purpose: "Scan the run diff for committed secrets before any external leg or publish (R6/KTD13).",
-  inputSchema: z.object({ baseShaRef: z.string().nullish() }),
+  // No input: the scan base is the staged worktree's own base, never spec data.
+  // A composer-supplied base could name HEAD and reduce the scan to an empty
+  // commit range that reports clean.
+  inputSchema: z.object({}),
   outputSchema: z.object({ state: z.enum(["clean", "found", "error"]), details: z.string() }),
   inputSchemaId: HANDOFF_IN,
   outputSchemaId: HANDOFF_OUT,
@@ -146,6 +149,9 @@ const pr: ComputeBlockDefinition = {
   inputSchemaId: HANDOFF_IN,
   outputSchemaId: HANDOFF_OUT,
   external: false,
+  // Pushes a branch and opens a PR: run content leaves the worktree for a
+  // durable public target, so the validator requires a scan ancestor (KTD13).
+  publishes: true,
   needsWorkspace: true,
   scan: false,
   preconditions: ["a run-id branch with commits"],
