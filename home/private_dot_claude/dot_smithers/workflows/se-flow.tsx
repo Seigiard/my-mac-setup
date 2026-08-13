@@ -30,6 +30,7 @@ import * as path from "node:path";
 
 import { validateFlowSpec } from "./lib/flow-validate.ts";
 import { buildRegistry } from "./lib/blocks/index.ts";
+import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects.ts";
 import { bindProofTargets, blockNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { classifyDisposition, type BlockOutcome, type OutcomeRecord } from "./lib/reviewer.ts";
@@ -90,6 +91,7 @@ function readSpec(specPath: string): FlowSpec {
 
 export default smithers((ctx) => {
   const input = ctx.input;
+  const runId = ctx.runId ?? `run-${Date.now()}`;
   const repoPath = process.env.FLOW_REPO ?? "";
   const setupCmd = (input.setupCmd ?? "").trim();
 
@@ -117,7 +119,6 @@ export default smithers((ctx) => {
       <Task id="staging" output={outputs.staging} retries={0} bind={gate0Proof}>
         {() => {
           const getState: GetRunState = () => undefined;
-          const runId = ctx.runId ?? `run-${Date.now()}`;
           const branch = runBranchName(spec.task.description, runId);
           acquireRepoLock(repoPath, runId, getState);
           sweepOrphans(repoPath, getState);
@@ -139,10 +140,16 @@ export default smithers((ctx) => {
   // node id (KTD1); bind proofs come from the block's bindTo edges (KTD12); the
   // block's registered zod schema runtime-parses its input at dispatch (KTD14).
   const worktreePath = staged?.worktreePath ?? repoPath;
+  const effectCtx: ComputeEffectContext = {
+    worktreePath,
+    baseSha: staged?.baseSha ?? "",
+    branch: staged?.branch ?? "",
+    runId,
+  };
   const readyGate = workspaceNeeded ? staged : gate0;
   if (readyGate) {
     for (const block of ordered) {
-      children.push(renderBlock(ctx, block, registry, worktreePath, input.budgetUsd ?? null));
+      children.push(renderBlock(ctx, block, registry, effectCtx));
     }
   }
 
@@ -151,7 +158,7 @@ export default smithers((ctx) => {
   // release. Timeout-bounded; the reviewer reads only the durable record.
   const allBlocksRecorded = ordered.every((b) => ctx.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) }) !== undefined);
   if (readyGate && (allBlocksRecorded || anyBlockFailed(ctx, ordered))) {
-    children.push(renderEpilog(ctx, spec, ordered, worktreePath, repoPath, workspaceNeeded));
+    children.push(renderEpilog(ctx, spec, ordered, worktreePath, repoPath, workspaceNeeded, runId));
   }
 
   return (
@@ -165,7 +172,7 @@ export default smithers((ctx) => {
 // the shared lib functions; agent blocks dispatch through the registered
 // makeAgent + buildPrompt (KTD3); subflow blocks write a mirror key the
 // interpreter copies into blockOutput.
-function renderBlock(ctx: unknown, block: FlowBlock, registry: ReturnType<typeof buildRegistry>, worktreePath: string, budgetUsd: number | null): unknown {
+function renderBlock(ctx: unknown, block: FlowBlock, registry: ReturnType<typeof buildRegistry>, effectCtx: ComputeEffectContext): unknown {
   const def = registry.get(block.block);
   const nodeId = blockNodeId(block.id);
   const bindTargets = bindProofTargets(block);
@@ -183,7 +190,7 @@ function renderBlock(ctx: unknown, block: FlowBlock, registry: ReturnType<typeof
           {() => {
             if (!def) throw new Error(`block "${block.block}" vanished from the registry at dispatch`);
             if (!parsedInput.success) throw new Error(`block "${block.id}" input failed runtime parse (KTD14)`);
-            const payload = dispatchBlock(def, parsedInput.data, worktreePath, budgetUsd);
+            const payload = dispatchBlock(def, parsedInput.data, effectCtx);
             const gate = def.gateFn(payload);
             return {
               blockId: block.id,
@@ -203,18 +210,16 @@ function renderBlock(ctx: unknown, block: FlowBlock, registry: ReturnType<typeof
   );
 }
 
-// The per-kind execution boundary. Compute blocks run the effect; agent and
-// subflow dispatch is wired here in the live interpreter. This structural
-// implementation returns the recorded shape each gateFn classifies; the live
-// fixture flow (plan DoD) exercises the real effects.
-function dispatchBlock(def: { kind: string; name: string }, input: unknown, worktreePath: string, budgetUsd: number | null): unknown {
-  void def;
-  void worktreePath;
-  void budgetUsd;
-  void input;
-  // Live dispatch bodies (secret scan, commit, validate, gh, agent, subflow)
-  // are wired against the running worktree; see the block library for each
-  // block's contract. This interpreter is the fixed shell around them (R7).
+// The per-kind execution boundary. Compute blocks run their real effect against
+// the staged worktree (block-effects.ts) — the recorded shape each gateFn
+// classifies. Agent and subflow dispatch is daemon-bound (makeAgent /
+// dual-mode Subflow) and exercised by the plan's live fixture flow, not this
+// headless build; those kinds record an empty payload here so their gateFn
+// fails closed rather than passing on no result (R7).
+function dispatchBlock(def: { kind: string; name: string }, input: unknown, effectCtx: ComputeEffectContext): unknown {
+  if (def.kind === "compute") {
+    return runComputeEffect(def.name, input, effectCtx);
+  }
   return {};
 }
 
@@ -225,13 +230,12 @@ function anyBlockFailed(ctx: unknown, ordered: FlowBlock[]): boolean {
   });
 }
 
-function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktreePath: string, repoPath: string, workspaceNeeded: boolean): unknown {
+function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktreePath: string, repoPath: string, workspaceNeeded: boolean, runId: string): unknown {
   return (
     <Sequence>
       <Task id="outcome" output={outputs.outcome} retries={0}>
         {() => {
-          const c = ctx as { runId?: string; outputMaybe: (k: string, o: { nodeId: string }) => { status?: string; payloadJson?: string } | undefined };
-          const runId = c.runId ?? `run-${Date.now()}`;
+          const c = ctx as { outputMaybe: (k: string, o: { nodeId: string }) => { status?: string; payloadJson?: string } | undefined };
           const blocks: BlockOutcome[] = ordered.map((b) => {
             const out = c.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) });
             return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? "non-terminal" };
@@ -257,7 +261,6 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
       </Task>
       <Task id="cleanup" output={outputs.setup} retries={0}>
         {() => {
-          const runId = (ctx as { runId?: string }).runId ?? `run-${Date.now()}`;
           if (workspaceNeeded) {
             try {
               cleanupSnapshot(repoPath, worktreePath);
