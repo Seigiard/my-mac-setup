@@ -43,6 +43,22 @@ function makeRepo(): string {
   return dir;
 }
 
+// A repo carrying a gitlink whose source cannot be fetched. The gitlink is
+// written with update-index rather than `submodule add` because git refuses
+// local-path submodule transport by default since 2.38, and that refusal is
+// exactly what makes this source unfetchable — offline and instant.
+function makeRepoWithUnfetchableSubmodule(subDir: string): string {
+  const repo = makeRepo();
+  fs.writeFileSync(
+    path.join(repo, ".gitmodules"),
+    `[submodule "${subDir}"]\n\tpath = ${subDir}\n\turl = /nonexistent-submodule-source.git\n`,
+  );
+  rawGit(repo, "update-index", "--add", "--cacheinfo", `160000,${"0".repeat(39)}1,${subDir}`);
+  rawGit(repo, "add", ".gitmodules");
+  rawGit(repo, "commit", "-qm", "add submodule gitlink");
+  return repo;
+}
+
 function fakeRunState(states: Record<string, RunState>): GetRunState {
   return (runId) => {
     for (const [id, state] of Object.entries(states)) {
@@ -107,6 +123,32 @@ describe("stageRunWorktree", () => {
     expect(staged.branch).toBe(branch);
     expect(staged.baseSha).toBe(baseSha);
     expect(rawGit(staged.worktreePath, "symbolic-ref", "HEAD")).toBe(`refs/heads/${branch}`);
+    expect(rawGit(staged.worktreePath, "rev-parse", "HEAD")).toBe(baseSha);
+  });
+
+  test("initializes submodules, which git worktree add leaves empty", () => {
+    // #given a repo with a submodule the worktree cannot populate
+    const repo = makeRepoWithUnfetchableSubmodule("vendor/lib");
+    const baseDir = tempDir("staging-wt-");
+    const branch = runBranchName("plan", "run77777");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+
+    // #when / #then staging fails loudly at the cause, rather than handing an
+    // agent leg a worktree whose submodule-dependent tests cannot run
+    expect(() => stageRunWorktree(repo, branch, baseSha, { worktreeBaseDir: baseDir })).toThrow(
+      /Submodule init failed/,
+    );
+  });
+
+  test("skips submodule init for a repo without .gitmodules", () => {
+    // #given the common case: no submodules at all
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const branch = runBranchName("plan", "run88888");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+
+    // #when / #then
+    const staged = stageRunWorktree(repo, branch, baseSha, { worktreeBaseDir: baseDir });
     expect(rawGit(staged.worktreePath, "rev-parse", "HEAD")).toBe(baseSha);
   });
 

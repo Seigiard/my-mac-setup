@@ -106,6 +106,21 @@ export function stageRunWorktree(
   fs.mkdirSync(baseDir, { recursive: true });
 
   git(repo, "worktree", "add", "-b", branch, worktreePath, baseSha);
+  // `git worktree add` never populates submodules, so a repo whose tests load
+  // submodule content (this one: tests/helpers/bats-libs) fails validate-cmd in
+  // the staged worktree for an environment reason, not a code defect — the work
+  // gate then parks the run on a false negative. Failing here is deliberate:
+  // staging surfaces the cause immediately instead of an agent leg burning an
+  // hour and the gate reporting a missing file.
+  if (fs.existsSync(path.join(repo, ".gitmodules"))) {
+    try {
+      git(worktreePath, "submodule", "update", "--init", "--recursive");
+    } catch (err) {
+      throw new Error(
+        `Submodule init failed in the staged worktree ${worktreePath}: ${errorMessage(err)}`,
+      );
+    }
+  }
   return { worktreePath, branch, baseSha };
 }
 
