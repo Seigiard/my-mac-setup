@@ -1318,6 +1318,42 @@ PY
   assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
 }
 
+@test "se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON" {
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local spec
+  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
+  run env "$se_bin" flow "$spec" --budget 12 --setup-cmd 'make setup' --dry-run
+  rm -f "$spec"
+  assert_success
+  assert_output --partial 'workflows/se-flow.tsx'
+  assert_output --partial '"budgetUsd":12'
+  assert_output --partial '"setupCmd":"make setup"'
+  assert_output --partial '"specPath":"'
+  assert_output --partial 'se-flow-spec-'
+}
+
+@test "se flow rejects a non-numeric budget" {
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local spec
+  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  printf '{}' > "$spec"
+  run env "$se_bin" flow "$spec" --budget abc --dry-run
+  rm -f "$spec"
+  assert_failure
+}
+
+@test "se blocks --json emits the composable block catalog" {
+  local smithers_dir="$SOURCE_ROOT/private_dot_claude/dot_smithers"
+  local se_bin="$smithers_dir/bin/executable_se"
+  run env SE_SMITHERS_DIR="$smithers_dir" "$se_bin" blocks --json
+  assert_success
+  assert_output --partial '"secret-scan"'
+  assert_output --partial '"code-review"'
+  # KTD6 JSON-Schema limitation note travels with the catalog.
+  assert_output --partial 'runtime-parses'
+}
+
 # ===========================================
 # morning-cleanup script
 # ===========================================

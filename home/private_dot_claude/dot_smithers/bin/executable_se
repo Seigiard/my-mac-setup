@@ -6,6 +6,8 @@ set -euo pipefail
 SMITHERS_DIR="${SE_SMITHERS_DIR:-$HOME/.claude/.smithers}"
 SMITHERS_BIN="./node_modules/.bin/smithers"
 PIPELINE_WORKFLOW="workflows/se-pipeline.tsx"
+FLOW_WORKFLOW="workflows/se-flow.tsx"
+CATALOG_SCRIPT="workflows/catalog.ts"
 
 usage() {
   cat <<'EOF'
@@ -40,6 +42,17 @@ Commands:
                          is the default) and use `se logs <runId>` to follow.
                          Recover a cancelled run with `se resume <runId>`.
       Default is detached: prints the runId immediately and returns.
+  flow <spec.json> [--budget N] [--setup-cmd '<cmd>'] [--dry-run] [--attach]
+      Launch a composed flow spec through the static interpreter workflow
+      (se-flow.tsx). Run from the target repository (becomes FLOW_REPO). The
+      spec is operator-supplied data; command-bearing fields carry references,
+      never inline command strings (KTD15).
+        --budget N       run cost ceiling in USD; a breach parks the run for an
+                         operator ack, it never hard-kills (KTD9).
+        --setup-cmd      worktree provisioning command for workspace-needing flows.
+        --dry-run        print the assembled input + command without launching.
+  blocks [--json]      emit the composable block catalog the orchestrator
+                       composes from (KTD6). --json is the default machine form.
   list [--json]        list se-pipeline runs (status incl. waiting-approval)
                        --json: {runs, summaries} for unattended callers
   show <runId> [--json]
@@ -401,6 +414,91 @@ cmd_resume() {
   fi
 }
 
+build_flow_input() {
+  local spec_path=$1 budget=$2 setup_cmd=$3
+  if command -v jq >/dev/null 2>&1; then
+    jq -cn --arg specPath "$spec_path" --arg setupCmd "$setup_cmd" \
+      --argjson budgetUsd "$budget" \
+      '{specPath: $specPath, budgetUsd: $budgetUsd, setupCmd: $setupCmd}'
+  else
+    printf '{"specPath":"%s","budgetUsd":%s,"setupCmd":"%s"}' \
+      "$(json_escape "$spec_path")" "$budget" "$(json_escape "$setup_cmd")"
+  fi
+}
+
+cmd_blocks() {
+  # --json is the only (and default) form; accepted for symmetry with other
+  # subcommands. The catalog is generated from the block registry (KTD6).
+  while (($#)); do
+    case $1 in
+      --json) ;;
+      -h|--help) usage; return 0 ;;
+      *) usage_die "unknown option for blocks: $1" ;;
+    esac
+    shift
+  done
+  if dry_run; then
+    printf 'cd %s && bun run %s\n' "$(sq "$SMITHERS_DIR")" "$CATALOG_SCRIPT"
+    return 0
+  fi
+  require_runtime_dir
+  cd "$SMITHERS_DIR"
+  bun run "$CATALOG_SCRIPT"
+}
+
+cmd_flow() {
+  local spec="" budget="null" setup_cmd="" attach=0 local_dry=0
+  while (($#)); do
+    case $1 in
+      --budget=*) budget=${1#--budget=} ;;
+      --budget)
+        [[ $# -ge 2 ]] || usage_die "--budget requires a value (USD)"
+        shift; budget=$1 ;;
+      --setup-cmd=*) setup_cmd=${1#--setup-cmd=} ;;
+      --setup-cmd)
+        [[ $# -ge 2 ]] || usage_die "--setup-cmd requires a value"
+        shift; setup_cmd=$1 ;;
+      --dry-run) local_dry=1 ;;
+      --attach) attach=1 ;;
+      -h|--help) usage; return 0 ;;
+      -*) usage_die "unknown option for flow: $1" ;;
+      *)
+        [[ -z $spec ]] || usage_die "unexpected argument: $1"
+        spec=$1 ;;
+    esac
+    shift
+  done
+
+  [[ -n $spec ]] || usage_die "flow requires a <spec.json>"
+  [[ -f $spec ]] || die "spec file not found: $spec"
+  [[ $budget == null || $budget =~ ^[0-9]+(\.[0-9]+)?$ ]] || usage_die "--budget must be a number (USD)"
+
+  local spec_abs repo input
+  spec_abs="$(cd "$(dirname "$spec")" && pwd -P)/$(basename "$spec")"
+  repo="$(pwd -P)"
+  input="$(build_flow_input "$spec_abs" "$budget" "$setup_cmd")"
+
+  local -a args=(up "$FLOW_WORKFLOW")
+  ((attach)) || args+=(--detach)
+  args+=(--input "$input")
+
+  if dry_run || ((local_dry)); then
+    printf 'FLOW_REPO=%s\n' "$repo"
+    print_smithers_cmd "${args[@]}"
+    return 0
+  fi
+
+  require_runtime_dir
+  cd "$SMITHERS_DIR"
+  local rc=0
+  FLOW_REPO="$repo" "$SMITHERS_BIN" "${args[@]}" || rc=$?
+  if [[ $rc -eq 3 ]]; then
+    echo "se: flow paused at an Approval gate (awaiting a decision, not a failure). Use 'se list', then 'se approve|deny|abort <runId>'." >&2
+    return 0
+  fi
+  return $rc
+}
+
 require_run_id() {
   local cmd=$1
   [[ $# -ge 2 && -n ${2:-} ]] || usage_die "$cmd requires a <runId>"
@@ -413,6 +511,8 @@ main() {
   case $cmd in
     -h|--help|help) usage ;;
     pipeline) cmd_pipeline "$@" ;;
+    flow) cmd_flow "$@" ;;
+    blocks) cmd_blocks "$@" ;;
     list) cmd_list "$@" ;;
     show) cmd_show "$@" ;;
     db-path) se_db; echo ;;

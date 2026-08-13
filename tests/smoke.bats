@@ -251,6 +251,10 @@ TOML
   assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
 }
 
+@test "se-flow orchestrator skill is deployed" {
+  assert_file_exists "$HOME/.claude/skills/se-flow/SKILL.md"
+}
+
 @test "work-summary skill is deployed with both format references" {
   assert_file_exists "$HOME/.claude/skills/work-summary/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/work-summary/references/update-format.md"
