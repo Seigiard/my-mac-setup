@@ -4,8 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { runComputeEffect, type ComputeEffectContext, type GhRunner } from "./block-effects.ts";
+import { COMPUTE_EFFECT_NAMES, runComputeEffect, type ComputeEffectContext, type GhRunner } from "./block-effects.ts";
 import { buildRegistry } from "./blocks/index.ts";
+import { gitHead } from "./envelopes.ts";
 
 const tempDirs: string[] = [];
 
@@ -33,7 +34,7 @@ function makeRepo(): string {
 function ctxFor(worktreePath: string, over: Partial<ComputeEffectContext> = {}): ComputeEffectContext {
   return {
     worktreePath,
-    baseSha: rawGit(worktreePath, "rev-parse", "HEAD"),
+    baseSha: gitHead(worktreePath),
     branch: "se/flow-run-abcdef01",
     runId: "run-abcdef01",
     ...over,
@@ -53,7 +54,8 @@ function fakeGitleaks(exitCode: number): string {
 
 const gitleaksAvailable = spawnSync("gitleaks", ["version"], { encoding: "utf8" }).status === 0;
 
-const gate = (name: string) => buildRegistry().get(name)!.gateFn;
+const registry = buildRegistry();
+const gate = (name: string) => registry.get(name)!.gateFn;
 
 afterAll(() => {
   for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
@@ -203,5 +205,14 @@ describe("pr effect", () => {
 describe("runComputeEffect dispatch", () => {
   test("an unregistered effect name throws rather than returning an empty payload", () => {
     expect(() => runComputeEffect("no-such-block", {}, ctxFor(makeRepo()))).toThrow(/no compute effect/);
+  });
+
+  test("every registered compute block has a matching effect implementation", () => {
+    const computeBlockNames = registry
+      .list()
+      .filter((b) => b.kind === "compute")
+      .map((b) => b.name)
+      .sort();
+    expect(COMPUTE_EFFECT_NAMES.slice().sort()).toEqual(computeBlockNames);
   });
 });

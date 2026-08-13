@@ -91,6 +91,7 @@ function readSpec(specPath: string): FlowSpec {
 
 export default smithers((ctx) => {
   const input = ctx.input;
+  const runId = ctx.runId ?? `run-${Date.now()}`;
   const repoPath = process.env.FLOW_REPO ?? "";
   const setupCmd = (input.setupCmd ?? "").trim();
 
@@ -118,7 +119,6 @@ export default smithers((ctx) => {
       <Task id="staging" output={outputs.staging} retries={0} bind={gate0Proof}>
         {() => {
           const getState: GetRunState = () => undefined;
-          const runId = ctx.runId ?? `run-${Date.now()}`;
           const branch = runBranchName(spec.task.description, runId);
           acquireRepoLock(repoPath, runId, getState);
           sweepOrphans(repoPath, getState);
@@ -144,7 +144,7 @@ export default smithers((ctx) => {
     worktreePath,
     baseSha: staged?.baseSha ?? "",
     branch: staged?.branch ?? "",
-    runId: ctx.runId ?? `run-${Date.now()}`,
+    runId,
   };
   const readyGate = workspaceNeeded ? staged : gate0;
   if (readyGate) {
@@ -158,7 +158,7 @@ export default smithers((ctx) => {
   // release. Timeout-bounded; the reviewer reads only the durable record.
   const allBlocksRecorded = ordered.every((b) => ctx.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) }) !== undefined);
   if (readyGate && (allBlocksRecorded || anyBlockFailed(ctx, ordered))) {
-    children.push(renderEpilog(ctx, spec, ordered, worktreePath, repoPath, workspaceNeeded));
+    children.push(renderEpilog(ctx, spec, ordered, worktreePath, repoPath, workspaceNeeded, runId));
   }
 
   return (
@@ -230,13 +230,12 @@ function anyBlockFailed(ctx: unknown, ordered: FlowBlock[]): boolean {
   });
 }
 
-function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktreePath: string, repoPath: string, workspaceNeeded: boolean): unknown {
+function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktreePath: string, repoPath: string, workspaceNeeded: boolean, runId: string): unknown {
   return (
     <Sequence>
       <Task id="outcome" output={outputs.outcome} retries={0}>
         {() => {
-          const c = ctx as { runId?: string; outputMaybe: (k: string, o: { nodeId: string }) => { status?: string; payloadJson?: string } | undefined };
-          const runId = c.runId ?? `run-${Date.now()}`;
+          const c = ctx as { outputMaybe: (k: string, o: { nodeId: string }) => { status?: string; payloadJson?: string } | undefined };
           const blocks: BlockOutcome[] = ordered.map((b) => {
             const out = c.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) });
             return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? "non-terminal" };
@@ -262,7 +261,6 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
       </Task>
       <Task id="cleanup" output={outputs.setup} retries={0}>
         {() => {
-          const runId = (ctx as { runId?: string }).runId ?? `run-${Date.now()}`;
           if (workspaceNeeded) {
             try {
               cleanupSnapshot(repoPath, worktreePath);

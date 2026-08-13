@@ -11,12 +11,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { gitHead, runValidateCmd, secretScanDiff, type SecretScanResult } from "./envelopes.ts";
-import { commitWorkGuarded, git, treeHash } from "./staging.ts";
+import { commitWorkGuarded, git, treeHash, type StagedWorktree } from "./staging.ts";
 
 export type GhRunner = (args: string[], cwd: string) => { status: number | null; stdout: string; stderr: string };
 export type PushRunner = (branch: string, cwd: string) => { ok: boolean; stderr: string };
 
-export interface ComputeEffectContext {
+export interface ComputeEffectContext extends Partial<StagedWorktree> {
   worktreePath: string;
   baseSha: string;
   branch: string;
@@ -30,26 +30,32 @@ export interface ComputeEffectContext {
   push?: PushRunner;
 }
 
+type ComputeEffect = (input: unknown, ctx: ComputeEffectContext) => unknown;
+
+// One entry per compute block name (lib/blocks/index.ts is the source of
+// truth for those names; block-effects.test.ts cross-checks this map against
+// the registry so a renamed or added compute block is a loud test failure,
+// never a silent drift between the two lists).
+const COMPUTE_EFFECTS: Record<string, ComputeEffect> = {
+  "secret-scan": secretScanEffect,
+  rescan: rescanEffect,
+  "commit-work": (_input, ctx) => commitWorkEffect(ctx),
+  "run-validate": runValidateEffect,
+  "proof-artifacts": proofArtifactsEffect,
+  pr: prEffect,
+};
+
+export const COMPUTE_EFFECT_NAMES: string[] = Object.keys(COMPUTE_EFFECTS);
+
 // Dispatch a compute block to its effect. Unknown names throw so a registry
 // entry without an effect body is a loud failure, never a silent `{}` that a
 // gateFn would then misclassify.
 export function runComputeEffect(name: string, input: unknown, ctx: ComputeEffectContext): unknown {
-  switch (name) {
-    case "secret-scan":
-      return secretScanEffect(input, ctx);
-    case "rescan":
-      return rescanEffect(input, ctx);
-    case "commit-work":
-      return commitWorkEffect(ctx);
-    case "run-validate":
-      return runValidateEffect(input, ctx);
-    case "proof-artifacts":
-      return proofArtifactsEffect(input, ctx);
-    case "pr":
-      return prEffect(input, ctx);
-    default:
-      throw new Error(`no compute effect registered for block "${name}"`);
+  const effect = COMPUTE_EFFECTS[name];
+  if (!effect) {
+    throw new Error(`no compute effect registered for block "${name}"`);
   }
+  return effect(input, ctx);
 }
 
 function secretScanEffect(input: unknown, ctx: ComputeEffectContext): SecretScanResult {
