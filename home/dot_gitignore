@@ -24,6 +24,9 @@ Icon?
 .claude/settings.local.json
 CLAUDE.local.md
 
+# oh-my-claudecode runtime state (writes into the task repo's cwd)
+.omc/
+
 # direnv
 .envrc.local
 .direnv/
