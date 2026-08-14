@@ -27,3 +27,12 @@ A gate outcome meaning the stage cannot vouch for its result — a finding, a to
 
 ### Waive
 An operator's explicit approval that lets a run continue past a degraded gate, recorded with the finding it accepts. Waiving accepts a specific known result; it never disables the check for future runs.
+
+### Flow spec
+A declarative document describing a composed flow: which blocks run, how they link, and their parameters. The spec is data, not code — it is validated before launch, and varying it never changes the workflow's identity. A launched flow is frozen; recomposing means starting a new run.
+
+### Block
+A reusable unit of pipeline work (a scan, an agent run, a subflow) registered in a fixed catalog that the interpreter dispatches from. A flow spec composes blocks by reference; blocks declare their inputs, outputs, and gate behavior.
+
+### Zero-in-flight rule
+The delivery rule that workflow code — the interpreter, blocks, and shared libraries — is edited only when no run is live or parked. A durable engine ties each run's identity to that code, so editing it under an in-flight run breaks the run's resume; runs are drained or explicitly written off first.
