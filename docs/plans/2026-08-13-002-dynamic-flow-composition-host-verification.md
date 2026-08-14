@@ -116,3 +116,19 @@ Pass criteria: the catalog lists the initial block library, and the dry-run prin
 ## Recording the result
 
 A gate that passes is recorded in the plan's Definition of Done. A gate that fails becomes a `docs/issues/` entry naming the scenario number from this file, so the failure is traceable back to a specific claim rather than to "the pipeline broke".
+
+## Results
+
+### Section 5 — regression: PASSED, 2026-08-14
+
+`run-1786700241899` on a fresh `make-pipeline-fixture.sh` repo. Verdict green, branch `se/fixture-reverse-plan-00241899`, 2,351,100 tokens, ~$1.46. The baseline run before any of this work, `run-1786539437958` on the same fixture, was also green at ~$1.46 — same verdict, same cost, same shape.
+
+The pipeline did real work rather than passing vacuously: the branch adds `src/reverse.ts` and `src/reverse.test.ts`, and `bun test` on that branch is 4 pass / 0 fail. Simplify skipped itself through its right-sizing classifier, which is its documented behavior on a diff this small.
+
+One waive was needed, for a cause outside this plan: the opencode review leg reported status `findings`, which is absent from the terminal-status allowlist, so a healthy leg carrying a well-formed P3 was counted as failed and the gate degraded. Tracked in `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`. It is not a regression — the baseline run's leg happened to say `completed`, a word that is on the list.
+
+### Section 6 — skill deployment: PARTIAL, 2026-08-14
+
+`se blocks --json` from the deployed copy emits the 13-block catalog, and the new `publishes` flag reads true for `pr`, confirming the scan-before-publish invariant reached the live tree. `se flow <spec> --dry-run` assembles the workflow input and prints the command without launching, on a five-block bug-shaped spec.
+
+**The second pass criterion is not met.** The dry-run prints only `FLOW_REPO` and the `smithers up` command line. It does not print the ordered block list with the summed cost estimate that R10 requires and that U5 assigns to the flow printout. The feature is absent, not broken — `se flow` has no printout code. Section 6 cannot be closed until it exists.
