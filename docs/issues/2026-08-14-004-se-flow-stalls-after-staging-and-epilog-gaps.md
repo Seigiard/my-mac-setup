@@ -12,7 +12,7 @@ parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 
 Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
 
-Everything originally recorded here is fixed. Checklist sections 1, 3, 4.2, 4.3, 4.4, 5 and 6 pass. One gap remains, in the section below.
+Everything originally recorded here is fixed. Every checklist section except section 2 now passes. One gap remains, in the section below.
 
 ### The interpreter had never run at all
 

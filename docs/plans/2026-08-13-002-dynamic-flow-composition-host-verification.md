@@ -170,6 +170,23 @@ Then `budget:look` recorded `spentUsd 0.034011, breached=1`, the run parked at `
 
 The outcome record also carries cost now: `{totalTokens 54395, totalEstUsd 0.034011}` with a per-node breakdown. It excludes the epilog's own reviewer leg, which runs after the record is written — the record is written first on purpose, so it survives a reviewer that hangs to its timeout.
 
+### Section 4.1 — hard-kill mid-block, then resume: PASSED, 2026-08-14
+
+`run-1786712117798`, three chained compute blocks with a deliberately slow `validate-cmd` (`sleep 90; bun test`) so the middle block could be caught mid-command. The run process was killed with SIGKILL while `b:check` was executing, with `b:proof` and `budget:proof` already finished.
+
+The evidence is the attempt table, which records per-node start and finish timestamps. Every completed node's row is byte-identical before and after the resume:
+
+```
+gate0|1|finished|1786712118824|1786712118839
+staging|1|finished|1786712118852|1786712118911
+b:proof|1|finished|1786712118919|1786712118928
+budget:proof|1|finished|1786712118935|1786712118979
+```
+
+Same attempt number, same timestamps, so no completed block re-executed. The interrupted block behaved correctly in the other direction: `b:check` attempt 1 went to `cancelled` and attempt 2 ran fresh under **the same node id**, which is the deterministic-id half of the criterion. The run then finished the remaining blocks and the full epilog, including writing an issue file.
+
+**A gap worth fixing.** `se resume` on a hard-killed run prints: *"force-resuming a killed run needs `--force true`, and smithers refuses while the dead owner's heartbeat is still fresh (~30-45s) — wait and retry."* But `se resume` has no `--force` flag — the string is the only occurrence of "force" in the launcher. The advice that works is the second half: wait ~50 seconds for the heartbeat to expire, then re-run `se resume`. That is what was done here. The hint should either grow the flag or stop naming one that does not exist.
+
 ### Section 4.2 and 4.4 — salvage and the artifactsFrom handoff: PASSED, 2026-08-14
 
 Run one, `run-1786711353934`, was hard-killed (SIGKILL on the run process) after its `proof-artifacts` block reported and while `run-validate` was mid-command. No epilog ran, so no outcome record existed — and because cleanup never ran either, its worktree survived. That surviving worktree is what makes salvage worth having.
