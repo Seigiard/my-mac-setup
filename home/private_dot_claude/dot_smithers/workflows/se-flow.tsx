@@ -35,7 +35,8 @@ import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects
 import { blockNodeId, dispatchableBlocks, dispatchNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
-import { shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
+import { redactSecretsInText, shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
+import { copyArtifacts, planArtifactArchive, type BlockPayload } from "./lib/archive.ts";
 import { makeFlowReviewerAgent } from "./lib/agents.ts";
 import type { SubflowRunContext } from "./lib/block-registry.ts";
 import seCodeReview from "./se-code-review.tsx";
@@ -96,7 +97,7 @@ const { Workflow, Task, Sequence, smithers, outputs } = createSmithers({
   // columns on every persisted node output and refuses a schema that shadows
   // them. The engine raises this at workflow construction, which `bun build`
   // cannot see — it type-checks nothing and never instantiates the workflow.
-  outcome: z.object({ flowRunId: z.string(), recordPath: z.string(), archiveDir: z.string() }),
+  outcome: z.object({ flowRunId: z.string(), recordPath: z.string(), archiveDir: z.string(), artifactCount: z.number(), redactionHits: z.array(z.string()) }),
   reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string(), cause: z.string().nullish(), proposedFix: z.string().nullish() }),
   // R15: `issuePath` is null on a clean success — the review lives in the
   // outcome record and no file is written. `redactionHits` surfaces a KTD13
@@ -505,6 +506,32 @@ function renderReviewer(ctx: unknown, ordered: FlowBlock[], worktreePath: string
 
 const REVIEWER_DISPATCH_NODE = "reviewer:dispatch";
 
+// Every block's recorded payload, for the archive planner to mine for manifests.
+// Not filtered to `proof-artifacts` by name: any block that reports a `manifest`
+// array is naming files it wants preserved, and hard-coding one block name would
+// silently drop a future one.
+function manifestPayloads(ctx: unknown, ordered: FlowBlock[]): BlockPayload[] {
+  const payloads: BlockPayload[] = [];
+  for (const block of ordered) {
+    const row = blockRow(ctx as CtxLike, block.id);
+    if (typeof row?.payloadJson === "string") payloads.push({ blockId: block.id, payloadJson: row.payloadJson });
+  }
+  return payloads;
+}
+
+function isInsideWorktree(worktreePath: string, candidate: string): boolean {
+  let root: string;
+  let real: string;
+  try {
+    root = fs.realpathSync(worktreePath);
+    real = fs.realpathSync(candidate);
+  } catch {
+    return false;
+  }
+  const rel = path.relative(root, real);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
 function reviewerRecord(ctx: unknown, ordered: FlowBlock[], runId: string): OutcomeRecord {
   return { runId, blocks: blockOutcomes(ctx, ordered) };
 }
@@ -565,9 +592,30 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
           const record: OutcomeRecord = { runId, blocks };
           const archiveDir = path.join(os.tmpdir(), "se-flow", runId);
           fs.mkdirSync(archiveDir, { recursive: true });
+
+          // KTD10: copy the named artifacts out before cleanup deletes the
+          // worktree. Done ahead of the record write so the record can state
+          // what the archive actually holds, not what was requested.
+          const archive = copyArtifacts(
+            planArtifactArchive(manifestPayloads(ctx, ordered), archiveDir, (candidate) => isInsideWorktree(worktreePath, candidate)),
+          );
+
+          // KTD13(b): redact before the write, not after — a secret written to
+          // disk and cleaned up later has still been written to disk.
+          //
+          // What this actually guards is the spec text and the artifact paths.
+          // Block payloads are deliberately NOT in the record (KTD10 defines it
+          // as spec + per-block status + artifact manifest), so a secret printed
+          // by a validate-cmd never reaches this file — it reaches the issue
+          // file instead, which writeIssueFile redacts on its own path. The spec
+          // is still a real surface: its task description is composed from
+          // operator input and lands here verbatim, and later in a PR body.
+          const { redacted, hits } = redactSecretsInText(
+            JSON.stringify({ spec, record, artifacts: archive.copied.map((e) => ({ blockId: e.blockId, name: e.name, path: e.destination })), skippedArtifacts: archive.skipped }, null, 2),
+          );
           const recordPath = path.join(archiveDir, "outcome.json");
-          fs.writeFileSync(recordPath, JSON.stringify({ spec, record }, null, 2));
-          return { flowRunId: runId, recordPath, archiveDir };
+          fs.writeFileSync(recordPath, redacted);
+          return { flowRunId: runId, recordPath, archiveDir, artifactCount: archive.copied.length, redactionHits: hits };
         }}
       </Task>
       {renderReviewer(ctx, ordered, worktreePath, runId)}
