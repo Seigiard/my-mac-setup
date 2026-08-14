@@ -2,7 +2,8 @@
 title: No test instantiates the workflows, so schema errors are found by a failed launch
 type: follow-up
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 ---
 
@@ -41,4 +42,18 @@ What it does NOT catch: the `bind={undefined}` park that cost the same day (reco
 
 ## Open decisions
 
-- Whether instantiation needs environment variables set. `se-pipeline.tsx` reads `PIPELINE_REPO` at module load and falls back to `process.cwd()`, so a bare import is probably safe; confirm rather than assume, and set a temporary directory if it is not.
+None. The environment question below is answered.
+
+## Resolution
+
+`home/private_dot_claude/dot_smithers/workflows/workflow-construction.test.ts` imports all five workflow files and asserts each has a default export. Six tests, part of the ordinary `bun test` run from the source directory; the suite is 352 pass / 0 fail.
+
+An import is the whole check, and that is not a shortcut. `createSmithers` validates output schemas eagerly, inside the call that every workflow file makes at module load, so a reserved field name throws before any node exists. Confirmed directly: `createSmithers({ input: …, bad: z.object({ runId: z.string() }) })` throws `Output schema for "bad" uses reserved field name(s): runId`.
+
+The environment question is answered: no variables are needed. All five modules import with none set — `se-pipeline.tsx` falls back to `process.cwd()` for `PIPELINE_REPO`, and nothing else reads the environment at module load.
+
+The test was verified against the original defect rather than assumed to work. Re-introducing the reserved field in `se-flow.tsx` — renaming `outcome.flowRunId` back to `outcome.runId` — turned the suite red on exactly the `se-flow.tsx` case and nothing else. The mutation was reverted immediately; `git status` on the file is clean.
+
+One test in the file is a canary rather than a check of our own code: it asserts that `createSmithers` still rejects a reserved field. If a future engine version stops validating eagerly, the five import tests would quietly stop checking anything, and the canary is what would say so.
+
+The limit stated in the Scope section holds and is written into the test file's own comments: this proves a workflow is constructible, never that a run advances.
