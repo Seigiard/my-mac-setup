@@ -119,6 +119,20 @@ A gate that passes is recorded in the plan's Definition of Done. A gate that fai
 
 ## Results
 
+### Section 1 — engine spike: PASSED, all four scenarios, 2026-08-14
+
+Run on a throwaway two-file spike — a workflow that maps input items to tasks, plus an imported helper that exists only as the edit target for scenario 1.4. Both files were removed from the live tree afterwards, per the plan's cleanup criterion. No agent legs, so the whole section cost nothing.
+
+**1.1 hash stability.** Two launches, inputs `["a","b"]` and `["x","y","z"]`, so the rendered tree differed in size. Both rows in `_smithers_runs` carry the identical `workflow_hash` `1746bf93…4a169ae` and the identical `entryWorkflowHash` `3b31ec12…d0af766c`. Workflow identity follows the module graph, not the render — which is the assumption KD2 rests on.
+
+**1.2 kill and resume.** Six sequential tasks, killed mid-run with three completed. Each task records `Date.now()`, so re-execution is directly visible. After resume the first three timestamps were byte-identical to their pre-kill values and only the remaining three were new, 58 seconds later. Zero completed tasks re-executed.
+
+**1.3 Approval inside a dynamic subtree.** The approval node is generated inside the `map` over input items, not placed beside it. The run parked at `approve:gate-b`, the two ungated tasks completed, the gated one did not. After `se approve` and resume the run finished, the gated task ran, and the two already-completed tasks kept their original timestamps.
+
+**1.4 edit under a parked run.** With a run parked, `spike-helper.ts` was edited — an *imported* file, not the workflow entry file. Resume refused: `Cannot resume run because durable metadata changed … resume hashes the workflow file content, not git`. This proves the KTD1 zero-in-flight rule rather than assuming it, and it establishes something stronger than the scenario asked: the durability hash covers the imported module graph, so editing any block or shared lib under a live run is equally fatal, not just editing the interpreter.
+
+One incidental finding, worth knowing before writing any future compute block: a task closure that blocks the event loop — the first spike used `spawnSync("sleep")` — prevents the engine from persisting *any* completed task. Two kill-and-resume attempts lost all work before the cause was clear. Compute effects that shell out should stay short, or the run loses its resume point.
+
 ### Section 5 — regression: PASSED, 2026-08-14
 
 `run-1786700241899` on a fresh `make-pipeline-fixture.sh` repo. Verdict green, branch `se/fixture-reverse-plan-00241899`, 2,351,100 tokens, ~$1.46. The baseline run before any of this work, `run-1786539437958` on the same fixture, was also green at ~$1.46 — same verdict, same cost, same shape.
