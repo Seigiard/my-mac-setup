@@ -6,6 +6,8 @@
 // store is the run's summary output, which embeds this aggregation;
 // `se list` and audits read only from there.
 
+import { Database } from "bun:sqlite";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { estimateCostUsd, modelTokenPrices } from "smithers-orchestrator/scorers";
@@ -94,10 +96,8 @@ export function aggregateUsage(events: TokenUsageEvent[]): RunUsage {
 // state resolver can persist smithers.db one level ABOVE it, and a fresh
 // database has no _smithers_events table until the first event lands.
 //
-// NOTE: se-pipeline.tsx carries its own private copy of this reader. It is not
-// switched over here on purpose — that file is the rollback path the plan keeps
-// untouched, and changing its module graph invalidates a parked pipeline run's
-// resume. Fold them together the next time se-pipeline is edited anyway.
+// The opener is injected so the reader stays testable without a real database;
+// production callers pass `openUsageDb` below.
 export function readRunUsage(runId: string, launchDir: string, openDatabase: (dbPath: string) => UsageQueryable | null): TokenUsageEvent[] {
   for (const dbPath of [launchDir, dirname(launchDir)].map((d) => join(d, "smithers.db"))) {
     const db = openDatabase(dbPath);
@@ -131,6 +131,23 @@ export function readRunUsage(runId: string, launchDir: string, openDatabase: (db
 export interface UsageQueryable {
   rows: (sql: string, runId: string) => Array<{ payload_json: string }>;
   close: () => void;
+}
+
+// Opens a run state database read-only. Returns null on every failure so
+// `readRunUsage` falls through to the next candidate path instead of throwing:
+// cost is advisory (KTD6), and a run must not die because telemetry is missing.
+// A zero-byte file is a database the engine created but never wrote to.
+export function openUsageDb(dbPath: string): UsageQueryable | null {
+  try {
+    if (!existsSync(dbPath) || statSync(dbPath).size === 0) return null;
+    const db = new Database(dbPath, { readonly: true });
+    return {
+      rows: (sql: string, runId: string) => db.query(sql).all(runId) as Array<{ payload_json: string }>,
+      close: () => db.close(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface BudgetState {

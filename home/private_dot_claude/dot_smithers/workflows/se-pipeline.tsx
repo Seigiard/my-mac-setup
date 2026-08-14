@@ -21,7 +21,7 @@ import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type Gat
 import { mergeReviewReports } from "./lib/review-merge.ts";
 import { severitySchema, stripSeverityLine, type SeveritySummary } from "./lib/severity-summary.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
-import { aggregateUsage, type TokenUsageEvent } from "./lib/cost.ts";
+import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
 import {
   acquireRepoLock,
@@ -178,49 +178,6 @@ function makeGetRunState(): GetRunState {
       return "running";
     }
   };
-}
-
-// Per-stage token usage for this run and its subflow children, read from the
-// persisted event log (the only place 0.27.0 keeps usage — U1 verdict, е).
-function readRunUsage(runId: string): TokenUsageEvent[] {
-  // 0.28's walk-up state resolver can persist smithers.db a level ABOVE the
-  // launch dir (a runtime dir literally named `.smithers` reads as another
-  // project's state dir), and a fresh 0.28 database has no _smithers_events
-  // table until the first event lands. Cost is advisory (KTD6: tokens are the
-  // metric, USD an estimate) — the summary task must never fail the run over
-  // missing telemetry: resolve the db upward and fail soft to zero usage.
-  const cwd = process.cwd();
-  const candidates = [cwd, path.dirname(cwd)].map((d) => path.join(d, "smithers.db"));
-  for (const dbPath of candidates) {
-    let db: Database;
-    try {
-      if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0) continue;
-      db = new Database(dbPath, { readonly: true });
-    } catch {
-      continue;
-    }
-    try {
-      const rows = db
-        .query("SELECT payload_json FROM _smithers_events WHERE type='TokenUsageReported' AND (run_id = ?1 OR run_id LIKE ?1 || ':child:%')")
-        .all(runId) as Array<{ payload_json: string }>;
-      return rows.map((row) => {
-        const p = JSON.parse(row.payload_json) as Record<string, unknown>;
-        return {
-          nodeId: String(p.nodeId ?? "unknown"),
-          model: typeof p.model === "string" ? p.model : null,
-          inputTokens: Number(p.inputTokens ?? 0),
-          outputTokens: Number(p.outputTokens ?? 0),
-          cacheReadTokens: Number(p.cacheReadTokens ?? 0),
-          cacheWriteTokens: Number(p.cacheWriteTokens ?? 0),
-        };
-      });
-    } catch {
-      continue;
-    } finally {
-      db.close();
-    }
-  }
-  return [];
 }
 
 // The opencode review leg has no claude plugin skills — stage a copy of the
@@ -1061,7 +1018,7 @@ export default smithers((ctx) => {
           // Read cost BEFORE any irreversible cleanup: a sqlite/JSON failure in
           // readRunUsage must not abort the summary after the lock and worktree
           // are already gone (they would then never be released/removed).
-          const usage = aggregateUsage(readRunUsage(ctx.runId));
+          const usage = aggregateUsage(readRunUsage(ctx.runId, process.cwd(), openUsageDb));
           if (t === "green") {
             cleanupSnapshot(repoDir, staged.worktreePath);
           }

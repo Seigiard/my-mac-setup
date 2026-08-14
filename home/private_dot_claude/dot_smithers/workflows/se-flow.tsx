@@ -23,7 +23,6 @@
 // live fixture flow, which requires a running Smithers daemon and is not run in
 // a headless build.
 import { createSmithers, Subflow, TryCatchFinally, approvalDecisionSchema, type ProofBinding } from "smithers-orchestrator";
-import { Database } from "bun:sqlite";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 import { z } from "zod/v4";
 import * as fs from "node:fs";
@@ -38,7 +37,7 @@ import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
 import { redactSecretsInText, shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
 import { copyArtifacts, inboundPromptNote, parseArchiveManifest, planArtifactArchive, planInboundDelivery, type BlockPayload } from "./lib/archive.ts";
-import { agentCapUsd, aggregateUsage, evaluateBudget, readRunUsage } from "./lib/cost.ts";
+import { agentCapUsd, aggregateUsage, evaluateBudget, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { makeFlowReviewerAgent } from "./lib/agents.ts";
 import type { SubflowRunContext } from "./lib/block-registry.ts";
 import seCodeReview from "./se-code-review.tsx";
@@ -284,22 +283,6 @@ function deliveredInbound(ctx: unknown): { blockId: string; name: string; source
 
 function budgetNodeId(blockId: string): string {
   return `budget:${blockId}`;
-}
-
-// Opens the run's own state database read-only. Returns null on every failure so
-// `readRunUsage` can fall through to the next candidate path: cost is advisory
-// (KTD6), and a run must not die because telemetry is missing.
-function openUsageDb(dbPath: string) {
-  try {
-    if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0) return null;
-    const db = new Database(dbPath, { readonly: true });
-    return {
-      rows: (sql: string, runId: string) => db.query(sql).all(runId) as Array<{ payload_json: string }>,
-      close: () => db.close(),
-    };
-  } catch {
-    return null;
-  }
 }
 
 function measureSpend(runId: string): number {

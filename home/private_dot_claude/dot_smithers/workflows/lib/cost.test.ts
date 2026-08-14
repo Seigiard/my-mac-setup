@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { agentCapUsd, aggregateUsage, evaluateBudget, readRunUsage, type TokenUsageEvent } from "./cost.ts";
+import { agentCapUsd, aggregateUsage, evaluateBudget, openUsageDb, readRunUsage, type TokenUsageEvent } from "./cost.ts";
 
 function ev(
   nodeId: string,
@@ -177,5 +181,42 @@ describe("readRunUsage", () => {
       close: () => {},
     };
     expect(readRunUsage("run-1", "/launch", () => db)).toEqual([]);
+  });
+})
+
+describe("openUsageDb", () => {
+  test("a missing database file opens as null so the reader tries the next path", () => {
+    // #given a path where no state database was ever created
+    const dbPath = join(tmpdir(), `cost-test-absent-${Date.now()}.db`);
+
+    // #when / #then the opener reports absence instead of throwing
+    expect(openUsageDb(dbPath)).toBeNull();
+  });
+
+  test("a zero-byte database opens as null", () => {
+    // #given a database the engine created but never wrote to
+    const dbPath = join(mkdtempSync(join(tmpdir(), "cost-test-")), "smithers.db");
+    writeFileSync(dbPath, "");
+
+    // #when / #then an empty file has no events table and must not be opened
+    expect(openUsageDb(dbPath)).toBeNull();
+  });
+
+  test("a real database answers the usage query end to end", () => {
+    // #given a state database holding one TokenUsageReported event
+    const dbPath = join(mkdtempSync(join(tmpdir(), "cost-test-")), "smithers.db");
+    const seed = new Database(dbPath);
+    seed.run("CREATE TABLE _smithers_events (type TEXT, run_id TEXT, payload_json TEXT)");
+    seed.run(
+      "INSERT INTO _smithers_events VALUES ('TokenUsageReported', 'run-1', ?1)",
+      JSON.stringify({ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 }),
+    );
+    seed.close();
+
+    // #when the production opener is handed to the reader
+    const events = readRunUsage("run-1", dirname(dbPath), openUsageDb);
+
+    // #then the event round-trips through real sqlite
+    expect(events).toEqual([{ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 }]);
   });
 })
