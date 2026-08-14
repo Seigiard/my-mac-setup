@@ -133,7 +133,7 @@ Run on a throwaway two-file spike — a workflow that maps input items to tasks,
 
 One incidental finding, worth knowing before writing any future compute block: a task closure that blocks the event loop — the first spike used `spawnSync("sleep")` — prevents the engine from persisting *any* completed task. Two kill-and-resume attempts lost all work before the cause was clear. Compute effects that shell out should stay short, or the run loses its resume point.
 
-### Section 3 — live end-to-end, failure path: PASSED on three of four criteria, 2026-08-14
+### Section 3 — live end-to-end, failure path: PASSED, 2026-08-14
 
 Run against a throwaway fixture repo with a compute-only spec whose last block genuinely fails (`secret-scan` on an empty commit range). The failure is real, not injected, which is stronger evidence than a stub.
 
@@ -145,7 +145,11 @@ That run also exposed an over-redaction: the assigned-secret pattern ran past th
 
 **The daily sequence works.** Three runs produced `-001-`, `-002-`, `-003-` on the same date.
 
-**The archive criterion does not pass, and is not a reviewer problem.** The outcome record exists at `$TMPDIR/se-flow/<runId>/outcome.json`, but nothing copies the `proof-artifacts` manifest into that directory. Tracked as the artifact-archiving item in `docs/issues/2026-08-14-004-...`.
+**The archive criterion passes.** On `run-1786705191733`, whose `scan` block failed, the archive holds `artifacts/proof-package.json` with its content intact and the staged worktree is gone — the archive is the only surviving copy, which is the whole point of KTD10. The record alongside it lists the artifact manifest with archive paths, not worktree paths.
+
+The outcome record is also redacted before it is written. On `run-1786705276045` a `ghp_` token planted in the spec's task description appears zero times in the file, rendered as `GITHUB_TOKEN=[REDACTED] pasted in`. Worth knowing what that scan does and does not cover: block payloads are deliberately absent from the record (KTD10 defines it as spec + per-block status + artifact manifest), so a secret printed by a validate-cmd never reaches this file — it reaches the issue file, redacted on its own path. The record scan guards the spec text, which is composed from operator input and later embeds in a PR body.
+
+One element KTD10 lists is still missing from the record: the cost figure.
 
 **The dead-leg criterion is unit-verified only.** `classifyDisposition` and `parseReviewerVerdict` cover it, and `run-1786704301055` demonstrated the guard path for real when the reviewer leg itself failed — the catch recorded a no-verdict row and cleanup still released the worktree and the repo lock. No live run has yet killed a *block* leg mid-stream.
 

@@ -1,18 +1,18 @@
 ---
-title: se flow epilog is partial — no artifact archive, no publication scan of the outcome record, four features absent
+title: se flow is missing salvage, budget parking, artifactsFrom delivery and the record's cost figure
 type: bug
 date: 2026-08-14
 status: in-progress
 parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 ---
 
-# se flow epilog is partial, and four features the checklist assumes are absent
+# se flow is missing salvage, budget parking, artifactsFrom delivery and the record's cost figure
 
 ## Why this exists
 
 Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
 
-Both blockers are now fixed and `se flow` runs end to end. What remains open is the epilog and the four absent features, recorded below.
+Both blockers are fixed, `se flow` runs end to end, and sections 3 and 6 of the checklist now pass. What remains open is the five items under "Five features the checklist assumes" below.
 
 ### The interpreter had never run at all
 
@@ -44,16 +44,17 @@ The `Each child in a list should have a unique "key" prop` warning is unrelated 
 
 Verified by execution: `run-1786703798413`, a three-block compute spec chained by `bindTo`, finished with all blocks and the full epilog. It is the first `se flow` run to complete end to end.
 
-### Four features the checklist assumes, which are not written
+### Five features the checklist assumes, which are not written
 
 - **`se flow salvage <runId>`** (U5, KTD10). Zero occurrences of `salvage` in `bin/executable_se`. Section 4.2 tests it.
 - **Budget-ceiling parking** (KTD9). `budgetUsd` reaches `makeAgent` as a per-agent cap, and a `budget` output key is declared, but there is no budget compute task and no park branch anywhere in `se-flow.tsx`. A breach cannot park a run because nothing measures it. Section 4.3 tests it.
 - **`artifactsFrom` delivery** (R9). The validator checks the archive exists (`flow-validate.ts:175`) and normalisation carries the field, but no code reads a prior run's manifest or hands artifacts to any block. The handoff is validated and never performed. Section 4.4 tests it.
-- **Artifact archiving** (KTD10). The epilog creates `$TMPDIR/se-flow/<runId>/` and writes `outcome.json` into it, then copies nothing. The `proof-artifacts` manifest is never read. The directory is an archive in name only.
+- **No cost figure in the outcome record** (KTD10). The record carries the spec, per-block status and the artifact manifest, but not the run's cost. Nothing measures it — the same absence that blocks budget parking above.
+- **No publication-time secret scan of a PR body** (KTD13b). The outcome record and the issue text are both redacted before writing. The PR body is not, and the `pr` block is the only `publishes: true` block in the catalog.
 
-### Two more epilog gaps
+### Artifact archiving and the record scan — FIXED in `00c375e`
 
-- **No publication-time secret scan of the outcome record or a PR body** (KTD13b). The epilog writes `outcome.json` with a plain `fs.writeFileSync` and nothing scans it first. Issue text is now covered — `writeIssueFile` redacts before writing, verified live in `run-1786704594258` — but the outcome record and the PR body are not.
+The epilog now copies every manifest file into `<archive>/artifacts/` before cleanup deletes the worktree, and redacts the outcome record before writing it. Verified live: `run-1786705191733` (archive survives the worktree) and `run-1786705276045` (planted `ghp_` token absent from the record).
 
 ### The terminal reviewer was a stub — FIXED in `cae6a61`
 
@@ -64,13 +65,13 @@ Two structural rules came out of the first live run and are worth keeping in min
 - The verdict rides inside the `{report: string}` wrapper, not as the agent's raw output shape. A raw shape turns a malformed model response into an `INVALID_OUTPUT` task failure rather than a parseable no-verdict row.
 - Work that must happen even when an agent leg dies belongs OUTSIDE that leg's `TryCatchFinally`. Issue writing was originally inside the try branch, so it was skipped exactly when the reviewer died — on runs that most owe the operator an issue.
 
-Section 3 of the host checklist now passes on three of four criteria; see its Results entry.
+Section 3 of the host checklist now passes; see its Results entry.
 
 ## Scope
 
-- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the missing budget node, the missing artifact copy, the missing scan of the outcome record.
+- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the missing budget node, the missing cost figure, `artifactsFrom` delivery.
 - `home/private_dot_claude/dot_smithers/bin/executable_se` — `se flow salvage`.
-- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 3 passes on three of four criteria; its archive criterion waits on artifact archiving. Section 4 stays unrunnable for its salvage, budget and `artifactsFrom` scenarios; scenario 4.1 (hard-kill and resume) became runnable once the stall was fixed.
+- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — sections 3 and 6 now pass. Section 4 stays unrunnable for its salvage, budget and `artifactsFrom` scenarios; scenario 4.1 (hard-kill and resume) became runnable once the stall was fixed.
 
 ## Open decisions
 
