@@ -19,6 +19,50 @@ export function blockNodeId(blockId: string): string {
   return `${BLOCK_NODE_PREFIX}${blockId}`;
 }
 
+export interface FlowPlanEntry {
+  estUsd: number;
+  kind: string;
+}
+
+// R10: the operator sees what a launch will run and what it may cost, before
+// it starts. Two totals, because one number would mislead: the baseline is one
+// attempt per block, the ceiling assumes every block exhausts its retries. A
+// block the registry does not know contributes no cost and is marked, rather
+// than being dropped from the list — an unknown block is exactly what the
+// reader needs to notice.
+export function formatFlowPlan(
+  description: string,
+  blocks: FlowBlock[],
+  lookup: (blockName: string) => FlowPlanEntry | undefined,
+): string {
+  const ordered = topoOrder(blocks);
+  const idWidth = Math.max(2, ...ordered.map((b) => b.id.length));
+  const nameWidth = Math.max(5, ...ordered.map((b) => b.block.length));
+
+  let baseline = 0;
+  let ceiling = 0;
+  const rows = ordered.map((block, index) => {
+    const entry = lookup(block.block);
+    const est = entry?.estUsd ?? 0;
+    baseline += est;
+    ceiling += est * (1 + block.retries);
+    const kind = entry?.kind ?? "UNKNOWN BLOCK";
+    const cost = entry ? `~$${est}` : "—";
+    return `  ${String(index + 1).padStart(2)}. ${block.id.padEnd(idWidth)}  ${block.block.padEnd(nameWidth)}  ${kind.padEnd(13)}  ${cost}`;
+  });
+
+  const retryNote = ceiling > baseline ? `, up to ~$${round2(ceiling)} if every block exhausts its retries` : "";
+  return [
+    `flow: ${description}`,
+    `${ordered.length} block${ordered.length === 1 ? "" : "s"}, estimated ~$${round2(baseline)}${retryNote}`,
+    ...rows,
+  ].join("\n");
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 // Agent and subflow blocks occupy two engine nodes: the dispatch node that
 // produces the raw envelope, and the block node that classifies it into
 // blockOutput. The dispatch node keeps the block node's id as its stem so both

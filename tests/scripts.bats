@@ -1358,6 +1358,43 @@ PY
   assert_output --partial '"validateCmd":""'
 }
 
+@test "se flow --dry-run prints the composed flow with a cost estimate (R10)" {
+  # The operator sees what a launch will run and what it may cost before it
+  # starts. A bare command line does not carry that.
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local spec
+  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  cat > "$spec" <<'JSON'
+{"task":{"description":"printout fixture"},"repo":"/tmp/r","blocks":[
+ {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
+ {"id":"scan","block":"secret-scan","input":{},"retries":0,"timeoutMs":120000,"after":["implement"],"bindTo":["implement"]}]}
+JSON
+  run env "$se_bin" flow "$spec" --dry-run
+  rm -f "$spec"
+  assert_success
+  assert_output --partial 'flow: printout fixture'
+  assert_output --partial '2 blocks, estimated ~$'
+  assert_output --partial 'implement'
+  assert_output --partial 'scan'
+}
+
+@test "se flow refuses a spec the validator rejects, before launching" {
+  # A publish with no secret-scan ancestor must stop at the CLI, not at the
+  # interpreter's gate-0 after a run has already been created.
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local spec
+  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  cat > "$spec" <<'JSON'
+{"task":{"description":"unscanned publish"},"repo":"/tmp/r","blocks":[
+ {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
+ {"id":"ship","block":"pr","input":{"title":"t"},"retries":0,"timeoutMs":300000,"after":["implement"],"bindTo":["implement"]}]}
+JSON
+  run env "$se_bin" flow "$spec" --dry-run
+  rm -f "$spec"
+  assert_failure
+  assert_output --partial 'scan-before-external'
+}
+
 @test "se flow rejects a non-numeric budget" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec

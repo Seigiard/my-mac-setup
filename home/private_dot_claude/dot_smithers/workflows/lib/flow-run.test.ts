@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { FlowBlock, FlowSpec } from "./flow-spec.ts";
-import { bindProofTargets, blockNodeId, canonicalSpecJson, needsWorkspace, specHash, topoOrder } from "./flow-run.ts";
+import { bindProofTargets, blockNodeId, canonicalSpecJson, dispatchNodeId, formatFlowPlan, needsWorkspace, specHash, topoOrder } from "./flow-run.ts";
 
 function fb(over: Partial<FlowBlock> & { id: string; block: string }): FlowBlock {
   return { input: {}, retries: 0, timeoutMs: 1000, after: [], bindTo: [], waive: "none", ...over };
@@ -77,5 +77,78 @@ describe("specHash / canonicalSpecJson", () => {
     const a = makeSpec([fb({ id: "x", block: "work" })]);
     const b = makeSpec([fb({ id: "x", block: "work", retries: 2 })]);
     expect(specHash(a)).not.toBe(specHash(b));
+  });
+});
+
+describe("dispatchNodeId", () => {
+  test("derives a stable second node from the block node, outside spec id grammar", () => {
+    // #given block ids are lowercase kebab and cannot contain a colon
+    const nodeId = blockNodeId("do-the-thing");
+
+    // #when / #then the dispatch node is derived, so resume still matches
+    expect(dispatchNodeId(nodeId)).toBe("b:do-the-thing:dispatch");
+    expect(dispatchNodeId(nodeId)).toBe(dispatchNodeId(nodeId));
+  });
+});
+
+describe("formatFlowPlan (R10)", () => {
+  const lookup = (name: string) =>
+    ({
+      work: { estUsd: 20, kind: "agent" },
+      "secret-scan": { estUsd: 0, kind: "compute" },
+    })[name];
+
+  function planBlock(over: Partial<FlowBlock> = {}): FlowBlock {
+    return { id: "b1", block: "work", input: {}, retries: 0, timeoutMs: 1000, after: [], bindTo: [], waive: "none", ...over };
+  }
+
+  test("lists blocks in execution order, not spec order", () => {
+    // #given a spec whose declared order is the reverse of its dependency order
+    const blocks = [
+      planBlock({ id: "second", block: "secret-scan", after: ["first"] }),
+      planBlock({ id: "first", block: "work", after: [] }),
+    ];
+
+    // #when
+    const out = formatFlowPlan("a task", blocks, lookup);
+
+    // #then
+    expect(out.indexOf("first")).toBeLessThan(out.indexOf("second"));
+  });
+
+  test("sums the per-block cost profiles into one estimate", () => {
+    // #given two paid blocks
+    const blocks = [planBlock({ id: "a" }), planBlock({ id: "b", after: ["a"] })];
+
+    // #when / #then
+    expect(formatFlowPlan("a task", blocks, lookup)).toContain("estimated ~$40");
+  });
+
+  test("reports a retry ceiling separately from the baseline", () => {
+    // #given a block allowed two extra attempts
+    const blocks = [planBlock({ id: "a", retries: 2 })];
+
+    // #when / #then one attempt costs 20, three cost 60
+    const out = formatFlowPlan("a task", blocks, lookup);
+    expect(out).toContain("estimated ~$20");
+    expect(out).toContain("up to ~$60");
+  });
+
+  test("omits the ceiling when no block can retry", () => {
+    // #given
+    const blocks = [planBlock({ id: "a", retries: 0 })];
+
+    // #when / #then a ceiling equal to the baseline is noise, not information
+    expect(formatFlowPlan("a task", blocks, lookup)).not.toContain("up to ~$");
+  });
+
+  test("marks a block the registry does not know instead of dropping it", () => {
+    // #given a spec naming a block outside the catalog
+    const blocks = [planBlock({ id: "mystery", block: "not-a-block" })];
+
+    // #when / #then the reader has to see it
+    const out = formatFlowPlan("a task", blocks, lookup);
+    expect(out).toContain("mystery");
+    expect(out).toContain("UNKNOWN BLOCK");
   });
 });

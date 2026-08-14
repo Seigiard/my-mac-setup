@@ -8,6 +8,7 @@ SMITHERS_BIN="./node_modules/.bin/smithers"
 PIPELINE_WORKFLOW="workflows/se-pipeline.tsx"
 FLOW_WORKFLOW="workflows/se-flow.tsx"
 CATALOG_SCRIPT="workflows/catalog.ts"
+FLOW_PRINT_SCRIPT="workflows/flow-print.ts"
 
 usage() {
   cat <<'EOF'
@@ -431,6 +432,16 @@ build_flow_input() {
   fi
 }
 
+# Renders the ordered block list + cost estimate for a spec. Non-zero exit means
+# the validator refused the spec; its errors are already on stderr.
+print_flow_plan() {
+  local spec_path=$1
+  if dry_run && [[ ! -d "$SMITHERS_DIR" ]]; then
+    return 0
+  fi
+  (cd "$SMITHERS_DIR" && bun run "$FLOW_PRINT_SCRIPT" "$spec_path")
+}
+
 cmd_blocks() {
   # --json is the only (and default) form; accepted for symmetry with other
   # subcommands. The catalog is generated from the block registry (KTD6).
@@ -493,11 +504,16 @@ cmd_flow() {
 
   if dry_run || ((local_dry)); then
     printf 'FLOW_REPO=%s\n' "$repo"
+    print_flow_plan "$spec_abs" || die "flow spec refused by the validator (see above)"
     print_smithers_cmd "${args[@]}"
     return 0
   fi
 
   require_runtime_dir
+  # R10: show the composed flow and its cost before starting, then start without
+  # waiting for an acknowledgement. A spec the validator refuses stops here
+  # rather than at the interpreter's gate-0, which saves a launch.
+  print_flow_plan "$spec_abs" || die "flow spec refused by the validator (see above)"
   cd "$SMITHERS_DIR"
   local rc=0
   FLOW_REPO="$repo" "$SMITHERS_BIN" "${args[@]}" || rc=$?
