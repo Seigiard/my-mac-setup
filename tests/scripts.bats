@@ -728,21 +728,43 @@ hts_sweep_run() {
     bash "$HTS_ENGINE" "$@"
 }
 
-hts_wait_for_publish() {
-  local i
-  for i in $(seq 1 60); do
-    [[ -s "$HTS_LOG" ]] && return 0
-    sleep 0.25
-  done
-  return 1
-}
-
 # The worker logs several herdr calls in a row, so a test that reads a later
 # call must wait for that call and not for the first line of the log.
 hts_wait_for_call() {
   local i
   for i in $(seq 1 60); do
-    grep -q "$1" "$HTS_LOG" && return 0
+    grep -q -- "$1" "$HTS_LOG" && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+# Waits for the publish itself — the `--token task=` metadata call — and not
+# merely for a non-empty log. The entry point logs `pane process-info` before it
+# forks the worker, so a non-empty log says only that the run started: the state
+# file is unwritten, the naming engine has not been called, and the assertions
+# that follow read whatever the PREVIOUS session left behind. That was a real
+# flake, not a theoretical one (docs/issues/2026-08-14-001).
+hts_wait_for_publish() {
+  hts_wait_for_call '--token task='
+}
+
+# The worker keeps logging after it publishes: compose_tab_label runs `pane
+# list` and renames the tab when the label changed. A test that truncates the
+# log between two sessions must wait for that tail, or a straggler write from
+# the first worker lands in the freshly emptied log and the next wait returns
+# on it.
+hts_wait_for_worker_exit() {
+  hts_wait_for_publish && hts_wait_for_call 'pane list'
+}
+
+# Waits for a session's own durable state file. Session ids are part of the
+# path, so this signal cannot be satisfied by another session's worker — the
+# one guarantee a log-based wait cannot give while two workers overlap.
+hts_wait_for_state() {
+  local i
+  for i in $(seq 1 60); do
+    [[ -s "$1" ]] && return 0
     sleep 0.25
   done
   return 1
@@ -799,7 +821,7 @@ hts_state_field() {
   hts_setup
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_publish
+  hts_wait_for_worker_exit
   : > "$HTS_LOG"
   hts_run --agent claude --session s1 <<< 'продолжай'
   hts_wait_for_publish
@@ -815,7 +837,7 @@ hts_state_field() {
   hts_setup
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_publish
+  hts_wait_for_worker_exit
   local state before
   state="$(hts_state_file claude-pane-1-s1)"
   before="$(cat "$state")"
@@ -833,11 +855,14 @@ hts_state_field() {
   hts_setup
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_publish
+  hts_wait_for_worker_exit
   : > "$HTS_LOG"
   hts_run --agent claude --session s2 <<< 'now fix the flaky login test'
-  hts_wait_for_publish
   local state; state="$(hts_state_file claude-pane-1-s2)"
+  # The second session's own state file, not the log: with two sessions in
+  # play only a session-scoped signal proves whose worker got this far.
+  hts_wait_for_state "$state"
+  hts_wait_for_publish
   assert_equal "$(hts_state_field "$state" first_prompt)" "now fix the flaky login test"
   run cat "$HTS_WORK/pi-stdin.txt"
   assert_output --partial "Current name: (none)"

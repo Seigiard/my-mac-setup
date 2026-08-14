@@ -2,7 +2,8 @@
 title: Flaky bats test — herdr-task-sync resets the stored context on a new session id
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 ---
 
 # Flaky bats test — herdr-task-sync resets the stored context on a new session id
@@ -53,3 +54,23 @@ That would make the flake timing-dependent on machine load, which matches a fail
 - **Whether to wait on a session-specific marker** — `hts_wait_for_call` already exists at `tests/scripts.bats:742` and greps for a pattern, which is the stronger signal. Whether the s2 publish emits something uniquely greppable needs checking.
 - **Whether to wait on `pi-stdin.txt` instead of the log** — the test's real precondition is that the s2 worker rewrote that file, so waiting on its mtime or content may be the honest fix.
 - **Whether to drain the s1 worker before truncating** rather than strengthening the wait, which would remove the overlap instead of tolerating it.
+
+## Resolution
+
+The flake was made deterministic before anything was changed. Giving the first session's stubbed naming engine a three-second delay (`hts_stub_engine pi cache-review 0 3`) fails the test every time:
+
+```
+not ok 1 herdr-task-sync resets the stored context on a new session id
+#   `assert_equal "$(hts_state_field "$state" first_prompt)" "now fix the flaky login test"' failed
+# grep: .../state/claude-pane-1-s2.state: No such file or directory
+```
+
+That output corrects the hypothesis recorded above. The dominant cause is not a late write from the first worker landing in the truncated log — it is that **`hts_wait_for_publish` never waited for a publish**. It returned as soon as `$HTS_LOG` was non-empty, and the entry point logs `herdr pane process-info` *before* it forks the worker. So a non-empty log said only "the run started": no state file written, the naming engine not yet called, and the assertions then read whatever the previous session had left behind. The second session's state file did not exist at all.
+
+Three changes in `tests/scripts.bats`:
+
+1. `hts_wait_for_publish` now waits for the publish itself — the `--token task=` metadata call. This is one helper used by thirteen tests, so the weak signal is gone everywhere at once, not patched at one call site.
+2. `hts_wait_for_worker_exit` waits for the tail the worker logs after publishing (`compose_tab_label` runs `pane list` and may rename the tab). The three tests that truncate the log between two sessions now drain the first worker before truncating, which removes the overlap instead of tolerating it — the third open decision. One of those three, "publishes nothing when no engine is usable (AE3)", asserts the log stays *empty*, so a straggler write would have failed it too.
+3. The reset test additionally waits on `hts_wait_for_state`, the second session's own state file. Session ids are part of that path, so unlike any log line it cannot be satisfied by another session's worker.
+
+Verified: the deterministic repro passes with the fix, then the repro delay was reverted. Three consecutive full runs of `tests/scripts.bats` are 104 ok / 0 not ok, and three further filtered runs are 34 ok. `make lint` clean.
