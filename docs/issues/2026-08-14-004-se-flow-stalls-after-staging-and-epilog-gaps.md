@@ -1,18 +1,18 @@
 ---
-title: se flow is missing salvage, budget parking, artifactsFrom delivery and the record's cost figure
+title: se flow is missing salvage, artifactsFrom delivery, and a secret scan of the PR body
 type: bug
 date: 2026-08-14
 status: in-progress
 parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 ---
 
-# se flow is missing salvage, budget parking, artifactsFrom delivery and the record's cost figure
+# se flow is missing salvage, artifactsFrom delivery, and a secret scan of the PR body
 
 ## Why this exists
 
 Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
 
-Both blockers are fixed, `se flow` runs end to end, and sections 3 and 6 of the checklist now pass. What remains open is the five items under "Five features the checklist assumes" below.
+Both blockers are fixed, `se flow` runs end to end, and sections 3, 4.3 and 6 of the checklist now pass. What remains open is the three items below.
 
 ### The interpreter had never run at all
 
@@ -44,13 +44,20 @@ The `Each child in a list should have a unique "key" prop` warning is unrelated 
 
 Verified by execution: `run-1786703798413`, a three-block compute spec chained by `bindTo`, finished with all blocks and the full epilog. It is the first `se flow` run to complete end to end.
 
-### Five features the checklist assumes, which are not written
+### Three features the checklist assumes, which are not written
 
 - **`se flow salvage <runId>`** (U5, KTD10). Zero occurrences of `salvage` in `bin/executable_se`. Section 4.2 tests it.
-- **Budget-ceiling parking** (KTD9). `budgetUsd` reaches `makeAgent` as a per-agent cap, and a `budget` output key is declared, but there is no budget compute task and no park branch anywhere in `se-flow.tsx`. A breach cannot park a run because nothing measures it. Section 4.3 tests it.
 - **`artifactsFrom` delivery** (R9). The validator checks the archive exists (`flow-validate.ts:175`) and normalisation carries the field, but no code reads a prior run's manifest or hands artifacts to any block. The handoff is validated and never performed. Section 4.4 tests it.
-- **No cost figure in the outcome record** (KTD10). The record carries the spec, per-block status and the artifact manifest, but not the run's cost. Nothing measures it — the same absence that blocks budget parking above.
 - **No publication-time secret scan of a PR body** (KTD13b). The outcome record and the issue text are both redacted before writing. The PR body is not, and the `pr` block is the only `publishes: true` block in the catalog.
+
+### Budget parking, the cost figure and `se resume` — FIXED in `b87d803`
+
+Spend is measured after every block; a breach parks the run for an ack and withholds the remaining blocks. The outcome record carries tokens and a priced estimate. Two defects surfaced on the way and are fixed in the same commit:
+
+- `budgetUsd` was passed both as the run ceiling and as each agent's hard cap. Those point opposite ways — the ceiling is a parking threshold KTD9 says must never kill, the cap is a kill — so every leg hard-killed at exactly the point KTD9 says to park, and a run with no `--budget` capped agents at `$0`. The per-agent cap now derives from the block's cost profile.
+- `se resume` was hardcoded to `se-pipeline.tsx`, so every parked flow run was unrecoverable. It routes on the run's recorded `workflow_path` now.
+
+Known limit: the record's cost excludes the epilog reviewer leg, which runs after the record is written. Writing the record first is the deliberate choice — it survives a reviewer that hangs to its timeout.
 
 ### Artifact archiving and the record scan — FIXED in `00c375e`
 
@@ -69,9 +76,9 @@ Section 3 of the host checklist now passes; see its Results entry.
 
 ## Scope
 
-- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the missing budget node, the missing cost figure, `artifactsFrom` delivery.
+- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — `artifactsFrom` delivery, the PR-body scan.
 - `home/private_dot_claude/dot_smithers/bin/executable_se` — `se flow salvage`.
-- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — sections 3 and 6 now pass. Section 4 stays unrunnable for its salvage, budget and `artifactsFrom` scenarios; scenario 4.1 (hard-kill and resume) became runnable once the stall was fixed.
+- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — sections 3 and 6 now pass. Scenarios 4.2 (salvage) and 4.4 (`artifactsFrom`) stay unrunnable; 4.1 (hard-kill and resume) became runnable once the stall was fixed, and 4.3 (budget parking) now passes.
 
 ## Open decisions
 

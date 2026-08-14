@@ -155,6 +155,18 @@ One element KTD10 lists is still missing from the record: the cost figure.
 
 One path was never reached: clean success with no issue file. The reviewer legitimately found an actionable optimization on every green run of this fixture — on `run-1786704670473` it noticed the repo's implementation-ready plan was never implemented while the flow still reported green. Correct behaviour, but it means the no-file branch stays unit-tested only.
 
+### Section 4.3 — budget-ceiling parking: PASSED, 2026-08-14
+
+`run-1786710852816`: one `analysis` agent block plus a compute block, launched with `--budget 0.01`.
+
+The agent leg **completed** at $0.034 rather than being killed at the ceiling. That is the part worth checking on any future change here: `budgetUsd` used to be passed both as the run ceiling and as each agent's hard cap, so every leg hard-killed at exactly the point KTD9 says to park. Worse, a run launched with no `--budget` passed a cap of `$0`. The per-agent cap now derives from the block's own cost profile.
+
+Then `budget:look` recorded `spentUsd 0.034011, breached=1`, the run parked at `waiting-approval` on `approve-budget`, and `b:proof` stayed withheld. After `se approve` and `se resume` the run advanced through the withheld block and the entire epilog to `finished`. Both halves of the criterion hold: it parks rather than dies, and it reaches the epilog after the ack.
+
+`se resume` had to be fixed to get there. It was hardcoded to `se-pipeline.tsx`, so resuming a flow run failed with *"workflow path changed since this run started"* and no way forward — every parked flow run would have been unrecoverable. It now routes on the run's own recorded `workflow_path`.
+
+The outcome record also carries cost now: `{totalTokens 54395, totalEstUsd 0.034011}` with a per-node breakdown. It excludes the epilog's own reviewer leg, which runs after the record is written — the record is written first on purpose, so it survives a reviewer that hangs to its timeout.
+
 ### Section 5 — regression: PASSED, 2026-08-14
 
 `run-1786700241899` on a fresh `make-pipeline-fixture.sh` repo. Verdict green, branch `se/fixture-reverse-plan-00241899`, 2,351,100 tokens, ~$1.46. The baseline run before any of this work, `run-1786539437958` on the same fixture, was also green at ~$1.46 — same verdict, same cost, same shape.
