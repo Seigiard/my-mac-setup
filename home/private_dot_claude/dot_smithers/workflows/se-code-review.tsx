@@ -16,6 +16,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { enforcePreExternalGate, preExternalRepoGate } from "./lib/pre-external-gate.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
 import { stashCreateSafe } from "./lib/staging.ts";
 
@@ -96,6 +97,19 @@ function detectBaseRef(): string {
   }
 }
 
+// Scan range for the pre-external gate: everything the local checkout carries
+// beyond the shared base — its unpushed commits plus the dirty tree captured in
+// the stash snapshot. Same bound as the pipeline's KTD10 scan, so both paths
+// answer the same question ("did THIS work introduce a secret?"). An
+// unresolvable base returns "", which the gate turns into a refusal.
+function scanBase(snapshotSha: string): string {
+  try {
+    return git(repoDir, "merge-base", snapshotSha, detectBaseRef());
+  } catch {
+    return "";
+  }
+}
+
 // Freeze the review target so the concurrent LOCAL interactive review (which
 // may apply fixes and commit mid-run) can't move the diff under the external
 // agents. `git stash create` captures dirty tracked state as a commit without
@@ -103,13 +117,20 @@ function detectBaseRef(): string {
 // plugin's own default scope); the detached worktree checks that commit out
 // under /tmp/ce-code-review where opencode is allowed to read.
 function stage(target: string) {
+  // Secret-gate the snapshot BEFORE anything is staged or dispatched: this is
+  // the standalone stand-in for the pipeline's KTD10 scan. A refusal throws
+  // here, so no snapshot worktree and no readable /tmp copy is ever created.
+  const snapshotSha = stashCreateSafe(repoDir) || git(repoDir, "rev-parse", "HEAD");
+  enforcePreExternalGate(
+    preExternalRepoGate({ repo: repoDir, baseSha: scanBase(snapshotSha), head: snapshotSha, label: "se-code-review" }),
+  );
+
   const stageDir = path.join("/tmp/ce-code-review", `run-${Date.now()}`);
   const skillDir = path.join(stageDir, "skill");
   fs.mkdirSync(skillDir, { recursive: true });
   const plugin = resolvePluginSkillDir();
   fs.cpSync(plugin.dir, skillDir, { recursive: true });
 
-  const snapshotSha = stashCreateSafe(repoDir) || git(repoDir, "rev-parse", "HEAD");
   const snapshotDir = path.join(stageDir, "repo");
   git(repoDir, "worktree", "add", "--detach", snapshotDir, snapshotSha);
 
@@ -169,7 +190,9 @@ export default smithers((ctx) => {
   return (
     <Workflow name="code-review-externals">
       <Sequence>
-        <Task id="stage" output={outputs.stage}>
+        {/* retries={0}: staging is deterministic, and a secret-gate refusal
+            must fail once and stay failed rather than re-scan the same tree. */}
+        <Task id="stage" output={outputs.stage} retries={0}>
           {() => stage(ctx.input.target ?? "")}
         </Task>
         {staged ? (

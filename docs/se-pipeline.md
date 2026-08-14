@@ -67,7 +67,10 @@ standalone-скилла — это вход гейта, не контент ре
 сканом контент — KTD10) и ПЕРЕД verify-code (ревью идёт по уже прибранному коду).
 Это `Subflow` над `se-simplify.tsx` (тот же приём, что `se-doc-review.tsx`), с
 `repoPath: staged.worktreePath` — ИЗОЛИРОВАННЫЙ worktree прогона, никогда не
-launch-checkout оператора (KTD-G).
+launch-checkout оператора (KTD-G). Вход `preScanned: true` выключает
+собственный pre-external-гейт субфлоу: диапазон уже покрыт общим secret-scan,
+включая операторский waive, и повторный отказ отменил бы решение человека.
+Standalone-запуск `se-simplify` этот вход не передаёт — гейт там работает.
 
 Форма `se-simplify.tsx` (общий модуль, он же standalone-скилл `se-simplify`):
 right-sizing gate (R14) → заморозка снапшота → `Parallel` двух ОТЧЁТНЫХ ног

@@ -35,6 +35,7 @@ DOC_REVIEW_REPO="<abs repo root>" ./node_modules/.bin/smithers up workflows/se-d
 ```
 
 - Launch from `~/.claude/.smithers` — smithers drops its state there, outside the target repo. Runtime state is ignored by that directory's `.gitignore`.
+- **Pre-external secret gate:** before the document is copied anywhere, the harness runs `gitleaks` over the document itself and **refuses the run** on a finding (a credential pasted into a plan is the whole payload here) or on a scanner it cannot run. A refusal fails the `stage` task with a redacted reason and leaves no `/tmp` copy. Redact and re-run, or prefix the launch command with `SE_SKIP_SECRET_SCAN=1` to send anyway. The repo is not scanned on this path — it is read-only context for the legs.
 - Staging goes to `/tmp/ce-doc-review/run-<ts>/` (a read-only doc copy + plugin-skill bundle); opencode reads it via the `permission.external_directory` allow in `~/.config/opencode/opencode.json`. If opencode starts failing with rejected reads, check that config before touching the workflow. External agents are report-only — they change no files; their would-be safe_auto fixes come back as findings inside the envelope.
 - The run's final output prints `stageDir`, `pluginVersion` (the compound-engineering version the external reviews ran against — cite it in Coverage), `claudeStatus` / `opencodeStatus` (`ok` | `failed`), and an envelope path per surviving agent.
 - Add `"smoke":true` to the input for a cheap wiring test (no real review).

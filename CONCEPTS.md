@@ -21,6 +21,8 @@ A leg is healthy only when it returns a well-formed report with a terminal statu
 ### Secret boundary
 The gate guaranteeing repo content is secret-scanned before it reaches any external leg. The scan covers the run's own commits only; a leak or a scanner failure closes the gate — only a clean scan opens it.
 
+A harness run outside the pipeline enforces the same boundary itself, over the snapshot it is about to stage, and refuses the run instead of parking it — a standalone run has no approval pause to waive at. Its escape hatch is the operator setting `SE_SKIP_SECRET_SCAN=1` on the launch command. A caller that already scanned the range says so (`preScanned`), so a waived pipeline scan is not overruled downstream.
+
 ### Rescan
 A repeat of the secret scan triggered when new commits appear after the last scan — whether the pipeline itself committed them or an operator did during a pause. Unknown prior scan state fails closed: the rescan runs rather than being skipped.
 

@@ -77,24 +77,44 @@ export interface SecretScanResult {
   details: string;
 }
 
-// Scans only the run's own commits (baseSha..HEAD). Exit codes are pinned via
-// --exit-code so a scanner crash is never confused with a clean pass: 0 clean,
-// 2 leaks, anything else (missing binary, timeout, git errors) = error →
-// degraded at the gate (KTD10).
+// Scans a commit range (baseSha..head, head defaults to HEAD). Exit codes are
+// pinned via --exit-code so a scanner crash is never confused with a clean
+// pass: 0 clean, 2 leaks, anything else (missing binary, timeout, git errors) =
+// error → degraded at the gate (KTD10).
+//
+// includeMergeDiffs is required whenever `head` is a `git stash create`
+// snapshot: that snapshot is a MERGE commit, and `git log -p` prints no patch
+// for merges, so the plain range scans 0 commits and reports clean while the
+// uncommitted content goes out unscanned (measured on gitleaks 8.30.1).
+// --diff-merges=first-parent diffs the stash against HEAD, which is exactly the
+// working-tree changes the standalone harnesses ship to external agents.
 export function secretScanDiff(
   repo: string,
   baseSha: string,
-  opts: { bin?: string; timeoutMs?: number } = {},
+  opts: { bin?: string; timeoutMs?: number; head?: string; includeMergeDiffs?: boolean } = {},
 ): SecretScanResult {
+  const range = `${baseSha}..${opts.head ?? "HEAD"}`;
+  const logOpts = opts.includeMergeDiffs ? `${range} --diff-merges=first-parent` : range;
+  return runGitleaks(["git", "--no-banner", "--redact", "--exit-code", "2", `--log-opts=${logOpts}`, repo], opts);
+}
+
+// Scans FILES ON DISK rather than git history. The doc-review harness ships a
+// copy of one document, which may live outside any repository and never has a
+// commit range to scan.
+export function secretScanPath(target: string, opts: { bin?: string; timeoutMs?: number } = {}): SecretScanResult {
+  return runGitleaks(["dir", "--no-banner", "--redact", "--exit-code", "2", target], opts);
+}
+
+export function gitHead(repo: string): string {
+  return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+}
+
+// --redact: gitleaks otherwise echoes the raw secret into its report, which the
+// callers persist to run summaries and report files — redact so a detected
+// secret is never copied into a durable store. Every caller passes it.
+function runGitleaks(args: string[], opts: { bin?: string; timeoutMs?: number }): SecretScanResult {
   const bin = opts.bin ?? "gitleaks";
-  const res = spawnSync(
-    bin,
-    // --redact: gitleaks otherwise echoes the raw secret into its report, which
-    // this pipeline persists to the run summary and report files — redact so a
-    // detected secret is never copied into a durable store.
-    ["git", "--no-banner", "--redact", "--exit-code", "2", `--log-opts=${baseSha}..HEAD`, repo],
-    { encoding: "utf8", timeout: opts.timeoutMs ?? 2 * 60_000 },
-  );
+  const res = spawnSync(bin, args, { encoding: "utf8", timeout: opts.timeoutMs ?? 2 * 60_000 });
   const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
   if (res.error || res.status === null) {
     return { state: "error", details: `${res.error ? String(res.error) : "scanner terminated (timeout or signal)"}` };
@@ -102,8 +122,4 @@ export function secretScanDiff(
   if (res.status === 0) return { state: "clean", details: output.trim() };
   if (res.status === 2) return { state: "found", details: output.trim() };
   return { state: "error", details: `gitleaks exited with unexpected code ${res.status}: ${output.trim()}` };
-}
-
-export function gitHead(repo: string): string {
-  return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }

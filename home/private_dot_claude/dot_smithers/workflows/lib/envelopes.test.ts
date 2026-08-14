@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { parseWorkEnvelope, runValidateCmd, secretScanDiff } from "./envelopes.ts";
+import { parseWorkEnvelope, runValidateCmd, secretScanDiff, secretScanPath } from "./envelopes.ts";
 
 function envelopeJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -145,5 +145,55 @@ describe("secretScanDiff (gitleaks, KTD10)", () => {
     const base = git(repo, "rev-parse", "HEAD");
     const r = secretScanDiff(repo, base, { bin: "/no/such/gitleaks-bin" });
     expect(r.state).toBe("error");
+  });
+
+  test("снимок stash create: без includeMergeDiffs скан слеп, с ним — found", () => {
+    // #given an uncommitted AWS key frozen into a `git stash create` snapshot —
+    // the commit the standalone harnesses hand to the external legs
+    const repo = makeRepo();
+    const base = git(repo, "rev-parse", "HEAD");
+    const fakeKey = "AKIA" + "QWERTYUIOPASDFGH";
+    fs.writeFileSync(path.join(repo, "README.md"), `const awsAccessKeyId = "${fakeKey}";\n`);
+    const snapshotSha = git(repo, "stash", "create");
+
+    // #when the range is scanned without and with merge diffs
+    const blind = secretScanDiff(repo, base, { head: snapshotSha });
+    const seeing = secretScanDiff(repo, base, { head: snapshotSha, includeMergeDiffs: true });
+
+    // #then the plain range reports clean (git log -p prints no patch for the
+    // stash MERGE commit) and only the merge-diff scan sees the leak — which is
+    // why the pre-external gate always passes includeMergeDiffs
+    expect(blind.state).toBe("clean");
+    expect(seeing.state).toBe("found");
+  });
+});
+
+describe("secretScanPath (gitleaks dir)", () => {
+  test("файл с ключом → found, без сырого секрета в деталях", () => {
+    // #given a standalone document carrying a pasted credential
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scan-path-"));
+    const doc = path.join(dir, "plan.md");
+    const fakeKey = "AKIA" + "QWERTYUIOPASDFGH";
+    fs.writeFileSync(doc, `aws_access_key_id = "${fakeKey}"\n`);
+
+    // #when it is scanned on disk (no git history involved)
+    const r = secretScanPath(doc);
+
+    // #then the leak is reported and --redact keeps the raw key out of details
+    expect(r.state).toBe("found");
+    expect(r.details).not.toContain(fakeKey);
+  });
+
+  test("чистый файл → clean", () => {
+    // #given a document with no secret
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scan-path-"));
+    const doc = path.join(dir, "plan.md");
+    fs.writeFileSync(doc, "# Plan\n\n- U1. Do the thing.\n");
+
+    // #when it is scanned
+    const r = secretScanPath(doc);
+
+    // #then nothing blocks it
+    expect(r.state).toBe("clean");
   });
 });

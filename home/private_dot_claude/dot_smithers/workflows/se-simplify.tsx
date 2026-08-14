@@ -40,6 +40,7 @@ import { reviewLegSchema } from "./lib/review-schema.ts";
 import { mergeSimplifyLegs, type ReviewLeg, type SimplifyMergeResult } from "./lib/review-merge.ts";
 import { parseNumstat, shouldRunSimplify } from "./lib/stage-gate.ts";
 import { runValidateCmd } from "./lib/envelopes.ts";
+import { enforcePreExternalGate, preExternalRepoGate } from "./lib/pre-external-gate.ts";
 import { stashCreateSafe } from "./lib/staging.ts";
 
 const STAGE_ROOT = "/tmp/ce-simplify";
@@ -62,6 +63,10 @@ const inputSchema = z.object({
     .describe("Base commit for the work diff (pipeline passes staged.baseSha). Empty = auto-detect merge-base with the repo's base branch."),
   target: z.string().default("").describe("Optional scope tokens forwarded to the ce-simplify-code reviewers."),
   useClassifier: z.boolean().default(true).describe("On an inconclusive deterministic gate, consult the cheap Haiku classifier (skip-when-unsure). Off = skip when inconclusive."),
+  preScanned: z
+    .boolean()
+    .default(false)
+    .describe("The CALLER already applied the pre-external secret boundary to this range (se-pipeline does, KTD10 — including its operator waiver). True skips the standalone gate so a waived pipeline run is not blocked twice; standalone leaves it false."),
   smoke: z.boolean().default(false).describe("Wiring test: synthetic stage + trivial leg prompts, no real ce-simplify-code, no git."),
 });
 
@@ -163,23 +168,38 @@ function resolveBase(repoPath: string, baseSha: string): string {
 // captures dirty tracked state as a commit without touching the working tree;
 // the detached worktree checks it out under /tmp/ce-simplify where opencode is
 // allowed to read.
-function stage(repoPath: string, target: string, baseSha: string, smoke: boolean): z.infer<typeof stageSchema> {
+function stage(
+  repoPath: string,
+  target: string,
+  baseSha: string,
+  smoke: boolean,
+  preScanned: boolean,
+): z.infer<typeof stageSchema> {
   const stageDir = path.join(STAGE_ROOT, `run-${Date.now()}`);
   if (smoke) {
     const snapshotDir = path.join(stageDir, "repo");
     fs.mkdirSync(snapshotDir, { recursive: true });
     return { stageDir, skillDir: "", pluginVersion: "smoke", snapshotDir, snapshotSha: "SMOKE", consultTarget: "SMOKE" };
   }
+
+  // Secret-gate the snapshot BEFORE anything is staged or dispatched, unless the
+  // caller already scanned this range (preScanned — the pipeline's shared KTD10
+  // boundary, which the parent plan's R10 says not to reinvent). A refusal
+  // throws here, so no snapshot worktree and no readable /tmp copy is created.
+  const snapshotSha = stashCreateSafe(repoPath) || git(repoPath, "rev-parse", "HEAD");
+  const base = resolveBase(repoPath, baseSha);
+  if (!preScanned) {
+    enforcePreExternalGate(preExternalRepoGate({ repo: repoPath, baseSha: base, head: snapshotSha, label: "se-simplify" }));
+  }
+
   const skillDir = path.join(stageDir, "skill");
   fs.mkdirSync(skillDir, { recursive: true });
   const plugin = resolveSimplifySkillDir();
   fs.cpSync(plugin.dir, skillDir, { recursive: true });
 
-  const snapshotSha = stashCreateSafe(repoPath) || git(repoPath, "rev-parse", "HEAD");
   const snapshotDir = path.join(stageDir, "repo");
   git(repoPath, "worktree", "add", "--detach", snapshotDir, snapshotSha);
 
-  const base = resolveBase(repoPath, baseSha);
   const consultTarget = target.trim() || `base:${base}`;
   return { stageDir, skillDir, pluginVersion: plugin.version, snapshotDir, snapshotSha, consultTarget };
 }
@@ -260,6 +280,7 @@ export default smithers((ctx) => {
   const baseSha = input.baseSha ?? "";
   const target = input.target ?? "";
   const useClassifier = input.useClassifier ?? true;
+  const preScanned = input.preScanned ?? false;
 
   const gateDeterm = ctx.outputMaybe("gate", { nodeId: "gate-determ" });
   const classifyOut = ctx.outputMaybe("classifier", { nodeId: "gate-classify" });
@@ -303,7 +324,7 @@ export default smithers((ctx) => {
   if (gateResolution.decided && gateResolution.run) {
     runNodes.push(
       <Task id="stage" output={outputs.stage} retries={0}>
-        {() => stage(repoPath, target, baseSha, smoke)}
+        {() => stage(repoPath, target, baseSha, smoke, preScanned)}
       </Task>,
     );
     if (staged) {

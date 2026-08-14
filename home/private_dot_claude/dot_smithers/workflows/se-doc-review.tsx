@@ -14,6 +14,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
+import { enforcePreExternalGate, preExternalDocGate } from "./lib/pre-external-gate.ts";
 import { parseSeveritySummary, severitySchema } from "./lib/severity-summary.ts";
 
 const inputSchema = z.object({
@@ -88,6 +89,13 @@ function resolvePluginSkillDir(): { dir: string; version: string } {
 // permission.external_directory. If opencode starts rejecting reads here,
 // check that config first.
 function stage(docPath: string) {
+  // The document IS the payload here, so it is gated before it is copied
+  // anywhere: a refusal leaves no /tmp copy for an external agent to read. The
+  // repo is not scanned on this path — it is read-only context for the legs.
+  // The pipeline's verify-doc stage runs this same harness, so it inherits the
+  // doc gate; the pipeline's own KTD10 scan covers repo content, not the plan.
+  enforcePreExternalGate(preExternalDocGate({ docPath, label: "se-doc-review" }));
+
   const stageDir = path.join("/tmp/ce-doc-review", `run-${Date.now()}`);
   const skillDir = path.join(stageDir, "skill");
   fs.mkdirSync(skillDir, { recursive: true });
@@ -135,7 +143,9 @@ export default smithers((ctx) => {
   return (
     <Workflow name="doc-review-externals">
       <Sequence>
-        <Task id="stage" output={outputs.stage}>
+        {/* retries={0}: staging is deterministic, and a secret-gate refusal
+            must fail once and stay failed rather than re-scan the same doc. */}
+        <Task id="stage" output={outputs.stage} retries={0}>
           {() => stage(ctx.input.docPath)}
         </Task>
         {staged ? (

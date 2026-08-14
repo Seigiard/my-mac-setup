@@ -670,11 +670,16 @@ export default smithers((ctx) => {
           // pipeline commits them (R9) and rescans that commit before verify-code.
           const simplifyOut = ctx.outputMaybe("simplify", { nodeId: "simplify" });
           const simplifyCommitOut = ctx.outputMaybe("agentReport", { nodeId: "simplify-commit" });
+          // preScanned: the secret-scan stage above already applied the shared
+          // pre-external boundary to this exact range, INCLUDING an operator
+          // waiver. Without it the subflow's own standalone gate would re-refuse
+          // the range the operator just waived and stop a run the human already
+          // decided to continue.
           children.push(
             <Subflow
               id="simplify"
               workflow={seSimplifySubflow}
-              input={{ repoPath: staged.worktreePath, validateCmd: gate0.validateCmd, validateTimeoutMs: gate0.validateTimeoutMs, baseSha: staged.baseSha, smoke }}
+              input={{ repoPath: staged.worktreePath, validateCmd: gate0.validateCmd, validateTimeoutMs: gate0.validateTimeoutMs, baseSha: staged.baseSha, preScanned: true, smoke }}
               output={outputs.simplify}
               retries={1}
               // Hang guard: fits two report legs (2 × 25 min retry ladder) + apply
