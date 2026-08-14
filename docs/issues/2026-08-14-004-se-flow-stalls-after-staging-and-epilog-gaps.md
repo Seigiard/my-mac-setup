@@ -1,18 +1,18 @@
 ---
-title: se flow is missing salvage, artifactsFrom delivery, and a secret scan of the PR body
+title: se flow has no live PR verification — the only remaining gap from the dynamic-flow plan
 type: bug
 date: 2026-08-14
 status: in-progress
 parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 ---
 
-# se flow is missing salvage, artifactsFrom delivery, and a secret scan of the PR body
+# se flow has no live PR verification
 
 ## Why this exists
 
 Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
 
-Both blockers are fixed, `se flow` runs end to end, and sections 3, 4.3 and 6 of the checklist now pass. What remains open is the three items below.
+Everything originally recorded here is fixed. Checklist sections 1, 3, 4.2, 4.3, 4.4, 5 and 6 pass. One gap remains, in the section below.
 
 ### The interpreter had never run at all
 
@@ -44,11 +44,16 @@ The `Each child in a list should have a unique "key" prop` warning is unrelated 
 
 Verified by execution: `run-1786703798413`, a three-block compute spec chained by `bindTo`, finished with all blocks and the full epilog. It is the first `se flow` run to complete end to end.
 
-### Three features the checklist assumes, which are not written
+### The remaining gap: no live PR has ever been opened
 
-- **`se flow salvage <runId>`** (U5, KTD10). Zero occurrences of `salvage` in `bin/executable_se`. Section 4.2 tests it.
-- **`artifactsFrom` delivery** (R9). The validator checks the archive exists (`flow-validate.ts:175`) and normalisation carries the field, but no code reads a prior run's manifest or hands artifacts to any block. The handoff is validated and never performed. Section 4.4 tests it.
-- **No publication-time secret scan of a PR body** (KTD13b). The outcome record and the issue text are both redacted before writing. The PR body is not, and the `pr` block is the only `publishes: true` block in the catalog.
+Checklist section 2's pass criterion is a real PR whose body embeds the secret-scanned spec. The code for it exists and is unit-tested: the body is composed from the canonical spec plus the run's block statuses, and `prEffect` redacts title and body at the push boundary — a test asserts no argument handed to `gh` carries a planted credential while the composed body still reaches it.
+
+It has not been run against GitHub. Opening a PR pushes a branch to a real remote, which is outward-facing and needs the operator's explicit go-ahead. It should be done on a throwaway repository, not on `my-mac-setup`.
+
+Two smaller things worth knowing before that run:
+
+- The PR body embeds the block statuses **as of when the `pr` block executes**, not the final outcome record. The record is written by the epilog, after the PR opens. The body says so rather than implying otherwise.
+- `gh` is authenticated as **Seigiard**, which is not the git author. Any PR opened by a flow run will show that account.
 
 ### Budget parking, the cost figure and `se resume` — FIXED in `b87d803`
 
@@ -58,6 +63,12 @@ Spend is measured after every block; a breach parks the run for an ack and withh
 - `se resume` was hardcoded to `se-pipeline.tsx`, so every parked flow run was unrecoverable. It routes on the run's recorded `workflow_path` now.
 
 Known limit: the record's cost excludes the epilog reviewer leg, which runs after the record is written. Writing the record first is the deliberate choice — it survives a reviewer that hangs to its timeout.
+
+### Salvage, the artifactsFrom handoff and the PR body — FIXED in `80acb74` and `f85fe3c`
+
+`se flow salvage <runId>` rebuilds an archive from the block rows of a run killed before its epilog; a killed run keeps its worktree, so the manifest artifacts come back too. `artifactsFrom` now actually delivers: the prior archive's files are copied into the new worktree under `.se-flow-inbound/` and agent prompts name them. The PR body is composed from the spec and block statuses and redacted at the push boundary.
+
+Verified over the full chain: `run-1786711353934` hard-killed → salvaged → `run-1786711595785` received both artifacts inside its own worktree (AE4).
 
 ### Artifact archiving and the record scan — FIXED in `00c375e`
 
@@ -76,9 +87,7 @@ Section 3 of the host checklist now passes; see its Results entry.
 
 ## Scope
 
-- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — `artifactsFrom` delivery, the PR-body scan.
-- `home/private_dot_claude/dot_smithers/bin/executable_se` — `se flow salvage`.
-- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — sections 3 and 6 now pass. Scenarios 4.2 (salvage) and 4.4 (`artifactsFrom`) stay unrunnable; 4.1 (hard-kill and resume) became runnable once the stall was fixed, and 4.3 (budget parking) now passes.
+- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 2 is the one section still open.
 
 ## Open decisions
 

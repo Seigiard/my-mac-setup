@@ -52,6 +52,9 @@ Scenario 1.4 deliberately breaks a run. Use a throwaway fixture run, never real 
 
 ## 2. Live end-to-end, success path (U4, U9)
 
+**Status: OPEN.** The PR path is unit-verified only. Opening a real PR pushes a branch to a real remote, which is outward-facing and needs the operator's say-so; it was not done unasked. The composed body and its secret scan are covered by tests — one asserts that no argument handed to `gh` contains a planted credential while the composed body still reaches it — but no live PR has been opened.
+
+
 ```
 tests/fixtures/make-pipeline-fixture.sh
 ```
@@ -166,6 +169,18 @@ Then `budget:look` recorded `spentUsd 0.034011, breached=1`, the run parked at `
 `se resume` had to be fixed to get there. It was hardcoded to `se-pipeline.tsx`, so resuming a flow run failed with *"workflow path changed since this run started"* and no way forward — every parked flow run would have been unrecoverable. It now routes on the run's own recorded `workflow_path`.
 
 The outcome record also carries cost now: `{totalTokens 54395, totalEstUsd 0.034011}` with a per-node breakdown. It excludes the epilog's own reviewer leg, which runs after the record is written — the record is written first on purpose, so it survives a reviewer that hangs to its timeout.
+
+### Section 4.2 and 4.4 — salvage and the artifactsFrom handoff: PASSED, 2026-08-14
+
+Run one, `run-1786711353934`, was hard-killed (SIGKILL on the run process) after its `proof-artifacts` block reported and while `run-validate` was mid-command. No epilog ran, so no outcome record existed — and because cleanup never ran either, its worktree survived. That surviving worktree is what makes salvage worth having.
+
+**4.2.** `se flow salvage run-1786711353934` rebuilt the archive from the block rows in `smithers.db`, recovering the block status and both artifacts, including one whose manifest name carried a directory separator (`artifacts/proof-src-greet.ts`). `se flow --dry-run` with `artifactsFrom` pointing at that archive validates and prints its plan, which is the criterion: a synthesized record the validator accepts. The same validator rejects a nonexistent archive with `artifacts-missing`, so the acceptance is a real check rather than a vacuous one.
+
+The salvaged record sets `spec` to null rather than reconstructing it — gate0 persists the spec hash, not the spec. The hash is kept, so a mismatch stays detectable.
+
+**4.4.** `run-1786711595785` launched with `artifactsFrom` pointing at that salvaged archive. Both artifacts landed in the new run's worktree under `.se-flow-inbound/`, and a block in the new run located them there. AE4 holds over the whole chain: killed run → salvage → handoff → delivery.
+
+Before this, `artifactsFrom` was validated and never performed — the archive was checked for existence and nothing ever read it.
 
 ### Section 5 — regression: PASSED, 2026-08-14
 
