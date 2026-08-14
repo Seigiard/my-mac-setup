@@ -2,7 +2,8 @@
 title: Review-leg status allowlist false-fails healthy legs and forces a needless approval
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 ---
 
 # Review-leg status allowlist false-fails healthy legs and forces a needless approval
@@ -45,3 +46,35 @@ Unrelated and still open: in `run-1786625509762` the same leg reported a literal
 - **Or constrain the leg's output** so the status field is an enum the model cannot paraphrase. The claude leg already takes a JSON schema (`reviewLegJsonSchema`); whether the opencode path can carry the same constraint needs checking.
 - **Or widen the allowlist**, which is the cheapest change and the least durable: the next unseen synonym reintroduces the failure.
 - Whether a leg discarded this way should still contribute its findings to the merged report, even while its status is treated as suspect.
+
+## Resolution
+
+The first option was taken: health is judged by payload, not by adjective. `isUsableReviewLegStatus` in `home/private_dot_claude/dot_smithers/workflows/lib/review-schema.ts` replaces the success allowlist at the merge call site.
+
+The new rule, in order:
+
+1. A status that is missing, non-string, or empty fails the leg. This is where the fail-closed intent survives: no evidence is not health.
+2. A negated success word ("not completed") fails the leg. Plain containment would have read `completed` and passed it.
+3. A known success word passes.
+4. An explicit failure or progress state fails: `failed`, `error`, `crashed`, `timed out`, `pending`, `queued`, `running`, `in_progress`, `waiting`, `incomplete`, `partial`, `unknown`. A failure word under a negation ("no errors", "0 failures") does not count as one.
+5. Anything else passes, because the caller has already required a parsed `findings` array — that array is the evidence the leg ran.
+
+Two details that are easy to get wrong and are now covered by tests. Underscores are word characters, so `\bwaiting\b` does not match `waiting_for_reviewers` — the exact status this vocabulary exists to catch. Separators are normalised to spaces before any word-boundary test. And negation is checked in both directions, because containment alone flips the verdict either way.
+
+The third open decision is answered by consequence: a leg whose status is merely unrecognised now contributes its findings, since it counts as healthy. A leg that says it failed contributes nothing, which is unchanged — a dead leg's partial findings are not evidence.
+
+The doc-review exposure named in the Scope section does not exist. `docReviewGate` reads `claudeStatus`/`opencodeStatus`, and those are computed in code (`se-doc-review.tsx:179`: `claudeReview ? "ok" : "failed"`), never taken from a model's free text. No model-chosen word reaches that gate.
+
+Verified against the recorded run rather than only by unit test. The legs of `run-1786700241899` were replayed out of `smithers.db` through the merge, before and after the change:
+
+```
+BEFORE: merged legs {"opencode":"failed","claude":"ok"}  merged findings: 0
+        gate: would park for approval (opencode)
+AFTER:  merged legs {"opencode":"ok","claude":"ok"}      merged findings: 1
+          P3 src/reverse.ts:2 — Unicode grapheme clusters are split during reversal [opencode]
+        gate: no leg failed — no approval pause
+```
+
+The second line is the part that mattered more than the pause: before the fix the leg's finding was dropped from the merged report entirely. A P0 reported by a leg that said `findings` would have vanished while the run degraded for an apparently unrelated reason.
+
+Suite: 360 pass / 0 fail, including the existing test that `waiting_for_reviewers` is still discarded. The genuine leg failure noted above (`run-1786625509762`, literal status `failed`) is still counted as a failure.
