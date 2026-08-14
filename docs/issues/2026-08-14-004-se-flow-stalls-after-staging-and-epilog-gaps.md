@@ -12,7 +12,7 @@ parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 
 Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
 
-Everything originally recorded here is fixed. Every checklist section except section 2 now passes. One gap remains, in the section below.
+Everything originally recorded here is fixed. Every checklist section except section 2 now passes. One gap remains, in the section below: no live PR has ever been opened, and opening one needs the operator's go-ahead because it pushes a branch to a real remote. Nothing else in this issue is waiting on work.
 
 ### The interpreter had never run at all
 
@@ -92,4 +92,4 @@ Section 3 of the host checklist now passes; see its Results entry.
 ## Open decisions
 
 - **What the reviewer leg should cost.** Settled for now as sonnet with a $3 ceiling, because it runs on every flow including clean ones; observed legs took 30-45s. Revisit if a large flow's reviewer starts approaching the cap.
-- **Whether a build-time check can catch reserved-field and schema errors** so the next one is not found by a failed launch. A test that merely imports and instantiates the workflow would have caught the reserved-field one. It would not have caught the `bind={undefined}` park, which only appears once a node is scheduled — that class still needs a live compute-only smoke run.
+Split out of this issue: a test that instantiates the workflows, so a reserved-field or schema error is caught by `bun test` rather than by a failed launch. Tracked in `docs/issues/2026-08-14-007-workflow-instantiation-test.md`.
