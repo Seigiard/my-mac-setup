@@ -9,6 +9,7 @@ PIPELINE_WORKFLOW="workflows/se-pipeline.tsx"
 FLOW_WORKFLOW="workflows/se-flow.tsx"
 CATALOG_SCRIPT="workflows/catalog.ts"
 FLOW_PRINT_SCRIPT="workflows/flow-print.ts"
+FLOW_SALVAGE_SCRIPT="workflows/flow-salvage.ts"
 
 usage() {
   cat <<'EOF'
@@ -57,6 +58,12 @@ Commands:
                          for its own run (KTD15). Omitted, run-validate records
                          exitCode null and its gate fails closed.
         --dry-run        print the assembled input + command without launching.
+  flow salvage <runId>
+      Rebuild an outcome archive for a flow run killed before its epilog, from
+      the block rows in smithers.db (KTD10). Prints the archive path on stdout
+      for a later spec's `artifactsFrom`; refuses to overwrite the record of a
+      run that did reach its epilog. A killed run keeps its worktree, so the
+      manifest artifacts are recovered too when it is still there.
   blocks [--json]      emit the composable block catalog the orchestrator
                        composes from (KTD6). --json is the default machine form.
   list [--json]        list se-pipeline runs (status incl. waiting-approval)
@@ -451,6 +458,21 @@ print_flow_plan() {
   (cd "$SMITHERS_DIR" && bun run "$FLOW_PRINT_SCRIPT" "$spec_path")
 }
 
+# U5/KTD10: rebuild an outcome archive for a run killed before its epilog, so a
+# later spec can still name it in `artifactsFrom`. Prints the archive path on
+# stdout; progress and warnings go to stderr, so the caller can capture the path
+# with a plain command substitution.
+cmd_flow_salvage() {
+  local run_id=$1
+  [[ -n $run_id ]] || usage_die "flow salvage requires a <runId>"
+  if dry_run; then
+    print_smithers_cmd run "$FLOW_SALVAGE_SCRIPT" "$run_id" "$(se_db)"
+    return 0
+  fi
+  require_runtime_dir
+  (cd "$SMITHERS_DIR" && bun run "$FLOW_SALVAGE_SCRIPT" "$run_id" "$(se_db)")
+}
+
 cmd_blocks() {
   # --json is the only (and default) form; accepted for symmetry with other
   # subcommands. The catalog is generated from the block registry (KTD6).
@@ -472,6 +494,14 @@ cmd_blocks() {
 }
 
 cmd_flow() {
+  # `flow salvage <runId>` is a subcommand, not a spec path. Checked before the
+  # option loop so a runId is never mistaken for a spec file.
+  if [[ ${1:-} == salvage ]]; then
+    shift
+    cmd_flow_salvage "$@"
+    return $?
+  fi
+
   local spec="" budget="null" setup_cmd="" validate_cmd="" attach=0 local_dry=0
   while (($#)); do
     case $1 in
