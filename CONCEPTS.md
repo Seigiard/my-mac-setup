@@ -16,6 +16,8 @@ An isolated checkout of the run branch that a run works in, separate from the op
 ### External leg
 An independent run of an outside model dispatched by a stage (for review, simplify, or verification) that receives repo content and returns a structured report. Every external leg is an egress path and must sit behind the secret boundary.
 
+A leg is healthy only when it returns a well-formed report with a terminal status; a missing, unparseable, or non-terminal report counts as a failed leg, never as an empty-but-clean one. A failed leg degrades the stage rather than silently shrinking review coverage.
+
 ### Secret boundary
 The gate guaranteeing repo content is secret-scanned before it reaches any external leg. The scan covers the run's own commits only; a leak or a scanner failure closes the gate — only a clean scan opens it.
 

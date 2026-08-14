@@ -1,0 +1,111 @@
+---
+title: External review legs as unreliable subprocesses
+date: 2026-08-14
+category: design-patterns
+module: se-pipeline
+problem_type: design_pattern
+component: development_workflow
+severity: high
+resolution_type: workflow_improvement
+related_components:
+  - tooling
+applies_when:
+  - "Dispatching independent claude/opencode review legs from a durable pipeline stage"
+  - "Classifying an external leg's outcome from its report file or free-text status"
+  - "Choosing timeouts for headless agent-CLI invocations that background themselves"
+  - "Deciding whether a missing or malformed leg report counts as failed or as zero findings"
+  - "Adding liveness detection (idle timeout) around a long-running external subprocess"
+symptoms:
+  - "A review leg that died quietly was read as zero findings, so the gate passed with no review coverage"
+  - "Agent CLI harness behavior (backgrounding, headless wait limits) silently truncated legs before completion"
+  - "Fail-closed free-text status allowlist discards healthy legs' findings (open bug: measured false-fail cost)"
+tags:
+  - external-llm
+  - se-pipeline
+  - smithers
+  - fail-closed
+  - liveness
+  - timeout
+  - subprocess-contract
+  - status-classification
+---
+
+# External review legs as unreliable subprocesses
+
+## Context
+
+The se-pipeline dispatches external review legs — independent headless claude and opencode CLI runs (CONCEPTS.md "External leg") — whose JSON reports are merged deterministically before a gate counts P0/P1 findings. Each leg is a subprocess running a full multi-persona review inside another agent harness, and the pipeline has accumulated hard-won rules about how such legs die: silently, partially, or while wearing a valid-looking report.
+
+The original incidents (session history, 2026-07-24): two dead `review-claude` legs in one day, with different causes. The smithers run with id prefix 9925bb0d hung — log heartbeats showed `(0 bytes)` from ~minute 35 while the CLI burned the entire 45-minute wall-clock cap; the run with id prefix 89938dd6 emitted garbage instead of a valid envelope (`AGENT_CLI_ERROR`). Both runs "succeeded" with the review riding on the surviving opencode leg alone. `retries: 0` on review legs is deliberate (a prior budget incident: 4 attempts × ~$15 on one diff), which makes any false-positive kill an unrecoverable loss of a live review. The stall fix is the origin plan `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` (status: done).
+
+The defining later incident (fix commit `2c4f533`, 2026-08-12): twice in one day the claude review leg dispatched its persona subagents and returned **without synthesis** — once as an empty report with status `waiting_for_reviewers`, once with status `failed` — and both counted as a healthy leg with zero findings. Root cause was a harness behavior change: claude CLI >= 2.1.198 backgrounds Task subagents by default, and a headless `-p` session waits for background subagents at most 10 minutes, so the leg hit the ceiling and died before synthesis; the engine's JSON salvage cascade then captured an in-flight object that satisfied the pass-through schema (`home/private_dot_claude/dot_smithers/workflows/lib/agents.ts:135-141`).
+
+## Guidance
+
+**1. Default-dead: absence of a well-formed terminal report is a leg failure.**
+The dangerous default is counting a dead leg as "no findings" — a green report that reviewed nothing. Every layer here encodes the inversion:
+
+- `home/private_dot_claude/dot_smithers/workflows/lib/reviewer.ts:4-6` — "Dead-leg detection is the key rule — a block that ended non-terminal (idle-killed, crashed) is failure evidence, never a silent zero-findings clean pass." Concretely, `reviewer.ts:12,30` puts `"non-terminal"` in `FAILURE_STATUSES` alongside `"failed"`.
+- `home/private_dot_claude/dot_smithers/workflows/lib/review-merge.ts:27-30` — a report with a valid shape but a non-terminal status is "a dead leg wearing a valid shape — its findings are partial at best" and maps to `{ ok: false, findings: [] }`.
+- `home/private_dot_claude/dot_smithers/workflows/lib/review-schema.ts:35` — the terminal-status predicate is word-boundary containment, not exact match, because real healthy statuses vary ("SMOKE OK", "reviewers complete", "completed: <list>"):
+
+  ```ts
+  const TERMINAL_REVIEW_STATUS = /\b(complete|completed|done|ok|success|succeeded)\b/i;
+  ```
+
+  The comment at `review-schema.ts:29-34` states the fail-closed rationale: "False-failing an exotic healthy status is the safe direction: it pauses for a human instead of passing."
+
+The same family, one layer up (session history): a schema-valid severity summary saying `maxSeverity: "P0"` with `p0Count: 0` originally passed the gate green — the gate read only the count. The fix is cross-field validation in `home/private_dot_claude/dot_smithers/workflows/lib/severity-summary.ts`: a contradictory summary is malformed and degrades to advisory. Layering principle: leg **availability** stays fail-closed; the severity layer degrades to advisory, never to silent green.
+
+**2. The harness is part of the dispatch contract — pin its execution-mode env vars.**
+`agents.ts:142`:
+
+```ts
+const DISABLE_BACKGROUND_TASKS_ENV = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" };
+```
+
+The surrounding comment (`agents.ts:128-141`) records two layers: a system-prompt rule telling the leg to dispatch personas as blocking parallel calls (backgrounded subagent state is not durable across turns — one run re-dispatched a reviewer and doubled wall time), and the env var as the hard layer under it, because the CLI has no flag to disable background execution and version 2.1.198 changed the default underneath the pipeline. Version-sensitive harness behavior is a dependency; pin it explicitly (`env:` on every claude review agent, `agents.ts:156,182`). Commit attribution: `git log -S CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` returns only `2c4f533` — the env pin and the terminal-status check landed together as the two layers of one fix. Prose-only instructions were measurably insufficient on their own (session history): despite the dispatch rule, 45 of 66 measured leg sessions still had over a minute of dispatch spread until the rule was made structural — the complete persona set decided first, all subagent calls in one message (`home/private_dot_claude/dot_smithers/workflows/lib/consult-prompt.ts`, with a test).
+
+**3. Give legs liveness detection AND generous wall-clock — they are different budgets.**
+`agents.ts:15-24`: `idleTimeoutMs` is the spawn layer's `PROCESS_IDLE_TIMEOUT`, reset on every stdout/stderr byte, so a silent leg dies at the idle threshold instead of burning the full `timeoutMs`. Values (`agents.ts:49-92`): 15 min idle for claude review profiles, 10 min for opencode, each strictly under its `timeoutMs`. The wall-clock side moved the other direction: commit `42329df` raised the opencode `timeoutMs` from 15 to 25 minutes after the tight cap killed a healthy still-streaming attempt one second before its last event, while the 10-min idle threshold still catches genuine stalls. Two calibration lessons (session history):
+
+- Derive idle thresholds from the observed inter-chunk silence of **healthy** runs, not from the single pathological sample — healthy legs legitimately go silent (rate-limit backoff, one long tool call), and under `retries: 0` a false idle-kill is unrecoverable. The plan (KTD-B) marks the current values provisional for exactly this reason. The reliable stall signature is sustained `(0 bytes)` heartbeats, not duration: an 18-minute leg with continuous non-zero heartbeats is a normal completion (median healthy doc-review: 13.7 min, p75 23.7, max 80.8).
+- Callers waiting on a leg must pad for the engine's reap lag (~13 min observed beyond the cap) — a wait-cap equal to the timeout will fire early.
+
+The `work` profile deliberately has no idle timeout — long locally-silent commands (installs, test suites) are legitimate there.
+
+**4. Validate reports at the boundary; fail closed on missing/unparseable — and salvage before schema validation.**
+`review-merge.ts:22-35` (`parseLeg`): missing raw → failed; JSON parse error → failed (never throws); no `findings` array → failed; non-terminal status → failed. The gate turns all-legs-failed into `degraded` and one failed leg into an advisory reason. Two sub-rules:
+
+- Declare the fields you consume in the schema (`review-schema.ts:11-18`) — smithers persists only schema-declared fields, so an undeclared `findings` array is silently dropped in capture and every leg then parses as failed.
+- Salvage/unwrap lives at capture/extraction, **before** Zod validation (session history): an invalid envelope reaching Zod triggers a silent full agent restart within the same attempt. `parseLeg` is the reference pattern — never throw, fail closed.
+
+**5. Know the cost of fail-closed on free-text signals (OPEN issue).**
+`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` (status: open) measures the price: on the identical `fixture-reverse-plan` fixture, run-1786539437958 (status `completed`) went green while run-1786700241899 (status `findings`) had its healthy leg discarded, its well-formed P3 finding dropped from the merged report, and the run parked for a needless approval. The issue's own framing: the conservative direction "holds for an unparseable or absent report. It does not hold here, where the report parsed and carried findings — the evidence of health is in the payload, not the adjective." Three candidate directions, undecided: judge health by payload (a parsed report with a findings array is a leg that ran); constrain the leg's output so status is an enum the model cannot paraphrase (the claude leg already takes `reviewLegJsonSchema`, `review-schema.ts:45-51`; the opencode path is unverified); or widen the allowlist — cheapest and least durable, the next synonym reintroduces the failure. Second-order cost noted in the issue: a real P0 from a leg that said `findings` would be silently dropped while the run degrades for an apparently unrelated reason.
+
+## Why This Matters
+
+A review leg that dies quietly and reads as "zero findings" defeats the entire purpose of the review stage: the gate passes on evidence that was never produced. The `2c4f533` incident shows this is not hypothetical — a harness version bump made every claude review leg structurally incapable of finishing synthesis, and for a while the pipeline reported those deaths as clean passes. The two-leg architecture is worth defending against dead legs (session history): a semantic comparison of 52 leg pairs found exact parity in substantive unique findings (92 claude vs 92 opencode, 144 shared clusters), and three runs had opencode raising P1s where claude reported clean — losing a leg loses real signal, not redundancy. Fail-closed status validation converts silent false-greens into visible pauses. But the open allowlist issue shows fail-closed on a model's free-text adjective has its own measured cost: false-failed healthy legs, dropped findings, and needless human interruptions — the exact interruption cost the pipeline exists to remove. The durable position is schema-constrained enums at the boundary, payload-based health where the payload is decisive, and fail-closed only where the report is genuinely missing or unparseable.
+
+## When to Apply
+
+- Dispatching any external LLM/agent CLI as a subprocess whose output feeds a gate, merge, or automated decision.
+- Designing the report contract for a review/verification leg: status fields, findings arrays, output schemas.
+- Upgrading the agent CLI a pipeline spawns — check for execution-mode default changes (backgrounding, wait ceilings) and pin them via env.
+- Setting timeouts for a subprocess that streams: separate idle (liveness) from wall-clock (budget); a stalled leg must die by idle timeout, not hang the stage or burn the full cap.
+- Tempted to classify a model's prose ("completed", "findings", "done reviewing") — reach for a constrained enum or payload evidence instead.
+
+## Examples
+
+- Dead leg wearing a valid shape: status `waiting_for_reviewers` with an empty findings array, salvaged from a session killed at the 10-min background-wait ceiling — rejected by `parseLeg` (`review-merge.ts:30`), fix commit `2c4f533`.
+- Harness pin: `agents.ts:142` `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` applied to every spawned claude review/apply agent (`agents.ts:156,182`), layered under the synchronous-dispatch system prompt (`agents.ts:144-145`).
+- Liveness vs wall-clock: opencode profile `timeoutMs: 25 * 60_000`, `idleTimeoutMs: 10 * 60_000` (`agents.ts:87-92`) — raised cap after killing a healthy streaming leg (commit `42329df`), kept idle threshold for genuine stalls.
+- Measured fail-closed cost: two runs on one fixture, `completed` → green vs `findings` → leg discarded and run parked (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, open).
+- Leg-death forensics entry points (session history): the run's `stream.ndjson` heartbeat log under the smithers executions directory, `_smithers_attempts.response_text` in `smithers.db`, and the leg's own session JSONL.
+
+## Related
+
+- `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` — the open false-fail bug (measured cost of fail-closed on free text).
+- `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` — the original stall/unwrap fix (status: done).
+- `docs/se-pipeline.md:375-417` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status); thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).
