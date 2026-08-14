@@ -107,7 +107,7 @@ chezmoi apply
 Then, from the deployed copy rather than this checkout:
 
 ```
-se blocks --json | jq '.[].name'
+se blocks --json | jq -r '.blocks[].name'
 se flow <spec.json> --dry-run
 ```
 
