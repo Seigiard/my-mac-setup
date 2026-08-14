@@ -159,16 +159,107 @@ describe("commit-work effect", () => {
   });
 });
 
+describe("rescan effect", () => {
+  test("HEAD unchanged since the pause → no-op, green gate", () => {
+    // #given nothing was committed while the run was parked
+    const repo = makeRepo();
+    const ctx = ctxFor(repo, { pauseHead: gitHead(repo), gitleaksBin: fakeGitleaks(0) });
+
+    // #when / #then
+    const out = runComputeEffect("rescan", {}, ctx) as { moved: boolean; scan?: unknown };
+    expect(out.moved).toBe(false);
+    expect(out.scan).toBeUndefined();
+    expect(gate("rescan")(out).state).toBe("green");
+  });
+
+  test("operator commits during the pause → scanned and re-validated, green gate", () => {
+    // #given a commit added after the pause, and a passing operator check
+    const repo = makeRepo();
+    const pauseHead = gitHead(repo);
+    const ctx = ctxFor(repo, { pauseHead, gitleaksBin: fakeGitleaks(0), validateCmd: "exit 0" });
+    commitOnTop(repo, "operator.txt");
+
+    // #when / #then
+    const out = runComputeEffect("rescan", {}, ctx) as { moved: boolean; validateExitCode: number | null };
+    expect(out.moved).toBe(true);
+    expect(out.validateExitCode).toBe(0);
+    expect(gate("rescan")(out).state).toBe("green");
+  });
+
+  test("a leak in operator commits degrades the gate", () => {
+    // #given
+    const repo = makeRepo();
+    const pauseHead = gitHead(repo);
+    const ctx = ctxFor(repo, { pauseHead, gitleaksBin: fakeGitleaks(2), validateCmd: "exit 0" });
+    commitOnTop(repo, "operator.txt");
+
+    // #when / #then
+    const out = runComputeEffect("rescan", {}, ctx) as { moved: boolean };
+    expect(gate("rescan")(out).state).toBe("degraded");
+  });
+
+  test("moved HEAD with no operator check → red, an unrun check is not a pass", () => {
+    // #given a run launched without a validate-cmd
+    const repo = makeRepo();
+    const pauseHead = gitHead(repo);
+    const ctx = ctxFor(repo, { pauseHead, gitleaksBin: fakeGitleaks(0) });
+    commitOnTop(repo, "operator.txt");
+
+    // #when / #then
+    const out = runComputeEffect("rescan", {}, ctx) as { validateExitCode: number | null };
+    expect(out.validateExitCode).toBeNull();
+    expect(gate("rescan")(out).state).toBe("failed");
+  });
+
+  test("an unknown pause head rescans rather than reporting a no-op", () => {
+    // #given the interpreter could not say what HEAD was at pause time
+    const repo = makeRepo();
+    const ctx = ctxFor(repo, { gitleaksBin: fakeGitleaks(0), validateCmd: "exit 0" });
+
+    // #when / #then it scans instead of assuming nothing changed
+    const out = runComputeEffect("rescan", {}, ctx) as { moved: boolean; scan?: { state: string } };
+    expect(out.moved).toBe(true);
+    expect(out.scan?.state).toBe("clean");
+  });
+});
+
 describe("run-validate effect", () => {
   test("passing command records exitCode 0 → green gate", () => {
-    const out = runComputeEffect("run-validate", { validateCmd: "exit 0" }, ctxFor(makeRepo())) as { exitCode: number | null };
+    // #given the command comes from the run context, not from block input
+    const ctx = ctxFor(makeRepo(), { validateCmd: "exit 0" });
+
+    // #when / #then
+    const out = runComputeEffect("run-validate", {}, ctx) as { exitCode: number | null };
     expect(out.exitCode).toBe(0);
     expect(gate("run-validate")(out).state).toBe("green");
   });
 
   test("failing command records its exit code → red gate", () => {
-    const out = runComputeEffect("run-validate", { validateCmd: "exit 3" }, ctxFor(makeRepo())) as { exitCode: number | null };
+    // #given
+    const ctx = ctxFor(makeRepo(), { validateCmd: "exit 3" });
+
+    // #when / #then
+    const out = runComputeEffect("run-validate", {}, ctx) as { exitCode: number | null };
     expect(out.exitCode).toBe(3);
+    expect(gate("run-validate")(out).state).toBe("failed");
+  });
+
+  test("a command named by block input is ignored; only the run's command runs", () => {
+    // #given a spec trying to substitute its own check for the operator's
+    const ctx = ctxFor(makeRepo(), { validateCmd: "exit 3" });
+
+    // #when / #then the operator's failing command still decides the gate
+    const out = runComputeEffect("run-validate", { validateCmd: "exit 0" }, ctx) as { exitCode: number | null };
+    expect(out.exitCode).toBe(3);
+  });
+
+  test("no operator command on the run → exitCode null, red gate", () => {
+    // #given a run launched without a validate-cmd
+    const ctx = ctxFor(makeRepo());
+
+    // #when / #then an unrun check is never a pass (KTD3)
+    const out = runComputeEffect("run-validate", {}, ctx) as { exitCode: number | null };
+    expect(out.exitCode).toBeNull();
     expect(gate("run-validate")(out).state).toBe("failed");
   });
 

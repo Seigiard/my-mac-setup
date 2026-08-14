@@ -63,7 +63,9 @@ const rescan: ComputeBlockDefinition = {
   name: "rescan",
   kind: "compute",
   purpose: "Re-scan and re-validate operator commits added during an approval pause (R6).",
-  inputSchema: z.object({ scanBaseRef: z.string().nullish() }),
+  // No input: what counts as an operator commit is the interpreter's pause-head
+  // record, not spec data.
+  inputSchema: z.object({}),
   outputSchema: z.object({ moved: z.boolean() }).loose(),
   inputSchemaId: HANDOFF_IN,
   outputSchemaId: HANDOFF_OUT,
@@ -104,14 +106,16 @@ const runValidate: ComputeBlockDefinition = {
   name: "run-validate",
   kind: "compute",
   purpose: "Run the operator-supplied validate-cmd on the run commit; records its exit code (KTD3/KTD15).",
-  inputSchema: z.object({ validateCmd: z.union([z.string(), z.object({ ref: z.string() })]) }),
+  // No input: the command comes from the run's launch flags. A spec that could
+  // name it would define what "verified" means for its own run.
+  inputSchema: z.object({}),
   outputSchema: z.object({ exitCode: z.number().nullish(), output: z.string() }),
   inputSchemaId: HANDOFF_IN,
   outputSchemaId: HANDOFF_OUT,
   external: false,
   needsWorkspace: true,
   scan: false,
-  preconditions: ["a validate-cmd reference"],
+  preconditions: ["an operator-supplied validate-cmd on the run"],
   waivePolicies: ["none"],
   defaults: { retries: 0, timeoutMs: 10 * 60_000 },
   costProfile: { estUsd: 0 },
@@ -292,6 +296,10 @@ const codeReview: SubflowBlockDefinition = {
   gateFn: (recorded) => codeReviewGate({ raw: JSON.stringify(recorded) }),
   externalContract: EXTERNAL_CONTRACT,
   mirrorKey: "reviewLeg",
+  buildSubflowInput: (input, run) => {
+    const base = (input as { base?: string | null })?.base ?? run.baseSha;
+    return { target: `base:${base}`, smoke: false };
+  },
 };
 
 const simplify: SubflowBlockDefinition = {
@@ -309,8 +317,19 @@ const simplify: SubflowBlockDefinition = {
   waivePolicies: ["none", "approval"],
   defaults: { retries: 0, timeoutMs: 30 * 60_000 },
   costProfile: { estUsd: 10 },
-  gateFn: (recorded) => ((recorded as { status?: string })?.status === "degraded" ? red("simplify degraded — needs a human") : green),
+  gateFn: (recorded) => {
+    const status = (recorded as { status?: string })?.status;
+    if (status === undefined) return red("simplify produced no status — an absent envelope is not a pass");
+    return status === "degraded" ? red("simplify degraded — needs a human") : green;
+  },
   mirrorKey: "simplify",
+  buildSubflowInput: (input, run) => ({
+    repoPath: run.worktreePath,
+    baseSha: (input as { base?: string | null })?.base ?? run.baseSha,
+    validateCmd: run.validateCmd,
+    validateTimeoutMs: run.validateTimeoutMs,
+    smoke: false,
+  }),
 };
 
 const docReview: SubflowBlockDefinition = {
@@ -334,6 +353,7 @@ const docReview: SubflowBlockDefinition = {
   },
   externalContract: EXTERNAL_CONTRACT,
   mirrorKey: "docReview",
+  buildSubflowInput: (input) => ({ docPath: (input as { planPath: string }).planPath, smoke: false }),
 };
 
 export const INITIAL_LIBRARY: readonly (AgentBlockDefinition | ComputeBlockDefinition | SubflowBlockDefinition)[] = [

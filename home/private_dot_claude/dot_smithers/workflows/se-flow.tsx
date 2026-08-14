@@ -22,7 +22,8 @@
 // dispatch, PR open, kill/resume hash-stability) is exercised by the plan's
 // live fixture flow, which requires a running Smithers daemon and is not run in
 // a headless build.
-import { createSmithers, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, Subflow, TryCatchFinally } from "smithers-orchestrator";
+import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 import { z } from "zod/v4";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -31,9 +32,13 @@ import * as path from "node:path";
 import { validateFlowSpec } from "./lib/flow-validate.ts";
 import { buildRegistry } from "./lib/blocks/index.ts";
 import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects.ts";
-import { bindProofTargets, blockNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
+import { bindProofTargets, blockNodeId, dispatchNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { classifyDisposition, type BlockOutcome, type OutcomeRecord } from "./lib/reviewer.ts";
+import type { SubflowRunContext } from "./lib/block-registry.ts";
+import seCodeReview from "./se-code-review.tsx";
+import seDocReview from "./se-doc-review.tsx";
+import seSimplify from "./se-simplify.tsx";
 import {
   acquireRepoLock,
   cleanupSnapshot,
@@ -49,7 +54,23 @@ const inputSchema = z.object({
   specPath: z.string().describe("Absolute path to the validated flow-spec JSON (read from the launcher, never the worktree — KTD11)."),
   budgetUsd: z.number().nullish().describe("Run cost ceiling; a breach PARKS the run for an operator ack, never hard-kills (KTD9)."),
   setupCmd: z.string().default("").describe("Operator-supplied worktree provisioning command (KTD15-trusted). Empty = no setup."),
+  validateCmd: z.string().default("").describe("Operator-supplied behavior check the run-validate block and the simplify subflow execute. Command-bearing input arrives here, never in the spec (KTD15)."),
+  validateTimeoutMs: z.number().default(10 * 60_000).describe("Hang guard for validateCmd."),
 });
+
+// Subflow blocks wrap existing workflows. The map is fixed in this file so the
+// module graph is identical across runs (R7); a block naming a workflow that is
+// not here records a red row rather than silently skipping.
+const SUBFLOW_WORKFLOWS: Record<string, WorkflowDefinition<unknown>> = {
+  "code-review": seCodeReview as unknown as WorkflowDefinition<unknown>,
+  "doc-review": seDocReview as unknown as WorkflowDefinition<unknown>,
+  simplify: seSimplify as unknown as WorkflowDefinition<unknown>,
+};
+
+interface CtxLike {
+  prove: (o: unknown, opts: { nodeId: string }) => unknown;
+  outputMaybe: (key: string, opts: { nodeId: string }) => Record<string, unknown> | undefined;
+}
 
 // KTD3: one generic block-output table plus a closed mirror-key set. A subflow
 // block writes its own shape into its mirror key; the interpreter copies that
@@ -73,6 +94,10 @@ const { Workflow, Task, Sequence, smithers, outputs } = createSmithers({
   reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string() }),
   // Generic per-block output.
   blockOutput: blockOutputSchema,
+  // One fixed key for every agent block's raw envelope, namespaced per node by
+  // the engine. Fixed, not per-block, so the workflow file stays identical
+  // across runs (R7); the block's gateFn classifies the row into blockOutput.
+  agentReport: z.object({ report: z.string() }),
   // Closed mirror-key set (KTD3).
   simplify: z.object({ status: z.string() }).loose(),
   docReview: z.object({ claudeStatus: z.string().nullish(), opencodeStatus: z.string().nullish() }).loose(),
@@ -145,11 +170,21 @@ export default smithers((ctx) => {
     baseSha: staged?.baseSha ?? "",
     branch: staged?.branch ?? "",
     runId,
+    validateCmd: (input.validateCmd ?? "").trim(),
+    validateTimeoutMs: input.validateTimeoutMs,
   };
+  const subflowRun = {
+    worktreePath,
+    baseSha: staged?.baseSha ?? "",
+    branch: staged?.branch ?? "",
+    validateCmd: (input.validateCmd ?? "").trim(),
+    validateTimeoutMs: input.validateTimeoutMs,
+  };
+  const budgetUsd = input.budgetUsd ?? 0;
   const readyGate = workspaceNeeded ? staged : gate0;
   if (readyGate) {
     for (const block of ordered) {
-      children.push(renderBlock(ctx, block, registry, effectCtx));
+      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, budgetUsd));
     }
   }
 
@@ -172,25 +207,116 @@ export default smithers((ctx) => {
 // the shared lib functions; agent blocks dispatch through the registered
 // makeAgent + buildPrompt (KTD3); subflow blocks write a mirror key the
 // interpreter copies into blockOutput.
-function renderBlock(ctx: unknown, block: FlowBlock, registry: ReturnType<typeof buildRegistry>, effectCtx: ComputeEffectContext): unknown {
+function renderBlock(
+  ctx: unknown,
+  block: FlowBlock,
+  registry: ReturnType<typeof buildRegistry>,
+  effectCtx: ComputeEffectContext,
+  subflowRun: SubflowRunContext,
+  budgetUsd: number,
+): unknown {
   const def = registry.get(block.block);
   const nodeId = blockNodeId(block.id);
   const bindTargets = bindProofTargets(block);
-  const proofs = bindTargets.map((target) => (ctx as { prove: (o: unknown, opts: { nodeId: string }) => unknown }).prove(outputs.blockOutput, { nodeId: target }));
+  const proofs = bindTargets.map((target) => (ctx as CtxLike).prove(outputs.blockOutput, { nodeId: target }));
+  const bind = proofs.length > 0 ? proofs : undefined;
 
   // Runtime-parse the block's declared input (KTD14) — enforces
   // .refine()/.transform()/.nullish() semantics JSON Schema cannot express.
+  // A block that cannot be dispatched records a red row instead of running:
+  // an agent leg is too expensive to spend on input the registry already
+  // refused, and a silent skip would let the epilog read a missing block.
   const parsedInput = def ? def.inputSchema.safeParse(block.input) : { success: false as const };
+  if (!def || !parsedInput.success) {
+    const reason = def
+      ? `block "${block.id}" input failed runtime parse (KTD14)`
+      : `block "${block.block}" is not in the registry`;
+    return (
+      <Task id={nodeId} output={outputs.blockOutput} retries={0}>
+        {() => ({ blockId: block.id, kind: def?.kind ?? "compute", status: "failed" as const, payloadJson: JSON.stringify({ reason }) })}
+      </Task>
+    );
+  }
 
+  const crashed = (
+    <Task id={`${nodeId}-crashed`} output={outputs.blockOutput} retries={0}>
+      {() => ({ blockId: block.id, kind: def.kind, status: "non-terminal" as const, payloadJson: "{}" })}
+    </Task>
+  );
+
+  // Agent blocks: the engine dispatches the registered agent, then a
+  // deterministic task classifies its recorded envelope. Two nodes rather than
+  // one because an agent Task's child is a prompt, not a closure — the gateFn
+  // has to run somewhere that can read the persisted row.
+  if (def.kind === "agent") {
+    const agentNodeId = dispatchNodeId(nodeId);
+    const reported = (ctx as CtxLike).outputMaybe("agentReport", { nodeId: agentNodeId }) !== undefined;
+    return (
+      <TryCatchFinally
+        id={`guard-${block.id}`}
+        try={
+          <Sequence>
+            <Task
+              id={agentNodeId}
+              output={outputs.agentReport}
+              agent={def.makeAgent({ worktreePath: effectCtx.worktreePath, timeoutMs: block.timeoutMs, budgetUsd })}
+              retries={block.retries}
+              bind={bind}
+            >
+              {def.buildPrompt(parsedInput.data)}
+            </Task>
+            {reported ? classifyTask(ctx, block, def, nodeId, agentNodeId) : null}
+          </Sequence>
+        }
+        catch={crashed}
+      />
+    );
+  }
+
+  // Subflow blocks run an existing workflow, which writes its own shape into
+  // the block's mirror key; a follow-up task copies that row into the generic
+  // blockOutput (KTD3). Same two-node split as agents, same reason.
+  if (def.kind === "subflow") {
+    const workflow = SUBFLOW_WORKFLOWS[def.name];
+    if (!workflow) {
+      return (
+        <Task id={nodeId} output={outputs.blockOutput} retries={0}>
+          {() => ({ blockId: block.id, kind: "subflow" as const, status: "failed" as const, payloadJson: JSON.stringify({ reason: `no workflow wired for subflow block "${def.name}"` }) })}
+        </Task>
+      );
+    }
+    const subNodeId = dispatchNodeId(nodeId);
+    const mirrored = (ctx as CtxLike).outputMaybe(def.mirrorKey, { nodeId: subNodeId }) !== undefined;
+    return (
+      <TryCatchFinally
+        id={`guard-${block.id}`}
+        try={
+          <Sequence>
+            <Subflow
+              id={subNodeId}
+              workflow={workflow}
+              input={def.buildSubflowInput(parsedInput.data, subflowRun)}
+              output={mirrorOutput(def.mirrorKey)}
+              retries={block.retries}
+              timeoutMs={block.timeoutMs}
+            />
+            {mirrored ? mirrorCopyTask(ctx, block, def, nodeId, subNodeId) : null}
+          </Sequence>
+        }
+        catch={crashed}
+      />
+    );
+  }
+
+  // Compute blocks run their effect body against the staged worktree and
+  // classify in one node — the effect is a plain synchronous function.
   return (
     <TryCatchFinally
       id={`guard-${block.id}`}
       try={
-        <Task id={nodeId} output={outputs.blockOutput} retries={block.retries} bind={proofs.length > 0 ? proofs : undefined}>
+        <Task id={nodeId} output={outputs.blockOutput} retries={block.retries} bind={bind}>
           {() => {
-            if (!def) throw new Error(`block "${block.block}" vanished from the registry at dispatch`);
-            if (!parsedInput.success) throw new Error(`block "${block.id}" input failed runtime parse (KTD14)`);
-            const payload = dispatchBlock(def, parsedInput.data, effectCtx);
+            const payload = runComputeEffect(def.name, parsedInput.data, { ...effectCtx, validateTimeoutMs: block.timeoutMs });
             const gate = def.gateFn(payload);
             return {
               blockId: block.id,
@@ -201,26 +327,64 @@ function renderBlock(ctx: unknown, block: FlowBlock, registry: ReturnType<typeof
           }}
         </Task>
       }
-      catch={
-        <Task id={`${nodeId}-crashed`} output={outputs.blockOutput} retries={0}>
-          {() => ({ blockId: block.id, kind: def?.kind ?? "compute", status: "non-terminal" as const, payloadJson: "{}" })}
-        </Task>
-      }
+      catch={crashed}
     />
   );
 }
 
-// The per-kind execution boundary. Compute blocks run their real effect against
-// the staged worktree (block-effects.ts) — the recorded shape each gateFn
-// classifies. Agent and subflow dispatch is daemon-bound (makeAgent /
-// dual-mode Subflow) and exercised by the plan's live fixture flow, not this
-// headless build; those kinds record an empty payload here so their gateFn
-// fails closed rather than passing on no result (R7).
-function dispatchBlock(def: { kind: string; name: string }, input: unknown, effectCtx: ComputeEffectContext): unknown {
-  if (def.kind === "compute") {
-    return runComputeEffect(def.name, input, effectCtx);
+// Resolves a mirror key to its declared output. The set is closed (KTD3), so an
+// unknown key is a programming error in this file, not spec-reachable.
+function mirrorOutput(mirrorKey: string): unknown {
+  switch (mirrorKey) {
+    case "simplify":
+      return outputs.simplify;
+    case "docReview":
+      return outputs.docReview;
+    case "reviewLeg":
+      return outputs.reviewLeg;
+    default:
+      throw new Error(`mirror key "${mirrorKey}" is outside the closed set (KTD3)`);
   }
-  return {};
+}
+
+// Copies a subflow's mirror row into the generic blockOutput and classifies it.
+// A missing row is red for the same reason a missing agent envelope is: the
+// subflow did not report, which is not evidence that it succeeded.
+function mirrorCopyTask(ctx: unknown, block: FlowBlock, def: { mirrorKey: string; gateFn: (r: unknown) => { state: string } }, nodeId: string, subNodeId: string): unknown {
+  return (
+    <Task id={nodeId} output={outputs.blockOutput} retries={0}>
+      {() => {
+        const recorded = (ctx as CtxLike).outputMaybe(def.mirrorKey, { nodeId: subNodeId });
+        const gate = def.gateFn(recorded);
+        return {
+          blockId: block.id,
+          kind: "subflow" as const,
+          status: gate.state === "green" ? ("green" as const) : ("failed" as const),
+          payloadJson: JSON.stringify(recorded ?? { reason: "subflow produced no mirror row" }),
+        };
+      }}
+    </Task>
+  );
+}
+
+// Classifies an agent block's recorded envelope into the generic blockOutput
+// row. A missing row is red, never green: the agent leg died without reporting,
+// and an absent envelope is not evidence of success (R7).
+function classifyTask(ctx: unknown, block: FlowBlock, def: { kind: string; gateFn: (r: unknown) => { state: string } }, nodeId: string, agentNodeId: string): unknown {
+  return (
+    <Task id={nodeId} output={outputs.blockOutput} retries={0}>
+      {() => {
+        const recorded = (ctx as CtxLike).outputMaybe("agentReport", { nodeId: agentNodeId });
+        const gate = def.gateFn(recorded ?? {});
+        return {
+          blockId: block.id,
+          kind: def.kind as "agent",
+          status: gate.state === "green" ? ("green" as const) : ("failed" as const),
+          payloadJson: JSON.stringify(recorded ?? { reason: "agent produced no envelope" }),
+        };
+      }}
+    </Task>
+  );
 }
 
 function anyBlockFailed(ctx: unknown, ordered: FlowBlock[]): boolean {

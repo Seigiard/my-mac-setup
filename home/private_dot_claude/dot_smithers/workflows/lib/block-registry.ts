@@ -84,11 +84,24 @@ export interface ComputeBlockDefinition extends BlockDefinitionBase {
   kind: "compute";
 }
 
+export interface SubflowRunContext {
+  worktreePath: string;
+  baseSha: string;
+  branch: string;
+  validateCmd: string;
+  validateTimeoutMs: number;
+}
+
 export interface SubflowBlockDefinition extends BlockDefinitionBase {
   kind: "subflow";
   // KTD3 closed mirror-key set: a subflow block writes its own output shape into
   // this fixed key; the interpreter copies that row into the generic blockOutput.
   mirrorKey: string;
+  // Each wrapped workflow takes its own input shape, which the interpreter
+  // cannot know. The block translates its spec input plus the run's staging
+  // facts into that shape; command-bearing fields come from the run context
+  // (operator-supplied at launch), never from spec data (KTD15).
+  buildSubflowInput: (input: unknown, run: SubflowRunContext) => Record<string, unknown>;
 }
 
 export type BlockDefinition = AgentBlockDefinition | ComputeBlockDefinition | SubflowBlockDefinition;

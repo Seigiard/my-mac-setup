@@ -19,6 +19,15 @@ export function blockNodeId(blockId: string): string {
   return `${BLOCK_NODE_PREFIX}${blockId}`;
 }
 
+// Agent and subflow blocks occupy two engine nodes: the dispatch node that
+// produces the raw envelope, and the block node that classifies it into
+// blockOutput. The dispatch node keeps the block node's id as its stem so both
+// stay derived from spec content and resume matches (KTD1). Spec ids cannot
+// contain ":", so neither suffix can collide with a block id.
+export function dispatchNodeId(blockNodeIdValue: string): string {
+  return `${blockNodeIdValue}:dispatch`;
+}
+
 // KTD2: the lock + worktree staging + setup prolog runs only when at least one
 // block needs a workspace. A flow of workspace-free blocks (research,
 // doc-review) acquires no lock and stages no worktree. The decision is computed

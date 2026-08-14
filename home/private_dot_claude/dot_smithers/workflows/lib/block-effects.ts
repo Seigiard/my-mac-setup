@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { gitHead, runValidateCmd, secretScanDiff, type SecretScanResult } from "./envelopes.ts";
-import { commitWorkGuarded, git, treeHash, type StagedWorktree } from "./staging.ts";
+import { commitWorkGuarded, treeHash, type StagedWorktree } from "./staging.ts";
 
 export type GhRunner = (args: string[], cwd: string) => { status: number | null; stdout: string; stderr: string };
 export type PushRunner = (branch: string, cwd: string) => { ok: boolean; stderr: string };
@@ -25,7 +25,15 @@ export interface ComputeEffectContext extends Partial<StagedWorktree> {
   prBody?: string;
   gitleaksBin?: string;
   scanTimeoutMs?: number;
+  // The behavior check, supplied by the operator at launch. It never arrives in
+  // block input: a spec that could name the command would choose what "verified"
+  // means for its own run (KTD15).
+  validateCmd?: string;
   validateTimeoutMs?: number;
+  // HEAD as it stood when the run parked. The rescan block compares against it
+  // to tell operator commits from the run's own. Absent means "unknown", which
+  // rescans rather than assuming nothing changed.
+  pauseHead?: string;
   gh?: GhRunner;
   push?: PushRunner;
 }
@@ -74,29 +82,27 @@ function secretScanEffect(_input: unknown, ctx: ComputeEffectContext): SecretSca
   return secretScanDiff(ctx.worktreePath, ctx.baseSha, { bin: ctx.gitleaksBin, timeoutMs: ctx.scanTimeoutMs });
 }
 
-// KTD3: a rescan only re-runs when the operator moved HEAD during an approval
-// pause. An unmoved HEAD is a deterministic no-op green (rescanGate treats
-// moved:false as clean). When moved, the scan and — if a validate-cmd is in
-// context — the validate exit code are recorded so the gate can fail-close on
-// leaks or a broken validate.
-function rescanEffect(input: unknown, ctx: ComputeEffectContext): {
+// A rescan covers commits an operator added while the run was parked. It
+// compares HEAD against the head recorded at pause time, not against the staged
+// base — the base is always behind by the run's own commits, so a base
+// comparison reported "moved" on every rescan and the no-op path was dead code.
+// An unknown pause head rescans rather than reporting a no-op: the cheap scan is
+// the safe answer when the interpreter cannot say what changed.
+function rescanEffect(_input: unknown, ctx: ComputeEffectContext): {
   moved: boolean;
   currentHead?: string;
   scanBase?: string;
   scan?: SecretScanResult;
   validateExitCode?: number | null;
 } {
-  const scanBase = (input as { scanBaseRef?: string | null })?.scanBaseRef ?? ctx.baseSha;
   const currentHead = gitHead(ctx.worktreePath);
-  if (currentHead === scanBase) {
-    return { moved: false, currentHead, scanBase };
+  if (ctx.pauseHead !== undefined && currentHead === ctx.pauseHead) {
+    return { moved: false, currentHead, scanBase: ctx.pauseHead };
   }
-  const scan = secretScanDiff(ctx.worktreePath, scanBase, { bin: ctx.gitleaksBin, timeoutMs: ctx.scanTimeoutMs });
-  const validateCmd = (input as { validateCmd?: string })?.validateCmd;
-  const validateExitCode = typeof validateCmd === "string"
-    ? runValidateCmd(validateCmd, ctx.worktreePath, ctx.validateTimeoutMs).exitCode
-    : null;
-  return { moved: true, currentHead, scanBase, scan, validateExitCode };
+  const scan = secretScanDiff(ctx.worktreePath, ctx.baseSha, { bin: ctx.gitleaksBin, timeoutMs: ctx.scanTimeoutMs });
+  const validateCmd = (ctx.validateCmd ?? "").trim();
+  const validateExitCode = validateCmd === "" ? null : runValidateCmd(validateCmd, ctx.worktreePath, ctx.validateTimeoutMs).exitCode;
+  return { moved: true, currentHead, scanBase: ctx.baseSha, scan, validateExitCode };
 }
 
 // KTD4/KTD5: the work agent leaves changes uncommitted; the compute block
@@ -111,13 +117,12 @@ function commitWorkEffect(ctx: ComputeEffectContext): { baseTree: string; headTr
 }
 
 // KTD3/KTD15: run the operator-sourced validate-cmd and record its ground-truth
-// exit code. A `{ref}` form is an unresolved operator-source reference this
-// headless path cannot dereference, so it records exitCode:null — the gateFn
-// then fails closed rather than treating an unrun command as a pass.
-function runValidateEffect(input: unknown, ctx: ComputeEffectContext): { exitCode: number | null; output: string } {
-  const cmd = (input as { validateCmd?: string | { ref: string } })?.validateCmd;
-  if (typeof cmd !== "string") {
-    return { exitCode: null, output: "validate-cmd is an unresolved reference; not executed (KTD15)" };
+// exit code. A run launched without one records exitCode:null — the gateFn then
+// fails closed rather than treating an unrun command as a pass.
+function runValidateEffect(_input: unknown, ctx: ComputeEffectContext): { exitCode: number | null; output: string } {
+  const cmd = (ctx.validateCmd ?? "").trim();
+  if (cmd === "") {
+    return { exitCode: null, output: "no operator-supplied validate-cmd for this run; not executed (KTD15)" };
   }
   return runValidateCmd(cmd, ctx.worktreePath, ctx.validateTimeoutMs);
 }
@@ -184,20 +189,28 @@ function prEffect(input: unknown, ctx: ComputeEffectContext): { result: "opened"
   return { result: "push-rejected", url: null };
 }
 
+// Both network calls carry a hang guard. Without one a stalled gh or a push
+// waiting on credentials holds the block until the whole run's timeout, with no
+// recorded result. A timeout surfaces as a non-zero status the gateFn reds.
+const NETWORK_TIMEOUT_MS = 5 * 60_000;
+
 function defaultGh(args: string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
-  const res = spawnSync("gh", args, { cwd, encoding: "utf8" });
+  const res = spawnSync("gh", args, { cwd, encoding: "utf8", timeout: NETWORK_TIMEOUT_MS });
+  if (res.error) {
+    return { status: null, stdout: res.stdout ?? "", stderr: `gh did not complete: ${res.error.message}` };
+  }
   return { status: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
 
 // KTD11 pre-push guard: only ever push the run-id branch, to its own ref. A
 // caller cannot redirect this to an arbitrary ref.
 function defaultPush(branch: string, cwd: string): { ok: boolean; stderr: string } {
-  try {
-    git(cwd, "push", "origin", `HEAD:refs/heads/${branch}`);
-    return { ok: true, stderr: "" };
-  } catch (e) {
-    return { ok: false, stderr: e instanceof Error ? e.message : String(e) };
-  }
+  const res = spawnSync("git", ["-C", cwd, "push", "origin", `HEAD:refs/heads/${branch}`], {
+    encoding: "utf8",
+    timeout: NETWORK_TIMEOUT_MS,
+  });
+  if (res.error) return { ok: false, stderr: `push did not complete: ${res.error.message}` };
+  return res.status === 0 ? { ok: true, stderr: "" } : { ok: false, stderr: res.stderr ?? "" };
 }
 
 function extractUrl(text: string): string | null {
