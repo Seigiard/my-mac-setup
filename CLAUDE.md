@@ -101,6 +101,19 @@ Adding a managed config, step by step:
 
 </important>
 
+<important if="you found a problem, gap, or follow-up that you are not fixing in the current task">
+
+File it as an issue in `docs/issues/` — every known problem gets a file, so it survives the session and can be fixed later. Do not leave problems only in chat or in a plan's margins.
+
+- Filename: `YYYY-MM-DD-NNN-slug.md` (`NNN` = per-day counter), same convention as `docs/plans`.
+- Frontmatter: `title`, `type` (bug | follow-up | idea | chore), `date`, `status` (open | in-progress | done | wontfix); optional `parent-plan`, `closed` (date).
+- Body sections: `## Why this exists` (problem, with file paths), `## Scope`, `## Open decisions`; on close, add `## Resolution` (what was done, commit sha).
+- Lifecycle lives in the `status` field — never move files between directories. List open issues: `rg -l 'status: open' docs/issues`.
+- Everything under `docs/` is committed, including `docs/plans`, so `parent-plan` links resolve in the repo. Still keep the issue body self-contained — the issue, not the plan, is what gets read first.
+- Architecture decisions that are costly to reverse (rare) go to `docs/decisions/` as a minimal ADR: Context / Considered options / Decision. This repo has no RFC process — issues and plans cover proposal work.
+
+</important>
+
 <important if="you are adding a new feature, script, or config that should be tested">
 
 - Add a smoke test in `tests/smoke.bats` (bats-core syntax).
