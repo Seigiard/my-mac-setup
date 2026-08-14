@@ -388,21 +388,30 @@ cmd_resume() {
   fi
   cd "$SMITHERS_DIR"
 
-  # The workflow reads the target repo from PIPELINE_REPO/DOC_REVIEW_REPO at
-  # module load; resume must restore them or the resumed run would target the
-  # smithers dir (cwd) instead of the original repo. The repo is persisted in
-  # the run's gate0 output, so recover it from smithers.db.
-  local repo="" db_path
+  # The workflow reads the target repo from PIPELINE_REPO/DOC_REVIEW_REPO (or
+  # FLOW_REPO) at module load; resume must restore them or the resumed run would
+  # target the smithers dir (cwd) instead of the original repo. Both workflows
+  # persist the repo in their gate0 output, so recover it from smithers.db.
+  local repo="" workflow_path="" db_path
   db_path="$(se_db)"
   if command -v sqlite3 >/dev/null 2>&1 && [[ -s $db_path ]]; then
     repo="$(sqlite3 "$db_path" "SELECT repo_path FROM gate0 WHERE run_id='$run_id' LIMIT 1" 2>/dev/null || true)"
+    workflow_path="$(sqlite3 "$db_path" "SELECT workflow_path FROM _smithers_runs WHERE run_id='$run_id' LIMIT 1" 2>/dev/null || true)"
   fi
   if [[ -z $repo ]]; then
     die "cannot resume $run_id: no persisted repo path found (gate0 not reached, or pre-U6 run). Re-launch with 'se pipeline' from the target repo."
   fi
 
+  # Resume the workflow the run actually started under. Resuming a flow run
+  # against se-pipeline.tsx fails with "workflow path changed since this run
+  # started" and no way forward — the run's own recorded path is the authority,
+  # not the command that happens to be resuming it.
   local rc=0
-  PIPELINE_REPO="$repo" DOC_REVIEW_REPO="$repo" "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true || rc=$?
+  if [[ $workflow_path == *se-flow.tsx ]]; then
+    FLOW_REPO="$repo" "$SMITHERS_BIN" up "$FLOW_WORKFLOW" --run-id "$run_id" --resume true || rc=$?
+  else
+    PIPELINE_REPO="$repo" DOC_REVIEW_REPO="$repo" "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true || rc=$?
+  fi
   # exit 3 = the resumed run advanced and paused again at an Approval gate — a
   # normal outcome, NOT a resume failure. Anything else is a real failure.
   if [[ $rc -eq 3 ]]; then

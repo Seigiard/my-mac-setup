@@ -6,6 +6,8 @@
 // store is the run's summary output, which embeds this aggregation;
 // `se list` and audits read only from there.
 
+import { dirname, join } from "node:path";
+
 import { estimateCostUsd, modelTokenPrices } from "smithers-orchestrator/scorers";
 
 // Unknown ids price at $0 in the official table, but a real leg is never
@@ -78,4 +80,85 @@ export function aggregateUsage(events: TokenUsageEvent[]): RunUsage {
   }
 
   return { stages, totalTokens, totalEstUsd };
+}
+
+// Reads this run's TokenUsageReported events, plus its subflow children's, from
+// the persisted event log — the only place the engine keeps usage.
+//
+// Fail-soft to an empty list on every error, deliberately. Cost is advisory
+// (KTD6: tokens are the metric, USD an estimate), so a run must never die over
+// missing telemetry. The caller decides what an empty result means; for the
+// budget gate it means "no measured spend", which cannot breach a ceiling.
+//
+// The database is resolved upward from the launch directory: the engine's
+// state resolver can persist smithers.db one level ABOVE it, and a fresh
+// database has no _smithers_events table until the first event lands.
+//
+// NOTE: se-pipeline.tsx carries its own private copy of this reader. It is not
+// switched over here on purpose — that file is the rollback path the plan keeps
+// untouched, and changing its module graph invalidates a parked pipeline run's
+// resume. Fold them together the next time se-pipeline is edited anyway.
+export function readRunUsage(runId: string, launchDir: string, openDatabase: (dbPath: string) => UsageQueryable | null): TokenUsageEvent[] {
+  for (const dbPath of [launchDir, dirname(launchDir)].map((d) => join(d, "smithers.db"))) {
+    const db = openDatabase(dbPath);
+    if (db === null) continue;
+    try {
+      return db
+        .rows(
+          "SELECT payload_json FROM _smithers_events WHERE type='TokenUsageReported' AND (run_id = ?1 OR run_id LIKE ?1 || ':child:%')",
+          runId,
+        )
+        .map((row) => {
+          const p = JSON.parse(row.payload_json) as Record<string, unknown>;
+          return {
+            nodeId: String(p.nodeId ?? "unknown"),
+            model: typeof p.model === "string" ? p.model : null,
+            inputTokens: Number(p.inputTokens ?? 0),
+            outputTokens: Number(p.outputTokens ?? 0),
+            cacheReadTokens: Number(p.cacheReadTokens ?? 0),
+            cacheWriteTokens: Number(p.cacheWriteTokens ?? 0),
+          };
+        });
+    } catch {
+      continue;
+    } finally {
+      db.close();
+    }
+  }
+  return [];
+}
+
+export interface UsageQueryable {
+  rows: (sql: string, runId: string) => Array<{ payload_json: string }>;
+  close: () => void;
+}
+
+export interface BudgetState {
+  spentUsd: number;
+  breached: boolean;
+}
+
+// KTD9: a breach PARKS the run for an operator ack, it never hard-kills. A null
+// or non-positive ceiling means the operator set none, which is not a ceiling of
+// zero — every run would park immediately.
+export function evaluateBudget(spentUsd: number, ceilingUsd: number | null | undefined): BudgetState {
+  const ceiling = typeof ceilingUsd === "number" && ceilingUsd > 0 ? ceilingUsd : null;
+  return { spentUsd, breached: ceiling !== null && spentUsd > ceiling };
+}
+
+// Floor for a per-agent cap. A block whose cost profile is optimistic still gets
+// enough room to finish one leg; below a few dollars a claude leg dies mid-answer.
+const AGENT_CAP_FLOOR_USD = 5;
+const AGENT_CAP_HEADROOM = 2;
+
+// The hard stop the agent CLI enforces on ONE leg, derived from that block's own
+// cost profile. Deliberately NOT the run's budget ceiling: they are different
+// mechanisms pointing opposite ways. The run ceiling is a parking threshold that
+// KTD9 says must never kill; the agent cap is a kill. Wiring the ceiling into
+// the cap made every leg hard-kill at exactly the point KTD9 says to park, and
+// a run launched without `--budget` passed a cap of $0, which killed any agent
+// leg on its first token.
+export function agentCapUsd(estUsd: number): number {
+  const scaled = Number.isFinite(estUsd) && estUsd > 0 ? estUsd * AGENT_CAP_HEADROOM : 0;
+  return Math.max(AGENT_CAP_FLOOR_USD, scaled);
 }

@@ -22,7 +22,8 @@
 // dispatch, PR open, kill/resume hash-stability) is exercised by the plan's
 // live fixture flow, which requires a running Smithers daemon and is not run in
 // a headless build.
-import { createSmithers, Subflow, TryCatchFinally, type ProofBinding } from "smithers-orchestrator";
+import { createSmithers, Subflow, TryCatchFinally, approvalDecisionSchema, type ProofBinding } from "smithers-orchestrator";
+import { Database } from "bun:sqlite";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 import { z } from "zod/v4";
 import * as fs from "node:fs";
@@ -37,6 +38,7 @@ import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
 import { redactSecretsInText, shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
 import { copyArtifacts, planArtifactArchive, type BlockPayload } from "./lib/archive.ts";
+import { agentCapUsd, aggregateUsage, evaluateBudget, readRunUsage } from "./lib/cost.ts";
 import { makeFlowReviewerAgent } from "./lib/agents.ts";
 import type { SubflowRunContext } from "./lib/block-registry.ts";
 import seCodeReview from "./se-code-review.tsx";
@@ -86,13 +88,14 @@ const blockOutputSchema = z.object({
   payloadJson: z.string(),
 });
 
-const { Workflow, Task, Sequence, smithers, outputs } = createSmithers({
+const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers({
   input: inputSchema,
   // Fixed prolog/epilog keys.
   gate0: z.object({ specHash: z.string(), repoPath: z.string(), needsWorkspace: z.boolean(), budgetUsd: z.number().nullish() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   setup: z.object({ exitCode: z.number() }),
   budget: z.object({ spentUsd: z.number(), breached: z.boolean() }),
+  approval: approvalDecisionSchema,
   // flowRunId, not runId: smithers reserves runId/nodeId/iteration as internal
   // columns on every persisted node output and refuses a schema that shadows
   // them. The engine raises this at workflow construction, which `bun build`
@@ -194,11 +197,23 @@ export default smithers((ctx) => {
     validateCmd: (input.validateCmd ?? "").trim(),
     validateTimeoutMs: input.validateTimeoutMs,
   };
-  const budgetUsd = input.budgetUsd ?? 0;
   const readyGate = workspaceNeeded ? staged : gate0;
   if (readyGate) {
+    // KTD9: spend is measured after every block, and a breach PARKS the run for
+    // an operator ack instead of killing it. One ack per run: a second Approval
+    // node would reuse the same id, and asking again after every later block
+    // turns a ceiling into a nag.
+    const budgetApproved = ctx.outputMaybe("approval", { nodeId: BUDGET_APPROVAL_NODE })?.approved === true;
+    let approvalRendered = false;
     for (const { block, bindNodeIds } of dispatchableBlocks(ordered, (id) => blockRowNodeId(ctx as CtxLike, id))) {
-      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, budgetUsd, bindNodeIds));
+      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, bindNodeIds));
+      children.push(renderBudgetTask(block.id, runId, input.budgetUsd));
+      const breached = ctx.outputMaybe("budget", { nodeId: budgetNodeId(block.id) })?.breached === true;
+      if (breached && !approvalRendered) {
+        approvalRendered = true;
+        children.push(renderBudgetApproval(ctx, block.id, input.budgetUsd));
+        if (!budgetApproved) break;
+      }
     }
   }
 
@@ -216,6 +231,64 @@ export default smithers((ctx) => {
     </Workflow>
   );
 });
+
+const BUDGET_APPROVAL_NODE = "approve-budget";
+
+function budgetNodeId(blockId: string): string {
+  return `budget:${blockId}`;
+}
+
+// Opens the run's own state database read-only. Returns null on every failure so
+// `readRunUsage` can fall through to the next candidate path: cost is advisory
+// (KTD6), and a run must not die because telemetry is missing.
+function openUsageDb(dbPath: string) {
+  try {
+    if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0) return null;
+    const db = new Database(dbPath, { readonly: true });
+    return {
+      rows: (sql: string, runId: string) => db.query(sql).all(runId) as Array<{ payload_json: string }>,
+      close: () => db.close(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function measureSpend(runId: string): number {
+  return aggregateUsage(readRunUsage(runId, process.cwd(), openUsageDb)).totalEstUsd;
+}
+
+// Measured after each block rather than once at the end: a ceiling checked only
+// in the epilog reports an overspend that already happened.
+function renderBudgetTask(blockId: string, runId: string, ceilingUsd: number | null | undefined): unknown {
+  return (
+    <Task id={budgetNodeId(blockId)} output={outputs.budget} retries={0}>
+      {() => evaluateBudget(measureSpend(runId), ceilingUsd)}
+    </Task>
+  );
+}
+
+// onDeny "fail" matches the pipeline's gates: denying a budget breach stops the
+// run. The epilog still runs, because it renders on the failure path too.
+function renderBudgetApproval(ctx: unknown, blockId: string, ceilingUsd: number | null | undefined): unknown {
+  const spent = (ctx as CtxLike).outputMaybe("budget", { nodeId: budgetNodeId(blockId) })?.spentUsd;
+  const spentText = typeof spent === "number" ? `$${spent.toFixed(2)}` : "an unknown amount";
+  return (
+    <Approval
+      id={BUDGET_APPROVAL_NODE}
+      output={outputs.approval}
+      request={{
+        title: `Budget ceiling passed after block "${blockId}" — approve to continue spending, deny to stop the run`,
+        summary: [
+          `Estimated spend so far: ${spentText}. Ceiling: $${ceilingUsd ?? 0}.`,
+          "Tokens are the authoritative metric; the dollar figure is an estimate (KTD6).",
+          "Approving acks the whole run, not just this block — the ceiling is not asked about again.",
+        ].join(" "),
+      }}
+      onDeny="fail"
+    />
+  );
+}
 
 // A block's durable verdict lives under its own node id, or — when its task
 // threw and the guard caught — under the guard's crash node. Both rows are the
@@ -244,7 +317,6 @@ function renderBlock(
   registry: ReturnType<typeof buildRegistry>,
   effectCtx: ComputeEffectContext,
   subflowRun: SubflowRunContext,
-  budgetUsd: number,
   bindNodeIds: string[],
 ): unknown {
   const def = registry.get(block.block);
@@ -303,7 +375,7 @@ function renderBlock(
             <Task
               id={agentNodeId}
               output={outputs.agentReport}
-              agent={def.makeAgent({ worktreePath: effectCtx.worktreePath, timeoutMs: block.timeoutMs, budgetUsd })}
+              agent={def.makeAgent({ worktreePath: effectCtx.worktreePath, timeoutMs: block.timeoutMs, budgetUsd: agentCapUsd(def.costProfile.estUsd) })}
               retries={block.retries}
               {...bindProps}
             >
@@ -610,8 +682,28 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
           // file instead, which writeIssueFile redacts on its own path. The spec
           // is still a real surface: its task description is composed from
           // operator input and lands here verbatim, and later in a PR body.
+          // KTD10 lists cost as part of the record. Tokens are the authoritative
+          // metric and the dollar figure is an estimate (KTD6), so both are
+          // written rather than the estimate alone.
+          //
+          // This figure excludes the epilog's own reviewer leg, which runs after
+          // this task. That is the deliberate trade: writing the durable record
+          // FIRST means it survives a reviewer that hangs to its 15-minute
+          // timeout or dies outright. A complete cost figure is worth less than
+          // a record that exists on every exit path.
+          const usage = aggregateUsage(readRunUsage(runId, process.cwd(), openUsageDb));
           const { redacted, hits } = redactSecretsInText(
-            JSON.stringify({ spec, record, artifacts: archive.copied.map((e) => ({ blockId: e.blockId, name: e.name, path: e.destination })), skippedArtifacts: archive.skipped }, null, 2),
+            JSON.stringify(
+              {
+                spec,
+                record,
+                cost: { totalTokens: usage.totalTokens, totalEstUsd: usage.totalEstUsd, perNode: usage.stages },
+                artifacts: archive.copied.map((e) => ({ blockId: e.blockId, name: e.name, path: e.destination })),
+                skippedArtifacts: archive.skipped,
+              },
+              null,
+              2,
+            ),
           );
           const recordPath = path.join(archiveDir, "outcome.json");
           fs.writeFileSync(recordPath, redacted);

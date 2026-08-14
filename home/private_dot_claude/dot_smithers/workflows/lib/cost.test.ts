@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aggregateUsage, type TokenUsageEvent } from "./cost.ts";
+import { agentCapUsd, aggregateUsage, evaluateBudget, readRunUsage, type TokenUsageEvent } from "./cost.ts";
 
 function ev(
   nodeId: string,
@@ -106,3 +106,76 @@ describe("aggregateUsage", () => {
     expect(Object.keys(usage.stages).length).toBe(0);
   });
 });
+
+describe("evaluateBudget", () => {
+  test("a spend above the ceiling breaches", () => {
+    expect(evaluateBudget(12.5, 10)).toEqual({ spentUsd: 12.5, breached: true });
+  });
+
+  test("spend exactly at the ceiling does not breach", () => {
+    // #given the ceiling is the last acceptable value, not the first rejected one
+    expect(evaluateBudget(10, 10).breached).toBe(false);
+  });
+
+  test("no ceiling means no breach, never a ceiling of zero", () => {
+    // #given an operator who passed no --budget
+    // #then a run must not park on its first block
+    expect(evaluateBudget(99, null).breached).toBe(false);
+    expect(evaluateBudget(99, undefined).breached).toBe(false);
+    expect(evaluateBudget(99, 0).breached).toBe(false);
+  });
+});
+
+describe("agentCapUsd", () => {
+  test("scales a block's own cost profile rather than using the run ceiling", () => {
+    expect(agentCapUsd(20)).toBe(40);
+  });
+
+  test("a cheap or missing profile still clears the floor", () => {
+    // #given a block whose profile is $0 -- a leg capped at $0 dies on its first token
+    expect(agentCapUsd(0)).toBe(5);
+    expect(agentCapUsd(1)).toBe(5);
+    expect(agentCapUsd(Number.NaN)).toBe(5);
+  });
+});
+
+describe("readRunUsage", () => {
+  test("reads this run's events and its subflow children's", () => {
+    // #given a database that answers the usage query
+    const seen: string[] = [];
+    const db = {
+      rows: (_sql: string, runId: string) => {
+        seen.push(runId);
+        return [{ payload_json: JSON.stringify({ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 }) }];
+      },
+      close: () => {},
+    };
+
+    // #when usage is read
+    const events = readRunUsage("run-1", "/launch", () => db);
+
+    // #then the run id is passed through and the event is parsed
+    expect(seen).toEqual(["run-1"]);
+    expect(events[0]).toMatchObject({ nodeId: "work", inputTokens: 10, outputTokens: 5 });
+  });
+
+  test("falls through to the parent directory when the launch dir has no database", () => {
+    const opened: string[] = [];
+    readRunUsage("run-1", "/launch/dir", (dbPath) => {
+      opened.push(dbPath);
+      return null;
+    });
+    expect(opened).toEqual(["/launch/dir/smithers.db", "/launch/smithers.db"]);
+  });
+
+  test("a query error yields no usage rather than failing the run", () => {
+    // #given telemetry that throws -- cost is advisory (KTD6)
+    const db = {
+      rows: () => {
+        throw new Error("no such table: _smithers_events");
+      },
+      close: () => {},
+    };
+    expect(readRunUsage("run-1", "/launch", () => db)).toEqual([]);
+  });
+})
