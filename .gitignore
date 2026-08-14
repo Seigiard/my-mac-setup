@@ -2,5 +2,4 @@
 __pycache__
 config/fish/fish_variables
 .idea
-docs/plans
 .worktrees
