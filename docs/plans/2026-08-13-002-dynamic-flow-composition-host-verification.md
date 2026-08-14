@@ -133,6 +133,24 @@ Run on a throwaway two-file spike — a workflow that maps input items to tasks,
 
 One incidental finding, worth knowing before writing any future compute block: a task closure that blocks the event loop — the first spike used `spawnSync("sleep")` — prevents the engine from persisting *any* completed task. Two kill-and-resume attempts lost all work before the cause was clear. Compute effects that shell out should stay short, or the run loses its resume point.
 
+### Section 3 — live end-to-end, failure path: PASSED on three of four criteria, 2026-08-14
+
+Run against a throwaway fixture repo with a compute-only spec whose last block genuinely fails (`secret-scan` on an empty commit range). The failure is real, not injected, which is stronger evidence than a stub.
+
+**The issue file criterion passes.** `run-1786704530349` wrote `docs/issues/2026-08-14-001-flow-run-failed-at-block-scan-secret-sca.md`. It names the failed block in its title and in a `**Failed block:**` line, states the cause, and quotes the log excerpts with the failed block first. The reviewer's analysis was correct and, where the evidence ran out, said so: *"Whether the pipeline expected check/proof to create a commit before scan ran is unknown from the evidence available."*
+
+**The redaction criterion passes.** `run-1786704594258` planted `AKIAIOSFODNN7EXAMPLE` in the validate-cmd output, where it reached a block payload and then the issue file. The literal key appears zero times in the written file. It was redacted in two places: the log excerpt, and the reviewer's own prose, where the model quoted the key back while explaining it. That second hit is the argument for redacting the rendered file rather than only the excerpt — an excerpt-only scan would have published it.
+
+That run also exposed an over-redaction: the assigned-secret pattern ran past the key and ate the next log line, because inside a JSON payload a newline is the two characters `\n`, not whitespace. Fixed by stopping the value at a backslash; real secrets carry none.
+
+**The daily sequence works.** Three runs produced `-001-`, `-002-`, `-003-` on the same date.
+
+**The archive criterion does not pass, and is not a reviewer problem.** The outcome record exists at `$TMPDIR/se-flow/<runId>/outcome.json`, but nothing copies the `proof-artifacts` manifest into that directory. Tracked as the artifact-archiving item in `docs/issues/2026-08-14-004-...`.
+
+**The dead-leg criterion is unit-verified only.** `classifyDisposition` and `parseReviewerVerdict` cover it, and `run-1786704301055` demonstrated the guard path for real when the reviewer leg itself failed — the catch recorded a no-verdict row and cleanup still released the worktree and the repo lock. No live run has yet killed a *block* leg mid-stream.
+
+One path was never reached: clean success with no issue file. The reviewer legitimately found an actionable optimization on every green run of this fixture — on `run-1786704670473` it noticed the repo's implementation-ready plan was never implemented while the flow still reported green. Correct behaviour, but it means the no-file branch stays unit-tested only.
+
 ### Section 5 — regression: PASSED, 2026-08-14
 
 `run-1786700241899` on a fresh `make-pipeline-fixture.sh` repo. Verdict green, branch `se/fixture-reverse-plan-00241899`, 2,351,100 tokens, ~$1.46. The baseline run before any of this work, `run-1786539437958` on the same fixture, was also green at ~$1.46 — same verdict, same cost, same shape.
@@ -141,8 +159,19 @@ The pipeline did real work rather than passing vacuously: the branch adds `src/r
 
 One waive was needed, for a cause outside this plan: the opencode review leg reported status `findings`, which is absent from the terminal-status allowlist, so a healthy leg carrying a well-formed P3 was counted as failed and the gate degraded. Tracked in `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`. It is not a regression — the baseline run's leg happened to say `completed`, a word that is on the list.
 
-### Section 6 — skill deployment: PARTIAL, 2026-08-14
+### Section 6 — skill deployment: PASSED, 2026-08-14
 
-`se blocks --json` from the deployed copy emits the 13-block catalog, and the new `publishes` flag reads true for `pr`, confirming the scan-before-publish invariant reached the live tree. `se flow <spec> --dry-run` assembles the workflow input and prints the command without launching, on a five-block bug-shaped spec.
+`se blocks --json` from the deployed copy emits the 13-block catalog, and the new `publishes` flag reads true for `pr`, confirming the scan-before-publish invariant reached the live tree.
 
-**The second pass criterion is not met.** The dry-run prints only `FLOW_REPO` and the `smithers up` command line. It does not print the ordered block list with the summed cost estimate that R10 requires and that U5 assigns to the flow printout. The feature is absent, not broken — `se flow` has no printout code. Section 6 cannot be closed until it exists.
+`se flow <spec> --dry-run` now prints the ordered block list with its cost estimate and launches nothing, which closes the criterion this section was previously blocked on. On a two-block spec with one agent leg:
+
+```
+flow: cost estimate probe
+2 blocks, estimated ~$20, up to ~$40 if every block exhausts its retries
+   1. fix   work         agent          ~$20
+   2. scan  secret-scan  compute        ~$0
+```
+
+The retry-ceiling total is the useful half — it is what an operator needs before approving a launch, and a per-block estimate alone hides it.
+
+The printout also validates the spec and refuses to print an invalid one, exiting non-zero with the validator's errors. A spec missing explicit `retries`/`timeoutMs` was rejected before launch during this session's testing, which is the intended behaviour: printing a plan for a flow that gate-0 would refuse would promise a launch that cannot start.

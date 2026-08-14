@@ -1,5 +1,5 @@
 ---
-title: se flow epilog is partial — no artifact archive, no publication scan, stub reviewer, four features absent
+title: se flow epilog is partial — no artifact archive, no publication scan of the outcome record, four features absent
 type: bug
 date: 2026-08-14
 status: in-progress
@@ -53,16 +53,26 @@ Verified by execution: `run-1786703798413`, a three-block compute spec chained b
 
 ### Two more epilog gaps
 
-- **No publication-time secret scan** (KTD13b). The epilog writes the outcome record with a plain `fs.writeFileSync`. Nothing scans the record, the issue text, or a PR body before it is written or pushed.
-- **The terminal reviewer is a stub** (R14, R15, U6). The `reviewer` epilog node is a deterministic compute task calling `classifyDisposition`; it is not the agent block the plan specifies, and `issue-writer.ts` is never called from anywhere in `se-flow.tsx`. No run can produce a `docs/issues/` file. Section 3's entire pass criterion is that an injected failure yields one, so section 3 cannot pass until this exists.
+- **No publication-time secret scan of the outcome record or a PR body** (KTD13b). The epilog writes `outcome.json` with a plain `fs.writeFileSync` and nothing scans it first. Issue text is now covered — `writeIssueFile` redacts before writing, verified live in `run-1786704594258` — but the outcome record and the PR body are not.
+
+### The terminal reviewer was a stub — FIXED in `cae6a61`
+
+The `reviewer` epilog node was a deterministic compute task that only restated block statuses, and `issue-writer.ts` was called from nowhere. It is now an epilog-slot agent leg that returns a cause analysis, with a deterministic task rendering and writing the `docs/issues/` file. The agent never writes the file, so KTD13 redaction stays enforced by code.
+
+Two structural rules came out of the first live run and are worth keeping in mind for any other agent leg in an epilog:
+
+- The verdict rides inside the `{report: string}` wrapper, not as the agent's raw output shape. A raw shape turns a malformed model response into an `INVALID_OUTPUT` task failure rather than a parseable no-verdict row.
+- Work that must happen even when an agent leg dies belongs OUTSIDE that leg's `TryCatchFinally`. Issue writing was originally inside the try branch, so it was skipped exactly when the reviewer died — on runs that most owe the operator an issue.
+
+Section 3 of the host checklist now passes on three of four criteria; see its Results entry.
 
 ## Scope
 
-- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the epilog, the missing budget node, the missing artifact copy, the missing secret scan, the stub reviewer.
+- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the missing budget node, the missing artifact copy, the missing scan of the outcome record.
 - `home/private_dot_claude/dot_smithers/bin/executable_se` — `se flow salvage`.
-- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 3 stays unrunnable until the reviewer writes an issue file. Section 4 stays unrunnable for its salvage, budget and `artifactsFrom` scenarios; scenario 4.1 (hard-kill and resume) became runnable once the stall was fixed.
+- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 3 passes on three of four criteria; its archive criterion waits on artifact archiving. Section 4 stays unrunnable for its salvage, budget and `artifactsFrom` scenarios; scenario 4.1 (hard-kill and resume) became runnable once the stall was fixed.
 
 ## Open decisions
 
-- **Whether the reviewer stays a compute classifier or becomes the agent block** the plan specifies. The compute version cannot write a cause analysis, which is what R15 asks for; the agent version costs a leg on every run, including clean ones.
+- **What the reviewer leg should cost.** Settled for now as sonnet with a $3 ceiling, because it runs on every flow including clean ones; observed legs took 30-45s. Revisit if a large flow's reviewer starts approaching the cap.
 - **Whether a build-time check can catch reserved-field and schema errors** so the next one is not found by a failed launch. A test that merely imports and instantiates the workflow would have caught the reserved-field one. It would not have caught the `bind={undefined}` park, which only appears once a node is scheduled — that class still needs a live compute-only smoke run.
