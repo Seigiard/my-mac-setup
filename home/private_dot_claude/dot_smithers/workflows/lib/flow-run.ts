@@ -169,3 +169,39 @@ function sortedReplacer(): (key: string, value: unknown) => unknown {
     return value;
   };
 }
+
+export interface PrBodyBlockStatus {
+  blockId: string;
+  block: string;
+  status: string;
+}
+
+// R11: the PR body embeds the spec and the run's recorded status, so a reviewer
+// who opens the PR sees what was asked for and what happened without going to
+// the Smithers state directory.
+//
+// The status list is a snapshot taken when the `pr` block runs, not the final
+// outcome record — the record is written in the epilog, which by definition has
+// not happened yet while a block is still executing. Saying "so far" in the body
+// is the honest framing; claiming to embed a final record would not be.
+export function formatPrBody(runId: string, specJson: string, blocks: PrBodyBlockStatus[]): string {
+  const rows = blocks.length > 0
+    ? blocks.map((b) => `| \`${b.blockId}\` | ${b.block} | ${b.status} |`).join("\n")
+    : "| — | — | no block had recorded a status when the PR was opened |";
+  return `Opened by se-flow run \`${runId}\`.
+
+## Block status so far
+
+| Block | Kind | Status |
+|---|---|---|
+${rows}
+
+The run's terminal outcome record and artifact archive are written by the epilog, after this PR opens; they live under the Smithers state directory keyed by this run id.
+
+## Flow spec
+
+\`\`\`json
+${specJson}
+\`\`\`
+`;
+}

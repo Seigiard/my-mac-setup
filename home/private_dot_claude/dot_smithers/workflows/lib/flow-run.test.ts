@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { FlowBlock, FlowSpec } from "./flow-spec.ts";
-import { blockNodeId, canonicalSpecJson, dispatchableBlocks, dispatchNodeId, formatFlowPlan, needsWorkspace, specHash, topoOrder } from "./flow-run.ts";
+import { blockNodeId, canonicalSpecJson, dispatchableBlocks, dispatchNodeId, formatFlowPlan, formatPrBody, needsWorkspace, specHash, topoOrder } from "./flow-run.ts";
 
 function fb(over: Partial<FlowBlock> & { id: string; block: string }): FlowBlock {
   return { input: {}, retries: 0, timeoutMs: 1000, after: [], bindTo: [], waive: "none", ...over };
@@ -194,5 +194,28 @@ describe("formatFlowPlan (R10)", () => {
     const out = formatFlowPlan("a task", blocks, lookup);
     expect(out).toContain("mystery");
     expect(out).toContain("UNKNOWN BLOCK");
+  });
+});
+
+describe("formatPrBody", () => {
+  const blocks = [
+    { blockId: "fix", block: "work", status: "green" },
+    { blockId: "scan", block: "secret-scan", status: "failed" },
+  ];
+
+  test("embeds the spec and every recorded block status (R11)", () => {
+    const body = formatPrBody("run-1", '{"task":{"description":"d"}}', blocks);
+    expect(body).toContain('{"task":{"description":"d"}}');
+    expect(body).toContain("| `fix` | work | green |");
+    expect(body).toContain("| `scan` | secret-scan | failed |");
+  });
+
+  test("says the outcome record comes later rather than implying it is embedded", () => {
+    // #given the epilog has not run when the pr block opens the PR
+    expect(formatPrBody("run-1", "{}", blocks)).toContain("written by the epilog, after this PR opens");
+  });
+
+  test("a PR opened before any block recorded says so instead of showing an empty table", () => {
+    expect(formatPrBody("run-1", "{}", [])).toContain("no block had recorded a status");
   });
 });

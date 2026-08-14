@@ -33,11 +33,11 @@ import * as path from "node:path";
 import { validateFlowSpec } from "./lib/flow-validate.ts";
 import { buildRegistry } from "./lib/blocks/index.ts";
 import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects.ts";
-import { blockNodeId, dispatchableBlocks, dispatchNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
+import { blockNodeId, canonicalSpecJson, dispatchableBlocks, dispatchNodeId, formatPrBody, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
 import { redactSecretsInText, shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
-import { copyArtifacts, planArtifactArchive, type BlockPayload } from "./lib/archive.ts";
+import { copyArtifacts, inboundPromptNote, parseArchiveManifest, planArtifactArchive, planInboundDelivery, type BlockPayload } from "./lib/archive.ts";
 import { agentCapUsd, aggregateUsage, evaluateBudget, readRunUsage } from "./lib/cost.ts";
 import { makeFlowReviewerAgent } from "./lib/agents.ts";
 import type { SubflowRunContext } from "./lib/block-registry.ts";
@@ -96,6 +96,9 @@ const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers
   setup: z.object({ exitCode: z.number() }),
   budget: z.object({ spentUsd: z.number(), breached: z.boolean() }),
   approval: approvalDecisionSchema,
+  // R9: what a prior run's archive actually handed over. `skipped` is kept so a
+  // handoff that silently delivered nothing is visible in the run.
+  inbound: z.object({ source: z.string(), delivered: z.array(z.object({ name: z.string(), path: z.string() })), skipped: z.array(z.string()) }),
   // flowRunId, not runId: smithers reserves runId/nodeId/iteration as internal
   // columns on every persisted node output and refuses a schema that shadows
   // them. The engine raises this at workflow construction, which `bun build`
@@ -176,6 +179,12 @@ export default smithers((ctx) => {
         </Task>,
       );
     }
+    // R9/AE4: a prior run's artifacts are copied into this worktree before any
+    // block runs, so a block that needs them finds them on disk rather than
+    // being told an archive exists somewhere.
+    if (staged && spec.artifactsFrom) {
+      children.push(renderInboundDelivery(spec.artifactsFrom, staged.worktreePath));
+    }
   }
 
   // Spec-driven block loop. Each block renders under a deterministic `b:<id>`
@@ -189,6 +198,11 @@ export default smithers((ctx) => {
     runId,
     validateCmd: (input.validateCmd ?? "").trim(),
     validateTimeoutMs: input.validateTimeoutMs,
+    // R11: composed here so the `pr` block publishes the spec and the run's
+    // status, not a bare run id. prEffect redacts it again at the push
+    // boundary — composing and publishing are different moments, and only the
+    // second one is irreversible.
+    prBody: formatPrBody(runId, canonicalSpecJson(spec), blockOutcomes(ctx, ordered)),
   };
   const subflowRun = {
     worktreePath,
@@ -197,7 +211,12 @@ export default smithers((ctx) => {
     validateCmd: (input.validateCmd ?? "").trim(),
     validateTimeoutMs: input.validateTimeoutMs,
   };
-  const readyGate = workspaceNeeded ? staged : gate0;
+  // Blocks wait for the handoff: dispatching an agent before its evidence
+  // landed would spend a leg on a worktree that is missing the very files the
+  // spec asked to hand over.
+  const inboundPending = workspaceNeeded && spec.artifactsFrom !== null && ctx.outputMaybe("inbound", { nodeId: INBOUND_NODE }) === undefined;
+  const inboundNote = inboundPromptNote(deliveredInbound(ctx));
+  const readyGate = (workspaceNeeded ? staged : gate0) && !inboundPending;
   if (readyGate) {
     // KTD9: spend is measured after every block, and a breach PARKS the run for
     // an operator ack instead of killing it. One ack per run: a second Approval
@@ -206,7 +225,7 @@ export default smithers((ctx) => {
     const budgetApproved = ctx.outputMaybe("approval", { nodeId: BUDGET_APPROVAL_NODE })?.approved === true;
     let approvalRendered = false;
     for (const { block, bindNodeIds } of dispatchableBlocks(ordered, (id) => blockRowNodeId(ctx as CtxLike, id))) {
-      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, bindNodeIds));
+      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, bindNodeIds, inboundNote));
       children.push(renderBudgetTask(block.id, runId, input.budgetUsd));
       const breached = ctx.outputMaybe("budget", { nodeId: budgetNodeId(block.id) })?.breached === true;
       if (breached && !approvalRendered) {
@@ -233,6 +252,35 @@ export default smithers((ctx) => {
 });
 
 const BUDGET_APPROVAL_NODE = "approve-budget";
+const INBOUND_NODE = "inbound-artifacts";
+
+// R9/AE4: copy a prior run's published artifacts into this run's worktree. The
+// spec names the archive; the validator has already confirmed it exists, so a
+// missing record here is a real failure rather than a bad spec.
+function renderInboundDelivery(artifactsFrom: string, worktreePath: string): unknown {
+  return (
+    <Task id={INBOUND_NODE} output={outputs.inbound} retries={0}>
+      {() => {
+        const recordPath = artifactsFrom.endsWith(".json") ? artifactsFrom : path.join(artifactsFrom, "outcome.json");
+        if (!fs.existsSync(recordPath)) {
+          throw new Error(`artifactsFrom "${artifactsFrom}" has no outcome record at ${recordPath} — the archive exists but publishes nothing (KTD10)`);
+        }
+        const result = copyArtifacts(planInboundDelivery(parseArchiveManifest(fs.readFileSync(recordPath, "utf8")), worktreePath));
+        return {
+          source: recordPath,
+          delivered: result.copied.map((e) => ({ name: e.name, path: e.destination })),
+          skipped: result.skipped.map((s) => `${s.path}: ${s.reason}`),
+        };
+      }}
+    </Task>
+  );
+}
+
+function deliveredInbound(ctx: unknown): { blockId: string; name: string; source: string; destination: string }[] {
+  const row = (ctx as CtxLike).outputMaybe("inbound", { nodeId: INBOUND_NODE });
+  const delivered = (row?.delivered ?? []) as Array<{ name: string; path: string }>;
+  return delivered.map((d) => ({ blockId: "inbound", name: d.name, source: d.path, destination: d.path }));
+}
 
 function budgetNodeId(blockId: string): string {
   return `budget:${blockId}`;
@@ -318,6 +366,7 @@ function renderBlock(
   effectCtx: ComputeEffectContext,
   subflowRun: SubflowRunContext,
   bindNodeIds: string[],
+  inboundNote: string,
 ): unknown {
   const def = registry.get(block.block);
   const nodeId = blockNodeId(block.id);
@@ -379,7 +428,7 @@ function renderBlock(
               retries={block.retries}
               {...bindProps}
             >
-              {def.buildPrompt(parsedInput.data)}
+              {`${def.buildPrompt(parsedInput.data)}${inboundNote}`}
             </Task>
             {reported ? classifyTask(ctx, block, def, nodeId, agentNodeId) : null}
           </Sequence>

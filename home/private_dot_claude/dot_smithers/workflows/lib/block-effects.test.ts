@@ -321,6 +321,33 @@ describe("pr effect", () => {
     };
   }
 
+  test("a secret in the PR title or body never reaches gh (KTD13b)", () => {
+    // #given a title and body that both carry a planted credential
+    const sent: string[][] = [];
+    const ctx = ctxFor(makeRepo(), {
+      gh: (args) => {
+        sent.push(args);
+        const key = `${args[0]} ${args[1]}`;
+        if (key === "auth status") return { status: 0, stdout: "", stderr: "" };
+        if (key === "pr view") return { status: 1, stdout: "", stderr: "" };
+        return { status: 0, stdout: "https://example.test/pr/1", stderr: "" };
+      },
+      push: () => ({ ok: true, stderr: "" }),
+      prBody: "context: GITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 and more",
+    });
+
+    // #when the PR is created
+    const out = runComputeEffect("pr", { title: "fix AKIAIOSFODNN7EXAMPLE leak" }, ctx) as { result: string; redactionHits: string[] };
+
+    // #then no argument handed to gh contains either literal secret
+    const flat = sent.flat().join(" ");
+    expect(flat).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+    expect(flat).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(flat).toContain("[REDACTED]");
+    expect(out.redactionHits.length).toBeGreaterThan(0);
+    expect(out.result).toBe("opened");
+  });
+
   test("unauthenticated gh → unauthenticated result, red gate", () => {
     const ctx = ctxFor(makeRepo(), { gh: stubGh({ "auth status": { status: 1 } }), push: () => ({ ok: true, stderr: "" }) });
     const out = runComputeEffect("pr", { title: "t" }, ctx) as { result: string };

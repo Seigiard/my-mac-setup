@@ -12,6 +12,7 @@ import * as path from "node:path";
 
 import { gitHead, runValidateCmd, secretScanDiff, type SecretScanResult } from "./envelopes.ts";
 import { commitWorkGuarded, treeHash, type StagedWorktree } from "./staging.ts";
+import { redactSecretsInText } from "./issue-writer.ts";
 
 export type GhRunner = (args: string[], cwd: string) => { status: number | null; stdout: string; stderr: string };
 export type PushRunner = (branch: string, cwd: string) => { ok: boolean; stderr: string };
@@ -155,38 +156,48 @@ function isInside(root: string, candidate: string): boolean {
 // PR embedding the secret-scanned body. Every failure mode is classified, never
 // silent: unauthenticated gh, a rejected push, and an already-open PR each map
 // to a distinct result the gateFn reads.
-function prEffect(input: unknown, ctx: ComputeEffectContext): { result: "opened" | "exists" | "unauthenticated" | "push-rejected"; url: string | null } {
+function prEffect(input: unknown, ctx: ComputeEffectContext): { result: "opened" | "exists" | "unauthenticated" | "push-rejected"; url: string | null; redactionHits: string[] } {
   const gh = ctx.gh ?? defaultGh;
-  const title = (input as { title?: string })?.title ?? `se-flow run ${ctx.runId}`;
   const draft = (input as { draft?: boolean })?.draft ?? false;
 
+  // KTD13(b): the last redaction before content leaves the machine. Title and
+  // body are scanned HERE rather than only where they are composed, because
+  // this is the boundary — everything upstream can be changed by a later edit,
+  // and a PR body cannot be unpublished once `gh pr create` returns.
+  const rawTitle = (input as { title?: string })?.title ?? `se-flow run ${ctx.runId}`;
+  const rawBody = ctx.prBody ?? `se-flow run ${ctx.runId}`;
+  const scannedTitle = redactSecretsInText(rawTitle);
+  const scannedBody = redactSecretsInText(rawBody);
+  const title = scannedTitle.redacted;
+  const redactionHits = [...scannedTitle.hits, ...scannedBody.hits];
+
   if (gh(["auth", "status"], ctx.worktreePath).status !== 0) {
-    return { result: "unauthenticated", url: null };
+    return { result: "unauthenticated", url: null, redactionHits };
   }
 
   const pushed = (ctx.push ?? defaultPush)(ctx.branch, ctx.worktreePath);
   if (!pushed.ok) {
-    return { result: "push-rejected", url: null };
+    return { result: "push-rejected", url: null, redactionHits };
   }
 
   const existing = gh(["pr", "view", ctx.branch, "--json", "url", "-q", ".url"], ctx.worktreePath);
   if (existing.status === 0 && existing.stdout.trim()) {
-    return { result: "exists", url: existing.stdout.trim() };
+    return { result: "exists", url: existing.stdout.trim(), redactionHits };
   }
 
-  const args = ["pr", "create", "--title", title, "--body", ctx.prBody ?? `se-flow run ${ctx.runId}`, "--head", ctx.branch];
+  const args = ["pr", "create", "--title", title, "--body", scannedBody.redacted, "--head", ctx.branch];
   if (draft) args.push("--draft");
   const created = gh(args, ctx.worktreePath);
   if (created.status === 0) {
-    return { result: "opened", url: created.stdout.trim() || null };
+    return { result: "opened", url: created.stdout.trim() || null, redactionHits };
   }
   if (/already exists/i.test(created.stderr)) {
-    return { result: "exists", url: extractUrl(created.stderr) };
+    return { result: "exists", url: extractUrl(created.stderr), redactionHits };
   }
   if (/auth|login|gh auth/i.test(created.stderr)) {
-    return { result: "unauthenticated", url: null };
+    return { result: "unauthenticated", url: null, redactionHits };
   }
-  return { result: "push-rejected", url: null };
+  return { result: "push-rejected", url: null, redactionHits };
 }
 
 // Both network calls carry a hang guard. Without one a stalled gh or a push

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { ARTIFACT_SUBDIR, copyArtifacts, planArtifactArchive } from "./archive.ts";
+import { ARTIFACT_SUBDIR, INBOUND_SUBDIR, copyArtifacts, inboundPromptNote, parseArchiveManifest, planArtifactArchive, planInboundDelivery } from "./archive.ts";
 
 const allowAll = () => true;
 
@@ -103,5 +103,60 @@ describe("copyArtifacts", () => {
     // #then nothing is copied, nothing throws, and the reason is kept
     expect(result.copied).toEqual([]);
     expect(result.skipped[0].reason).toContain("copy failed");
+  });
+});
+
+describe("parseArchiveManifest", () => {
+  test("reads the artifacts a prior run published", () => {
+    const record = JSON.stringify({ artifacts: [{ blockId: "proof", name: "a.txt", path: "/arch/proof-a.txt" }] });
+    expect(parseArchiveManifest(record)).toEqual([{ blockId: "proof", name: "a.txt", path: "/arch/proof-a.txt" }]);
+  });
+
+  test("a record with no artifacts hands over nothing rather than throwing", () => {
+    expect(parseArchiveManifest(JSON.stringify({ record: {} }))).toEqual([]);
+    expect(parseArchiveManifest("{not json")).toEqual([]);
+  });
+
+  test("drops malformed entries instead of delivering an undefined path", () => {
+    const record = JSON.stringify({ artifacts: [{ name: "a" }, { blockId: "p", name: "b", path: "/x" }] });
+    expect(parseArchiveManifest(record)).toHaveLength(1);
+  });
+});
+
+describe("planInboundDelivery", () => {
+  test("addresses a prior run's artifacts into the new worktree", () => {
+    // #given an artifact that exists in the prior run's archive
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "inbound-test-"));
+    const source = path.join(dir, "proof-report.json");
+    fs.writeFileSync(source, "prior evidence");
+
+    // #when delivery into a new worktree is planned and run
+    const plan = planInboundDelivery([{ blockId: "proof", name: "report.json", path: source }], path.join(dir, "worktree"));
+    const result = copyArtifacts(plan);
+
+    // #then the file lands under the inbound subdirectory, content intact
+    expect(path.basename(path.dirname(result.copied[0].destination))).toBe(INBOUND_SUBDIR);
+    expect(fs.readFileSync(result.copied[0].destination, "utf8")).toBe("prior evidence");
+  });
+
+  test("an artifact the prior record names but no longer exists is skipped, not silently dropped", () => {
+    const plan = planInboundDelivery([{ blockId: "proof", name: "gone", path: "/nope/gone" }], "/worktree");
+    expect(plan.entries).toEqual([]);
+    expect(plan.skipped[0].reason).toContain("no longer exists");
+  });
+});
+
+describe("inboundPromptNote", () => {
+  test("names every delivered artifact and marks the contents untrusted", () => {
+    // #given one artifact was handed over
+    const note = inboundPromptNote([{ blockId: "proof", name: "report.json", source: "/a", destination: "/w/.se-flow-inbound/proof-report.json" }]);
+
+    // #then the leg is told where it is and not to follow it
+    expect(note).toContain("/w/.se-flow-inbound/proof-report.json");
+    expect(note).toContain("untrusted data");
+  });
+
+  test("no handoff means no note, so an ordinary prompt is unchanged", () => {
+    expect(inboundPromptNote([])).toBe("");
   });
 });

@@ -149,7 +149,7 @@ const pr: ComputeBlockDefinition = {
   kind: "compute",
   purpose: "Push the run-id branch through the pre-push guard and open a PR embedding spec + outcome record (R11/KTD11/KTD13).",
   inputSchema: z.object({ title: z.string(), draft: z.boolean().default(false) }),
-  outputSchema: z.object({ result: z.enum(["opened", "exists", "unauthenticated", "push-rejected"]), url: z.string().nullish() }),
+  outputSchema: z.object({ result: z.enum(["opened", "exists", "unauthenticated", "push-rejected"]), url: z.string().nullish(), redactionHits: z.array(z.string()).default([]) }),
   inputSchemaId: HANDOFF_IN,
   outputSchemaId: HANDOFF_OUT,
   external: false,
