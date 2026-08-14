@@ -2,6 +2,7 @@
 title: Dynamic Flow Composition — Host Verification Checklist
 type: feat
 date: 2026-08-13
+status: open
 topic: dynamic-flow-composition
 artifact_contract: operator-checklist/v1
 artifact_readiness: operator-checklist

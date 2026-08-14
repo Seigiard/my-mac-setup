@@ -2,6 +2,7 @@
 title: Verify-Doc Blocking Gate on P0 Findings - Plan
 type: feat
 date: 2026-07-24
+status: done
 origin: docs/plans/2026-07-24-001-feat-verify-doc-blocking-gate-requirements.md
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

@@ -1,3 +1,11 @@
+---
+title: Handoff — se-pipeline migration to Smithers 0.28
+type: handoff
+date: 2026-07-16
+status: superseded
+superseded-by: docs/se-pipeline.md
+---
+
 # Handoff — se-pipeline миграция на Smithers 0.28 (U9)
 
 **Дата:** 2026-07-16. **Для:** следующего агента, продолжающего U9.

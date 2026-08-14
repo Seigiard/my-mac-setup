@@ -1,3 +1,11 @@
+---
+title: Verify-Doc Blocking Gate — Requirements
+type: requirements
+date: 2026-07-24
+status: superseded
+superseded-by: docs/plans/2026-07-24-002-feat-verify-doc-blocking-gate-plan.md
+---
+
 ## Context
 
 se-pipeline (durable smithers spine in `my-mac-setup`, `home/private_dot_claude/dot_smithers/workflows/`) has two review stages with asymmetric gate power:

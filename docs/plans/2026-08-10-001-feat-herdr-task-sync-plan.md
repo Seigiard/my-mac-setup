@@ -2,6 +2,7 @@
 title: Herdr Agent Task Sync - Plan
 type: feat
 date: 2026-08-10
+status: done
 topic: herdr-task-sync
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

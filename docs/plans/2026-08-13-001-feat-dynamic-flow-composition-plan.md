@@ -2,6 +2,7 @@
 title: Dynamic Flow Composition for se-pipeline - Plan
 type: feat
 date: 2026-08-13
+status: done
 topic: dynamic-flow-composition
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

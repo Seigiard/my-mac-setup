@@ -2,6 +2,7 @@
 title: se-pipeline Batch 5 — Plan Provenance and Approval Rescan - Plan
 type: feat
 date: 2026-07-16
+status: done
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 product_contract_source: ce-plan-bootstrap

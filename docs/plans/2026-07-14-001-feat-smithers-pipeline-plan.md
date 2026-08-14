@@ -2,6 +2,7 @@
 title: Smithers Pipeline (хребет se-pipeline) - Plan
 type: feat
 date: 2026-07-14
+status: done
 topic: smithers-pipeline
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

@@ -2,6 +2,7 @@
 title: se-simplify stage + se-work doc-review fork - Plan
 type: feat
 date: 2026-07-27
+status: done
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 product_contract_source: user-directed
