@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate } from "./gates.ts";
+import { codeReviewGate, describeValidateFailure, docReviewGate, planGate, rescanGate, workGate } from "./gates.ts";
 
 const validPlan = `---
 title: Fixture - Plan
@@ -207,6 +207,41 @@ describe("workGate (KTD3, KTD14 tree-hash proof)", () => {
   test("стадия без конверта → failed (сразу Approval per KTD5)", () => {
     const r = workGate({ raw: undefined, baseTree, headTree, validateExitCode: null });
     expect(r.state).toBe("failed");
+  });
+
+  test("exit 127 из-за отсутствующего раннера назван как отсутствующий раннер, а не как упавший тест", () => {
+    // #given ровно тот вывод, который закрыл gate-work на run-1786717826270
+    const output = "$ vitest run --config scripts/vitest.config.ts\n/bin/bash: vitest: command not found\n";
+
+    // #when
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 127, validateOutput: output });
+
+    // #then причина называет бинарь и путь к починке
+    expect(r.state).toBe("failed");
+    const reason = r.reasons.join(" ");
+    expect(reason).toContain('"vitest" is not installed');
+    expect(reason).toContain("--setup-cmd");
+  });
+});
+
+describe("describeValidateFailure", () => {
+  test("обычный ненулевой код остаётся прежней формулировкой", () => {
+    expect(describeValidateFailure(2)).toBe("validate-cmd exited with code 2");
+  });
+
+  test("127 от таймаута не выдаётся за отсутствующую команду", () => {
+    // #given runValidateCmd возвращает 127 и при убийстве группы по таймауту
+    const msg = describeValidateFailure(127, "partial output\nterminated (timeout or signal)");
+
+    // #then
+    expect(msg).toContain("terminated before it finished");
+    expect(msg).not.toContain("not installed");
+  });
+
+  test("127 без вывода не утверждает причину, которой не видел", () => {
+    const msg = describeValidateFailure(127);
+    expect(msg).toContain("could not run");
+    expect(msg).not.toContain("not installed");
   });
 });
 

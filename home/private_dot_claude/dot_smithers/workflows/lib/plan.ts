@@ -20,6 +20,10 @@ const STANDALONE_RUNNERS = new Set(["tsc", "pytest", "jest"]);
 // worktree and trip the work gate's clean-tree check).
 const FORBID_SIGNALS = ["storybook", "--watch", ":watch", " dev", "serve", "start", "playwright", "e2e", "fix", "format", " vrt"];
 
+// `- cmd`, `* cmd`, `+ cmd`, `1. cmd`, `1) cmd` — a markdown list marker plus a
+// space. The trailing space matters: `--flag` and `-1` are not list markers.
+const LIST_ITEM = /^([-*+]|\d+[.)])\s+/;
+
 function backtickSpans(text: string): string[] {
   const spans: string[] = [];
   const re = /`([^`]+)`/g;
@@ -61,8 +65,12 @@ export function extractValidateCmd(markdown: string): string | null {
     seen.add(cmd);
     commands.push(cmd);
   };
-  // Two shapes in the wild: table rows with backticked commands (fixture
-  // plans) and fenced shell blocks (ce-plan writes the contract as ```bash).
+  // Three shapes in the wild: table rows with backticked commands (fixture
+  // plans), fenced shell blocks (ce-plan writes the contract as ```bash), and
+  // bullet/ordered list items with inline backticks (hand-written plans). A
+  // bare PARAGRAPH stays excluded on purpose: prose carries backticked
+  // identifiers, and run-1784823010502 poisoned its gate by deriving `(test)`
+  // from the sentence "script is `e2e`, not `test`".
   let inFence = false;
   let fenceIsShell = false;
   for (const line of section.split("\n")) {
@@ -80,8 +88,10 @@ export function extractValidateCmd(markdown: string): string | null {
       if (fenceIsShell && cmd !== "" && !cmd.startsWith("#")) keep(cmd);
       continue;
     }
-    if (!line.trimStart().startsWith("|")) continue; // table rows only
-    if (/^\s*\|[\s|:-]+\|?\s*$/.test(line)) continue; // separator row
+    const isTableRow = trimmed.startsWith("|");
+    const isListItem = LIST_ITEM.test(trimmed);
+    if (!isTableRow && !isListItem) continue;
+    if (isTableRow && /^\s*\|[\s|:-]+\|?\s*$/.test(line)) continue; // separator row
     for (const span of backtickSpans(line)) keep(span);
   }
   if (commands.length === 0) return null;

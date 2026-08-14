@@ -33,6 +33,10 @@ export interface WorkGateInput {
   baseTree: string;
   headTree: string;
   validateExitCode: number | null;
+  // Stdout+stderr of the validate-cmd, read only to tell "the runner is not
+  // installed" apart from "the tests failed" — both exit non-zero, and 127
+  // alone reads as a test failure to anyone who has not memorised shell codes.
+  validateOutput?: string;
 }
 
 export interface CodeReviewGateInput {
@@ -124,6 +128,24 @@ export function docReviewGate(output: DocReviewStageOutput | undefined): GateRes
   return { state: "green", reasons, p1Count };
 }
 
+// bash reports a missing executable as `<shell>: <line>: <name>: command not
+// found` and exits 127. runValidateCmd also returns 127 when it kills the
+// command group on timeout, so the two are told apart by the output, never by
+// the code alone.
+const COMMAND_NOT_FOUND = /([^\s:]+):\s*command not found/i;
+
+export function describeValidateFailure(exitCode: number, output?: string): string {
+  if (exitCode !== 127) return `validate-cmd exited with code ${exitCode}`;
+  const missing = output === undefined ? null : COMMAND_NOT_FOUND.exec(output);
+  if (missing) {
+    return `validate-cmd could not run: "${missing[1]}" is not installed in the run worktree (exit 127) — this is a missing runner, not a failing test. A fresh worktree has no node_modules; provision it with --setup-cmd, or name a runner the package manager resolves`;
+  }
+  if (output !== undefined && output.includes("terminated (timeout or signal)")) {
+    return "validate-cmd was terminated before it finished (timeout or signal, reported as exit 127) — raise --validate-timeout-ms or scope the command narrower";
+  }
+  return "validate-cmd could not run (exit 127: command not found, or terminated before it started)";
+}
+
 export function workGate(input: WorkGateInput): GateResult {
   if (input.raw === undefined) {
     return { state: "failed", reasons: ["work stage produced no envelope (crash or timeout) — straight to Approval per KTD5"] };
@@ -153,7 +175,7 @@ export function workGate(input: WorkGateInput): GateResult {
   if (input.validateExitCode === null) {
     reasons.push("validate-cmd was not executed — agent self-report is not ground truth (KTD3)");
   } else if (input.validateExitCode !== 0) {
-    reasons.push(`validate-cmd exited with code ${input.validateExitCode}`);
+    reasons.push(describeValidateFailure(input.validateExitCode, input.validateOutput));
   }
   return reasons.length > 0 ? { state: "failed", reasons } : { state: "green", reasons: [] };
 }
@@ -241,7 +263,7 @@ export function rescanGate(input: RescanGateInput): GateResult {
     return { state: "failed", reasons: [`validate-cmd was not executed on the moved HEAD${headInfo} — agent self-report is not ground truth (KTD3)`] };
   }
   if (report.validateExitCode !== 0) {
-    return { state: "failed", reasons: [`validate-cmd exited with code ${report.validateExitCode} on the moved HEAD${headInfo}`] };
+    return { state: "failed", reasons: [`${describeValidateFailure(report.validateExitCode)} on the moved HEAD${headInfo}`] };
   }
   return { state: "green", reasons: [`operator commits rescanned clean${headInfo}`] };
 }

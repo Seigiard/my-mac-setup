@@ -24,6 +24,7 @@ import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory 
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
+import { missingRunnerMessage, probeValidateCmd, shellQuote } from "./lib/validate-probe.ts";
 import {
   acquireRepoLock,
   cleanupSnapshot,
@@ -51,6 +52,10 @@ import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 // is safe.
 const seDocReviewSubflow = seDocReview as unknown as WorkflowDefinition<unknown>;
 const seSimplifySubflow = seSimplify as unknown as WorkflowDefinition<unknown>;
+
+// One `command -v` under a login shell. Generous because the login shell may
+// source a slow profile, but far below any real validate-cmd budget.
+const PROBE_TIMEOUT_MS = 30_000;
 
 const inputSchema = z.object({
   planPath: z.string().describe("Absolute path to the implementation-ready ce-unified-plan/v1 plan (read from the launcher, not the worktree — KTD11)."),
@@ -100,6 +105,7 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
   gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   setup: z.object({ exitCode: z.number() }),
+  probe: z.object({ probed: z.string(), skipped: z.boolean() }),
   docReview: docReviewSchema,
   // Mirror of se-simplify.tsx outputSchema (KTD-B) — only the fields the
   // pipeline reads are declared; smithers persists declared columns.
@@ -269,6 +275,7 @@ export default smithers((ctx) => {
   const gate0 = ctx.outputMaybe("gate0", { nodeId: "gate0" });
   const staged = ctx.outputMaybe("staging", { nodeId: "staging" });
   const setupOut = ctx.outputMaybe("setup", { nodeId: "setup" });
+  const probeOut = ctx.outputMaybe("probe", { nodeId: "probe" });
 
   // ProofBinding chain (R1/KTD-A/KTD-B): digest the persisted gate-0 output row
   // (the plan-hash authority) and bind the expensive legs to it. The engine
@@ -507,7 +514,29 @@ export default smithers((ctx) => {
   }
   const setupReady = setupCmd === "" || setupOut !== undefined;
 
-  if (gate0 && staged && setupReady) {
+  // Validate-cmd preflight: resolve the command's head words in the staged
+  // worktree BEFORE the work agent is dispatched. A fresh worktree has no
+  // node_modules, so a runner installed by the package manager is absent and
+  // the work gate closes on exit 127 after a full agent leg has been paid for
+  // (run-1786717826270). Runs after setup, which may be what installs it.
+  if (gate0 && staged && setupReady && !probeOut && gate0.validateCmd.trim() !== "") {
+    children.push(
+      <Task id="probe" output={outputs.probe} retries={0}>
+        {() => {
+          const resolves = (head: string): boolean =>
+            runValidateCmd(`command -v -- ${shellQuote(head)} >/dev/null 2>&1`, staged.worktreePath, PROBE_TIMEOUT_MS).exitCode === 0;
+          const report = probeValidateCmd(gate0.validateCmd, resolves);
+          if (report.missing.length > 0) {
+            throw new Error(missingRunnerMessage(gate0.validateCmd, report.missing));
+          }
+          return { probed: report.probed.join(" "), skipped: report.skipped };
+        }}
+      </Task>,
+    );
+  }
+  const probeReady = gate0 === undefined || gate0.validateCmd.trim() === "" || probeOut !== undefined;
+
+  if (gate0 && staged && setupReady && probeReady) {
     // verify-doc is CONDITIONAL (R7): only `se-review-and-work` (docReview:true)
     // runs plan-review before work. `se-work` (default docReview:false) binds
     // work directly to gate0. When the stage is absent, docGreen passes through
@@ -574,7 +603,7 @@ export default smithers((ctx) => {
         }
         const headTree = treeHash(staged.worktreePath);
         const validate = raw === undefined ? null : runValidateCmd(gate0.validateCmd, staged.worktreePath, gate0.validateTimeoutMs);
-        const result = workGate({ raw, baseTree, headTree, validateExitCode: validate === null ? null : validate.exitCode });
+        const result = workGate({ raw, baseTree, headTree, validateExitCode: validate === null ? null : validate.exitCode, validateOutput: validate?.output });
         if (validate !== null && validate.exitCode !== 0) {
           result.reasons.push(`validate-cmd output tail: ${validate.output.slice(-500)}`);
         }

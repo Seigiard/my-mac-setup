@@ -2,7 +2,8 @@
 title: The Verification Contract parser reads only tables and fenced blocks, so a bullet-list contract refuses the run at gate 0
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 ---
 
 # The Verification Contract parser reads only two of the three shapes plans use
@@ -36,4 +37,28 @@ Note what must NOT change with it: a bare paragraph is not a command source. Pro
 
 ## Open decisions
 
-- Whether a plan whose contract exists but yields no commands should refuse (today's behaviour) or fall back to a louder error naming the shapes it accepts. The refusal is correct; the message is what leaves the operator guessing.
+- Whether a plan whose contract exists but yields no commands should refuse (today's behaviour) or fall back to a louder error naming the shapes it accepts. The refusal is correct; the message is what leaves the operator guessing. Still open — carried into `docs/issues/2026-08-14-014-plan-format-contract.md`.
+
+## Resolution
+
+List items are now a command source alongside table rows and fenced shell blocks. `extractValidateCmd` recognises a leading `-`, `*`, `+`, `1.` or `1)` followed by whitespace (`LIST_ITEM` in `home/private_dot_claude/dot_smithers/workflows/lib/plan.ts`) and reads that line's backticked spans through the same `keep` filter the other two shapes use. A bare paragraph is still skipped.
+
+The issue's own repro, run against the new code:
+
+```
+$ cd home/private_dot_claude/dot_smithers && bun -e '
+const { extractValidateCmd } = await import("./workflows/lib/plan.ts");
+console.log(extractValidateCmd("## Verification Contract\n\n- Run `bun run test:scripts` before merging.\n"));'
+(bun run test:scripts)
+```
+
+The prose-poisoning case that motivated the paragraph exclusion was re-checked in both positions and still yields nothing:
+
+```
+"The script is `e2e`, not `test`."   -> null   (paragraph: not a command source)
+"- The script is `e2e`, not `test`." -> null   (list item read, runner filter rejects it)
+```
+
+Five tests added in `plan.test.ts` (bullet, ordered/star/plus markers, paragraph prose, list prose, `--flag` not mistaken for a marker). Suite: 419 pass, 0 fail. Runbook updated with the three accepted shapes and the reason a paragraph is excluded (`docs/se-pipeline.md`).
+
+Not addressed here: the filter's own unsoundness, which decides whether an extracted command survives. That is `docs/issues/2026-08-14-010-validate-cmd-filter-is-unsound-in-both-directions.md`, and this change widens what reaches it.

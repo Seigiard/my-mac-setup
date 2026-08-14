@@ -2,7 +2,8 @@
 title: A fresh run worktree has no installed dependencies, so any JS validate-cmd fails with exit 127
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 ---
 
 # A fresh run worktree has no dependencies, so the work gate fails on a missing binary
@@ -33,3 +34,40 @@ This is not the same defect as the empty worktree recorded in `docs/issues/2026-
 - **Or provision by default.** If the target repo has a lockfile, the obvious setup-cmd is derivable (`bun install`, `npm ci`, `pnpm install --frozen-lockfile`). Deriving it removes the footgun but spends install time on every run, including runs whose validate-cmd needs nothing.
 - **Or make the launcher ask.** `se pipeline` could refuse a JS-looking validate-cmd with no `--setup-cmd`, naming the flag. Cheapest to build, and it puts the decision where the operator already is.
 - **Separately: exit 127 deserves its own gate reason.** "validate-cmd exited with code 127" reads as a test failure to anyone who has not memorised shell exit codes. The gate should say the command was not found and name the missing binary.
+
+## Resolution
+
+Both halves shipped: a preflight probe that refuses before the work leg, and a gate reason that names the missing binary when a run gets there anyway.
+
+**The probe.** A new `probe` node runs in the staged worktree right after `setup` and before the work agent is dispatched (`home/private_dot_claude/dot_smithers/workflows/se-pipeline.tsx`). Its classification lives in `home/private_dot_claude/dot_smithers/workflows/lib/validate-probe.ts`: `splitSegments` cuts the validate-cmd on `&&`, `||`, `;`, `|`, newline and subshell parens while respecting quotes; `segmentHead` strips leading environment assignments and takes each segment's first word; `probeValidateCmd` asks the injected resolver about every head. The resolver is `command -v` executed through `runValidateCmd`, the same login-shell wrapper the real validate-cmd runs under, so what the probe sees is what the gate would see. A missing head throws with `missingRunnerMessage`, which names the binary and both escape routes (`--setup-cmd`, a package-manager-resolved `--validate-cmd`).
+
+Ordering matters and is deliberate: the probe runs *after* `setup`, because `--setup-cmd` is what installs the runner.
+
+False positives were the design risk, and the probe refuses only what it is sure about. A head containing a variable, a command substitution, a glob or a quoted span is unreadable statically and is skipped. A command that provisions itself is not judged at all — `selfProvisioning` looks for `install`/`ci`/`sync`/`bootstrap`/`setup`/`build`/`compile`/`restore` in any segment, or a `make` head — because `bun install && vitest run` has no `vitest` at probe time and a working command must not be refused.
+
+Verified against the real failing command from `run-1786717826270`, through the real shell wrapper:
+
+```
+$ cd home/private_dot_claude/dot_smithers && bun -e '
+const { runValidateCmd } = await import("./workflows/lib/envelopes.ts");
+const { probeValidateCmd, shellQuote } = await import("./workflows/lib/validate-probe.ts");
+const os = await import("node:os");
+const resolves = (h) => runValidateCmd(`command -v -- ${shellQuote(h)} >/dev/null 2>&1`, os.tmpdir(), 30000).exitCode === 0;
+for (const cmd of ["vitest run --config scripts/vitest.config.ts", "bun test", "bun install && vitest run", "(bun test) && (tsc)"])
+  console.log(JSON.stringify(cmd), "->", JSON.stringify(probeValidateCmd(cmd, resolves)));'
+
+"vitest run --config scripts/vitest.config.ts" -> {"probed":["vitest"],"missing":["vitest"],"skipped":false}   10ms
+"bun test"                                     -> {"probed":["bun"],"missing":[],"skipped":false}              8ms
+"bun install && vitest run"                    -> {"probed":[],"missing":[],"skipped":true}                    0ms
+"(bun test) && (tsc)"                          -> {"probed":["bun","tsc"],"missing":[],"skipped":false}        15ms
+```
+
+Ten milliseconds against forty minutes and one paid work leg.
+
+**The gate reason.** `describeValidateFailure` in `home/private_dot_claude/dot_smithers/workflows/lib/gates.ts` replaces the bare exit-code string. `WorkGateInput` gained `validateOutput`, read for one purpose: telling a missing runner apart from a failing test. On 127 with `command not found` in the output it names the binary and points at `--setup-cmd`. `runValidateCmd` also returns 127 when it kills the command group on timeout, so that case is detected by its own marker and reported as a termination, not as a missing binary — and 127 with no output claims neither. The rescan gate reuses the same helper.
+
+**What was not built.** The launcher-side refusal (`se pipeline` rejecting a JS-looking validate-cmd with no `--setup-cmd`) was dropped: the probe subsumes it and is strictly better informed, because it inspects the worktree after provisioning rather than guessing from the command string. Deriving a setup command from a lockfile was also dropped — it spends install time on every run, including runs that need none, and the probe makes the missing case loud enough that the operator can add the flag in one round trip.
+
+Suite: 419 pass, 0 fail (18 new in `validate-probe.test.ts`, 4 in `gates.test.ts`). All five workflows still construct (`workflow-construction.test.ts`), and `bunx smithers-orchestrator graph workflows/se-pipeline.tsx` loads with the new `probe` output key. Runbook updated (`docs/se-pipeline.md`, validate-cmd section).
+
+Uncovered: no live pipeline run has executed the probe node yet. The classification and the resolver are proven by the trace above; the node's placement in the graph is proven by construction only.

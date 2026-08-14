@@ -144,6 +144,46 @@ describe("extractValidateCmd: fenced-блоки", () => {
   });
 });
 
+describe("extractValidateCmd: списки", () => {
+  test("bullet-пункт с инлайновой командой в бэктиках извлекается", () => {
+    // #given contract написан списком — третья форма в дикой природе
+    const md = "## Verification Contract\n\n- Run `bun run test:scripts` before merging.\n";
+
+    // #when
+    const cmd = extractValidateCmd(md);
+
+    // #then
+    expect(cmd).toBe("(bun run test:scripts)");
+  });
+
+  test("нумерованный и звёздочный маркеры читаются так же", () => {
+    const md = "## Verification Contract\n\n1. `bun test`\n2) `tsc`\n* `bun run lint`\n+ `pytest`\n";
+    expect(extractValidateCmd(md)).toBe("(bun test) && (tsc) && (bun run lint) && (pytest)");
+  });
+
+  test("голый параграф командой не считается — прозаический `test` не отравляет гейт", () => {
+    // #given формулировка, которая испортила гейт run-1784823010502
+    const md = "## Verification Contract\n\nThe script is `e2e`, not `test`.\n";
+
+    // #when
+    const cmd = extractValidateCmd(md);
+
+    // #then параграф не источник команд
+    expect(cmd).toBe(null);
+  });
+
+  test("тот же прозаический текст внутри списка тоже не даёт команды", () => {
+    // #given список читается, но фильтр раннеров всё ещё работает
+    const md = "## Verification Contract\n\n- The script is `e2e`, not `test`.\n";
+    expect(extractValidateCmd(md)).toBe(null);
+  });
+
+  test("`--flag` в бэктиках не путается с маркером списка", () => {
+    const md = "## Verification Contract\n\n--watch is forbidden; use `bun test`.\n";
+    expect(extractValidateCmd(md)).toBe(null);
+  });
+});
+
 describe("extractValidateCmd (contract heading nested below H2)", () => {
   test("finds an H3 contract and stops at the next H3 sibling — Sources globs never read as commands", () => {
     // #given the shape that killed a real gate-0: the contract nested under
