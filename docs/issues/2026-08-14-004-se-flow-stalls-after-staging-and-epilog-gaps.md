@@ -1,16 +1,18 @@
 ---
-title: se flow stalls after staging without running any block, and the epilog is partial
+title: se flow epilog is partial — no artifact archive, no publication scan, stub reviewer, four features absent
 type: bug
 date: 2026-08-14
-status: open
+status: in-progress
 parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 ---
 
-# se flow stalls after staging without running any block, and the epilog is partial
+# se flow epilog is partial, and four features the checklist assumes are absent
 
 ## Why this exists
 
-Host verification section 4 could not be executed. Attempting it surfaced one blocker and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` are blocked on the same set.
+Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
+
+Both blockers are now fixed and `se flow` runs end to end. What remains open is the epilog and the four absent features, recorded below.
 
 ### The interpreter had never run at all
 
@@ -25,15 +27,22 @@ smithers reserves `runId`, `nodeId` and `iteration` as internal columns on every
 
 Worth noting for anything else built this way: `bun build` cannot catch this class of error. It resolves the module graph without type-checking and never instantiates the workflow, so a green build says nothing about whether a run can start. Every claim of "the interpreter is structurally complete, its module graph resolves" rested on exactly that check.
 
-### It now starts, and stalls
+### It stalled after staging — FIXED in `56801e1`
 
-`run-1786702018234`, a compute-only spec of three blocks (`commit-work` → `run-validate` → `secret-scan`) against a throwaway fixture repo:
+`run-1786702018234` reached `waiting-event` right after `staging`, rendered no block, wrote no `block_output` row, and did not advance on resume. `error_json` was empty.
 
-- `gate0` completes.
-- `staging` completes — the worktree and run branch `se/interpreter-resume-probe-02018234` are created.
-- The run then enters `waiting-event` and never renders a block. The `block_output` table has no rows for the run. A `smithers up --resume` does not advance it; it returns to `waiting-event`.
+The cause was neither of the two leads first recorded here. The smithers engine arms proof verification on the **presence** of a Task's `bind` prop, not its value — `@smithers-orchestrator/graph`'s `extract.js` tests `Object.hasOwn(raw, "bind")`, and its own comment says to "omit the prop entirely". `se-flow.tsx` passed `bind={undefined}` for every block with no `bindTo` edges. That armed verification with zero proofs, parking the node as `waiting-bound` and the run as `waiting-event`, permanently and silently.
 
-Not diagnosed. The render adds block children under `readyGate = workspaceNeeded ? staged : gate0`, and `staged` should be populated on the tick after staging. Two things to look at first: the launcher logs `Each child in a list should have a unique "key" prop. Check the render method of Sequence`, so the children arrays may not be well formed for the scheduler; and the agent and subflow branches place a bare `null` inside a `<Sequence>` when the dispatch row is not yet present, which may not be a legal child.
+`smithers why <runId>` names it in one line and should be the first command run against any `waiting-event` park: *"The Task declared `bind={undefined}`; produce the authority row, then resume the run."*
+
+Two further findings from the same fix, both now closed:
+
+- `ctx.prove` returns `undefined` for a row that does not exist yet (`driver/src/SmithersCtx.js:392`), so binding to a not-yet-produced block was the same trap. Blocks are now withheld from the render until every `bindTo` target has a durable row.
+- A block whose task threw records its verdict under the guard's `-crashed` node. No reader knew about that node, so a crashed block looked un-run forever and the epilog would never render.
+
+The `Each child in a list should have a unique "key" prop` warning is unrelated and benign — `se-pipeline.tsx` emits it too and has always run correctly.
+
+Verified by execution: `run-1786703798413`, a three-block compute spec chained by `bindTo`, finished with all blocks and the full epilog. It is the first `se flow` run to complete end to end.
 
 ### Four features the checklist assumes, which are not written
 
@@ -49,12 +58,11 @@ Not diagnosed. The render adds block children under `readyGate = workspaceNeeded
 
 ## Scope
 
-- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the stall, the epilog, the missing budget node, the missing artifact copy, the missing secret scan, the stub reviewer.
+- `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the epilog, the missing budget node, the missing artifact copy, the missing secret scan, the stub reviewer.
 - `home/private_dot_claude/dot_smithers/bin/executable_se` — `se flow salvage`.
-- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — sections 2, 3 and 4 stay unrunnable until the above lands.
+- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 3 stays unrunnable until the reviewer writes an issue file. Section 4 stays unrunnable for its salvage, budget and `artifactsFrom` scenarios; scenario 4.1 (hard-kill and resume) became runnable once the stall was fixed.
 
 ## Open decisions
 
-- **Diagnose the stall before building anything else.** Every other item is unverifiable while no block executes, so this is the only ordering that lets a fix be proven rather than asserted.
 - **Whether the reviewer stays a compute classifier or becomes the agent block** the plan specifies. The compute version cannot write a cause analysis, which is what R15 asks for; the agent version costs a leg on every run, including clean ones.
-- **Whether a build-time check can catch reserved-field and schema errors** so the next one is not found by a failed launch. A test that merely imports and instantiates the workflow would have caught this one.
+- **Whether a build-time check can catch reserved-field and schema errors** so the next one is not found by a failed launch. A test that merely imports and instantiates the workflow would have caught the reserved-field one. It would not have caught the `bind={undefined}` park, which only appears once a node is scheduled — that class still needs a live compute-only smoke run.
