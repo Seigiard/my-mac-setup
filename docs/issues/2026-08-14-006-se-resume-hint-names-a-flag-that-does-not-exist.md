@@ -2,7 +2,8 @@
 title: se resume's hint tells the operator to use --force true, a flag se resume does not have
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 ---
 
 # se resume's hint names a flag that does not exist
@@ -33,3 +34,25 @@ If the flag is added, keep the heartbeat warning in the help text. Force-resumin
 ## Open decisions
 
 None.
+
+## Resolution
+
+`se resume <runId> --force` now exists, in `cmd_resume`. The flag is parsed after the run id and forwarded to both routes, `se-flow.tsx` and `se-pipeline.tsx`; an unrecognised option is rejected instead of being swallowed.
+
+The old hint was wrong twice over, not once. `smithers up --help` shows the engine's flag is a bare `--force` switch that takes no value, so `--force true` would have been wrong syntax even against the engine directly. The rewritten hint names the two paths that work — wait and retry, or `se resume <id> --force` — keeps the warning about a live owner, and prints only when `--force` was not already given.
+
+Verified live rather than by reading the code. `run-1786714513439` was SIGKILLed while its middle block was executing, and both resume paths were tried inside the same heartbeat window:
+
+```
+SIGKILL sent to 57616 at 1786714515
+plain resume: rc=1 after 1s
+code: RUN_STILL_RUNNING
+message: "Run is still actively running: run-1786714513439. Use --force to resume anyway."
+forced resume: rc=0 after 141s
+```
+
+The plain resume is the control: one second after the kill it was refused, which is the whole reason the flag is needed. The forced resume was issued about a second later, deep inside the 30-45 second window where the plain path refuses, and it was accepted — the 141 seconds is how long the resumed run took to finish, not a wait before acceptance. A rejection returns in under a second, as the control shows.
+
+Resume stayed correct under the flag: `b:check` attempt 1 `cancelled`, attempt 2 `finished` under the same node id, and every block completed before the kill kept attempt 1 with no re-execution. Run status `finished`.
+
+Docs updated in `docs/se-pipeline.md`: the command list and the resume notes now carry the flag and the do-not-force-a-live-owner warning. `make lint` clean.

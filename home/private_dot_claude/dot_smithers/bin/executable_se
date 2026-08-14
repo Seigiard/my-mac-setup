@@ -77,7 +77,11 @@ Commands:
   approve <runId>      approve a paused run (continue past the gate)
   deny <runId>         deny a paused run (onDeny: fail)
   abort <runId>        hard-stop a run (smithers cancel)
-  resume <runId>       resume a run (smithers up --run-id <id> --resume true)
+  resume <runId> [--force]
+                       resume a run (smithers up --run-id <id> --resume true).
+                       --force resumes a run still marked running: use it only
+                       for a run whose owner process is dead, never to hurry a
+                       live one — two engines on one run corrupt its state
   --help               show this help
 
 Environment:
@@ -388,9 +392,23 @@ cmd_show() {
 
 cmd_resume() {
   local run_id=$1
+  shift
+  # --force maps to smithers' bare `--force` switch, which resumes a run still
+  # marked running. It is the escape hatch for a run whose owner was killed:
+  # the state row still says running until the dead owner's heartbeat expires
+  # (~30-45s), and a plain resume refuses for that whole window. The engine
+  # takes no value after the flag.
+  local force=""
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --force) force="--force"; shift ;;
+      *) usage_die "resume: unknown option $1" ;;
+    esac
+  done
+
   require_runtime_dir
   if dry_run; then
-    print_smithers_cmd up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true
+    print_smithers_cmd up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true ${force:+"$force"}
     return 0
   fi
   cd "$SMITHERS_DIR"
@@ -415,9 +433,9 @@ cmd_resume() {
   # not the command that happens to be resuming it.
   local rc=0
   if [[ $workflow_path == *se-flow.tsx ]]; then
-    FLOW_REPO="$repo" "$SMITHERS_BIN" up "$FLOW_WORKFLOW" --run-id "$run_id" --resume true || rc=$?
+    FLOW_REPO="$repo" "$SMITHERS_BIN" up "$FLOW_WORKFLOW" --run-id "$run_id" --resume true ${force:+"$force"} || rc=$?
   else
-    PIPELINE_REPO="$repo" DOC_REVIEW_REPO="$repo" "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true || rc=$?
+    PIPELINE_REPO="$repo" DOC_REVIEW_REPO="$repo" "$SMITHERS_BIN" up "$PIPELINE_WORKFLOW" --run-id "$run_id" --resume true ${force:+"$force"} || rc=$?
   fi
   # exit 3 = the resumed run advanced and paused again at an Approval gate — a
   # normal outcome, NOT a resume failure. Anything else is a real failure.
@@ -428,7 +446,9 @@ cmd_resume() {
   if [[ $rc -ne 0 ]]; then
     {
       echo "se: resume failed for $run_id (exit $rc)"
-      echo "se: hint: force-resuming a killed run needs '--force true', and smithers refuses while the dead owner's heartbeat is still fresh (~30-45s) — wait and retry."
+      if [[ -z $force ]]; then
+        echo "se: hint: a run whose owner was killed still reads as running until the heartbeat expires (~30-45s). Either wait and retry, or run 'se resume $run_id --force'. Do not force a run whose owner is alive."
+      fi
       echo "se: suggested command from 'smithers why $run_id':"
       "$SMITHERS_BIN" why "$run_id" || true
     } >&2

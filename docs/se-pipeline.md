@@ -294,6 +294,7 @@ se approve <runId>     # красный гейт: продолжить (semantic
 se deny <runId>        # красный гейт: уронить прогон
 se abort <runId>       # жёсткая остановка
 se resume <runId>      # продолжить после паузы/падения процесса
+se resume <runId> --force  # то же для убитого прогона, не ожидая протухания heartbeat
 ```
 
 Семантика `approve` по гейтам (KTD3):
@@ -314,8 +315,11 @@ se resume <runId>      # продолжить после паузы/падени
 Особенности resume:
 
 - Убитый прогон резюмится `se resume <runId>`; если smithers отвечает
-  `RUN_STILL_RUNNING` — heartbeat мёртвого owner'а ещё свеж, подожди 30–45 с;
-  `se resume` печатает подсказку и вывод `smithers why`.
+  `RUN_STILL_RUNNING` — heartbeat мёртвого owner'а ещё свеж. Либо подожди
+  30–45 с и повтори, либо пропусти ожидание через `se resume <runId> --force`.
+  Форсировать можно только прогон с мёртвым процессом-владельцем: два движка
+  на одном прогоне портят его состояние. `se resume` печатает подсказку и
+  вывод `smithers why`.
 - Правка исходников workflow между запуском и resume даёт
   `RESUME_METADATA_MISMATCH`. Лечится флагом: `smithers up
   workflows/se-pipeline.tsx --run-id <id> --resume true
