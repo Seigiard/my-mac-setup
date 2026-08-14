@@ -114,12 +114,39 @@ export function topoOrder(blocks: FlowBlock[]): FlowBlock[] {
   return order;
 }
 
-// KTD12: a block's bind-proof targets are the engine node ids of its declared
-// dependency edges (`bindTo`), replacing hand-written fallback chains. The
-// interpreter feeds these to ctx.prove so a mutated upstream row parks the run
-// (BOUND_STALE) instead of dispatching against stale data.
-export function bindProofTargets(block: FlowBlock): string[] {
-  return block.bindTo.map(blockNodeId);
+export interface DispatchableBlock {
+  block: FlowBlock;
+  bindNodeIds: string[];
+}
+
+// KTD12: a block binds to the engine node ids of its `bindTo` edges, so a
+// mutated upstream row parks the run (BOUND_STALE) instead of dispatching
+// against stale data. Which blocks may be rendered at all is decided here.
+//
+// A target with no durable row yet cannot be proved, and ctx.prove returns
+// undefined for it. Handing that undefined to a Task's `bind` does not make the
+// engine wait — it parks the node as waiting-bound and the run as
+// waiting-event, with an empty error and no path forward. So an unready block
+// is withheld from the render until its authority rows exist.
+//
+// Withholding STOPS the list rather than skipping the block: bindTo targets are
+// `after`-ancestors (flow-validate's bind-unreachable invariant) and `ordered`
+// is a topological order, so no block past an unready one may legally run.
+export function dispatchableBlocks(
+  ordered: FlowBlock[],
+  rowNodeId: (blockId: string) => string | undefined,
+): DispatchableBlock[] {
+  const dispatchable: DispatchableBlock[] = [];
+  for (const block of ordered) {
+    const bindNodeIds: string[] = [];
+    for (const target of block.bindTo) {
+      const nodeId = rowNodeId(target);
+      if (nodeId === undefined) return dispatchable;
+      bindNodeIds.push(nodeId);
+    }
+    dispatchable.push({ block, bindNodeIds });
+  }
+  return dispatchable;
 }
 
 // Canonical spec serialization: keys sorted recursively so the hash is

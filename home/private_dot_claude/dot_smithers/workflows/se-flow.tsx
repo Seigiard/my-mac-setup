@@ -22,7 +22,7 @@
 // dispatch, PR open, kill/resume hash-stability) is exercised by the plan's
 // live fixture flow, which requires a running Smithers daemon and is not run in
 // a headless build.
-import { createSmithers, Subflow, TryCatchFinally } from "smithers-orchestrator";
+import { createSmithers, Subflow, TryCatchFinally, type ProofBinding } from "smithers-orchestrator";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
 import { z } from "zod/v4";
 import * as fs from "node:fs";
@@ -32,7 +32,7 @@ import * as path from "node:path";
 import { validateFlowSpec } from "./lib/flow-validate.ts";
 import { buildRegistry } from "./lib/blocks/index.ts";
 import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects.ts";
-import { bindProofTargets, blockNodeId, dispatchNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
+import { blockNodeId, dispatchableBlocks, dispatchNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { classifyDisposition, type BlockOutcome, type OutcomeRecord } from "./lib/reviewer.ts";
 import type { SubflowRunContext } from "./lib/block-registry.ts";
@@ -68,7 +68,7 @@ const SUBFLOW_WORKFLOWS: Record<string, WorkflowDefinition<unknown>> = {
 };
 
 interface CtxLike {
-  prove: (o: unknown, opts: { nodeId: string }) => unknown;
+  prove: (o: unknown, opts: { nodeId: string }) => ProofBinding | undefined;
   outputMaybe: (key: string, opts: { nodeId: string }) => Record<string, unknown> | undefined;
 }
 
@@ -131,7 +131,10 @@ export default smithers((ctx) => {
 
   const gate0 = ctx.outputMaybe("gate0", { nodeId: "gate0" });
   const staged = ctx.outputMaybe("staging", { nodeId: "staging" });
+  // Same presence-not-value rule as the block binds below: spread the prop so a
+  // missing gate0 row cannot arm verification with nothing to verify.
   const gate0Proof = ctx.prove(outputs.gate0, { nodeId: "gate0" });
+  const gate0BindProps = gate0Proof === undefined ? {} : { bind: gate0Proof };
 
   const children: unknown[] = [
     // Fixed prolog: spec provenance (gate0 role). Refuses launch on an invalid
@@ -145,7 +148,7 @@ export default smithers((ctx) => {
   // no worktree. The conditionality is computed here, never spec-expressible.
   if (workspaceNeeded && gate0) {
     children.push(
-      <Task id="staging" output={outputs.staging} retries={0} bind={gate0Proof}>
+      <Task id="staging" output={outputs.staging} retries={0} {...gate0BindProps}>
         {() => {
           const getState: GetRunState = () => undefined;
           const branch = runBranchName(spec.task.description, runId);
@@ -187,15 +190,15 @@ export default smithers((ctx) => {
   const budgetUsd = input.budgetUsd ?? 0;
   const readyGate = workspaceNeeded ? staged : gate0;
   if (readyGate) {
-    for (const block of ordered) {
-      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, budgetUsd));
+    for (const { block, bindNodeIds } of dispatchableBlocks(ordered, (id) => blockRowNodeId(ctx as CtxLike, id))) {
+      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, budgetUsd, bindNodeIds));
     }
   }
 
   // Fixed epilog on every exit path (KTD2/KTD10): outcome record + artifact
   // archive, terminal reviewer slot (U6, cannot block cleanup), cleanup + lock
   // release. Timeout-bounded; the reviewer reads only the durable record.
-  const allBlocksRecorded = ordered.every((b) => ctx.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) }) !== undefined);
+  const allBlocksRecorded = ordered.every((b) => blockRowNodeId(ctx as CtxLike, b.id) !== undefined);
   if (readyGate && (allBlocksRecorded || anyBlockFailed(ctx, ordered))) {
     children.push(renderEpilog(ctx, spec, ordered, worktreePath, repoPath, workspaceNeeded, runId));
   }
@@ -206,6 +209,23 @@ export default smithers((ctx) => {
     </Workflow>
   );
 });
+
+// A block's durable verdict lives under its own node id, or — when its task
+// threw and the guard caught — under the guard's crash node. Both rows are the
+// block's verdict, so every reader accepts either: bind resolution, epilog
+// readiness, and the outcome record. Reading only the plain node id would leave
+// a crashed block looking un-run forever, and the epilog would never render.
+function blockRowNodeId(ctx: CtxLike, blockId: string): string | undefined {
+  const nodeId = blockNodeId(blockId);
+  if (ctx.outputMaybe("blockOutput", { nodeId }) !== undefined) return nodeId;
+  const crashedNodeId = `${nodeId}-crashed`;
+  return ctx.outputMaybe("blockOutput", { nodeId: crashedNodeId }) !== undefined ? crashedNodeId : undefined;
+}
+
+function blockRow(ctx: CtxLike, blockId: string): Record<string, unknown> | undefined {
+  const nodeId = blockRowNodeId(ctx, blockId);
+  return nodeId === undefined ? undefined : ctx.outputMaybe("blockOutput", { nodeId });
+}
 
 // A block becomes an engine node keyed to its kind. Compute effect bodies reuse
 // the shared lib functions; agent blocks dispatch through the registered
@@ -218,12 +238,19 @@ function renderBlock(
   effectCtx: ComputeEffectContext,
   subflowRun: SubflowRunContext,
   budgetUsd: number,
+  bindNodeIds: string[],
 ): unknown {
   const def = registry.get(block.block);
   const nodeId = blockNodeId(block.id);
-  const bindTargets = bindProofTargets(block);
-  const proofs = bindTargets.map((target) => (ctx as CtxLike).prove(outputs.blockOutput, { nodeId: target }));
-  const bind = proofs.length > 0 ? proofs : undefined;
+  const proofs = bindNodeIds.map((target) => (ctx as CtxLike).prove(outputs.blockOutput, { nodeId: target }));
+  const bindings = proofs.filter((proof): proof is ProofBinding => proof !== undefined);
+  // Spread, never `bind={...}` with a possibly-undefined value: the engine arms
+  // proof verification on the PROP'S PRESENCE, not its value — graph/extract.js
+  // tests `Object.hasOwn(raw, "bind")`. So `bind={undefined}` arms verification
+  // with zero proofs, and the node parks as waiting-bound while the whole run
+  // parks as waiting-event, with an empty error and no way to resume. A block
+  // with no bindTo edges must not carry the prop at all.
+  const bindProps = bindings.length > 0 ? { bind: bindings } : {};
 
   // Runtime-parse the block's declared input (KTD14) — enforces
   // .refine()/.transform()/.nullish() semantics JSON Schema cannot express.
@@ -231,10 +258,16 @@ function renderBlock(
   // an agent leg is too expensive to spend on input the registry already
   // refused, and a silent skip would let the epilog read a missing block.
   const parsedInput = def ? def.inputSchema.safeParse(block.input) : { success: false as const };
-  if (!def || !parsedInput.success) {
-    const reason = def
-      ? `block "${block.id}" input failed runtime parse (KTD14)`
-      : `block "${block.block}" is not in the registry`;
+  if (!def || !parsedInput.success || bindings.length !== proofs.length) {
+    // A dropped proof is red, never a silent unbound dispatch: dispatchableBlocks
+    // withholds a block until every bindTo row exists, so a proof missing HERE
+    // means the authority row disappeared between that check and this render.
+    // Running the block anyway would spend it against data nothing vouches for.
+    const reason = !def
+      ? `block "${block.block}" is not in the registry`
+      : !parsedInput.success
+        ? `block "${block.id}" input failed runtime parse (KTD14)`
+        : `block "${block.id}" lost a bind-proof row between readiness and dispatch (KTD12)`;
     return (
       <Task id={nodeId} output={outputs.blockOutput} retries={0}>
         {() => ({ blockId: block.id, kind: def?.kind ?? "compute", status: "failed" as const, payloadJson: JSON.stringify({ reason }) })}
@@ -265,7 +298,7 @@ function renderBlock(
               output={outputs.agentReport}
               agent={def.makeAgent({ worktreePath: effectCtx.worktreePath, timeoutMs: block.timeoutMs, budgetUsd })}
               retries={block.retries}
-              bind={bind}
+              {...bindProps}
             >
               {def.buildPrompt(parsedInput.data)}
             </Task>
@@ -318,7 +351,7 @@ function renderBlock(
     <TryCatchFinally
       id={`guard-${block.id}`}
       try={
-        <Task id={nodeId} output={outputs.blockOutput} retries={block.retries} bind={bind}>
+        <Task id={nodeId} output={outputs.blockOutput} retries={block.retries} {...bindProps}>
           {() => {
             const payload = runComputeEffect(def.name, parsedInput.data, { ...effectCtx, validateTimeoutMs: block.timeoutMs });
             const gate = def.gateFn(payload);
@@ -393,8 +426,15 @@ function classifyTask(ctx: unknown, block: FlowBlock, def: { kind: string; gateF
 
 function anyBlockFailed(ctx: unknown, ordered: FlowBlock[]): boolean {
   return ordered.some((b) => {
-    const out = (ctx as { outputMaybe: (k: string, o: { nodeId: string }) => { status?: string } | undefined }).outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) });
+    const out = blockRow(ctx as CtxLike, b.id);
     return out !== undefined && out.status !== "green";
+  });
+}
+
+function blockOutcomes(ctx: unknown, ordered: FlowBlock[]): BlockOutcome[] {
+  return ordered.map((b) => {
+    const out = blockRow(ctx as CtxLike, b.id);
+    return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? "non-terminal" };
   });
 }
 
@@ -403,11 +443,7 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
     <Sequence>
       <Task id="outcome" output={outputs.outcome} retries={0}>
         {() => {
-          const c = ctx as { outputMaybe: (k: string, o: { nodeId: string }) => { status?: string; payloadJson?: string } | undefined };
-          const blocks: BlockOutcome[] = ordered.map((b) => {
-            const out = c.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) });
-            return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? "non-terminal" };
-          });
+          const blocks = blockOutcomes(ctx, ordered);
           const record: OutcomeRecord = { runId, blocks };
           const archiveDir = path.join(os.tmpdir(), "se-flow", runId);
           fs.mkdirSync(archiveDir, { recursive: true });
@@ -418,12 +454,7 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
       </Task>
       <Task id="reviewer" output={outputs.reviewerVerdict} retries={0}>
         {() => {
-          const c = ctx as { outputMaybe: (k: string, o: { nodeId: string }) => { status?: string } | undefined };
-          const blocks: BlockOutcome[] = ordered.map((b) => {
-            const out = c.outputMaybe("blockOutput", { nodeId: blockNodeId(b.id) });
-            return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? "non-terminal" };
-          });
-          const disposition = classifyDisposition({ runId: "epilog", blocks }, undefined);
+          const disposition = classifyDisposition({ runId: "epilog", blocks: blockOutcomes(ctx, ordered) }, undefined);
           return { actionableOptimization: disposition === "actionable-optimization", summary: disposition };
         }}
       </Task>

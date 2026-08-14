@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { FlowBlock, FlowSpec } from "./flow-spec.ts";
-import { bindProofTargets, blockNodeId, canonicalSpecJson, dispatchNodeId, formatFlowPlan, needsWorkspace, specHash, topoOrder } from "./flow-run.ts";
+import { blockNodeId, canonicalSpecJson, dispatchableBlocks, dispatchNodeId, formatFlowPlan, needsWorkspace, specHash, topoOrder } from "./flow-run.ts";
 
 function fb(over: Partial<FlowBlock> & { id: string; block: string }): FlowBlock {
   return { input: {}, retries: 0, timeoutMs: 1000, after: [], bindTo: [], waive: "none", ...over };
@@ -59,9 +59,53 @@ describe("topoOrder", () => {
   });
 });
 
-describe("bindProofTargets", () => {
-  test("maps bindTo edges to namespaced node ids", () => {
-    expect(bindProofTargets(fb({ id: "review", block: "cr", bindTo: ["fix", "scan"] }))).toEqual(["b:fix", "b:scan"]);
+describe("dispatchableBlocks", () => {
+  // Regression: ctx.prove returns undefined for a row that does not exist yet.
+  // Passing that undefined to a Task's bind parked the node as waiting-bound
+  // and the whole run as waiting-event, silently and permanently.
+  const chain = [
+    fb({ id: "scan", block: "secret-scan" }),
+    fb({ id: "fix", block: "work", after: ["scan"], bindTo: ["scan"] }),
+    fb({ id: "pr", block: "pr", after: ["fix"], bindTo: ["fix"] }),
+  ];
+
+  test("withholds a block whose bindTo target has no row yet", () => {
+    // #given no block has recorded a row
+    // #when the render asks which blocks it may dispatch
+    const dispatchable = dispatchableBlocks(chain, () => undefined);
+
+    // #then only the unbound first block is rendered
+    expect(dispatchable.map((d) => d.block.id)).toEqual(["scan"]);
+  });
+
+  test("maps bindTo edges to the node ids that hold the rows", () => {
+    // #given the first block has recorded its row
+    const dispatchable = dispatchableBlocks(chain, (id) => (id === "scan" ? "b:scan" : undefined));
+
+    // #then the bound block joins the render carrying its resolved target
+    expect(dispatchable.map((d) => d.block.id)).toEqual(["scan", "fix"]);
+    expect(dispatchable[1].bindNodeIds).toEqual(["b:scan"]);
+  });
+
+  test("binds to the guard's crash node when that is where the row landed", () => {
+    // #given the first block threw, so its verdict sits under the crash node
+    const dispatchable = dispatchableBlocks(chain, (id) => (id === "scan" ? "b:scan-crashed" : undefined));
+
+    // #then the dependent still dispatches, bound to the crash row
+    expect(dispatchable[1].bindNodeIds).toEqual(["b:scan-crashed"]);
+  });
+
+  test("stops at the first unready block rather than skipping past it", () => {
+    // #given the middle block has no row, but the last one somehow does
+    const dispatchable = dispatchableBlocks(chain, (id) => (id === "scan" ? "b:scan" : undefined));
+
+    // #then nothing past the unready block is rendered — after-order holds
+    expect(dispatchable.map((d) => d.block.id)).not.toContain("pr");
+  });
+
+  test("renders every block once all rows exist", () => {
+    const dispatchable = dispatchableBlocks(chain, (id) => `b:${id}`);
+    expect(dispatchable.map((d) => d.block.id)).toEqual(["scan", "fix", "pr"]);
   });
 });
 
