@@ -207,6 +207,8 @@ The pipeline did real work rather than passing vacuously: the branch adds `src/r
 
 One waive was needed, for a cause outside this plan: the opencode review leg reported status `findings`, which is absent from the terminal-status allowlist, so a healthy leg carrying a well-formed P3 was counted as failed and the gate degraded. Tracked in `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`. It is not a regression — the baseline run's leg happened to say `completed`, a word that is on the list.
 
+Re-run after `se-pipeline.tsx` was folded onto the shared run-usage reader (issue 005, commit `050d421`): `run-1786712975751`, verdict green, branch `se/fixture-reverse-plan-12975751`, 2,860,152 tokens, ~$1.53, `bun test` on the branch 4 pass / 0 fail. No approval pause this time — the opencode leg happened to report a status already on the allowlist, so issue 002 did not fire. The cost figure is the point of this re-run: it now travels through `lib/cost.ts`, and a broken fold would fail soft to 0 tokens and $0 rather than to an error.
+
 ### Section 6 — skill deployment: PASSED, 2026-08-14
 
 `se blocks --json` from the deployed copy emits the 13-block catalog, and the new `publishes` flag reads true for `pr`, confirming the scan-before-publish invariant reached the live tree.

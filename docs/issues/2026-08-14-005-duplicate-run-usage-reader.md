@@ -2,7 +2,8 @@
 title: readRunUsage exists twice — shared in lib/cost.ts and private in se-pipeline.tsx
 type: chore
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 ---
 
 # readRunUsage exists twice
@@ -27,3 +28,15 @@ Preconditions for doing it: no pipeline run in `running` or `waiting-approval` (
 ## Open decisions
 
 None. This is a mechanical fold, deferred for cost rather than uncertainty.
+
+## Resolution
+
+Folded in commit `050d421`. `se-pipeline.tsx` now calls `readRunUsage` from `workflows/lib/cost.ts` and its private copy is gone.
+
+A second duplicate this issue did not name was folded at the same time: `se-flow.tsx` held the only production database opener, `openUsageDb`, privately. It moved into `lib/cost.ts` beside the reader it feeds, so both workflows and the unit tests share one code path. `se-flow.tsx` no longer imports `bun:sqlite`. Net change: 43 lines deleted.
+
+Preconditions were met before the edit: `se list` showed no run in `running` or `waiting-approval`, so no parked run's resume was invalidated by the module-graph change.
+
+Equivalence was checked against real data rather than by inspection. A scratch script ran the deleted reader, recovered verbatim from git, alongside the shared one over the live event log: 28 run ids plus one nonexistent id, zero mismatches in the aggregated result. Three new unit tests cover the opener itself against a real sqlite file, a zero-byte file, and a missing path; the library suite is 343 pass / 0 fail.
+
+The section 5 regression this issue required was re-run: `run-1786712975751`, verdict green, 2,860,152 tokens, ~$1.53, `bun test` on the run branch 4 pass / 0 fail. A non-zero cost figure is the load-bearing observation — the reader fails soft, so a broken fold would have reported 0 tokens and $0 instead of raising.
