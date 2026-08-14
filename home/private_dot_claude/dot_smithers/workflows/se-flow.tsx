@@ -90,7 +90,11 @@ const { Workflow, Task, Sequence, smithers, outputs } = createSmithers({
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   setup: z.object({ exitCode: z.number() }),
   budget: z.object({ spentUsd: z.number(), breached: z.boolean() }),
-  outcome: z.object({ runId: z.string(), recordPath: z.string(), archiveDir: z.string() }),
+  // flowRunId, not runId: smithers reserves runId/nodeId/iteration as internal
+  // columns on every persisted node output and refuses a schema that shadows
+  // them. The engine raises this at workflow construction, which `bun build`
+  // cannot see — it type-checks nothing and never instantiates the workflow.
+  outcome: z.object({ flowRunId: z.string(), recordPath: z.string(), archiveDir: z.string() }),
   reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string() }),
   // Generic per-block output.
   blockOutput: blockOutputSchema,
@@ -409,7 +413,7 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
           fs.mkdirSync(archiveDir, { recursive: true });
           const recordPath = path.join(archiveDir, "outcome.json");
           fs.writeFileSync(recordPath, JSON.stringify({ spec, record }, null, 2));
-          return { runId, recordPath, archiveDir };
+          return { flowRunId: runId, recordPath, archiveDir };
         }}
       </Task>
       <Task id="reviewer" output={outputs.reviewerVerdict} retries={0}>
