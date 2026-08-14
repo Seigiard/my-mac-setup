@@ -1,5 +1,5 @@
 ---
-title: The verify-doc advisory and waive path has no live coverage since it was rewritten
+title: The verify-doc waive path has no live coverage since it was rewritten
 type: follow-up
 date: 2026-08-14
 status: open
@@ -38,6 +38,29 @@ What to check when it finishes, beyond a green verdict:
 - Every review leg is counted `ok` unless it genuinely failed — the defect issue 002 fixed showed up as a needless approval pause with the leg's findings missing from the merged report.
 
 Preconditions: no run in `running` or `waiting-approval` (`se list`), because both commits change `se-pipeline.tsx`'s statically-imported module graph and a parked run's resume would be invalidated (KTD1).
+
+## What the live run covered
+
+`run-1786717031730`, a fresh `make-pipeline-fixture.sh` repo launched with `se pipeline docs/plans/fixture-reverse-plan.md --doc-review --validate-cmd 'bun test'`. Verdict green, branch `se/fixture-reverse-plan-17031730`, 3,611,544 tokens, ~$2.72. Delivery was done first and checked file by file: `diff -r` over the whole `workflows` directory and the `se` launcher reported no difference between the checkout and `~/.claude/.smithers`, and the deployed copy's own suite ran 373 pass / 0 fail.
+
+**The advisory block reached the work agent, stripped.** The run log carries the assembled prompt, and it contains the advisory header, the gate read line (`Gate read: verify-doc severity: claude maxSeverity=P2 P0=0 P1=0; opencode maxSeverity=P2 P0=0 P1=0`), and both legs' findings in full prose — the claude leg's P2 about `reverse` being unspecified for non-BMP characters is there verbatim. The whole log contains zero occurrences of `SEVERITY: {`. That absence is evidence rather than a vacuous pass: both envelope files on disk do carry the machine line, and both parsed to `maxSeverity=P2`, so the gate read it and the prompt did not.
+
+**The per-leg severity read reached the durable notes.** `summary.notes` begins `verify-doc severity: claude maxSeverity=P2 P0=0 P1=0; opencode maxSeverity=P2 P0=0 P1=0`.
+
+**The review-leg fix (issue `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`) was confirmed by an unforeseen synonym.** The opencode verify-code leg reported `status: "passed"` — a word that appears in no allowlist and had never been observed before. Both rules were evaluated on it:
+
+```
+status "complete": old allowlist -> ok,         new rule -> ok
+status "passed":   old allowlist -> FAILED LEG, new rule -> ok
+```
+
+The merged report records `{"claude":"ok","opencode":"ok"}` and the run finished with no approval pause. Under the old rule this run would have parked for an acknowledgement nobody needed, with the opencode leg's findings dropped from the merged report — the exact defect issue 002 described, reproduced live on a status word that was not part of the original evidence.
+
+## What the live run did NOT cover
+
+The waive path. The verify-doc gate went green (`p0Count: 0` on both legs), so no P0 was waived, `docReviewWaiveNote` never ran, and its behaviour after the change remains unproven — specifically that the durable excerpt in `summary.notes` carries the finding without a raw `SEVERITY:` line. Unit tests cover it; no live run does.
+
+This is the remaining scope of this issue, and it is why the issue stays open. The fixture plan is a small, well-formed feature spec, so a P0 from it is a matter of luck rather than design.
 
 ## Open decisions
 
