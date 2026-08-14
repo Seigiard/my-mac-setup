@@ -42,7 +42,7 @@ Commands:
                          is the default) and use `se logs <runId>` to follow.
                          Recover a cancelled run with `se resume <runId>`.
       Default is detached: prints the runId immediately and returns.
-  flow <spec.json> [--budget N] [--setup-cmd '<cmd>'] [--dry-run] [--attach]
+  flow <spec.json> [--budget N] [--setup-cmd '<cmd>'] [--validate-cmd '<cmd>'] [--dry-run] [--attach]
       Launch a composed flow spec through the static interpreter workflow
       (se-flow.tsx). Run from the target repository (becomes FLOW_REPO). The
       spec is operator-supplied data; command-bearing fields carry references,
@@ -50,6 +50,11 @@ Commands:
         --budget N       run cost ceiling in USD; a breach parks the run for an
                          operator ack, it never hard-kills (KTD9).
         --setup-cmd      worktree provisioning command for workspace-needing flows.
+        --validate-cmd   behavior check the run-validate block and the simplify
+                         subflow execute. It arrives here, never in the spec: a
+                         spec that names it would choose what "verified" means
+                         for its own run (KTD15). Omitted, run-validate records
+                         exitCode null and its gate fails closed.
         --dry-run        print the assembled input + command without launching.
   blocks [--json]      emit the composable block catalog the orchestrator
                        composes from (KTD6). --json is the default machine form.
@@ -415,14 +420,14 @@ cmd_resume() {
 }
 
 build_flow_input() {
-  local spec_path=$1 budget=$2 setup_cmd=$3
+  local spec_path=$1 budget=$2 setup_cmd=$3 validate_cmd=$4
   if command -v jq >/dev/null 2>&1; then
     jq -cn --arg specPath "$spec_path" --arg setupCmd "$setup_cmd" \
-      --argjson budgetUsd "$budget" \
-      '{specPath: $specPath, budgetUsd: $budgetUsd, setupCmd: $setupCmd}'
+      --arg validateCmd "$validate_cmd" --argjson budgetUsd "$budget" \
+      '{specPath: $specPath, budgetUsd: $budgetUsd, setupCmd: $setupCmd, validateCmd: $validateCmd}'
   else
-    printf '{"specPath":"%s","budgetUsd":%s,"setupCmd":"%s"}' \
-      "$(json_escape "$spec_path")" "$budget" "$(json_escape "$setup_cmd")"
+    printf '{"specPath":"%s","budgetUsd":%s,"setupCmd":"%s","validateCmd":"%s"}' \
+      "$(json_escape "$spec_path")" "$budget" "$(json_escape "$setup_cmd")" "$(json_escape "$validate_cmd")"
   fi
 }
 
@@ -447,7 +452,7 @@ cmd_blocks() {
 }
 
 cmd_flow() {
-  local spec="" budget="null" setup_cmd="" attach=0 local_dry=0
+  local spec="" budget="null" setup_cmd="" validate_cmd="" attach=0 local_dry=0
   while (($#)); do
     case $1 in
       --budget=*) budget=${1#--budget=} ;;
@@ -458,6 +463,10 @@ cmd_flow() {
       --setup-cmd)
         [[ $# -ge 2 ]] || usage_die "--setup-cmd requires a value"
         shift; setup_cmd=$1 ;;
+      --validate-cmd=*) validate_cmd=${1#--validate-cmd=} ;;
+      --validate-cmd)
+        [[ $# -ge 2 ]] || usage_die "--validate-cmd requires a value"
+        shift; validate_cmd=$1 ;;
       --dry-run) local_dry=1 ;;
       --attach) attach=1 ;;
       -h|--help) usage; return 0 ;;
@@ -476,7 +485,7 @@ cmd_flow() {
   local spec_abs repo input
   spec_abs="$(cd "$(dirname "$spec")" && pwd -P)/$(basename "$spec")"
   repo="$(pwd -P)"
-  input="$(build_flow_input "$spec_abs" "$budget" "$setup_cmd")"
+  input="$(build_flow_input "$spec_abs" "$budget" "$setup_cmd" "$validate_cmd")"
 
   local -a args=(up "$FLOW_WORKFLOW")
   ((attach)) || args+=(--detach)

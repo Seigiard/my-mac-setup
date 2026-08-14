@@ -1333,6 +1333,31 @@ PY
   assert_output --partial 'se-flow-spec-'
 }
 
+@test "se flow --validate-cmd lands the operator's command in the workflow input JSON" {
+  # The run-validate block and the simplify subflow read the command from the
+  # run, never from the spec. Without this flag the workflow default is empty
+  # and run-validate can only ever record exitCode null.
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local spec
+  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
+  run env "$se_bin" flow "$spec" --validate-cmd 'bun test' --dry-run
+  rm -f "$spec"
+  assert_success
+  assert_output --partial '"validateCmd":"bun test"'
+}
+
+@test "se flow without --validate-cmd sends an empty command, not a missing key" {
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local spec
+  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
+  run env "$se_bin" flow "$spec" --dry-run
+  rm -f "$spec"
+  assert_success
+  assert_output --partial '"validateCmd":""'
+}
+
 @test "se flow rejects a non-numeric budget" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
