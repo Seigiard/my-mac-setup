@@ -164,4 +164,33 @@ describe("stripSeverityLine", () => {
     const e = envelope(["Review complete"]);
     expect(stripSeverityLine(e)).toBe(e.trim());
   });
+
+  test("review prose that begins with SEVERITY: survives", () => {
+    // #given a finding that discusses the gate contract in its own prose
+    const prose = `SEVERITY: lines are the gate's input — the plan never says who emits them.`;
+    const e = envelope([prose, "", `SEVERITY: {"maxSeverity":"P1","p0Count":0,"p1Count":1}`, "Review complete"]);
+
+    // #when the envelope is prepared for the work prompt
+    const stripped = stripSeverityLine(e);
+
+    // #then only the machine line in the protected slot is gone
+    expect(stripped).toContain(prose);
+    expect(stripped).not.toContain(`SEVERITY: {`);
+  });
+
+  test("strips the machine line when the envelope has no terminal line", () => {
+    // #given a leg that emitted the summary but not `Review complete`
+    const e = envelope([`SEVERITY: {"maxSeverity":"NONE","p0Count":0,"p1Count":0}`]);
+
+    // #when / #then the machine line still must not reach the work agent
+    expect(stripSeverityLine(e)).not.toContain("SEVERITY:");
+  });
+
+  test("leaves a trailing prose line that merely mentions the marker", () => {
+    // #given the last line is prose, not the machine line
+    const e = envelope(["SEVERITY: markers were absent from both legs.", "Review complete"]);
+
+    // #when / #then position decides, and this position holds prose
+    expect(stripSeverityLine(e)).toContain("markers were absent from both legs.");
+  });
 });

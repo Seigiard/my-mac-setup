@@ -19,7 +19,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { mergeReviewReports } from "./lib/review-merge.ts";
-import { severitySchema, stripSeverityLine, type SeveritySummary } from "./lib/severity-summary.ts";
+import { severitySchema } from "./lib/severity-summary.ts";
+import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory } from "./lib/doc-review-notes.ts";
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
@@ -200,87 +201,6 @@ function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion:
   return { skillDir, pluginVersion: plugin.version };
 }
 
-// verify-doc findings below the P0/P1 gate used to be write-only — landed in
-// the report envelopes, never reached the work agent (run-1784823010502:
-// opencode's P2s predicted a spec failure the work leg then had to rediscover).
-// Envelopes live in /tmp; a resume after tmp-cleanup loses them — advisory
-// only, never fail the work stage over a missing file.
-const ADVISORY_CAP = 12_000;
-
-function readDocReviewAdvisory(doc: z.infer<typeof docReviewSchema> | undefined, waived: boolean): string {
-  if (!doc) return "";
-  const sections: string[] = [];
-  const legs: Array<[string, string | undefined]> = [
-    ["claude", doc.claudeEnvelopePath ?? undefined],
-    ["opencode", doc.opencodeEnvelopePath ?? undefined],
-  ];
-  for (const [source, envelopePath] of legs) {
-    if (!envelopePath) continue;
-    try {
-      // Strip the SEVERITY machine line — it is gate input, not review content
-      // the work agent should act on (Assumptions item 2 / U4 hygiene).
-      const text = stripSeverityLine(fs.readFileSync(envelopePath, "utf8"));
-      if (text === "") continue;
-      const capped = text.length > ADVISORY_CAP ? `${text.slice(0, ADVISORY_CAP)}\n[... truncated]` : text;
-      sections.push(`--- ${source} doc-review envelope ---\n${capped}`);
-    } catch {
-      sections.push(`--- ${source} doc-review envelope --- (unavailable: ${envelopePath})`);
-    }
-  }
-  if (sections.length === 0) return "";
-  // The work agent must see the same decision context the operator saw: the
-  // gate's severity read and, on a waived run, the fact that a P0 was found
-  // and explicitly overridden — not a generic clean-run disclaimer.
-  const waiveLine = waived
-    ? "\n\nIMPORTANT: the verify-doc gate FAILED on a parsed P0 in these reviews and the operator explicitly waived it (se approve). Treat the P0 finding(s) below as known accepted risk: implement with them in mind and record in your envelope's notes how each was addressed or why it remains accepted."
-    : "";
-  return `
-
-ADVISORY plan-review findings (verify-doc stage, two independent external reviews). The stage gate blocks on parsed P0 findings; what reaches you here is below the blocking bar (P1/P2), from a leg whose severity summary did not parse, or explicitly waived by the operator. Gate read: ${docReviewSeverityStatusNote(doc)}.${waiveLine}
-
-For each finding that touches a unit you implement: address it or consciously reject it, and record material rejections in the envelope's notes.
-
-${sections.join("\n\n")}`;
-}
-
-const WAIVE_EXCERPT_CAP = 800;
-
-function legSeverityLabel(status: string | undefined, severity: SeveritySummary | undefined): string {
-  if (status !== "ok") return "leg unavailable";
-  if (!severity) return "severity missing (advisory)";
-  return `maxSeverity=${severity.maxSeverity} P0=${severity.p0Count} P1=${severity.p1Count}`;
-}
-
-// KTD-D observability: every run records per-leg severity-parse status so a
-// systemic prompt-contract failure (all legs missing the SEVERITY line) is
-// visible in the durable notes and verify-doc.result.json instead of silently
-// draining the gate's blocking power.
-function docReviewSeverityStatusNote(doc: z.infer<typeof docReviewSchema> | undefined): string {
-  if (!doc) return "verify-doc severity: no stage output";
-  return `verify-doc severity: claude ${legSeverityLabel(doc.claudeStatus, doc.claudeSeverity ?? undefined)}; opencode ${legSeverityLabel(doc.opencodeStatus, doc.opencodeSeverity ?? undefined)}`;
-}
-
-// KTD-E: a waived P0 spec flaw lives only in /tmp envelope files that a resume
-// after tmp-cleanup loses. The durable waive note embeds the per-leg severity
-// summaries, the gate reasons, and a trimmed fail-soft excerpt of each envelope
-// — content, not just the decision — so the waiver survives in summary.notes.
-function docReviewWaiveNote(doc: z.infer<typeof docReviewSchema> | undefined, reasons: string | undefined): string {
-  const parts: string[] = [`verify-doc: P0 waived by operator — ${reasons ?? ""}`, docReviewSeverityStatusNote(doc)];
-  const envelopes: Array<[string, string | undefined]> = [
-    ["claude", doc?.claudeEnvelopePath ?? undefined],
-    ["opencode", doc?.opencodeEnvelopePath ?? undefined],
-  ];
-  for (const [source, envelopePath] of envelopes) {
-    if (!envelopePath) continue;
-    try {
-      const excerpt = fs.readFileSync(envelopePath, "utf8").trim().slice(0, WAIVE_EXCERPT_CAP);
-      if (excerpt) parts.push(`${source} envelope excerpt: ${excerpt}`);
-    } catch {
-      // fail-soft: the envelope may be gone after tmp-cleanup
-    }
-  }
-  return parts.join(" — ");
-}
 
 function workPrompt(planPath: string, branch: string, smoke: boolean, docReviewAdvisory: string): string {
   if (smoke) {

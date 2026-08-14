@@ -68,11 +68,46 @@ export function parseSeveritySummary(envelope: string): SeveritySummary | undefi
 
 // The SEVERITY line is gate input, not review content: strip it before an
 // envelope is echoed into the work prompt (readDocReviewAdvisory) or a
-// human-facing synthesis. Whole-line match on the SEVERITY prefix only.
+// human-facing synthesis.
+//
+// Only the machine line is removed, and the machine line is the one in the
+// protected slot — the same position parseSeveritySummary reads. Matching the
+// prefix anywhere silently truncated review prose that legitimately began with
+// "SEVERITY:", which is prose a review leg has every reason to write when it
+// discusses the gate's own contract.
+//
+// Two accepted shapes: the slot before the terminal `Review complete` line, and
+// the last non-empty line when the envelope has no terminal line. The second is
+// kept because an envelope missing its terminal line still parses as advisory,
+// and its machine line would otherwise reach the work agent as review content.
+//
+// Position alone is not enough, because prose can land in the slot too. The
+// line must also carry a JSON object after the prefix. Between the two failure
+// modes that leaves, letting a malformed machine line through is noise in a
+// prompt, while eating a prose line loses review content the work agent needed.
 export function stripSeverityLine(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith(SEVERITY_PREFIX))
-    .join("\n")
-    .trim();
+  const lines = text.split("\n");
+  let last = lines.length;
+  while (last > 0 && lines[last - 1].trim() === "") last--;
+  if (last === 0) return text.trim();
+
+  let slot = last;
+  if (lines[last - 1].trim() === TERMINAL_LINE) {
+    slot = last - 1;
+    while (slot > 0 && lines[slot - 1].trim() === "") slot--;
+    if (slot === 0) return text.trim();
+  }
+
+  if (!isSeverityMachineLine(lines[slot - 1].trim())) return text.trim();
+  return [...lines.slice(0, slot - 1), ...lines.slice(slot)].join("\n").trim();
+}
+
+function isSeverityMachineLine(line: string): boolean {
+  if (!line.startsWith(SEVERITY_PREFIX)) return false;
+  try {
+    const parsed: unknown = JSON.parse(line.slice(SEVERITY_PREFIX.length));
+    return typeof parsed === "object" && parsed !== null;
+  } catch {
+    return false;
+  }
 }

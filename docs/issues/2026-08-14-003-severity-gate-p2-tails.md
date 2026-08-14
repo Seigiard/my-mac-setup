@@ -2,7 +2,8 @@
 title: Severity-gate P2 tails — stripSeverityLine over-matching, raw SEVERITY in waive excerpts, untested wiring
 type: follow-up
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-14
 parent-plan: docs/plans/2026-07-24-002-feat-verify-doc-blocking-gate-plan.md
 ---
 
@@ -22,6 +23,22 @@ The se-pipeline severity gate (parsing `SEVERITY:` lines from review-leg reports
 
 - Whether `stripSeverityLine` should anchor on position (only the first line of a finding) or on a stricter grammar, instead of matching anywhere.
 - Whether waive excerpts should be built from the already-stripped text (likely yes; decide where the strip belongs).
+
+## Resolution
+
+All three gaps are closed.
+
+**1. `stripSeverityLine` no longer eats prose.** It now removes a line only where the machine line actually lives — the protected slot `parseSeveritySummary` reads: the last non-empty line before the terminal `Review complete`, or the last non-empty line when the envelope has no terminal line. Both open decisions were taken together rather than one of them: position alone is not enough, because prose can land in the slot too, so the line must also carry a JSON object after the prefix. Between the two remaining failure modes, letting a malformed machine line through is noise in a prompt, while eating a prose line loses review content the work agent needed.
+
+**2. Waive excerpts are built from stripped text.** `docReviewWaiveNote` strips before it cuts to the 800-character cap. The machine line already appears in the same note as a parsed per-leg label (`maxSeverity=P0 P0=1 P1=0`), so repeating it raw confused the reader and any parser of the note.
+
+**3. The wiring is tested.** `readDocReviewAdvisory`, `docReviewWaiveNote`, `docReviewSeverityStatusNote` and `legSeverityLabel` moved from `se-pipeline.tsx` into `home/private_dot_claude/dot_smithers/workflows/lib/doc-review-notes.ts`, with `doc-review-notes.test.ts` covering them: the strip in both directions, the waived-run wording, a dead leg versus a leg whose summary did not parse, and the fail-soft path when tmp-cleanup already removed an envelope. Ten tests; the suite is 373 pass / 0 fail.
+
+The move was made now because it changes `se-pipeline.tsx`'s statically-imported module graph, which invalidates a parked run's resume (KTD1). `se list` showed no run in `running` or `waiting-approval` first — the same precondition issue 005 was waiting on.
+
+The prompt text was moved verbatim, and that was checked rather than assumed: the advisory header and the waive paragraph handed to the work agent are byte-identical to the pre-move versions, diffed out of `git show HEAD`. A silently reworded prompt changes agent behaviour without changing any test.
+
+The module declares its own structural `DocReviewLegs` interface instead of importing the workflow's zod type, so the library has no dependency back on the workflow file.
 
 ## Reference
 
