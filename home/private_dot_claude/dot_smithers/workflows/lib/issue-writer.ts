@@ -72,7 +72,12 @@ const SECRET_PATTERNS: Array<{ label: string; re: RegExp }> = [
   { label: "aws-access-key", re: /\bAKIA[0-9A-Z]{16}\b/g },
   { label: "slack-token", re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { label: "bearer-token", re: /\bBearer\s+[A-Za-z0-9._-]{20,}\b/g },
-  { label: "assigned-secret", re: /\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|APIKEY|ACCESS_KEY)[A-Z0-9_]*)\s*[=:]\s*['"]?[^\s'"]{6,}/g },
+  // The value stops at a backslash as well as at whitespace: log excerpts are
+  // JSON payloads where a newline is the two characters \n, not whitespace, so
+  // without it one assignment swallowed the rest of the line (observed live in
+  // run-1786704594258, which ate "bun" from a test summary). Real secrets carry
+  // no backslash, so the boundary costs no coverage.
+  { label: "assigned-secret", re: /\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|APIKEY|ACCESS_KEY)[A-Z0-9_]*)\s*[=:]\s*['"]?[^\s'"\\]{6,}/g },
 ];
 
 export function redactSecretsInText(text: string): RedactionResult {

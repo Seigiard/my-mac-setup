@@ -219,6 +219,34 @@ export function makeSimplifyClassifierAgent(options: { cwd: string }): ClaudeCod
   });
 }
 
+// se-flow terminal reviewer (R14/U6): reads the outcome record and the recorded
+// block payloads, then writes a cause analysis or an optimization finding. It
+// runs on EVERY flow, success included, so it is sized as the cheapest tier that
+// can still write a real analysis — Sonnet, not the Opus work tier, and a $3
+// ceiling that keeps a clean run's reviewer far below its own block costs.
+//
+// permissionMode "default" and no bypass: the reviewer reads evidence and
+// returns a verdict. The interpreter writes the issue file from that verdict, so
+// KTD13 redaction is enforced by code and never delegated to the model.
+//
+// The verdict rides inside the {report: string} wrapper rather than being the
+// agent's raw output shape. A raw shape looks tidier but makes a malformed model
+// response an INVALID_OUTPUT task failure (observed: run-1786704301055), and a
+// crashed reviewer skips issue writing on the very runs that need an issue. The
+// wrapper keeps a bad response parseable into an explicit no-verdict row.
+export function makeFlowReviewerAgent(options: { cwd: string; timeoutMs: number }): ClaudeCodeAgent {
+  return new ClaudeCodeAgent({
+    cwd: options.cwd,
+    permissionMode: "default",
+    model: "claude-sonnet-5",
+    fallbackModel: "claude-haiku-4-5",
+    timeoutMs: options.timeoutMs,
+    idleTimeoutMs: 5 * 60_000,
+    maxBudgetUsd: 3,
+    jsonSchema: stringFieldJsonSchema("report"),
+  });
+}
+
 export interface WorkAgentOptions {
   cwd: string;
   timeoutMs: number;

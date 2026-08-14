@@ -34,7 +34,9 @@ import { buildRegistry } from "./lib/blocks/index.ts";
 import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects.ts";
 import { blockNodeId, dispatchableBlocks, dispatchNodeId, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
-import { classifyDisposition, type BlockOutcome, type OutcomeRecord } from "./lib/reviewer.ts";
+import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
+import { shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
+import { makeFlowReviewerAgent } from "./lib/agents.ts";
 import type { SubflowRunContext } from "./lib/block-registry.ts";
 import seCodeReview from "./se-code-review.tsx";
 import seDocReview from "./se-doc-review.tsx";
@@ -95,7 +97,11 @@ const { Workflow, Task, Sequence, smithers, outputs } = createSmithers({
   // them. The engine raises this at workflow construction, which `bun build`
   // cannot see — it type-checks nothing and never instantiates the workflow.
   outcome: z.object({ flowRunId: z.string(), recordPath: z.string(), archiveDir: z.string() }),
-  reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string() }),
+  reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string(), cause: z.string().nullish(), proposedFix: z.string().nullish() }),
+  // R15: `issuePath` is null on a clean success — the review lives in the
+  // outcome record and no file is written. `redactionHits` surfaces a KTD13
+  // catch, so a redacted secret is visible in the run rather than only in the file.
+  issue: z.object({ disposition: z.string(), issuePath: z.string().nullish(), redactionHits: z.array(z.string()) }),
   // Generic per-block output.
   blockOutput: blockOutputSchema,
   // One fixed key for every agent block's raw envelope, namespaced per node by
@@ -438,6 +444,118 @@ function blockOutcomes(ctx: unknown, ordered: FlowBlock[]): BlockOutcome[] {
   });
 }
 
+const REVIEWER_TIMEOUT_MS = 15 * 60_000;
+
+// Terminal reviewer (R14/R15/U6): an agent leg reads the recorded block rows and
+// returns a cause analysis or an optimization finding, then a deterministic task
+// turns that verdict into a docs/issues/ file — on failure or an actionable
+// optimization only; a clean success lives in the outcome record (R15).
+//
+// The agent never writes the file. It returns prose, and `writeIssueFile`
+// redacts and writes it, so KTD13's publication-time scan is enforced by code
+// rather than trusted to a model that was just handed untrusted log text.
+//
+// The guard is what lets the reviewer be a slot that "cannot block cleanup"
+// (KTD2): the epilog is a Sequence, so an unguarded agent failure would abort it
+// and leak both the worktree and the repo lock. On a crash the catch records a
+// no-verdict row and the sequence continues.
+//
+// Issue writing sits OUTSIDE the guard on purpose. Inside the try branch it
+// would be skipped whenever the reviewer leg died — and a run whose reviewer
+// died is exactly a run that owes the operator an issue file (R15). Outside, it
+// runs off whichever verdict row exists, the parsed one or the crash fallback.
+function renderReviewer(ctx: unknown, ordered: FlowBlock[], worktreePath: string, runId: string): unknown {
+  const c = ctx as CtxLike;
+  const record = reviewerRecord(ctx, ordered, runId);
+  const reported = c.outputMaybe("agentReport", { nodeId: REVIEWER_DISPATCH_NODE }) !== undefined;
+
+  return (
+    <TryCatchFinally
+      id="guard-reviewer"
+      try={
+        <Sequence>
+          <Task
+            id={REVIEWER_DISPATCH_NODE}
+            output={outputs.agentReport}
+            agent={makeFlowReviewerAgent({ cwd: worktreePath, timeoutMs: REVIEWER_TIMEOUT_MS }) as never}
+            retries={0}
+            timeoutMs={REVIEWER_TIMEOUT_MS}
+          >
+            {buildReviewerPrompt(record, reviewerExcerpts(ctx, record))}
+          </Task>
+          {reported ? (
+            <Task id="reviewer" output={outputs.reviewerVerdict} retries={0}>
+              {() => {
+                const raw = c.outputMaybe("agentReport", { nodeId: REVIEWER_DISPATCH_NODE }) as { report?: string } | undefined;
+                const verdict = parseReviewerVerdict(raw?.report);
+                return { actionableOptimization: verdict.actionableOptimization, summary: verdict.summary, cause: verdict.cause, proposedFix: verdict.proposedFix };
+              }}
+            </Task>
+          ) : null}
+        </Sequence>
+      }
+      catch={
+        <Task id="reviewer-crashed" output={outputs.reviewerVerdict} retries={0}>
+          {() => ({ actionableOptimization: false, summary: "terminal reviewer leg crashed; disposition falls back to the recorded block statuses" })}
+        </Task>
+      }
+    />
+  );
+}
+
+const REVIEWER_DISPATCH_NODE = "reviewer:dispatch";
+
+function reviewerRecord(ctx: unknown, ordered: FlowBlock[], runId: string): OutcomeRecord {
+  return { runId, blocks: blockOutcomes(ctx, ordered) };
+}
+
+function reviewerExcerpts(ctx: unknown, record: OutcomeRecord): string {
+  return blockLogExcerpts(record, (blockId) => {
+    const row = blockRow(ctx as CtxLike, blockId);
+    return typeof row?.payloadJson === "string" ? row.payloadJson : undefined;
+  });
+}
+
+// Either node carries the verdict: `reviewer` when the leg reported, or
+// `reviewer-crashed` when the guard caught. Reading only the first would drop
+// the issue file on a dead reviewer.
+function reviewerVerdictRow(ctx: unknown): ReviewerVerdict | undefined {
+  const c = ctx as CtxLike;
+  const row = c.outputMaybe("reviewerVerdict", { nodeId: "reviewer" }) ?? c.outputMaybe("reviewerVerdict", { nodeId: "reviewer-crashed" });
+  return row as unknown as ReviewerVerdict | undefined;
+}
+
+function renderIssueTask(ctx: unknown, ordered: FlowBlock[], repoPath: string, runId: string): unknown {
+  const verdict = reviewerVerdictRow(ctx);
+  if (verdict === undefined) return null;
+  const record = reviewerRecord(ctx, ordered, runId);
+  return (
+    <Task id="reviewer-issue" output={outputs.issue} retries={0}>
+      {() => {
+        const disposition = classifyDisposition(record, verdict);
+        if (!shouldWriteIssue(disposition)) {
+          return { disposition, issuePath: null, redactionHits: [] };
+        }
+        // Written into the TARGET repo, not the staged worktree: the worktree is
+        // deleted by cleanup moments later, and KD5 puts the issue where the
+        // human triages it.
+        const written = writeIssueFile(
+          repoPath,
+          buildIssueFields({
+            record,
+            verdict,
+            disposition,
+            date: new Date().toISOString().slice(0, 10),
+            logExcerpts: reviewerExcerpts(ctx, record),
+            evidenceArtifacts: [path.join(os.tmpdir(), "se-flow", runId, "outcome.json")],
+          }),
+        );
+        return { disposition, issuePath: written.path, redactionHits: written.redactionHits };
+      }}
+    </Task>
+  );
+}
+
 function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktreePath: string, repoPath: string, workspaceNeeded: boolean, runId: string): unknown {
   return (
     <Sequence>
@@ -452,12 +570,8 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
           return { flowRunId: runId, recordPath, archiveDir };
         }}
       </Task>
-      <Task id="reviewer" output={outputs.reviewerVerdict} retries={0}>
-        {() => {
-          const disposition = classifyDisposition({ runId: "epilog", blocks: blockOutcomes(ctx, ordered) }, undefined);
-          return { actionableOptimization: disposition === "actionable-optimization", summary: disposition };
-        }}
-      </Task>
+      {renderReviewer(ctx, ordered, worktreePath, runId)}
+      {renderIssueTask(ctx, ordered, repoPath, runId)}
       <Task id="cleanup" output={outputs.setup} retries={0}>
         {() => {
           if (workspaceNeeded) {

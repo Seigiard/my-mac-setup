@@ -106,3 +106,17 @@ describe("writeIssueFile", () => {
     expect(contents).toContain("[REDACTED]");
   });
 });
+
+describe("redactSecretsInText inside JSON log payloads", () => {
+  test("stops the redaction at an escaped newline instead of eating the next line", () => {
+    // #given a payload where the secret is followed by a JSON-escaped newline
+    const payload = String.raw`{"output":"AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE\n\nbun test v1.3.14"}`;
+
+    // #when it is redacted
+    const { redacted } = redactSecretsInText(payload);
+
+    // #then the key is gone and the following log line survives
+    expect(redacted).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(redacted).toContain("bun test v1.3.14");
+  });
+});
