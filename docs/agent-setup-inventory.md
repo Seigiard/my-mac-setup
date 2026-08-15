@@ -52,6 +52,7 @@ https://ccsafetynet.com/docs/installation
 | Skill             | Source                              | Managed     |
 | ----------------- | ----------------------------------- | ----------- |
 | crit              | `?` (crit CLI's skill — confirm)    | manual      |
+| eli5              | `repo`                              | repo        |
 | handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
 | herdr             | `repo`                              | repo        |
 | improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
@@ -60,6 +61,7 @@ https://ccsafetynet.com/docs/installation
 | se-code-review    | `repo` (local CE wrapper)           | repo        |
 | se-doc-review     | `repo` (local CE wrapper)           | repo        |
 | se-plan           | `repo` (local CE wrapper)           | repo        |
+| writing-for-agents | `repo` (vendored from `gh:mattpocock/skills`) | repo |
 
 Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
 (see Drift).

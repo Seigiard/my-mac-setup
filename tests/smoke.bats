@@ -255,6 +255,15 @@ TOML
   assert_file_exists "$HOME/.claude/skills/se-flow/SKILL.md"
 }
 
+@test "eli5 skill is deployed" {
+  assert_file_exists "$HOME/.claude/skills/eli5/SKILL.md"
+}
+
+@test "writing-for-agents skill is deployed with its mechanics reference" {
+  assert_file_exists "$HOME/.claude/skills/writing-for-agents/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/writing-for-agents/SKILL-MECHANICS.md"
+}
+
 @test "work-summary skill is deployed with both format references" {
   assert_file_exists "$HOME/.claude/skills/work-summary/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/work-summary/references/update-format.md"
