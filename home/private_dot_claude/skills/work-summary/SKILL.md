@@ -1,6 +1,6 @@
 ---
 name: work-summary
-description: Summarize the user's completed Linear issues for a period as a #product Slack update (default) or a themed report with ticket IDs. Use when the user asks to summarize what they got done, wants a workstream or product update, or asks in Russian ("кратко что я сделал", "сделай саммари моей работы").
+description: 'Summarize the user''s completed Linear issues for a period as a #product Slack update (default) or a themed report with ticket IDs. Use when the user asks to summarize what they got done, wants a workstream or product update, or asks in Russian ("кратко что я сделал", "сделай саммари моей работы").'
 ---
 
 # Work Summary

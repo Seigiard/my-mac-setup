@@ -1,6 +1,6 @@
 ---
 name: se-review-and-work
-description: Plan-review, then execute — `se-work` with the verify-doc stage in front: verify-doc → work → simplify → verify-code → branch. Use when the plan has not been plan-reviewed yet; for an already-reviewed plan, use `se-work`.
+description: "Plan-review, then execute — `se-work` with the verify-doc stage in front: verify-doc → work → simplify → verify-code → branch. Use when the plan has not been plan-reviewed yet; for an already-reviewed plan, use `se-work`."
 argument-hint: "[plan-path] [validate-cmd:'<cmd>'] [setup-cmd:'<cmd>']"
 ---
 

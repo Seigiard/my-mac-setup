@@ -270,6 +270,27 @@ TOML
   assert_file_exists "$HOME/.claude/skills/work-summary/references/report-format.md"
 }
 
+@test "every skill description survives YAML parsing" {
+  # An unquoted YAML scalar ends at " #" (comment) and cannot contain ": ".
+  # Both truncate or invalidate the description, which is how the agent finds
+  # the skill at all — and both fail silently in a lenient parser.
+  local offenders=""
+  for skill in "$HOME"/.claude/skills/*/SKILL.md; do
+    [ -f "$skill" ] || continue
+    local line
+    line=$(grep -m1 '^description:' "$skill") || continue
+    local value=${line#description:}
+    value=${value# }
+    case "$value" in
+      \"*|\'*|\|*|\>*) continue ;;            # quoted or block scalar: safe
+    esac
+    case "$value" in
+      *" #"*|*": "*) offenders="$offenders $skill" ;;
+    esac
+  done
+  [ -z "$offenders" ] || fail "unquoted description with ' #' or ': ':$offenders"
+}
+
 @test "pf-research, pf-spec, and pf-build skills are deployed with the shared cycle doc" {
   assert_file_exists "$HOME/.claude/skills/pf-research/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/pf-spec/SKILL.md"

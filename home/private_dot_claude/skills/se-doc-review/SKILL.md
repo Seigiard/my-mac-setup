@@ -1,6 +1,6 @@
 ---
 name: se-doc-review
-description: Review a plan, spec, or requirements doc — three independent runs synthesized: the local plugin review plus external claude and opencode. Use to improve an existing planning document; se-plan invokes it headless.
+description: "Review a plan, spec, or requirements doc — three independent runs synthesized: the local plugin review plus external claude and opencode. Use to improve an existing planning document; se-plan invokes it headless."
 argument-hint: "[mode:headless] [path/to/document.md]"
 ---
 
