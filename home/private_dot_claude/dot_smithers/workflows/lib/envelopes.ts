@@ -1,8 +1,12 @@
 // Work-stage boundary helpers (KTD3/KTD10/KTD13): parse the ce-work
 // return-to-caller envelope, run the operator-supplied validate-cmd, and
-// secret-scan the run branch diff before anything leaves the machine.
+// secret-scan what leaves the machine — the run branch diff (tier 1) and the
+// whole snapshot tree the external legs can read (tier 2).
 // These perform the external effects; the pure verdicts live in gates.ts.
 import { execFileSync, spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { z } from "zod/v4";
 
 export const workEnvelopeSchema = z.object({
@@ -105,16 +109,72 @@ export function secretScanPath(target: string, opts: { bin?: string; timeoutMs?:
   return runGitleaks(["dir", "--no-banner", "--redact", "--exit-code", "2", target], opts);
 }
 
+// Scans a whole directory TREE, the tier-2 boundary: the external legs get a
+// full checkout of the snapshot and can read every tracked file, including
+// files no commit range touches (see docs/issues/2026-08-14-009).
+//
+// cwd = root, target "." is load-bearing, not style. A `dir` scan's fingerprints
+// are relative to the target ARGUMENT: measured on gitleaks 8.30.1, the same
+// tree scanned as `a` reports `a/sub/creds.txt:aws-access-token:1` and as `b`
+// reports `b/sub/…`, so a baseline captured under one absolute root matches
+// nothing under another — and every snapshot export lands in a fresh mkdtemp
+// directory. Entering the root and passing "." yields `sub/creds.txt:…` from
+// both, which is what makes a per-repo baseline reusable across runs.
+export function secretScanTree(
+  root: string,
+  opts: { bin?: string; timeoutMs?: number; reportPath?: string; baselinePath?: string } = {},
+): SecretScanResult {
+  const args = ["dir", "--no-banner", "--redact", "--exit-code", "2"];
+  if (opts.reportPath !== undefined) args.push("--report-format", "json", "--report-path", opts.reportPath);
+  if (opts.baselinePath !== undefined) args.push("--baseline-path", opts.baselinePath);
+  args.push(".");
+  return runGitleaks(args, { ...opts, cwd: root });
+}
+
+export interface TreeExport {
+  // Remove this whole directory when the scan is done — it holds the export and
+  // any report written beside it.
+  tmpRoot: string;
+  // The scan root: the exported tree itself, with nothing else in it.
+  scanRoot: string;
+}
+
+// Materializes the git tree at `sha` into a fresh temp directory.
+//
+// Not the live worktree: the pipeline's run worktree may have been provisioned
+// by setupCmd (`bun install && turbo build`), so it carries node_modules and
+// build output — scanning that is slow, noisy, and is not repository content.
+// `git archive` emits exactly the tracked tree instead. The tar lands beside
+// the scan root rather than inside it, so the scanner never reads its own input
+// archive or the report written next to it.
+export function exportTreeAt(repo: string, sha: string): TreeExport {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "se-tree-scan-"));
+  const tar = path.join(tmpRoot, "tree.tar");
+  const scanRoot = path.join(tmpRoot, "tree");
+  fs.mkdirSync(scanRoot);
+  try {
+    execFileSync("git", ["-C", repo, "archive", "--format=tar", "-o", tar, sha], { stdio: "pipe" });
+    execFileSync("tar", ["-x", "-f", tar, "-C", scanRoot], { stdio: "pipe" });
+  } catch (e) {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    throw e;
+  }
+  fs.rmSync(tar, { force: true });
+  return { tmpRoot, scanRoot };
+}
+
 export function gitHead(repo: string): string {
   return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }
 
 // --redact: gitleaks otherwise echoes the raw secret into its report, which the
 // callers persist to run summaries and report files — redact so a detected
-// secret is never copied into a durable store. Every caller passes it.
-function runGitleaks(args: string[], opts: { bin?: string; timeoutMs?: number }): SecretScanResult {
+// secret is never copied into a durable store. Every caller passes it. It does
+// not weaken the baseline: fingerprints are path/rule/line, so a redacted
+// capture still matches a redacted rescan (verified on gitleaks 8.30.1).
+function runGitleaks(args: string[], opts: { bin?: string; timeoutMs?: number; cwd?: string }): SecretScanResult {
   const bin = opts.bin ?? "gitleaks";
-  const res = spawnSync(bin, args, { encoding: "utf8", timeout: opts.timeoutMs ?? 2 * 60_000 });
+  const res = spawnSync(bin, args, { cwd: opts.cwd, encoding: "utf8", timeout: opts.timeoutMs ?? 2 * 60_000 });
   const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
   if (res.error || res.status === null) {
     return { state: "error", details: `${res.error ? String(res.error) : "scanner terminated (timeout or signal)"}` };

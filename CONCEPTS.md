@@ -25,9 +25,15 @@ An external leg that stopped before producing its report — killed for silence,
 A single reviewable defect a leg reports, carrying a location, a description, and a severity. Severity is what gates act on: the most severe classes block, the rest are advisory. Findings from several legs are merged deterministically in code before any gate counts them, so a discarded leg does not merely lower confidence — its findings leave the merged report entirely.
 
 ### Secret boundary
-The gate guaranteeing repo content is secret-scanned before it reaches any external leg. The scan covers the run's own commits only; a leak or a scanner failure closes the gate — only a clean scan opens it.
+The gate guaranteeing repo content is secret-scanned before it reaches any external leg. A leak or a scanner failure closes the gate — only a clean scan opens it.
 
-A harness run outside the pipeline enforces the same boundary itself, over the snapshot it is about to stage, and refuses the run instead of parking it — a standalone run has no approval pause to waive at. Its escape hatch is the operator setting `SE_SKIP_SECRET_SCAN=1` on the launch command. A caller that already scanned the range says so (`preScanned`), so a waived pipeline scan is not overruled downstream.
+It has two tiers, because what an external leg reads is larger than what a run writes. The **range tier** covers the run's own commits and answers "did this work add a secret". The **tree tier** covers the whole tree at the snapshot commit — the full checkout a leg is handed, including files committed on the base branch long before the run — and is the only tier that can see a secret the run never touched. The tree is exported from git rather than read off the live worktree, so build output and dependencies a run installed are not mistaken for repository content.
+
+### Tree baseline
+The per-repo record of what a repository's tree already looked like, which the tree tier judges against. It exists because a repo's own test fixtures and false positives are indistinguishable from leaks to a scanner, so an ungated tree scan refuses every run rather than protecting any. The first run for a repository captures the baseline and passes, saying loudly what it just made invisible; later runs refuse only on findings the baseline does not contain. A baseline is harness state, not repository content — it never lands inside the target repo, which belongs to other people and other agents.
+
+### Boundary escape hatch
+The operator's deliberate way past a closed boundary, and it differs by run shape. A pipeline run parks on an approval pause and the operator waives there. A harness run outside the pipeline has no pause to waive at, so it refuses and the operator re-launches with `SE_SKIP_SECRET_SCAN=1`, which skips both tiers. A caller that already applied the boundary says so (`preScanned`), so a waived pipeline scan is not overruled downstream.
 
 ### Rescan
 A repeat of the secret scan triggered when new commits appear after the last scan — whether the pipeline itself committed them or an operator did during a pause. Unknown prior scan state fails closed: the rescan runs rather than being skipped.

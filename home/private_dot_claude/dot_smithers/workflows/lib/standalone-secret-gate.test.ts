@@ -53,6 +53,42 @@ describe("standalone pre-external secret gate wiring", () => {
     expect(src).toContain("if (!preScanned) {");
   });
 
+  test("se-code-review гейтит ДЕРЕВО снимка до создания worktree", () => {
+    // #given the code-review harness, whose legs get a checkout of the whole tree
+    const src = source("se-code-review.tsx");
+
+    // #when the tier-2 gate call and the snapshot creation are located
+    const tree = indexOf(src, "preExternalTreeGate(");
+    const worktree = indexOf(src, `"worktree", "add"`);
+
+    // #then a base-branch secret is caught before anything readable exists
+    expect(tree).toBeLessThan(worktree);
+  });
+
+  test("se-simplify гейтит ДЕРЕВО снимка до создания worktree", () => {
+    // #given the shared simplify harness
+    const src = source("se-simplify.tsx");
+
+    // #when the tier-2 gate call and the snapshot creation are located
+    const tree = indexOf(src, "preExternalTreeGate(");
+    const worktree = indexOf(src, `"worktree", "add"`);
+
+    // #then the report legs never see an unscanned tree
+    expect(tree).toBeLessThan(worktree);
+  });
+
+  test("se-pipeline сканирует дерево в стадии secret-scan, до внешних ног", () => {
+    // #given the pipeline, whose secret-scan stage guards every later external leg
+    const src = source("se-pipeline.tsx");
+
+    // #when the secret-scan stage body is read
+    const stage = src.slice(indexOf(src, `name: "secret-scan"`), indexOf(src, `name: "secret-scan"`) + 2600);
+
+    // #then the tier-2 verdict rides into the same gate as the range result
+    expect(stage).toContain("preExternalTreeGate(");
+    expect(stage).toContain("result.tree?.state === \"refuse\"");
+  });
+
   test("se-doc-review гейтит документ до копирования в /tmp", () => {
     // #given the doc-review harness, whose payload is the document itself
     const src = source("se-doc-review.tsx");

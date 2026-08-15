@@ -40,7 +40,7 @@ import { reviewLegSchema } from "./lib/review-schema.ts";
 import { mergeSimplifyLegs, type ReviewLeg, type SimplifyMergeResult } from "./lib/review-merge.ts";
 import { parseNumstat, shouldRunSimplify } from "./lib/stage-gate.ts";
 import { runValidateCmd } from "./lib/envelopes.ts";
-import { enforcePreExternalGate, preExternalRepoGate } from "./lib/pre-external-gate.ts";
+import { enforcePreExternalGate, preExternalRepoGate, preExternalTreeGate } from "./lib/pre-external-gate.ts";
 import { stashCreateSafe } from "./lib/staging.ts";
 
 const STAGE_ROOT = "/tmp/ce-simplify";
@@ -190,6 +190,9 @@ function stage(
   const base = resolveBase(repoPath, baseSha);
   if (!preScanned) {
     enforcePreExternalGate(preExternalRepoGate({ repo: repoPath, baseSha: base, head: snapshotSha, label: "se-simplify" }));
+    // Tier 2: the legs read the WHOLE snapshot tree, not just the range above —
+    // including files committed on the base branch before this run started.
+    enforcePreExternalGate(preExternalTreeGate({ repo: repoPath, head: snapshotSha, label: "se-simplify" }));
   }
 
   const skillDir = path.join(stageDir, "skill");

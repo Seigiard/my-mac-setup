@@ -2,7 +2,8 @@
 title: External legs read the whole snapshot tree, but only the branch range is scanned
 type: follow-up
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-15
 ---
 
 # External legs read the whole snapshot tree, but only the branch range is scanned
@@ -26,6 +27,49 @@ The range-scoped scan was chosen deliberately, on measurement: a full-tree `gitl
 - Is a full-tree scan gated on a per-repo baseline worth the setup toll, or is the honest answer "the snapshot is trusted content; the boundary only covers what the run adds"?
 - If a baseline is adopted, where does it live for repos that are not this one — committed in the target repo, or cached beside the harness state?
 - Should `se-simplify`'s apply-leg forbidden-paths denylist (parent plan R10) be reused as a *snapshot* denylist, i.e. files excluded from the staged copy rather than merely never edited? That changes what the reviewers see, which is why the gate refuses instead of filtering today.
+
+## Resolution
+
+The boundary is now two-tiered. Tier 1 (the commit range) is unchanged. Tier 2 is a new
+`preExternalTreeGate` in `lib/pre-external-gate.ts`: it exports the git tree at the snapshot
+commit with `git archive` into a temp directory, scans it with `gitleaks dir` run at
+`cwd = <export root>` with target `.`, and removes the export on both the pass and the refuse
+path. Wired into `se-code-review.tsx` and `se-simplify.tsx` immediately after the range gate and
+before `git worktree add`, and into `se-pipeline.tsx`'s `secret-scan` stage, where the tree
+verdict rides into the existing `gateFn` (finding → degraded → the existing waive-on-approve
+Approval) rather than throwing. `se-doc-review` is unchanged — it ships one document and
+`preExternalDocGate` already scans that file.
+
+**Is a full-tree scan gated on a per-repo baseline worth the setup toll?** Yes. The toll is one
+loud pass on a repo's first run, and it buys the only coverage of a secret that was on the base
+branch before the run. Measured on this repo through the shipped code path: the tracked tree at
+HEAD carries 3 findings (`configs/MTMR/items.json:generic-api-key:75`,
+`workflows/lib/issue-writer.test.ts:generic-api-key:65`,
+`workflows/lib/block-effects.test.ts:private-key:132`) — the same three this issue predicted
+would survive into a snapshot. The 48 findings quoted above come from `gitleaks dir` over the
+whole working checkout, which walks untracked and ignored content the legs never receive; the
+tree tier does not scan that. A planted credential committed in a scratch clone was refused by
+name against that same baseline.
+
+**Where does the baseline live for repos that are not this one?** Cached beside the harness
+state, never committed in the target: `~/.claude/.smithers/state/secret-baseline/<repo-basename>-<first
+12 hex of sha256 of the absolute repo path>.json` (`lib/secret-baseline.ts`). Target repos belong
+to other people and other agents, and writing a `.gitleaksignore` into one would change that
+repo's content, its git status, and every future non-harness scan of it. The key is the
+*repository*, resolved through `git rev-parse --git-common-dir`, not the path handed in: a
+pipeline run scans its own `.worktrees/<run>`, and keying on that would mint a fresh baseline —
+hence auto-approve every finding — on every single run.
+
+**Should `se-simplify`'s apply-leg forbidden-paths denylist be reused as a snapshot denylist?**
+Not adopted. The gate refuses rather than filters, so the reviewers always see the same tree the
+repo has. Excluding files from the snapshot would hand the external legs a tree that silently
+differs from the repository and a review claiming coverage it never had — the same reason the
+original standalone gate refuses instead of dropping the offending file. The denylist stays what
+it is: a bound on what the apply leg may edit.
+
+Known gap left open deliberately: the pipeline's `simplify-rescan` and post-approval `rescan`
+stages remain range-only. They cover commits added after the tree tier already cleared the whole
+tree, and a new commit's content is exactly what a range scan sees.
 
 ## Reference
 

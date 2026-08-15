@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { parseWorkEnvelope, runValidateCmd, secretScanDiff, secretScanPath } from "./envelopes.ts";
+import { exportTreeAt, parseWorkEnvelope, runValidateCmd, secretScanDiff, secretScanPath, secretScanTree } from "./envelopes.ts";
 
 function envelopeJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -165,6 +165,96 @@ describe("secretScanDiff (gitleaks, KTD10)", () => {
     // why the pre-external gate always passes includeMergeDiffs
     expect(blind.state).toBe("clean");
     expect(seeing.state).toBe("found");
+  });
+});
+
+describe("exportTreeAt", () => {
+  test("экспортирует только ОТСЛЕЖИВАЕМОЕ дерево коммита, без рабочего мусора", () => {
+    // #given a repo whose worktree also holds build output — the state a
+    // pipeline run worktree is in after setupCmd (`bun install && turbo build`)
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "src.ts"), "export const x = 1;\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "src");
+    fs.mkdirSync(path.join(repo, "node_modules"));
+    fs.writeFileSync(path.join(repo, "node_modules", "junk.js"), "junk\n");
+
+    // #when the commit's tree is exported
+    const exported = exportTreeAt(repo, git(repo, "rev-parse", "HEAD"));
+
+    // #then the scan root carries repository content and nothing else
+    try {
+      expect(fs.readdirSync(exported.scanRoot).sort()).toEqual(["README.md", "src.ts"]);
+    } finally {
+      fs.rmSync(exported.tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("несуществующий sha → throw и НИ ОДНОГО каталога-остатка", () => {
+    // #given a repo and a commit that is not in it
+    const repo = makeRepo();
+    const before = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("se-tree-scan-"));
+
+    // #when the export fails
+    expect(() => exportTreeAt(repo, "0".repeat(40))).toThrow();
+
+    // #then the half-made export directory is not left in /tmp
+    const after = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("se-tree-scan-"));
+    expect(after.filter((n) => !before.includes(n))).toEqual([]);
+  });
+});
+
+describe("secretScanTree (gitleaks dir, cwd=root)", () => {
+  test("fingerprint не зависит от абсолютного корня — иначе baseline не переживёт mkdtemp", () => {
+    // #given the same content under two different roots
+    const key = "AKIA" + "QWERTYUIOPASDFGH";
+    const roots = ["a", "b"].map((name) => {
+      const root = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "scan-tree-")), name);
+      fs.mkdirSync(path.join(root, "sub"), { recursive: true });
+      fs.writeFileSync(path.join(root, "sub", "creds.txt"), `aws_access_key_id = "${key}"\n`);
+      return root;
+    });
+
+    // #when each is scanned with a report
+    const fingerprints = roots.map((root) => {
+      const report = path.join(path.dirname(root), "report.json");
+      expect(secretScanTree(root, { reportPath: report }).state).toBe("found");
+      return (JSON.parse(fs.readFileSync(report, "utf8")) as { Fingerprint: string }[]).map((f) => f.Fingerprint);
+    });
+
+    // #then both report the same path-relative fingerprint, which is what makes
+    // one baseline reusable across every fresh export directory
+    expect(fingerprints[0]).toEqual(["sub/creds.txt:aws-access-token:1"]);
+    expect(fingerprints[1]).toEqual(fingerprints[0]);
+  });
+
+  test("baselinePath гасит известные находки, но не новую", () => {
+    // #given a scanned tree whose report is promoted to a baseline
+    const key = "AKIA" + "QWERTYUIOPASDFGH";
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "scan-tree-baseline-"));
+    const dataDir = path.join(root, "tree");
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, "fixture.txt"), `aws_access_key_id = "${key}"\n`);
+    const baseline = path.join(root, "baseline.json");
+    expect(secretScanTree(dataDir, { reportPath: baseline }).state).toBe("found");
+
+    // #when the same tree, then the tree plus a new secret, are rescanned
+    const unchanged = secretScanTree(dataDir, { reportPath: path.join(root, "r1.json"), baselinePath: baseline });
+    fs.writeFileSync(path.join(dataDir, "leaked.txt"), `aws_access_key_id = "AKIA${"ZXCVBNMASDFGHJKL"}"\n`);
+    const changed = secretScanTree(dataDir, { reportPath: path.join(root, "r2.json"), baselinePath: baseline });
+
+    // #then the baseline suppresses exactly what it contains and nothing more
+    expect(unchanged.state).toBe("clean");
+    expect(changed.state).toBe("found");
+  });
+
+  test("сканер недоступен → error, не clean", () => {
+    // #given a tree and no scanner binary
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "scan-tree-nobin-"));
+
+    // #when it is scanned
+    // #then the caller can fail closed
+    expect(secretScanTree(root, { bin: "/no/such/gitleaks-bin" }).state).toBe("error");
   });
 });
 

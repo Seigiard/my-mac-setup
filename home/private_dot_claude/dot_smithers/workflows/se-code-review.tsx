@@ -16,7 +16,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "./lib/agents.ts";
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
-import { enforcePreExternalGate, preExternalRepoGate } from "./lib/pre-external-gate.ts";
+import { enforcePreExternalGate, preExternalRepoGate, preExternalTreeGate } from "./lib/pre-external-gate.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
 import { stashCreateSafe } from "./lib/staging.ts";
 
@@ -124,6 +124,9 @@ function stage(target: string) {
   enforcePreExternalGate(
     preExternalRepoGate({ repo: repoDir, baseSha: scanBase(snapshotSha), head: snapshotSha, label: "se-code-review" }),
   );
+  // Tier 2: the legs read the WHOLE snapshot tree, not just the range above —
+  // including files committed on the base branch before this run started.
+  enforcePreExternalGate(preExternalTreeGate({ repo: repoDir, head: snapshotSha, label: "se-code-review" }));
 
   const stageDir = path.join("/tmp/ce-code-review", `run-${Date.now()}`);
   const skillDir = path.join(stageDir, "skill");

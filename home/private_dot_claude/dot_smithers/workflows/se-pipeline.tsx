@@ -24,6 +24,7 @@ import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory 
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
+import { preExternalTreeGate } from "./lib/pre-external-gate.ts";
 import { classifyValidateFailure, environmentFailureMessage, missingRunnerMessage, probeValidateCmd, shellQuote } from "./lib/validate-probe.ts";
 import { gateAnnouncement, type GateNext } from "./lib/gate-announce.ts";
 import {
@@ -720,31 +721,43 @@ export default smithers((ctx) => {
       children.push(...(work.nodes as never[]));
       if (work.status === "stopped") terminal = "stopped-after-second-failure:work";
       if (work.status === "green") {
-        // Secret-scan the run branch diff BEFORE anything is sent to external
-        // LLMs (KTD10). Scanner errors are degraded, never a silent pass.
+        // Secret-scan BEFORE anything is sent to external LLMs (KTD10), in two
+        // tiers: the run branch diff, and the whole tree at the run HEAD — which
+        // is what a leg actually gets a checkout of, and is strictly larger than
+        // the range (docs/issues/2026-08-14-009). Scanner errors on either tier
+        // are degraded, never a silent pass.
         const scan = stageBlock({
           name: "secret-scan",
           makeAttempt: (nodeId) => (
             <Task id={nodeId} output={outputs.agentReport} retries={0} bind={gate0Proof}>
               {() => {
                 const result = secretScanDiff(staged.worktreePath, staged.baseSha);
+                const scannedHead = gitHead(staged.worktreePath);
+                const tree = preExternalTreeGate({ repo: staged.worktreePath, head: scannedHead, label: "secret-scan" });
+                // The tree verdict is not thrown (the pipeline HAS an approval
+                // pause where a standalone harness has none) — it rides into the
+                // same gateFn as the range result and parks the run the same way.
+                console.error(tree.reason);
                 // scannedHead threads the SHA scanned here to the post-approval
                 // rescan (KTD-D): if the branch HEAD later moves during a
                 // verify-code pause, the rescan re-scans + re-validates the new
                 // commits. Lives in the report JSON, not a new schema column.
-                return { report: JSON.stringify({ ...result, scannedHead: gitHead(staged.worktreePath) }) };
+                return { report: JSON.stringify({ ...result, tree, scannedHead }) };
               }}
             </Task>
           ),
           readRaw: readAgentReport,
           gateFn: (raw) => {
             if (raw === undefined) return { state: "failed", reasons: ["secret-scan task produced no result"] };
-            const result = JSON.parse(raw) as { state: string; details: string };
-            if (result.state === "clean") return { state: "green", reasons: [] };
-            return {
-              state: "degraded",
-              reasons: [result.state === "found" ? `secret-scan found leaks in the run diff: ${result.details.slice(0, 500)}` : `secret-scan could not run: ${result.details.slice(0, 500)}`],
-            };
+            const result = JSON.parse(raw) as { state: string; details: string; tree?: { state: string; reason: string } };
+            const reasons: string[] = [];
+            if (result.state === "found") reasons.push(`secret-scan found leaks in the run diff: ${result.details.slice(0, 500)}`);
+            else if (result.state !== "clean") reasons.push(`secret-scan could not run: ${result.details.slice(0, 500)}`);
+            // Absent `tree` = a report from before the tier-2 boundary existed;
+            // replaying such a run keeps its original tier-1 verdict.
+            if (result.tree?.state === "refuse") reasons.push(result.tree.reason.slice(0, 500));
+            if (reasons.length === 0) return { state: "green", reasons: [] };
+            return { state: "degraded", reasons };
           },
           waiveOnApprove: true,
         });
