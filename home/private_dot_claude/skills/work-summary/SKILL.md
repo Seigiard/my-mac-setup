@@ -73,7 +73,7 @@ With a focus, the focus's own themes are the grouping — map each done issue on
 
 ### 6. Pick the output format
 
-- **update** — the Slack #product workstream update, ready to paste, no ticket IDs. **This is the default.** Follow `references/update-format.md`, which has two shapes: focus-anchored (default when step 3 found a focus) and flat (no focus). Triggers: "update", "post", "#product", "report for the team", "summary", "кратко", "для саммари".
+- **update** — the Slack workstream update, ready to paste, no ticket IDs. **This is the default.** Follow `references/update-format.md`, which has two shapes: focus-anchored (default when step 3 found a focus) and flat (no focus). Triggers: "update", "post", "#product", "report for the team", "summary", "кратко", "для саммари".
 - **report** — themed breakdown for the user's own consumption: each group gets a heading, a 1-3 sentence summary, and its issue list (`FRT-XXXX — title`), ending with a one-line TLDR. Follow `references/report-format.md`. Use it when the user wants ticket-level detail: "breakdown", "with ticket IDs", "по тикетам", 1:1 or perf-review prep. The bare word "report" alone does NOT select this format — the default remains the update.
 
 When the request does not make the choice obvious, produce the **update**.

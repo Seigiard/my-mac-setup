@@ -1,6 +1,6 @@
-# #product Workstream Update Format
+# Workstream Update Format
 
-Updates are posted to the #product Slack channel by a workstream bot with a "View workstream" link, attributed to the person. The text itself follows one of two shapes below.
+The update is posted to Slack by a workstream bot, attributed to the person, with a "View workstream" link beside it — so the text carries no greeting, no signature, and no ticket IDs. It follows one of two shapes below.
 
 **Default: the focus-anchored shape.** Use it whenever the user stated a focus for the period — they usually paste the focus text they wrote at the start of it. Fall back to the flat shape only when no focus exists for the period.
 
