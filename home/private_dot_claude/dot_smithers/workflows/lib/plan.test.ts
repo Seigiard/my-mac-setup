@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { extractValidateCmd } from "./plan.ts";
+import { deriveValidateCmd, extractValidateCmd } from "./plan.ts";
+
+// A contract whose only content is the given commands, one per fenced line.
+const contractWith = (...cmds: string[]): string => `## Verification Contract\n\n\`\`\`bash\n${cmds.join("\n")}\n\`\`\`\n`;
 
 // Mirrors the real ce-unified-plan/v1 Verification Contract shape (PRD-2099).
 const planWithContract = `---
@@ -181,6 +184,135 @@ describe("extractValidateCmd: списки", () => {
   test("`--flag` в бэктиках не путается с маркером списка", () => {
     const md = "## Verification Contract\n\n--watch is forbidden; use `bun test`.\n";
     expect(extractValidateCmd(md)).toBe(null);
+  });
+});
+
+// Every line of the reproduction table in
+// docs/issues/2026-08-14-010-validate-cmd-filter-is-unsound-in-both-directions.md.
+describe("deriveValidateCmd: раннер решает, а не строка целиком (issue 010)", () => {
+  test("настоящий lint-гейт остаётся, хотя раннер называется `oxlint`, а не `lint`", () => {
+    // #given команда, которую старый фильтр отбрасывал: `oxlint` — не токен `lint`
+    const md = contractWith("oxlint --deny-warnings src/a.ts");
+
+    // #when
+    const derived = deriveValidateCmd(md);
+
+    // #then
+    expect(derived.cmd).toBe("(oxlint --deny-warnings src/a.ts)");
+  });
+
+  test("тот же гейт с test-именем файла держится на раннере, а не на имени файла", () => {
+    // #given раньше эта строка выживала только из-за `test` в имени файла
+    const withTestFile = deriveValidateCmd(contractWith("oxlint --deny-warnings src/a.test.ts"));
+    const withoutTestFile = deriveValidateCmd(contractWith("oxlint --deny-warnings src/a.ts"));
+
+    // #when / #then решение одинаковое — имя файла в него не входит
+    expect(withTestFile.cmd).toBe("(oxlint --deny-warnings src/a.test.ts)");
+    expect(withoutTestFile.cmd).not.toBeNull();
+  });
+
+  test("путь `tests/fixtures/…` больше не сталкивается с forbid-подстрокой `fix`", () => {
+    // #given собственные фикстуры этого репозитория лежат в tests/fixtures
+    const md = contractWith("bun test tests/fixtures/plan.test.ts");
+
+    // #when
+    const derived = deriveValidateCmd(md);
+
+    // #then
+    expect(derived.cmd).toBe("(bun test tests/fixtures/plan.test.ts)");
+  });
+
+  test("значение флага (`--grep fixture`) не участвует в решении", () => {
+    expect(extractValidateCmd(contractWith("npm run test:unit -- --grep fixture"))).toBe("(npm run test:unit -- --grep fixture)");
+  });
+
+  test("мутирующий флаг `--write` отклоняет команду и попадает в dropped с причиной", () => {
+    // #given форматтер в гейте пачкает worktree, и work-gate падает не по делу
+    const md = contractWith("oxfmt --write src/a.test.ts");
+
+    // #when
+    const derived = deriveValidateCmd(md);
+
+    // #then
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped).toEqual([
+      { cmd: "oxfmt --write src/a.test.ts", reason: "refused: segment `oxfmt --write src/a.test.ts` carries the mutating flag `--write`" },
+    ]);
+  });
+
+  test("мутирующий флаг бьёт read-only флаг в том же сегменте", () => {
+    // #given `--check` рядом с `--write` ничего не спасает: файлы всё равно переписываются
+    const derived = deriveValidateCmd(contractWith("oxfmt --write --check tests"));
+
+    // #when / #then
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped[0].reason).toContain("mutating flag `--write`");
+  });
+
+  test("`biome check --write` отклоняется, несмотря на подкоманду `check`", () => {
+    const derived = deriveValidateCmd(contractWith("biome check --write src/a.test.ts"));
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped[0].reason).toContain("mutating flag `--write`");
+  });
+
+  test("составная строка судится посегментно: мутирующая вторая половина топит всю команду", () => {
+    // #given первая половина — настоящий гейт, вторая переписывает src
+    const derived = deriveValidateCmd(contractWith("bun test && oxfmt --write src"));
+
+    // #when / #then причина называет именно виноватый сегмент
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped[0].reason).toBe("refused: segment `oxfmt --write src` carries the mutating flag `--write`");
+  });
+
+  test("правильные команды остаются правильными (bun test, tsc --noEmit, cd + bun test)", () => {
+    expect(extractValidateCmd(contractWith("bun test"))).toBe("(bun test)");
+    expect(extractValidateCmd(contractWith("tsc --noEmit"))).toBe("(tsc --noEmit)");
+    // `cd <pkg> && …` — намеренная форма, её ломать нельзя
+    expect(extractValidateCmd(contractWith("cd pkg && bun test"))).toBe("(cd pkg && bun test)");
+  });
+
+  test("неизвестный раннер не отбрасывается молча — команда остаётся, а note её называет", () => {
+    // #given ровно так чуть не исчез lint-гейт: незнакомое имя = тихий drop
+    const derived = deriveValidateCmd(contractWith("frobnicate --strict src"));
+
+    // #when / #then
+    expect(derived.cmd).toBe("(frobnicate --strict src)");
+    expect(derived.notes).toHaveLength(1);
+    expect(derived.notes[0]).toContain("`frobnicate`");
+  });
+
+  test("отброшенная команда всегда объяснена: storybook-строка называет свой раннер", () => {
+    const derived = deriveValidateCmd(contractWith("bun run storybook"));
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped[0].reason).toContain("server/watch/e2e runner");
+  });
+
+  test("форматтер с read-only флагом — настоящий гейт", () => {
+    // #given `prettier --check` ничего не переписывает
+    expect(extractValidateCmd(contractWith("prettier --check ."))).toBe("(prettier --check .)");
+    // #then а он же без флага — переписывает
+    expect(extractValidateCmd(contractWith("prettier ."))).toBeNull();
+  });
+
+  test("флаги-отрицания и префиксные формы не читаются как мутирующие", () => {
+    // #given `--no-fix` и `--fix-dry-run` совпадают с `--fix` только по префиксу
+    expect(extractValidateCmd(contractWith("eslint --no-fix src"))).toBe("(eslint --no-fix src)");
+    expect(extractValidateCmd(contractWith("eslint --fix-dry-run src"))).toBe("(eslint --fix-dry-run src)");
+    // #then а настоящий `--fix` отдельным аргументом — отклоняется
+    expect(extractValidateCmd(contractWith("eslint --fix src"))).toBeNull();
+  });
+
+  test("`-w` у workspace-фронтенда — селектор пакета, а не in-place запись", () => {
+    // #given npm -w <pkg> run test: `-w` съедает следующее слово до имени скрипта
+    expect(extractValidateCmd(contractWith("npm -w pkg run test"))).toBe("(npm -w pkg run test)");
+    // #then после раннера тот же `-w` считается мутирующим
+    expect(extractValidateCmd(contractWith("oxfmt -w src"))).toBeNull();
+  });
+
+  test("extractValidateCmd — тонкая обёртка: тот же cmd, что у deriveValidateCmd", () => {
+    const md = contractWith("bun test", "oxfmt --write src");
+    expect(extractValidateCmd(md)).toBe(deriveValidateCmd(md).cmd);
+    expect(deriveValidateCmd(md).dropped).toHaveLength(1);
   });
 });
 

@@ -2,7 +2,8 @@
 title: The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-15
 ---
 
 # The validate-command filter is unsound in both directions
@@ -49,3 +50,21 @@ The mitigations that exist are real but partial: `--validate-cmd` overrides the 
 - **Whether mutation should be detected by flag rather than by tool name.** `--write`, `-w`, `--fix` and `--in-place` are the shared vocabulary; a name list will always trail the next formatter. A flag list is not complete either, but it fails toward refusing rather than toward mutating.
 - **Whether an unrecognised runner should be dropped or surfaced.** Dropping is silent, which is how the lint gate nearly vanished. Refusing the launch is loud but blocks on a false positive. A third option is to keep the command and record in the run notes that the filter did not recognise its runner.
 - **Whether this filter should exist at all.** The plan is a trusted operator-authored input (KTD8's stated position), and the filter exists to catch prose accidentally read as a command. If the shape fix in `docs/issues/2026-08-14-011-verification-contract-parser-ignores-bullet-lists.md` restricts extraction to structured positions only — table cells, fenced lines, list items — then most of the prose risk is already gone and the filter can be much narrower.
+
+## Resolution
+
+The filter no longer judges the command line as a bag of tokens. It splits the line into shell segments (`&&`, `||`, `;`, `|`, parens — reusing the quote-aware `splitSegments` already in `workflows/lib/validate-probe.ts`) and judges each segment on ONE word: the runner, or the subcommand for a package-manager front-end (`bun test` → `test`, `npm run test:unit` → `test:unit`, `make lint` → `lint`). Leading `VAR=value` assignments and wrappers (`timeout 120 …`, `env …`) are skipped, and the runner is reduced to its basename. A command is kept when every segment is acceptable and at least one segment can carry a verification. File paths and flag values no longer enter the decision at all, which removes both the accidental keep (a filename containing `test`) and the `fixtures`/`fix` collision.
+
+Changed files:
+
+- `home/private_dot_claude/dot_smithers/workflows/lib/plan.ts` — new segment classifier; new exported `deriveValidateCmd(markdown): ValidateCmdDerivation` returning `{ cmd, notes, dropped }`; `extractValidateCmd` kept as a thin wrapper over it, same signature and behaviour, so `se-pipeline.tsx` is untouched.
+- `home/private_dot_claude/dot_smithers/workflows/lib/plan.test.ts` — every line of the reproduction table above is an explicit case, plus the read-only-formatter waiver, negated/prefixed flag forms, and the workspace `-w` case. All pre-existing tests pass unchanged.
+
+The four open decisions were settled as:
+
+- **Classify by the runner, per shell segment.** `cd <path>` is neutral so the deliberate `cd pkg && bun test` shape survives. Keeping is decided by an explicit set of verification runners (`tsc`, `jest`, `vitest`, `pytest`, `eslint`, `oxlint`, `biome`, `ruff`, `mypy`, `clippy`, `test`, `typecheck`, `lint`, `check`, …) plus a substring rule applied to the runner word only (`test|lint|check|typecheck|tsc|spec`), which is what keeps `oxlint`. The single-bare-word guard stays: a lone word is runnable only if it is `tsc`, `pytest`, or `jest`.
+- **Detect mutation by flag.** `--write`, `-w`, `--fix`, `--in-place`, `-i`, `--apply`, `--overwrite`, matched as whole arguments after the runner word, so `--no-fix`, `--fix-type` and `--fix-dry-run` do not fire and a path containing `fixtures` cannot. A mutating flag always beats a read-only flag in the same segment. The `fix`/`format` NAME signals survive as runner-word matches only, waived when the segment carries a read-only flag (`prettier --check .` is a gate).
+- **Surface an unrecognised runner, never drop it.** A segment whose runner matches nothing is kept and recorded in `notes` naming the command and the runner. Symmetrically, nothing is dropped silently: every refused command lands in `dropped` with an actionable reason. A small explicit set of recognised non-verification runners (lifecycle subcommands `install`/`build`/…, and inspection utilities `jq`/`echo`/`cat`/…) is neutral rather than unknown, so `bun install && bun test` stays a gate while a lone `bun build …` or the `jq` coverage line of run-1784823010502 does not become one.
+- **The filter stays.** Not coupled to issue 011.
+
+Not wired yet (needs an edit to `workflows/se-pipeline.tsx`, owned elsewhere): gate-0 still calls `extractValidateCmd`, so `notes` and `dropped` are computed but not logged. Switching that call to `deriveValidateCmd` and printing both next to the existing `work-gate validate-cmd [source]` line is what makes the surfacing visible to the operator.
