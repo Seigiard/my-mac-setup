@@ -71,7 +71,7 @@ except Exception:
 # still be visible, so a text match could "confirm" a non-delivery. The partner leaving
 # idle (working, or already finished as done) is the real submit signal.
 confirm_delivery() {
-  herdr wait agent-status "$PARTNER_PANE" --status working --timeout 4000 >/dev/null 2>&1 && return 0
+  herdr agent wait "$PARTNER_PANE" --until working --timeout 4000 >/dev/null 2>&1 && return 0
   case "$(partner_status)" in working|done) return 0 ;; esac
   return 1
 }

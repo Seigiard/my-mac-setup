@@ -1,0 +1,21 @@
+# The demo — proof it works live
+
+**The standing rule: every PR whose base is `main` ships with a recorded demo — the big PR of an epic-PR-based build and every direct-build PR alike, no exceptions and no waiting to be asked. Nested PRs (base = another PR's branch) skip visuals entirely.** The demo is both *output* (presented in chat with the final report) and *attached to the PR* (published to hosting, linked in the PR body with key frames embedded).
+
+When every child is merged and the big PR is green, prove the change in the **real product** — as real as possible: full dev stack (`bun run dev` in the epic's worktree on the epic branch, then `bun run dev:wait` for a ready-or-failed signal), seeded auth, and the dev-stack helpers in `internal-dev-doc/browser-automation.md` (`dev:token` to inspect workspace state instead of reading Postgres, `seed:demo-job` for a launchable job, `?noAutoLogin` to reach the login screen).
+
+**Resolve the port, never assume it** (pf-cycle → Screenshot mechanics). Before the first capture, confirm that the port `dev:wait` reported is the port you drive, and that the stack is serving the branch under test.
+
+1. **Walk through every new flow end-to-end as a user** — not stories, the running app: create the real entities, click the real buttons, watch the real jobs run. **Validating and capturing are one pass** (pf-cycle → Screenshot mechanics): pass `filePath` to `take_screenshot` so each verified step writes its own PNG.
+2. **Validate against the contract spec.** Each flow section of the spec narrative gets checked live: does the product do what the spec promised? Exercise the validation criteria's user-facing halves for real.
+3. **Build the demo HTML** (pf-cycle → Artifact storage + Narrative HTML mechanics; this page is published to the team — all visible text follows pf-cycle → Naming on public surfaces), `demo.html` in the epic's artifact dir:
+   - **The walkthrough** — product-order sections over the live captures: what the user now sees and does.
+   - **How it was built** — per sub-task: one-paragraph what/how, PR link, anything notable about the implementation.
+   - **The discrepancy report** — the contract spec compared section-by-section against what actually shipped. Every divergence listed and classified: *implementation constraint* (with the constraint), *contract gap discovered during implementation* (with the follow-up contract change it implies), *intentional refinement* (with who decided), or *defect* — a defect found here is fixed before presenting, not reported. No silent divergences: if the demo can't show something the contract spec promised, that line item says so explicitly.
+4. **Publish it to the team, as one link.** `bun run demo:publish <demo.html> --pr <N>` uploads to the VRT bucket and prints a `https://vrt.membrane-dev.com/platform/demos/pr-<N>/index.html` URL. That host is behind the team's Cloudflare Access SSO, so the same link works everywhere: paste it in chat for the user, put it in the big PR body's Review Context, and attach it to the Linear epic when one exists. Re-running with the same `--pr` overwrites in place, so the link never goes stale. Mechanics and credentials: repo README → "Publishing a demo". A Claude Artifact is not a substitute — it stays private until the user shares it, and an uploaded `.html` serves as `content-disposition: attachment`, which downloads instead of rendering.
+
+Three things that link does not excuse:
+
+- **Refresh the big PR's title and body to match its final contents.** They were authored when the PR held only the contract spec; now it holds the whole change. The title must name the product change itself (pf-cycle → Naming on public surfaces), and the Summary/Solution must describe everything in the final diff. The user reviews and merges this PR as the whole change, and it becomes the permanent record of it.
+- **Say what the demo proves.** Lead the Review Context with a sentence of outcome, not just a URL. A reviewer who never clicks should still know what happened.
+- **Embed the few frames that carry the story** with `bun linear-upload <png>` → `![caption](URL)`, so the PR is reviewable at a glance. The published page is the full walkthrough; inline images are the summary.

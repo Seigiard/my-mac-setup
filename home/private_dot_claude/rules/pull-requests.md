@@ -1,6 +1,6 @@
 ## Pull Requests
 
-<important if="you are writing a PR title or description, finishing a PR, or considering merging">
+<important if="you are writing or rewriting a PR title or description, or finishing a PR">
 
 - Write for a zero-context reviewer: they see only the diff, not this session, plans, or reviews. Self-contained: what changed, why, how verified.
 - Never reference plan unit IDs (U1, KTD-…), review runIds, or other session artifacts — the reviewer cannot interpret them.

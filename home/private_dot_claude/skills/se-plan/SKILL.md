@@ -1,18 +1,20 @@
 ---
 name: se-plan
-description: "Create structured plans for multi-step work, including software and non-software tasks — the plugin ce-plan workflow, with its document-review step upgraded to the three-envelope review (local personas + external claude + opencode via smithers). Use when asked to plan, break down implementation, plan from requirements, or deepen an existing plan; prefer ce-brainstorm for exploratory framing."
+description: "Plan multi-step work, software or not — the ce-plan workflow with its document-review step upgraded to the three-envelope review. Use to plan, break down implementation, or deepen an existing plan; prefer ce-brainstorm for exploratory framing."
 argument-hint: "[optional: feature description, requirements doc path, plan path to deepen, or any task to plan] [output:html]"
 ---
 
 # Create Technical Plan (wrapper: plugin ce-plan + external doc review)
 
-Thin wrapper over `compound-engineering:ce-plan`. The entire planning workflow is the plugin's — invoke it and follow it faithfully with the **one amendment** below. Do not re-implement, reorder, or skip any of its phases.
+Thin wrapper over `compound-engineering:ce-plan`. The entire planning workflow is the plugin's — invoke it and follow it faithfully with the **three amendments** below. Do not re-implement, reorder, or skip any of its phases.
 
 ## How to run
 
-Invoke the Skill tool with skill `compound-engineering:ce-plan`, passing the original arguments unchanged, and execute its workflow with this amendment:
+Invoke the Skill tool with skill `compound-engineering:ce-plan`, passing the original arguments unchanged, and execute its workflow with the amendments.
 
-**Amendment — Phase 5.3.8 Document Review (`references/plan-handoff.md`).** Where the handoff says to run the `ce-doc-review` skill with `mode:headless <plan-path>`: invoke the Skill tool with skill **bare `se-doc-review`** (the user-level wrapper at `~/.claude/skills/se-doc-review`), NOT `compound-engineering:ce-doc-review`, with the same args (`mode:headless <plan-path>`). The wrapper launches the external harness (claude + opencode) in the background FIRST, runs the local plugin review concurrently, waits for both, synthesizes the three envelopes, and returns the combined text — all before control comes back. This ordering is deliberate: everything must settle **before** the post-generation menu renders, because the menu is a stopping point where the user may end the session.
+## Amendment — document review through the wrapper
+
+Phase 5.3.8 Document Review (`references/plan-handoff.md`). Where the handoff says to run the `ce-doc-review` skill with `mode:headless <plan-path>`: invoke the Skill tool with skill **bare `se-doc-review`** (the user-level wrapper at `~/.claude/skills/se-doc-review`), NOT `compound-engineering:ce-doc-review`, with the same args (`mode:headless <plan-path>`). The wrapper launches the external harness (claude + opencode) in the background FIRST, runs the local plugin review concurrently, waits for both, synthesizes the three envelopes, and returns the combined text — all before control comes back. This ordering is deliberate: everything must settle **before** the post-generation menu renders, because the menu is a stopping point where the user may end the session.
 
 Use the **combined** envelope (local + synthesis) for everything downstream in the plugin workflow: the 5.3.9 final checks, the counts in the summary line above the post-generation menu, and pipeline-mode P0/P1 handling.
 
@@ -27,18 +29,17 @@ Use the **combined** envelope (local + synthesis) for everything downstream in t
 - **HTML plans** (`output:html`): the plugin skips document review entirely for HTML output; the amendment then never fires and no harness is launched.
 - If the current prompt contains `[ce-doc-review-external-consult]`, you are inside an external consult — never invoke this wrapper or launch anything from there (the se-doc-review wrapper's recursion guard governs).
 
-## Amendment 3 — no scoping-confirmation gate by default
+## Amendment — no scoping-confirmation gate by default
 
 Run the plugin workflow as if `confirm:auto` was passed (`SKIP_SCOPING_CONFIRM=true`): do not stop at the pre-plan scoping-synthesis confirmation ("confirm and I'll write the plan" — plugin Phases 0.7 / 5.1.5). Write the plan directly.
 
-This skips ONLY that confirmation. Everything that asks a real question stays: Phase 0.4 routing, Phase 0.5 product blockers, Phase 2 architecture questions, source-doc disambiguation, the Phase 5.4 post-generation menu, and Amendment 2 below. If the user explicitly passes `confirm:ask` (or asks to confirm scope), honor that for the run.
+This skips ONLY that confirmation. Everything that asks a real question stays: Phase 0.4 routing, Phase 0.5 product blockers, Phase 2 architecture questions, source-doc disambiguation, the Phase 5.4 post-generation menu, and the P0/P1 gate below. If the user explicitly passes `confirm:ask` (or asks to confirm scope), honor that for the run.
 
-## Amendment 2 — no unresolved P0/P1 review findings on an executable plan
+## Amendment — no unresolved P0/P1 review findings on an executable plan
 
-Lesson from the first F3 comparison (2026-07-16): both executor tracks
-implemented a plan's unresolved review decisions verbatim, and the pipeline's
-own verify-code gate then flagged exactly those decisions as P0s. Executors
-do not fix a plan's holes — they replicate them.
+Executors do not fix a plan's holes — they replicate them: an executor that
+met a plan's unresolved review decisions implemented them verbatim, and the
+pipeline's own verify-code gate then flagged exactly those decisions as P0s.
 
 After the combined three-envelope review, before rendering the Phase 5.4
 post-generation menu: if any **P0 or P1** finding remains in the "Proposed

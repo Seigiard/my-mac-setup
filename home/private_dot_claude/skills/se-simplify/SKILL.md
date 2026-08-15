@@ -1,6 +1,6 @@
 ---
 name: se-simplify
-description: Simplify recently changed code with cross-model verification — runs the compound-engineering ce-simplify-code reviewers as TWO independent report-only legs (claude + opencode) on a frozen snapshot, synthesizes their consensus, then applies it ONCE and verifies behavior is preserved via a required validate-cmd. Use for a tidy/refactor pass on a branch before review; use ce-debug for bugs.
+description: Tidy recently changed code with cross-model verification — two report-only legs (claude + opencode), one verified apply behind a required validate-cmd. Use for a refactor pass on a branch before review; use ce-debug for bugs.
 argument-hint: "validate-cmd:'<test/typecheck command>' [blank to simplify current branch changes, or a scope description]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "validate-cmd:'<test/typecheck command>' [blank to simplify curre
 
 Wrapper over `compound-engineering:ce-simplify-code`. Two external agents (claude on Sonnet, opencode on GPT-5.5) each run the ce-simplify-code **reviewer phase only** (Steps 1-2: scope + the reuse/quality/efficiency personas) on a **frozen snapshot** of the branch, returning findings and changing nothing. A deterministic merge keeps cross-model **consensus** + **unique** findings and **excludes contradictions**; then ONE workflow-owned apply leg (Sonnet) applies that set to the live repo, re-locating each finding by content, and a **validate-cmd** proves behavior is preserved — reverting the whole apply and degrading on failure.
 
-All orchestration (right-sizing gate, snapshotting, staging, parallel launches, merge, apply, verify, revert) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-simplify.tsx` (pinned `smithers-orchestrator`). Do not re-implement any of it — launch it and read its outputs.
+All orchestration (right-sizing gate, snapshotting, staging, parallel launches, merge, apply, verify, revert) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-simplify.tsx`. Do not re-implement any of it — launch it and read its outputs. Harness mechanics shared with `/se-code-review` and `/se-doc-review` — launching, the secret gate, staging, error boundaries, diagnostics: read `~/.claude/shared/se-harness.md`.
 
 **The workflow's apply leg is the SINGLE apply owner.** This wrapper does NOT run a separately-applying local `ce-simplify-code` pass: that would give two apply owners mutating the live repo while the report legs analyze a frozen snapshot (stale line refs, double/conflicting edits). Any local pass, if you want a third finding source, must run **report-only** and feed the synthesis; the workflow applies exactly once.
 
@@ -34,13 +34,11 @@ cd ~/.claude/.smithers && \
   --input '{"repoPath":"<abs repo root>","validateCmd":"<the resolved command>","target":"<scope or empty>"}'
 ```
 
-- Launch from `~/.claude/.smithers` — smithers drops its state there, outside the target repo (that directory's `.gitignore` ignores runtime state).
 - `repoPath` is an **explicit input**, never an env default: the apply leg mutates exactly this path. Pass the real checkout you want tidied.
-- The harness **freezes the review target** first (`git stash create` + a detached `git worktree` under `/tmp/ce-simplify/run-<ts>/repo`), so the report legs analyze a stable snapshot while the later apply leg edits the live repo. Staging lives under `/tmp/ce-simplify/`; opencode reads it via the `permission.external_directory` allow for `/tmp/ce-simplify/*` in `~/.config/opencode/opencode.json`. If the opencode leg fails with rejected reads, check that config.
-- **Pre-external secret gate:** before staging anything, the harness runs `gitleaks` over the snapshot's own range (`baseSha` → the stash snapshot, dirty tree included) and **refuses the run** on a finding or on a scanner it cannot run. A refusal fails the `stage` task with a redacted reason and sends nothing to claude/opencode. Redact and re-run, or prefix the launch command with `SE_SKIP_SECRET_SCAN=1` to send anyway. The gate is skipped only when the caller passes `"preScanned":true` — se-pipeline does, because it already scanned this range and its operator can waive that scan.
-- Add `"smoke":true` for a cheap wiring test (no real reviewers, no apply).
+- The harness **freezes the review target** first (`git stash create` + a detached `git worktree` under `/tmp/ce-simplify/run-<ts>/repo`), so the report legs analyze a stable snapshot while the later apply leg edits the live repo.
+- **Secret gate range:** `baseSha` → the stash snapshot, dirty tree included. The gate is skipped only when the caller passes `"preScanned":true` — se-pipeline does, because it already scanned this range and its operator can waive that scan.
 
-**Error handling:** each report leg is error-boundaried — a failed leg degrades to advisory, the surviving leg still produces a usable finding set. If **zero** legs succeed, the run reports `degraded` and applies nothing (never a clean success with an empty set). A failed post-apply validate-cmd reverts the whole apply and reports `degraded`.
+**Error handling beyond the shared boundaries:** if **zero** report legs succeed, the run reports `degraded` and applies nothing (never a clean success with an empty set). A failed post-apply validate-cmd reverts the whole apply and reports `degraded`.
 
 ## Phase 3: Collect the outcome
 
@@ -48,7 +46,6 @@ Wait for the background task, then read the final output block:
 
 - `status`: `ok` (applied + verified, or nothing to apply), `skipped` (right-sizing gate — the diff was not worth simplifying; the reason is included), or `degraded` (zero legs, verify failure + revert, or refused-because-no-validate-cmd).
 - `claudeStatus` / `opencodeStatus` (`ok` | `failed` | `n/a`), `appliedCount`, `contradictionCount`, `validateExitCode`, `reverted`, and a `reportPath` to the full synthesis (`simplify.report.json`).
-- Diagnose a failed leg later with `./node_modules/.bin/smithers logs <runId>` / `smithers chat <runId>` from `~/.claude/.smithers`.
 
 ## Phase 4: Report what was applied
 
@@ -58,4 +55,3 @@ Summarize from the run output and the report:
 - **Consensus** findings (both legs agreed — the safest, applied), **unique** findings (one leg, attributed, applied), and **contradictions** (both legs touched the same spot with clashing edits — advisory only, NOT applied) so the user can decide those by hand.
 - If `status: skipped`, state the gate's reason (empty / docs-only / borderline-below-threshold) — nothing was reviewed or applied.
 
-`/tmp/ce-simplify/run-*` dirs are ephemeral tmp — leave them; the harness removes its own git worktree.

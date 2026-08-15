@@ -1,12 +1,12 @@
 ---
 name: pf-research
-description: Research a product change — gather everything relevant (code, contracts, the live product, Linear, prod) and produce a research narrative of what is and what should become, which the user confirms before /pf-spec writes it into the product contracts. First step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-research <topic/epic>", brings an idea/problem/opportunity to shape, or asks to plan a product change — planning now starts here.
+description: Research a product change and produce a research narrative of what is and what should become, for the user to confirm. First step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-research <topic-or-epic>", brings an idea or problem to shape, or asks to plan a product change — planning starts here.
 argument-hint: "<topic-or-epic>"
 ---
 
 # /pf-research — gather and narrate a product change
 
-Research a product change: gather everything relevant — code, contracts, the live product, Linear, prod — and produce a **research narrative**: the story of what is and what should become, which the user confirms before `/pf-spec` writes it into the product contracts. First step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/pf-cycle.md` first).
+Research a product change: gather everything relevant — code, contracts, the live product, Linear, prod — and produce a **research narrative**: the story of what is and what should become, which the user confirms before `/pf-spec` writes it into the product contracts. First step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first).
 
 ## What the research narrative is
 
@@ -14,7 +14,7 @@ A narrative, not a spec and not a plan: the story of the current reality and the
 
 ## Gather
 
-Gather wide, then keep only what shapes the narrative:
+Gather wide, then keep only what shapes the narrative. Gathering is done when every surface the change touches has a captured "before" screenshot, every contract slice it touches has been read rather than recalled, and every question the gather raised is written down as answered or open:
 
 - **The contracts** — the committed artifacts (entity manifest, commands, ux manifest, AI surfaces) are the authoritative map of what the product *is*; read the relevant slices before trusting memory of them.
 - **The live product** — run it and look: the current state of every surface the change touches, captured as real screenshots (pf-cycle → screenshot mechanics). What users see today is the "before" half of the story.
@@ -39,4 +39,4 @@ Present the research narrative in chat: the published artifact link plus a tight
 
 **Pure research — no Linear writes.** This step changes nothing anywhere: no epic, no issues, no comments. If an epic already exists, read it as history and store artifacts under its id; otherwise store them under a short kebab topic slug (`~/.claude/artifacts/<topic-slug>/`). The whole cycle works off this directory — Linear stays untouched unless the user explicitly asks for it (pf-cycle → Linear is opt-in).
 
-**Hand off.** On confirmation: the research narrative is approved. The user runs `/pf-spec <epic-or-topic>`.
+**Hand off.** On confirmation, `~/.claude/artifacts/<id>/research.md` carries every approved change — that file, not the built HTML, is what `/pf-spec` reads. The user runs `/pf-spec <epic-or-topic>`.

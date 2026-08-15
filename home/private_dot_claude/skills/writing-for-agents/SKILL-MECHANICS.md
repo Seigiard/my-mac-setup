@@ -20,3 +20,9 @@ The invocation cut of splitting (the sequence cut lives in `SKILL.md`): split of
 ## Router skills
 
 When user-invoked skills multiply past what you can remember, that piled-up cognitive load is cured by a **router skill**: one user-invoked skill that names the others and when to reach for each, so the human has one skill to remember instead of many. It can only hint, never fire them: user-invoked skills have no description, so nothing but the human can reach them.
+
+## Where the file goes in this setup
+
+Local addition. Progressive disclosure decides *whether* material moves behind a pointer; this decides *where* the pointed-at file lives. Count the skills that read it: every session unconditionally → the always-loaded tier (`~/.claude/CLAUDE.md`, `~/.claude/rules/`); two or more skills → `~/.claude/shared/`; exactly one skill → that skill's own `references/`. A skill never points into another skill's `references/`. The filing rule and its one deliberate exception are in `~/.claude/shared/README.md`.
+
+<!-- Source: https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents — vendored alongside SKILL.md; the "Where the file goes in this setup" section is a local addition. -->

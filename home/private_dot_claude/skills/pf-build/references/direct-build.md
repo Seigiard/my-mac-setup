@@ -1,0 +1,10 @@
+# Direct build — no epic PR
+
+The mode `/pf-build` runs in when the user asks to skip the spec step, or the change is small and self-contained enough that a spec-and-sub-task ceremony is pure overhead. A first-class mode, not a shortcut.
+
+- **The spec is the research narrative (or the change the user described), written to a canonical local plan file** (`~/.claude/artifacts/<topic>/plan.md` or scratchpad) — no sub-task files, nothing to round-trip.
+- **Contracts and code ship together, in the implementation PR(s) based on `main`** — there is no separate epic PR. Follow each affected `contracts/<name>.md`'s "Making Changes", rebuild touched artifacts (`bun run contracts:build:<name>`), and commit them with the code. If there is genuinely no contract delta, it's a plain feature branch — never invent surface to satisfy ceremony.
+- **Slice only if scale genuinely demands it.** A contained change is one coherent PR — implement it directly, or dispatch a single opencode session (still the preferred way to originate implementation). Reserve multi-PR fan-out for large work, and track those slices in the local plan file.
+- **Because the PR base is `main`, real CI runs** — the child-CI caveat (children get zero CI) does not apply; the PR's own checks are the gate, same as any normal PR.
+- **Skip the sub-task machinery, keep the rigor.** No Step 0 slicing, no watcher, no 30-minute heartbeat loop, no merge-into-epic-branch. Keep everything that makes the build trustworthy: full diff review against the plan, local typecheck + the tests the plan names, contract-artifact discipline, Greptile triage, and **the demo — a direct-build PR targets `main`, so it always gets one** (`demo.md`, beside this file). Scale the walkthrough to the change — a backend fix's demo may be one screen plus the repro→resolution evidence — but never skip the recording.
+- **You open the PR; the user reviews and merges.** Still the single merge to main, still theirs. Present the PR link, what it proves, and every judgement call as an assumption to check — exactly as the skill's end condition, minus the sub-task bookkeeping.

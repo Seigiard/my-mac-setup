@@ -20,7 +20,7 @@ By default the cycle creates **nothing in Linear**: no epics, no sub-issues, no 
 
 The cycle's terms — research narrative, contract spec, epic PR, demo — are plain engineering language, safe anywhere. Two rules still bind everything a teammate, reviewer, or external tool reads (PR titles and bodies, commit messages, branch names, Linear epic/issue titles, descriptions, and comments, GitHub review comments, prompts to implementation agents, and all visible text of published HTML pages):
 
-- **Name the product change, not the process stage.** The epic PR is named for what it will contain when it merges: "PRD-1234: Deliverable views" passes; "Contract spec for deliverable views" fails (see `/pf-spec` Step 2). The same applies to Linear epic titles and published page titles.
+- **Name the product change, not the process stage.** The epic PR is named for what it will contain when it merges: "PRD-1234: Deliverable views" passes; "Contract spec for deliverable views" fails. The same applies to Linear epic titles and published page titles.
 - **Don't narrate the cycle.** Public text describes the product and the change; which command of the cycle produced it is irrelevant to the reader and never appears.
 
 ## Artifact storage
@@ -29,14 +29,22 @@ Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed
 
 - Canonical sources: `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
 - Built pages: `research.html`, `spec.html`, `demo.html`.
-- Publish each page with the Artifact tool and **republish the same file path every iteration** so the shared link stays current; label versions. The raw file doubles as a Slack/Linear attachment when a snapshot is wanted.
+- Publish `research.html` and `spec.html` with the Artifact tool and **republish the same file path every iteration** so the shared link stays current; label versions. The raw file doubles as a Slack/Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
 - The built pages get shared beyond this chat, so their visible text — `<title>`, headings, badges, prose — follows **Naming on public surfaces** above.
+
+## Screenshot mechanics
+
+Every capture in the cycle — `/pf-research`'s "before" shots, `/pf-spec`'s story renders, `/pf-build`'s live demo walkthrough — follows these rules:
+
+- **Screenshots are real renders, never hand-mocked.** Stories: `bun run vrt:capture <story files>` → pixel-perfect PNGs at `__vrt__/<story path>/<Export>.png` (plays run before capture, so a story lands in its post-play state). Marketing/static pages: throwaway static server + `console/node_modules/.bin/playwright screenshot --viewport-size=1440,1600 <url> <out.png>`. Screens package: `cd engine/screens && bun run vrt:capture`.
+- **The running app: validate and capture in ONE pass.** Drive it with a Chrome MCP and pass `filePath` to `take_screenshot` — it writes the PNG to disk, so the drive that proves the behavior is also the drive that produces the images. Never validate with one tool and then re-drive the whole flow with a script just to save files. `filePath` is sandboxed to workspace roots (capture into the repo's gitignored `.logs/`, copy out after); attach to the user's Chrome only via `isolatedContext` + `background: true`; and use `type_text` rather than `fill` on React forms, which ignore a DOM value set without the native setter. Repo-side helpers (`dev:wait`, `dev:url`, `dev:token`, `seed:demo-job`, `?noAutoLogin`, demo test-ids) are documented in `internal-dev-doc/browser-automation.md` — read it before driving the app.
+- **Resolve the port, never assume it.** Multiple app stacks run at once (one per worktree) on auto-discovered ports, so a hardcoded `localhost:9000` usually points at another branch's app and demos the wrong code without erroring. Build every URL from `bun run dev:url [path]`.
 
 ## Narrative HTML mechanics
 
 ### House style — the default look for every narrative page
 
-Confirmed as standard 2026-07-24. Start here rather than inventing a look per page; deviate only when a specific page has a reason to.
+Start here rather than inventing a look per page; deviate only when a specific page has a reason to.
 
 **Treatment: utilitarian, not editorial.** These pages are read for their findings, so the craft goes into information design — polished type and spacing, no flashy hero, no decorative flourish. A reader should be able to scan the page and come away with the verdicts alone.
 
@@ -50,22 +58,22 @@ Confirmed as standard 2026-07-24. Start here rather than inventing a look per pa
 
 **Numbers are the argument.** Every figure recomputed from raw sources rather than quoted from a previous artifact, and stated with its population (`156 of 245 SKUs`), never bare. Where a claim rests on an assumption, say so in the same sentence.
 
----
+### Page structure
 
 Self-contained HTML, the flow in product order, one section per step: title, status badge, a 1–3 sentence narrative, the screenshot, and the Storybook story link + component file paths behind it (when they exist). Top of page: a one-line model summary and a dated iteration log. **Every screenshot must be clickable to expand**: wrap each `<img>` in a dependency-free lightbox (click → fullscreen overlay at natural size, click anywhere or Escape to close, `cursor: zoom-in` on the thumbnail) — inline screenshots are downscaled and reviewers need the pixels.
 
 Mechanics that keep it cheap to update:
 
-- **Screenshots are real renders, never hand-mocked.** Stories: `bun run vrt:capture <story files>` → pixel-perfect PNGs at `__vrt__/<story path>/<Export>.png` (plays run before capture, so a story lands in its post-play state). Marketing/static pages: throwaway static server + `console/node_modules/.bin/playwright screenshot --viewport-size=1440,1600 <url> <out.png>`. Screens package: `cd engine/screens && bun run vrt:capture`.
-- **The running app: validate and capture in ONE pass.** Drive it with a Chrome MCP and pass `filePath` to `take_screenshot` — it writes the PNG to disk, so the drive that proves the behavior is also the drive that produces the images. Never validate with one tool and then re-drive the whole flow with a script just to save files. `filePath` is sandboxed to workspace roots (capture into the repo's gitignored `.logs/`, copy out after); attach to the user's Chrome only via `isolatedContext` + `background: true`; and use `type_text` rather than `fill` on React forms, which ignore a DOM value set without the native setter. Repo-side helpers (`dev:wait`, `dev:url`, `dev:token`, `seed:demo-job`, `?noAutoLogin`, demo test-ids) are documented in `internal-dev-doc/browser-automation.md` — read it before driving the app.
-- **Resolve the port, never assume it.** Multiple app stacks run at once (one per worktree) on auto-discovered ports, so a hardcoded `localhost:9000` usually points at another branch's app and demos the wrong code without erroring. Build every URL from `bun run dev:url [path]`.
-- **Publish the demo where the team can already see it.** `bun run demo:publish <demo.html> --pr <N>` puts the page on the VRT host (`vrt.membrane-dev.com/platform/demos/…`), which is behind the team's Cloudflare Access SSO — one URL that works in chat, in the PR, and for anyone on the team, overwritten in place on republish. A Claude Artifact stays private until the user shares it, and an uploaded `.html` downloads rather than renders, so neither is the review surface. Still embed a few key frames inline (`bun linear-upload <png>` → `![caption](URL)`) and lead with what the demo proves.
 - **A generator script, not a hand-edited page.** Keep a `build.ts` next to the images: a step-manifest array (title, narrative, badge, img, story id, file paths) + a template that inlines images as base64. Downscale first (`sips -s format jpeg -s formatOptions 82 --resampleWidth 1100`) so 15+ frames stay ≈1 MB. Updating = re-capture changed frames, edit the manifest, `bun build.ts`, republish.
 - **Standalone-proof.** Start with `<meta charset="utf-8">` (raw-file viewers garble punctuation without it); inline everything (a shared page can't load external hosts); link stories at the default `http://localhost:6006` with a "port may differ — `bun run dev:ports`" note; state the branch so pointers resolve.
 
 ## Rendering contract diffs
 
 Render contract deltas, don't paste them: `bun run contracts:diff <refA> <refB> [--contract <name>]` (or the artifact diffs off the epic branch) rendered into an HTML section — per contract: added / changed / removed entries and the computed impact label. The user approves the contract surface visually, alongside the screenshots of what it becomes.
+
+## Deferred deltas
+
+A **deferred delta** is a contract change that needs working code the epic PR can't yet carry — a gate would fail on it. Don't stub or fake it: `/pf-spec` records it in the spec narrative as the artifact file plus the precise entries/fields/values expected in its diff; `/pf-build` carries each one into the sub-task that implements it and verifies that diff at review.
 
 ## Missing-prior analysis — feedback handling
 

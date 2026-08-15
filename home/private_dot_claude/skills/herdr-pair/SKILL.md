@@ -1,13 +1,16 @@
 ---
 name: herdr-pair
-description: Pair two coding agents as collaborators inside herdr — claude drives, a partner (claude or pi) responds — iterating task → review → accepted until both agree the work is done. Use whenever the user runs /herdr-pair, asks to "pair", "team up", "collaborate with pi/claude", or wants two agents to work a coding task together inside herdr. ALSO use whenever your terminal input begins with a header `[pair <from> -> <to> kind=<kind> sid=<sid>]` — that is partner-agent traffic; respond as the partner per the protocol, treating it as machine-to-machine, not ordinary user input. Requires HERDR_ENV=1.
-user-invocable: true
+description: Pair two coding agents on one coding task inside herdr — claude drives, a partner (claude or pi) responds — looping task → review → accepted until both sides accept. Use for /herdr-pair, "pair", "team up", or "collaborate with pi/claude". ALSO use when your terminal input begins with `[pair <from> -> <to> kind=<kind> sid=<sid>]` — that is partner traffic; reply as the partner per the protocol. Requires HERDR_ENV=1.
 argument-hint: "[--with claude|pi] <task description>"
 ---
 
 # Herdr Pair
 
 Two coding agents collaborate on one task inside herdr — one tab, two panes, plain-text messages with a structured header. A human watches live and can interject in either pane.
+
+## If your input began with `[pair <from> -> <to> kind=… sid=…]` — you are the partner, role `b`
+
+Read `references/peer-protocol.md` and follow it: treat the input as machine-to-machine, do the work, then **reply in your own pane** leading with the swapped header `[pair <to> -> <from> kind=<your-kind> sid=<sid>]`, same sid. Do **not** drive, do **not** run `herdr`, do **not** send into the other pane — the initiator reads you. The human always overrides; surface contradictions. Everything below this section belongs to the driver; stop reading here.
 
 **This is a coding pair: it edits files by design.** Unlike `ask-agent` (a read-only consult), a pair is given a real task and changes the codebase to finish it. There is no read-only default here.
 
@@ -22,12 +25,12 @@ There are two roles, identified by **peer-role label, not agent type** (so a `cl
 
 This is why pi works as a partner with nothing but an injected prompt: the hard parts (herdr, turn-taking, parsing) live in claude's scripts, not in the partner.
 
-> Bidirectional *conversation* (a↔b, both directions of messages) is fully supported. Bidirectional *initiation* (a non-claude agent starting/driving a pair, e.g. `pi→claude`) is **not** — that is deferred follow-up work. The eventual native-deployment vision (every agent runs the skill and replies via header auto-load) is the symmetric "Model A"; until then, claude drives.
+Messages flow both ways; *initiation* does not — only claude starts and drives a pair.
 
 ## Hard rules
 
 1. **Workspace + tab isolation.** Every pane op is scoped to the caller's `workspace_id`, and exactly one pair per `tab_id`. Session state lives under `<workspace_id>/<tab_slug>/` so concurrent pairs in different tabs never clobber each other.
-2. **claude is the driver.** The partner never drives. If you received a `[pair … -> you …]` header (you are the partner), see **Receiving** below — do not try to drive.
+2. **claude is the driver.** The partner never drives. A `[pair … -> you …]` header means you are the partner — follow the partner section at the top of this file instead.
 3. **User override always wins.** A human message that contradicts a partner message wins; surface the contradiction.
 4. **No retries on spawn failure.** One failed partner spawn → surface recent pane output and hand off to the user.
 
@@ -42,17 +45,14 @@ All racy mechanics live in `scripts/` (shellcheck-clean, tested). Call them; don
 | `scripts/send.sh` | compose `[pair a -> b …]` + body, deliver to the partner pane, verify it submitted, record the turn |
 | `scripts/recv.sh` | read the partner pane, extract its latest `[pair b -> a …]` reply → `kind` + body |
 
-Resolve the skill directory once (the dir this SKILL.md lives in) and call scripts by absolute path:
+Resolve the skill directory once — the directory this `SKILL.md` was loaded from, whichever copy that is — and call scripts by absolute path:
 
 ```bash
-SKILL_DIR="$HOME/.claude/skills/herdr-pair"   # deployed; in props/testing mode use the repo working-tree path instead
+SKILL_DIR="<the directory containing this SKILL.md>"
 PROTO="$SKILL_DIR/references/peer-protocol.md"
 ```
 
-## Protocol delivery modes
-
-- **Testing / props (now).** Skills are not yet deployed to every agent, and pi cannot auto-load Claude skills. So the partner is spawned with the protocol injected from a file: `spawn-partner.sh` passes `--proto "$PROTO"`, where `$PROTO` points at `references/peer-protocol.md` **in the repo working tree** (no `chezmoi apply` needed). This is identical for a claude or a pi partner.
-- **Native (later).** Once the skill is deployed to all agents, a claude partner auto-loads on seeing the `[pair …]` header and the injection flag can be dropped. pi/opencode native support is follow-up work.
+The partner never auto-loads this skill, so it is spawned with the protocol injected from that file: `spawn-partner.sh` passes `--proto "$PROTO"`. Identical for a claude or a pi partner.
 
 ## Message format
 
@@ -66,7 +66,7 @@ PROTO="$SKILL_DIR/references/peer-protocol.md"
 
 ### Kinds (state machine)
 
-The kinds and their meanings are defined canonically in `references/peer-protocol.md` (the partner's copy); the summary below mirrors it — keep the two in sync if you edit either.
+Each kind is defined once, in `references/peer-protocol.md` → Kinds — read it at bootstrap; you send the same kinds the partner does. The transitions, and the two facts that live only on the driver's side:
 
 ```
 task → review | question | blocked
@@ -78,14 +78,8 @@ blocked → handoff
 stalemate → handoff
 ```
 
-- `task` — assign/update work. Mid-flight interrupt: body begins `STOP — <reason>`.
-- `review` — request review of described changes (file paths + summary).
-- `question` — ask for clarification.
-- `ready` — your side is complete; summarize what changed, how validated, residual risk.
-- `accepted` — partner's `ready` looks good. **Both sides `accepted` is the only completion signal.**
-- `blocked` — cannot proceed without a human decision.
-- `stalemate` — same disagreement twice without movement.
-- `handoff` — final message to the user, in your own pane (not via send).
+- **Both sides `accepted` is the only completion signal.**
+- `handoff` — final message to the user, in your own pane (not via `send.sh`). Driver-only; the partner never sends it.
 
 ## Bootstrap (you are the initiator, role `a`)
 
@@ -122,12 +116,11 @@ Repeat until completion or handoff:
 
 1. **Wait for the partner to finish its turn — bounded — then read.** Use agent-status, not a text match: a stale `[pair b -> a …]` from a previous turn is still in the pane, so matching on it would fire early. `recv.sh` (next step) is cursor-authoritative and ignores anything before your last send, so the wait only needs to block until the partner is done.
    ```bash
-   herdr wait agent-status "$PARTNER_PANE" --status idle --timeout 600000 \
-     || herdr wait agent-status "$PARTNER_PANE" --status done --timeout 5000 \
+   herdr agent wait "$PARTNER_PANE" --until idle --until done --timeout 600000 \
      || { echo "partner $PARTNER_PANE stalled — no status change"; \
           herdr pane read "$PARTNER_PANE" --source recent --lines 40; exit 1; }   # → handoff
    ```
-   Every `herdr wait` here carries a `--timeout`; never wait unbounded, or a wedged status hook blocks the driver forever.
+   Name the states with `--until` and always pass a `--timeout`. Bare `herdr agent wait` also matches `blocked`, which would read a stuck partner as a finished turn; no `--timeout` waits forever when a status hook wedges.
 2. **Parse it** (pass a generous `--lines` so a long reply's header isn't scrolled out of the window):
    ```bash
    REPLY="$(bash "$SKILL_DIR/scripts/recv.sh" --self-role a --partner-role b --sid "$SID" --partner-pane "$PARTNER_PANE" --lines 600)"
@@ -161,20 +154,10 @@ Completion is **both sides having sent `accepted`** — i.e. you sent `accepted`
 
 `blocked` and `stalemate` end the same way: a `handoff` summary to the user + cleanup.
 
-## Receiving (you are the partner, role `b`)
-
-If your terminal input begins with `[pair <from> -> <to> kind=… sid=…]` and you did **not** initiate, you are the partner. Follow `references/peer-protocol.md`: treat it as machine-to-machine, do the work, and **reply in your own pane** leading with the swapped header `[pair <to> -> <from> kind=<your-kind> sid=<sid>]` (same sid). Do **not** drive, do **not** send into the other pane — the initiator reads you. The human always overrides; surface contradictions.
-
 ## Workbench tab
 
-Lazy/optional. For long-running shared processes (servers, watchers, logs) the pair needs to watch, see `references/workbench-tab.md`.
+When the pair needs a long-running shared process (server, watcher, log stream): `references/workbench-tab.md`.
 
-## Live testing (manual E2E — CI cannot run this)
+## Changing this skill
 
-CI covers structure, shellcheck, and `recv.sh`/`session.sh` units. The live pair needs herdr + interactive agents, so validate it by hand inside herdr:
-
-1. **claude↔claude.** From a claude pane: `/herdr-pair --with claude <a trivial task, e.g. "add a one-line code comment to FILE and confirm">`. Confirm: a partner pane spawns and reaches idle; the task is delivered; the partner replies `[pair b -> a …]`; the loop iterates to **both sides `accepted`**; the handoff summary prints; the session dir is trashed.
-2. **claude↔pi.** Same, `--with pi`. Additionally confirm pi got the protocol (its first reply is correctly formatted) and is idle-detectable.
-3. **Isolation.** Run two pairs in two tabs of one workspace at once; confirm their session dirs (`<ws>/<tab_slug>/`) stay separate and neither closing trashes the other.
-
-Probe-verified (2026-06-28, herdr 0.7.1): pi accepts the protocol via `--append-system-prompt <path>`, submits on a single Enter, is idle-detectable on its v2 hook, and replies in-format. Re-confirm after a herdr upgrade.
+Validating a change by hand (manual E2E — CI cannot run it): `references/live-testing.md`.

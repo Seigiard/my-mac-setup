@@ -1,12 +1,12 @@
 ---
-paths: "**/*.{test,spec}.ts, **/__tests__/**"
+paths: "**/*.{test,spec}.{ts,tsx}, **/__tests__/**"
 ---
 
 ## Testing Rules
 
 ### Structure
 
-- Use BDD-style comments: #given, #when, #then
+- Mark the three phases with `// #given`, `// #when`, `// #then` comments, in that order
 - One logical assertion per test
 - Descriptive test names that explain the scenario
 
@@ -18,26 +18,4 @@ paths: "**/*.{test,spec}.ts, **/__tests__/**"
 
 ### Coverage
 
-- Test happy path AND error cases
-- Test edge cases (empty, null, boundary values)
-- Test async behavior (loading, success, error states)
-
-### Example
-
-```typescript
-describe("UserService", () => {
-  describe("getUser", () => {
-    it("should return user when found", async () => {
-      // #given
-      const mockUser = { id: "1", name: "Test" };
-      mockDb.findById.mockResolvedValue(mockUser);
-
-      // #when
-      const result = await userService.getUser("1");
-
-      // #then
-      expect(result).toEqual(mockUser);
-    });
-  });
-});
-```
+A unit is tested when its happy path, every error path it can produce, its empty/null/boundary inputs, and each async state (loading, success, error) all have a test. An untested error path means the work is not done.

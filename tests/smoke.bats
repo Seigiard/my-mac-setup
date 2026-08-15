@@ -274,7 +274,21 @@ TOML
   assert_file_exists "$HOME/.claude/skills/pf-research/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/pf-spec/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/pf-build/SKILL.md"
-  assert_file_exists "$HOME/.claude/pf-cycle.md"
+  assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
+  assert_file_exists "$HOME/.claude/skills/pf-build/references/direct-build.md"
+  assert_file_exists "$HOME/.claude/skills/pf-build/references/implementer-prompt.md"
+  assert_file_exists "$HOME/.claude/skills/pf-build/references/demo.md"
+}
+
+@test "shared references are deployed and every pointer to them resolves" {
+  assert_file_exists "$HOME/.claude/shared/README.md"
+  assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
+  assert_file_exists "$HOME/.claude/shared/se-harness.md"
+  assert_file_exists "$HOME/.claude/shared/decision-brief.md"
+
+  # No skill may point into another skill's references/ — shared material lives in shared/.
+  run grep -rEl '~/\.claude/skills/[a-z-]+/references/' "$HOME/.claude/skills"
+  assert_output ""
 }
 
 @test "herdr-pair skill is deployed" {

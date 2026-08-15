@@ -4,17 +4,10 @@ paths: "**/*.{ts,tsx}"
 
 ## TypeScript Rules
 
-When tracing where a symbol is defined or finding all references to it, use LSP (goToDefinition, findReferences, hover) instead of Grep. LSP gives exact results; Grep gives text matches.
-
-Use Grep/Glob for discovery (finding files, searching patterns). Use LSP for understanding (definitions, references, type info).
-
-After locating a file with Grep/Glob, use LSP to navigate within it rather than reading the whole file.
+Grep/Glob **locates**, LSP **understands**: find the file with Grep/Glob, then use `goToDefinition`, `findReferences`, and `hover` for definitions, call sites, and types instead of reading the file whole. Grep returns text matches; LSP returns exact ones.
 
 ### Naming Conventions
 
-- PascalCase for interfaces, types, classes, components
-- camelCase for functions, variables, methods
-- SCREAMING_SNAKE_CASE for constants
 - kebab-case for file names
 
 ### Type Safety
@@ -38,13 +31,10 @@ Main export at the top — readers see the purpose immediately.
 ### Imports
 
 - Use named exports over default exports
-- No circular dependencies
 
 ### Async/Await
 
-- Always handle promise rejections
-- Use try/catch for async operations
-- Avoid floating promises (unhandled)
+- Every promise is awaited inside a `try/catch` or carries a `.catch` — no floating promises
 
 ### React Hooks
 

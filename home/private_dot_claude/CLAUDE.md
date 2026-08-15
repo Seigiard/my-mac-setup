@@ -2,14 +2,11 @@
 
 - Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 
-<!-- Writing style rules live in home/.chezmoitemplates/writing-style.md and reach each
-     agent natively: Claude output style, pi APPEND_SYSTEM.md, opencode instructions. -->
-
 ## Decision-making
 
 ### Starting a new user request
 
-Check for project-local instructions: `CLAUDE.local.md`, `AGENTS.local.md`.
+Check for `AGENTS.local.md`.
 
 Pre-classification triggers (fire in background):
 
@@ -18,13 +15,13 @@ Pre-classification triggers (fire in background):
 
 ### Assumptions, pushback, and confusion
 
-- State assumptions explicitly. If uncertain, ask rather than guess.
+- State assumptions explicitly.
 - Push back when a simpler approach exists.
 - Stop when confused. Name what's unclear.
 
 ### When to ask the user
 
-Ask ONE clarifying question at a time. Never ask more than one clarifying question at a time.
+Ask ONE clarifying question at a time.
 
 Ask the user when:
 
@@ -36,31 +33,17 @@ Ask the user when:
 ### Multi-step tasks
 
 - Define success criteria. Loop until verified.
-- Don't follow steps. Define success and iterate.
 - After a significant step: summarize what was done, what's verified, what's left.
 - Don't continue from a state you can't describe back.
 
 ## Skill routing
 
-| Trigger                                 | Skill                                     | Notes                                                                 |
-| --------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
-| "commit", "create commit"               | `/compound-engineering:ce-commit`         | Let skill handle git                                                  |
-| "commit and PR", "push and create PR"   | `/compound-engineering:ce-commit-push-pr` | Full workflow                                                         |
-| "review PR", "review code"              | `/se-code-review`                         | Local wrapper: plugin + external reviews                              |
-| "simplify", "tidy/refactor branch"      | `/se-simplify`                            | 2 cross-model report legs → single verified apply                     |
-| Complex multi-step project starting     | `/compound-engineering:ce-brainstorm`     | Persistent planning                                                   |
-| Planning multi-step tasks               | `/se-plan`                                | Local wrapper: plugin plan + external doc review                      |
-| Debugging, errors, test failures        | `/compound-engineering:ce-debug`          | Systematic root cause                                                 |
-| "review plan", "review spec"            | `/se-doc-review`                          | Local wrapper: plugin + external reviews                              |
-| Linear issues, task tracking            | `/linear-cli`                             | Linear CLI management                                                 |
-| Linear ticket reference (CORE-XX, etc.) | `/linear-cli` + Linear-first triage       | Fetch ticket BEFORE investigating                                     |
-| Plan iteration ("итерация N", "дальше") | Load the plan file first                  | Batch 2–3 units per pass. Gate each batch on a commit.                |
-| Migration / refactor                    | `/compound-engineering:ce-work`           | Keep scope fidelity. Never restore code the migration deleted.        |
-| Executing work efficiently              | `/compound-engineering:ce-work`           | Quality + completion                                                  |
-| "запусти пайплайн", durable plan exec   | `/se-work`                                | se-pipeline, NO plan-review (work→simplify→verify)                    |
-| durable exec WITH plan-review first     | `/se-review-and-work`                     | `se-work` + verify-doc; same pipeline, docReview key                  |
-| "ask opencode/pi", second opinion       | `/ask-agent`                              | One-shot question to a peer agent; read-only                          |
-| "orchestrate agents", durable workflow  | `/smithers`                               | Control plane under se-work and se-plan; use directly for custom runs |
+Every skill's own description already carries its triggers. These four lines resolve what a description cannot:
+
+- **Review, plan, or doc-review → the local `/se-*` wrapper** (`/se-code-review`, `/se-plan`, `/se-doc-review`), never the `compound-engineering:ce-*` original it wraps: same workflow plus independent external claude + opencode legs.
+- **Commit, push, PR → `/compound-engineering:ce-commit` or `ce-commit-push-pr`.** The skill owns every git command; run none of them yourself first.
+- **Plan iteration ("итерация N", "дальше") → load the plan file first**, then batch 2–3 units per pass, each batch gated on a commit.
+- **Migration or refactor → `/compound-engineering:ce-work` with scope fidelity:** code the migration deleted stays deleted.
 
 ## Working with code
 
@@ -76,8 +59,7 @@ Ask the user when:
 
 <important if="you encounter conflicting patterns or conventions in the codebase">
 
-Pick one (more recent / more tested). Explain why. Flag the other for cleanup.
-Don't blend conflicting patterns.
+Pick one (more recent / more tested), state why in one line, and flag the other for cleanup. Every site you touch in this task follows the one you picked.
 
 </important>
 
@@ -87,8 +69,6 @@ Don't blend conflicting patterns.
 
 - Prefer `gh pr view`, `gh issue list`, `gh search prs` over `gh api`. Fall back to `gh api` only when the subcommands can't return the data you need.
 - `gh` is authed as **Seigiard** (≠ git author "Andrew Borisenko"). PRs open as Seigiard; never request Seigiard as reviewer.
-
-<!-- PR title/description rules moved to ~/.claude/rules/pull-requests.md (auto-loaded, no import needed) -->
 
 <important if="user references a ticket ID (CORE-XX, LIN-XX, etc.), asks to fix a bug from an issue tracker, or asks to create a Linear issue">
 
@@ -134,8 +114,6 @@ Don't blend conflicting patterns.
 
 **CLI tools (via Bash):**
 
-- `jq` — JSON transforms and parsing
-- `rg` with flags (`-t`, `-g`, `--json`) — when specific output format needed
 - `fd` — find files by glob, extension, or mtime: `fd -g '<Name>.tsx' <dir>`, `fd -e ts -e tsx . <dir>`, `fd -HI --changed-within 1d . <dir>`. It respects `.gitignore`, so drop the manual `node_modules` exclude chain.
 - `magick` — the Read tool cannot open a GIF. Split it into frames: `magick <file>.gif -coalesce frame-%02d.png`. Crop one region: `magick frame-01.png -crop <W>x<H>+<X>+<Y> +repage crop.png`.
 - `npx -y agent-browser` — inspect a local dev server, or an app behind PAT auth: `open <url>`, then `snapshot -i`, `eval`, `click @<ref>`, `screenshot <path>`, `close`. Public pages stay with the browser MCP tools and WebFetch.
@@ -145,7 +123,7 @@ Don't blend conflicting patterns.
 
 | Need                              | Primary tool                                                                                                                                                                                                                                                | Fallback                                                                                                                           |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Code search: files and contents   | `mcp__fff__grep` — ONE bare identifier per query. A query with a space returns "0 exact matches". Several identifiers → `mcp__fff__multi_grep`, `patterns` as a JSON array. A file by topic or name → `mcp__fff__find_files`                                | Grep / Glob — for a regex, a quoted string, or a path-scoped search                                                                |
+| Code search: files and contents   | `mcp__fff__grep` (the server's own instructions carry its query rules)                                                                                                                                                                                       | Grep / Glob — for a regex, a quoted string, or a path-scoped search                                                                |
 | How an external repo works        | Agent(`open-source-librarian`) — in the background when it precedes planning, blocking when its verdict gates the next step                                                                                                                                 | `mcp__deepwiki__ask_question` for orientation only; confirm every claim with `gh api`                                              |
 | Broad question about local code   | Agent(Explore)                                                                                                                                                                                                                                              | Grep by hand                                                                                                                       |
 | URL → text                        | `/markdown-new` — clean markdown, no API key, survives JS-heavy SPAs. Use it first for every URL                                                                                                                                                            | `WebFetch`. For several pages in one call: `mcp__jina__read_url` with a URL array — it returns full page text, long pages overflow |

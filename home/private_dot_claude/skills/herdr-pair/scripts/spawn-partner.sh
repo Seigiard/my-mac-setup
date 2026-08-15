@@ -56,7 +56,7 @@ herdr pane run "$PANE" "$PCMD"
 
 # Readiness: agent-status idle (probe-verified reliable for claude v6 and pi v2). If it
 # never settles, surface recent output and fail — do not retry the spawn.
-if ! herdr wait agent-status "$PANE" --status idle --timeout "$TIMEOUT" >/dev/null 2>&1; then
+if ! herdr agent wait "$PANE" --until idle --timeout "$TIMEOUT" >/dev/null 2>&1; then
   echo "spawn-partner.sh: partner ($AGENT) did not reach idle within ${TIMEOUT}ms in pane $PANE:" >&2
   herdr pane read "$PANE" --source recent --lines 40 >&2 || true
   exit 1

@@ -1,31 +1,22 @@
 ---
 name: pf-build
-description: Implement the open epic PR's contract spec in real code by dispatching a headless opencode session per sub-task, reviewing and auto-merging each implementation PR into the epic branch, and proving the result live with a demo plus a discrepancy report; the user performs the cycle's single merge to main. Third step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-build <epic-or-topic>" or wants an approved contract spec implemented; a small, self-contained change may run as a direct build with no epic PR.
+description: Implement an approved contract spec in real code by dispatching a headless opencode session per sub-task, then prove it live with a demo. Third step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-build <epic-or-topic>" or wants an approved contract spec implemented.
 argument-hint: "<epic-or-topic>"
 ---
 
 # /pf-build — implement the contract spec and prove it live
 
-Implement the open **epic PR**'s contract deltas in real code — slice the work into local sub-task files, dispatch a headless opencode session per sub-task, review each PR against its deltas and validation criteria, fix or feed back corrections, and auto-merge each implementation PR **into the epic branch** (never to main). The build ends with a **demo**: a walkthrough of the new functionality in the real product, validated live, with a discrepancy report against the contract spec — and one big PR the user reviews and merges as the cycle's single merge to main. Third step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/pf-cycle.md` first). You are the orchestrator and the only human-facing party; task management stays in the artifact directory's `tasks/` files (pf-cycle → Linear is opt-in — mirror to Linear sub-issues only when the user explicitly asks).
+Implement the open **epic PR**'s contract deltas in real code — slice the work into local sub-task files, dispatch a headless opencode session per sub-task, review each PR against its deltas and validation criteria, fix or feed back corrections, and auto-merge each implementation PR **into the epic branch** (never to main). The build ends with a **demo**: a walkthrough of the new functionality in the real product, validated live, with a discrepancy report against the contract spec — and one big PR the user reviews and merges as the cycle's single merge to main. Third step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first). You are the orchestrator and the only human-facing party; task management stays in the artifact directory's `tasks/` files (pf-cycle → Linear is opt-in — mirror to Linear sub-issues only when the user explicitly asks).
 
-Invoked as `/pf-build <epic-or-topic>` (the artifact directory's id: a topic slug, or a Linear identifier like PRD-1234 when an epic exists). If none is given, use the one from the current conversation. The build can also run as a **direct build** — with no epic PR — when the user asks for that or the change is small and self-contained; see **Two ways to build** below. That is a valid, first-class mode, not a shortcut to apologize for.
+Invoked as `/pf-build <epic-or-topic>` (the artifact directory's id: a topic slug, or a Linear identifier like PRD-1234 when an epic exists). If none is given, use the one from the current conversation.
 
 ## Two ways to build
 
 **Epic-PR-based (the default, everything below).** The full cycle: an open epic PR is the target, children merge into its branch, local task files track the sub-tasks, and the child-CI caveat, watcher, and heartbeat all apply. Every section after this one assumes this mode.
 
-**Direct build (no epic PR).** When the user invokes `/pf-build` and asks to skip the spec step, or the change is small and self-contained enough that a spec-and-sub-task ceremony is pure overhead, build direct:
+**Direct build (no epic PR)** — when the user asks to skip the spec step, or the change is small and self-contained enough that the ceremony is pure overhead. Follow `references/direct-build.md` instead of the sections below.
 
-- **The spec is the research narrative (or the change the user described), written to a canonical local plan file** (`~/.claude/artifacts/<topic>/plan.md` or scratchpad) — no sub-task files, nothing to round-trip.
-- **Contracts and code ship together, in the implementation PR(s) based on `main`** — there is no separate epic PR. Follow each affected `contracts/<name>.md`'s "Making Changes", rebuild touched artifacts (`bun run contracts:build:<name>`), and commit them with the code. If there is genuinely no contract delta, it's a plain feature branch — never invent surface to satisfy ceremony.
-- **Slice only if scale genuinely demands it.** A contained change is one coherent PR — implement it directly, or dispatch a single opencode session (still the preferred way to originate implementation). Reserve multi-PR fan-out for large work, and track those slices in the local plan file.
-- **Because the PR base is `main`, real CI runs** — the child-CI caveat (children get zero CI) does not apply; the PR's own checks are the gate, same as any normal PR.
-- **Skip the sub-task machinery, keep the rigor.** No Step 0 slicing, no watcher, no 30-minute heartbeat loop, no merge-into-epic-branch. Keep everything that makes the build trustworthy: full diff review against the plan, local typecheck + the tests the plan names, contract-artifact discipline, Greptile triage, and **the demo — a direct-build PR targets `main`, so it always gets one** (see "The demo": record the change working live, publish to hosting, attach to the PR, and present it in chat). Scale the walkthrough to the change — a backend fix's demo may be one screen plus the repro→resolution evidence — but never skip the recording.
-- **You open the PR; the user reviews and merges.** Still the single merge to main, still theirs. Present the PR link, what it proves, and every judgement call as an assumption to check — exactly as the end condition below, minus the sub-task bookkeeping.
-
-**When there is no epic PR yet but you are *not* in direct mode** — the change warrants full ceremony — do the spec step first, in this same run (next paragraph).
-
-**No epic PR yet, epic-PR-based mode? Spec first, in this same run — don't refuse and don't skip it.** (In direct mode, above, you skip this entirely.) `/pf-build` can be invoked directly on an approved research narrative, or on a change the user simply described. When there is no open epic PR, begin by doing `/pf-spec`'s job (read `~/.claude/skills/pf-spec/SKILL.md` and follow it): author the contract deltas, open the epic PR with base `main`, and keep it open — no Linear epic unless the user explicitly asked for one. Then continue with Step 0 below. Two adjustments when spec'ing inside a build run:
+**No epic PR yet, epic-PR-based mode? Spec first, in this same run.** `/pf-build` can be invoked directly on an approved research narrative, or on a change the user simply described. Begin by doing `/pf-spec`'s job (read `~/.claude/skills/pf-spec/SKILL.md` and follow it): author the contract deltas, open the epic PR with base `main`, and keep it open — no Linear epic unless the user explicitly asked for one. Then continue with Step 0 below. Two adjustments when spec'ing inside a build run:
 
 - **The user is away, so the spec's iterate-until-confirmed loop does not apply.** Author it, verify the gates are green, and record every judgement call you made in your status report as an assumption the user should check at final review — instead of blocking on their confirmation.
 - **Scale the spec to the change.** A change with genuine contract surface (new entities, commands, pages, agent tools) gets the full treatment. A change with almost none — dev tooling, scripts, docs, a single behavior tweak — gets a correspondingly small spec; if it turns out there is *no* contract delta at all, say so plainly in the report and carry on with a plain feature branch as the base the children merge into. Everything downstream (children merge into that branch, one final user merge to main) is unchanged either way. Never invent contract surface to satisfy the ceremony.
@@ -81,7 +72,7 @@ Slicing rules:
 
 opencode runs as headless `opencode run` in an isolated git worktree per sub-task. There is no dispatch helper script — you create the worktree and capture the session yourself. Dispatch with the **balanced tier: `-m openai/gpt-5.6-terra`; never the frontier tier (`openai/gpt-5.6-sol`), never an upward override** — if a sub-task seems too hard for balanced, the fix is a sharper prompt, not a bigger model.
 
-1. Build the self-contained implementer prompt (template below) — paste the full task file verbatim; opencode sees nothing else. Write it to a scratchpad file.
+1. Build the self-contained implementer prompt (`references/implementer-prompt.md`) — paste the full task file verbatim; opencode sees nothing else. Write it to a scratchpad file.
 2. Create the worktree and branch — the base is **always** the epic branch (or `oc/<DEP-ID>` to stack on an unmerged dependency — rare; prefer waiting for the merge and dispatching off the fresh tip):
    ```bash
    git -C <main-checkout> worktree add .claude/worktrees/oc-<TASK-ID> -b oc/<TASK-ID> origin/<epic-branch>
@@ -127,38 +118,6 @@ After opencode pushes, **re-review the new commits from the diff** — never tak
 
 **All rebases are yours.** Never resume opencode to rebase — do all rebases and cross-PR conflict resolution yourself: a session asked to rebase burns quota on archaeology and races your view of the tip. Before committing a manual fix in an opencode worktree, run `git fetch && git reset --hard origin/oc/<TASK-ID>` first so you build on the real pushed PR — the session may have pushed after your last look at the worktree.
 
-### Implementer prompt template
-
-Fill every `<…>` and paste the task file verbatim — opencode has no other context.
-
-```
-You are implementing ONE task end-to-end in the Membrane `platform` monorepo. You are working in a fresh git worktree on branch `oc/<TASK-ID>`, based on <EPIC-BRANCH>.
-
-## Task — <TASK-ID>: <title>
-<Paste the full task file: Goal + Contract deltas + Validation criteria + Out of scope + all context — file paths, commands, gotchas, links.>
-
-## How to work
-- FIRST read `AGENTS.md` at the repo root and follow it exactly — tooling, worktree rules, testing, finalizing, and the per-area guides it links. It answers most environment questions (fresh-worktree setup, formatters, test runners); trust it over your instincts, and quote a command's verbatim error before concluding the environment is broken.
-- The product contracts for this epic are already committed on your base branch — your job is to make the product fulfill them. Follow "Making Changes" in each affected `contracts/<name>.md`, rebuild touched artifacts (`bun run contracts:build:<name>`), and commit them with the change. If the task specifies exact contract deltas, your artifact diff must match them exactly.
-- The DoD is the Validation criteria: the exact committed checks they name must exist and pass.
-- Stay strictly inside this task's scope and Out-of-scope boundary. Do NOT merge anything.
-
-## Verification rules (each exists because its violation shipped a bug)
-- If your change removes or renames an export, entity, or API surface: grep the WHOLE repo for consumers, then `bun run build:all` and typecheck every affected package — a single-package typecheck passes against stale built dists and lies.
-- DELETE a test file only if its subject IS the removed behavior/entity. A surviving-entity test that merely references the removed thing gets those references edited out — never delete the file.
-- Never disable a test (`.skip`) — lint fails CI on it. Delete (per the rule above) or fix.
-- A failing suite is "pre-existing" only after you run the SAME suite on your base branch and compare both results. Never claim it without the baseline.
-- Before finishing: `cd` into each changed package and run `bun run typecheck` plus the relevant tests (runners per AGENTS.md → Testing), then `bun run fix`. Do not finish red.
-
-## Deliverable
-- Commit with a clear message ending with the trailer:
-  `Co-Authored-By: opencode <noreply@opencode.ai>`
-- Push branch `oc/<TASK-ID>`.
-- Open a PR: `gh pr create --base <EPIC-BRANCH> --head oc/<TASK-ID>`. Title MUST start with `<TASK-ID>: ` so the PR maps back to its task (and so Linear links it when real issue ids are in use). Body follows the repo format: `## Summary`, `## Problem Reproduction`, `## Solution`, `## Review Context` — paste your passing typecheck/test output under Review Context. Note: PRs into this base run no CI; your pasted local results ARE the review evidence.
-- Do NOT capture or attach screenshots — this PR is nested (its base is not `main`), and nested PRs skip visuals; the epic's demo carries the visual proof. For a UI-visible change, your review evidence is the play-function/VRT assertions your validation criteria name plus your pasted test output.
-- Print the PR URL as your final message.
-```
-
 ## Watch + heartbeat
 
 Two things wake you: each opencode background task on completion, and a bash watcher on PR-state changes. A 30-minute loop catches what both miss.
@@ -174,7 +133,7 @@ Two things wake you: each opencode background task on completion, and a bash wat
 
 2. **Dispatch.** Apply the throttle policy (Dispatch throttle) → this pass's concurrency cap. Then for each active child with no PR and no running session, apply the wave rules (Scheduling): non-overlapping ready issues dispatch off the current epic-branch tip; a child whose dependency or overlap-partner hasn't merged yet is blocked — report it as blocked-on-`<DEP-ID>`. Record `sessionID` + worktree from each completed dispatch log.
 
-3. **Review and fix.** For each open child PR with unreviewed commits: read the full diff (`gh pr diff`; checkout when you need to run things) and judge it against the sub-task's validation criteria, its contract deltas (artifact diffs match the task text; no unplanned contract changes), correctness, and the repo PR-body format. **Child PRs are nested (base = the epic branch, not `main`) so they skip PR visuals** — the epic demo on the big PR carries the visual proof; a child's review evidence is your local verification, not screenshots. **Run the verification yourself** — children get no CI, so your local typecheck + tests are the only gate. Resolve every finding now — resume opencode or fix it yourself — verify, and post one GitHub review documenting what was found and which commit fixed it.
+3. **Review and fix.** For each open child PR with unreviewed commits: read the full diff (`gh pr diff`; checkout when you need to run things) and judge it against the sub-task's validation criteria, its contract deltas (artifact diffs match the task text; no unplanned contract changes), correctness, and the repo PR-body format. **Run the verification yourself** — children get no CI, so your local typecheck + tests are the only gate. Resolve every finding now — resume opencode or fix it yourself — verify, and post one GitHub review documenting what was found and which commit fixed it.
 
 4. **Verify follow-ups.** Re-check open threads against new commits — confirm fixes in the diff, never from a reply. If Greptile reviewed the child PR, triage every P1/P2: fix or answer why not (body block + inline comments per repo `CLAUDE.md` → AI PR Review). The big PR gets fresh Greptile passes as merges land — triage there continuously too.
 
@@ -186,27 +145,7 @@ Two things wake you: each opencode background task on completion, and a bash wat
 
 ## The demo — proof it works live
 
-**The standing rule: every PR whose base is `main` ships with a recorded demo — the big PR of an epic-PR-based build and every direct-build PR alike, no exceptions and no waiting to be asked. Nested PRs (base = another PR's branch) skip visuals entirely.** The demo is both *output* (presented in chat with the final report) and *attached to the PR* (published to hosting, linked in the PR body with key frames embedded).
-
-When every child is merged and the big PR is green, prove the change in the **real product** — as real as possible: full dev stack (`bun run dev` in the epic's worktree on the epic branch, then `bun run dev:wait` for a ready-or-failed signal), seeded auth, and the dev-stack helpers in `internal-dev-doc/browser-automation.md` (`dev:token` to inspect workspace state instead of reading Postgres, `seed:demo-job` for a launchable job, `?noAutoLogin` to reach the login screen).
-
-**Never type a port into a demo step.** Other worktrees are usually running their own stacks, and `bun run dev` auto-discovers ports, so `localhost:9000` is probably a different branch's app — which does not error, it just quietly demos the wrong code. Derive every URL from `bun run dev:url [path]`, which resolves this checkout's stack and refuses to guess when none is running. Confirm you are on the right one before the first capture: the port `dev:wait` reports and the port you drive must be the same, and the branch under test must be what that stack is serving.
-
-1. **Walk through every new flow end-to-end as a user** — not stories, the running app: create the real entities, click the real buttons, watch the real jobs run. **Validating and capturing are one pass**: drive with a Chrome MCP and pass `filePath` to `take_screenshot` so each verified step writes its own PNG (pf-cycle → screenshot mechanics). Re-driving the whole flow with a second tool just to produce files is the failure mode this replaces.
-2. **Validate against the contract spec.** Each flow section of the spec narrative gets checked live: does the product do what the spec promised? Exercise the validation criteria's user-facing halves for real.
-3. **Build the demo HTML** (pf-cycle → artifact storage + HTML mechanics; this page is published to the team — all visible text follows pf-cycle → Naming on public surfaces), `demo.html` in the epic's artifact dir:
-   - **The walkthrough** — product-order sections over the live captures: what the user now sees and does.
-   - **How it was built** — per sub-task: one-paragraph what/how, PR link, anything notable about the implementation.
-   - **The discrepancy report** — the contract spec compared section-by-section against what actually shipped. Every divergence listed and classified: *implementation constraint* (with the constraint), *contract gap discovered during implementation* (with the follow-up contract change it implies), *intentional refinement* (with who decided), or *defect* — a defect found here is fixed before presenting, not reported. No silent divergences: if the demo can't show something the contract spec promised, that line item says so explicitly.
-4. **Publish it to the team, as one link.** `bun run demo:publish <demo.html> --pr <N>` uploads to the VRT bucket and prints a `https://vrt.membrane-dev.com/platform/demos/pr-<N>/index.html` URL. That host is behind the team's Cloudflare Access SSO, so the same link works everywhere: paste it in chat for the user, put it in the big PR body's Review Context, and attach it to the Linear epic when one exists. Re-running with the same `--pr` overwrites in place, so the link never goes stale. Mechanics and credentials: repo README → "Publishing a demo".
-
-   Three things that link does not excuse:
-
-   - **Refresh the big PR's title and body to match its final contents.** They were authored when the PR held only the contract spec; now it holds the whole change. The title must name the product change itself (e.g. "PRD-1234: Deliverable views" — never "Contract spec for …" or any other snapshot of an earlier state), and the Summary/Solution must describe everything in the final diff. The user reviews and merges this PR as the whole change, and it becomes the permanent record of it.
-   - **Say what the demo proves.** Lead the Review Context with a sentence of outcome, not just a URL. A reviewer who never clicks should still know what happened.
-   - **Embed the few frames that carry the story** with `bun linear-upload <png>` → `![caption](URL)`, so the PR is reviewable at a glance. The published page is the full walkthrough; inline images are the summary.
-
-   Do **not** rely on a Claude Artifact for team review — it is private until the user shares it, and an uploaded `.html` serves as `content-disposition: attachment`, which downloads instead of rendering. Publish to the VRT host and the problem disappears.
+When every child is merged and the big PR is green, prove the change in the real product, publish the demo, and refresh the big PR: `references/demo.md`. Every PR whose base is `main` gets one, no exceptions and no waiting to be asked.
 
 ## End condition
 

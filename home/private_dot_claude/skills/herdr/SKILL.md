@@ -1,6 +1,6 @@
 ---
 name: herdr
-description: "Control herdr from inside it: manage workspaces, tabs, and panes; split panes and run commands; spawn and coordinate other agents; read pane output; and wait for output or agent-status changes — all via the `herdr` CLI talking to the running instance over a local unix socket. Use when running inside herdr (HERDR_ENV=1)."
+description: "Drive herdr, the terminal multiplexer, from your pane via the `herdr` CLI. Use when starting a long-running or observable process (dev server, test watcher, log tail, build), reading or waiting on another pane's output, or spawning and steering a peer coding agent. Requires HERDR_ENV=1."
 ---
 
 # herdr — agent control skill
@@ -24,10 +24,8 @@ You are running inside herdr, a terminal-native agent multiplexer. herdr gives y
 
 ## Learn the current CLI
 
-The installed binary is the authority for command syntax. `herdr <command> --help` does NOT print subcommand help — it falls through to the generic usage. Instead:
+The installed binary is the authority for command syntax. `herdr pane`, `herdr agent`, `herdr workspace`, `herdr tab` run bare print their command group; `herdr <group> <command> --help` prints that command's flags with their `[possible values: …]`. There is no `herdr wait` group — waiting lives at `herdr pane wait-output` and `herdr agent wait`.
 
-- Print a command group by running it bare: `herdr pane`, `herdr agent`, `herdr workspace`, `herdr tab`. There is no `herdr wait` group — waiting lives at `herdr pane wait-output` and `herdr agent wait`.
-- For flags, read the completion script: `herdr completion zsh | grep -A 12 '(split)'`.
 - Do not run bare `herdr` for discovery; it launches or attaches the TUI.
 - Do not probe a mutating command by omitting arguments. Commands such as `herdr workspace create` are valid with defaults and will execute.
 
@@ -78,8 +76,6 @@ NEW_PANE=$(herdr pane split --current --direction right --cwd "$PWD" --no-focus 
 herdr pane run "$NEW_PANE" "npm run dev"
 ```
 
-Flags: `--direction right|down`, `--ratio FLOAT`, `--cwd PATH`, `--env KEY=VALUE`, `--current`, `--no-focus`.
-
 ## Send text or keys
 
 ```bash
@@ -99,7 +95,7 @@ herdr pane wait-output <pane_id> --match "ready on port 3000" --timeout 30000
 herdr pane wait-output <pane_id> --regex "server.*ready" --timeout 30000
 ```
 
-Flags: `--match TEXT` (literal) or `--regex PATTERN` (Rust regex, mutually exclusive), `--source visible|recent|recent-unwrapped`, `--lines N`, `--raw`.
+`--match TEXT` for a literal, `--regex PATTERN` for a Rust regex — the two are mutually exclusive.
 
 **Gotcha:** the match can fire on the **echo of the command you typed**, not just on the program's output. Match on a string only the program prints (`ready on port 3000`), not on words you also typed into the pane.
 
@@ -138,35 +134,6 @@ herdr agent read reviewer --source recent-unwrapped --lines 160
 - `agent wait <target> --until blocked --timeout 120000` — state-specific waits (`--until` is repeatable; the flag is `--until`, not `--status`). Without `--until` it uses the same settled-state defaults as `prompt --wait`.
 - If a wait fails or returns `blocked`, inspect `agent get` and `agent read` before deciding what to send.
 - `done`/`idle` is a wake-up signal, not proof of success — read the pane and verify reality (git status, test output, artifacts) before reporting completion.
-
-## Recipes
-
-### Run a server and wait until it is ready
-
-```bash
-NEW_PANE=$(herdr pane split --current --direction right --cwd "$PWD" --no-focus \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-herdr pane run "$NEW_PANE" "npm run dev"
-herdr pane wait-output "$NEW_PANE" --match "ready on port" --timeout 30000
-herdr pane read "$NEW_PANE" --source recent-unwrapped --lines 20
-```
-
-### Run tests in a separate pane and inspect the result
-
-```bash
-TEST_PANE=$(herdr pane split --current --direction down --cwd "$PWD" --no-focus \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-herdr pane run "$TEST_PANE" "cargo test"
-herdr pane wait-output "$TEST_PANE" --match "test result" --timeout 120000
-herdr pane read "$TEST_PANE" --source recent-unwrapped --lines 120
-```
-
-### Wait for a sibling agent, then read its answer
-
-```bash
-herdr agent wait <name-or-pane_id> --until done --until idle --timeout 120000
-herdr agent read <name-or-pane_id> --source recent-unwrapped --lines 100
-```
 
 ## Workspace / tab / pane lifecycle
 

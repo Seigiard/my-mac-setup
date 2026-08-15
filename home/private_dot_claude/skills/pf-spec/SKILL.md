@@ -1,12 +1,14 @@
 ---
 name: pf-spec
-description: Write an approved research narrative into the product contracts — author the contract deltas, open the epic PR (kept open, /pf-build builds into it), and iterate with the user until the contract spec matches the theory in their head. Second step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-spec <epic-or-topic>" or approves a research narrative; a small, well-understood change may be spec'd directly from the user's instruction with no formal research step.
+description: Write an approved research narrative into the product contracts — contract deltas plus the epic PR, iterated with the user until it matches their theory. Second step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-spec <epic-or-topic>" or approves a research narrative.
 argument-hint: "<epic-or-topic>"
 ---
 
 # /pf-spec — write the research into the product contracts
 
-Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/pf-cycle.md` first).
+Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first).
+
+**Entry.** The normal entry is an approved research narrative at `~/.claude/artifacts/<id>/research.md`. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
 
 ## What the contract spec is
 
@@ -26,12 +28,12 @@ Read the research narrative's canonical source (`~/.claude/artifacts/<id>/resear
 Constraints:
 
 - **The epic PR must be green and shippable at every iteration** — `bun run contracts:check` passes; declarations may be inert (a story rendering mock data, an entity nothing writes yet) but must never break a live surface. Its base is `main`, so real CI runs on it throughout.
-- **Not every delta can land ahead of implementation.** When a contract change needs working code the PR can't carry (a gate would fail), don't stub or fake it — record it as a **deferred delta** in the spec narrative: the artifact file and the precise entries/fields/values expected in its diff. `/pf-build` carries each deferred delta into the sub-task that implements it and verifies the diff at review.
+- **Not every delta can land ahead of implementation.** Record each one in the spec narrative as a **deferred delta** (pf-cycle → Deferred deltas).
 - Impact labels (`API: Breaking`, `IA: Breaking`, …) are computed from the artifact diff on the PR. The user's iterative approval of the contract spec is the owner review those labels call for; overrides are human-only — the user applies them, never you.
 
 ## Step 2 — Open the epic PR (and keep it open)
 
-One PR, base `main`, branch named for the change. **Name the PR for what it will contain when it merges, not what it holds today.** This PR stays open and becomes the single big PR once `/pf-build` merges the implementation into its branch — so the title is the epic's product change itself (e.g. "PRD-1234: Deliverable views"), never a snapshot of its current contents like "Contract spec for deliverable views" (pf-cycle → Naming on public surfaces). Repo PR-body format: the Summary likewise describes the full change, noting that the contract spec lands first and the implementation follows into this same PR; the spec narrative's artifact link goes under Review Context. **Do not merge it** — unlike the old planning-PR flow, it stays open and becomes the single big PR after `/pf-build` merges implementation into its branch; the user performs the one final merge to main. Attach the PR to the Linear epic only if one exists — never create one for this.
+One PR, base `main`, branch named for the change. **Name the PR for what it will contain when it merges, not what it holds today.** This PR stays open and becomes the single big PR once `/pf-build` merges the implementation into its branch — so the title names the epic's product change itself, never a snapshot of its current contents (pf-cycle → Naming on public surfaces). Repo PR-body format: the Summary likewise describes the full change, noting that the contract spec lands first and the implementation follows into this same PR; the spec narrative's artifact link goes under Review Context. **Do not merge it** — the user performs the cycle's one merge to main, after the demo. Attach the PR to the Linear epic only if one exists — never create one for this.
 
 ## Step 3 — Generate the narrative from the artifacts
 
@@ -53,7 +55,28 @@ opencode run --dir <epic worktree> \
   "<review prompt>"
 ```
 
-opencode has no hard read-only mode in a headless run — open the review prompt with an explicit instruction: review only, do not edit, write, create, or delete anything; and run **without** `--auto`, so an attempted edit dies on the permission gate instead of landing. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report. Hand it exactly what the user gets, each named with its path: the narrative HTML (plus **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to a model), the research narrative source, the branch name with instructions to read the actual diff (`git diff origin/main...<branch>`). Ask for numbered findings with severity, judged as a *contract* review: wrong/missing/inconsistent deltas; decisions left to implementer discretion; deferred deltas that could land now; incoherence between the narrative and the diff; deploy risks the spec doesn't carry. Tell it explicitly to challenge decisions, not restyle prose. Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "frontier review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
+Run **without** `--auto`: opencode has no hard read-only mode in a headless run, so an attempted edit dies on the permission gate instead of landing. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
+
+The review prompt, filled in:
+
+```
+Review only. Do not edit, write, create, or delete anything — report findings as text.
+
+You are reviewing a product contract spec for the Membrane `platform` monorepo, on branch
+<epic-branch>. Read the actual diff: `git diff origin/main...<epic-branch>`.
+Attached: the spec narrative HTML at <path>, the research narrative source at <path>, and
+every story render as a PNG (the -f files).
+
+Judge this as a CONTRACT review, not a prose edit. Challenge decisions; do not restyle
+wording. Report numbered findings, each with a severity, covering:
+1. Deltas that are wrong, missing, or inconsistent with the research narrative.
+2. Decisions left to implementer discretion that the spec should have decided.
+3. Deferred deltas that could land now.
+4. Incoherence between the narrative and the diff.
+5. Deploy risks the spec does not carry.
+```
+
+Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "frontier review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
 
 ## Step 5 — Iterate with the user
 

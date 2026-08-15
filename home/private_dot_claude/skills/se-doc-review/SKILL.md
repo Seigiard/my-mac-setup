@@ -1,6 +1,6 @@
 ---
 name: se-doc-review
-description: Review requirements, plans, or specs — runs the compound-engineering persona review PLUS two full independent runs of the same review by external agents (claude + opencode, each with its own persona subagents) in parallel via a smithers harness, then synthesizes all three envelopes. Use when the user wants to improve an existing planning document.
+description: Review a plan, spec, or requirements doc — three independent runs synthesized: the local plugin review plus external claude and opencode. Use to improve an existing planning document; se-plan invokes it headless.
 argument-hint: "[mode:headless] [path/to/document.md]"
 ---
 
@@ -8,11 +8,11 @@ argument-hint: "[mode:headless] [path/to/document.md]"
 
 Wrapper over `compound-engineering:ce-doc-review`. Runs the plugin review locally AND has two external agents (claude and opencode) each execute the **same plugin workflow** end-to-end — dispatching their own persona subagents on their own model family — then synthesizes the three result envelopes.
 
-All external orchestration (staging, parallel CLI launches, timeouts, budget caps, envelope collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-doc-review.tsx` (pinned `smithers-orchestrator`, see `~/.claude/.smithers/package.json`). Do not re-implement any of it in instructions — launch it and read its outputs.
+All external orchestration (staging, parallel CLI launches, timeouts, budget caps, envelope collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-doc-review.tsx`. Do not re-implement any of it in instructions — launch it and read its outputs. Harness mechanics shared with `/se-code-review` and `/se-simplify` — launching, the secret gate, staging, error boundaries, the wait cap, diagnostics: read `~/.claude/shared/se-harness.md`.
 
 Argument contract is identical to the plugin skill: tokens starting with `mode:` are flags; the remaining token (if any) is the document path. `mode:headless` is passed through.
 
-**Cost note:** three multi-agent reviews (up to 7 persona subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-6; its `maxBudgetUsd: 15` is a runaway circuit breaker, not a cost target, and re-arms on retry — effective ceiling ≈ attempts × cap. Actual claude spend appears as `total_cost_usd` in the harness log. Expect ~10-20 minutes (the claude leg's full plugin workflow runs ~12-17 min cold) and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-doc-review` directly.
+**Cost note:** three multi-agent reviews (up to 7 persona subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-6; its budget cap re-arms on retry, so the effective ceiling is attempts × cap. Expect ~10-20 minutes (the claude leg's full plugin workflow runs ~12-17 min cold) and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-doc-review` directly.
 
 ## Recursion guard (read first)
 
@@ -34,13 +34,9 @@ DOC_REVIEW_REPO="<abs repo root>" ./node_modules/.bin/smithers up workflows/se-d
   --input '{"docPath":"<abs document path>"}'
 ```
 
-- Launch from `~/.claude/.smithers` — smithers drops its state there, outside the target repo. Runtime state is ignored by that directory's `.gitignore`.
-- **Pre-external secret gate:** before the document is copied anywhere, the harness runs `gitleaks` over the document itself and **refuses the run** on a finding (a credential pasted into a plan is the whole payload here) or on a scanner it cannot run. A refusal fails the `stage` task with a redacted reason and leaves no `/tmp` copy. Redact and re-run, or prefix the launch command with `SE_SKIP_SECRET_SCAN=1` to send anyway. The repo is not scanned on this path — it is read-only context for the legs.
-- Staging goes to `/tmp/ce-doc-review/run-<ts>/` (a read-only doc copy + plugin-skill bundle); opencode reads it via the `permission.external_directory` allow in `~/.config/opencode/opencode.json`. If opencode starts failing with rejected reads, check that config before touching the workflow. External agents are report-only — they change no files; their would-be safe_auto fixes come back as findings inside the envelope.
+- **Secret gate range:** the document itself — a credential pasted into a plan is the whole payload here. The repo is not scanned on this path; it is read-only context for the legs.
+- External agents are report-only — they change no files; their would-be safe_auto fixes come back as findings inside the envelope.
 - The run's final output prints `stageDir`, `pluginVersion` (the compound-engineering version the external reviews ran against — cite it in Coverage), `claudeStatus` / `opencodeStatus` (`ok` | `failed`), and an envelope path per surviving agent.
-- Add `"smoke":true` to the input for a cheap wiring test (no real review).
-
-**Error handling:** a failed agent does NOT fail the run — each leg is wrapped in an error boundary, so the run finishes with that leg's status `failed` and the surviving envelope still collected. Use what exists, note the failure in the final Coverage section, and diagnose later with `./node_modules/.bin/smithers logs <runId>` / `smithers chat <runId>` from `~/.claude/.smithers`. Actual claude cost: `total_cost_usd` lines in the background task output.
 
 ## Phase 3: Run the local plugin review
 
@@ -50,7 +46,7 @@ Never invoke bare `se-doc-review` from here — that is this wrapper.
 
 ## Phase 4: Collect external envelopes
 
-After the local review returns, wait for the background harness task. Cap the wait at ~65 min — the harness's own worst case is 2 attempts × 25-min per-attempt timeout on either leg (claude and opencode both cap at 25 min), plus smithers reap lag on a timed-out attempt (observed +13 min on run 46dec4cf); past the cap, treat the harness as hung and its envelopes as failed. Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
+After the local review returns, wait for the background harness task (wait cap: se-harness → Waiting for the harness). Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
 
 ## Phase 5: Synthesize the three envelopes
 
@@ -75,7 +71,6 @@ Coverage: local personas: <list>; external claude: <ok | failed>; external openc
 
 **Delivery by mode:**
 
-- **Interactive:** print the synthesis, then for unresolved Consensus/Unique/Contradiction findings offer the standard routing (walk through / apply best judgment / append to Open Questions / report only) via AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`). On walk through: one finding per turn, each as a self-contained decision brief — the finding in plain words with no persona or envelope jargon, what is being decided, the options with their consequences, your recommendation. Wait for the answer before the next finding.
+- **Interactive:** print the synthesis, then for unresolved Consensus/Unique/Contradiction findings offer the standard routing (walk through / apply best judgment / append to Open Questions / report only) via AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`). On walk through: one finding per turn, each a **decision brief** (`~/.claude/shared/decision-brief.md`), stripped of persona and envelope jargon. Wait for the answer before the next finding.
 - **Headless:** append the synthesis to the local review's envelope and return the combined text to the caller. No questions — the caller (e.g. se-plan) decides.
 
-`/tmp/ce-doc-review/run-*` dirs are ephemeral tmp — leave them; no cleanup inside the repo is ever needed.

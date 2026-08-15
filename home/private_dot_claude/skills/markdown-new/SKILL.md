@@ -1,18 +1,11 @@
 ---
 name: markdown-new
-description: Convert any public URL to clean Markdown via markdown.new. Use when fetching website content, reading documentation pages, extracting article text, or when WebFetch produces noisy output. Especially useful for JS-heavy sites and SPAs. No API key required.
+description: Convert any public URL to clean Markdown via markdown.new. Use when reading a URL — documentation, articles, JS-heavy sites and SPAs — or when WebFetch returns noisy or incomplete output.
 ---
 
 # markdown.new
 
 Convert public URLs to clean, structured Markdown via https://markdown.new/. Free, no API key, 500 requests/day per IP.
-
-## When to Use
-
-- Need clean markdown from a website (documentation, articles, blog posts)
-- WebFetch returns noisy or incomplete content
-- JS-heavy or SPA sites that need browser rendering
-- Need structured JSON response with metadata (title, method used, duration)
 
 ## API
 
@@ -56,19 +49,6 @@ Append to GET URL or include in POST body:
 |---|---|---|---|
 | `method` | `auto`, `ai`, `browser` | `auto` | Conversion method. Use `browser` for JS-heavy sites |
 | `retain_images` | `true`, `false` | `false` | Keep image references in output |
-
-### Multiple URLs
-
-Fetch multiple pages sequentially:
-
-```bash
-for url in "https://docs.example.com/intro" "https://docs.example.com/api"; do
-  curl -sS -X POST "https://markdown.new/" \
-    -H "Content-Type: application/json" \
-    -d "{\"url\": \"$url\"}" | jq -r '.content'
-  echo -e "\n---\n"
-done
-```
 
 ## Conversion Pipeline
 

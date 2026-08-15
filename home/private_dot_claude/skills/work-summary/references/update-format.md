@@ -42,9 +42,8 @@ In the flat shape the closing line is mandatory: nothing else there says what co
 
 ### Zero context
 
-The reader has not seen the focus document, the tickets, or this session.
+The zero-context rule in `SKILL.md` governs. Two additions for this shape:
 
-- Never reference the focus text's own structure: no "area 1", no "the second theme", no numbering of any kind. Name the theme in words at the point of use: "On the carrier seeing what they pay for:".
 - No ticket IDs, file paths, or PR numbers.
 - Expand product-internal nouns on first use: "a shipment's rate card — the negotiated pricing table every booking inherits".
 

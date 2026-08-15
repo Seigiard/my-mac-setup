@@ -1,6 +1,6 @@
 ---
 name: work-summary
-description: This skill should be used when the user asks to "summarize what I did", "what did I get done", "summarize my done issues", "make a workstream update", "write my product update", "make a report of my work", "кратко что я сделал", "сделай саммари моей работы", or wants their completed Linear issues for a period summarized as a Slack update or a themed report.
+description: Summarize the user's completed Linear issues for a period as a #product Slack update (default) or a themed report with ticket IDs. Use when the user asks to summarize what they got done, wants a workstream or product update, or asks in Russian ("кратко что я сделал", "сделай саммари моей работы").
 ---
 
 # Work Summary
@@ -67,7 +67,7 @@ GRAPHQL
 
 ### 5. Group by theme
 
-Group issues by outcome, not by ticket: a large migration and its fallout form one theme; scattered small fixes roll up into a named bucket ("CI stability", "auth reliability"). 4-6 themes max.
+Group issues by outcome, not by ticket: a large migration and its fallout form one theme; scattered small fixes roll up into a named bucket ("CI stability", "auth reliability"). 4-6 themes max. Grouping is done when every issue the query returned sits in exactly one theme — an issue that fits nowhere means the theme set is wrong, not that the issue is dropped.
 
 With a focus, the focus's own themes are the grouping — map each done issue onto the theme it serves, and put the rest in one "outside the focus" bucket.
 
@@ -78,17 +78,8 @@ With a focus, the focus's own themes are the grouping — map each done issue on
 
 When the request does not make the choice obvious, produce the **update**.
 
-### 7. Closing line
-
-The closing-line rules live in `references/update-format.md`. The one rule that survives any format: never guess what comes next — ask the user or mark the line as a placeholder. Everything else derives from Linear; what comes next only the user knows.
-
 ## Rules that apply to every output
 
-- **Zero context.** Write for a reader who has not seen the focus document, the tickets, or this session. Never reference the focus text's own structure — no "area 1", no "the second theme", no numbering. Name each theme in words at the point of use.
+- **Zero context.** Write for a reader who has not seen the focus document, the tickets, or this session. Never reference the focus text's own structure — no "area 1", no "the second theme", no numbering. Name each theme in words at the point of use: "On the carrier seeing what they pay for:".
 - **Never restore what the user deleted.** When the user edits a draft and hands it back, every removal is a decision. Reassembling a "final" text does not license putting a cut sentence back; if the removal looks wrong, say so and leave the text as they cut it.
 - **State what is verified.** A range query proves what closed inside the window and nothing else. Before saying an item is untracked or unfixed, run the keyword search from step 4.
-
-## Additional Resources
-
-- **`references/update-format.md`** — the #product Slack update: focus-anchored shape (default) and flat shape, with real examples
-- **`references/report-format.md`** — the themed report format with a real example

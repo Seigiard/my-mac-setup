@@ -1,6 +1,6 @@
 ---
 name: ask-agent
-description: "Ask another coding agent — opencode, pi, or claude — a one-shot question and get its answer back: a second opinion, a code review, or independent verification from a peer. Use when the user says ask/consult opencode/pi/claude, wants a second opinion or cross-check from another agent, or when you want a peer agent to review your work. Read-only by default (the asked agent answers, does not edit)."
+description: "Ask another coding agent — opencode, pi, or claude — a one-shot question and get its answer back. Use when the user says ask/consult opencode/pi/claude, or when a peer agent should give a second opinion, cross-check, or review your work."
 ---
 
 # ask-agent — consult a peer agent
@@ -77,6 +77,4 @@ opencode one-shots (`run --dir <cwd>`) reject reads outside `--cwd`; non-interac
 
 ## Notes & limits
 
-- Read-only is enforced by a tool **allowlist** for claude and pi (no Bash, so no writes at all), but only by **prompt** for opencode (not a hard guarantee). Use `--rw` when you want the agent to make changes.
-- `--cwd`/`--skills` paths with spaces are fine (ask.sh shell-escapes values for the herdr-pane path).
 - This skill consults agents that are installed and on PATH: `claude`, `opencode`, `pi`. A missing CLI fails fast.
