@@ -26,8 +26,17 @@ A harness run outside the pipeline enforces the same boundary itself, over the s
 ### Rescan
 A repeat of the secret scan triggered when new commits appear after the last scan — whether the pipeline itself committed them or an operator did during a pause. Unknown prior scan state fails closed: the rescan runs rather than being skipped.
 
+### Gate
+The check that closes a stage and decides whether the run may go on. A gate is a pure predicate over what the stage produced and over independently measured evidence — never over the stage's own self-report. Gates are the pipeline's decisions; the engine that executes them only knows whether the check ran.
+
+### Verdict
+A gate's decision — green, failed, or degraded — together with the reasons that produced it. A verdict is distinct from a node having finished: a gate that decides against the run still completes normally, so a runner's completion signal says nothing about which way the gate went. Every non-green verdict parks the run and must be shown to the operator, with its reasons, wherever they act on it.
+
 ### Degraded
-A gate outcome meaning the stage cannot vouch for its result — a finding, a tool failure, or an unverifiable state. Degraded parks the run for a human decision; it is distinct from failure, which stops the run outright.
+A gate outcome meaning the stage cannot vouch for its result — a finding, a tool failure, or an unverifiable state. It is distinct from failure, which means the stage's contract was broken outright; both park the run for a human decision rather than ending it.
+
+### Approval pause
+The stop a non-green verdict creates, where the run waits for an operator. What the operator's approval *does* is gate-specific, not universal — it may waive the finding and continue, buy one more paid attempt of the same stage, or stop the run with a report — so each pause states the effect of every available response rather than relying on the word "approve".
 
 ### Waive
 An operator's explicit approval that lets a run continue past a degraded gate, recorded with the finding it accepts. Waiving accepts a specific known result; it never disables the check for future runs.
