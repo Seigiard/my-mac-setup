@@ -1430,6 +1430,73 @@ JSON
   assert_failure
 }
 
+# Builds a runtime dir with a stub smithers binary and a smithers.db holding one
+# pending approval, so `se show` / `se approve` can be exercised without an
+# engine. Echoes the dir path.
+se_fake_runtime() {
+  local dir="$BATS_TEST_TMPDIR/se-runtime" title=$1 summary=$2
+  mkdir -p "$dir/node_modules/.bin"
+  printf '#!/usr/bin/env bash\necho null\n' > "$dir/node_modules/.bin/smithers"
+  chmod +x "$dir/node_modules/.bin/smithers"
+  sqlite3 "$dir/smithers.db" "
+    CREATE TABLE summary (run_id TEXT, verdict TEXT, branch TEXT, plan_path TEXT,
+      report_dir TEXT, total_tokens REAL, est_cost_usd REAL, notes TEXT);
+    CREATE TABLE _smithers_approvals (run_id TEXT, node_id TEXT, iteration INTEGER,
+      status TEXT, requested_at_ms INTEGER, request_json TEXT);
+    INSERT INTO _smithers_approvals VALUES ('run-1', 'approve-work-1', 0, 'pending', 1,
+      json_object('title', '$title', 'summary', '$summary'));"
+  printf '%s' "$dir"
+}
+
+@test "se show prints the pending approval's title and reasons, not just a status word" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  command -v jq >/dev/null 2>&1 || skip "jq is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'work gate is failed — approve ONE extra attempt; deny aborts the run' 'validate-cmd exited with code 1')"
+
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" show run-1
+
+  assert_success
+  assert_output --partial 'DECISION REQUIRED: approve-work-1'
+  assert_output --partial 'work gate is failed'
+  assert_output --partial 'validate-cmd exited with code 1'
+}
+
+@test "se approve prints what is being decided before recording the decision" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  command -v jq >/dev/null 2>&1 || skip "jq is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'work failed the extra attempt — abort only: approve stops the run WITH a report' 'no content change')"
+
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
+
+  # The operator must see that approve STOPS this run rather than continuing it.
+  assert_output --partial 'approve stops the run WITH a report'
+}
+
+@test "se show on a run with no pending approval prints no decision block" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'unused' 'unused')"
+  sqlite3 "$dir/smithers.db" "UPDATE _smithers_approvals SET status='approved';"
+
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" show run-1
+
+  assert_success
+  refute_output --partial 'DECISION REQUIRED'
+}
+
+@test "se approve usage does not promise that approve continues the run" {
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  run env "$se_bin" --help
+  assert_success
+  refute_output --partial 'approve a paused run (continue past the gate)'
+  assert_output --partial 'ONE more attempt'
+}
+
 @test "se blocks --json emits the composable block catalog" {
   local smithers_dir="$SOURCE_ROOT/private_dot_claude/dot_smithers"
   local se_bin="$smithers_dir/bin/executable_se"

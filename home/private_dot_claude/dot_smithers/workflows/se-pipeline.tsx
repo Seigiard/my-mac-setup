@@ -25,6 +25,7 @@ import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
 import { missingRunnerMessage, probeValidateCmd, shellQuote } from "./lib/validate-probe.ts";
+import { gateAnnouncement, type GateNext } from "./lib/gate-announce.ts";
 import {
   acquireRepoLock,
   cleanupSnapshot,
@@ -337,10 +338,23 @@ export default smithers((ctx) => {
         }
       />,
     );
+    // The gate announces its own verdict when it executes (once, not per
+    // render). Without this the operator sees only the engine's node-completion
+    // check mark, which is identical for a green and a failed gate, and then an
+    // approval request with no subject.
+    const announce = (verdict: z.infer<typeof gateVerdictSchema>, next: GateNext | null): void => {
+      console.error(gateAnnouncement(verdict.stage, verdict.state, verdict.reasons, next));
+    };
+
     if (att1.present || crash1) {
       nodes.push(
         <Task id={`gate-${name}`} output={outputs.gateVerdict} retries={0}>
-          {() => toVerdict(name, opts.gateFn(att1.raw))}
+          {() => {
+            const verdict = toVerdict(name, opts.gateFn(att1.raw));
+            const waives = typeof opts.waiveOnApprove === "function" ? opts.waiveOnApprove(verdict) : opts.waiveOnApprove;
+            announce(verdict, verdict.state === "green" ? null : waives ? "waive" : "extra-attempt");
+            return verdict;
+          }}
         </Task>,
       );
     }
@@ -380,7 +394,11 @@ export default smithers((ctx) => {
     if (att2.present || crash2) {
       nodes.push(
         <Task id={`gate-${name}-extra`} output={outputs.gateVerdict} retries={0}>
-          {() => toVerdict(name, opts.gateFn(att2.raw))}
+          {() => {
+            const verdict = toVerdict(name, opts.gateFn(att2.raw));
+            announce(verdict, verdict.state === "green" ? null : "abort-only");
+            return verdict;
+          }}
         </Task>,
       );
     }
