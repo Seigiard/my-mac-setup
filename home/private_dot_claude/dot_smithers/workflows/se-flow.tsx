@@ -40,10 +40,13 @@ import {
   epilogShouldRender,
   flowVerdict,
   formatPrBody,
+  frozenPlanNote,
   needsWorkspace,
+  planBearingAgentBlocks,
   specHash,
   topoOrder,
   withheldByBlock,
+  withStagedPlanPath,
   type FlowDispatch,
   type GateApprovalDecision,
   type RecordedBlock,
@@ -63,11 +66,16 @@ import {
   cleanupSnapshot,
   git,
   releaseRepoLock,
+  resolveStagedPlans,
   runBranchName,
+  stageRunPlan,
   stageRunWorktree,
   sweepOrphans,
   type GetRunState,
+  type PlanResolution,
+  type StagedPlan,
 } from "./lib/staging.ts";
+import { planContentHash } from "./lib/gates.ts";
 
 const inputSchema = z.object({
   specPath: z.string().describe("Absolute path to the validated flow-spec JSON (read from the launcher, never the worktree — KTD11)."),
@@ -106,7 +114,17 @@ const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers
   input: inputSchema,
   // Fixed prolog/epilog keys.
   gate0: z.object({ specHash: z.string(), repoPath: z.string(), needsWorkspace: z.boolean(), budgetUsd: z.number().nullish() }),
-  staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
+  // `plans` are the frozen plan copies handed to agent blocks instead of the
+  // launcher's paths (docs/issues/2026-08-15-002). `.nullish()` for the same
+  // reason as `outcome.verdict`: a run persisted before this field existed is
+  // read back through this schema on resume, and a required field would refuse
+  // it — such a run simply has no copy and keeps the operator's path.
+  staging: z.object({
+    worktreePath: z.string(),
+    branch: z.string(),
+    baseSha: z.string(),
+    plans: z.array(z.object({ blockId: z.string(), planPath: z.string(), planHash: z.string(), copyPath: z.string() })).nullish(),
+  }),
   setup: z.object({ exitCode: z.number() }),
   budget: z.object({ spentUsd: z.number(), breached: z.boolean() }),
   approval: approvalDecisionSchema,
@@ -195,10 +213,21 @@ export default smithers((ctx) => {
         {() => {
           const getState: GetRunState = () => undefined;
           const branch = runBranchName(spec.task.description, runId);
+          // Plans are frozen BEFORE the lock is taken: an unreadable plan path
+          // is an operator error that must refuse the launch, and refusing it
+          // here leaves no lock and no worktree behind to clean up by hand.
+          // The hash is taken now and persisted — se-flow has no gate 0, so
+          // this staging moment IS the run's freeze point (KTD7's intent: the
+          // run executes the spec it gated, and a copy cannot be edited
+          // mid-run at all).
+          const plans: StagedPlan[] = planBearingAgentBlocks(ordered, (name) => registry.get(name)?.kind === "agent").map((entry) => {
+            const planHash = planContentHash(fs.readFileSync(entry.planPath, "utf8"));
+            return { ...entry, planHash, copyPath: stageRunPlan(entry.planPath, branch, planHash) };
+          });
           acquireRepoLock(repoPath, runId, getState);
           sweepOrphans(repoPath, getState);
           const st = stageRunWorktree(repoPath, branch, git(repoPath, "rev-parse", "HEAD"));
-          return { worktreePath: st.worktreePath, branch: st.branch, baseSha: st.baseSha };
+          return { worktreePath: st.worktreePath, branch: st.branch, baseSha: st.baseSha, plans };
         }}
       </Task>,
     );
@@ -221,6 +250,19 @@ export default smithers((ctx) => {
   // node id (KTD1); bind proofs come from the block's bindTo edges (KTD12); the
   // block's registered zod schema runtime-parses its input at dispatch (KTD14).
   const worktreePath = staged?.worktreePath ?? repoPath;
+  // Re-verified on every render, not read straight out of the row: the copy has
+  // to still exist and still match the plan the run froze when the prompt that
+  // names it is built. With no staged worktree (worktreePath === repoPath) there
+  // is nothing here — no isolation to protect, and the prompt keeps the
+  // operator's own path.
+  //
+  // Never after cleanup: re-staging then would write the plan's full text back
+  // into /tmp moments after the epilog deleted it, and leave it there for good.
+  // No block can dispatch after cleanup anyway — it is the last epilog node.
+  const cleanedUp = ctx.outputMaybe("setup", { nodeId: "cleanup" }) !== undefined;
+  const stagedPlans: Record<string, PlanResolution> = cleanedUp
+    ? {}
+    : resolveStagedPlans((staged?.plans as StagedPlan[] | undefined) ?? [], (staged?.branch as string | undefined) ?? "");
   const effectCtx: ComputeEffectContext = {
     worktreePath,
     baseSha: staged?.baseSha ?? "",
@@ -256,7 +298,7 @@ export default smithers((ctx) => {
     let approvalRendered = false;
     const gateApprovals = new Set(dispatch.gateApprovals);
     for (const { block, bindNodeIds } of dispatch.dispatchable) {
-      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, bindNodeIds, inboundNote));
+      children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, bindNodeIds, inboundNote, stagedPlans[block.id]));
       children.push(renderBudgetTask(block.id, runId, input.budgetUsd));
       // Rendered right after its own block, so the pause sits between the red
       // gate and everything the gate is holding back. dispatchableBlocks already
@@ -455,6 +497,7 @@ function renderBlock(
   subflowRun: SubflowRunContext,
   bindNodeIds: string[],
   inboundNote: string,
+  planResolution: PlanResolution | undefined,
 ): unknown {
   const def = registry.get(block.block);
   const nodeId = blockNodeId(block.id);
@@ -474,7 +517,11 @@ function renderBlock(
   // an agent leg is too expensive to spend on input the registry already
   // refused, and a silent skip would let the epilog read a missing block.
   const parsedInput = def ? def.inputSchema.safeParse(block.input) : { success: false as const };
-  if (!def || !parsedInput.success || bindings.length !== proofs.length) {
+  // A plan that no longer matches what the run froze is refused the same way:
+  // red row, no dispatch. The alternative — running the block against the
+  // operator's live plan — is the escape this whole path exists to close.
+  const planRefusal = planResolution !== undefined && !planResolution.ok ? planResolution.reason : undefined;
+  if (!def || !parsedInput.success || bindings.length !== proofs.length || planRefusal !== undefined) {
     // A dropped proof is red, never a silent unbound dispatch: dispatchableBlocks
     // withholds a block until every bindTo row exists, so a proof missing HERE
     // means the authority row disappeared between that check and this render.
@@ -483,7 +530,9 @@ function renderBlock(
       ? `block "${block.block}" is not in the registry`
       : !parsedInput.success
         ? `block "${block.id}" input failed runtime parse (KTD14)`
-        : `block "${block.id}" lost a bind-proof row between readiness and dispatch (KTD12)`;
+        : planRefusal !== undefined
+          ? `block "${block.id}" cannot use its frozen plan copy: ${planRefusal}`
+          : `block "${block.id}" lost a bind-proof row between readiness and dispatch (KTD12)`;
     return (
       <Task id={nodeId} output={outputs.blockOutput} retries={0}>
         {() => ({ blockId: block.id, kind: def?.kind ?? "compute", status: "failed" as const, payloadJson: JSON.stringify({ reason }) })}
@@ -504,6 +553,13 @@ function renderBlock(
   if (def.kind === "agent") {
     const agentNodeId = dispatchNodeId(nodeId);
     const reported = (ctx as CtxLike).outputMaybe("agentReport", { nodeId: agentNodeId }) !== undefined;
+    // THE substitution seam (docs/issues/2026-08-15-002): buildPrompt is pure
+    // over the block's input, so the launcher path is swapped for the frozen
+    // copy here — the only layer that knows both. Nothing downstream ever sees
+    // the operator's path, and the note tells the agent what the file it is
+    // reading actually is.
+    const promptInput = planResolution?.ok ? withStagedPlanPath(parsedInput.data, planResolution.copyPath) : parsedInput.data;
+    const planNote = planResolution?.ok ? frozenPlanNote(planResolution.copyPath) : "";
     return (
       <TryCatchFinally
         id={`guard-${block.id}`}
@@ -516,7 +572,7 @@ function renderBlock(
               retries={block.retries}
               {...bindProps}
             >
-              {`${def.buildPrompt(parsedInput.data)}${inboundNote}`}
+              {`${def.buildPrompt(promptInput)}${planNote}${inboundNote}`}
             </Task>
             {reported ? classifyTask(ctx, block, def, nodeId, agentNodeId) : null}
           </Sequence>

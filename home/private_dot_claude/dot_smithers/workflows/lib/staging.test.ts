@@ -12,6 +12,7 @@ import {
   isAncestor,
   releaseRepoLock,
   repoDirtyDigest,
+  resolveStagedPlans,
   runBranchName,
   slugify,
   stageRunPlan,
@@ -21,6 +22,7 @@ import {
   treeHash,
   type GetRunState,
   type RunState,
+  type StagedPlan,
 } from "./staging.ts";
 
 const tempDirs: string[] = [];
@@ -298,6 +300,73 @@ describe("stageRunPlan (frozen run-local plan copy)", () => {
 
     // #then the copy lives under it, in the branch-derived sibling dir
     expect(path.dirname(copyPath)).toBe(path.join(baseDir, "se-plan-planc006-plan"));
+  });
+});
+
+describe("resolveStagedPlans (what se-flow's render may name in a prompt)", () => {
+  const planBody = "---\nartifact_readiness: implementation-ready\nexecution: code\n---\n\n# Plan\n";
+
+  function stagedPlan(blockId: string, branch: string, baseDir: string): { entry: StagedPlan; planPath: string } {
+    const dir = tempDir("resolve-launcher-");
+    const planPath = path.join(dir, "2026-08-15-fix-thing.md");
+    fs.writeFileSync(planPath, planBody);
+    const planHash = planContentHash(planBody);
+    return {
+      entry: { blockId, planPath, planHash, copyPath: stageRunPlan(planPath, branch, planHash, { worktreeBaseDir: baseDir }) },
+      planPath,
+    };
+  }
+
+  test("resolves a recorded plan to the frozen copy, not the launcher's path", () => {
+    // #given a plan frozen at staging
+    const baseDir = tempDir("resolve-base-");
+    const branch = "se/plan-resolv01";
+    const { entry, planPath } = stagedPlan("fix", branch, baseDir);
+
+    // #when a later render asks what the prompt may name
+    const resolved = resolveStagedPlans([entry], branch, { worktreeBaseDir: baseDir });
+
+    // #then it is the copy beside the worktree
+    expect(resolved.fix).toEqual({ ok: true, copyPath: entry.copyPath });
+    expect(entry.copyPath).not.toBe(planPath);
+  });
+
+  test("rewrites a copy that vanished between staging and use", () => {
+    // #given a frozen copy something deleted after staging
+    const baseDir = tempDir("resolve-base-");
+    const branch = "se/plan-resolv02";
+    const { entry } = stagedPlan("fix", branch, baseDir);
+    fs.rmSync(entry.copyPath);
+
+    // #when
+    const resolved = resolveStagedPlans([entry], branch, { worktreeBaseDir: baseDir });
+
+    // #then the run heals itself rather than dispatching against a missing file
+    expect(resolved.fix).toEqual({ ok: true, copyPath: entry.copyPath });
+    expect(fs.readFileSync(entry.copyPath, "utf8")).toBe(planBody);
+  });
+
+  test("refuses a plan whose content changed between staging and use", () => {
+    // #given a launcher plan the operator edited mid-run
+    const baseDir = tempDir("resolve-base-");
+    const branch = "se/plan-resolv03";
+    const { entry, planPath } = stagedPlan("fix", branch, baseDir);
+    fs.writeFileSync(planPath, `${planBody}\nedited mid-run\n`);
+
+    // #when
+    const resolved = resolveStagedPlans([entry], branch, { worktreeBaseDir: baseDir });
+
+    // #then no path is offered at all — the caller reds the block instead
+    expect(resolved.fix).toEqual({ ok: false, reason: expect.stringMatching(/Plan content changed since gate 0/) });
+  });
+
+  test("reports nothing for a run that recorded no plans", () => {
+    // #given a workspace-free flow, or a row persisted before plans were frozen
+    // #when
+    const resolved = resolveStagedPlans([], "");
+
+    // #then every block reads `undefined` and keeps the operator's own path
+    expect(resolved).toEqual({});
   });
 });
 

@@ -174,6 +174,46 @@ export function stageRunPlan(
   return copyPath;
 }
 
+// One frozen plan as se-flow persists it in its `staging` row: the block that
+// gets the copy, the launcher path it was taken from, and the hash that pins the
+// content for the whole run. se-flow has no gate 0 to inherit a plan hash from,
+// so the hash IS the freeze point — recorded once at staging and re-verified
+// against ever after.
+export interface StagedPlan {
+  blockId: string;
+  planPath: string;
+  planHash: string;
+  copyPath: string;
+}
+
+export type PlanResolution = { ok: true; copyPath: string } | { ok: false; reason: string };
+
+// Re-freezes every recorded plan and reports, per block, the path its prompt may
+// name. Called on every render because the render is where the prompt is built:
+// stageRunPlan is idempotent, so a copy that is already correct costs a read and
+// a hash, a copy that vanished is rewritten, and a launcher plan edited mid-run
+// hash-mismatches and is REFUSED — the caller turns that into a red row for the
+// block rather than dispatching an agent against a spec the run never froze.
+//
+// Refusal never falls back to the recorded copyPath: the copy may be fine while
+// the plan behind it moved, and a run whose spec changed underneath it should
+// stop, not proceed on the strength of a stale artifact.
+export function resolveStagedPlans(
+  plans: readonly StagedPlan[],
+  branch: string,
+  opts?: { worktreeBaseDir?: string },
+): Record<string, PlanResolution> {
+  const resolved: Record<string, PlanResolution> = {};
+  for (const plan of plans) {
+    try {
+      resolved[plan.blockId] = { ok: true, copyPath: stageRunPlan(plan.planPath, branch, plan.planHash, opts) };
+    } catch (err) {
+      resolved[plan.blockId] = { ok: false, reason: errorMessage(err) };
+    }
+  }
+  return resolved;
+}
+
 // Digest of the target repo's dirty state, recorded at staging and re-read at
 // the work gate to tell whether the main checkout moved while the agent ran
 // (see mainCheckoutEscapeReason). A digest, not the porcelain text: it goes

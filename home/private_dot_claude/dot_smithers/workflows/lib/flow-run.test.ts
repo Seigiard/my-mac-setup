@@ -10,11 +10,14 @@ import {
   flowVerdict,
   formatFlowPlan,
   formatPrBody,
+  frozenPlanNote,
   isRedStatus,
   needsWorkspace,
+  planBearingAgentBlocks,
   specHash,
   topoOrder,
   withheldByBlock,
+  withStagedPlanPath,
   type GateApprovalDecision,
   type RecordedBlock,
 } from "./flow-run.ts";
@@ -92,6 +95,74 @@ function red(nodeId: string, status = "failed"): RecordedBlock {
 function decisions(map: Record<string, GateApprovalDecision>): (id: string) => GateApprovalDecision {
   return (id) => map[id] ?? "pending";
 }
+
+describe("planBearingAgentBlocks", () => {
+  const isAgent = (name: string) => name === "work" || name === "repro";
+
+  test("finds the agent blocks whose input carries a plan path", () => {
+    // #given a flow where one agent block executes a plan
+    const ordered = [
+      fb({ id: "scan", block: "secret-scan" }),
+      fb({ id: "fix", block: "work", input: { planPath: "/repo/docs/plans/p.md" } }),
+      fb({ id: "reproduce", block: "repro", input: { description: "crash" } }),
+    ];
+
+    // #when / #then only the plan-bearing agent block needs a frozen copy
+    expect(planBearingAgentBlocks(ordered, isAgent)).toEqual([{ blockId: "fix", planPath: "/repo/docs/plans/p.md" }]);
+  });
+
+  test("ignores a non-agent block's plan path", () => {
+    // #given doc-review, a subflow that ships the document to its own harness
+    const ordered = [fb({ id: "review-doc", block: "doc-review", input: { planPath: "/repo/docs/plans/p.md" } })];
+
+    // #when / #then no coding agent runs against it, so nothing is frozen
+    expect(planBearingAgentBlocks(ordered, isAgent)).toEqual([]);
+  });
+
+  test("refuses two blocks whose different plans share a file name", () => {
+    // #given two work blocks whose copies would land on the same basename
+    const ordered = [
+      fb({ id: "fix-a", block: "work", input: { planPath: "/repo/a/plan.md" } }),
+      fb({ id: "fix-b", block: "work", input: { planPath: "/repo/b/plan.md" } }),
+    ];
+
+    // #when / #then the collision refuses the launch instead of letting one
+    // block silently execute the other's plan
+    expect(() => planBearingAgentBlocks(ordered, isAgent)).toThrow(/same file name "plan\.md"/);
+  });
+});
+
+describe("withStagedPlanPath", () => {
+  test("swaps the launcher's path for the frozen copy", () => {
+    // #given a block input naming the operator's plan
+    const input = { planPath: "/repo/docs/plans/p.md", prompt: null };
+
+    // #when the interpreter substitutes the run's frozen copy
+    const substituted = withStagedPlanPath(input, "/tmp/se-pipeline/se-fix-1234abcd-plan/p.md");
+
+    // #then the operator's path is gone from what buildPrompt will see
+    expect(substituted).toEqual({ planPath: "/tmp/se-pipeline/se-fix-1234abcd-plan/p.md", prompt: null });
+  });
+
+  test("leaves an input with no plan path untouched", () => {
+    // #given the work block's other branch
+    const input = { planPath: null, prompt: "do the thing" };
+
+    // #when / #then there is nothing to substitute
+    expect(withStagedPlanPath(input, "/tmp/copy.md")).toBe(input);
+  });
+});
+
+describe("frozenPlanNote", () => {
+  test("names the copy and pins every repository path to the agent's cwd", () => {
+    // #given the run's frozen copy
+    const note = frozenPlanNote("/tmp/se-pipeline/se-fix-1234abcd-plan/p.md");
+
+    // #then it says what the file is and where paths belong (run-1786717826270)
+    expect(note).toContain("/tmp/se-pipeline/se-fix-1234abcd-plan/p.md");
+    expect(note).toContain("belongs to your cwd");
+  });
+});
 
 describe("isRedStatus", () => {
   test("green is the only status that is not red", () => {

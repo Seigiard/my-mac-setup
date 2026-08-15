@@ -16,7 +16,7 @@ import {
   type ExternalContract,
   type SubflowBlockDefinition,
 } from "../block-registry.ts";
-import { parseWorkEnvelope } from "../envelopes.ts";
+import { parseWorkEnvelope, workEnvelopeSchema } from "../envelopes.ts";
 import { codeReviewGate, type GateResult, rescanGate } from "../gates.ts";
 
 const EXTERNAL_CONTRACT: ExternalContract = { dispatchScan: true, invocation: "read-only-ask-agent" };
@@ -184,6 +184,24 @@ function implementationAgent(build: { worktreePath: string; timeoutMs: number; b
   return makeWorkAgent({ cwd: build.worktreePath, timeoutMs: build.timeoutMs, maxBudgetUsd: build.budgetUsd, jsonField: "report" });
 }
 
+// Read off workEnvelopeSchema rather than hand-copied: the prompt that asks for
+// the envelope and the parser that judges it must name the same shape, and a
+// field added to one with the other left behind is how they drift apart.
+const ENVELOPE_FIELDS = Object.keys(workEnvelopeSchema.shape).join(", ");
+
+// Every agent block below gates on envelopeComplete, and makeWorkAgent's
+// jsonSchema constrains only the {report: string} wrapper — deliberately, so a
+// malformed answer becomes a readable red row instead of an INVALID_OUTPUT task
+// failure that skips the work that should still happen
+// (docs/issues/2026-08-14-004). What the wrapper therefore does not enforce has
+// to be ASKED for: on run-1786777192782 the agent implemented the plan
+// correctly, answered in prose, parseWorkEnvelope refused it, and the block
+// gated red over correct work. se-pipeline's workPrompt has always spelled the
+// envelope out key by key and has never failed this way.
+const ENVELOPE_CONTRACT = `
+
+Your FINAL message must be EXACTLY one JSON object and nothing else: {"report": "<the ce-work return-to-caller envelope, itself serialized as a JSON STRING>"}. The envelope's fields: ${ENVELOPE_FIELDS}. A prose summary in "report" fails the gate however good the work was. The gate also requires status="complete" and a non-empty verification_evidence, so a run you cannot evidence is not complete.`;
+
 function envelopeComplete(recorded: unknown): GateResult {
   const raw = (recorded as { report?: string })?.report ?? (typeof recorded === "string" ? recorded : undefined);
   const parsed = parseWorkEnvelope(raw);
@@ -210,9 +228,20 @@ const work: AgentBlockDefinition = {
   costProfile: { estUsd: 20 },
   gateFn: envelopeComplete,
   makeAgent: implementationAgent,
+  // The planPath this renders is whatever the interpreter substituted into the
+  // input — the frozen run copy when one was staged (se-flow.tsx), never the
+  // launcher's path by choice of this function. The prose guard rides along
+  // because a concrete absolute path beats prose only when the prose is absent:
+  // on run-1786717826270 the agent resolved every repository path against the
+  // plan's own repository and wrote its work into the operator's checkout.
   buildPrompt: (input) => {
     const i = input as { planPath?: string | null; prompt?: string | null };
-    return i.planPath ? `Execute the plan at ${i.planPath} headless via ce-work mode:return-to-caller.` : `Implement headless: ${i.prompt ?? ""}`;
+    const task = i.planPath
+      ? `Invoke the skill compound-engineering:ce-work with args "mode:return-to-caller ${i.planPath}".
+
+That plan file is an INPUT, not a location. Read it for its content and nothing else: never resolve a path relative to it, never write to it. EVERY repository path you resolve, read, or write belongs to your cwd.`
+      : `Implement headless: ${i.prompt ?? ""}`;
+    return `${task}${ENVELOPE_CONTRACT}`;
   },
 };
 
@@ -233,7 +262,7 @@ const repro: AgentBlockDefinition = {
   costProfile: { estUsd: 8 },
   gateFn: envelopeComplete,
   makeAgent: implementationAgent,
-  buildPrompt: (input) => `Reproduce this bug with a failing check, headless: ${(input as { description?: string }).description ?? ""}`,
+  buildPrompt: (input) => `Reproduce this bug with a failing check, headless: ${(input as { description?: string }).description ?? ""}${ENVELOPE_CONTRACT}`,
 };
 
 const analysis: AgentBlockDefinition = {
@@ -253,7 +282,7 @@ const analysis: AgentBlockDefinition = {
   costProfile: { estUsd: 8 },
   gateFn: envelopeComplete,
   makeAgent: implementationAgent,
-  buildPrompt: (input) => `Analyze headless and record findings: ${(input as { question?: string }).question ?? ""}`,
+  buildPrompt: (input) => `Analyze headless and record findings: ${(input as { question?: string }).question ?? ""}${ENVELOPE_CONTRACT}`,
 };
 
 const subtasks: AgentBlockDefinition = {
@@ -273,7 +302,7 @@ const subtasks: AgentBlockDefinition = {
   costProfile: { estUsd: 5 },
   gateFn: envelopeComplete,
   makeAgent: implementationAgent,
-  buildPrompt: (input) => `Decompose into bounded subtasks headless: ${(input as { scope?: string }).scope ?? ""}`,
+  buildPrompt: (input) => `Decompose into bounded subtasks headless: ${(input as { scope?: string }).scope ?? ""}${ENVELOPE_CONTRACT}`,
 };
 
 // ---- Subflow blocks (dual-mode Subflows; KTD3 mirror keys) -------------------

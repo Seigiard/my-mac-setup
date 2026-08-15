@@ -6,6 +6,7 @@
 // workspace decision, and the same block order — the resume-stability property
 // the whole architecture depends on.
 import { createHash } from "node:crypto";
+import * as path from "node:path";
 
 import type { FlowBlock, FlowSpec } from "./flow-spec.ts";
 
@@ -78,6 +79,72 @@ export function dispatchNodeId(blockNodeIdValue: string): string {
 // from catalog flags, never spec-expressible.
 export function needsWorkspace(spec: FlowSpec, blockNeedsWorkspace: (blockName: string) => boolean): boolean {
   return spec.blocks.some((b) => blockNeedsWorkspace(b.block));
+}
+
+export interface PlanBearingBlock {
+  blockId: string;
+  planPath: string;
+}
+
+// The plan path an agent block's input carries, if any. An empty string is no
+// path: the prompt would name nothing and the staging step would freeze nothing.
+export function blockPlanPath(input: unknown): string | undefined {
+  const value = (input as { planPath?: unknown } | null | undefined)?.planPath;
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+// Which blocks need a frozen plan copy staged for them (docs/issues/2026-08-15-002).
+// AGENT blocks only: an agent is dispatched with the worktree as its cwd and
+// resolves paths itself, which is the escape route a launcher path opens
+// (run-1786717826270). A subflow block carrying a planPath (doc-review) hands
+// the document to a workflow that copies it into its own harness, and no coding
+// agent ever runs against it.
+//
+// Throws on two blocks whose plans share a basename: stageRunPlan keys the copy
+// on the basename alone, so the second copy would overwrite the first and one
+// block would silently execute the other's plan. Refusing to launch is the only
+// honest answer — the same posture topoOrder takes on a cyclic spec.
+export function planBearingAgentBlocks(
+  ordered: FlowBlock[],
+  isAgentBlock: (blockName: string) => boolean,
+): PlanBearingBlock[] {
+  const found: PlanBearingBlock[] = [];
+  const byBasename = new Map<string, string>();
+  for (const block of ordered) {
+    if (!isAgentBlock(block.block)) continue;
+    const planPath = blockPlanPath(block.input);
+    if (planPath === undefined) continue;
+    const basename = path.basename(planPath);
+    const owner = byBasename.get(basename);
+    if (owner !== undefined && owner !== planPath) {
+      throw new Error(
+        `blocks name two different plans with the same file name "${basename}" (${owner} and ${planPath}) — the frozen run copies would collide`,
+      );
+    }
+    byBasename.set(basename, planPath);
+    found.push({ blockId: block.id, planPath });
+  }
+  return found;
+}
+
+// Substitutes the frozen copy's path into a block input on the way to
+// buildPrompt. The block's own prompt builder stays pure over its input, which
+// is why the interpreter — the only layer that knows both the staged copy and
+// the launcher's path — is where the swap happens.
+export function withStagedPlanPath(input: unknown, copyPath: string): unknown {
+  if (blockPlanPath(input) === undefined) return input;
+  return { ...(input as Record<string, unknown>), planPath: copyPath };
+}
+
+// Appended by the interpreter rather than written into buildPrompt: only the
+// interpreter knows whether the path in the prompt is a copy it froze or the
+// operator's own file (a workspace-free flow stages nothing, and a run resumed
+// from a row persisted before the copy existed has none), and a prompt must not
+// claim a provenance that is not true.
+export function frozenPlanNote(copyPath: string): string {
+  return `
+
+The plan file at ${copyPath} is a FROZEN COPY, staged for this run only. It lives OUTSIDE every repository on purpose: it is not a file of the target repository and it is not the operator's plan file. Never look for the repository that contains it — EVERY repository path you resolve, read, or write belongs to your cwd.`;
 }
 
 // Deterministic topological order over `after` edges. Ties break by block id so
