@@ -2,7 +2,8 @@
 title: Unified stage right-sizing evaluator for code-review and doc-review
 type: follow-up
 date: 2026-07-27
-status: open
+status: wontfix
+closed: 2026-08-15
 parent-plan: docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md
 ---
 
@@ -44,3 +45,17 @@ The review stages (doc-review, code-review) are read-only assessments — a miss
 ## Reference
 
 Parent plan: `docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md` (simplify gate: R14, KTD-I; this issue is the deferred generalization). compound-engineering skills: `ce-code-review` (Quick Review Short-Circuit, Trivial-PR judgment, Stage 3c), `ce-simplify-code` (preflight), `ce-work` (Phase 0 sizing).
+
+## Resolution
+
+Closed without building the evaluator, on 2026-08-15, after reading the two stages against the design this issue proposed. The finding is that both levers are already held by something else, and an evaluator on top of them would either duplicate a gate or overrule the operator.
+
+**doc-review is right-sized by the command the operator types.** The stage runs only when `docReview: true`, and the operator never types that flag — `se-work` sets it false and `se-review-and-work` sets it true (`se-pipeline.tsx` `inputSchema.docReview`). Choosing between the two commands IS the right-sizing decision, made by the person who knows whether the plan has been reviewed. An evaluator layered on top could only do one of two things: agree with the operator, which costs a classifier and changes nothing, or skip a plan review the operator explicitly asked for. The second is not right-sizing, it is overruling. The parent plan's two-command split (KTD-C) already answered this question; the answer was just recorded in a different file.
+
+**verify-code is right-sized inside the plugin.** The pipeline dispatches `ce-code-review` with `mode:agent base:<sha>` and no depth token, so the skill's `depth:auto` default applies — its Stage 3c reduces the reviewer roster on trivial, low-risk, code-only diffs by itself. A pipeline pre-gate would be a second gate over the same diff, which this issue's own open decision named as the thing to avoid.
+
+**What is left unclaimed, and why it is not worth a gate.** The verify-code stage runs two legs, and only the claude one self-sizes; the opencode leg has no equivalent. It is also the cheapest of the three legs, so a deterministic pre-gate over it would save little and would add a mechanism able to drop a reviewer. This issue's own bias table says the review stages run when unsure, and the cheapest way to honour that is to have no skip path at all.
+
+**The simplify precedent does not generalise, and that is the point.** Simplify's bias is SKIP when unsure: a redundant simplify costs money and carries auto-apply risk on a low-value change, while skipping it leaves code slightly untidy. Both review stages invert that — a missed defect or a flawed plan outranks a redundant review — so the same machinery pointed at them would be tuned against its own bias.
+
+If the cost of a review stage ever becomes the binding constraint, the lever to reach for first is the roster and the model inside `lib/agents.ts`, which is one number per profile with the incident that produced it recorded next to it — not a new autonomous skip decision.
