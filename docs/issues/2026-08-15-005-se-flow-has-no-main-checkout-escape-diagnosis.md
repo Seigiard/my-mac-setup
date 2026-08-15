@@ -11,14 +11,14 @@ status: open
 
 `se-pipeline` carries a diagnosis for the failure in `docs/issues/2026-08-14-012`: staging records `repoDirtyDigest(repo)`, the work gate re-reads it, and `mainCheckoutEscapeReason` (`home/private_dot_claude/dot_smithers/workflows/lib/gates.ts`) appends "the main checkout became dirty during the work stage" to the verdict without ever changing the gate's state.
 
-`se-flow` records no such digest. Its equivalent invariant is the KTD14 tree-hash comparison in `workCommitAndProve` (`workflows/lib/block-effects.ts`), whose red row reads "worktree tree hash equals base — no content change (KTD14)". An operator seeing that row is told the agent produced nothing; they are not told their own checkout may be holding the work.
+`se-flow` records no such digest. Its equivalent invariant is the KTD14 tree-hash comparison in `workflows/lib/blocks/index.ts:98-102`, over the trees `commitWorkEffect` computes in `workflows/lib/block-effects.ts:113-117`; its red row reads "worktree tree hash equals base — no content change (KTD14)". An operator seeing that row is told the agent produced nothing; they are not told their own checkout may be holding the work.
 
 The doorway that caused the escape is closed — `docs/issues/2026-08-15-002` freezes the plan and hands the agent a copy outside every repository — so this is a diagnosis for a failure that should no longer happen, not a fix for a live one.
 
 ## Scope
 
 - `home/private_dot_claude/dot_smithers/workflows/se-flow.tsx` — the `staging` row would gain a `repoDirtyDigest` field (`.nullish()`, like `plans`), and the `commit-work` block's effect would need the value.
-- `home/private_dot_claude/dot_smithers/workflows/lib/block-effects.ts` — `workCommitAndProve` is where the diagnosis would attach.
+- `home/private_dot_claude/dot_smithers/workflows/lib/block-effects.ts` — `commitWorkEffect` computes the trees; the gate that compares them is in `workflows/lib/blocks/index.ts`. The diagnosis would attach at one of the two.
 - `home/private_dot_claude/dot_smithers/workflows/lib/gates.ts` — `mainCheckoutEscapeReason` already exists and is advisory-only; nothing new is needed there.
 
 ## Open decisions

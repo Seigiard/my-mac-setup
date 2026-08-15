@@ -11,7 +11,12 @@ The durable, crash-safe pipeline that takes an implementation-ready plan through
 The git branch a single se-pipeline run creates and commits to. Everything the run produces lands here; nothing merges without passing the run's gates.
 
 ### Staged worktree
-An isolated checkout of the run branch that a run works in, separate from the operator's live checkout. External legs read repo content only from here.
+An isolated checkout of the run branch that a run works in, separate from the operator's live checkout. External legs read repo content only from here. The run's frozen plan copy sits beside it, never inside it.
+
+### Frozen plan copy
+The run-local copy of the plan taken when the run stages its worktree, and the plan path a dispatched agent is given in place of the operator's own.
+
+It lives beside the staged worktree rather than inside it, for two reasons that both bite: the run commits the agent's work with a whole-tree add, so a copy inside would land on the run branch, and it would also make the worktree's content differ from the base commit even for an agent leg that produced nothing — which would silently disable the proof of work. The copy is taken only from a source that still matches the hash the run recorded: a plan edited since then refuses the run rather than being frozen again, while a copy that drifted is simply rewritten from that verified source. It is deleted with the worktree, because it holds the plan's full text outside any repository.
 
 ### External leg
 An independent run of an outside model dispatched by a stage (for review, simplify, or verification) that receives repo content and returns a structured report. Every external leg is an egress path and must sit behind the secret boundary.
@@ -40,6 +45,11 @@ A repeat of the secret scan triggered when new commits appear after the last sca
 
 ### Gate
 The check that closes a stage and decides whether the run may go on. A gate is a pure predicate over what the stage produced and over independently measured evidence — never over the stage's own self-report. Gates are the pipeline's decisions; the engine that executes them only knows whether the check ran.
+
+### Proof of work
+The evidence a gate uses to decide that an agent stage produced something, taken from the repository's content rather than from the agent's report: the staged worktree's tree is compared against the base commit's, and identical trees mean the stage produced nothing whatever the agent claimed.
+
+It is content-based on purpose, so it is independent of how or when commits were arranged, and it holds only while nothing else writes into the worktree — which is why run-local files a run stages for itself live outside it.
 
 ### Verdict
 A gate's decision — green, failed, or degraded — together with the reasons that produced it. A verdict is distinct from a node having finished: a gate that decides against the run still completes normally, so a runner's completion signal says nothing about which way the gate went. Every non-green verdict parks the run and must be shown to the operator, with its reasons, wherever they act on it.
