@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { planContentHash } from "./gates.ts";
 import {
   acquireRepoLock,
   cleanupSnapshot,
@@ -10,8 +11,10 @@ import {
   git,
   isAncestor,
   releaseRepoLock,
+  repoDirtyDigest,
   runBranchName,
   slugify,
+  stageRunPlan,
   stageRunWorktree,
   stashCreateSafe,
   sweepOrphans,
@@ -196,6 +199,125 @@ describe("stageRunWorktree", () => {
   });
 });
 
+describe("stageRunPlan (frozen run-local plan copy)", () => {
+  const planBody = "---\nartifact_readiness: implementation-ready\nexecution: code\n---\n\n# Plan\n";
+
+  function writePlan(body = planBody): { planPath: string; hash: string } {
+    const dir = tempDir("staging-launcher-");
+    const planPath = path.join(dir, "2026-08-15-fix-thing.md");
+    fs.writeFileSync(planPath, body);
+    return { planPath, hash: planContentHash(body) };
+  }
+
+  test("copies the plan beside the worktree, never inside it, keeping the basename", () => {
+    // #given a staged run worktree and the launcher's plan
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const branch = runBranchName("plan", "planc001");
+    const staged = stageRunWorktree(repo, branch, rawGit(repo, "rev-parse", "HEAD"), { worktreeBaseDir: baseDir });
+    const { planPath, hash } = writePlan();
+
+    // #when
+    const copyPath = stageRunPlan(planPath, branch, hash, { worktreeBaseDir: baseDir });
+
+    // #then the copy is content-identical, named the same, and OUTSIDE the worktree
+    expect(fs.readFileSync(copyPath, "utf8")).toBe(planBody);
+    expect(path.basename(copyPath)).toBe(path.basename(planPath));
+    expect(copyPath.startsWith(`${fs.realpathSync(staged.worktreePath)}${path.sep}`)).toBe(false);
+    expect(path.relative(staged.worktreePath, copyPath).startsWith("..")).toBe(true);
+  });
+
+  test("KTD14 guard: the staged copy leaves the worktree tree hash at base — `git add -A` finds nothing", () => {
+    // #given a worktree whose tree hash still equals base, and a plan staged for the run
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const branch = runBranchName("plan", "planc002");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+    const staged = stageRunWorktree(repo, branch, baseSha, { worktreeBaseDir: baseDir });
+    const baseTree = treeHash(repo, baseSha);
+    const { planPath, hash } = writePlan();
+    stageRunPlan(planPath, branch, hash, { worktreeBaseDir: baseDir });
+
+    // #when the work gate's guarded commit runs over an agent leg that did nothing
+    const committed = commitWorkGuarded(staged.worktreePath, "se-pipeline: work");
+
+    // #then nothing was committed and the KTD14 invariant still detects "no work"
+    expect(committed).toBe(false);
+    expect(treeHash(staged.worktreePath)).toBe(baseTree);
+  });
+
+  test("refuses when the plan on disk no longer hashes to gate 0's hash", () => {
+    // #given a plan edited after gate 0 recorded its hash
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const branch = runBranchName("plan", "planc003");
+    stageRunWorktree(repo, branch, rawGit(repo, "rev-parse", "HEAD"), { worktreeBaseDir: baseDir });
+    const { planPath, hash } = writePlan();
+    fs.writeFileSync(planPath, `${planBody}\nedited after gate 0\n`);
+
+    // #when / #then
+    expect(() => stageRunPlan(planPath, branch, hash, { worktreeBaseDir: baseDir })).toThrow(
+      /Plan content changed since gate 0/,
+    );
+  });
+
+  test("unreadable plan fails with the path in the message", () => {
+    const baseDir = tempDir("staging-wt-");
+    const missing = path.join(baseDir, "no-such-plan.md");
+    expect(() => stageRunPlan(missing, "se/plan-planc004", "deadbeef", { worktreeBaseDir: baseDir })).toThrow(
+      /unreadable plan at .*no-such-plan\.md/,
+    );
+  });
+
+  test("re-staging on resume is idempotent, and a divergent copy is overwritten", () => {
+    // #given a plan already staged once
+    const baseDir = tempDir("staging-wt-");
+    const branch = "se/plan-planc005";
+    const { planPath, hash } = writePlan();
+    const first = stageRunPlan(planPath, branch, hash, { worktreeBaseDir: baseDir });
+
+    // #when the run resumes and stages again — twice, the second time over a
+    // copy something else corrupted
+    const second = stageRunPlan(planPath, branch, hash, { worktreeBaseDir: baseDir });
+    fs.writeFileSync(first, "corrupted\n");
+    const third = stageRunPlan(planPath, branch, hash, { worktreeBaseDir: baseDir });
+
+    // #then the same path carries the launcher's content again
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(fs.readFileSync(first, "utf8")).toBe(planBody);
+  });
+
+  test("honours the worktreeBaseDir override", () => {
+    // #given an explicit base dir (the same override stageRunWorktree takes)
+    const baseDir = tempDir("staging-alt-base-");
+    const { planPath, hash } = writePlan();
+
+    // #when
+    const copyPath = stageRunPlan(planPath, "se/plan-planc006", hash, { worktreeBaseDir: baseDir });
+
+    // #then the copy lives under it, in the branch-derived sibling dir
+    expect(path.dirname(copyPath)).toBe(path.join(baseDir, "se-plan-planc006-plan"));
+  });
+});
+
+describe("repoDirtyDigest", () => {
+  test("is stable for an unchanged checkout and moves when the checkout gains changes", () => {
+    // #given a clean target repo
+    const repo = makeRepo();
+    const atStaging = repoDirtyDigest(repo);
+
+    // #then re-reading it unchanged gives the same digest
+    expect(repoDirtyDigest(repo)).toBe(atStaging);
+
+    // #when an escaping agent (or the operator) writes into the main checkout
+    fs.writeFileSync(path.join(repo, "escaped.txt"), "written outside the worktree\n");
+
+    // #then the digest moves — the work gate's escape signal
+    expect(repoDirtyDigest(repo)).not.toBe(atStaging);
+  });
+});
+
 describe("acquireRepoLock", () => {
   test("acquires when no lock exists", () => {
     const repo = makeRepo();
@@ -288,6 +410,31 @@ describe("sweepOrphans", () => {
     expect(list).not.toContain(dead.worktreePath);
   });
 
+  test("sweeps the frozen plan copy of a terminal run, keeps a live run's copy", () => {
+    // #given two staged runs with frozen plan copies, one terminal and one parked
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const baseSha = rawGit(repo, "rev-parse", "HEAD");
+    const launcherDir = tempDir("staging-launcher-");
+    const planPath = path.join(launcherDir, "2026-08-15-fix-thing.md");
+    const body = "---\nartifact_readiness: implementation-ready\nexecution: code\n---\n\n# Plan\n";
+    fs.writeFileSync(planPath, body);
+    const hash = planContentHash(body);
+    const liveBranch = runBranchName("plan", "planw001");
+    const deadBranch = runBranchName("plan", "planw002");
+    stageRunWorktree(repo, liveBranch, baseSha, { worktreeBaseDir: baseDir });
+    stageRunWorktree(repo, deadBranch, baseSha, { worktreeBaseDir: baseDir });
+    const liveCopy = stageRunPlan(planPath, liveBranch, hash, { worktreeBaseDir: baseDir });
+    const deadCopy = stageRunPlan(planPath, deadBranch, hash, { worktreeBaseDir: baseDir });
+
+    // #when the sweep runs with only the second run terminal
+    sweepOrphans(repo, fakeRunState({ planw001: "waiting-approval", planw002: "terminal" }), () => {});
+
+    // #then the parked run keeps its plan, the terminal one does not
+    expect(fs.existsSync(liveCopy)).toBe(true);
+    expect(fs.existsSync(deadCopy)).toBe(false);
+  });
+
   test("never touches the main working copy or non-run worktrees", () => {
     const repo = makeRepo();
     const baseDir = tempDir("staging-wt-");
@@ -324,6 +471,26 @@ describe("cleanupSnapshot", () => {
     cleanupSnapshot(repo, path.join(os.tmpdir(), "no-such-worktree-xyz"), (msg) => logs.push(msg));
     expect(logs.length).toBeGreaterThan(0);
     expect(logs[0]).toContain("no-such-worktree-xyz");
+  });
+
+  test("takes the frozen plan copy with the worktree — the plan text does not outlive the run in /tmp", () => {
+    // #given a staged run with its plan frozen beside the worktree
+    const repo = makeRepo();
+    const baseDir = tempDir("staging-wt-");
+    const branch = runBranchName("plan", "planc007");
+    const staged = stageRunWorktree(repo, branch, rawGit(repo, "rev-parse", "HEAD"), { worktreeBaseDir: baseDir });
+    const launcherDir = tempDir("staging-launcher-");
+    const planPath = path.join(launcherDir, "2026-08-15-fix-thing.md");
+    const body = "---\nartifact_readiness: implementation-ready\nexecution: code\n---\n\n# Plan\n";
+    fs.writeFileSync(planPath, body);
+    const copyPath = stageRunPlan(planPath, branch, planContentHash(body), { worktreeBaseDir: baseDir });
+
+    // #when the green-verdict cleanup runs
+    cleanupSnapshot(repo, staged.worktreePath, () => {});
+
+    // #then the copy is gone and the launcher's own plan is untouched
+    expect(fs.existsSync(copyPath)).toBe(false);
+    expect(fs.existsSync(planPath)).toBe(true);
   });
 });
 

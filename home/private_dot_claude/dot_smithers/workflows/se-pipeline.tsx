@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { codeReviewGate, docReviewGate, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
+import { codeReviewGate, docReviewGate, mainCheckoutEscapeReason, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { mergeReviewReports } from "./lib/review-merge.ts";
 import { severitySchema } from "./lib/severity-summary.ts";
 import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory } from "./lib/doc-review-notes.ts";
@@ -33,11 +33,14 @@ import {
   git,
   isAncestor,
   releaseRepoLock,
+  repoDirtyDigest,
   runBranchName,
+  stageRunPlan,
   stageRunWorktree,
   sweepOrphans,
   treeHash,
   type GetRunState,
+  type StagedWorktree,
 } from "./lib/staging.ts";
 import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWorkAgent } from "./lib/agents.ts";
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
@@ -59,7 +62,7 @@ const seSimplifySubflow = seSimplify as unknown as WorkflowDefinition<unknown>;
 const PROBE_TIMEOUT_MS = 30_000;
 
 const inputSchema = z.object({
-  planPath: z.string().describe("Absolute path to the implementation-ready ce-unified-plan/v1 plan (read from the launcher, not the worktree — KTD11)."),
+  planPath: z.string().describe("Absolute path to the implementation-ready ce-unified-plan/v1 plan. Read from the launcher, never from the worktree (KTD11), then FROZEN at staging into a run-local copy beside the worktree — the work agent is handed that copy and never this path, so no repository path it resolves can leave its worktree."),
   until: z.enum(["branch", "pr"]).default("branch").describe("Run depth (R6); pr is a hard refusal in the MVP."),
   validateCmd: z.string().default("").describe("Target repo validation command, operator-supplied only (KTD8). Required. Keep it FAST — the work gate runs it synchronously; scope to unit/type checks, not full e2e."),
   validateTimeoutMs: z.number().default(10 * 60_000).describe("Work-gate validate-cmd timeout. A slow full-suite command (e2e) blocks the engine — scope the command instead of raising this blindly."),
@@ -104,7 +107,16 @@ const gateVerdictSchema = z.object({
 const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = createSmithers({
   input: inputSchema,
   gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
-  staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
+  // planCopyPath/repoDirtyDigest are nullish so rows persisted before they
+  // existed stay valid on resume: an old run falls back to gate0.planPath and
+  // skips the main-checkout comparison rather than crashing mid-pipeline.
+  staging: z.object({
+    worktreePath: z.string(),
+    branch: z.string(),
+    baseSha: z.string(),
+    planCopyPath: z.string().nullish(),
+    repoDirtyDigest: z.string().nullish(),
+  }),
   setup: z.object({ exitCode: z.number() }),
   probe: z.object({ probed: z.string(), skipped: z.boolean(), baseline: z.string() }),
   docReview: docReviewSchema,
@@ -216,6 +228,8 @@ function workPrompt(planPath: string, branch: string, smoke: boolean, docReviewA
   return `[se-pipeline-stage]
 
 Invoke the skill compound-engineering:ce-work with args "mode:return-to-caller ${planPath}".
+
+That plan file is a FROZEN COPY, staged for this run only. It lives OUTSIDE every repository on purpose: it is not a file of the target repo, and it is not the operator's plan file. Read it for its content and nothing else — never resolve a path relative to it, never write to it, never look for the repository that contains it. EVERY repository path you resolve, read, or write belongs to your cwd.
 
 Context: your cwd is an ISOLATED git worktree of the target repository, already on the run branch ${branch} — continue on this branch, do NOT ask about branches, do NOT create worktrees, never push. Fully headless: never ask questions; make every decision yourself.
 
@@ -492,21 +506,31 @@ export default smithers((ctx) => {
             throw new Error(`repo lock is held by run ${lock.holderRunId} (state ${lock.holderState ?? "unknown"}) — one pipeline run per repo. Wait for it or abort it first.`);
           }
           sweepOrphans(repoDir, getRunState);
-          const slug = path.basename(input.planPath).replace(/\.[^.]+$/, "");
+          const slug = path.basename(gate0.planPath).replace(/\.[^.]+$/, "");
           const branch = runBranchName(slug, ctx.runId);
           // Idempotent re-run after an interrupted staging attempt: the branch
           // exists with no work commits yet — reuse it and its worktree.
+          let existing: StagedWorktree | undefined;
           try {
             git(repoDir, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`);
             const worktreePath = path.join(os.tmpdir(), "se-pipeline", branch.replace(/\//g, "-"));
             if (!fs.existsSync(worktreePath)) {
               throw new Error(`run branch ${branch} exists but its worktree is missing — remove the branch or sweep before retrying.`);
             }
-            return { worktreePath, branch, baseSha: git(repoDir, "rev-parse", branch) };
+            existing = { worktreePath, branch, baseSha: git(repoDir, "rev-parse", branch) };
           } catch (err) {
             if (err instanceof Error && err.message.includes("worktree is missing")) throw err;
           }
-          return stageRunWorktree(repoDir, branch, git(repoDir, "rev-parse", "HEAD"));
+          const worktree = existing ?? stageRunWorktree(repoDir, branch, git(repoDir, "rev-parse", "HEAD"));
+          // The work agent gets this frozen copy, never gate0.planPath: a
+          // launcher path pointed the agent at the main checkout and it wrote
+          // its work there (run-1786717826270). The copy sits BESIDE the
+          // worktree — inside it, the gate's `git add -A` would commit it and
+          // break the KTD14 base-tree proof of work.
+          const planCopyPath = stageRunPlan(gate0.planPath, branch, gate0.planHash);
+          // Baseline of the operator's own checkout, so the work gate can name
+          // an escape instead of only reporting KTD14's "no content change".
+          return { ...worktree, planCopyPath, repoDirtyDigest: repoDirtyDigest(repoDir) };
         }}
       </Task>,
     );
@@ -638,6 +662,12 @@ export default smithers((ctx) => {
         if (validate !== null && validate.exitCode !== 0) {
           result.reasons.push(`validate-cmd output tail: ${validate.output.slice(-500)}`);
         }
+        // Escape diagnosis, advisory by construction: it appends a reason and
+        // never touches result.state. An operator committing or editing in
+        // their own checkout during a multi-hour run is ordinary, and turning
+        // that into a red gate would buy a second work leg on a false positive.
+        const escaped = mainCheckoutEscapeReason(repoDir, staged.repoDirtyDigest, repoDirtyDigest(repoDir));
+        if (escaped !== undefined) result.reasons.push(escaped);
         return result;
       };
 
@@ -650,9 +680,11 @@ export default smithers((ctx) => {
           // to Approval, not into a silent multi-hour re-run. bind (KTD-B):
           // both work and work-extra fence the costly agent leg behind the
           // gate-0 authority row — a tampered plan-hash parks BOUND_STALE
-          // before dispatch.
+          // before dispatch. The prompt names the FROZEN plan copy staged
+          // beside the worktree, never gate0.planPath (run-1786717826270); the
+          // fallback keeps a run resumed from a pre-copy staging row runnable.
           <Task id={nodeId} output={outputs.agentReport} agent={workAgent} retries={0} bind={gate0Proof}>
-            {workPrompt(gate0.planPath, staged.branch, smoke, docReviewAdvisory)}
+            {workPrompt(staged.planCopyPath ?? gate0.planPath, staged.branch, smoke, docReviewAdvisory)}
           </Task>
         ),
         readRaw: readAgentReport,

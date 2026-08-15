@@ -7,9 +7,11 @@
 // staleness and sweep decisions never depend on pid liveness: an Approval
 // pause has no live process but still owns its lock and worktree.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { planContentHash } from "./gates.ts";
 
 const RUN_BRANCH_PREFIX = "se/";
 const RUN_ID_TAIL_LENGTH = 8;
@@ -124,6 +126,75 @@ export function stageRunWorktree(
   return { worktreePath, branch, baseSha };
 }
 
+// Freezes the plan for one run and returns the copy's absolute path — the ONLY
+// plan path the work agent is ever given (run-1786717826270: handed the
+// launcher's absolute path, the agent resolved every repository path against
+// the plan's own repo and wrote its work into the operator's main checkout on
+// main, leaving the run branch empty at base).
+//
+// The copy lands BESIDE the worktree, never inside it: the work gate's
+// commitWorkGuarded runs `git add -A`, so a copy inside would be committed to
+// the run branch AND would make treeHash(worktree) !== baseTree even when the
+// agent did nothing — destroying the KTD14 proof-of-work invariant that is the
+// only thing that caught this bug.
+//
+// The plan on disk is re-hashed against gate 0's hash (KTD7) before anything is
+// written: staging a copy of a plan that has already been edited would freeze
+// the wrong spec silently. Re-staging on resume is idempotent — an identical
+// copy is left alone, a divergent one is overwritten from the launcher's
+// current (hash-verified) content. Read-only is intent, not enforcement: no
+// chmod, so an operator can still inspect and delete it normally.
+export function stageRunPlan(
+  planPath: string,
+  branch: string,
+  expectedPlanHash: string,
+  opts?: { worktreeBaseDir?: string },
+): string {
+  let markdown: string;
+  try {
+    markdown = fs.readFileSync(planPath, "utf8");
+  } catch (err) {
+    throw new Error(`Cannot stage the run plan: unreadable plan at ${planPath} (${errorMessage(err)}).`);
+  }
+  const actualHash = planContentHash(markdown);
+  if (actualHash !== expectedPlanHash) {
+    throw new Error(
+      `Plan content changed since gate 0: ${planPath} hashes to ${actualHash.slice(0, 12)}, expected ${expectedPlanHash.slice(0, 12)} — refusing to freeze a copy of a spec the run never gated (KTD7).`,
+    );
+  }
+
+  const baseDir = opts?.worktreeBaseDir ?? path.join(os.tmpdir(), "se-pipeline");
+  const planDir = path.join(baseDir, `${branch.replace(/\//g, "-")}-plan`);
+  fs.mkdirSync(planDir, { recursive: true });
+  // Keep the original basename: ce-work and the plan's own body may refer to
+  // the plan by file name.
+  const copyPath = path.join(planDir, path.basename(planPath));
+  const existing = fs.existsSync(copyPath) ? fs.readFileSync(copyPath, "utf8") : undefined;
+  if (existing !== markdown) fs.writeFileSync(copyPath, markdown);
+  return copyPath;
+}
+
+// Digest of the target repo's dirty state, recorded at staging and re-read at
+// the work gate to tell whether the main checkout moved while the agent ran
+// (see mainCheckoutEscapeReason). A digest, not the porcelain text: it goes
+// into a persisted output row, and a big repo's status is kilobytes.
+export function repoDirtyDigest(repo: string): string {
+  return createHash("sha256").update(git(repo, "status", "--porcelain")).digest("hex");
+}
+
+// The frozen plan copy is a sibling of the worktree by construction
+// (stageRunPlan), so every cleanup path can find it from the worktree path
+// alone — no extra plumbing through the persisted rows. It holds the plan's
+// full text outside any repository, so it is removed with the worktree rather
+// than left in /tmp for the OS to collect whenever it feels like it.
+function removeRunPlanDir(worktreePath: string, log: (message: string) => void): void {
+  try {
+    fs.rmSync(`${worktreePath}-plan`, { recursive: true, force: true });
+  } catch (err) {
+    log(`removeRunPlanDir: failed to remove ${worktreePath}-plan: ${errorMessage(err)}`);
+  }
+}
+
 // Lock staleness is decided by RUN STATE, not pid liveness: all non-terminal
 // runs (running, waiting-approval, interrupted-resumable) hold the lock; only
 // a terminal (or unknown-to-the-store) run's lock may be reaped.
@@ -178,6 +249,7 @@ export function sweepOrphans(
     if (state !== undefined && state !== "terminal") continue;
     try {
       git(repo, "worktree", "remove", "--force", entry.path);
+      removeRunPlanDir(entry.path, log);
       removed.push(entry.path);
       log(`sweepOrphans: removed worktree ${entry.path} (run ${parsed.runId8}, state ${state ?? "unknown"})`);
     } catch (err) {
@@ -204,6 +276,9 @@ export function cleanupSnapshot(
       log(`cleanupSnapshot: worktree prune failed: ${errorMessage(pruneErr)}`);
     }
   }
+  // Outside the try: the plan copy must go even when the worktree removal
+  // failed, and it is not a git object, so `worktree remove` never touches it.
+  removeRunPlanDir(worktreePath, log);
 }
 
 // Deterministic guarded commit for the work stage (KTD5): commit the worktree

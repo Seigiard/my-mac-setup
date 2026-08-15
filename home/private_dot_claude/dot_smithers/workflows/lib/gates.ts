@@ -67,6 +67,14 @@ function frontmatterField(markdown: string, field: string): string | undefined {
   return line?.slice(field.length + 1).trim();
 }
 
+// The plan's identity for the whole run (KTD7): gate 0 records this hash, the
+// work gate re-hashes the launcher's file against it, and staging verifies the
+// frozen copy it hands the work agent with it. One function so the three can
+// never drift into disagreeing about what "the plan" is.
+export function planContentHash(markdown: string): string {
+  return createHash("sha256").update(markdown).digest("hex");
+}
+
 export function planGate(markdown: string, until: string): PlanGateResult {
   if (until === "pr") {
     return { ok: false, reason: "--until=pr is not implemented in the MVP; use --until=branch (KTD/R6)." };
@@ -85,7 +93,7 @@ export function planGate(markdown: string, until: string): PlanGateResult {
   if (execution !== "code") {
     return { ok: false, reason: `plan execution is "${execution ?? "<missing>"}"; the pipeline requires execution: code (R1).` };
   }
-  return { ok: true, hash: createHash("sha256").update(markdown).digest("hex") };
+  return { ok: true, hash: planContentHash(markdown) };
 }
 
 // Additive severity ladder (KTD-D): leg availability stays fail-closed exactly
@@ -186,6 +194,27 @@ export function workGate(input: WorkGateInput): GateResult {
     reasons.push(describeValidateFailure(input.validateExitCode, input.validateOutput));
   }
   return reasons.length > 0 ? { state: "failed", reasons } : { state: "green", reasons: [] };
+}
+
+// Names the escape the work gate used to report as "agent produced no work"
+// (run-1786717826270: the agent followed the launcher's absolute plan path,
+// resolved every repository path against the MAIN checkout, and wrote both
+// files there while its run branch stayed at the base commit). Staging records
+// a digest of `git status --porcelain` in the target repo; the work gate
+// re-reads it and passes both here.
+//
+// ADVISORY ONLY — the caller appends the reason and leaves the gate state
+// alone. An operator editing their own checkout during a multi-hour run is
+// ordinary, and a red gate on that costs a full extra work leg. Returns
+// undefined when nothing moved, and when the staged digest is absent (a run
+// resumed from a persisted row written before this field existed).
+export function mainCheckoutEscapeReason(
+  repoDir: string,
+  stagedDigest: string | null | undefined,
+  currentDigest: string,
+): string | undefined {
+  if (!stagedDigest || stagedDigest === currentDigest) return undefined;
+  return `the target repository's main checkout at ${repoDir} gained uncommitted changes since staging — the work agent may have written OUTSIDE its worktree (run-1786717826270). Inspect \`git -C ${repoDir} status\` before re-running: the work you are missing from the run branch may be sitting there.`;
 }
 
 export function codeReviewGate(input: CodeReviewGateInput): GateResult {

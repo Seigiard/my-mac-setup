@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { codeReviewGate, describeValidateFailure, docReviewGate, planGate, rescanGate, workGate } from "./gates.ts";
+import { codeReviewGate, describeValidateFailure, docReviewGate, mainCheckoutEscapeReason, planGate, rescanGate, workGate } from "./gates.ts";
 
 const validPlan = `---
 title: Fixture - Plan
@@ -221,6 +221,58 @@ describe("workGate (KTD3, KTD14 tree-hash proof)", () => {
     const reason = r.reasons.join(" ");
     expect(reason).toContain('"vitest" is not installed');
     expect(reason).toContain("--setup-cmd");
+  });
+});
+
+describe("mainCheckoutEscapeReason (побег из воркитри, run-1786717826270)", () => {
+  const baseTree = "a".repeat(40);
+  const headTree = "b".repeat(40);
+
+  test("грязное состояние главного чекаута изменилось → причина называет репозиторий и команду для проверки", () => {
+    // #given digest, снятый на staging, и другой digest на момент гейта
+    const reason = mainCheckoutEscapeReason("/abs/repo", "digest-at-staging", "digest-now");
+
+    // #then
+    expect(reason).toContain("/abs/repo");
+    expect(reason).toContain("OUTSIDE its worktree");
+    expect(reason).toContain("git -C /abs/repo status");
+  });
+
+  test("digest не менялся → причины нет", () => {
+    expect(mainCheckoutEscapeReason("/abs/repo", "same", "same")).toBeUndefined();
+  });
+
+  test("резюм со старой строки staging (digest отсутствует) → причины нет, не падаем", () => {
+    // #given строка staging, записанная до появления поля
+    expect(mainCheckoutEscapeReason("/abs/repo", undefined, "digest-now")).toBeUndefined();
+    expect(mainCheckoutEscapeReason("/abs/repo", null, "digest-now")).toBeUndefined();
+  });
+
+  test("причина только ДОБАВЛЯЕТСЯ: зелёный вердикт work остаётся зелёным", () => {
+    // #given зелёный work-гейт
+    const verdict = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0 });
+    expect(verdict.state).toBe("green");
+
+    // #when гейт дописывает диагноз побега (как в se-pipeline workGateFn)
+    const reason = mainCheckoutEscapeReason("/abs/repo", "at-staging", "now");
+    if (reason !== undefined) verdict.reasons.push(reason);
+
+    // #then состояние не меняется — ложный позитив не стоит лишнего work-плеча
+    expect(verdict.state).toBe("green");
+    expect(verdict.reasons.join(" ")).toContain("may have written OUTSIDE its worktree");
+  });
+
+  test("на красном KTD14-вердикте диагноз стоит рядом с симптомом", () => {
+    // #given work-гейт закрылся по «нет изменений контента»
+    const verdict = workGate({ raw: workEnvelope(), baseTree, headTree: baseTree, validateExitCode: 0 });
+    const reason = mainCheckoutEscapeReason("/abs/repo", "at-staging", "now");
+    if (reason !== undefined) verdict.reasons.push(reason);
+
+    // #then оператор видит и симптом (KTD14), и настоящую причину
+    expect(verdict.state).toBe("failed");
+    const joined = verdict.reasons.join(" ");
+    expect(joined).toContain("KTD14");
+    expect(joined).toContain("run-1786717826270");
   });
 });
 
