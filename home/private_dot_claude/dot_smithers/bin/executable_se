@@ -74,12 +74,19 @@ Commands:
   monitor              open the live web UI (smithers monitor, Gateway :7331)
   logs <runId>         show logs for a run
   chat <runId>         open chat for a run
-  approve <runId>      accept the paused gate's offer. NOT always "continue":
+  approve <runId> [--no-resume]
+                       accept the paused gate's offer. NOT always "continue":
                        at a failed work gate approve buys ONE more attempt of
                        that stage, and after a second failure it STOPS the run
                        with a report. Both commands print the pending request
-                       — its title says what your decision does
-  deny <runId>         reject the offer (onDeny: fail)
+                       — its title says what your decision does. The run is
+                       resumed automatically afterwards, because the owner
+                       process exits when a run parks and a recorded decision
+                       moves nothing on its own. --no-resume records the
+                       decision only, for deciding several gates before
+                       driving the run
+  deny <runId> [--no-resume]
+                       reject the offer (onDeny: fail)
   abort <runId>        hard-stop a run (smithers cancel)
   resume <runId> [--force]
                        resume a run (smithers up --run-id <id> --resume true).
@@ -149,6 +156,73 @@ print_pending_approvals() {
   [[ -n $rows && $rows != "[]" ]] || return 0
   jq -r '.[] | (try (.request_json | fromjson) catch {title: "(request unreadable)", summary: ""}) as $r |
     "\n─── DECISION REQUIRED: \(.node_id) ───\n\($r.title)\n\n\($r.summary // "(no reasons recorded)")"' <<<"$rows" 2>/dev/null || true
+}
+
+run_field() {
+  local run_id=$1 field=$2 db_path
+  [[ $run_id =~ ^[A-Za-z0-9:_-]+$ ]] || return 1
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  db_path="$(se_db)"
+  [[ -s $db_path ]] || return 1
+  sqlite3 "$db_path" "SELECT $field FROM _smithers_runs WHERE run_id='$run_id' LIMIT 1" 2>/dev/null
+}
+
+# True when a live engine process owns the run. runtime_owner_id is
+# "pid:<pid>:<uuid>" while a process drives the run and is CLEARED when the run
+# parks, so an empty owner means nobody is driving. Any other shape is opaque
+# and counts as owned: a second engine on one run corrupts its state, so an
+# unreadable owner must block the automatic resume, never allow it.
+run_owner_alive() {
+  local owner pid
+  owner="$(run_field "$1" runtime_owner_id)" || return 0
+  [[ -n $owner ]] || return 1
+  case $owner in
+    pid:*) ;;
+    *) return 0 ;;
+  esac
+  pid=${owner#pid:}
+  pid=${pid%%:*}
+  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  kill -0 "$pid" 2>/dev/null
+}
+
+# A decision alone does not move the run: the owner process exited when the run
+# parked, so smithers records the approval and nothing drives it. Measured on
+# run-1786718288581 — approved 16:42:24, no progress until a manual resume at
+# 16:44:47. Resuming here closes that gap, and only when nobody owns the run.
+resume_after_decision() {
+  local run_id=$1 status
+  sleep 2 # let the engine claim the run itself, if anything is going to
+  status="$(run_field "$run_id" status)" || return 0
+  case $status in
+    "" | finished | failed | cancelled) return 0 ;;
+  esac
+  if run_owner_alive "$run_id"; then
+    echo "se: $run_id is owned by a live process; not resuming (it is already being driven)." >&2
+    return 0
+  fi
+  echo "se: decision recorded, nothing is driving $run_id — resuming it ('--no-resume' skips this)." >&2
+  cmd_resume "$run_id"
+}
+
+cmd_decide() {
+  local cmd=$1 run_id=$2
+  shift 2
+  local resume_after=1
+  while (($#)); do
+    case $1 in
+      --no-resume) resume_after=0 ;;
+      *) usage_die "$cmd: unknown option $1" ;;
+    esac
+    shift
+  done
+  require_runtime_dir
+  # Never decide blind: what is being decided, and what the decision does, go to
+  # the screen before the decision is recorded.
+  print_pending_approvals "$run_id" >&2
+  smithers_run "$cmd" "$run_id"
+  ((resume_after)) && resume_after_decision "$run_id"
+  return 0
 }
 
 sq() {
@@ -646,11 +720,7 @@ main() {
       smithers_run "$cmd" "$@" ;;
     approve|deny)
       require_run_id "$cmd" "$@"
-      require_runtime_dir
-      # Never decide blind: what is being decided, and what the decision does,
-      # go to the screen before the decision is recorded.
-      print_pending_approvals "$1" >&2
-      smithers_run "$cmd" "$@" ;;
+      cmd_decide "$cmd" "$@" ;;
     monitor)
       require_runtime_dir
       smithers_run monitor "$@" ;;

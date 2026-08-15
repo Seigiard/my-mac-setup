@@ -1436,7 +1436,9 @@ JSON
 se_fake_runtime() {
   local dir="$BATS_TEST_TMPDIR/se-runtime" title=$1 summary=$2
   mkdir -p "$dir/node_modules/.bin"
-  printf '#!/usr/bin/env bash\necho null\n' > "$dir/node_modules/.bin/smithers"
+  # Records its argv so a test can assert what se asked the engine to do.
+  printf '#!/usr/bin/env bash\necho "$*" >> "%s/calls.log"\necho null\n' "$dir" \
+    > "$dir/node_modules/.bin/smithers"
   chmod +x "$dir/node_modules/.bin/smithers"
   sqlite3 "$dir/smithers.db" "
     CREATE TABLE summary (run_id TEXT, verdict TEXT, branch TEXT, plan_path TEXT,
@@ -1444,7 +1446,11 @@ se_fake_runtime() {
     CREATE TABLE _smithers_approvals (run_id TEXT, node_id TEXT, iteration INTEGER,
       status TEXT, requested_at_ms INTEGER, request_json TEXT);
     INSERT INTO _smithers_approvals VALUES ('run-1', 'approve-work-1', 0, 'pending', 1,
-      json_object('title', '$title', 'summary', '$summary'));"
+      json_object('title', '$title', 'summary', '$summary'));
+    CREATE TABLE _smithers_runs (run_id TEXT, status TEXT, runtime_owner_id TEXT, workflow_path TEXT);
+    INSERT INTO _smithers_runs VALUES ('run-1', 'waiting-event', '', '/x/se-pipeline.tsx');
+    CREATE TABLE gate0 (run_id TEXT, repo_path TEXT);
+    INSERT INTO gate0 VALUES ('run-1', '/tmp/target-repo');"
   printf '%s' "$dir"
 }
 
@@ -1487,6 +1493,72 @@ se_fake_runtime() {
 
   assert_success
   refute_output --partial 'DECISION REQUIRED'
+}
+
+@test "se approve resumes a parked run that nothing is driving" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  command -v jq >/dev/null 2>&1 || skip "jq is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
+
+  # #given a parked run with no owner (the owner process exits when a run parks)
+  # #when the operator approves
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
+
+  # #then the decision is recorded AND the run is driven onward, no manual resume
+  assert_success
+  assert_file_contains "$dir/calls.log" '^approve run-1'
+  assert_file_contains "$dir/calls.log" 'resume true'
+}
+
+@test "se approve --no-resume records the decision without driving the run" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  command -v jq >/dev/null 2>&1 || skip "jq is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
+
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1 --no-resume
+
+  assert_success
+  assert_file_contains "$dir/calls.log" '^approve run-1'
+  run grep -c 'resume true' "$dir/calls.log"
+  assert_failure
+}
+
+@test "se approve refuses to resume a run a live process already owns" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  command -v jq >/dev/null 2>&1 || skip "jq is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
+  # #given the run is owned by this very shell, which is unquestionably alive:
+  # two engines on one run corrupt its state, so the resume must be declined.
+  sqlite3 "$dir/smithers.db" \
+    "UPDATE _smithers_runs SET status='running', runtime_owner_id='pid:$$:abc';"
+
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
+
+  assert_success
+  assert_output --partial 'owned by a live process'
+  run grep -c 'resume true' "$dir/calls.log"
+  assert_failure
+}
+
+@test "se approve does not resume a run that already finished" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
+  command -v jq >/dev/null 2>&1 || skip "jq is required"
+  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+  local dir
+  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
+  sqlite3 "$dir/smithers.db" "UPDATE _smithers_runs SET status='finished';"
+
+  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
+
+  assert_success
+  run grep -c 'resume true' "$dir/calls.log"
+  assert_failure
 }
 
 @test "se approve usage does not promise that approve continues the run" {
