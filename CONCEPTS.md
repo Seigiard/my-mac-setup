@@ -16,7 +16,13 @@ An isolated checkout of the run branch that a run works in, separate from the op
 ### External leg
 An independent run of an outside model dispatched by a stage (for review, simplify, or verification) that receives repo content and returns a structured report. Every external leg is an egress path and must sit behind the secret boundary.
 
-A leg is healthy only when it returns a well-formed report with a terminal status; a missing, unparseable, or non-terminal report counts as a failed leg, never as an empty-but-clean one. A failed leg degrades the stage rather than silently shrinking review coverage.
+A leg is healthy when its report parses and carries the findings it was asked for, and its status does not itself claim failure or an unfinished state. A missing, unparseable, or status-less report counts as a failed leg, never as an empty-but-clean one — but a status word the pipeline simply does not recognise is not failure evidence, because the payload is what proves the leg ran. A failed leg degrades the stage rather than silently shrinking review coverage.
+
+### Dead leg
+An external leg that stopped before producing its report — killed for silence, crashed, or cut off mid-review — whose danger is that it can still return something well-formed enough to be mistaken for a clean review with nothing to report. Detecting one is a distinct job from reading its findings, and it is the check that must never fail open.
+
+### Finding
+A single reviewable defect a leg reports, carrying a location, a description, and a severity. Severity is what gates act on: the most severe classes block, the rest are advisory. Findings from several legs are merged deterministically in code before any gate counts them, so a discarded leg does not merely lower confidence — its findings leave the merged report entirely.
 
 ### Secret boundary
 The gate guaranteeing repo content is secret-scanned before it reaches any external leg. The scan covers the run's own commits only; a leak or a scanner failure closes the gate — only a clean scan opens it.

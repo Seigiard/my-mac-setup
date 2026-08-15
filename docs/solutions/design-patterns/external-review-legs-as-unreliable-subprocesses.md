@@ -18,7 +18,7 @@ applies_when:
 symptoms:
   - "A review leg that died quietly was read as zero findings, so the gate passed with no review coverage"
   - "Agent CLI harness behavior (backgrounding, headless wait limits) silently truncated legs before completion"
-  - "Fail-closed free-text status allowlist discards healthy legs' findings (open bug: measured false-fail cost)"
+  - "A fail-closed success allowlist over free-text status discarded a healthy leg and dropped its findings from the merged report"
 tags:
   - external-llm
   - se-pipeline
@@ -42,18 +42,18 @@ The defining later incident (fix commit `2c4f533`, 2026-08-12): twice in one day
 
 ## Guidance
 
-**1. Default-dead: absence of a well-formed terminal report is a leg failure.**
+**1. Default-dead: absence of a well-formed report is a leg failure, never zero findings.**
 The dangerous default is counting a dead leg as "no findings" — a green report that reviewed nothing. Every layer here encodes the inversion:
 
-- `home/private_dot_claude/dot_smithers/workflows/lib/reviewer.ts:4-6` — "Dead-leg detection is the key rule — a block that ended non-terminal (idle-killed, crashed) is failure evidence, never a silent zero-findings clean pass." Concretely, `reviewer.ts:12,30` puts `"non-terminal"` in `FAILURE_STATUSES` alongside `"failed"`.
-- `home/private_dot_claude/dot_smithers/workflows/lib/review-merge.ts:27-30` — a report with a valid shape but a non-terminal status is "a dead leg wearing a valid shape — its findings are partial at best" and maps to `{ ok: false, findings: [] }`.
-- `home/private_dot_claude/dot_smithers/workflows/lib/review-schema.ts:35` — the terminal-status predicate is word-boundary containment, not exact match, because real healthy statuses vary ("SMOKE OK", "reviewers complete", "completed: <list>"):
+- `home/private_dot_claude/dot_smithers/workflows/lib/reviewer.ts:4-6` — "Dead-leg detection is the key rule — a block that ended non-terminal (idle-killed, crashed) is failure evidence, never a silent zero-findings clean pass." Concretely, `reviewer.ts:12,35` puts `"non-terminal"` in `FAILURE_STATUSES` alongside `"failed"`.
+- `home/private_dot_claude/dot_smithers/workflows/lib/review-merge.ts:22-37` (`parseLeg`) — a report with a valid shape but a status that claims failure or an unfinished state is "a dead leg wearing a valid shape — its findings are partial at best" and maps to `{ ok: false, findings: [] }`. The same comment draws the boundary that guidance 5 below explains: a status the vocabulary simply does not recognise is *not* that case.
+- `home/private_dot_claude/dot_smithers/workflows/lib/review-schema.ts:26-48` — every status predicate is word-boundary containment, not exact match, because real statuses vary in both directions ("SMOKE OK", "reviewers complete", "completed: <list>" are healthy; `waiting_for_reviewers` is not):
 
   ```ts
   const TERMINAL_REVIEW_STATUS = /\b(complete|completed|done|ok|success|succeeded)\b/i;
   ```
 
-  The comment at `review-schema.ts:29-34` states the fail-closed rationale: "False-failing an exotic healthy status is the safe direction: it pauses for a human instead of passing."
+  Containment cuts both ways, so negation is checked in both directions too (`review-schema.ts:44,48`): "not completed" is a failure that plain containment would pass, and "no errors" is health that plain containment would fail. Separators are normalised to spaces first, because underscores are word characters — `\bwaiting\b` does not match `waiting_for_reviewers`, the exact status this vocabulary exists to catch.
 
 The same family, one layer up (session history): a schema-valid severity summary saying `maxSeverity: "P0"` with `p0Count: 0` originally passed the gate green — the gate read only the count. The fix is cross-field validation in `home/private_dot_claude/dot_smithers/workflows/lib/severity-summary.ts`: a contradictory summary is malformed and degrades to advisory. Layering principle: leg **availability** stays fail-closed; the severity layer degrades to advisory, never to silent green.
 
@@ -75,17 +75,23 @@ The surrounding comment (`agents.ts:128-141`) records two layers: a system-promp
 The `work` profile deliberately has no idle timeout — long locally-silent commands (installs, test suites) are legitimate there.
 
 **4. Validate reports at the boundary; fail closed on missing/unparseable — and salvage before schema validation.**
-`review-merge.ts:22-35` (`parseLeg`): missing raw → failed; JSON parse error → failed (never throws); no `findings` array → failed; non-terminal status → failed. The gate turns all-legs-failed into `degraded` and one failed leg into an advisory reason. Two sub-rules:
+`review-merge.ts:22-37` (`parseLeg`): missing raw → failed; JSON parse error → failed (never throws); no `findings` array → failed; a status that claims failure or an unfinished state → failed. The gate turns all-legs-failed into `degraded` and one failed leg into an advisory reason. Two sub-rules:
 
 - Declare the fields you consume in the schema (`review-schema.ts:11-18`) — smithers persists only schema-declared fields, so an undeclared `findings` array is silently dropped in capture and every leg then parses as failed.
 - Salvage/unwrap lives at capture/extraction, **before** Zod validation (session history): an invalid envelope reaching Zod triggers a silent full agent restart within the same attempt. `parseLeg` is the reference pattern — never throw, fail closed.
 
-**5. Know the cost of fail-closed on free-text signals (OPEN issue).**
-`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` (status: open) measures the price: on the identical `fixture-reverse-plan` fixture, run-1786539437958 (status `completed`) went green while run-1786700241899 (status `findings`) had its healthy leg discarded, its well-formed P3 finding dropped from the merged report, and the run parked for a needless approval. The issue's own framing: the conservative direction "holds for an unparseable or absent report. It does not hold here, where the report parsed and carried findings — the evidence of health is in the payload, not the adjective." Three candidate directions, undecided: judge health by payload (a parsed report with a findings array is a leg that ran); constrain the leg's output so status is an enum the model cannot paraphrase (the claude leg already takes `reviewLegJsonSchema`, `review-schema.ts:45-51`; the opencode path is unverified); or widen the allowlist — cheapest and least durable, the next synonym reintroduces the failure. Second-order cost noted in the issue: a real P0 from a leg that said `findings` would be silently dropped while the run degrades for an apparently unrelated reason.
+**5. Fail closed on absence of evidence, not on an unfamiliar adjective.**
+Fail-closed has a price when it is applied to a model's free text, and the price was measured: on the identical `fixture-reverse-plan` fixture, run-1786539437958 (status `completed`) went green while run-1786700241899 (status `findings`) had its healthy leg discarded, its well-formed P3 finding dropped from the merged report, and the run parked for a needless approval — the exact interruption cost the pipeline exists to remove. The second-order cost is worse than the pause: a real P0 from a leg that said `findings` would have vanished from the merged report while the run degraded for an apparently unrelated reason.
+
+The resolution (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, status: done, fix commit `186b6a8`) inverted the rule rather than widening the word list: **health is judged by the payload, not by the adjective.** `isUsableReviewLegStatus` (`review-schema.ts:62-71`) replaced the success allowlist at the merge call site, and asks in order — a missing, non-string, or empty status fails the leg (this is where the fail-closed intent survives: no evidence is not health); a negated success word ("not completed") fails; a known success word passes; an explicit failure or progress state fails; and **anything else passes**, because the caller has already required a parsed `findings` array, and that array is the evidence the leg ran. Replayed against the recorded run, the discarded leg comes back with its P3 finding and the run no longer parks.
+
+Two rejected alternatives are worth keeping visible. Widening the allowlist was the cheapest change and the least durable — the next unseen synonym reintroduces the identical failure. Constraining the status to an enum the model cannot paraphrase is genuinely better *where it reaches*: the claude leg already takes `reviewLegJsonSchema` (`review-schema.ts:77-83`), but the opencode path could not be shown to carry the same constraint, and a rule covering one leg of two is not a rule. Prefer the schema constraint when every leg can take it; fall back to payload evidence when they cannot.
+
+The doc-review exposure suspected alongside this turned out not to exist: `docReviewGate` reads statuses computed in code (`se-doc-review.tsx:189` — `claudeStatus: claudeReview ? "ok" : "failed"`), so no model-chosen word reaches it. Worth checking deliberately rather than assuming — the same vocabulary appearing at two gates does not mean a model feeds both.
 
 ## Why This Matters
 
-A review leg that dies quietly and reads as "zero findings" defeats the entire purpose of the review stage: the gate passes on evidence that was never produced. The `2c4f533` incident shows this is not hypothetical — a harness version bump made every claude review leg structurally incapable of finishing synthesis, and for a while the pipeline reported those deaths as clean passes. The two-leg architecture is worth defending against dead legs (session history): a semantic comparison of 52 leg pairs found exact parity in substantive unique findings (92 claude vs 92 opencode, 144 shared clusters), and three runs had opencode raising P1s where claude reported clean — losing a leg loses real signal, not redundancy. Fail-closed status validation converts silent false-greens into visible pauses. But the open allowlist issue shows fail-closed on a model's free-text adjective has its own measured cost: false-failed healthy legs, dropped findings, and needless human interruptions — the exact interruption cost the pipeline exists to remove. The durable position is schema-constrained enums at the boundary, payload-based health where the payload is decisive, and fail-closed only where the report is genuinely missing or unparseable.
+A review leg that dies quietly and reads as "zero findings" defeats the entire purpose of the review stage: the gate passes on evidence that was never produced. The `2c4f533` incident shows this is not hypothetical — a harness version bump made every claude review leg structurally incapable of finishing synthesis, and for a while the pipeline reported those deaths as clean passes. The two-leg architecture is worth defending against dead legs (session history): a semantic comparison of 52 leg pairs found exact parity in substantive unique findings (92 claude vs 92 opencode, 144 shared clusters), and three runs had opencode raising P1s where claude reported clean — losing a leg loses real signal, not redundancy. Fail-closed status validation converts silent false-greens into visible pauses. But the allowlist incident showed that fail-closed applied to a model's free-text adjective has its own measured cost: false-failed healthy legs, dropped findings, and needless human interruptions. Both failure modes are real, so the rule has to be placed rather than dialled: schema-constrained enums at the boundary, payload-based health where the payload is decisive, and fail-closed only where the report is genuinely missing or unparseable. That is now the shipped position, not an aspiration.
 
 ## When to Apply
 
@@ -97,15 +103,16 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
 
 ## Examples
 
-- Dead leg wearing a valid shape: status `waiting_for_reviewers` with an empty findings array, salvaged from a session killed at the 10-min background-wait ceiling — rejected by `parseLeg` (`review-merge.ts:30`), fix commit `2c4f533`.
+- Dead leg wearing a valid shape: status `waiting_for_reviewers` with an empty findings array, salvaged from a session killed at the 10-min background-wait ceiling — rejected by `parseLeg` (`review-merge.ts:32`), fix commit `2c4f533`. Still rejected after the payload-health inversion, and covered by a test that says so.
 - Harness pin: `agents.ts:142` `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` applied to every spawned claude review/apply agent (`agents.ts:156,182`), layered under the synchronous-dispatch system prompt (`agents.ts:144-145`).
 - Liveness vs wall-clock: opencode profile `timeoutMs: 25 * 60_000`, `idleTimeoutMs: 10 * 60_000` (`agents.ts:87-92`) — raised cap after killing a healthy streaming leg (commit `42329df`), kept idle threshold for genuine stalls.
-- Measured fail-closed cost: two runs on one fixture, `completed` → green vs `findings` → leg discarded and run parked (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, open).
+- Measured fail-closed cost, then the inversion: two runs on one fixture, `completed` → green vs `findings` → leg discarded and run parked; fixed by judging the payload (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, done; commit `186b6a8`). The fix was verified by replaying the recorded run's legs out of `smithers.db` through the merge, before and after — 0 merged findings and a pause became 1 merged finding and no pause. A unit test alone would not have shown that the finding had been disappearing.
 - Leg-death forensics entry points (session history): the run's `stream.ndjson` heartbeat log under the smithers executions directory, `_smithers_attempts.response_text` in `smithers.db`, and the leg's own session JSONL.
 
 ## Related
 
-- `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` — the open false-fail bug (measured cost of fail-closed on free text).
+- `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` — the false-fail bug: measured cost of fail-closed on free text, the three candidate directions, and why payload-based health won (status: done, commit `186b6a8`).
 - `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` — the original stall/unwrap fix (status: done).
-- `docs/se-pipeline.md:375-417` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status); thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `docs/se-pipeline.md:427-450` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status); thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).
