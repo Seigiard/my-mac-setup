@@ -6,7 +6,7 @@ argument-hint: "[optional: feature description, requirements doc path, plan path
 
 # Create Technical Plan (wrapper: plugin ce-plan + external doc review)
 
-Thin wrapper over `compound-engineering:ce-plan`. The entire planning workflow is the plugin's — invoke it and follow it faithfully with the **three amendments** below. Do not re-implement, reorder, or skip any of its phases.
+Thin wrapper over `compound-engineering:ce-plan`. The entire planning workflow is the plugin's — invoke it and follow it faithfully with the **four amendments** below. Do not re-implement, reorder, or skip any of its phases.
 
 ## How to run
 
@@ -34,6 +34,43 @@ Use the **combined** envelope (local + synthesis) for everything downstream in t
 Run the plugin workflow as if `confirm:auto` was passed (`SKIP_SCOPING_CONFIRM=true`): do not stop at the pre-plan scoping-synthesis confirmation ("confirm and I'll write the plan" — plugin Phases 0.7 / 5.1.5). Write the plan directly.
 
 This skips ONLY that confirmation. Everything that asks a real question stays: Phase 0.4 routing, Phase 0.5 product blockers, Phase 2 architecture questions, source-doc disambiguation, the Phase 5.4 post-generation menu, and the P0/P1 gate below. If the user explicitly passes `confirm:ask` (or asks to confirm scope), honor that for the run.
+
+## Amendment — the plan declares its verification commands
+
+The plugin owns the plan body, including the `Verification Contract` section. The
+pipeline that executes the plan (`se-work` / `se-review-and-work`) reads its work
+gate from a **`validate_commands:` YAML list in the plan's frontmatter**, and only
+falls back to parsing that section when the key is absent. Parsing is a heuristic —
+it has dropped a real lint gate and derived `(test)` out of the prose sentence
+"script is `e2e`, not `test`" — so a plan this skill produces states the commands
+instead of leaving them to be recovered.
+
+When the finished artifact is `artifact_readiness: implementation-ready` plus
+`execution: code`, and before the Phase 5.4 post-generation menu renders: write the
+runnable gate commands of the Verification Contract into the plan's frontmatter,
+beside `artifact_readiness`.
+
+```yaml
+validate_commands:
+  - cd engine/api && timeout 120 bun run typecheck
+  - bun run test:unit
+```
+
+- The section stays exactly as the plugin wrote it. It carries the human-readable
+  gates, the Covers column, and the manual rows; the list is the machine-runnable
+  subset of it, and the two must agree.
+- One command per entry, run verbatim, each in its own subshell from the repo root
+  — scope one to a package with `cd <pkg> && …`. Quote an entry that starts with a
+  YAML indicator or carries a `#`.
+- Every entry terminates on its own and leaves the worktree clean: read-only
+  runners (`bun run test:unit`, `tsc --noEmit`, `oxlint …`, `prettier --check .`).
+  A mutating flag (`--write`, `--fix`, `-i`, `--apply`) is refused at gate 0 with
+  the flag named, because the work gate requires a clean worktree right after the
+  command runs.
+- Fast and narrow beats complete: scope to the units' `Files:`, keep the plan's
+  timeouts. Manual, VRT, and server/e2e rows stay out of the list.
+- A plan with no command a bare checkout can run is not executable by the pipeline.
+  Say that in the plan and leave the key out, rather than declaring an empty list.
 
 ## Amendment — no unresolved P0/P1 review findings on an executable plan
 

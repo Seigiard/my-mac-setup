@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveValidateCmd, extractValidateCmd } from "./plan.ts";
+import { deriveValidateCmd, extractValidateCmd, noValidateCmdRefusal } from "./plan.ts";
 
 // A contract whose only content is the given commands, one per fenced line.
 const contractWith = (...cmds: string[]): string => `## Verification Contract\n\n\`\`\`bash\n${cmds.join("\n")}\n\`\`\`\n`;
@@ -313,6 +313,188 @@ describe("deriveValidateCmd: раннер решает, а не строка ц�
     const md = contractWith("bun test", "oxfmt --write src");
     expect(extractValidateCmd(md)).toBe(deriveValidateCmd(md).cmd);
     expect(deriveValidateCmd(md).dropped).toHaveLength(1);
+  });
+});
+
+// A plan that DECLARES its commands instead of being parsed for them
+// (docs/issues/2026-08-14-014-plan-format-contract.md).
+const declaring = (...cmds: string[]): string =>
+  ["---", "artifact_readiness: implementation-ready", "validate_commands:", ...cmds.map((c) => `  - ${c}`), "---", "", "# Plan", ""].join("\n");
+
+describe("deriveValidateCmd: декларация в frontmatter (issue 014)", () => {
+  test("декларированный список исполняется дословно и помечен как declared", () => {
+    // #given план сам называет свои команды
+    const md = declaring("bun run test:unit", "cd pkg && bun run typecheck");
+
+    // #when
+    const derived = deriveValidateCmd(md);
+
+    // #then порядок и текст сохранены, источник — декларация
+    expect(derived).toMatchObject({ cmd: "(bun run test:unit) && (cd pkg && bun run typecheck)", source: "declared" });
+  });
+
+  test("keep-фильтр к декларации не применяется: незнакомый раннер исполняется без notes", () => {
+    // #given раннер, которого фильтр не знает, — но оператор его выписал
+    const derived = deriveValidateCmd(declaring("frobnicate --strict src"));
+
+    // #when / #then команда идёт как есть, и это больше не наблюдение
+    expect(derived.cmd).toBe("(frobnicate --strict src)");
+    expect(derived.notes).toEqual([]);
+  });
+
+  test("команда, которую парсер выбросил бы как не-верификацию, в декларации остаётся", () => {
+    // #given `bun run build` — распознанный НЕ-верификационный раннер
+    const declared = deriveValidateCmd(declaring("bun run build"));
+    const parsed = deriveValidateCmd(contractWith("bun run build"));
+
+    // #when / #then прозе — отказ, декларации — исполнение
+    expect(parsed.cmd).toBeNull();
+    expect(declared.cmd).toBe("(bun run build)");
+  });
+
+  test("мутирующий флаг отклоняет весь запуск и называет флаг с причиной", () => {
+    // #given форматтер в гейте пачкает worktree — work-гейт упадёт не по делу
+    const derived = deriveValidateCmd(declaring("bun run test:unit", "oxfmt --write src"));
+
+    // #when / #then соседняя валидная команда запуск не спасает
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped).toEqual([
+      {
+        cmd: "oxfmt --write src",
+        reason: "refused: segment `oxfmt --write src` carries the mutating flag `--write` — the work gate runs the validate-cmd and then requires a clean worktree, so a command that rewrites files fails the stage for a reason unrelated to the work",
+      },
+    ]);
+  });
+
+  test("мутирующий флаг ловится в любом сегменте составной команды", () => {
+    const derived = deriveValidateCmd(declaring("bun test && oxfmt --write src"));
+    expect(derived.dropped[0].reason).toContain("segment `oxfmt --write src` carries the mutating flag `--write`");
+  });
+
+  test("имя, похожее на мутирующее, декларацию не отклоняет — отклоняет только флаг", () => {
+    // #given `fmt:check` распадается на `fmt` + `check`; в прозе это отказ по имени
+    const declared = deriveValidateCmd(declaring("bun run fmt:check"));
+
+    // #when / #then догадка по имени не имеет права блокировать выписанную команду
+    expect(declared.cmd).toBe("(bun run fmt:check)");
+  });
+
+  test("декларация побеждает секцию Verification Contract", () => {
+    // #given в плане есть и то, и другое, и они не совпадают
+    const md = `${declaring("bun run test:unit")}\n## Verification Contract\n\n- Run \`bun run test:e2e-ish\` too.\n`;
+
+    // #when
+    const derived = deriveValidateCmd(md);
+
+    // #then выигрывает то, что автор написал явно, а не то, что вычитала эвристика
+    expect(derived.cmd).toBe("(bun run test:unit)");
+  });
+
+  test("сломанная декларация не откатывается к секции — она отказывает", () => {
+    // #given опечатка в декларации при живой секции Verification Contract
+    const md = `---\nvalidate_commands: bun test\n---\n\n## Verification Contract\n\n- Run \`bun run test:unit\`.\n`;
+
+    // #when
+    const derived = deriveValidateCmd(md);
+
+    // #then иначе прогон исполнил бы не то, что объявлено, и молча
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped[0].reason).toContain("is not a block list");
+  });
+
+  test("план без ключа читается парсером ровно как раньше", () => {
+    // #given сегодняшний план из целевого репозитория — миграции нет
+    const derived = deriveValidateCmd(planWithContract);
+
+    // #when / #then
+    expect(derived.source).toBe("parsed");
+    expect(derived.cmd).toBe(extractValidateCmd(planWithContract));
+  });
+
+  test("скалярное значение вместо списка отклонено с указанием, как писать", () => {
+    const derived = deriveValidateCmd("---\nvalidate_commands: bun test\n---\n");
+    expect(derived.dropped).toEqual([
+      { cmd: "validate_commands:", reason: "`validate_commands: bun test` is not a block list — write one command per `- ` line under the key." },
+    ]);
+  });
+
+  test("flow-список (`[a, b]`) отклонён — запятая внутри команды его бы разорвала", () => {
+    const derived = deriveValidateCmd("---\nvalidate_commands: [bun test, tsc]\n---\n");
+    expect(derived.dropped[0].reason).toContain("is not a block list");
+  });
+
+  test("ключ без единой команды отклонён с подсказкой про fallback", () => {
+    // #given ключ есть, список пуст — следующий ключ идёт сразу за ним
+    const derived = deriveValidateCmd("---\nvalidate_commands:\nartifact_readiness: implementation-ready\n---\n\n## Verification Contract\n\n- `bun test`\n");
+
+    // #when / #then
+    expect(derived.cmd).toBeNull();
+    expect(derived.dropped[0].reason).toBe(
+      "validate_commands is present but lists no command — declare at least one, or drop the key to fall back to the Verification Contract section.",
+    );
+  });
+
+  test("пустая запись в списке отклонена с её номером", () => {
+    const derived = deriveValidateCmd(declaring("bun test", '""'));
+    expect(derived.dropped[0].reason).toBe("entry 2 of validate_commands is empty — every entry must be a command the work gate can run.");
+  });
+
+  test("маркер `-` без значения — тоже пустая запись", () => {
+    const derived = deriveValidateCmd("---\nvalidate_commands:\n  -\n  - bun test\n---\n");
+    expect(derived.dropped[0].reason).toContain("entry 1 of validate_commands is empty");
+  });
+
+  test("кавычки снимаются, YAML-комментарий у неквотированной записи отрезается", () => {
+    // #given квотированная команда несёт `#` внутри себя, неквотированная — комментарий
+    const derived = deriveValidateCmd(declaring('"bun test --grep \'a # b\'"', "bun run typecheck # быстрый гейт"));
+
+    // #when / #then
+    expect(derived.cmd).toBe("(bun test --grep 'a # b') && (bun run typecheck)");
+  });
+
+  test("комментарии и пустые строки внутри списка пропускаются", () => {
+    const md = "---\nvalidate_commands:\n  # самый узкий гейт\n  - bun test\n\n  - tsc --noEmit\nexecution: code\n---\n";
+    expect(deriveValidateCmd(md).cmd).toBe("(bun test) && (tsc --noEmit)");
+  });
+
+  test("`-` без пробела записью не считается — это не YAML-список", () => {
+    // #given опечатка, которую и настоящий YAML-парсер записью не прочитает
+    const derived = deriveValidateCmd("---\nvalidate_commands:\n  -bun test\n---\n");
+
+    // #when / #then отказ, а не молчаливое чтение сломанного файла
+    expect(derived.dropped[0].reason).toContain("lists no command");
+  });
+
+  test("комментарий после самого ключа списку не мешает", () => {
+    const md = "---\nvalidate_commands: # узкий гейт по затронутым пакетам\n  - bun test\n---\n";
+    expect(deriveValidateCmd(md).cmd).toBe("(bun test)");
+  });
+
+  test("extractValidateCmd видит декларацию тем же значением", () => {
+    const md = declaring("bun test");
+    expect(extractValidateCmd(md)).toBe("(bun test)");
+  });
+});
+
+describe("noValidateCmdRefusal: отказ gate-0 называет обе формы (issue 014)", () => {
+  test("сообщение называет декларацию с примером и секцию-fallback", () => {
+    // #given план, из которого команду взять неоткуда
+    const message = noValidateCmdRefusal([]);
+
+    // #when / #then обе формы названы, и декларация показана целиком
+    expect(message).toContain("validate_commands:\n         - cd engine/api && bun run typecheck");
+    expect(message).toContain("`Verification Contract` section (`##` through `######`)");
+  });
+
+  test("наблюдения деривации попадают в отказ", () => {
+    // #given отброшенная команда — единственное объяснение, почему план пуст
+    const derived = deriveValidateCmd(declaring("oxfmt --write src"));
+
+    // #when
+    const message = noValidateCmdRefusal(derived.dropped.map((d) => `derivation dropped \`${d.cmd}\` — ${d.reason}`));
+
+    // #then
+    expect(message).toContain("What it refused: derivation dropped `oxfmt --write src` — refused: segment `oxfmt --write src` carries the mutating flag `--write`");
   });
 });
 

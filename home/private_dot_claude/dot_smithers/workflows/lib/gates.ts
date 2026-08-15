@@ -4,6 +4,7 @@
 // is degraded (needs a human), a broken contract is failed (retry/approval).
 import { createHash } from "node:crypto";
 import type { SecretScanResult } from "./envelopes.ts";
+import { planFrontmatter } from "./plan.ts";
 import type { SeveritySummary } from "./severity-summary.ts";
 import { classifyValidateFailure, missingModuleName } from "./validate-probe.ts";
 
@@ -60,10 +61,13 @@ export interface RescanGateInput {
   raw: string | undefined;
 }
 
+// Single-value accessor: a line-prefix match, not a YAML parser. The list-valued
+// `validate_commands` declaration is parsed in lib/plan.ts, which owns the plan
+// document's shape; this stays a scalar reader for artifact_readiness/execution.
 function frontmatterField(markdown: string, field: string): string | undefined {
-  const fm = markdown.match(/^---\n([\s\S]*?)\n---/);
-  if (!fm) return undefined;
-  const line = fm[1].split("\n").find((l) => l.startsWith(`${field}:`));
+  const fm = planFrontmatter(markdown);
+  if (fm === undefined) return undefined;
+  const line = fm.split("\n").find((l) => l.startsWith(`${field}:`));
   return line?.slice(field.length + 1).trim();
 }
 

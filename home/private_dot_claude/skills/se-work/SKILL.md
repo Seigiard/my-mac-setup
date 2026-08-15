@@ -12,13 +12,13 @@ The **simplify** stage runs in BOTH commands — it is new relative to the old `
 
 All orchestration is **code**, not prose: the `se` CLI (`~/.claude/.smithers/bin/se`, on PATH as `se`) wrapping the smithers workflow `~/.claude/.smithers/workflows/se-pipeline.tsx`. Do not re-implement stages, gates, or resume logic in instructions — launch and observe. Troubleshooting source of truth: `~/Projects/my-mac-setup/docs/se-pipeline.md` — approve semantics per gate, resume quirks, validate-cmd rules, failure taxonomy. It is written in Russian. Launching from the target repo root means a bare `docs/se-pipeline.md` resolves to that repo, not this one; always use the absolute path.
 
-Argument contract: an optional plan path; `validate-cmd:'<cmd>'` maps to `--validate-cmd` (override only — omitted, the workflow derives the command from the plan's Verification Contract); `setup-cmd:'<cmd>'` maps to `--setup-cmd`, a one-shot provisioning command run in the staged worktree before work (installs, workspace dist builds) — needed when the validate-cmd imports a sibling package's `dist/`. This command NEVER passes `--doc-review` (that is what `se-review-and-work` is for).
+Argument contract: an optional plan path; `validate-cmd:'<cmd>'` maps to `--validate-cmd` (override only — omitted, the workflow takes the command from the plan itself: the `validate_commands:` YAML list in its frontmatter, else its `Verification Contract` section); `setup-cmd:'<cmd>'` maps to `--setup-cmd`, a one-shot provisioning command run in the staged worktree before work (installs, workspace dist builds) — needed when the validate-cmd imports a sibling package's `dist/`. This command NEVER passes `--doc-review` (that is what `se-review-and-work` is for).
 
 ## Phase 1 — resolve and preflight
 
 - Plan: explicit path argument, else the freshest `docs/plans/*.md` with `artifact_readiness: implementation-ready`. When not explicit, confirm the pick with the user before launching.
 - `artifact_readiness: requirements-only` → stop; that plan needs `/se-plan` enrichment first.
-- No Verification Contract in the plan → gate-0 hard-errors. Flag it before launch; pass `--validate-cmd` only if the user supplied an override.
+- Neither a `validate_commands:` frontmatter list nor a `Verification Contract` section with a runnable command → gate-0 hard-errors, naming both shapes. Flag it before launch; pass `--validate-cmd` only if the user supplied an override. A declared list is used verbatim, so a declared mutating flag (`--write`, `--fix`) is refused there too — the work gate requires a clean worktree after the command runs.
 - Launch from the **target repo root** — the cwd becomes `PIPELINE_REPO` / `DOC_REVIEW_REPO`.
 - Check `se list` first: an already-running run on the same repo means observe it, not double-launch.
 

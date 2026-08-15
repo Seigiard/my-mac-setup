@@ -21,7 +21,7 @@ import { codeReviewGate, docReviewGate, emptyCoverageNotes, mainCheckoutEscapeRe
 import { mergeReviewReports } from "./lib/review-merge.ts";
 import { severitySchema } from "./lib/severity-summary.ts";
 import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory } from "./lib/doc-review-notes.ts";
-import { deriveValidateCmd } from "./lib/plan.ts";
+import { deriveValidateCmd, noValidateCmdRefusal } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
 import { preExternalTreeGate } from "./lib/pre-external-gate.ts";
@@ -475,9 +475,10 @@ export default smithers((ctx) => {
         const result = planGate(markdown, until);
         if (!result.ok) throw new Error(`gate-0 refused: ${result.reason}`);
         // Resolve the validate command: explicit --validate-cmd wins; otherwise
-        // derive it from the plan's own Verification Contract (KTD8: the plan is
-        // a trusted operator input — deriving from it is safe, unlike reading a
-        // command from the target repo's config).
+        // take it from the plan itself — its `validate_commands:` declaration,
+        // else its Verification Contract section (KTD8: the plan is a trusted
+        // operator input — deriving from it is safe, unlike reading a command
+        // from the target repo's config).
         let resolvedValidateCmd = validateCmd.trim();
         let validateSource = "operator (--validate-cmd)";
         // Everything the derivation refused or did not recognise, surfaced
@@ -488,12 +489,9 @@ export default smithers((ctx) => {
           const derivation = deriveValidateCmd(markdown);
           for (const drop of derivation.dropped) observations.push(`derivation dropped \`${drop.cmd}\` — ${drop.reason}`);
           observations.push(...derivation.notes);
-          if (derivation.cmd === null) {
-            const why = observations.length > 0 ? ` What it refused: ${observations.join("; ")}.` : "";
-            throw new Error(`gate-0 refused: no --validate-cmd given and the plan's Verification Contract has no runnable commands to derive one from.${why} Add a Verification Contract with test/typecheck commands, or pass --validate-cmd explicitly.`);
-          }
+          if (derivation.cmd === null) throw new Error(`gate-0 refused: ${noValidateCmdRefusal(observations)}`);
           resolvedValidateCmd = derivation.cmd;
-          validateSource = "plan Verification Contract";
+          validateSource = derivation.source === "declared" ? "plan frontmatter validate_commands" : "plan Verification Contract";
         }
         console.error(`se-pipeline: work-gate validate-cmd [${validateSource}]: ${resolvedValidateCmd}`);
         for (const observation of observations) console.error(`se-pipeline: validate-cmd derivation: ${observation}`);
