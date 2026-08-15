@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { codeReviewGate, docReviewGate, mainCheckoutEscapeReason, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
+import { codeReviewGate, docReviewGate, emptyCoverageNotes, mainCheckoutEscapeReason, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { mergeReviewReports } from "./lib/review-merge.ts";
 import { severitySchema } from "./lib/severity-summary.ts";
 import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory } from "./lib/doc-review-notes.ts";
@@ -737,6 +737,12 @@ export default smithers((ctx) => {
       children.push(...(work.nodes as never[]));
       if (work.status === "stopped") terminal = "stopped-after-second-failure:work";
       if (work.status === "green") {
+        // A green work gate can still have inspected nothing (issue 018): the
+        // advisory rides in the persisted gate verdict, and is lifted into the
+        // summary so `se show <runId>` names it without a re-read of the run
+        // log. No new column — a verdict row written before this existed simply
+        // carries no such reason, so a resumed run is unaffected.
+        for (const note of emptyCoverageNotes(work.verdict?.reasons)) notes.push(`work: ${note}`);
         // Secret-scan BEFORE anything is sent to external LLMs (KTD10), in two
         // tiers: the run branch diff, and the whole tree at the run HEAD — which
         // is what a leg actually gets a checkout of, and is strictly larger than

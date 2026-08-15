@@ -316,6 +316,20 @@ Verification Contract). KTD8: из плана (доверенный вход) и
 - **Скоупь по затронутой области, не по корню.** Смотри `Files:` юнитов плана
   / где легли коммиты work. Монорепа: фильтруй пакет
   (`turbo run test --filter=<pkg>`, `nx test <pkg>`, `pnpm --filter <pkg> test`).
+- **Путь вне скоупа инструмента = зелёный гейт, не проверивший ничего.** Линтер
+  или раннер, наведённый на директорию вне своей конфигурации, не находит ни
+  одного файла, жаловаться ему не на что — exit 0. Гейт читает pass. Так
+  `oxlint --deny-warnings scripts/…` на `run-1786718288581` отработал «on 0
+  files» с нулём; `oxfmt --check --no-error-on-unmatched-pattern` на пустом
+  покрытии печатает «No files found matching the given patterns» и тоже выходит
+  нулём. Гейт распознаёт такие фразы
+  и приписывает **advisory**-причину: вердикт не меняется (exit code остаётся
+  ground truth, KTD3), но `se show <runId>` в `notes` показывает `work:
+  validate-cmd may have covered nothing (advisory) — …` со строкой инструмента.
+  Увидел её — проверь, что пути команды внутри скоупа инструмента. Список фраз
+  всегда отстаёт от следующего инструмента, а тот, кто при пустом покрытии
+  молчит и выходит нулём (`eslint --no-error-on-unmatched-pattern`), не
+  детектируется вовсе — advisory ловит частые случаи, а не все.
 - **Unit/type, не e2e.** Годится: `tsc --noEmit`, `<runner> --project=unit`,
   vitest с in-memory БД (pglite и т.п.). Не годится для гейта: playwright/`e2e/`,
   тесты с реальной БД/сетью/браузером — worktree прогона это чистый checkout от

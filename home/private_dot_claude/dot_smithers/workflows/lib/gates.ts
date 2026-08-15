@@ -162,6 +162,127 @@ export function describeValidateFailure(exitCode: number, output?: string): stri
   }
 }
 
+// Empty-coverage detection (docs/issues/2026-08-14-018). A linter or test
+// runner pointed at a path outside its configured scope finds zero files, has
+// nothing to complain about, and exits 0 — the gate reads a pass on a check
+// that inspected nothing. Observed on the `platform` plans: run-1786718288581
+// declared
+// `(bun run test:scripts) && (./node_modules/.bin/oxlint --deny-warnings scripts/…)`
+// and its own work envelope records the oxlint segment reporting "on 0 files"
+// at exit 0, because scripts/ is outside oxlint's configured scope. That run
+// went red only because a different segment failed a real test; the
+// "No files found matching the given patterns." in its validate tail is oxfmt
+// under `--no-error-on-unmatched-pattern`, which also exits 0 on empty
+// coverage and is the other half of the same incident.
+//
+// ADVISORY ONLY — the exit code stays ground truth (KTD3) and this never moves
+// a gate state, for the same reason mainCheckoutEscapeReason does not: nothing
+// in an exit code separates "ran and found no problems" from "ran and had
+// nothing to run on", every tool phrases empty coverage differently, and a
+// phrase list will always trail the next tool. A match turned red would buy a
+// whole extra work leg on a false positive.
+//
+// KNOWN GAP, accepted: a tool that exits 0 and prints NOTHING is undetectable
+// by this approach. `eslint --no-error-on-unmatched-pattern 'nope/**/*.ts'` is
+// exactly that — exit 0, zero bytes of output (verified 2026-08-15, eslint
+// 10.8.1). The list fails toward silence, which is the behaviour without it.
+interface EmptyCoveragePattern {
+  tool: string;
+  pattern: RegExp;
+}
+
+// Every entry was run against a path matching nothing on 2026-08-15 and the
+// recorded exit code is what that tool actually returned. The exit codes are
+// documentation, not a filter: the advisory fires only when the WHOLE command
+// exited 0, and a `;`-joined or `|| true` segment (or a --passWithNoTests /
+// --no-error-on-unmatched-pattern flag) puts a non-zero tool's empty-coverage
+// line inside an exit-0 command — which is exactly the incident shape above.
+const EMPTY_COVERAGE_PATTERNS: EmptyCoveragePattern[] = [
+  // oxfmt 1.x with --no-error-on-unmatched-pattern: exit 0. The literal string
+  // from run-1786718288581's validate tail. Without the flag it exits 2 with
+  // "Expected at least one target file".
+  { tool: "oxfmt/oxc", pattern: /no files found matching the given patterns/i },
+  // oxlint ≤1.50 and oxfmt: "Finished in 4ms on 0 files with 96 rules" at
+  // exit 0 — the silent pass the issue was filed for. oxlint ≥1.60 exits 1 and
+  // prints the next line instead, so both spellings are kept.
+  { tool: "oxlint/oxfmt", pattern: /\bon 0 files\b/i },
+  { tool: "oxlint", pattern: /no files found to lint/i },
+  // vitest 4.1.10: exit 1 by default, exit 0 under --passWithNoTests, same line.
+  { tool: "vitest", pattern: /no test files found/i },
+  // ruff 0.16.3 `check` and `format --check`: exit 0 with a warning line only.
+  { tool: "ruff", pattern: /no python files found under the given path/i },
+  // pytest 9.1.1: exit 5 ("no tests collected").
+  { tool: "pytest", pattern: /no tests ran in\b/i },
+  { tool: "pytest", pattern: /collected 0 items/i },
+  // bun 1.3.14 `bun test`: exit 1, three different lines for no-file, bad
+  // filter, and empty directory.
+  { tool: "bun test", pattern: /\b0 test files matching/i },
+  { tool: "bun test", pattern: /did not match any test files/i },
+  { tool: "bun test", pattern: /had no matches in\b/i },
+  // jest 30.4.1: exit 1 by default, exit 0 under --passWithNoTests.
+  { tool: "jest", pattern: /no tests found, exiting with code/i },
+  // tsc 6.0.3 with an include that matches nothing: exit 2.
+  { tool: "tsc", pattern: /\bTS18003\b/ },
+  // eslint 10.8.1 and prettier 3.9.6 both spell it this way: exit 2.
+  { tool: "eslint/prettier", pattern: /no files matching the pattern/i },
+  { tool: "prettier", pattern: /no supported files were found in the directory/i },
+  // biome (latest 2026-08-15) `ci` and `check`: exit 1, ANSI-coloured.
+  { tool: "biome", pattern: /these paths were provided but ignored/i },
+];
+
+export interface EmptyCoverageSignal {
+  tool: string;
+  // The tool's own line, so the advisory can quote it instead of paraphrasing.
+  line: string;
+}
+
+// Pure classifier: returns every empty-coverage line the output carries, in the
+// order the tool printed them. Caps at 5 signals and 160 chars per line — a
+// monorepo loop prints the same line once per package and the reason string is
+// persisted in a gate-verdict column.
+export function emptyCoverageSignals(output: string | undefined): EmptyCoverageSignal[] {
+  if (output === undefined || output === "") return [];
+  const seen = new Set<string>();
+  const signals: EmptyCoverageSignal[] = [];
+  for (const rawLine of output.split("\n")) {
+    // biome and vitest colour their output; the phrase survives, the escapes
+    // would corrupt the quoted line.
+    const line = rawLine.replaceAll(/\u001B\[[0-9;]*m/g, "").trim();
+    if (line === "" || seen.has(line)) continue;
+    const hit = EMPTY_COVERAGE_PATTERNS.find(({ pattern }) => pattern.test(line));
+    if (!hit) continue;
+    seen.add(line);
+    signals.push({ tool: hit.tool, line: line.length > 160 ? `${line.slice(0, 160)}…` : line });
+    if (signals.length >= 5) break;
+  }
+  return signals;
+}
+
+// Reasons are persisted as one "; "-joined string (se-pipeline.tsx toVerdict),
+// so the summary recovers this advisory by this prefix.
+export const EMPTY_COVERAGE_PREFIX = "validate-cmd may have covered nothing (advisory)";
+
+// Builds the advisory reason, or undefined when there is nothing to say. A
+// non-zero exit returns undefined on purpose: that run already fails and
+// already gets the output tail, so the signal would only add noise.
+export function emptyCoverageReason(validateExitCode: number | null, output: string | undefined): string | undefined {
+  if (validateExitCode !== 0) return undefined;
+  const signals = emptyCoverageSignals(output);
+  if (signals.length === 0) return undefined;
+  // Semicolons inside a quoted tool line would split this reason apart when the
+  // summary recovers it out of the "; "-joined column.
+  const quoted = signals.map((s) => `${s.tool}: "${s.line.replaceAll(";", ",")}"`).join(" / ");
+  return `${EMPTY_COVERAGE_PREFIX} — the command exited 0, but its output reports empty coverage — ${quoted}. The exit code stands (KTD3), this changes no verdict: confirm the paths are inside the tool's configured scope before reading this gate as a check that ran.`;
+}
+
+// Recovers the advisory from a persisted verdict's joined reasons so the run
+// summary can carry it without a new column. A verdict row written before this
+// existed simply yields nothing — a resumed run does not crash.
+export function emptyCoverageNotes(joinedReasons: string | undefined): string[] {
+  if (!joinedReasons) return [];
+  return joinedReasons.split("; ").filter((reason) => reason.startsWith(EMPTY_COVERAGE_PREFIX));
+}
+
 export function workGate(input: WorkGateInput): GateResult {
   if (input.raw === undefined) {
     return { state: "failed", reasons: ["work stage produced no envelope (crash or timeout) — straight to Approval per KTD5"] };
@@ -193,7 +314,12 @@ export function workGate(input: WorkGateInput): GateResult {
   } else if (input.validateExitCode !== 0) {
     reasons.push(describeValidateFailure(input.validateExitCode, input.validateOutput));
   }
-  return reasons.length > 0 ? { state: "failed", reasons } : { state: "green", reasons: [] };
+  // The state is settled BEFORE the empty-coverage advisory is appended: it is
+  // a second, weaker signal that never turns a green gate red (issue 018).
+  const state: GateState = reasons.length > 0 ? "failed" : "green";
+  const emptyCoverage = emptyCoverageReason(input.validateExitCode, input.validateOutput);
+  if (emptyCoverage !== undefined) reasons.push(emptyCoverage);
+  return { state, reasons };
 }
 
 // Names the escape the work gate used to report as "agent produced no work"

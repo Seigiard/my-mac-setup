@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
-import { codeReviewGate, describeValidateFailure, docReviewGate, mainCheckoutEscapeReason, planGate, rescanGate, workGate } from "./gates.ts";
+import {
+  codeReviewGate,
+  describeValidateFailure,
+  docReviewGate,
+  emptyCoverageNotes,
+  emptyCoverageReason,
+  emptyCoverageSignals,
+  mainCheckoutEscapeReason,
+  planGate,
+  rescanGate,
+  workGate,
+} from "./gates.ts";
 
 const validPlan = `---
 title: Fixture - Plan
@@ -221,6 +232,215 @@ describe("workGate (KTD3, KTD14 tree-hash proof)", () => {
     const reason = r.reasons.join(" ");
     expect(reason).toContain('"vitest" is not installed');
     expect(reason).toContain("--setup-cmd");
+  });
+
+  test("exit 0 при нулевом покрытии → гейт остаётся green, advisory лишь приписан (issue 018)", () => {
+    // #given вывод сегмента, который не нашёл ни одного файла, и exit 0
+    const output = "Found 0 warnings and 0 errors.\nFinished in 4ms on 0 files with 96 rules using 18 threads.\n";
+
+    // #when
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0, validateOutput: output });
+
+    // #then зелёный остаётся зелёным
+    expect(r.state).toBe("green");
+  });
+
+  test("advisory про нулевое покрытие цитирует строку инструмента дословно", () => {
+    // #given
+    const output = "\nNo files found matching the given patterns.\n";
+
+    // #when
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0, validateOutput: output });
+
+    // #then
+    expect(r.reasons.join(" ")).toContain('"No files found matching the given patterns."');
+  });
+
+  test("exit != 0 при том же выводе → advisory не добавляется, причина только про падение", () => {
+    // #given та же фраза, но команда упала на другом сегменте
+    const output = "No files found matching the given patterns.\nFAIL src/a.test.ts\n";
+
+    // #when
+    const r = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 1, validateOutput: output });
+
+    // #then
+    expect(r.reasons.join(" ")).not.toContain("may have covered nothing");
+  });
+
+  test("гейт красный по другой причине + exit 0 при нулевом покрытии → state остаётся failed", () => {
+    // #given конверт без evidence и validate-cmd, ничего не проверивший
+    const output = "No test files found, exiting with code 0\n";
+
+    // #when
+    const r = workGate({ raw: workEnvelope({ verification_evidence: [] }), baseTree, headTree, validateExitCode: 0, validateOutput: output });
+
+    // #then advisory не меняет вердикт, посчитанный до него
+    expect(r.state).toBe("failed");
+  });
+
+  test("нормальный green без вывода validate-cmd → причин нет", () => {
+    // #when / #then граничный вход: вывод не захвачен
+    expect(workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0 }).reasons).toEqual([]);
+  });
+});
+
+// Каждый фрагмент — реальный вывод инструмента, снятый 2026-08-15 на пути,
+// который не совпал ни с одним файлом (см. docs/issues/2026-08-14-018).
+const EMPTY_COVERAGE_FIXTURES: Array<{ tool: string; output: string; line: string }> = [
+  { tool: "oxfmt", output: "\nNo files found matching the given patterns.\nFinished in 0ms on 0 files using 18 threads.\n", line: "No files found matching the given patterns." },
+  { tool: "oxlint ≤1.50", output: "Found 0 warnings and 0 errors.\nFinished in 4ms on 0 files with 96 rules using 18 threads.\n", line: "Finished in 4ms on 0 files with 96 rules using 18 threads." },
+  { tool: "oxlint ≥1.60", output: "No files found to lint. Please check your paths and ignore patterns.\n", line: "No files found to lint. Please check your paths and ignore patterns." },
+  { tool: "vitest", output: " RUN  v4.1.10 /tmp/vi\n\nNo test files found, exiting with code 0\n\nfilter:  scripts/\n", line: "No test files found, exiting with code 0" },
+  { tool: "ruff", output: "warning: No Python files found under the given path(s)\nAll checks passed!\n", line: "warning: No Python files found under the given path(s)" },
+  { tool: "pytest", output: "collected 0 items\n\n============================ no tests ran in 0.00s =============================\n", line: "collected 0 items" },
+  { tool: "bun test", output: "bun test v1.3.14 (0d9b296a)\nerror: 0 test files matching **{.test,.spec}.{js,ts} in --cwd=\"/tmp/notests\"\n", line: 'error: 0 test files matching **{.test,.spec}.{js,ts} in --cwd="/tmp/notests"' },
+  { tool: "jest", output: "No tests found, exiting with code 0\n", line: "No tests found, exiting with code 0" },
+  { tool: "tsc", output: "error TS18003: No inputs were found in config file '/tmp/tsconfig.json'. Specified 'include' paths were '[\"src/**/*.ts\"]'.\n", line: "error TS18003: No inputs were found in config file '/tmp/tsconfig.json'. Specified 'include' paths were '[\"src/**/*.ts\"]'." },
+  { tool: "eslint", output: "\nESLint: 10.8.1\n\nNo files matching the pattern \"scripts/**/*.ts\" were found.\nPlease check for typing mistakes in the pattern.\n", line: 'No files matching the pattern "scripts/**/*.ts" were found.' },
+  { tool: "prettier", output: "Checking formatting...\n[error] No supported files were found in the directory: \"scripts/\".\nAll matched files use Prettier code style!\n", line: '[error] No supported files were found in the directory: "scripts/".' },
+  // biome красит вывод: ANSI-последовательности снимаются, фраза остаётся
+  { tool: "biome", output: "\u001B[0m  \u001B[1m\u001B[34mℹ\u001B[0m \u001B[34mThese paths were provided but ignored:\u001B[0m\n  - scripts/\n", line: "ℹ These paths were provided but ignored:" },
+];
+
+describe("emptyCoverageSignals (пустое покрытие validate-cmd, issue 018)", () => {
+  for (const fixture of EMPTY_COVERAGE_FIXTURES) {
+    test(`${fixture.tool}: вывод про ноль файлов распознан и строка сохранена дословно`, () => {
+      // #given реальный вывод инструмента, наведённого на путь вне его скоупа
+      const output = fixture.output;
+
+      // #when
+      const signals = emptyCoverageSignals(output);
+
+      // #then совпавшая строка возвращается целиком, а не просто флаг
+      expect(signals.map((s) => s.line)).toContain(fixture.line);
+    });
+  }
+
+  test("нормальный успешный прогон (файлы были) → сигналов нет", () => {
+    // #given oxlint и vitest, которые реально что-то проверили
+    const output = "Found 0 warnings and 0 errors.\nFinished in 62ms on 41 files with 96 rules using 18 threads.\n Test Files  32 passed (32)\n      Tests  517 passed (517)\n";
+
+    // #when
+    const signals = emptyCoverageSignals(output);
+
+    // #then
+    expect(signals).toEqual([]);
+  });
+
+  test("вывода нет (undefined) → сигналов нет", () => {
+    // #when / #then граничный вход: validate-cmd без захваченного вывода
+    expect(emptyCoverageSignals(undefined)).toEqual([]);
+  });
+
+  test("пустой вывод → сигналов нет", () => {
+    // #when / #then
+    expect(emptyCoverageSignals("")).toEqual([]);
+  });
+
+  test("одна и та же строка на каждый пакет монорепо → один сигнал, не N", () => {
+    // #given цикл по 4 пакетам, каждый печатает одно и то же
+    const output = Array.from({ length: 4 }, () => "No files found matching the given patterns.").join("\n");
+
+    // #when
+    const signals = emptyCoverageSignals(output);
+
+    // #then
+    expect(signals).toHaveLength(1);
+  });
+
+  test("много разных пустых строк → не больше 5 сигналов (причина уходит в колонку вердикта)", () => {
+    // #given шесть разных инструментов подряд
+    const output = EMPTY_COVERAGE_FIXTURES.map((f) => f.output).join("\n");
+
+    // #when
+    const signals = emptyCoverageSignals(output);
+
+    // #then
+    expect(signals).toHaveLength(5);
+  });
+
+  test("очень длинная строка обрезается", () => {
+    // #given строка с совпадением и хвостом на 400 символов
+    const output = `No files found matching the given patterns. ${"x".repeat(400)}`;
+
+    // #when
+    const signals = emptyCoverageSignals(output);
+
+    // #then
+    expect(signals[0].line).toHaveLength(161);
+  });
+});
+
+describe("emptyCoverageReason (advisory, не блокирующий)", () => {
+  test("exit 0 + пустое покрытие → причина цитирует слова самого инструмента", () => {
+    // #given ровно тот вывод, ради которого заведён issue 018
+    const output = "\nNo files found matching the given patterns.\nFinished in 0ms on 0 files using 18 threads.\n";
+
+    // #when
+    const reason = emptyCoverageReason(0, output);
+
+    // #then
+    expect(reason).toContain('"No files found matching the given patterns."');
+  });
+
+  test("exit != 0 → advisory не добавляется (прогон и так красный и получает хвост вывода)", () => {
+    // #given тот же вывод, но команда упала
+    const output = "No files found matching the given patterns.\n";
+
+    // #when
+    const reason = emptyCoverageReason(1, output);
+
+    // #then
+    expect(reason).toBeUndefined();
+  });
+
+  test("validate-cmd не запускалась (null) → advisory не добавляется", () => {
+    // #when / #then граничный вход
+    expect(emptyCoverageReason(null, "No files found matching the given patterns.")).toBeUndefined();
+  });
+
+  test("exit 0 и нормальный вывод → причины нет", () => {
+    // #when / #then
+    expect(emptyCoverageReason(0, "Finished in 62ms on 41 files with 96 rules using 18 threads.")).toBeUndefined();
+  });
+
+  test("точка с запятой внутри строки инструмента не разрывает причину при склейке через \"; \"", () => {
+    // #given инструмент напечатал точку с запятой в своей строке
+    const output = 'No files found matching the given patterns; check the config\n';
+
+    // #when причина склеивается в колонку вердикта ровно как в toVerdict
+    const joined = ["envelope status is \"blocked\"", emptyCoverageReason(0, output) ?? ""].join("; ");
+
+    // #then advisory восстанавливается целиком
+    expect(emptyCoverageNotes(joined)[0]).toContain("check the config");
+  });
+});
+
+describe("emptyCoverageNotes (перенос advisory в summary)", () => {
+  test("вердикт с advisory → нота извлечена", () => {
+    // #given причины, склеенные так же, как их пишет toVerdict
+    const joined = ["worktree tree hash equals base", emptyCoverageReason(0, "No test files found, exiting with code 0") ?? ""].join("; ");
+
+    // #when
+    const notes = emptyCoverageNotes(joined);
+
+    // #then
+    expect(notes).toHaveLength(1);
+  });
+
+  test("строка вердикта без advisory → нот нет", () => {
+    // #when / #then
+    expect(emptyCoverageNotes("validate-cmd exited with code 1")).toEqual([]);
+  });
+
+  test("строка вердикта пустая (зелёный гейт до этого изменения) → нот нет, резюме не падает", () => {
+    // #when / #then граничный вход: строка из БД, записанная до появления advisory
+    expect(emptyCoverageNotes("")).toEqual([]);
+  });
+
+  test("вердикта нет (undefined) → нот нет", () => {
+    // #when / #then
+    expect(emptyCoverageNotes(undefined)).toEqual([]);
   });
 });
 
