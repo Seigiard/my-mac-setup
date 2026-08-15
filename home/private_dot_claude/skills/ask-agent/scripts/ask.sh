@@ -49,12 +49,29 @@ fi
 
 QF="$(mktemp)" ; printf '%s' "$Q" > "$QF"
 OUT="" ; ECF=""   # set in herdr mode below; in the trap so every exit path cleans them
-trap 'rm -f "$QF" ${OUT:+"$OUT"} ${ECF:+"$ECF"}' EXIT
+# PANE_OWNS=1 means a herdr pane is still reading QF and writing OUT/ECF. Deleting them
+# then hands the consult an empty question — the parent must leave them behind instead.
+PANE_OWNS=0
+trap 'if [ "$PANE_OWNS" -eq 0 ]; then rm -f "$QF" ${OUT:+"$OUT"} ${ECF:+"$ECF"}; fi' EXIT
 export QF RW MODEL EFFORT CWD AGENT_NAME
 
+USE_PANE=0
 if [ "${HERDR_ENV:-}" = "1" ] && [ "$HEADLESS" -eq 0 ]; then
-  command -v herdr >/dev/null || { echo "ask.sh: HERDR_ENV set but herdr not on PATH" >&2; exit 1; }
+  USE_PANE=1
+  if ! command -v herdr >/dev/null; then
+    echo "ask.sh: HERDR_ENV set but herdr not on PATH" >&2; exit 1
+  fi
+  # Probe the wait verb before spending a pane and an agent run on it. A herdr that
+  # cannot wait would leave us polling blind, and the consult's answer unread.
+  if ! herdr pane wait-output --help >/dev/null 2>&1; then
+    echo "ask.sh: this herdr has no 'pane wait-output' — running headless instead (no pane)" >&2
+    USE_PANE=0
+  fi
+fi
+
+if [ "$USE_PANE" -eq 1 ]; then
   OUT="$(mktemp)" ; ECF="$(mktemp)"   # OUT = captured answer; ECF = consult exit code
+  WAIT_MS=1800000
   MARK="ASKEND$$"             # completion marker we wait on
   ESC="ASK''${MARK#ASK}"     # same text, quote-broken, so the typed command line
                               # never matches MARK — only the printed line does
@@ -67,14 +84,35 @@ if [ "${HERDR_ENV:-}" = "1" ] && [ "$HEADLESS" -eq 0 ]; then
   # stdout still streams through tee for the live pane view + OUT capture. $? is read
   # inside the subshell, so this works under bash and zsh alike (no PIPESTATUS).
   herdr pane run "$PANE" "( $ENVP bash $(printf %q "$SCRIPT")$SK 2>&1; printf '%d' \"\$?\" > $(printf %q "$ECF") ) | tee $(printf %q "$OUT"); printf '%s\\n' '$ESC'"
+  PANE_OWNS=1                 # from here the pane, not this process, owns QF/OUT/ECF
   WAIT_RC=0
-  herdr wait output "$PANE" --match "$MARK" --timeout 1800000 >/dev/null || WAIT_RC=$?
+  # Pane id first: `--help` prints the options before <PANE_ID>, but herdr 0.8 only
+  # parses the id in front of them. --source recent-unwrapped because a wrapped snapshot
+  # can split the printed marker across two lines and never match; the typed command line
+  # carries ESC (quote-broken), so unwrapping cannot make the echo match MARK either.
+  WAIT_OUT="$(herdr pane wait-output "$PANE" --match "$MARK" --source recent-unwrapped --timeout "$WAIT_MS" 2>&1)" || WAIT_RC=$?
+  # herdr 0.8 exits 0 on a wait timeout and reports it as JSON, so the exit status alone
+  # cannot tell match from timeout from a broken call. Classify on the payload.
+  case "$WAIT_OUT" in
+    *'"type":"output_matched"'*) WAIT_STATE=matched ;;
+    *'"code":"timeout"'*)        WAIT_STATE=timeout ;;
+    *)                           WAIT_STATE=failed  ;;
+  esac
+  [ "$WAIT_RC" -eq 0 ] || WAIT_STATE=failed
   cat "$OUT"
   echo "ask.sh: consult ran in herdr pane $PANE (left open for follow-up; close with: herdr pane close $PANE)" >&2
-  if [ "$WAIT_RC" -ne 0 ]; then
-    echo "ask.sh: WARNING: timed out waiting for the consult (30 min); output above may be incomplete (pane $PANE still running)" >&2
+  if [ "$WAIT_STATE" = timeout ]; then
+    echo "ask.sh: WARNING: the consult did not finish within $(( WAIT_MS / 60000 )) min; output above may be incomplete (pane $PANE still running)" >&2
     exit 124
   fi
+  if [ "$WAIT_STATE" = failed ]; then
+    # Not a timeout: the wait call itself broke. Say which — reporting a 30-minute
+    # timeout after 0 seconds is what hid the dead `herdr wait output` call for weeks.
+    echo "ask.sh: ERROR: 'herdr pane wait-output' failed (rc=$WAIT_RC): $(printf '%s' "$WAIT_OUT" | head -1)" >&2
+    echo "ask.sh: the consult may still be running in pane $PANE — read it with 'herdr pane read $PANE --source recent --lines 200', or re-run with --headless" >&2
+    exit 1
+  fi
+  PANE_OWNS=0                 # marker printed: the consult is done with QF/OUT/ECF
   EC="$(cat "$ECF" 2>/dev/null || true)"
   exit "${EC:-1}"   # propagate the consult's exit code; empty ECF = it never finished
 else

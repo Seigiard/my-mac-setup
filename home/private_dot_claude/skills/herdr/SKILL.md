@@ -29,6 +29,11 @@ The installed binary is the authority for command syntax. `herdr pane`, `herdr a
 - Do not run bare `herdr` for discovery; it launches or attaches the TUI.
 - Do not probe a mutating command by omitting arguments. Commands such as `herdr workspace create` are valid with defaults and will execute.
 
+Two traps in `herdr pane wait-output` (verified on herdr 0.8.0), both of which cost a working consult in `ask-agent` before they were pinned:
+
+- **The pane id goes first**, before the options: `herdr pane wait-output <PANE_ID> --match TEXT --timeout MS`. The `--help` usage line prints `[OPTIONS] … <PANE_ID>`, but that order is rejected with `unknown option`.
+- **A timeout exits 0.** It reports `{"error":{"code":"timeout"…}}` on stdout while the exit status stays 0, so a caller that trusts `$?` reads a timed-out wait as a match. Classify on the payload: `"type":"output_matched"` = matched, `"code":"timeout"` = timeout, anything else = the call itself broke. `herdr agent wait` does not share this quirk — it exits 1 on timeout, so `|| handoff` is sound there.
+
 ## Concepts
 
 - **workspace** — a project context (usually one repo/folder). Has one or more tabs.

@@ -157,6 +157,135 @@ ASK_AGENT_DIR="$SOURCE_ROOT/private_dot_claude/skills/ask-agent/scripts"
   refute_output --partial -- "-p line one"
 }
 
+# --- ask.sh herdr pane mode ------------------------------------------------
+# The pane path once called `herdr wait output`, a verb herdr does not have. It failed
+# instantly, the EXIT trap then deleted the question file out from under the starting
+# pane, and the caller was told the consult had "timed out" after 30 minutes. The three
+# tests below pin the verb, the question file's lifetime, and the honest error text.
+#
+# ask_stub_herdr <dir> <ok|timeout|wait-fails|no-wait-verb> — a herdr on PATH that logs
+# every `pane run` command to <dir>/cmd.log and, in `ok` mode, executes it as the pane
+# would. `timeout` reproduces herdr 0.8: a wait timeout is JSON on stdout with exit 0.
+ask_stub_herdr() {
+  local dir="$1" mode="$2"
+  cat > "$dir/herdr" <<SH
+#!/usr/bin/env bash
+MODE=$mode
+LOG=$dir/cmd.log
+SH
+  cat >> "$dir/herdr" <<'SH'
+case "$1 $2" in
+  "pane split") printf '{"result":{"pane":{"pane_id":"wT:p1"}}}\n' ;;
+  "pane wait-output")
+    # no-wait-verb: this herdr predates the verb, so even --help is rejected
+    [ "$MODE" = no-wait-verb ] && exit 2
+    case " $* " in *" --help "*) exit 0 ;; esac
+    printf '%s\n' "$*" >> "$LOG.wait"
+    case "$MODE" in
+      ok)      printf '{"id":"cli:pane:wait-output","result":{"type":"output_matched"}}\n' ;;
+      timeout) printf '{"error":{"code":"timeout","message":"timed out waiting for output match"}}\n' ;;
+      *)       printf 'unknown option: %s\n' "$4"; exit 2 ;;
+    esac ;;
+  "pane run")
+    shift 3; printf '%s\n' "$*" >> "$LOG"
+    [ "$MODE" = ok ] && bash -c "$*" >/dev/null 2>&1
+    exit 0 ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$dir/herdr"
+}
+
+# herdr 0.8 answers a wait timeout with exit code 0 and a JSON error body. Trusting the
+# exit status would report a timed-out consult as a completed one.
+@test "ask.sh reports a pane wait timeout that herdr signals with exit code 0" {
+  local stub; stub="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"; chmod +x "$stub/claude"
+  ask_stub_herdr "$stub" timeout
+  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+  assert_failure 124
+  assert_output --partial "did not finish within"
+  local qf; qf="$(sed -n 's/.*QF=\([^ ]*\).*/\1/p' "$stub/cmd.log" | head -1)"
+  [ -f "$qf" ]   # the pane runs on past the timeout and still needs the question
+  rm -f "$qf"
+  rm -rf "$stub"
+}
+
+@test "ask.sh pane mode waits with 'herdr pane wait-output' and delivers the answer" {
+  local stub; stub="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nprintf "ANSWER[%%s]\\n" "$*"\n' > "$stub/claude"
+  chmod +x "$stub/claude"
+  ask_stub_herdr "$stub" ok
+  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+  assert_success
+  # The question reached the agent: the pane read the question file while it still existed.
+  assert_output --partial "ANSWER[-p hi there"
+  refute_output --partial "No such file or directory"
+  # herdr 0.8 parses the pane id only in front of the options, whatever --help implies.
+  run grep -qE '^pane wait-output wT:p1 --match ' "$stub/cmd.log.wait"
+  assert_success
+  rm -rf "$stub"
+}
+
+@test "ask.sh keeps the question file alive when the pane wait fails" {
+  local stub; stub="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"; chmod +x "$stub/claude"
+  ask_stub_herdr "$stub" wait-fails
+  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+  assert_failure 1
+  # An immediate wait failure is not a timeout, and must not be reported as one.
+  assert_output --partial "herdr pane wait-output' failed"
+  refute_output --partial "did not finish within"
+  local qf; qf="$(sed -n 's/.*QF=\([^ ]*\).*/\1/p' "$stub/cmd.log" | head -1)"
+  [ -n "$qf" ]
+  [ -f "$qf" ]   # the pane is still starting; deleting this is what emptied the consult
+  rm -f "$qf"
+  rm -rf "$stub"
+}
+
+@test "ask.sh falls back to headless when herdr has no pane wait-output verb" {
+  local stub; stub="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nprintf "ANSWER[%%s]\\n" "$*"\n' > "$stub/claude"
+  chmod +x "$stub/claude"
+  ask_stub_herdr "$stub" no-wait-verb
+  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+  assert_success
+  assert_output --partial "running headless instead"
+  assert_output --partial "ANSWER[-p hi there"
+  [ ! -f "$stub/cmd.log" ]   # no pane was spent on a herdr that cannot wait
+  rm -rf "$stub"
+}
+
+# One dead verb (`herdr wait output`, which herdr spells `herdr pane wait-output`) cost a
+# whole broken mode for six weeks. Every herdr command a skill script runs is checked
+# here: its group against the allowlist always, and the full command against the installed
+# binary when there is one — CI has no herdr, a dev machine does. Scope is `*.sh` only;
+# prose in SKILL.md mentions herdr commands in sentences and cannot be parsed this way.
+@test "skill scripts call only herdr commands that exist" {
+  local groups='agent|api|channel|completion|config|integration|notification|pane|plugin|session|tab|workspace|worktree|status|update|server'
+  local calls bad="" grp cmd
+  # Comment lines out, then command position only: line start, or after a pipe, `;`,
+  # `&&`, `(`, backtick or `$(` — prose about herdr must not read as a call.
+  calls="$(grep -rh --include='*.sh' -E 'herdr' "$SOURCE_ROOT/private_dot_claude/skills" \
+    | grep -vE '^[[:space:]]*#' \
+    | grep -oE '(^|[|;&(`]|\$\()[[:space:]]*herdr [a-z][a-z-]*( [a-z][a-z-]*)?' \
+    | sed 's/.*herdr //' | sort -u)"
+  while read -r grp cmd; do
+    [ -n "$grp" ] || continue
+    if ! printf '%s' "$grp" | grep -qE "^($groups)\$"; then
+      bad="$bad herdr:$grp:$cmd"; continue
+    fi
+    if command -v herdr >/dev/null && [ -n "$cmd" ]; then
+      herdr "$grp" "$cmd" --help >/dev/null 2>&1 || bad="$bad herdr:$grp:$cmd"
+    fi
+  done <<< "$calls"
+  [ -z "$bad" ] || fail "skill scripts call herdr commands that do not exist:$bad"
+}
+
 # ===========================================
 # herdr-pair skill scripts
 # ===========================================
@@ -393,8 +522,8 @@ SH
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
 case "$1 $2" in
-  "pane get")          printf '{"result":{"pane":{"agent_status":"idle"}}}\n' ;;  # never leaves idle
-  "wait agent-status") exit 1 ;;                                                   # working-wait times out
+  "pane get")   printf '{"result":{"pane":{"agent_status":"idle"}}}\n' ;;  # never leaves idle
+  "agent wait") exit 1 ;;                                                   # working-wait times out
 esac
 exit 0
 SH
@@ -543,7 +672,7 @@ for line in fm.splitlines():
         keys[k.strip()] = v.strip()
 assert keys.get("name") == "herdr-pair", keys
 assert "[pair" in keys.get("description", ""), "description must trigger on the [pair header"
-assert keys.get("user-invocable") == "true", keys
+assert keys.get("argument-hint"), keys   # /herdr-pair takes arguments, so the hint must exist
 PY
   assert_success
 }

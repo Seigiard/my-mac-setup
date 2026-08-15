@@ -21,6 +21,7 @@ bash ~/.claude/skills/ask-agent/scripts/ask.sh <agent> "<question>" [flags]
 - **Inside herdr** (`HERDR_ENV=1`): the consult runs in a **visible herdr pane** beside you — you watch it live, and the pane stays open so you (or the user) can follow up in it. Its output is still captured back to stdout.
 - **Outside herdr**: runs as a **headless subprocess**; stdout is the answer.
 - `--headless` forces the subprocess path even inside herdr (no pane).
+- The pane path waits with `herdr pane wait-output`. A herdr without that command falls back to headless with a warning, rather than spending a pane on a consult it cannot wait for.
 
 ## Flags
 
