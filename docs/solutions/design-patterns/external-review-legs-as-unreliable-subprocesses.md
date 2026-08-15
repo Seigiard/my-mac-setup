@@ -113,6 +113,6 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
 
 - `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` — the false-fail bug: measured cost of fail-closed on free text, the three candidate directions, and why payload-based health won (status: done, commit `186b6a8`).
 - `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` — the original stall/unwrap fix (status: done).
-- `docs/se-pipeline.md:427-450` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status); thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `docs/se-pipeline.md:427-471` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status) plus the payload-over-adjective status rule; thresholds and env pins live there, this doc carries the transferable pattern and its history.
 - `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).
