@@ -177,7 +177,18 @@ rm ~/.claude/.smithers/state/secret-baseline/<repo>-<digest>.json
 
 Правки воркфлоу делаются в source-дире рабочего репо
 (`home/private_dot_claude/dot_smithers/`): там же `bun install`, `bun test`
-(state — `node_modules`, `smithers.db` — gitignored). Доставка в рантайм:
+(state — `node_modules`, `smithers.db` — gitignored).
+
+Проверка пакета — три команды, и они ловят разное. `bun test` — поведение.
+`bunx tsc --noEmit` — типы; он запускается без флагов, потому что у пакета есть
+`tsconfig.json`, и обязан быть чистым. `bun build workflows/<файл>` — только
+резолв графа модулей: он НЕ проверяет типы и не инстанцирует воркфлоу, поэтому
+зелёная сборка о типах не говорит ничего (issue 004: поле `runId` в схеме
+зарезервировано движком — сборка была зелёной, а каждый запуск отклонялся
+сутки). Схему воркфлоу ловит `workflows/workflow-construction.test.ts` — он
+импортирует каждый файл, а `createSmithers` валидирует схемы на загрузке модуля.
+
+Доставка в рантайм:
 commit → push → `chezmoi git pull` → `chezmoi apply ~/.claude/.smithers` →
 **пофайловая сверка** (`diff -r <source>/workflows ~/.claude/.smithers/workflows`)
 — `chezmoi diff` по КАТАЛОГУ может вернуть ложную пустоту при реальном дрейфе,

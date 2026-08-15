@@ -1,0 +1,39 @@
+// These options describe how bun ALREADY runs this code; they are not a build
+// target. Nothing here emits — bun executes the .ts/.tsx sources directly, and
+// `bun build` bundles without type-checking, so a green build has never said
+// anything about types (docs/issues/2026-08-14-004: a reserved output field
+// refused every launch for a day while the build stayed green).
+//
+// This file exists so `bunx tsc --noEmit` is runnable at all, and so the editor
+// stops reporting phantom errors on bun's built-in modules
+// (docs/issues/2026-08-15-006).
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": ["esnext"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["bun"],
+    "noEmit": true,
+
+    // The workflows are JSX over smithers-orchestrator, declared per file with
+    // /** @jsxImportSource smithers-orchestrator */. Setting it here too keeps a
+    // file that omits the pragma honest.
+    "jsx": "react-jsx",
+    "jsxImportSource": "smithers-orchestrator",
+
+    // Every internal import is written with its .ts/.tsx extension, the way bun
+    // resolves them.
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+
+    "strict": true,
+
+    // The errors worth seeing are in this package. node_modules carries
+    // smithers-orchestrator's own .d.ts files, and type errors inside them are
+    // not ours to fix.
+    "skipLibCheck": true
+  },
+  "include": ["workflows/**/*.ts", "workflows/**/*.tsx"],
+  "exclude": ["node_modules", "workflows/.worktrees"]
+}

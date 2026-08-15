@@ -643,7 +643,11 @@ function renderBlock(
 
 // Resolves a mirror key to its declared output. The set is closed (KTD3), so an
 // unknown key is a programming error in this file, not spec-reachable.
-function mirrorOutput(mirrorKey: string): unknown {
+// Returns the declared output target for a subflow's mirror key. The union is
+// spelled out rather than `unknown` because the value goes straight to a
+// Subflow's `output` prop, and `unknown` made that assignment a type error the
+// package could not see before it had a tsconfig (docs/issues/2026-08-15-006).
+function mirrorOutput(mirrorKey: string): typeof outputs.simplify | typeof outputs.docReview | typeof outputs.reviewLeg {
   switch (mirrorKey) {
     case "simplify":
       return outputs.simplify;

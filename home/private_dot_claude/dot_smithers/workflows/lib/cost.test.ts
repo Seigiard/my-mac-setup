@@ -209,7 +209,7 @@ describe("openUsageDb", () => {
     seed.run("CREATE TABLE _smithers_events (type TEXT, run_id TEXT, payload_json TEXT)");
     seed.run(
       "INSERT INTO _smithers_events VALUES ('TokenUsageReported', 'run-1', ?1)",
-      JSON.stringify({ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 }),
+      [JSON.stringify({ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 })],
     );
     seed.close();
 

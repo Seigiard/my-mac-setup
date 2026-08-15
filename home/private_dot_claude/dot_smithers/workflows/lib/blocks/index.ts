@@ -6,6 +6,7 @@
 // lib functions so both the fixed pipeline and the composable flow share one
 // implementation of each behavior (R3), the pipeline keeping its own copy for
 // KD6's rollback path.
+import type { ClaudeCodeAgent } from "smithers-orchestrator";
 import { z } from "zod/v4";
 
 import { makeWorkAgent } from "../agents.ts";
@@ -180,7 +181,7 @@ const pr: ComputeBlockDefinition = {
 
 // ---- Agent blocks (prompt-defined; the interpreter dispatches makeAgent) ------
 
-function implementationAgent(build: { worktreePath: string; timeoutMs: number; budgetUsd: number }): unknown {
+function implementationAgent(build: { worktreePath: string; timeoutMs: number; budgetUsd: number }): ClaudeCodeAgent {
   return makeWorkAgent({ cwd: build.worktreePath, timeoutMs: build.timeoutMs, maxBudgetUsd: build.budgetUsd, jsonField: "report" });
 }
 

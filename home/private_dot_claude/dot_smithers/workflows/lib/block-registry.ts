@@ -7,6 +7,7 @@
 // subsumption — JSON Schema cannot carry `.refine()`/`.transform()`/`.nullish()`
 // semantics, so the interpreter runtime-parses every block input with the
 // registered zod schema at dispatch (KTD14); the catalog documents this limit.
+import type { ClaudeCodeAgent, OpenCodeAgent } from "smithers-orchestrator";
 import { z } from "zod/v4";
 
 import type { GateResult } from "./gates.ts";
@@ -76,7 +77,11 @@ export interface AgentBlockDefinition extends BlockDefinitionBase {
   // The interpreter dispatches an agent block exclusively through these two
   // members (KTD3): makeAgent builds the smithers agent, buildPrompt renders the
   // instruction from the runtime-parsed input.
-  makeAgent: (build: AgentBuild) => unknown;
+  // Named rather than `unknown`: the interpreter hands this straight to a
+  // Task's `agent` prop, and an `unknown` here made that assignment a type
+  // error nobody could see until the package got a tsconfig
+  // (docs/issues/2026-08-15-006).
+  makeAgent: (build: AgentBuild) => ClaudeCodeAgent | OpenCodeAgent;
   buildPrompt: (input: unknown) => string;
 }
 

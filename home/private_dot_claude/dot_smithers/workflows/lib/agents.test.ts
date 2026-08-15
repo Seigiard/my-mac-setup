@@ -13,11 +13,16 @@ import {
 describe("AGENT_PROFILES invariants", () => {
   const claudeReviewProfiles = ["codeReview", "docReview", "simplifyReview"] as const;
 
-  test.each(claudeReviewProfiles)("%s budget fits inside its timeout at observed burn rate", (name) => {
-    const profile = AGENT_PROFILES[name];
-    const minutesToExhaustBudget = profile.maxBudgetUsd / CLAUDE_REVIEW_BURN_USD_PER_MIN;
-    expect(profile.timeoutMs / 60_000).toBeGreaterThanOrEqual(minutesToExhaustBudget);
-  });
+  // A plain loop, not test.each: bun's each() widens its parameter to `unknown`,
+  // which cannot index AGENT_PROFILES — the profile name has to stay a literal
+  // for the lookup to be checked at all.
+  for (const name of claudeReviewProfiles) {
+    test(`${name} budget fits inside its timeout at observed burn rate`, () => {
+      const profile = AGENT_PROFILES[name];
+      const minutesToExhaustBudget = profile.maxBudgetUsd / CLAUDE_REVIEW_BURN_USD_PER_MIN;
+      expect(profile.timeoutMs / 60_000).toBeGreaterThanOrEqual(minutesToExhaustBudget);
+    });
+  }
 
   test("claude review legs never retry a deterministic budget failure on the expensive profile", () => {
     expect(AGENT_PROFILES.codeReview.retries).toBe(0);
@@ -39,11 +44,13 @@ describe("AGENT_PROFILES invariants", () => {
 
   const reviewProfilesWithIdle = ["codeReview", "docReview", "simplifyReview", "opencodeReview"] as const;
 
-  test.each(reviewProfilesWithIdle)("%s sets an idle timeout strictly inside its hard timeout", (name) => {
-    const profile = AGENT_PROFILES[name];
-    expect(profile.idleTimeoutMs).toBeGreaterThan(0);
-    expect(profile.idleTimeoutMs).toBeLessThan(profile.timeoutMs);
-  });
+  for (const name of reviewProfilesWithIdle) {
+    test(`${name} sets an idle timeout strictly inside its hard timeout`, () => {
+      const profile = AGENT_PROFILES[name];
+      expect(profile.idleTimeoutMs).toBeGreaterThan(0);
+      expect(profile.idleTimeoutMs).toBeLessThan(profile.timeoutMs);
+    });
+  }
 
   test("the work profile carries no idle timeout — long silent commands are legitimate there", () => {
     expect("idleTimeoutMs" in AGENT_PROFILES.work).toBe(false);

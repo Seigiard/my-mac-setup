@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ClaudeCodeAgent } from "smithers-orchestrator";
 import { z } from "zod/v4";
 
 import {
@@ -49,7 +50,9 @@ function agentBlock(over: Partial<AgentBlockDefinition> = {}): AgentBlockDefinit
     defaults: { retries: 1, timeoutMs: 600_000 },
     costProfile: { estUsd: 3 },
     gateFn: () => green,
-    makeAgent: () => ({}),
+    // These tests register and read definitions; they never dispatch one, so a
+    // stub stands in for the agent the interpreter would build.
+    makeAgent: () => ({}) as unknown as ClaudeCodeAgent,
     buildPrompt: (input) => `repro: ${JSON.stringify(input)}`,
     ...over,
   };
