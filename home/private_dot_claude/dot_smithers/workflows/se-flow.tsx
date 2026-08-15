@@ -32,7 +32,22 @@ import * as path from "node:path";
 import { validateFlowSpec } from "./lib/flow-validate.ts";
 import { buildRegistry } from "./lib/blocks/index.ts";
 import { runComputeEffect, type ComputeEffectContext } from "./lib/block-effects.ts";
-import { blockNodeId, canonicalSpecJson, dispatchableBlocks, dispatchNodeId, formatPrBody, needsWorkspace, specHash, topoOrder } from "./lib/flow-run.ts";
+import {
+  blockNodeId,
+  canonicalSpecJson,
+  dispatchableBlocks,
+  dispatchNodeId,
+  epilogShouldRender,
+  flowVerdict,
+  formatPrBody,
+  needsWorkspace,
+  specHash,
+  topoOrder,
+  withheldByBlock,
+  type FlowDispatch,
+  type GateApprovalDecision,
+  type RecordedBlock,
+} from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
 import { redactSecretsInText, shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
@@ -102,7 +117,18 @@ const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers
   // columns on every persisted node output and refuses a schema that shadows
   // them. The engine raises this at workflow construction, which `bun build`
   // cannot see — it type-checks nothing and never instantiates the workflow.
-  outcome: z.object({ flowRunId: z.string(), recordPath: z.string(), archiveDir: z.string(), artifactCount: z.number(), redactionHits: z.array(z.string()) }),
+  // `verdict`/`stoppedBy` are `.nullish()` because a run persisted before they
+  // existed still has to resume: the engine reads the old row back through this
+  // schema, and a required field would refuse it.
+  outcome: z.object({
+    flowRunId: z.string(),
+    recordPath: z.string(),
+    archiveDir: z.string(),
+    artifactCount: z.number(),
+    redactionHits: z.array(z.string()),
+    verdict: z.string().nullish(),
+    stoppedBy: z.string().nullish(),
+  }),
   reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string(), cause: z.string().nullish(), proposedFix: z.string().nullish() }),
   // R15: `issuePath` is null on a clean success — the review lives in the
   // outcome record and no file is written. `redactionHits` surfaces a KTD13
@@ -140,6 +166,11 @@ export default smithers((ctx) => {
   const registry = buildRegistry();
   const workspaceNeeded = needsWorkspace(spec, (name) => registry.get(name)?.needsWorkspace ?? false);
   const ordered = topoOrder(spec.blocks);
+  // Computed once, before anything reads it: the block loop dispatches from it,
+  // the epilog's outcome record takes its verdict from it, and blockOutcomes
+  // marks the withheld blocks from it. Pure over the recorded rows, so calling
+  // it here costs nothing and every consumer sees the same decision.
+  const dispatch = flowDispatch(ctx, ordered);
 
   const gate0 = ctx.outputMaybe("gate0", { nodeId: "gate0" });
   const staged = ctx.outputMaybe("staging", { nodeId: "staging" });
@@ -223,9 +254,16 @@ export default smithers((ctx) => {
     // turns a ceiling into a nag.
     const budgetApproved = ctx.outputMaybe("approval", { nodeId: BUDGET_APPROVAL_NODE })?.approved === true;
     let approvalRendered = false;
-    for (const { block, bindNodeIds } of dispatchableBlocks(ordered, (id) => blockRowNodeId(ctx as CtxLike, id))) {
+    const gateApprovals = new Set(dispatch.gateApprovals);
+    for (const { block, bindNodeIds } of dispatch.dispatchable) {
       children.push(renderBlock(ctx, block, registry, effectCtx, subflowRun, bindNodeIds, inboundNote));
       children.push(renderBudgetTask(block.id, runId, input.budgetUsd));
+      // Rendered right after its own block, so the pause sits between the red
+      // gate and everything the gate is holding back. dispatchableBlocks already
+      // withheld those successors; this node is where the operator releases them.
+      if (gateApprovals.has(block.id)) {
+        children.push(renderGateApproval(ctx, block, dispatch));
+      }
       const breached = ctx.outputMaybe("budget", { nodeId: budgetNodeId(block.id) })?.breached === true;
       if (breached && !approvalRendered) {
         approvalRendered = true;
@@ -238,8 +276,12 @@ export default smithers((ctx) => {
   // Fixed epilog on every exit path (KTD2/KTD10): outcome record + artifact
   // archive, terminal reviewer slot (U6, cannot block cleanup), cleanup + lock
   // release. Timeout-bounded; the reviewer reads only the durable record.
-  const allBlocksRecorded = ordered.every((b) => blockRowNodeId(ctx as CtxLike, b.id) !== undefined);
-  if (readyGate && (allBlocksRecorded || anyBlockFailed(ctx, ordered))) {
+  //
+  // A run stopped by a red gate reaches this too: withholding leaves blocks
+  // unrecorded, but it only ever happens because a block recorded a red row, and
+  // epilogShouldRender's second arm is exactly that. Trading a published-after-red
+  // PR for a run with no outcome record would be the worse bug.
+  if (readyGate && epilogShouldRender(ordered, (id) => recordedBlock(ctx as CtxLike, id))) {
     children.push(renderEpilog(ctx, spec, ordered, worktreePath, repoPath, workspaceNeeded, runId));
   }
 
@@ -336,6 +378,69 @@ function blockRowNodeId(ctx: CtxLike, blockId: string): string | undefined {
 function blockRow(ctx: CtxLike, blockId: string): Record<string, unknown> | undefined {
   const nodeId = blockRowNodeId(ctx, blockId);
   return nodeId === undefined ? undefined : ctx.outputMaybe("blockOutput", { nodeId });
+}
+
+// The settled verdict dispatchableBlocks keys its stop-on-red decision on: the
+// node the row landed under, plus its `status`. Presence of the row is the proof
+// that the block's retries are spent — Smithers persists an output row only on
+// the attempt that RETURNS, and a red gate returns rather than throwing, so no
+// earlier red row can exist for a block a retry later turned green. A block that
+// threw every attempt has no row here at all; its verdict is the guard's
+// `-crashed` row, which blockRowNodeId already resolves and which is red.
+//
+// A row with a non-string status is read as `non-terminal`, never as green: an
+// unreadable verdict is missing evidence (the same rule salvage.ts applies).
+function recordedBlock(ctx: CtxLike, blockId: string): RecordedBlock | undefined {
+  const nodeId = blockRowNodeId(ctx, blockId);
+  if (nodeId === undefined) return undefined;
+  const status = ctx.outputMaybe("blockOutput", { nodeId })?.status;
+  return { nodeId, status: typeof status === "string" ? status : "non-terminal" };
+}
+
+// Per-block, never per-run: the budget ack is deliberately one node for the
+// whole run, but a gate waive is a decision about ONE block's red verdict, so
+// each red block gets its own approval row. Sharing an id would let an ack for
+// one block silently waive another. `approve-` is a reserved spec-id prefix
+// (flow-spec RESERVED_ID_PREFIXES) and block ids are unique, so no spec can
+// collide with these node ids and no two blocks can collide with each other.
+function gateApprovalNodeId(blockId: string): string {
+  return `approve-waive-${blockId}`;
+}
+
+function gateApprovalDecision(ctx: CtxLike, blockId: string): GateApprovalDecision {
+  const row = ctx.outputMaybe("approval", { nodeId: gateApprovalNodeId(blockId) });
+  if (row === undefined) return "pending";
+  return row.approved === true ? "approved" : "denied";
+}
+
+function flowDispatch(ctx: unknown, ordered: FlowBlock[]): FlowDispatch {
+  const c = ctx as CtxLike;
+  return dispatchableBlocks(ordered, (id) => recordedBlock(c, id), (id) => gateApprovalDecision(c, id));
+}
+
+// The `waive: "approval"` half of the WAIVE_POLICIES contract (flow-spec.ts): a
+// red gate on a block the composer marked risky parks the run here instead of
+// stopping it. Same shape as the budget pause and the same onDeny "fail" — the
+// pipeline's gates all read that way, and denying stops the run while the epilog
+// still renders, because the epilog renders on the failure path too.
+function renderGateApproval(ctx: unknown, block: FlowBlock, dispatch: FlowDispatch): unknown {
+  const status = recordedBlock(ctx as CtxLike, block.id)?.status ?? "red";
+  const held = withheldByBlock(dispatch, block.id);
+  return (
+    <Approval
+      id={gateApprovalNodeId(block.id)}
+      output={outputs.approval}
+      request={{
+        title: `Block "${block.id}" (${block.block}) gated ${status} — approve to waive this gate and continue, deny to stop the run`,
+        summary: [
+          `The block declared waive: "approval", so a red gate parks here instead of stopping its successors outright.`,
+          held.length > 0 ? `Withheld until you decide: ${held.join(", ")}.` : "No block depends on it, so nothing downstream is waiting.",
+          "Approving waives only THIS block's gate; every other block keeps its own policy.",
+        ].join(" "),
+      }}
+      onDeny="fail"
+    />
+  );
 }
 
 // A block becomes an engine node keyed to its kind. Compute effect bodies reuse
@@ -535,17 +640,17 @@ function classifyTask(ctx: unknown, block: FlowBlock, def: { kind: string; gateF
   );
 }
 
-function anyBlockFailed(ctx: unknown, ordered: FlowBlock[]): boolean {
-  return ordered.some((b) => {
-    const out = blockRow(ctx as CtxLike, b.id);
-    return out !== undefined && out.status !== "green";
-  });
-}
-
+// A block with no row is `stopped` when a red ancestor withheld it and
+// `non-terminal` otherwise. The distinction is the point: `non-terminal` means a
+// leg died without reporting, and telling the terminal reviewer that about five
+// blocks that were never dispatched would send it chasing failures that never
+// happened. Both are still failure evidence to reviewer.ts — neither is green.
 function blockOutcomes(ctx: unknown, ordered: FlowBlock[]): BlockOutcome[] {
+  const withheld = new Set(flowDispatch(ctx, ordered).withheld);
   return ordered.map((b) => {
     const out = blockRow(ctx as CtxLike, b.id);
-    return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? "non-terminal" };
+    const fallback: BlockOutcome["status"] = withheld.has(b.id) ? "stopped" : "non-terminal";
+    return { blockId: b.id, block: b.block, status: (out?.status as BlockOutcome["status"]) ?? fallback };
   });
 }
 
@@ -694,6 +799,11 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
         {() => {
           const blocks = blockOutcomes(ctx, ordered);
           const record: OutcomeRecord = { runId, blocks };
+          // A run cut short by a red gate must not report the same terminal
+          // state as a clean one. Recomputed here rather than captured at render
+          // time so the record states the decision as it stood when the epilog
+          // actually ran.
+          const verdict = flowVerdict(flowDispatch(ctx, ordered));
           const archiveDir = path.join(os.tmpdir(), "se-flow", runId);
           fs.mkdirSync(archiveDir, { recursive: true });
 
@@ -728,6 +838,7 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
             JSON.stringify(
               {
                 spec,
+                verdict,
                 record,
                 cost: { totalTokens: usage.totalTokens, totalEstUsd: usage.totalEstUsd, perNode: usage.stages },
                 artifacts: archive.copied.map((e) => ({ blockId: e.blockId, name: e.name, path: e.destination })),
@@ -739,7 +850,15 @@ function renderEpilog(ctx: unknown, spec: FlowSpec, ordered: FlowBlock[], worktr
           );
           const recordPath = path.join(archiveDir, "outcome.json");
           fs.writeFileSync(recordPath, redacted);
-          return { flowRunId: runId, recordPath, archiveDir, artifactCount: archive.copied.length, redactionHits: hits };
+          return {
+            flowRunId: runId,
+            recordPath,
+            archiveDir,
+            artifactCount: archive.copied.length,
+            redactionHits: hits,
+            verdict: verdict.state,
+            stoppedBy: verdict.stoppedBy,
+          };
         }}
       </Task>
       {renderReviewer(ctx, ordered, worktreePath, runId)}

@@ -119,6 +119,68 @@ export interface DispatchableBlock {
   bindNodeIds: string[];
 }
 
+// A block's settled verdict, as the durable rows express it: the engine node the
+// row landed on (the block node, or the guard's `-crashed` node when the block
+// threw its retries away) plus that row's `status`.
+//
+// Presence of this row IS the "retries are spent" proof, which is why nothing
+// here carries an attempt counter. A Smithers Task persists an output row only
+// on the attempt that RETURNS; a thrown attempt emits NodeFailed and re-runs,
+// writing nothing. And a red gate is a returned value, never a throw — the
+// classify/effect task returns `status: "failed"` and completes — so a red
+// status can never be a transient attempt that a later retry replaced. When
+// every attempt throws, the guard's catch writes the `-crashed` row instead,
+// which is equally terminal and equally red.
+export interface RecordedBlock {
+  nodeId: string;
+  status: string;
+}
+
+// What the operator did with a `waive: "approval"` pause. `pending` is the safe
+// default: an undecided pause withholds, so a reader that cannot see the
+// approval row never lets a red block through.
+export type GateApprovalDecision = "approved" | "denied" | "pending";
+
+// Why a red block is holding its successors back.
+export type RedStopReason = "stopped" | "parked" | "denied";
+
+export interface RedStop {
+  blockId: string;
+  block: string;
+  status: string;
+  reason: RedStopReason;
+}
+
+export interface FlowDispatch {
+  dispatchable: DispatchableBlock[];
+  // Block ids whose red gate must render an `Approval` node (waive: "approval"),
+  // whether or not it has been decided yet — the node stays in the graph so the
+  // decision has somewhere durable to live.
+  gateApprovals: string[];
+  // Block ids withheld because an ancestor gated red, in topological order.
+  withheld: string[];
+  // Withheld block id → the RED block the withholding traces back to. Kept
+  // because the waive-approval prompt must list what THIS gate is holding, not
+  // everything every red block in the flow is holding — an operator deciding one
+  // gate should not be shown another gate's consequences.
+  withheldBy: Record<string, string>;
+  // The red blocks doing the withholding, in topological order.
+  stops: RedStop[];
+}
+
+// The blocks a single red gate is holding back, in topological order.
+export function withheldByBlock(dispatch: FlowDispatch, blockId: string): string[] {
+  return dispatch.withheld.filter((id) => dispatch.withheldBy[id] === blockId);
+}
+
+// Anything that is not green is red. Same rule the terminal reviewer applies to
+// the outcome record (reviewer.ts FAILURE_STATUSES): `failed`, `degraded`,
+// `stopped` and `non-terminal` are all "the block did not pass", and a run must
+// never treat a leg that vanished as a leg that succeeded.
+export function isRedStatus(status: string): boolean {
+  return status !== "green";
+}
+
 // KTD12: a block binds to the engine node ids of its `bindTo` edges, so a
 // mutated upstream row parks the run (BOUND_STALE) instead of dispatching
 // against stale data. Which blocks may be rendered at all is decided here.
@@ -129,25 +191,140 @@ export interface DispatchableBlock {
 // waiting-event, with an empty error and no path forward. So an unready block
 // is withheld from the render until its authority rows exist.
 //
-// Withholding STOPS the list rather than skipping the block: bindTo targets are
-// `after`-ancestors (flow-validate's bind-unreachable invariant) and `ordered`
-// is a topological order, so no block past an unready one may legally run.
+// Withholding on an unready bind STOPS the list rather than skipping the block:
+// bindTo targets are `after`-ancestors (flow-validate's bind-unreachable
+// invariant) and `ordered` is a topological order, so no block past an unready
+// one may legally run.
+//
+// A RED block withholds differently — only what depends on it, transitively,
+// through `after` and `bindTo` alike. This is the WAIVE_POLICIES contract
+// (flow-spec.ts) finally executing: under `none` a red gate stops its
+// successors, under `approval` it parks until the operator decides. Enforcing it
+// here rather than in the interpreter puts the policy in the one pure function
+// that already answers "may this block run", so it is testable without an
+// engine. It sat unenforced through docs/issues/2026-08-15-003: block `work`
+// gated red and `commit-work`, `run-validate`, `proof-artifacts`, `secret-scan`
+// and `pr` all ran after it, publishing a real pull request on a real remote
+// after a gate had said no. Row PRESENCE was the only thing this function ever
+// read; a red block writes a row too.
+//
+// Independent branches are deliberately untouched: a red block stops what
+// depends on it, not the whole DAG. Only the epilog is unconditional.
 export function dispatchableBlocks(
   ordered: FlowBlock[],
-  rowNodeId: (blockId: string) => string | undefined,
-): DispatchableBlock[] {
+  recorded: (blockId: string) => RecordedBlock | undefined,
+  gateApproval: (blockId: string) => GateApprovalDecision = () => "pending",
+): FlowDispatch {
   const dispatchable: DispatchableBlock[] = [];
+  const gateApprovals: string[] = [];
+  const withheld: string[] = [];
+  const withheldBy: Record<string, string> = {};
+  const stops: RedStop[] = [];
+  // Blocks whose dependents may not run. Seeded by red blocks and grown by their
+  // withheld dependents, which is what makes the withholding transitive: a
+  // topological order guarantees every dependency is visited before its
+  // dependent, so one forward pass closes the set.
+  const withholding = new Set<string>();
+
   for (const block of ordered) {
-    const bindNodeIds: string[] = [];
-    for (const target of block.bindTo) {
-      const nodeId = rowNodeId(target);
-      if (nodeId === undefined) return dispatchable;
-      bindNodeIds.push(nodeId);
+    const blockedBy = [...block.after, ...block.bindTo].find((dep) => withholding.has(dep));
+    if (blockedBy !== undefined) {
+      withholding.add(block.id);
+      withheld.push(block.id);
+      // A withheld blocker traces back to the red block that withheld IT, so the
+      // root is the same all the way down a chain.
+      withheldBy[block.id] = withheldBy[blockedBy] ?? blockedBy;
+      continue;
     }
+
+    const bindNodeIds: string[] = [];
+    let bindsReady = true;
+    for (const target of block.bindTo) {
+      const row = recorded(target);
+      if (row === undefined) {
+        bindsReady = false;
+        break;
+      }
+      bindNodeIds.push(row.nodeId);
+    }
+    if (!bindsReady) break;
     dispatchable.push({ block, bindNodeIds });
+
+    const row = recorded(block.id);
+    if (row === undefined || !isRedStatus(row.status)) continue;
+
+    if (block.waive !== "approval") {
+      withholding.add(block.id);
+      stops.push({ blockId: block.id, block: block.block, status: row.status, reason: "stopped" });
+      continue;
+    }
+
+    gateApprovals.push(block.id);
+    const decision = gateApproval(block.id);
+    if (decision === "approved") continue;
+    withholding.add(block.id);
+    stops.push({ blockId: block.id, block: block.block, status: row.status, reason: decision === "denied" ? "denied" : "parked" });
   }
-  return dispatchable;
+
+  return { dispatchable, gateApprovals, withheld, withheldBy, stops };
 }
+
+// The fixed epilog writes the outcome record and the artifact archive, so it has
+// to render on every exit path — including one cut short by a red gate.
+// docs/issues/2026-08-14-004 is the incident that made this a rule: work that
+// must happen even when a leg dies belongs OUTSIDE that leg's failure path.
+//
+// Withholding cannot starve it. A withheld block leaves `allRecorded` false, but
+// withholding only ever happens because some block recorded a red row, which is
+// exactly what `anyRed` sees — so a stopped run always satisfies the second arm.
+export function epilogShouldRender(ordered: FlowBlock[], recorded: (blockId: string) => RecordedBlock | undefined): boolean {
+  const rows = ordered.map((b) => recorded(b.id));
+  return rows.every((row) => row !== undefined) || rows.some((row) => row !== undefined && isRedStatus(row.status));
+}
+
+export interface FlowVerdict {
+  state: "completed" | "stopped-by-red-gate" | "parked-for-waive-approval";
+  // The block that stopped the run, `<id> (<kind>): <status>`, or null when
+  // nothing did.
+  stoppedBy: string | null;
+  summary: string;
+  // Every block the run withheld, not only the ones `stoppedBy` withheld — two
+  // red blocks on independent branches both contribute here.
+  withheld: string[];
+}
+
+// R11/KTD10: a run cut short by a red gate must not report the same terminal
+// state as a clean one. The outcome record and the `outcome` row carry this, so
+// an operator reads what happened instead of inferring it from a table of block
+// statuses — the failure mode of issue 2026-08-15-003, where the run reported
+// `finished` with a red row buried in the middle of it.
+export function flowVerdict(dispatch: FlowDispatch): FlowVerdict {
+  const { stops, withheld } = dispatch;
+  if (stops.length === 0) {
+    return { state: "completed", stoppedBy: null, summary: "no block gated red; nothing was withheld", withheld: [] };
+  }
+  // A hard stop outranks a park when both are present: a parked run can still be
+  // released by an operator, a stopped one cannot, and the verdict must lead
+  // with the outcome that is not recoverable.
+  const primary = stops.find((s) => s.reason !== "parked") ?? stops[0]!;
+  // Phrased as a run-level fact rather than attributed to `primary`: with two
+  // red blocks on independent branches, not every withheld block is that one's.
+  const tail = withheld.length === 0
+    ? "nothing downstream was left to withhold"
+    : `${withheld.length} downstream block${withheld.length === 1 ? "" : "s"} never ran: ${withheld.join(", ")}`;
+  return {
+    state: primary.reason === "parked" ? "parked-for-waive-approval" : "stopped-by-red-gate",
+    stoppedBy: `${primary.blockId} (${primary.block}): ${primary.status}`,
+    summary: `run ${REASON_VERB[primary.reason]} at block "${primary.blockId}" (${primary.block}), which gated red (${primary.status}); ${tail}`,
+    withheld: [...withheld],
+  };
+}
+
+const REASON_VERB: Record<RedStopReason, string> = {
+  stopped: "stopped",
+  parked: "parked for a waive approval",
+  denied: "stopped by a denied waive approval",
+};
 
 // Canonical spec serialization: keys sorted recursively so the hash is
 // invariant to key order in the source JSON. The hash is the gate0-role spec

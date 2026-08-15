@@ -9,10 +9,20 @@
 // validator enforces that, the schema only shapes it.
 import { z } from "zod/v4";
 
-// A red gate after retries either fails the run outright (`none`) or parks in an
-// approval pause the composer opted into for a risky block (`approval`, the R11
-// optional-block / R13 escalation path). The registry declares which policies a
-// block kind permits; the validator checks membership per block.
+// A red gate after retries either stops the block's successors outright (`none`)
+// or parks in an approval pause the composer opted into for a risky block
+// (`approval`, the R11 optional-block / R13 escalation path). The registry
+// declares which policies a block kind permits; the validator checks membership
+// per block.
+//
+// ENFORCED IN `flow-run.ts`'s `dispatchableBlocks`, which is the one pure
+// function that decides which blocks may dispatch; `se-flow.tsx` renders the
+// `approval` pause that decision asks for. This pointer is here because the
+// contract sat in this comment with no implementation anywhere: the validator
+// checked the policy against the registry and nothing ever read it at run time.
+// docs/issues/2026-08-15-003 is what that cost — a red `work` block let five
+// successors run, and the flow published a real pull request after a gate said
+// no. A documented contract names where it is enforced, or it is decoration.
 export const WAIVE_POLICIES = ["none", "approval"] as const;
 export const waivePolicySchema = z.enum(WAIVE_POLICIES);
 export type WaivePolicy = (typeof WAIVE_POLICIES)[number];

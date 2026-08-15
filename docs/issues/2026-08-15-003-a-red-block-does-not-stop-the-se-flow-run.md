@@ -2,7 +2,8 @@
 title: A red block does not stop the se-flow run — its successors run, including pr
 type: bug
 date: 2026-08-15
-status: open
+status: done
+closed: 2026-08-15
 parent-plan: docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md
 ---
 
@@ -45,3 +46,22 @@ The severity is not uniform across blocks. A red `secret-scan` followed by a gre
 - **Whether the fix belongs in `dispatchableBlocks` or the interpreter.** Putting it in `dispatchableBlocks` gives one place that answers "may this block run", but that function is currently pure over ids and would need the status lookup passed in.
 - **What `waive: "approval"` should render.** The schema promises an approval pause on a red gate; no node exists for it. `renderBudgetApproval` is the nearest shape to copy, but the budget pause is once-per-run and this one is per-block.
 - **Whether a red `secret-scan` deserves a hard stop independent of the waive policy**, given `compute` blocks may only declare `none` anyway (`block-registry.ts:21`), so no spec can ask to waive it.
+
+## Resolution
+
+A red block now withholds its successors, transitively, and the `waive` policy decides whether that stop is final or an approval pause.
+
+**Where enforcement lives.** In `dispatchableBlocks` (`workflows/lib/flow-run.ts`), not the interpreter. It was already the pure function that answers "may this block run", so the policy is read at the point of decision and is unit-testable without a live engine. `se-flow.tsx` only renders what the decision asks for. `flow-spec.ts`'s `WAIVE_POLICIES` comment now names that site — the whole defect was a contract documented with no implementation anywhere, and a second unnamed one would repeat it.
+
+**What changed.**
+
+- `dispatchableBlocks` takes the recorded rows (`{nodeId, status}`) instead of just node ids, plus a gate-approval reader. It returns `{dispatchable, gateApprovals, withheld, withheldBy, stops}`. A red block is added to a withholding set; any block with an `after` or `bindTo` edge into that set is withheld and joins the set, so withholding closes transitively in one forward pass over the topological order. Independent branches are untouched — a red block stops what depends on it, not the DAG.
+- `waive: "approval"` renders an `Approval` per red block at node id `approve-waive-<blockId>` (the budget ack stays one-per-run; a gate waive is per block, and one shared id would let an ack for one block waive another). `onDeny="fail"`, matching the budget pause and the pipeline's gates. Approve releases the successors, deny and undecided both withhold; an unreadable decision defaults to withholding.
+- The `outcome` row and `outcome.json` gained a verdict: `completed` / `stopped-by-red-gate` / `parked-for-waive-approval`, plus `stoppedBy` naming the block, its kind and its status. Both persisted fields are `.nullish()` so a run persisted before the change still resumes. A withheld block is recorded as `stopped` rather than `non-terminal`, so the terminal reviewer is not sent chasing legs that were never dispatched.
+- Epilog readiness moved to `epilogShouldRender` in `flow-run.ts` (replacing `se-flow.tsx`'s `anyBlockFailed`). Withholding cannot starve it: withholding only ever happens because a block recorded a red row, which is exactly what the "any red" arm sees. The condition is monotone as rows accumulate, which is what keeps the epilog rendering once.
+
+**The field "red after retries were spent" keys on.** The `status` of the block's settled `blockOutput` row, resolved through `blockRowNodeId` — the block node `b:<id>`, or the guard's `b:<id>-crashed` node when every attempt threw. There is no attempt counter to consult, because the presence of that row is itself the proof that retries are spent: Smithers persists an output row only on the attempt that RETURNS (a thrown attempt emits `NodeFailed` and re-runs, writing nothing), and a red gate is a returned value rather than a throw — the classify/effect task returns `status: "failed"` and completes. So a red row can never be a transient attempt a later retry replaced. A crashed block counts as red: its `-crashed` row is `non-terminal`, and anything that is not `green` is red, the same rule `reviewer.ts` applies to the outcome record.
+
+**Open decisions, as settled.** Red stops descendants, not the whole run (the narrower reading; independent branches stay useful). A red `secret-scan` needs no special case — `compute` blocks may only declare `waive: "none"`, so its hard stop is structural rather than a policy choice.
+
+**Proof.** Unit tests only, in `workflows/lib/flow-run.test.ts` (52 tests in that file, 561 across the suite, 0 fail) plus `bun build workflows/se-flow.tsx`. This was **not** re-verified by a live `se flow` run: the fix edits the interpreter's module graph, and KTD1 forbids that while a run is live or parked, so a live check is a separate, operator-scheduled step.
