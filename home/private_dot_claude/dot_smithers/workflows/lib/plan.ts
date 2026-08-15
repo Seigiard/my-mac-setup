@@ -154,8 +154,10 @@ export function deriveValidateCmd(markdown: string): ValidateCmdDerivation {
 }
 
 // Returns the joined validate command, or null when the plan has no
-// Verification Contract or no runnable commands in it. se-pipeline.tsx calls
-// this; the notes and drops live on deriveValidateCmd.
+// Verification Contract or no runnable commands in it. The terse accessor for
+// a caller that wants only the command: gate 0 uses deriveValidateCmd instead,
+// because what the derivation refused is exactly what issue 2026-08-14-010 says
+// must never be silent.
 export function extractValidateCmd(markdown: string): string | null {
   return deriveValidateCmd(markdown).cmd;
 }

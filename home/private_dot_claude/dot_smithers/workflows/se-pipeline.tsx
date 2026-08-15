@@ -21,7 +21,7 @@ import { codeReviewGate, docReviewGate, mainCheckoutEscapeReason, planGate, resc
 import { mergeReviewReports } from "./lib/review-merge.ts";
 import { severitySchema } from "./lib/severity-summary.ts";
 import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory } from "./lib/doc-review-notes.ts";
-import { extractValidateCmd } from "./lib/plan.ts";
+import { deriveValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
 import { preExternalTreeGate } from "./lib/pre-external-gate.ts";
@@ -107,7 +107,10 @@ const gateVerdictSchema = z.object({
 
 const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = createSmithers({
   input: inputSchema,
-  gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
+  // derivationNotes is nullish so rows persisted before it existed stay valid
+  // on resume; it carries what the validate-cmd derivation refused or could not
+  // recognise, so the operator reads it in the summary instead of the run log.
+  gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string(), derivationNotes: z.string().nullish() }),
   // planCopyPath/repoDirtyDigest are nullish so rows persisted before they
   // existed stay valid on resume: an old run falls back to gate0.planPath and
   // skips the main-checkout comparison rather than crashing mid-pipeline.
@@ -477,25 +480,38 @@ export default smithers((ctx) => {
         // command from the target repo's config).
         let resolvedValidateCmd = validateCmd.trim();
         let validateSource = "operator (--validate-cmd)";
+        // Everything the derivation refused or did not recognise, surfaced
+        // rather than dropped in silence: issue 2026-08-14-010 lost a lint gate
+        // to a filter that judged commands by substring and said nothing.
+        const observations: string[] = [];
         if (resolvedValidateCmd === "") {
-          const derived = extractValidateCmd(markdown);
-          if (derived === null) {
-            throw new Error("gate-0 refused: no --validate-cmd given and the plan's Verification Contract has no runnable commands to derive one from. Add a Verification Contract with test/typecheck commands, or pass --validate-cmd explicitly.");
+          const derivation = deriveValidateCmd(markdown);
+          for (const drop of derivation.dropped) observations.push(`derivation dropped \`${drop.cmd}\` — ${drop.reason}`);
+          observations.push(...derivation.notes);
+          if (derivation.cmd === null) {
+            const why = observations.length > 0 ? ` What it refused: ${observations.join("; ")}.` : "";
+            throw new Error(`gate-0 refused: no --validate-cmd given and the plan's Verification Contract has no runnable commands to derive one from.${why} Add a Verification Contract with test/typecheck commands, or pass --validate-cmd explicitly.`);
           }
-          resolvedValidateCmd = derived;
+          resolvedValidateCmd = derivation.cmd;
           validateSource = "plan Verification Contract";
         }
         console.error(`se-pipeline: work-gate validate-cmd [${validateSource}]: ${resolvedValidateCmd}`);
+        for (const observation of observations) console.error(`se-pipeline: validate-cmd derivation: ${observation}`);
         if (git(repoDir, "status", "--porcelain") !== "") {
           console.error(`se-pipeline preflight: target repo ${repoDir} has a dirty working tree — the run works from committed HEAD only (KTD11); operator WIP is not included.`);
         }
-        return { planHash: result.hash, planPath: input.planPath, until, validateCmd: resolvedValidateCmd, validateTimeoutMs, repoPath: repoDir };
+        return { planHash: result.hash, planPath: input.planPath, until, validateCmd: resolvedValidateCmd, validateTimeoutMs, repoPath: repoDir, derivationNotes: observations.join(" | ") };
       }}
     </Task>,
   ];
 
   const notes: string[] = [];
   let terminal: string | undefined;
+
+  // The derivation's observations belong in the durable summary, not only in
+  // the run log: a dropped gate is invisible exactly when nobody re-reads the
+  // log (issue 2026-08-14-010).
+  if (gate0?.derivationNotes) notes.push(`validate-cmd derivation: ${gate0.derivationNotes}`);
 
   if (gate0) {
     children.push(
