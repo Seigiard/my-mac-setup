@@ -2,7 +2,8 @@
 title: se flow has no live PR verification — the only remaining gap from the dynamic-flow plan
 type: bug
 date: 2026-08-14
-status: in-progress
+status: done
+closed: 2026-08-15
 parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 ---
 
@@ -12,7 +13,7 @@ parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
 
 Host verification section 4 could not be executed. Attempting it surfaced two blockers and four absent features. Sections 2 and 3 of `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` were blocked on the same set.
 
-Everything originally recorded here is fixed. Every checklist section except section 2 now passes. One gap remains, in the section below: no live PR has ever been opened, and opening one needs the operator's go-ahead because it pushes a branch to a real remote. Nothing else in this issue is waiting on work.
+Everything originally recorded here is fixed, section 2 included as of 2026-08-15 — see `## Resolution` at the foot of this file. The section below is kept as the record of what was open until then.
 
 ### The interpreter had never run at all
 
@@ -87,9 +88,28 @@ Section 3 of the host checklist now passes; see its Results entry.
 
 ## Scope
 
-- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 2 is the one section still open.
+- `docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md` — section 2 was the last open section; it passed on 2026-08-15 and every section of that checklist now has a Results entry.
 
 ## Open decisions
 
 - **What the reviewer leg should cost.** Settled for now as sonnet with a $3 ceiling, because it runs on every flow including clean ones; observed legs took 30-45s. Revisit if a large flow's reviewer starts approaching the cap.
 Split out of this issue: a test that instantiates the workflows, so a reserved-field or schema error is caught by `bun test` rather than by a failed launch. Tracked in `docs/issues/2026-08-14-007-workflow-instantiation-test.md`.
+
+## Resolution
+
+Closed by execution, not by a commit. `run-1786777410571` opened a live pull request and satisfied all four of checklist section 2's pass criteria; the full evidence is in that checklist's `### Section 2` Results entry.
+
+- **runId:** `run-1786777410571` (88,285 tokens, $0.071, 36s, twenty engine nodes all `finished`).
+- **PR:** https://github.com/Seigiard/se-flow-pr-verification-2026-08-15/pull/2, opened by the `gh` account **Seigiard**, on a throwaway private repository created for this gate.
+- **Earlier run in the same session:** `run-1786777192782` → .../pull/1. It also opened a real PR, so the PR path is proven twice, and it surfaced a defect described below.
+
+Both facts this issue asked to have confirmed before the run held up. The PR body embeds the block statuses **as of when the `pr` block executed** — both bodies show `open-pr | pr | non-terminal`, because the block cannot record its own terminal status before it returns — and the PR is authored by Seigiard rather than by the git author.
+
+**What the run did not cover.** The body embeds the canonical spec but **not** the outcome record; it names in prose where the record is written afterwards. That is by design and matches this issue's own note, but section 2's criterion is worded as though the record were embedded, and it is not. No secret was planted on this path, so the PR-boundary redaction remains unit-tested only — `redactionHits` was empty on both runs, which shows the scan ran, not that it catches anything. No approval gate was reached; the $12 budget ceiling was never approached at $0.07. The spec used `after` edges only, with no `bindTo`, no external block and no subflow, and neither run was killed or resumed.
+
+**Two defects found on the way**, both filed rather than fixed here:
+
+- `docs/issues/2026-08-15-003-a-red-block-does-not-stop-the-se-flow-run.md` — on `run-1786777192782` the `work` block gated red under `waive: "none"` and every successor ran anyway, `pr` included, so a PR was published after a gate said no. `se-flow.tsx` never reads `block.waive`.
+- `docs/issues/2026-08-15-004-work-block-planpath-prompt-returns-prose-not-an-envelope.md` — the reason that block was red: the `planPath` prompt asks for `ce-work mode:return-to-caller` without pinning the response shape, and the agent answered in prose over a correct code change.
+
+The throwaway repository still exists. The `gh` token has no `delete_repo` scope, so it must be removed by hand: `gh repo delete Seigiard/se-flow-pr-verification-2026-08-15 --yes` after `gh auth refresh -h github.com -s delete_repo`.

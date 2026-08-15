@@ -52,7 +52,7 @@ Scenario 1.4 deliberately breaks a run. Use a throwaway fixture run, never real 
 
 ## 2. Live end-to-end, success path (U4, U9)
 
-**Status: OPEN.** The PR path is unit-verified only. Opening a real PR pushes a branch to a real remote, which is outward-facing and needs the operator's say-so; it was not done unasked. The composed body and its secret scan are covered by tests — one asserts that no argument handed to `gh` contains a planted credential while the composed body still reaches it — but no live PR has been opened.
+**Status: PASSED, 2026-08-15**, on `run-1786777410571` against a throwaway private GitHub repository. All four pass criteria hold; see the Results entry. The run before it, `run-1786777192782`, opened a live PR too and surfaced a separate defect (`docs/issues/2026-08-15-003-...`).
 
 
 ```
@@ -225,3 +225,24 @@ flow: cost estimate probe
 The retry-ceiling total is the useful half — it is what an operator needs before approving a launch, and a per-block estimate alone hides it.
 
 The printout also validates the spec and refuses to print an invalid one, exiting non-zero with the validator's errors. A spec missing explicit `retries`/`timeoutMs` was rejected before launch during this session's testing, which is the intended behaviour: printing a plan for a flow that gate-0 would refuse would promise a launch that cannot start.
+
+### Section 2 — live end-to-end, success path: PASSED, 2026-08-15
+
+Two runs against a throwaway **private** GitHub repository created for this gate, `Seigiard/se-flow-pr-verification-2026-08-15`, holding the standard `tests/fixtures/make-pipeline-fixture.sh` fixture plus a planted bug: `slugify` in `src/slug.ts` keeps the source casing, two tests in `src/slug.test.ts` fail, and `docs/plans/fixture-slugify-bug-plan.md` describes the fix. The spec was bug-shaped and six blocks long — `work` → `commit-work` → `run-validate` → `proof-artifacts` → `secret-scan` → `pr` — chained by `after` only, launched with `--budget 12 --validate-cmd 'bun test'`. Both runs were detached, so nothing was attached to a terminal.
+
+**`run-1786777410571` is the run that passes all four criteria.** 88,285 tokens, $0.071, 36 seconds wall clock, twenty engine nodes, every one `finished`.
+
+- **Worktree + headless execution.** The `staging` row records `worktree_path=$TMPDIR/se-pipeline/se-slugify-in-src-slug-ts-keeps-the-source-77410571`, `branch=se/slugify-in-src-slug-ts-keeps-the-source-77410571`, `base_sha=a2b7339`. All six blocks reported green; `run-validate` recorded `exitCode 0` with the 3-pass bun output, so the fix is verified by the command rather than by the agent's word.
+- **A real PR.** https://github.com/Seigiard/se-flow-pr-verification-2026-08-15/pull/2, block row `{"result":"opened","url":"…/pull/2","redactionHits":[]}`. Its body carries the canonical spec JSON and the block-status table. **It does not carry the outcome record** — the body states in prose that the record is written by the epilog afterwards and names where it lives. That is the documented behaviour, not a regression, but the checklist's phrasing ("embeds the secret-scanned spec and the outcome record") overstates what the body actually contains.
+- **Record and archive.** `$TMPDIR/se-flow/run-1786777410571/outcome.json` plus `artifacts/artifacts-src-slug.ts` and `artifacts/artifacts-src-slug.test.ts`, `artifact_count=2`, `redaction_hits=[]`, keyed by runId. The worktree was gone after cleanup, so the archive is the only surviving copy.
+- **No issue file.** `disposition=clean-success`, `issue_path` empty, and the fixture repo has no `docs/issues/` directory at all with a clean `git status`. **This is the first live run to reach the clean-success branch** — section 3's entry recorded it as unit-tested only, because the reviewer had found an actionable optimization on every previous green fixture run. Here it did not: it reported `actionable_optimization=0` and argued the case, that extending the tests or broadening `slugify` would exceed the plan's locked scope. So the branch is now exercised, but on the strength of one reviewer judgement, not a guarantee.
+
+**`run-1786777192782`, the earlier run, opened a PR too** — https://github.com/Seigiard/se-flow-pr-verification-2026-08-15/pull/1 — and is the more interesting result. Its `fix` block went **red** while `commit`, `validate`, `artifacts`, `scan` and `open-pr` all ran green afterwards and the PR was published. The block was red for a shallow reason: with `input.planPath` set, the `work` block's prompt is `Execute the plan at … headless via ce-work mode:return-to-caller`, and the agent returned a prose summary instead of the return-to-caller envelope, so `parseWorkEnvelope` refused it. The underlying code change was correct — the same commit passed `bun test` in the next block. Attempt two swapped `planPath` for a `prompt` that spells the envelope out, and the block went green.
+
+That a red block did not stop the flow is a defect, not a quirk of this spec: `se-flow.tsx` contains zero references to `block.waive`, so the `none` policy the schema documents as "fails the run outright" is validated and then never enforced. Filed as `docs/issues/2026-08-15-003-a-red-block-does-not-stop-the-se-flow-run.md`.
+
+Two facts the parent issue asked to have on record, both confirmed: the PR body embeds block statuses **as of when the `pr` block executed** — both bodies show `open-pr | pr | non-terminal`, since the block cannot record its own terminal status before it finishes — and both PRs are authored by **Seigiard**, the `gh` account, not by the git author.
+
+**Not covered.** No approval gate was reached, so nothing in this section exercised `se approve`; the budget ceiling of $12 was never approached at $0.07. No secret was planted in this path, so the PR-boundary redaction is still only unit-tested — `redactionHits` was empty on both runs, which proves the scan ran and found nothing, not that it catches anything. The flow had no `bindTo` edges and no external or subflow block. Both runs finished; nothing tested a PR opened by a resumed run.
+
+The throwaway repository still exists. The `gh` token carries no `delete_repo` scope, so it cannot be removed from this side.
