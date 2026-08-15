@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { commandHeads, missingRunnerMessage, probeValidateCmd, segmentHead, selfProvisioning, shellQuote, splitSegments } from "./validate-probe.ts";
+import {
+  classifyValidateFailure,
+  commandHeads,
+  environmentFailureMessage,
+  missingModuleName,
+  missingRunnerMessage,
+  probeValidateCmd,
+  segmentHead,
+  selfProvisioning,
+  shellQuote,
+  splitSegments,
+} from "./validate-probe.ts";
 
 const resolvesAll = (): boolean => true;
 const resolvesNone = (): boolean => false;
@@ -109,6 +120,57 @@ describe("missingRunnerMessage", () => {
     expect(msg).toContain("--setup-cmd");
     expect(msg).toContain("--validate-cmd");
     expect(msg).toContain("vitest run");
+  });
+});
+
+describe("classifyValidateFailure", () => {
+  test("несобранный dist — это окружение, а не упавший тест (run-1786718288581)", () => {
+    // #given ровно тот вывод, за который заплатили дважды
+    const output =
+      " FAIL  workload-comparison/result.test.ts\nError: Cannot find module '/T/se-pipeline/se-…/engine/api/node_modules/@membranehq/sdk/dist/index.node.js'";
+
+    // #when команда вышла с кодом 1, как обычный провал тестов
+    const kind = classifyValidateFailure(1, output);
+
+    // #then классифицирована как проблема окружения
+    expect(kind).toBe("missing-module");
+  });
+
+  test("настоящий провал теста остаётся assertion — иначе сломается TDD-план", () => {
+    // #given план, задача которого — починить падающий тест
+    const output = "FAIL src/reverse.test.ts\nexpected 'cba' to be 'abc'\n1 failed";
+
+    // #then прогон не должен быть отказан из-за красного базового прогона
+    expect(classifyValidateFailure(1, output)).toBe("assertion");
+  });
+
+  test("отсутствующий раннер отделён от таймаута, оба дают 127", () => {
+    expect(classifyValidateFailure(127, "/bin/bash: vitest: command not found")).toBe("missing-runner");
+    expect(classifyValidateFailure(127, "partial\nterminated (timeout or signal)")).toBe("timeout");
+  });
+
+  test("питонья и бандлерная формулировки того же отказа тоже узнаются", () => {
+    expect(classifyValidateFailure(1, "ModuleNotFoundError: No module named 'requests'")).toBe("missing-module");
+    expect(classifyValidateFailure(1, "Failed to resolve import \"@app/ui\" from src/main.ts")).toBe("missing-module");
+  });
+});
+
+describe("missingModuleName", () => {
+  test("называет модуль, а не весь хвост вывода", () => {
+    expect(missingModuleName("Error: Cannot find module '@membranehq/sdk/dist/index.node.js'")).toBe("@membranehq/sdk/dist/index.node.js");
+  });
+
+  test("нераспознанная форма не выдумывает имя", () => {
+    expect(missingModuleName("something broke")).toBe(null);
+  });
+});
+
+describe("environmentFailureMessage", () => {
+  test("называет модуль, состояние worktree и способ починки", () => {
+    const msg = environmentFailureMessage("bun run test:scripts", "missing-module", "Cannot find module '@membranehq/sdk/dist/index.node.js'");
+    expect(msg).toContain('"@membranehq/sdk/dist/index.node.js"');
+    expect(msg).toContain("--setup-cmd");
+    expect(msg).toContain("not a failing test");
   });
 });
 

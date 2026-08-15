@@ -2,7 +2,8 @@
 title: A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it
 type: bug
 date: 2026-08-14
-status: open
+status: done
+closed: 2026-08-15
 ---
 
 # The runner is present, the built dist is not, and the gate reads it as a failing test
@@ -40,3 +41,39 @@ The path is inside the staged run worktree. The module is a workspace package's 
 - **Or whether a missing `--setup-cmd` should be refused when the repo looks like a workspace.** A lockfile plus a workspace field is a cheap signal, and refusing at launch costs nothing. It also refuses runs whose tests need no dist, which is most of them.
 - **Or whether provisioning should simply be the default.** `bun install` in the staged worktree on every run removes the common half of this class. It does not remove the dist half, which needs a build the pipeline cannot guess.
 - **Separately: the gate reason should distinguish a resolution failure from an assertion failure.** "Cannot find module" inside the output is a strong signal that the environment, not the code, is at fault, and the gate has the output in hand (`validateOutput` on `WorkGateInput`, added in issue 013). Naming it would have saved this run's second attempt, which repeated the same environment failure.
+
+## Resolution
+
+The validate-cmd is now executed **once at the base commit**, in the staged worktree, before the work agent is dispatched — and the run is refused only when that execution fails for an environmental reason.
+
+**Why a red baseline alone cannot be the trigger.** A plan whose job is to fix a failing test starts red by design; refusing on any non-zero exit would break that workflow entirely. So the preflight classifies instead of counting. `classifyValidateFailure` (`home/private_dot_claude/dot_smithers/workflows/lib/validate-probe.ts`) returns `missing-runner` (exit 127 without a termination marker), `timeout` (exit 127 with one), `missing-module` (the output carries a resolution failure in node/bun, python or bundler phrasing), or `assertion` for everything else. Only the first and third refuse. Everything unmatched falls through to `assertion`, which lets the run proceed — the safe direction, because a missed detection costs one work leg while a false refusal blocks a healthy launch.
+
+**Proof on real executions, not on strings.** Two fixture worktrees, both exiting 1:
+
+```
+envcase   exit=1  kind=missing-module  -> REFUSE before the work leg
+asscase   exit=1  kind=assertion       -> proceed to work
+```
+
+`envcase` imports `./node_modules/@acme/sdk/dist/index.node.js`, which is absent exactly as `@membranehq/sdk/dist/index.node.js` was on `run-1786718288581`. `asscase` runs cleanly and fails `expect("cba").toBe("abc")`. Same exit code, opposite decisions. The refusal reads:
+
+```
+validate-cmd fails in the staged run worktree before any work has been done: the module
+"./node_modules/@acme/sdk/dist/index.node.js" cannot be resolved. A fresh git worktree holds
+tracked files only — no node_modules, no built workspace dists — so this is the worktree's state,
+not a failing test, and no amount of agent work will fix it. Provision the worktree with
+--setup-cmd (e.g. --setup-cmd 'bun install && bunx turbo run build --filter=<pkg>'), or scope
+--validate-cmd to what a bare checkout can run. validate-cmd: bun test
+```
+
+**The gate reason uses the same classifier**, so a run that reaches the work gate with this failure is no longer told "validate-cmd exited with code 1". It is told which module failed to resolve and that this is the worktree's state. That is the fourth open decision above, and it is what would have stopped the second attempt from repeating the first.
+
+**The two preflight steps are ordered by cost.** The `command -v` probe from `docs/issues/2026-08-14-013-fresh-worktree-has-no-dependencies.md` runs first and answers the missing-runner case in milliseconds with a better message. The baseline execution runs second and catches everything the head-word check cannot see.
+
+**What this costs.** One extra full execution of the validate-cmd per run. The runbook already requires that command to be fast and narrow, and the alternative is what this issue records: a paid work leg, a red gate, and a diagnosis that points at the agent.
+
+**Not built:** refusing at launch when the repo merely *looks* like a workspace, and installing dependencies by default. Both guess. The baseline execution does not guess — it runs the actual command in the actual worktree and reads what actually happened.
+
+Verified: 437 bun tests, 12 of them new across `validate-probe.test.ts` and `gates.test.ts`, including the TDD case that must NOT be refused. `bunx smithers-orchestrator graph workflows/se-pipeline.tsx` loads with the extended `probe` output. Runbook updated.
+
+Uncovered: no live pipeline run has executed the baseline step. Its two parts are each proven — the classifier against real command executions above, the node's placement by workflow construction — but not their composition inside a run.

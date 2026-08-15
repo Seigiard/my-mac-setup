@@ -24,7 +24,7 @@ import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory 
 import { extractValidateCmd } from "./lib/plan.ts";
 import { aggregateUsage, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { parseWorkEnvelope, runValidateCmd, secretScanDiff, gitHead } from "./lib/envelopes.ts";
-import { missingRunnerMessage, probeValidateCmd, shellQuote } from "./lib/validate-probe.ts";
+import { classifyValidateFailure, environmentFailureMessage, missingRunnerMessage, probeValidateCmd, shellQuote } from "./lib/validate-probe.ts";
 import { gateAnnouncement, type GateNext } from "./lib/gate-announce.ts";
 import {
   acquireRepoLock,
@@ -106,7 +106,7 @@ const { Workflow, Task, Sequence, Parallel, Approval, smithers, outputs } = crea
   gate0: z.object({ planHash: z.string(), planPath: z.string(), until: z.string(), validateCmd: z.string(), validateTimeoutMs: z.number(), repoPath: z.string() }),
   staging: z.object({ worktreePath: z.string(), branch: z.string(), baseSha: z.string() }),
   setup: z.object({ exitCode: z.number() }),
-  probe: z.object({ probed: z.string(), skipped: z.boolean() }),
+  probe: z.object({ probed: z.string(), skipped: z.boolean(), baseline: z.string() }),
   docReview: docReviewSchema,
   // Mirror of se-simplify.tsx outputSchema (KTD-B) — only the fields the
   // pipeline reads are declared; smithers persists declared columns.
@@ -547,7 +547,20 @@ export default smithers((ctx) => {
           if (report.missing.length > 0) {
             throw new Error(missingRunnerMessage(gate0.validateCmd, report.missing));
           }
-          return { probed: report.probed.join(" "), skipped: report.skipped };
+          // The head words resolve; the command can still be unrunnable here
+          // because a bare worktree has no BUILT workspace dists, which exits 1
+          // and looks exactly like a failing test (run-1786718288581 paid for
+          // that twice). Running the command once at base separates the two.
+          const baseline = runValidateCmd(gate0.validateCmd, staged.worktreePath, gate0.validateTimeoutMs);
+          const kind = baseline.exitCode === 0 ? "green" : classifyValidateFailure(baseline.exitCode, baseline.output);
+          // A red baseline is NOT an error by itself: a plan whose job is to fix
+          // a failing test starts red by design. Only an environment failure is
+          // refused — no amount of agent work resolves a module that is absent.
+          if (kind === "missing-module" || kind === "missing-runner") {
+            throw new Error(`${environmentFailureMessage(gate0.validateCmd, kind, baseline.output)} Tail: ${baseline.output.slice(-500)}`);
+          }
+          console.error(`se-pipeline: baseline validate-cmd at ${staged.baseSha.slice(0, 12)} → ${kind}${kind === "assertion" ? " (red before work — the plan is expected to turn it green)" : ""}`);
+          return { probed: report.probed.join(" "), skipped: report.skipped, baseline: kind };
         }}
       </Task>,
     );

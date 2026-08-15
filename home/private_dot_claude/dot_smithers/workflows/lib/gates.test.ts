@@ -243,6 +243,23 @@ describe("describeValidateFailure", () => {
     expect(msg).toContain("could not run");
     expect(msg).not.toContain("not installed");
   });
+
+  test("несобранный модуль назван состоянием worktree, а не упавшим тестом", () => {
+    // #given exit 1 — тот же код, что у настоящего провала тестов
+    const output = "FAIL result.test.ts\nError: Cannot find module '@membranehq/sdk/dist/index.node.js'";
+
+    // #when
+    const msg = describeValidateFailure(1, output);
+
+    // #then причина называет модуль и способ починки
+    expect(msg).toContain('"@membranehq/sdk/dist/index.node.js"');
+    expect(msg).toContain("not a failing test");
+    expect(msg).toContain("--setup-cmd");
+  });
+
+  test("настоящий провал теста остаётся кодом возврата без домыслов", () => {
+    expect(describeValidateFailure(1, "expected 'cba' to be 'abc'\n1 failed")).toBe("validate-cmd exited with code 1");
+  });
 });
 
 describe("codeReviewGate", () => {

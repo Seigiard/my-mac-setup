@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import type { SecretScanResult } from "./envelopes.ts";
 import type { SeveritySummary } from "./severity-summary.ts";
+import { classifyValidateFailure, missingModuleName } from "./validate-probe.ts";
 
 export type GateState = "green" | "failed" | "degraded";
 
@@ -131,19 +132,26 @@ export function docReviewGate(output: DocReviewStageOutput | undefined): GateRes
 // bash reports a missing executable as `<shell>: <line>: <name>: command not
 // found` and exits 127. runValidateCmd also returns 127 when it kills the
 // command group on timeout, so the two are told apart by the output, never by
-// the code alone.
+// the code alone. A broken module resolution exits 1, exactly like a failing
+// assertion, and is told apart the same way.
 const COMMAND_NOT_FOUND = /([^\s:]+):\s*command not found/i;
 
 export function describeValidateFailure(exitCode: number, output?: string): string {
-  if (exitCode !== 127) return `validate-cmd exited with code ${exitCode}`;
-  const missing = output === undefined ? null : COMMAND_NOT_FOUND.exec(output);
-  if (missing) {
-    return `validate-cmd could not run: "${missing[1]}" is not installed in the run worktree (exit 127) — this is a missing runner, not a failing test. A fresh worktree has no node_modules; provision it with --setup-cmd, or name a runner the package manager resolves`;
+  if (output === undefined) {
+    return exitCode === 127 ? "validate-cmd could not run (exit 127: command not found, or terminated before it started)" : `validate-cmd exited with code ${exitCode}`;
   }
-  if (output !== undefined && output.includes("terminated (timeout or signal)")) {
-    return "validate-cmd was terminated before it finished (timeout or signal, reported as exit 127) — raise --validate-timeout-ms or scope the command narrower";
+  switch (classifyValidateFailure(exitCode, output)) {
+    case "missing-runner":
+      return `validate-cmd could not run: "${COMMAND_NOT_FOUND.exec(output)?.[1] ?? "the command"}" is not installed in the run worktree (exit 127) — this is a missing runner, not a failing test. A fresh worktree has no node_modules; provision it with --setup-cmd, or name a runner the package manager resolves`;
+    case "missing-module": {
+      const named = missingModuleName(output);
+      return `validate-cmd failed to resolve ${named === null ? "a module" : `"${named}"`} (exit ${exitCode}) — this is the worktree's state, not a failing test. A fresh worktree has no built workspace dists; provision it with --setup-cmd, or scope --validate-cmd to what a bare checkout can run`;
+    }
+    case "timeout":
+      return "validate-cmd was terminated before it finished (timeout or signal, reported as exit 127) — raise --validate-timeout-ms or scope the command narrower";
+    default:
+      return `validate-cmd exited with code ${exitCode}`;
   }
-  return "validate-cmd could not run (exit 127: command not found, or terminated before it started)";
 }
 
 export function workGate(input: WorkGateInput): GateResult {

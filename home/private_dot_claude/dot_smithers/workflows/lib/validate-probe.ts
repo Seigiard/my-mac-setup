@@ -103,3 +103,47 @@ export function segmentHead(segment: string): string | null {
 export function shellQuote(word: string): string {
   return `'${word.replaceAll("'", `'\\''`)}'`;
 }
+
+// Why a validate-cmd failed, which decides who has to act. "assertion" is the
+// code's problem and belongs to the work agent. The other three are the
+// worktree's problem and no amount of agent work fixes them — on
+// run-1786718288581 the same environment failure was paid for twice, because
+// exit 1 with a broken module resolution is indistinguishable from a failing
+// test if you only read the exit code.
+export type ValidateFailureKind = "missing-runner" | "missing-module" | "timeout" | "assertion";
+
+const COMMAND_NOT_FOUND = /([^\s:]+):\s*command not found/i;
+// The vocabulary every runtime uses for "the file this import names is not on
+// disk": node/bun, python, and the bundlers. Deliberately not exhaustive — an
+// unmatched message falls through to "assertion", which is the safe direction,
+// because it lets the run proceed rather than refusing a healthy launch.
+const MISSING_MODULE =
+  /(cannot find module|module not found|module_not_found|modulenotfounderror|no module named|cannot find package|failed to resolve import|cannot resolve entry)/i;
+const TERMINATED = "terminated (timeout or signal)";
+
+export function classifyValidateFailure(exitCode: number, output: string): ValidateFailureKind {
+  if (exitCode === 127) return output.includes(TERMINATED) ? "timeout" : "missing-runner";
+  if (MISSING_MODULE.test(output)) return "missing-module";
+  return "assertion";
+}
+
+// The module path from the first "Cannot find module '<path>'" the runtime
+// printed, so the refusal can name what is absent instead of the whole tail.
+export function missingModuleName(output: string): string | null {
+  const quoted = /(?:cannot find module|cannot find package|no module named)\s+['"`]([^'"`]+)['"`]/i.exec(output);
+  return quoted ? quoted[1] : null;
+}
+
+export function environmentFailureMessage(cmd: string, kind: ValidateFailureKind, output: string): string {
+  const named = missingModuleName(output);
+  const what =
+    kind === "missing-runner"
+      ? `the runner ${COMMAND_NOT_FOUND.exec(output)?.[1] ?? "(unnamed)"} is not installed`
+      : `${named === null ? "a module" : `the module "${named}"`} cannot be resolved`;
+  return [
+    `validate-cmd fails in the staged run worktree before any work has been done: ${what}.`,
+    "A fresh git worktree holds tracked files only — no node_modules, no built workspace dists — so this is the worktree's state, not a failing test, and no amount of agent work will fix it.",
+    "Provision the worktree with --setup-cmd (e.g. --setup-cmd 'bun install && bunx turbo run build --filter=<pkg>'), or scope --validate-cmd to what a bare checkout can run.",
+    `validate-cmd: ${cmd}`,
+  ].join(" ");
+}
