@@ -75,7 +75,7 @@ Coverage: local personas: <list>; external claude: <ok | failed>; external openc
 
 **Delivery by mode:**
 
-- **Interactive:** print the synthesis, then for unresolved Consensus/Unique/Contradiction findings offer the standard routing (walk through / apply best judgment / append to Open Questions / report only) via AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`).
+- **Interactive:** print the synthesis, then for unresolved Consensus/Unique/Contradiction findings offer the standard routing (walk through / apply best judgment / append to Open Questions / report only) via AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`). On walk through: one finding per turn, each as a self-contained decision brief — the finding in plain words with no persona or envelope jargon, what is being decided, the options with their consequences, your recommendation. Wait for the answer before the next finding.
 - **Headless:** append the synthesis to the local review's envelope and return the combined text to the caller. No questions — the caller (e.g. se-plan) decides.
 
 `/tmp/ce-doc-review/run-*` dirs are ephemeral tmp — leave them; no cleanup inside the repo is ever needed.

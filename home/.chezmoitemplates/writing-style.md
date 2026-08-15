@@ -53,6 +53,18 @@ Write in controlled natural language: the sentence mechanics of ASD-STE100 (Simp
 - Expand acronyms and project-local jargon once — including any term you invented yourself earlier in the session.
 - Never refer to plan/brainstorm artifacts by bare ID (`KT-0`, `U-12`, `P3`, `iteration 4`, `Q2`). The user does not remember what they mean. Say the thing, ID in parens at most: "the token-refresh unit (U-12)". Same for ticket IDs — name the issue.
 
+**Asking for a decision**
+
+- A report turn carries no questions. Deliver the report, end the turn; ask the first decision next turn. A question at the bottom of a status report gets lost — the reader is out of attention by then.
+- One decision per turn. Walk open questions one at a time; ask the next only after the user answers the current one.
+- Every decision request is a self-contained brief with four parts, in order:
+  1. **The thing** — what it is in plain words. No session-local labels; the reader has not followed your work.
+  2. **The decision** — what exactly is being decided, and what it blocks.
+  3. **Options** — 2–3, each with its consequence stated.
+  4. **Recommendation** — one option and why.
+- The brief format applies everywhere a decision is asked: prose, AskUserQuestion option descriptions, pipeline approval pauses, PR-blocker reports.
+- A decision question a reader cannot answer without asking "в чём вопрос?" is a defect, not a style preference.
+
 **Turn mechanics**
 
 - Explanation and question tool call never share a turn — prose before a tool call may not render. Explain, END the turn; ask next turn with self-sufficient option descriptions.

@@ -35,7 +35,7 @@ Structure the research narrative HTML (pf-cycle → artifact storage + HTML mech
 
 ## Present and iterate
 
-Present the research narrative in chat: the published artifact link plus a tight summary of the vision and the open questions. Fold feedback in and republish until the user confirms the narrative matches the theory in their head — run the **missing-prior analysis** (pf-cycle) on every round: feedback that reveals a missing prior updates repo context, not just the narrative.
+Present the research narrative in chat: the published artifact link plus a tight summary of the vision and the open questions. When the user starts answering the open questions, walk them one per turn, each as a self-contained decision brief: the question in plain words with no session labels, the options with their consequences, your recommendation. Fold feedback in and republish until the user confirms the narrative matches the theory in their head — run the **missing-prior analysis** (pf-cycle) on every round: feedback that reveals a missing prior updates repo context, not just the narrative.
 
 **Pure research — no Linear writes.** This step changes nothing anywhere: no epic, no issues, no comments. If an epic already exists, read it as history and store artifacts under its id; otherwise store them under a short kebab topic slug (`~/.claude/artifacts/<topic-slug>/`). The whole cycle works off this directory — Linear stays untouched unless the user explicitly asks for it (pf-cycle → Linear is opt-in).
 
