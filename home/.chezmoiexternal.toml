@@ -15,3 +15,10 @@ url = "https://github.com/dexhorthy/slopfiles/archive/refs/heads/main.tar.gz"
 include = ["*/plugins/improve-claude-md/skills/improve-claude-md/**"]
 stripComponents = 5
 refreshPeriod = "168h"
+
+[".claude/skills/architecture-designer"]
+type = "archive"
+url = "https://github.com/Jeffallan/claude-skills/archive/refs/heads/main.tar.gz"
+include = ["*/skills/architecture-designer/**"]
+stripComponents = 3
+refreshPeriod = "168h"
