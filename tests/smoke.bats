@@ -259,6 +259,10 @@ TOML
   assert_file_exists "$HOME/.claude/skills/eli5/SKILL.md"
 }
 
+@test "open-questions skill is deployed" {
+  assert_file_exists "$HOME/.claude/skills/open-questions/SKILL.md"
+}
+
 @test "writing-for-agents skill is deployed with its mechanics reference" {
   assert_file_exists "$HOME/.claude/skills/writing-for-agents/SKILL.md"
   assert_file_exists "$HOME/.claude/skills/writing-for-agents/SKILL-MECHANICS.md"

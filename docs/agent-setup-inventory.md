@@ -58,6 +58,7 @@ https://ccsafetynet.com/docs/installation
 | improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
 | linear            | `gh:schpet/linear-cli`              | chezmoi-ext |
 | markdown-new      | `repo`                              | repo        |
+| open-questions    | `repo`                              | repo        |
 | se-code-review    | `repo` (local CE wrapper)           | repo        |
 | se-doc-review     | `repo` (local CE wrapper)           | repo        |
 | se-plan           | `repo` (local CE wrapper)           | repo        |
