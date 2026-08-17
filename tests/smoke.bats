@@ -270,6 +270,11 @@ TOML
   assert_file_exists "$HOME/.claude/skills/work-summary/references/report-format.md"
 }
 
+@test "vector-prime skill is deployed with its request helper" {
+  assert_file_exists "$HOME/.claude/skills/vector-prime/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/vector-prime/scripts/vp.sh"
+}
+
 @test "every skill description survives YAML parsing" {
   # An unquoted YAML scalar ends at " #" (comment) and cannot contain ": ".
   # Both truncate or invalidate the description, which is how the agent finds
