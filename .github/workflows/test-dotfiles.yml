@@ -12,6 +12,13 @@ env:
   # Runners lack node's release GPG key, so mise's signature check on
   # `node@lts` fails. Skip it in CI; local installs keep verification.
   MISE_NODE_VERIFY: "false"
+  # `brew cleanup` runs after every formula and deletes stale downloads from a
+  # cache that parallel installs are still writing. When it loses that race it
+  # exits non-zero, which `brew bundle` counts as a failed dependency and the
+  # whole apply fails on a formula that actually installed. The Docker runner
+  # already disables it (docker/Dockerfile.ubuntu); the workflow now matches.
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
 
 jobs:
   test-ubuntu:
@@ -69,8 +76,12 @@ jobs:
       # `chezmoi apply` provisions the deployed runtime at ~/.claude/.smithers,
       # but tests/scripts.bats runs `se` straight from the checkout, whose
       # SMITHERS_DIR is the adjacent home/private_dot_claude/dot_smithers.
-      # Without bun and node_modules there, six `se` tests fail on the missing
+      # Without node_modules there, six `se` tests fail on the missing
       # dependency instead of on the behavior they assert.
+      #
+      # The Brewfile does install bun, but into Linuxbrew's prefix, which this
+      # job never puts on PATH; setup-bun keeps that independent of the apply
+      # rather than exposing every brewed binary to the test step.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
