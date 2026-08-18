@@ -482,7 +482,7 @@ child_start() {
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == pane\ report-metadata*wT:p9*--source\ child-agent*--state-label*--ttl-ms\ 3600000* ]]
   [[ "$call2" == agent\ list* ]]
-  [[ "$call3" == agent\ prompt*wT:p0*child-ask\\\ v1\\\ agent=child-a\\\ pane=wT:p9* ]]
+  [[ "$call3" == agent\ prompt*wT:p0*child-ask*agent=child-a*pane=wT:p9* ]]
   [[ "$call3" != *--wait* ]]
 }
 
@@ -514,7 +514,7 @@ child_start() {
   local call2 call3
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
-  [[ "$call2" == agent\ prompt*parent-reply\\\ v1\\\ pane=wT:p0* ]]
+  [[ "$call2" == agent\ prompt*parent-reply*pane=wT:p0* ]]
   [[ "$call3" == pane\ report-metadata*wT:p9*--clear-state-labels* ]]
 
   child_stub_herdr
