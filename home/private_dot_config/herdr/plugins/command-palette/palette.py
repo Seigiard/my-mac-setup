@@ -250,6 +250,66 @@ def command_kind(raw: dict[str, Any]) -> str:
     return kind
 
 
+SHELL_BEARING_KINDS = {"shell", "overlay_shell", "pane_run", "tab_run"}
+BARE_VALUE_PLACEHOLDER = "{value}"
+
+
+def forwards_to_shell(args: list[Any]) -> bool:
+    """Does this herdr argv hand a command string to a shell on the far side?
+
+    `herdr pane run <pane> <cmd>` does: Python never shell-parses the argv, but
+    herdr runs the last argument in the pane's shell. So a bare {value} there
+    reaches a shell just as surely as it does in a `shell` command.
+    """
+    return [str(item) for item in args[:2]] == ["pane", "run"]
+
+
+def shell_bearing_strings(raw: dict[str, Any], kind: str) -> list[str]:
+    """Every string in a command that a shell will parse."""
+    values: list[str] = []
+    if kind in SHELL_BEARING_KINDS:
+        command = raw.get("command")
+        if isinstance(command, str):
+            values.append(command)
+    if kind == "herdr":
+        args = raw.get("args")
+        if isinstance(args, list) and forwards_to_shell(args):
+            values.extend(str(item) for item in args)
+    return values
+
+
+def interactive_child_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    """The nested command a select/form runs once it has a value."""
+    run = raw.get("run")
+    if isinstance(run, dict):
+        return dict(run)
+    child = {key: value for key, value in raw.items() if key not in {"options", "form", "prompt", "placeholder"}}
+    child["type"] = raw.get("run_type") or "shell"
+    return child
+
+
+def validate_value_quoting(raw: dict[str, Any], title: str, source: str, kind: str) -> None:
+    """Refuse a form or select value interpolated into a shell string unquoted.
+
+    Reproduced: a value of `a; touch /tmp/PWNED #` turns `echo {value}` into
+    `echo a; touch /tmp/PWNED #`. `{value_q}` shell-quotes it and `{value_url}`
+    percent-encodes it, so both stay inside their argument.
+    """
+    if kind in {"select", "form"}:
+        child = interactive_child_raw(raw)
+        targets = shell_bearing_strings(child, command_kind(child) or "shell")
+    else:
+        targets = shell_bearing_strings(raw, kind)
+
+    for text in targets:
+        if BARE_VALUE_PLACEHOLDER in text:
+            raise ValueError(
+                f"command '{title}' ({source}) interpolates a bare {BARE_VALUE_PLACEHOLDER} "
+                "into a shell command. Use {value_q}: a value containing a space, a quote or a "
+                "semicolon otherwise changes the command that runs."
+            )
+
+
 def validate_shortcuts(raw: dict[str, Any], title: str, source: str) -> tuple[str, ...]:
     """Read and check the optional per-command `shortcuts` list.
 
@@ -297,6 +357,7 @@ def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> None:
             options = raw.get("options")
             if not isinstance(options, list) or not any(isinstance(option, dict) and option.get("label") for option in options):
                 raise ValueError(f"command '{title}' ({source}) select commands need at least one labeled option")
+    validate_value_quoting(raw, title, source, kind)
 
 
 def command_from_raw(item: dict[str, Any], source: str, origin: str) -> Command:
@@ -1612,12 +1673,7 @@ def command_environment(variables: dict[str, str]) -> dict[str, str]:
 
 
 def interactive_run_raw(command: Command) -> dict[str, Any]:
-    run = command.raw.get("run")
-    if isinstance(run, dict):
-        merged = dict(run)
-    else:
-        merged = {key: value for key, value in command.raw.items() if key not in {"options", "form", "prompt", "placeholder"}}
-        merged["type"] = command.raw.get("run_type") or "shell"
+    merged = interactive_child_raw(command.raw)
     merged.setdefault("title", command.title)
     merged.setdefault("description", command.description)
     merged.setdefault("group", command.group)

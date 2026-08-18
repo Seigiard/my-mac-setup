@@ -187,6 +187,14 @@ String fields support these placeholders:
 - `{project_root}`, `{project_root_q}` when a project-local command directory is found
 - `{value}`, `{value_q}`, `{value_url}` for `select` and `form` commands
 
+**A `{value}` in a shell command is rejected by `--validate`.** It is
+substituted verbatim, so a value of `a; touch /tmp/PWNED #` turns `echo
+{value}` into two commands. Use `{value_q}`, which shell-quotes it, or
+`{value_url}`, which percent-encodes it for a URL. This covers `shell`,
+`overlay_shell`, `pane_run` and `tab_run`, and also a `herdr` argv array that
+invokes `pane run` — herdr runs that argument in the target pane's shell, so
+the argv being unparsed by Python does not make it safe.
+
 Shell commands also receive `HERDR_COMMAND_PALETTE_*` environment variables for
 the config path, target pane/cwd, plugin root, state dir, and selected/input
 value.

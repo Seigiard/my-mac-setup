@@ -582,6 +582,95 @@ run_opener() {
   assert_failure
 }
 
+# ===========================================
+# U8 -- a form value must not be interpolated into a shell string unquoted
+# ===========================================
+
+validate_fixture() {
+  cat > "$PALETTE_WORK/fixture.toml"
+  python3 "$PALETTE_DIR/palette.py" --validate "$PALETTE_WORK/fixture.toml"
+}
+
+@test "R7: a bare {value} in a shell command is rejected, naming {value_q}" {
+  run validate_fixture <<'TOML'
+name = "Search"
+type = "form"
+command = "echo {value}"
+
+[form]
+prompt = "Search for"
+TOML
+  assert_failure
+  assert_output --partial "{value_q}"
+  assert_output --partial "Search"
+}
+
+@test "R7: {value_q} and {value_url} are accepted" {
+  run validate_fixture <<'TOML'
+name = "Quoted"
+type = "form"
+command = "echo {value_q}"
+
+[form]
+prompt = "Search for"
+TOML
+  assert_success
+
+  run validate_fixture <<'TOML'
+name = "Url"
+type = "form"
+command = "open 'https://example.com/?q={value_url}'"
+
+[form]
+prompt = "Search for"
+TOML
+  assert_success
+}
+
+@test "R7: a bare {value} in a herdr argv array is accepted" {
+  run validate_fixture <<'TOML'
+name = "Rename"
+type = "form"
+run_type = "herdr"
+args = ["pane", "rename", "{value}"]
+
+[form]
+prompt = "New label"
+TOML
+  assert_success
+}
+
+@test "R7: a bare {value} in a herdr argv array that runs a shell is rejected" {
+  run validate_fixture <<'TOML'
+name = "Run there"
+type = "form"
+run_type = "herdr"
+args = ["pane", "run", "{target_pane}", "{value}"]
+
+[form]
+prompt = "Command"
+TOML
+  assert_failure
+  assert_output --partial "{value_q}"
+}
+
+@test "R7: a bare {value} in a nested [run] table is rejected" {
+  run validate_fixture <<'TOML'
+name = "Nested"
+type = "select"
+
+[[options]]
+label = "One"
+value = "one"
+
+[run]
+type = "tab_run"
+command = "echo {value}"
+TOML
+  assert_failure
+  assert_output --partial "{value_q}"
+}
+
 @test "R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH" {
   local stub="$PALETTE_WORK/nofzf"
   mkdir -p "$stub"
