@@ -15,7 +15,17 @@ import sys
 from typing import Any
 
 PLUGIN_ID = "seigi.command-palette"
-PALETTE_SCRIPT = "palette.py"
+
+# How an open palette pane identifies itself.
+#
+# The pane label cannot do this job. herdr sets it to the manifest title at
+# creation and then overwrites it with a cwd-derived label a second or two
+# later -- measured on 0.8.0: "Command Palette" at +1s, "~" at +4s -- and an
+# explicit `pane rename` is overwritten the same way. Plugin-owned metadata is
+# a separate channel that the relabel does not touch, and `herdr pane list`
+# returns it, so one call answers "is a palette already open here".
+PALETTE_TOKEN = "command_palette"
+PALETTE_TOKEN_VALUE = "open"
 
 
 def context_data() -> dict[str, Any]:
@@ -81,35 +91,47 @@ def json_result(command: list[str]) -> dict[str, Any]:
     return result_data if isinstance(result_data, dict) else {}
 
 
-def process_is_palette(process: dict[str, Any]) -> bool:
-    argv = process.get("argv")
-    argv_text = " ".join(str(item) for item in argv) if isinstance(argv, list) else ""
-    cmdline = str(process.get("cmdline") or "")
-    cwd = str(process.get("cwd") or "")
-    combined = " ".join(part for part in (argv_text, cmdline, cwd) if part)
-    return PALETTE_SCRIPT in combined and "command-palette" in combined
+def pane_is_palette(pane: dict[str, Any]) -> bool:
+    tokens = pane.get("tokens")
+    return isinstance(tokens, dict) and tokens.get(PALETTE_TOKEN) == PALETTE_TOKEN_VALUE
 
 
-def pane_runs_palette(herdr: str, pane_id: str) -> bool:
-    if not pane_id:
-        return False
-    info = json_result([herdr, "pane", "process-info", "--pane", pane_id]).get("process_info")
-    if not isinstance(info, dict):
-        return False
-    processes = info.get("foreground_processes")
-    if not isinstance(processes, list):
-        return False
-    return any(isinstance(process, dict) and process_is_palette(process) for process in processes)
-
-
-def pane_workspace_id(herdr: str, pane_id: str) -> str:
-    if not pane_id:
+def opened_pane_id(stdout: str) -> str:
+    """The pane id from a `herdr plugin pane open` response."""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
         return ""
-    pane = json_result([herdr, "pane", "get", pane_id]).get("pane")
-    if not isinstance(pane, dict):
+    if not isinstance(data, dict):
         return ""
-    workspace_id = pane.get("workspace_id")
-    return workspace_id if isinstance(workspace_id, str) else ""
+    plugin_pane = data.get("result", {}).get("plugin_pane") if isinstance(data.get("result"), dict) else None
+    pane = plugin_pane.get("pane") if isinstance(plugin_pane, dict) else None
+    pane_id = pane.get("pane_id") if isinstance(pane, dict) else None
+    return pane_id if isinstance(pane_id, str) else ""
+
+
+def mark_palette_pane(herdr: str, pane_id: str) -> None:
+    """Stamp a freshly opened palette pane so the next keypress can find it."""
+    if not pane_id:
+        return
+    try:
+        subprocess.run(
+            [
+                herdr,
+                "pane",
+                "report-metadata",
+                pane_id,
+                "--source",
+                PLUGIN_ID,
+                "--token",
+                f"{PALETTE_TOKEN}={PALETTE_TOKEN_VALUE}",
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
 
 
 def current_pane_id(herdr: str) -> str:
@@ -128,10 +150,10 @@ def workspace_palette_pane(herdr: str, workspace_id: str) -> str:
     if not isinstance(panes, list):
         return ""
     for pane in panes:
-        if not isinstance(pane, dict):
+        if not isinstance(pane, dict) or not pane_is_palette(pane):
             continue
         pane_id = pane.get("pane_id")
-        if isinstance(pane_id, str) and pane_runs_palette(herdr, pane_id):
+        if isinstance(pane_id, str) and pane_id:
             return pane_id
     return ""
 
@@ -166,10 +188,16 @@ def main() -> int:
     # the process can repeat indefinitely. If the focused/current pane is the
     # palette, or this workspace already has one, just keep/focus the existing
     # overlay instead of creating a nested one.
-    if pane_runs_palette(herdr, target_pane):
+    #
+    # The guard matches the palette's own metadata token. It used to substring
+    # match "palette.py" against a pane's argv, cmdline and cwd, which an editor
+    # with the file open, a grep over it, or an agent discussing it all satisfy.
+    current_pane = json_result([herdr, "pane", "get", target_pane]).get("pane") if target_pane else None
+    if isinstance(current_pane, dict) and pane_is_palette(current_pane):
         focus_plugin_pane(herdr, target_pane)
         return 0
-    existing_palette = workspace_palette_pane(herdr, pane_workspace_id(herdr, target_pane))
+    workspace_id = current_pane.get("workspace_id") if isinstance(current_pane, dict) else ""
+    existing_palette = workspace_palette_pane(herdr, workspace_id if isinstance(workspace_id, str) else "")
     if existing_palette:
         focus_plugin_pane(herdr, existing_palette)
         return 0
@@ -203,9 +231,12 @@ def main() -> int:
         command.extend(["--env", f"HERDR_COMMAND_PALETTE_CONFIG={test_config}"])
 
     try:
-        subprocess.run(command, check=True)
+        opened = subprocess.run(command, check=True, text=True, capture_output=True)
     except Exception as exc:  # pragma: no cover - defensive notification path
         message = str(exc)
+        stderr = getattr(exc, "stderr", "") or ""
+        if stderr:
+            message = f"{message}\n{stderr}"
         try:
             subprocess.run(
                 [herdr, "notification", "show", "Command palette failed", "--body", message],
@@ -215,6 +246,8 @@ def main() -> int:
             pass
         print(message, file=sys.stderr)
         return 1
+
+    mark_palette_pane(herdr, opened_pane_id(opened.stdout))
     return 0
 
 

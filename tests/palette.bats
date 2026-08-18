@@ -487,6 +487,101 @@ PY
   assert_output --partial "tab_run clean"
 }
 
+# ===========================================
+# U6 -- finding an already-open palette
+# ===========================================
+
+# A `herdr` on PATH for open.py. MODE decides what `pane list` reports:
+#   token -- a pane carrying the palette's own metadata token
+#   argv  -- a pane that merely MENTIONS palette.py (an editor, a grep, an agent)
+#   none  -- no palette anywhere
+stub_opener_herdr() {
+  local dir="$1" mode="$2"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'LOG=%s/herdr.log\n' "$dir"
+    printf 'MODE=%s\n' "$mode"
+  } > "$dir/herdr"
+  cat >> "$dir/herdr" <<'SH'
+printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in
+  "pane current") printf '{"result":{"pane":{"pane_id":"w1:p1","workspace_id":"w1"}}}\n' ;;
+  "pane get") printf '{"result":{"pane":{"pane_id":"%s","workspace_id":"w1","tokens":{}}}}\n' "$3" ;;
+  "pane list")
+    case "$MODE" in
+      token) printf '{"result":{"panes":[{"pane_id":"w1:pP","label":"~","tokens":{"command_palette":"open"}}]}}\n' ;;
+      argv)  printf '{"result":{"panes":[{"pane_id":"w1:pE","label":"nvim palette.py","terminal_title":"python3 /x/command-palette/palette.py","tokens":{}}]}}\n' ;;
+      *)     printf '{"result":{"panes":[{"pane_id":"w1:p1","label":"zsh","tokens":{}}]}}\n' ;;
+    esac ;;
+  "pane process-info")
+    # Only the argv mode answers this, and it answers the way the old
+    # substring guard was fooled: a process that merely mentions palette.py.
+    [ "$MODE" = argv ] && printf '{"result":{"process_info":{"foreground_processes":[{"argv":["nvim","palette.py"],"cwd":"/x/command-palette"}]}}}\n'
+    ;;
+  "pane report-metadata") printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
+  "plugin pane")
+    [ "$3" = open ] && printf '{"result":{"plugin_pane":{"pane":{"pane_id":"w1:pNEW","workspace_id":"w1"}}}}\n'
+    ;;
+  *) : ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/herdr"
+}
+
+run_opener() {
+  local dir="$1"
+  env HERDR_BIN_PATH="$dir/herdr" HERDR_PANE_ID="w1:p1" python3 "$PALETTE_DIR/open.py"
+}
+
+@test "R6: an open palette is found and focused instead of opening a second" {
+  stub_opener_herdr "$PALETTE_WORK/token" token
+  run run_opener "$PALETTE_WORK/token"
+  assert_success
+
+  run cat "$PALETTE_WORK/token/herdr.log"
+  assert_success
+  assert_output --partial "plugin pane focus w1:pP"
+  refute_output --partial "plugin pane open"
+}
+
+@test "R6: a pane that merely mentions palette.py is not the palette" {
+  stub_opener_herdr "$PALETTE_WORK/argv" argv
+  run run_opener "$PALETTE_WORK/argv"
+  assert_success
+
+  run cat "$PALETTE_WORK/argv/herdr.log"
+  assert_success
+  assert_output --partial "plugin pane open"
+  refute_output --partial "plugin pane focus"
+}
+
+@test "R6: with no palette pane present, one is opened and marked" {
+  stub_opener_herdr "$PALETTE_WORK/none" none
+  run run_opener "$PALETTE_WORK/none"
+  assert_success
+
+  run cat "$PALETTE_WORK/none/herdr.log"
+  assert_success
+  assert_output --partial "plugin pane open"
+  assert_output --partial "pane report-metadata w1:pNEW"
+  assert_output --partial "command_palette=open"
+}
+
+@test "R6: the lookup costs one pane list and no process-info calls" {
+  stub_opener_herdr "$PALETTE_WORK/count" token
+  run run_opener "$PALETTE_WORK/count"
+  assert_success
+
+  run grep -c '^pane list' "$PALETTE_WORK/count/herdr.log"
+  assert_success
+  assert_output "1"
+
+  run grep -c 'process-info' "$PALETTE_WORK/count/herdr.log"
+  assert_failure
+}
+
 @test "R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH" {
   local stub="$PALETTE_WORK/nofzf"
   mkdir -p "$stub"

@@ -96,10 +96,10 @@ spec=importlib.util.spec_from_file_location("palette_open", path)
 mod=importlib.util.module_from_spec(spec)
 sys.modules[spec.name]=mod
 spec.loader.exec_module(mod)
-assert mod.process_is_palette({"argv": ["python3", "palette.py"], "cwd": "/tmp/command-palette"})
-assert mod.process_is_palette({"cmdline": "python3 /tmp/command-palette/palette.py"})
-assert not mod.process_is_palette({"argv": ["vim", "palette.py"], "cwd": "/tmp/other-plugin"})
-assert not mod.process_is_palette({"argv": ["python3", "open.py"], "cwd": "/tmp/command-palette"})
+token = {mod.PALETTE_TOKEN: mod.PALETTE_TOKEN_VALUE}
+assert mod.pane_is_palette({"pane_id": "pane-1", "tokens": token})
+assert not mod.pane_is_palette({"pane_id": "pane-2", "tokens": {}})
+assert not mod.pane_is_palette({"pane_id": "pane-3", "label": "nvim palette.py"})
 
 class Result:
     def __init__(self, stdout=""):
@@ -112,8 +112,8 @@ def fake_run(command, **kwargs):
     calls.append(command)
     if command[:3] == ["herdr", "pane", "current"]:
         return Result('{"result":{"pane":{"pane_id":"pane-1"}}}')
-    if command[:3] == ["herdr", "pane", "process-info"]:
-        return Result('{"result":{"process_info":{"foreground_processes":[{"argv":["python3","palette.py"],"cwd":"/tmp/command-palette"}]}}}')
+    if command[:3] == ["herdr", "pane", "get"]:
+        return Result('{"result":{"pane":{"pane_id":"pane-1","workspace_id":"w1","tokens":{"command_palette":"open"}}}}')
     if command[:4] == ["herdr", "plugin", "pane", "focus"]:
         return Result()
     raise AssertionError(command)
