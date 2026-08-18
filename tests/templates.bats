@@ -109,6 +109,20 @@ teardown() {
   assert_success
 }
 
+@test "opencode.json.tmpl grants unbounded external-directory reads without changing integrations" {
+  command_exists jq || skip "jq is required"
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  run jq -r '.permission.external_directory["*"]' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output "allow"
+
+  run jq -r '[.mcp.fff.command[0], (.provider.openrouter.models | has("qwen/qwen3-coder:free")), .plugin[0]] | @tsv' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output $'fff-mcp\ttrue\tcompound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git'
+}
+
 @test "opencode.json.tmpl renders with no unresolved template markers" {
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"

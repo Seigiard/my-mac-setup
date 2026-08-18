@@ -14,6 +14,8 @@ The plan accepts that breadth on one condition, stated in its Key Decisions: san
 
 That condition had no file behind it. The plan's own dependency note prices the gap plainly: between applying the read grant and shipping a sandbox, every opencode session on this machine reads credential-bearing paths without a prompt. All three legs of the plan's review — the local one, an external review on claude, and an external review on opencode — independently flagged that the mitigation carrying the decision was untracked. This file is the tracking.
 
+The launch-contract implementation expresses the accepted breadth as `"*": "allow"` under `permission.external_directory`. This issue records the rationale because the JSON configuration cannot carry comments: the broad grant removes recurring child stalls, and the future sandbox must contain the resulting machine-wide access.
+
 ## Scope
 
 Contain what a child agent can reach on the filesystem, so that opening its read permissions stops being a machine-wide grant.
