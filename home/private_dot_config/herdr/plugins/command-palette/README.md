@@ -187,8 +187,10 @@ String fields support these placeholders:
 - `{project_root}`, `{project_root_q}` when a project-local command directory is found
 - `{value}`, `{value_q}`, `{value_url}` for `select` and `form` commands
 
-**A `{value}` in a shell command is rejected by `--validate`.** It is
-substituted verbatim, so a value of `a; touch /tmp/PWNED #` turns `echo
+**A `{value}` in a shell command is rejected when the command is loaded** —
+by `--validate`, and equally by opening the palette, so an unchecked
+project-local command does not sit inert. It is substituted verbatim, so a
+value of `a; touch /tmp/PWNED #` turns `echo
 {value}` into two commands. Use `{value_q}`, which shell-quotes it, or
 `{value_url}`, which percent-encodes it for a URL. This covers `shell`,
 `overlay_shell`, `pane_run` and `tab_run`, and also a `herdr` argv array that

@@ -43,6 +43,12 @@ FZF_TIMEOUT_SECONDS = 2
 # stuck server, not a busy one.
 HERDR_CALL_TIMEOUT_SECONDS = 2
 
+# open.py stamps the palette's pane with this token so a second press of the
+# keybinding finds the open palette instead of nesting a new one. Both values
+# must match the ones in open.py.
+PALETTE_PLUGIN_ID = "seigi.command-palette"
+PALETTE_TOKEN = "command_palette"
+
 try:
     locale.setlocale(locale.LC_ALL, "")
 except locale.Error:
@@ -556,32 +562,46 @@ def fzf_filter(query: str, values: list[str], fzf: str) -> list[int] | None:
     --accept-nth {1} returns the index, so what is matched and what is returned
     stay independent of what is displayed. --delimiter is not optional: fzf's
     default is AWK whitespace, which would split a value with a space in it.
+    -i is not optional either: fzf defaults to smart case, so an uppercase
+    letter in the query would switch it to case-sensitive matching while the
+    shortcut tier keeps case-folding, and `Git` would find nothing.
 
-    None means the call produced no well-formed answer -- it timed out. The
-    caller keeps the palette and the typed query alive rather than tearing both
-    down over one unanswered call; the next keystroke retries.
+    None means the call produced no well-formed answer: it timed out, the binary
+    would not run, or it exited with a code that is neither a match (0) nor a
+    clean miss (1). The caller keeps the palette and the typed query alive
+    rather than tearing both down over one bad call, and last_search_status()
+    carries what went wrong. Nothing here raises into the curses loop -- an
+    exception there ends as a traceback in a popup pane that no one can read.
     """
+    global _search_status
+
     if not values:
         return []
 
     rows = "\n".join(f"{index}\t{sanitize_field(value)}" for index, value in enumerate(values))
     try:
         result = subprocess.run(
-            [fzf, "--filter", query, "--delimiter", "\t", "--nth", "2", "--accept-nth", "{1}"],
+            [fzf, "--filter", query, "-i", "--delimiter", "\t", "--nth", "2", "--accept-nth", "{1}"],
             input=rows,
             text=True,
             capture_output=True,
             timeout=FZF_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
+        _search_status = f"fzf did not answer within {FZF_TIMEOUT_SECONDS}s — press a key to retry"
+        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        _search_status = f"fzf could not run: {exc} — press a key to retry"
         return None
 
     # Exit 1 is "nothing matched" -- a legitimate result for a typo, not a
-    # failure. Anything else means the binary is broken, and that surfaces.
+    # failure. Anything else means the binary is broken; say so and keep going.
     if result.returncode == 1:
         return []
     if result.returncode != 0:
-        raise RuntimeError(f"fzf failed ({result.returncode}): {(result.stderr or '').strip()}")
+        detail = (result.stderr or "").strip().splitlines()
+        _search_status = f"fzf failed ({result.returncode}): {detail[0] if detail else 'no output'}"
+        return None
 
     indices: list[int] = []
     for line in result.stdout.splitlines():
@@ -639,7 +659,8 @@ def ranked(query: str, commands: list[Command], limit: int) -> list[Command]:
 
     indices = fzf_filter(query.strip(), [command.title for command in remainder], resolve_fzf())
     if indices is None:
-        _search_status = f"fzf timed out after {FZF_TIMEOUT_SECONDS}s — press a key to retry"
+        # fzf_filter already set the status line. Keep whatever the shortcut
+        # tier found -- it costs no subprocess and is still correct.
         return hits[:limit]
 
     hits.extend(remainder[index] for index in indices if 0 <= index < len(remainder))
@@ -1301,6 +1322,9 @@ def visible_choices(query: str, choices: list[Choice], rows: int) -> list[Choice
     A Choice has no group and no shortcuts, so only the label is searched --
     the direct reading of the palette's "titles only" rule.
     """
+    global _search_status
+    _search_status = ""
+
     limit = result_limit_for_rows(rows)
     if not query.strip():
         return choices[:limit]
@@ -1308,7 +1332,10 @@ def visible_choices(query: str, choices: list[Choice], rows: int) -> list[Choice
     selectable = [choice for choice in choices if choice.selectable]
     indices = fzf_filter(query.strip(), [choice.label for choice in selectable], resolve_fzf())
     if indices is None:
-        return []
+        # A search that never answered is not "nothing matched". Show the
+        # unfiltered options and let last_search_status() say why, rather than
+        # telling the user their query found nothing.
+        return selectable[:limit]
     return [selectable[index] for index in indices if 0 <= index < len(selectable)][:limit]
 
 
@@ -1384,7 +1411,8 @@ def render_curses_choice_picker(
             center_at(body_top + row_index, row, attrs["active"] if active else attrs["normal"])
     if not visible:
         _, _, footer_y = curses_scroll_window(rows, top_margin, body_top, 0, selected)
-    curses_center(stdscr, footer_y, pad, block_width, "Enter select · Esc back · ↑/↓ or Tab move", attrs["muted"])
+    footer = last_search_status() or "Enter select · Esc back · ↑/↓ or Tab move"
+    curses_center(stdscr, footer_y, pad, block_width, footer, attrs["muted"])
     stdscr.refresh()
     return visible, selected
 
@@ -1549,8 +1577,17 @@ def is_down_key(key: str) -> bool:
     )
 
 
-def json_result(command: list[str]) -> dict[str, Any]:
-    result = subprocess.run(command, text=True, capture_output=True)
+def json_result(command: list[str], timeout: float | None = None) -> dict[str, Any]:
+    """Run a herdr command and return its `result` object, or {} for anything else.
+
+    The timeout is opt-in so the pre-existing untimed call sites keep their
+    behaviour. A caller that must fail closed passes one: an empty dict is how
+    "no well-formed answer" reaches it, and waiting forever never produces that.
+    """
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return {}
     if result.returncode != 0:
         return {}
     try:
@@ -1568,13 +1605,67 @@ def pane_agent(herdr: str, pane_id: str) -> str | None:
 
     None is deliberately not "nobody". A lookup that produced no well-formed
     answer is not evidence that the pane is free, and the caller must refuse
-    rather than type a shell line into someone's agent on a guess.
+    rather than type a shell line into someone's agent on a guess. The timeout
+    is part of that: a guard that waits forever on a stuck server has not
+    failed closed, it has stopped.
     """
-    pane = json_result([herdr, "pane", "get", pane_id]).get("pane")
+    pane = json_result([herdr, "pane", "get", pane_id], timeout=HERDR_CALL_TIMEOUT_SECONDS).get("pane")
     if not isinstance(pane, dict):
         return None
     agent = pane.get("agent")
     return agent.strip() if isinstance(agent, str) else ""
+
+
+def refuse_if_agent_owns(herdr: str, pane_id: str, title: str) -> tuple[int, str, bool] | None:
+    """Refuse to type into a pane an agent owns. None means it is safe to run.
+
+    `herdr pane run <pane> <cmd>` types the line into the pane, and when an
+    agent owns that pane herdr submits it as a prompt. Every command shape that
+    reaches that call goes through here, not just kind == "pane_run".
+    """
+    if not pane_id:
+        return None
+    agent = pane_agent(herdr, pane_id)
+    if agent is None:
+        message = f"Could not read pane {pane_id}, so {title} was not run."
+        notify(herdr, "Command palette: pane unreadable", message)
+        return 1, message, True
+    if agent:
+        message = f"Pane {pane_id} is owned by the {agent} agent, so {title} was not run."
+        notify(herdr, "Command palette: pane belongs to an agent", message)
+        return 1, message, True
+    return None
+
+
+def clear_palette_token(herdr: str) -> None:
+    """Drop the palette's pane token before this process is replaced.
+
+    An overlay_shell command execs a shell over the palette, and the pane
+    outlives the palette process. A token left behind makes the next press of
+    the keybinding focus that shell instead of opening the palette.
+    """
+    pane_id = os.environ.get("HERDR_PANE_ID", "")
+    if not pane_id:
+        return
+    try:
+        subprocess.run(
+            [
+                herdr,
+                "pane",
+                "report-metadata",
+                pane_id,
+                "--source",
+                os.environ.get("HERDR_PLUGIN_ID", PALETTE_PLUGIN_ID),
+                "--clear-token",
+                PALETTE_TOKEN,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=HERDR_CALL_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def notify(herdr: str, title: str, body: str) -> None:
@@ -1725,6 +1816,12 @@ def run_command_with_variables(command: Command, config_path: Path, variables: d
         args = expand(raw_args, variables)
         if not isinstance(args, list):
             raise ValueError(f"{command.title}: herdr commands require args array")
+        # `herdr pane run <pane> <cmd>` reaches a pane's shell whichever command
+        # kind spells it, so the agent guard follows the argv, not the kind.
+        if forwards_to_shell(args):
+            refusal = refuse_if_agent_owns(herdr, str(args[2]) if len(args) > 2 else "", command.title)
+            if refusal:
+                return refusal
         result = subprocess.run([herdr, *args], text=True, capture_output=True)
         output = (result.stdout or "") + (result.stderr or "")
         return result.returncode, format_output(raw, output), pause
@@ -1742,18 +1839,9 @@ def run_command_with_variables(command: Command, config_path: Path, variables: d
         if not pane_command:
             raise ValueError(f"{command.title}: pane_run requires command")
 
-        # `herdr pane run` types the line into the pane. When an agent owns that
-        # pane, herdr submits it as a prompt -- so the shell command becomes
-        # something an agent reads and acts on. Refuse instead.
-        agent = pane_agent(herdr, target_pane)
-        if agent is None:
-            message = f"Could not read pane {target_pane}, so {command.title} was not run."
-            notify(herdr, "Command palette: pane unreadable", message)
-            return 1, message, True
-        if agent:
-            message = f"Pane {target_pane} is owned by the {agent} agent, so {command.title} was not run."
-            notify(herdr, "Command palette: pane belongs to an agent", message)
-            return 1, message, True
+        refusal = refuse_if_agent_owns(herdr, target_pane, command.title)
+        if refusal:
+            return refusal
 
         result = subprocess.run([herdr, "pane", "run", target_pane, str(pane_command)], text=True, capture_output=True)
         return result.returncode, (result.stdout or "") + (result.stderr or ""), pause
@@ -1824,6 +1912,7 @@ def run_command_with_variables(command: Command, config_path: Path, variables: d
     command_cwd = variables["target_cwd"] or None
 
     if command.kind == "overlay_shell":
+        clear_palette_token(herdr)
         restore_terminal()
         try:
             if command_cwd:
@@ -1870,10 +1959,20 @@ def main() -> int:
     # as a missing terminal.
     resolve_fzf()
 
+    # A command the validator rejects raises here, on every open -- not only
+    # under --validate. Without this the message is a traceback in a popup pane
+    # that flashes and vanishes, and the palette is how the user would edit the
+    # offending file back. Like the fzf preflight, it runs before the TTY check
+    # so the real problem is named instead of "needs a TTY".
+    try:
+        config_path, commands = load_commands()
+    except ValueError as exc:
+        fail_hard_dependency(f"command palette config is invalid: {exc}")
+        raise AssertionError("unreachable") from exc
+
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise SystemExit("command palette needs a TTY")
 
-    config_path, commands = load_commands()
     # The main curses picker tears itself down (endwin) before we run anything.
     # Interactive sub-pickers open their own short curses sessions; post-run
     # output screens still use legacy raw ANSI rendering. Do not keep curses

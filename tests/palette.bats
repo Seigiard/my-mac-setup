@@ -160,6 +160,23 @@ rank_real() {
   assert_line --index 0 "Edit command palette config"
 }
 
+# fzf defaults to smart case, so an uppercase letter would switch the title tier
+# to case-sensitive matching while the shortcut tier keeps case-folding.
+@test "R1: the title tier is case-insensitive" {
+  local upper lower
+  for lower in main config workspace lazy; do
+    upper="$(printf '%s' "$lower" | tr '[:lower:]' '[:upper:]')"
+    run rank_real "$lower"
+    assert_success
+    lower_out="$output"
+
+    run rank_real "$upper"
+    assert_success
+    assert_equal "$output" "$lower_out"
+    refute_output ""
+  done
+}
+
 @test "R10: a half-typed shortcut still matches by prefix" {
   run rank_real "дфя"
   assert_success
@@ -402,6 +419,8 @@ case "$1 $2" in
     [ "$AGENT" = "unreachable" ] && exit 1
     printf '{"result":{"pane":{"pane_id":"%s","agent":%s}}}\n' "$3" "$AGENT" ;;
   "pane run") printf 'ran\n' ;;
+  "tab create") printf '{"result":{"tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9","tab_id":"w1:t9"}}}\n' ;;
+  "tab focus") : ;;
   "notification show") : ;;
   *) exit 2 ;;
 esac
@@ -411,22 +430,49 @@ SH
 }
 
 # Run the `Edit command palette config` pane_run command against a stub herdr.
-run_pane_run() {
-  local dir="$1"
+# Run the first command of `kind` from a fixture config against a stub herdr.
+# The fixture is local so the test does not depend on which shipped command
+# happens to use that type today.
+run_kind() {
+  local dir="$1" kind="$2"
+  cat > "$dir/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Edit in place"
+type = "pane_run"
+command = "vi /tmp/x"
+
+[[commands]]
+group = "Fixture"
+title = "Run there"
+type = "herdr"
+args = ["pane", "run", "{target_pane}", "vi /tmp/x"]
+
+[[commands]]
+group = "Fixture"
+title = "Run in a tab"
+type = "tab_run"
+command = "vi /tmp/x"
+TOML
+
   env HERDR_BIN_PATH="$dir/herdr" HERDR_TARGET_PANE_ID="w1:p1" \
-    HERDR_TARGET_CWD="$dir" HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" \
-    python3 - <<'PY'
-import pathlib
+    HERDR_TARGET_CWD="$dir" HERDR_COMMAND_PALETTE_CONFIG="$dir/commands.toml" \
+    python3 - "$kind" <<'PY'
+import sys
 
 import palette_boot
 
 palette = palette_boot.palette()
 config_path, commands = palette.load_commands()
-command = next(c for c in commands if c.kind == "pane_run")
+command = next(c for c in commands if c.kind == sys.argv[1])
 code, output, _ = palette.run_command(command, config_path)
 print(f"code={code}")
 print(output)
 PY
+}
+
+run_pane_run() {
+  run_kind "$1" pane_run
 }
 
 @test "R4: pane_run refuses a pane an agent owns and says why" {
@@ -467,20 +513,43 @@ PY
   refute_output --partial "pane run"
 }
 
-@test "R4: tab_run is unaffected by the pane_run guard" {
-  run python3 - <<'PY'
-import inspect
-
-import palette_boot
-
-palette = palette_boot.palette()
-source = inspect.getsource(palette.run_command_with_variables)
-tab_run = source.split('command.kind == "tab_run"', 1)[1]
-assert "pane_agent" not in tab_run, "the agent guard leaked into tab_run"
-print("tab_run clean")
-PY
+# The guard follows the argv, not the command kind: `herdr pane run` reaches a
+# pane's shell whether it is spelled as a pane_run command or a herdr one.
+@test "R4: a herdr argv pane run is refused for an agent-owned pane too" {
+  stub_herdr "$PALETTE_WORK/argv-agent" '"claude"'
+  run run_kind "$PALETTE_WORK/argv-agent" herdr
   assert_success
-  assert_output --partial "tab_run clean"
+  refute_line "code=0"
+  assert_output --partial "w1:p1"
+  assert_output --partial "claude"
+
+  run cat "$PALETTE_WORK/argv-agent/herdr.log"
+  assert_success
+  refute_output --partial "pane run w1:p1 vi"
+  assert_output --partial "notification show"
+}
+
+@test "R4: a herdr argv pane run proceeds when no agent owns the pane" {
+  stub_herdr "$PALETTE_WORK/argv-free" 'null'
+  run run_kind "$PALETTE_WORK/argv-free" herdr
+  assert_success
+  assert_line "code=0"
+
+  run cat "$PALETTE_WORK/argv-free/herdr.log"
+  assert_success
+  assert_output --partial "pane run w1:p1 vi"
+}
+
+@test "R4: tab_run creates a tab and never consults the agent guard" {
+  stub_herdr "$PALETTE_WORK/tabrun" '"claude"'
+  run run_kind "$PALETTE_WORK/tabrun" tab_run
+  assert_success
+
+  run cat "$PALETTE_WORK/tabrun/herdr.log"
+  assert_success
+  assert_output --partial "tab create"
+  refute_output --partial "pane get"
+  refute_output --partial "notification show"
 }
 
 # ===========================================
@@ -563,6 +632,32 @@ run_opener() {
   assert_output --partial "plugin pane open"
   assert_output --partial "pane report-metadata w1:pNEW"
   assert_output --partial "command_palette=open"
+}
+
+# The pane outlives the palette process when an overlay_shell command execs a
+# shell over it. A token left behind makes the next keypress focus that shell.
+@test "R6: overlay_shell clears the palette token before it execs" {
+  stub_herdr "$PALETTE_WORK/overlay" 'null'
+  run env HERDR_BIN_PATH="$PALETTE_WORK/overlay/herdr" HERDR_PANE_ID="w1:pP" \
+    HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+palette.clear_palette_token(palette.os.environ["HERDR_BIN_PATH"])
+print("cleared")
+PY
+  assert_success
+
+  run cat "$PALETTE_WORK/overlay/herdr.log"
+  assert_success
+  assert_output --partial "pane report-metadata w1:pP"
+  assert_output --partial "--clear-token command_palette"
+}
+
+@test "R6: overlay_shell is wired to the token clear" {
+  run grep -n -A1 'command.kind == "overlay_shell"' "$PALETTE_DIR/palette.py"
+  assert_success
+  assert_output --partial "clear_palette_token"
 }
 
 @test "R6: the lookup costs one pane list and no process-info calls" {
@@ -686,6 +781,55 @@ TOML
   assert_output --partial "brew bundle --file=~/.config/brewfiles/Brewfile"
 }
 
+# The only path that could raise out of the curses loop. A traceback there is a
+# popup pane that flashes and vanishes, so it must degrade like the timeout does.
+@test "R9: an fzf that fails leaves the palette alive and says so" {
+  local stub="$PALETTE_WORK/brokenfzf"
+  mkdir -p "$stub"
+  cat > "$stub/fzf" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "0.74.3 (stub)" ;;
+  *) echo "fzf: unknown option --accept-nth" >&2; exit 2 ;;
+esac
+SH
+  chmod +x "$stub/fzf"
+
+  run env PATH="$stub:$PATH" HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+_, commands = palette.load_commands()
+result = palette.ranked("main", commands, palette.DEFAULT_LIMIT)
+assert result == [], result
+status = palette.last_search_status()
+assert "fzf failed (2)" in status, status
+choices = [palette.Choice(label="Production", value="prod")]
+assert palette.visible_choices("prod", choices, 40) == choices
+print("survived")
+PY
+  assert_success
+  assert_output --partial "survived"
+  refute_output --partial "Traceback"
+}
+
+@test "R9: a config the validator rejects is reported, not raised" {
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+title = "Broken shortcut"
+type = "shell"
+command = "true"
+shortcuts = ["l g"]
+TOML
+
+  run env HERDR_COMMAND_PALETTE_CONFIG="$PALETTE_WORK/commands.toml" \
+    python3 "$PALETTE_DIR/palette.py"
+  assert_failure
+  assert_output --partial "config is invalid"
+  assert_output --partial "Broken shortcut"
+  refute_output --partial "Traceback"
+}
+
 @test "R9: an fzf that never answers leaves the palette alive and empty" {
   local stub="$PALETTE_WORK/slowfzf"
   mkdir -p "$stub"
@@ -705,7 +849,7 @@ palette = palette_boot.palette()
 _, commands = palette.load_commands()
 result = palette.ranked("qqzz", commands, palette.DEFAULT_LIMIT)
 assert result == [], result
-assert "timed out" in palette.last_search_status(), palette.last_search_status()
+assert "did not answer" in palette.last_search_status(), palette.last_search_status()
 print("survived")
 PY
   assert_success

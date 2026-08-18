@@ -74,6 +74,9 @@ args = ["server", "reload-config"]
 group = "Settings"
 title = "Edit command palette config"
 shortcuts = ["edit", "увше"]
-description = "Open commands.toml in the original pane with $EDITOR"
-type = "pane_run"
+description = "Open commands.toml in a new tab with $EDITOR"
+# tab_run, not pane_run: the palette refuses to type into a pane an agent owns,
+# and most panes here have one. A new tab always has room for the editor.
+type = "tab_run"
+label = "commands.toml"
 command = "${EDITOR:-vi} {config_file_q}"
