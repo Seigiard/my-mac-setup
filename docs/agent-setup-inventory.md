@@ -117,6 +117,7 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 | pi-subagents            | `npm:pi-subagents`                               |
 | pi-intercom             | `npm:pi-intercom`                                |
 | pi-agent-browser-native | `npm:pi-agent-browser-native`                    |
+| pi-ask-user             | `npm:pi-ask-user`                                |
 
 ### Skills (`~/.pi/agent/skills/`)
 

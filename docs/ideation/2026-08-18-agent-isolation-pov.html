@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Изолированные coding agents: POV для platform + Smithers + Herdr</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f3efe5;
+      --ink: #18201d;
+      --muted: #66706b;
+      --surface: #fffdf7;
+      --surface-2: #e9e4d8;
+      --line: #cfc8b9;
+      --signal: #006c59;
+      --signal-soft: #d8eee7;
+      --amber: #9a5a00;
+      --amber-soft: #f7e6c4;
+      --red: #9b302b;
+      --red-soft: #f5ddda;
+      --blue: #275ea8;
+      --blue-soft: #dce8f7;
+      --shadow: 0 16px 42px rgb(33 42 37 / 10%);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --serif: Iowan Old Style, Charter, Georgia, serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #111613;
+        --ink: #e8eee9;
+        --muted: #a4afa9;
+        --surface: #19201c;
+        --surface-2: #222b26;
+        --line: #39453e;
+        --signal: #66cfb4;
+        --signal-soft: #173c32;
+        --amber: #f2b95f;
+        --amber-soft: #422f14;
+        --red: #f18b82;
+        --red-soft: #49231f;
+        --blue: #8ebbf4;
+        --blue-soft: #1c3452;
+        --shadow: 0 18px 50px rgb(0 0 0 / 28%);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, transparent 49.8%, color-mix(in srgb, var(--line) 30%, transparent) 50%, transparent 50.2%),
+        var(--paper);
+      color: var(--ink);
+      font: 15px/1.58 var(--sans);
+    }
+    a { color: var(--blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface-2);
+      padding: .08rem .34rem;
+      font: .88em/1.4 var(--mono);
+    }
+    pre {
+      margin: .8rem 0 0;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111713;
+      color: #d9e7df;
+      padding: 1rem;
+      font: 12px/1.55 var(--mono);
+    }
+    h1, h2, h3 { line-height: 1.15; }
+    h1 {
+      max-width: 16ch;
+      margin: .35rem 0 .8rem;
+      font: 700 clamp(2.3rem, 7vw, 5.2rem)/.98 var(--serif);
+      letter-spacing: -.035em;
+    }
+    h2 {
+      margin: 0 0 1rem;
+      font: 700 clamp(1.55rem, 3vw, 2.35rem)/1.08 var(--serif);
+      letter-spacing: -.02em;
+    }
+    h3 { margin: 0 0 .55rem; font-size: 1.03rem; }
+    p { max-width: 74ch; }
+    ul, ol { padding-left: 1.25rem; }
+    li { margin: .32rem 0; }
+
+    .page { width: min(1180px, calc(100% - 2rem)); margin: 0 auto; }
+    .masthead {
+      min-height: 85vh;
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr);
+      gap: clamp(2rem, 7vw, 7rem);
+      align-items: center;
+      padding: 7vh 0;
+    }
+    .kicker {
+      color: var(--signal);
+      font: 700 .72rem/1 var(--mono);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .dek { max-width: 62ch; color: var(--muted); font-size: 1.05rem; }
+    .meta { margin-top: 1.4rem; color: var(--muted); font: .76rem/1.7 var(--mono); }
+    .verdict-card {
+      position: relative;
+      border: 1px solid color-mix(in srgb, var(--signal) 48%, var(--line));
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 1.4rem;
+    }
+    .verdict-card::before {
+      content: "TRIAL";
+      position: absolute;
+      top: -13px;
+      right: 18px;
+      border: 1px solid var(--signal);
+      border-radius: 999px;
+      background: var(--signal-soft);
+      color: var(--signal);
+      padding: .28rem .7rem;
+      font: 800 .7rem/1 var(--mono);
+      letter-spacing: .11em;
+    }
+    .verdict-card strong { color: var(--signal); }
+    .verdict-card .score { margin: .2rem 0; font: 700 3.4rem/1 var(--serif); }
+    .verdict-card .score small { color: var(--muted); font: 500 1rem/1 var(--sans); }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      border-block: 1px solid var(--line);
+      background: color-mix(in srgb, var(--paper) 88%, transparent);
+      backdrop-filter: blur(14px);
+    }
+    .toc .page { display: flex; gap: .3rem; overflow-x: auto; padding-block: .55rem; }
+    .toc a {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      color: var(--muted);
+      padding: .35rem .65rem;
+      font: 700 .71rem/1 var(--mono);
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+    .toc a:hover { background: var(--surface-2); color: var(--ink); }
+
+    section { padding: clamp(3.8rem, 8vw, 7rem) 0; border-bottom: 1px solid var(--line); }
+    .section-grid { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: clamp(2rem, 6vw, 6rem); }
+    .aside-note { color: var(--muted); font-size: .86rem; }
+    .aside-note strong { color: var(--ink); }
+    .callout {
+      border-left: 4px solid var(--signal);
+      background: var(--signal-soft);
+      padding: .8rem 1rem;
+    }
+    .warning { border-color: var(--amber); background: var(--amber-soft); }
+    .risk { border-color: var(--red); background: var(--red-soft); }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: .82fr 1.15fr 1.15fr;
+      gap: 1.1rem;
+      margin: 2rem 0;
+      align-items: stretch;
+    }
+    .arch-column {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      padding: 1rem;
+    }
+    .arch-column > b {
+      display: block;
+      margin-bottom: .7rem;
+      color: var(--muted);
+      font: 700 .68rem/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .arch-node {
+      position: relative;
+      margin: .55rem 0;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-2);
+      padding: .65rem .7rem;
+      font-size: .83rem;
+    }
+    .arch-node.primary { border-color: var(--signal); background: var(--signal-soft); }
+    .arch-node.locked::before { content: "boundary"; float: right; color: var(--signal); font: .62rem/1 var(--mono); }
+    .arrow { color: var(--signal); font: 700 .8rem/1 var(--mono); text-align: center; }
+
+    .matrix-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; min-width: 880px; font-size: .84rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: .7rem .65rem; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font: 700 .66rem/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+    td:first-child, th:first-child { position: sticky; left: 0; background: var(--surface); }
+    tr:last-child td { border-bottom: 0; }
+    .rank { font: 800 .92rem/1 var(--mono); }
+    .dot { display: inline-block; width: .52rem; height: .52rem; margin-right: .12rem; border-radius: 50%; background: var(--line); }
+    .dot.on { background: var(--signal); }
+    .fit { color: var(--signal); font-weight: 750; }
+    .partial { color: var(--amber); font-weight: 750; }
+    .poor { color: var(--red); font-weight: 750; }
+
+    .option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .option {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      padding: 1.15rem;
+    }
+    .option.recommended { border: 2px solid var(--signal); }
+    .option header { display: flex; justify-content: space-between; gap: .8rem; align-items: baseline; }
+    .option .tag { color: var(--muted); font: 700 .65rem/1 var(--mono); text-transform: uppercase; }
+    .option .summary { min-height: 3.4em; color: var(--muted); font-size: .88rem; }
+    .option .split { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: .7rem; }
+    .option h4 { margin: 0 0 .3rem; color: var(--muted); font: 700 .66rem/1 var(--mono); text-transform: uppercase; }
+    .option ul { margin: 0; padding-left: 1rem; font-size: .81rem; }
+    .option footer { margin-top: auto; padding-top: .9rem; color: var(--muted); font-size: .76rem; }
+
+    .timeline { counter-reset: step; margin-top: 1.4rem; }
+    .step { position: relative; margin-left: 1.25rem; border-left: 1px solid var(--line); padding: 0 0 1.5rem 2rem; }
+    .step:last-child { border-left-color: transparent; }
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: -1.05rem;
+      top: -.2rem;
+      width: 2rem;
+      height: 2rem;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--signal);
+      border-radius: 50%;
+      background: var(--paper);
+      color: var(--signal);
+      font: 800 .78rem/1 var(--mono);
+    }
+    .step h3 { margin-bottom: .3rem; }
+    .gate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+    .gate { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: .75rem; }
+    .gate b { display: block; color: var(--signal); font: 800 .72rem/1.3 var(--mono); }
+
+    .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .fact { background: var(--surface); padding: 1rem; }
+    .fact b { display: block; margin-bottom: .35rem; color: var(--signal); font: 700 .67rem/1 var(--mono); text-transform: uppercase; }
+
+    .sources { columns: 2; column-gap: 2rem; font-size: .82rem; }
+    .sources li { break-inside: avoid; margin: 0 0 .65rem; }
+    .sources small { display: block; color: var(--muted); }
+    .footer { padding: 2rem 0 4rem; color: var(--muted); font: .74rem/1.6 var(--mono); }
+
+    @media (max-width: 820px) {
+      .masthead, .section-grid { grid-template-columns: 1fr; }
+      .masthead { min-height: auto; padding: 4rem 0; }
+      .architecture, .option-grid, .gate-grid, .facts { grid-template-columns: 1fr; }
+      .sources { columns: 1; }
+      .aside-note { max-width: 70ch; }
+    }
+    @media print {
+      .toc { display: none; }
+      body { background: white; color: #111; }
+      .masthead { min-height: auto; }
+      section { break-inside: avoid; }
+      .option { break-inside: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page masthead">
+    <div>
+      <div class="kicker">Project-grounded POV / 18 Aug 2026</div>
+      <h1>Агенты в изолированных средах</h1>
+      <p class="dek">Как запускать задачи из <code>../platform</code> вручную или из pipeline, получать отдельный worktree и sandbox, поднимать зависимости по файлу проекта и видеть всех агентов в Herdr.</p>
+      <div class="meta">scope: local macOS first / cloud optional<br>incumbent: Smithers 0.32 + manual git worktree + Herdr 0.8<br>decision tier: 2, bounded and reversible</div>
+    </div>
+    <div class="verdict-card">
+      <div class="kicker">Рекомендация</div>
+      <div class="score">94<small>/100 target fit</small></div>
+      <p><strong>Сначала проверить Smithers 0.35 как единый control plane.</strong> Использовать native Herdr mirror, <code>&lt;Worktree&gt;</code> и local Microsandbox provider. Это сохраняет durable pipeline и добавляет изоляцию без второго оркестратора.</p>
+      <p><strong>AgentBox проверить отдельно.</strong> Он лучше всех готов для ручных интерактивных запусков в Herdr, но не должен становиться владельцем pipeline до спайка интеграции.</p>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Навигация по отчёту">
+    <div class="page">
+      <a href="#decision">Решение</a>
+      <a href="#grounding">Что уже есть</a>
+      <a href="#target">Целевая схема</a>
+      <a href="#matrix">Матрица</a>
+      <a href="#options">Варианты</a>
+      <a href="#trial">Спайк</a>
+      <a href="#config">Конфиг</a>
+      <a href="#sources">Источники</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="decision">
+      <div class="page section-grid">
+        <div class="aside-note"><strong>Grade: Trial.</strong><br>Решение перспективно, но upstream Smithers 0.35 опубликован 17 августа 2026 года, а текущая установка запинена на 0.32. Нужен ограниченный проверяемый спайк.</div>
+        <div>
+          <h2>Решение в одном экране</h2>
+          <div class="callout">
+            <strong>Не выбирать между worktree и sandbox.</strong> Worktree изолирует ветку и изменения. Sandbox изолирует процесс, файловую систему за пределами lane, сеть и секреты. Для автономного агента нужны оба слоя.
+          </div>
+          <p><strong>Основной путь:</strong> обновить Smithers с локального <code>smithers-orchestrator@0.32.0</code> до актуального пакета <code>smthrs@0.35.x</code>, затем запускать workflow с <code>--herdr</code>. Smithers должен создавать worktree, запускать agent node через Microsandbox provider и зеркалить статус в Herdr из собственного event stream.</p>
+          <p><strong>Почему не AgentBox первым:</strong> AgentBox уже даёт отличную Herdr-интеграцию и <code>agentbox.yaml</code>, но добавляет второй lifecycle, второй registry runs и отдельную модель git/sync поверх существующего Smithers pipeline. Его local Docker provider использует контейнер, а не отдельную microVM на box. Это хороший interactive launcher, но пока не доказанный backend для durable Smithers stages.</p>
+          <p><strong>Почему не Docker Sandboxes первым:</strong> security boundary сильнее, но Herdr-интеграции нет. В host-worktree режиме sandbox не видит родительский <code>.git</code> и не может коммитить. Потребуется bridge и pipeline-owned commit, то есть больше интеграционного кода до первой пользы.</p>
+          <div class="callout warning"><strong>Условие Trial.</strong> Если Smithers 0.35 не может одновременно показать sandboxed node в Herdr, сохранить structured output и безопасно вернуть diff, trial прекращается. Тогда AgentBox становится кандидатом на custom <code>SandboxProvider</code>, а не отдельным control plane.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="grounding">
+      <div class="page section-grid">
+        <div class="aside-note">Project floor выполнен: проверены текущие файлы <code>my-mac-setup</code>, установленный Herdr и целевой repo <code>platform</code>.</div>
+        <div>
+          <h2>Что уже есть и где граница отсутствует</h2>
+          <div class="facts">
+            <div class="fact"><b>Herdr</b><code>0.8.0</code>, protocol 19. Native agent panel уже настроен в <code>home/private_dot_config/herdr/config.toml:54</code>.</div>
+            <div class="fact"><b>Smithers</b><code>0.32.0</code> запинен в <code>home/private_dot_claude/dot_smithers/package.json:6</code>. Pipeline уже durable.</div>
+            <div class="fact"><b>Worktree</b><code>stageRunWorktree()</code> создаёт branch и lane в <code>workflows/lib/staging.ts:89</code>.</div>
+            <div class="fact"><b>Setup</b><code>setupCmd</code> выполняется до agent spend в <code>se-pipeline.tsx:554</code>.</div>
+            <div class="fact"><b>Gap</b>Work agent использует <code>bypassPermissions</code> в <code>workflows/lib/agents.ts:257</code>.</div>
+            <div class="fact"><b>Tracked risk</b><code>docs/issues/2026-08-18-002-...</code> фиксирует широкое чтение credential-bearing paths без sandbox.</div>
+          </div>
+          <p>Целевой <code>platform</code> уже подготовлен к изолированным environment lanes. В нём есть <code>.devcontainer/devcontainer.json</code>, Dockerfiles, Compose, idempotent <code>make setup</code> и отдельный worktree runbook. Но Dev Container сейчас задаёт только два lifecycle command и не является security boundary.</p>
+          <p><code>platform/internal-dev-doc/worktrees.md</code> также фиксирует важное ограничение: worktree переиспользует общий Postgres и Redis. Полная sandbox-изоляция потребует отдельной Compose/DB lane или явного решения сохранить shared DB. Иначе процессы будут изолированы, а данные нет.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="target">
+      <div class="page section-grid">
+        <div class="aside-note"><strong>Принцип:</strong> Herdr показывает состояние. Smithers владеет запуском и durability. Sandbox владеет containment. Git остаётся system of record.</div>
+        <div>
+          <h2>Целевая архитектура</h2>
+          <div class="architecture" role="img" aria-label="Целевая архитектура запуска Smithers, Herdr, worktree и sandbox">
+            <div class="arch-column">
+              <b>Operator plane</b>
+              <div class="arch-node primary">Herdr 0.8<br><small>agent panel + run workspace</small></div>
+              <div class="arrow">authoritative events ↑</div>
+              <div class="arch-node">CLI / pipeline trigger<br><code>smthrs up ... --herdr</code></div>
+            </div>
+            <div class="arch-column">
+              <b>Control plane</b>
+              <div class="arch-node primary">Smithers 0.35<br><small>durability, DAG, approvals, replay</small></div>
+              <div class="arch-node">Workflow file<br><code>.smithers/workflows/isolated-work.tsx</code></div>
+              <div class="arch-node">Run store + Gateway<br><small>runId, node output, diff bundle</small></div>
+            </div>
+            <div class="arch-column">
+              <b>Execution plane per lane</b>
+              <div class="arch-node locked">Git worktree<br><small>named branch, disposable checkout</small></div>
+              <div class="arrow">mounted / bundled ↓</div>
+              <div class="arch-node primary locked">Microsandbox microVM<br><small>agent CLI + setup + test</small></div>
+              <div class="arch-node">Explicit egress + secrets<br><small>minimum required bindings only</small></div>
+            </div>
+          </div>
+          <p>Herdr не обязан подключаться к unix socket внутри microVM. Smithers 0.35 создаёт mirror workspace на host и отображает каждую agent node как tab с live tail. Поэтому Herdr получает статусы из durable event stream, а не пытается распознать вложенный процесс через terminal screen.</p>
+          <div class="callout warning"><strong>Ограничение UX:</strong> mirror показывает node output и authoritative status, но это не то же самое, что нативно attach к TUI внутри box. Для постоянной ручной работы внутри sandbox AgentBox удобнее. Для pipeline nodes mirror надёжнее.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="matrix">
+      <div class="page section-grid">
+        <div class="aside-note">Вес: Herdr 25%, pipeline 20%, containment 20%, reproducibility 15%, project fit 10%, maturity/ops 10%. Оценка 1-5.</div>
+        <div>
+          <h2>Сравнительная матрица</h2>
+          <div class="matrix-wrap">
+            <table>
+              <thead><tr><th>Решение</th><th>Итог</th><th>Herdr</th><th>Durable pipeline</th><th>Containment</th><th>Config</th><th>Fit</th><th>Роль</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Smithers 0.35 + Herdr + Microsandbox</strong></td><td class="rank">94</td><td class="fit">5/5</td><td class="fit">5/5</td><td class="fit">5/5</td><td class="fit">5/5</td><td class="fit">4/5</td><td>Основной trial</td></tr>
+                <tr><td><strong>AgentBox + Herdr</strong></td><td class="rank">76</td><td class="fit">5/5</td><td class="partial">3/5</td><td class="partial">3/5 local, 5/5 VM</td><td class="fit">5/5</td><td class="partial">3/5</td><td>Interactive trial</td></tr>
+                <tr><td><strong>Cloud CDE: Daytona / Coder</strong></td><td class="rank">66</td><td class="poor">1/5</td><td class="fit">4/5</td><td class="fit">5/5</td><td class="fit">5/5</td><td class="poor">2/5</td><td>Remote scale later</td></tr>
+                <tr><td><strong>Dev Container + worktree</strong></td><td class="rank">60</td><td class="poor">1/5</td><td class="partial">3/5</td><td class="poor">2/5</td><td class="fit">5/5</td><td class="fit">5/5</td><td>Environment substrate</td></tr>
+                <tr><td><strong>Anthropic sandbox-runtime</strong></td><td class="rank">58</td><td class="partial">2/5</td><td class="poor">2/5</td><td class="partial">3/5</td><td class="fit">4/5</td><td class="fit">4/5</td><td>Lightweight fallback</td></tr>
+                <tr><td><strong>Docker Sandboxes</strong></td><td class="rank">54</td><td class="poor">1/5</td><td class="poor">2/5</td><td class="fit">5/5</td><td class="partial">3/5</td><td class="poor">2/5</td><td>Security benchmark</td></tr>
+                <tr><td><strong>Dagger container-use</strong></td><td class="rank">51</td><td class="poor">1/5</td><td class="partial">3/5</td><td class="partial">3/5</td><td class="fit">4/5</td><td class="poor">2/5</td><td>Не внедрять сейчас</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="aside-note">Оценка AgentBox local containment снижена, потому что local provider является Docker container с FUSE overlay и host-side git metadata. Для Hetzner, Vercel или E2B этот критерий выше, но появляется cloud cost и удалённый lifecycle.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="options">
+      <div class="page">
+        <h2>Плюсы и минусы каждого решения</h2>
+        <div class="option-grid">
+          <article class="option recommended">
+            <header><h3>Smithers 0.35 + Microsandbox</h3><span class="tag">recommended trial</span></header>
+            <p class="summary">Единый durable control plane с готовым Herdr mirror и first-class sandbox providers.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Не дублирует существующий pipeline.</li><li>Herdr status идёт из event stream.</li><li>Versioned TSX workflow является playbook.</li><li>Worktree, approvals, retries и diff review уже в модели.</li><li>Local microVM и cloud providers имеют один contract.</li></ul></div><div><h4>Минусы</h4><ul><li>Локально запинен старый package 0.32.</li><li>0.35 требует migration на <code>smthrs</code>.</li><li>Herdr feature отмечена upstream как Partial.</li><li>Нужно проверить remote hijack и credentials.</li><li>Microsandbox добавляет новый runtime.</li></ul></div></div>
+            <footer>Вердикт: Trial. Это кратчайший путь к целевой архитектуре.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>AgentBox + Herdr plugin</h3><span class="tag">interactive</span></header>
+            <p class="summary">Наиболее готовый UX для ручного запуска Claude, Codex и OpenCode в отдельных boxes.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Native agent panel и boxes overlay.</li><li><code>agentbox.yaml</code> описывает tasks, services, env carry и defaults.</li><li>Per-box branch и host relay для Git.</li><li>Pause, checkpoint, attach, browser и VS Code.</li><li>Local и cloud providers одним CLI.</li></ul></div><div><h4>Минусы</h4><ul><li>Второй orchestrator рядом со Smithers.</li><li>Local provider не per-box microVM.</li><li>Plugin repo является одно-коммитным mirror.</li><li>Проект создан только в мае 2026 года.</li><li>Credentials <code>carry:</code> могут уменьшить isolation.</li></ul></div></div>
+            <footer>Вердикт: Trial только для manual lane или как будущий custom SandboxProvider.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>Docker Sandboxes</h3><span class="tag">strong boundary</span></header>
+            <p class="summary">Per-sandbox microVM, private Docker daemon, network policy и host-side credential proxy.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Сильная hypervisor boundary.</li><li>Claude, Codex и OpenCode поддерживаются.</li><li>Credentials остаются в host keychain.</li><li>Private Docker daemon.</li><li>Templates и kits описывают environment.</li></ul></div><div><h4>Минусы</h4><ul><li>Нет Herdr integration.</li><li>Direct workspace меняет host files.</li><li>Host worktree не даёт agent доступ к git metadata.</li><li>Customization всё ещё Early Access.</li><li>Нужен Smithers adapter или wrapper.</li></ul></div></div>
+            <footer>Вердикт: Hold как основной путь. Использовать как security baseline для trial.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>Anthropic sandbox-runtime</h3><span class="tag">lightweight</span></header>
+            <p class="summary">OS-level policy wrapper для любого процесса: Seatbelt на macOS, Bubblewrap на Linux.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Очень малый startup overhead.</li><li>Работает с arbitrary process.</li><li>Filesystem и network policy в config.</li><li>Активный Apache-2.0 проект.</li><li>Подходит для child-agent launcher.</li></ul></div><div><h4>Минусы</h4><ul><li>Не воспроизводит Linux environment.</li><li>Не даёт checkpoints и durable lifecycle.</li><li>Seatbelt API имеет долгосрочную неопределённость.</li><li>Нужен отдельный Herdr/reporting wrapper.</li><li>Слабее microVM против hostile code.</li></ul></div></div>
+            <footer>Вердикт: fallback для быстрых local consults, не foundation для pipeline.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>Dev Container + worktree</h3><span class="tag">portable config</span></header>
+            <p class="summary">Стандартный способ описать image, features и lifecycle, но не готовая agent platform.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>У <code>platform</code> уже есть файл.</li><li>Reference CLI поддерживает up, exec и lockfile.</li><li>Переносим между local и CDE.</li><li>Подходит как canonical toolchain spec.</li><li>Зрелая экосистема.</li></ul></div><div><h4>Минусы</h4><ul><li>Обычный container не security boundary.</li><li>Нет agent registry или Herdr UX.</li><li>Нет durable DAG и approvals.</li><li>Текущий файл platform слишком тонкий.</li><li>Secrets и shared DB требуют отдельной модели.</li></ul></div></div>
+            <footer>Вердикт: Adopt как environment substrate, но не как полное решение.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>Dagger container-use</h3><span class="tag">MCP environments</span></header>
+            <p class="summary">Agent создаёт отдельные containerized environments и управляет git state через MCP.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Agent-agnostic MCP interface.</li><li>Parallel environments и branches.</li><li>Declarative environment config.</li><li>Активный Apache-2.0 проект.</li><li>Dagger даёт portable execution graph.</li></ul></div><div><h4>Минусы</h4><ul><li>Добавляет tools в каждый agent context.</li><li>Дублирует Smithers primitives.</li><li>Проект всё ещё Experimental.</li><li>Нет Herdr integration.</li><li>Latest tagged release остаётся 2025 года.</li></ul></div></div>
+            <footer>Вердикт: Reject для текущего stack. Пересмотреть только при отказе Smithers sandbox providers.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>Microsandbox напрямую</h3><span class="tag">runtime primitive</span></header>
+            <p class="summary">Local-first microVM runtime с OCI images, SDK, config и быстрым lifecycle.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Hardware-isolated local microVM.</li><li>Apache-2.0 и активные releases.</li><li>Config file и несколько SDK.</li><li>Сильный fit для macOS laptop.</li><li>Smithers уже имеет provider.</li></ul></div><div><h4>Минусы</h4><ul><li>Сам по себе не orchestrator.</li><li>Нет Herdr agent UX.</li><li>Нужно проектировать image и secret policy.</li><li>Молодой runtime.</li><li>Нужны cleanup и resource budgets.</li></ul></div></div>
+            <footer>Вердикт: Adopt только через Smithers provider, не напрямую.</footer>
+          </article>
+
+          <article class="option">
+            <header><h3>Daytona / Coder / cloud CDE</h3><span class="tag">remote scale</span></header>
+            <p class="summary">Полные remote workspaces с policy, persistence и fleet management.</p>
+            <div class="split"><div><h4>Плюсы</h4><ul><li>Изоляция и масштабирование вне laptop.</li><li>Templates and workspaces as code.</li><li>Long-running agents и persistence.</li><li>Подходит для team governance.</li><li>Prebuilds уменьшают startup.</li></ul></div><div><h4>Минусы</h4><ul><li>Herdr должен жить на remote host или нужен bridge.</li><li>Cloud cost и control plane operations.</li><li>Сложнее secret and network model.</li><li>Coder Tasks уже уходит в ESR.</li><li>Daytona OSS core больше не maintained с июня 2026.</li></ul></div></div>
+            <footer>Вердикт: Hold до появления реальной потребности вынести compute с Mac.</footer>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="trial">
+      <div class="page section-grid">
+        <div class="aside-note">Спайк должен доказать весь пользовательский flow. Успешный запуск агента без проверки cleanup, secrets и Herdr visibility не считается успехом.</div>
+        <div>
+          <h2>Рекомендуемый trial: один день, одна безопасная задача</h2>
+          <div class="timeline">
+            <div class="step"><h3>Миграционный probe без изменения pipeline</h3><p>В отдельной ветке обновить копию Smithers package с 0.32 до 0.35. Проверить package rename, <code>smthrs graph</code>, существующие unit tests и <code>smthrs herdr status</code> против Herdr 0.8 protocol 19.</p></div>
+            <div class="step"><h3>Минимальный sandbox workflow</h3><p>Создать один throwaway workflow: два параллельных read-only агента, каждый в отдельном worktree и Microsandbox. Агенты должны прочитать небольшой участок <code>platform</code>, выполнить узкую команду и вернуть Zod-validated output.</p></div>
+            <div class="step"><h3>Herdr supervision</h3><p>Запустить с <code>--herdr</code>. Проверить workspace run, node tabs, working/blocked/idle transitions, overview, failure promotion и attach к уже запущенному detached run.</p></div>
+            <div class="step"><h3>Write lane</h3><p>Разрешить одному агенту изменить fixture-only файл в disposable branch. Smithers должен вернуть diff bundle, pipeline-owned step должен проверить и коммитить его. Main checkout и host home не меняются.</p></div>
+            <div class="step"><h3>Security and cleanup</h3><p>Проверить deny на <code>~/.ssh</code>, <code>~/.aws</code>, <code>~/.config/op</code> и root checkout; записать egress destinations; завершить run и доказать удаление VM/worktree без удаления branch artifact.</p></div>
+          </div>
+          <h3>Pass gates</h3>
+          <div class="gate-grid">
+            <div class="gate"><b>G1 / Workspace</b>Main checkout byte-identical; каждая lane имеет отдельный branch и path.</div>
+            <div class="gate"><b>G2 / Process</b>Agent и его children не читают host home и не видят host Docker socket.</div>
+            <div class="gate"><b>G3 / Environment</b>Setup повторяем, version-pinned и не зависит от host <code>node_modules</code>.</div>
+            <div class="gate"><b>G4 / Herdr</b>Все active nodes видны; blocked node поднимается в agent panel без screen scraping.</div>
+            <div class="gate"><b>G5 / Durability</b>Закрытие launcher pane не убивает run; attach/resume не повторяет completed node.</div>
+            <div class="gate"><b>G6 / Cleanup</b>Terminal run освобождает VM и worktree; branch и persisted run evidence остаются.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="config">
+      <div class="page section-grid">
+        <div class="aside-note"><strong>Не создавать один mega-config.</strong> Разделить environment, orchestration и local presentation. Тогда каждый файл имеет одного владельца.</div>
+        <div>
+          <h2>Где хранить playbook</h2>
+          <p><strong>Рекомендованная структура в <code>platform</code>:</strong></p>
+          <pre><code>platform/
+├── .devcontainer/
+│   ├── devcontainer.json        # portable toolchain + lifecycle
+│   └── Dockerfile               # pinned Bun/Node/system packages
+├── .smithers/
+│   ├── agents.ts                # named agent profiles and budgets
+│   ├── smithers.config.ts       # setup/test/lint commands
+│   ├── providers.ts             # local microsandbox, optional cloud fallback
+│   └── workflows/
+│       └── isolated-work.tsx    # worktree + sandbox + gates + cleanup
+└── AGENTS.md                    # behavior rules, not lifecycle code</code></pre>
+          <p><strong><code>.devcontainer</code> описывает environment.</strong> Сейчас файл содержит только <code>make install sync-env</code> и <code>make build-packages</code>. Для sandbox его нужно сделать self-contained: указать image/Dockerfile, non-root user, mounts, resource defaults и lifecycle. Secret sync через host 1Password нельзя автоматически переносить внутрь untrusted sandbox.</p>
+          <p><strong><code>.smithers</code> описывает выполнение.</strong> Workflow выбирает provider, создаёт worktree, задаёт concurrency, запускает setup, agents, validation, approval и cleanup. Это и есть versioned playbook для ручного запуска и pipeline.</p>
+          <p><strong><code>my-mac-setup</code> описывает machine integration.</strong> Здесь остаются Herdr config, глобальный Smithers runtime, Microsandbox binary и общие credential bindings. Project-specific commands не должны уходить в chezmoi.</p>
+          <div class="callout risk"><strong>Не переносить текущую модель shared DB молча.</strong> В <code>platform</code> worktrees делят Postgres и Redis. Для untrusted write agents это нарушает data isolation. Trial должен выбрать один режим явно: ephemeral DB per sandbox или trusted shared DB только для read-only lanes.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="reversal">
+      <div class="page section-grid">
+        <div class="aside-note">Tier 2 требует reversal trigger: заранее известно, какая находка меняет решение.</div>
+        <div>
+          <h2>Что изменит вердикт</h2>
+          <ul>
+            <li><strong>В сторону AgentBox:</strong> Smithers provider не может вернуть live node status в Herdr или structured output после sandbox crash, а AgentBox можно реализовать как provider без дублирования run ownership.</li>
+            <li><strong>В сторону Docker Sandboxes:</strong> Microsandbox не проходит filesystem/network escape tests, а Docker Sandboxes получает стабильный project kit и Herdr/Smithers adapter.</li>
+            <li><strong>В сторону cloud CDE:</strong> два параллельных local environments регулярно давят память Mac или задачи должны продолжаться при выключенном laptop.</li>
+            <li><strong>В сторону lightweight srt:</strong> задачи остаются короткими, trusted и не требуют Linux parity, Docker, services или durable background execution.</li>
+            <li><strong>Остановить внедрение:</strong> environment setup нельзя отделить от широких AWS/1Password credentials или isolated DB без значительной перестройки <code>platform</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="page section-grid">
+        <div class="aside-note">Проверено 18 августа 2026 года. Project facts и external facts сохранены раздельно.</div>
+        <div>
+          <h2>Источники и provenance</h2>
+          <h3>Project facts</h3>
+          <ol class="sources">
+            <li><code>home/private_dot_config/herdr/config.toml:54-55</code><small>Agent sidebar rows уже настроены.</small></li>
+            <li><code>home/private_dot_claude/dot_smithers/package.json:6</code><small>Локальный pin Smithers 0.32.0.</small></li>
+            <li><code>home/private_dot_claude/dot_smithers/workflows/lib/staging.ts:89-126</code><small>Существующий named worktree lifecycle.</small></li>
+            <li><code>home/private_dot_claude/dot_smithers/workflows/se-pipeline.tsx:554-570</code><small>Setup command до agent spend.</small></li>
+            <li><code>home/private_dot_claude/dot_smithers/workflows/lib/agents.ts:257-268</code><small>Work agent использует bypassPermissions.</small></li>
+            <li><code>docs/issues/2026-08-18-002-sandbox-a-child-agents-filesystem-access.md</code><small>Открытая filesystem isolation gap.</small></li>
+            <li><code>../platform/.devcontainer/devcontainer.json</code><small>Существующий, но минимальный environment config.</small></li>
+            <li><code>../platform/internal-dev-doc/worktrees.md</code><small>Worktree setup и shared Postgres/Redis boundary.</small></li>
+          </ol>
+
+          <h3>External facts</h3>
+          <ol class="sources">
+            <li><a href="https://github.com/madarco/agentbox">AgentBox repository</a><small>MIT, 356 stars, created 12 May 2026, pushed 3 Aug 2026.</small></li>
+            <li><a href="https://agent-box.sh/docs/integrations-herdr">AgentBox: Herdr integration</a><small>Native status reporting, boxes overlay, attach modes and limitations.</small></li>
+            <li><a href="https://agent-box.sh/docs/agentbox-yaml">AgentBox: agentbox.yaml</a><small>Tasks, services, DAG, carry and project defaults.</small></li>
+            <li><a href="https://agent-box.sh/docs/core-concepts">AgentBox: core concepts</a><small>Local Docker container, per-box branch, relay and checkpoints.</small></li>
+            <li><a href="https://github.com/smithersai/smithers/releases/tag/v0.35.0">Smithers 0.35.0 release</a><small>Published 17 Aug 2026; current package and migration notes.</small></li>
+            <li><a href="https://raw.githubusercontent.com/smithersai/smithers/main/docs/integrations/herdr.mdx">Smithers: Herdr integration</a><small>Event-driven run mirror, node tabs, approvals, steer and protocol 19.</small></li>
+            <li><a href="https://raw.githubusercontent.com/smithersai/smithers/main/docs/components/sandbox.mdx">Smithers: Sandbox component</a><small>Provider contract, diff review, local and cloud providers.</small></li>
+            <li><a href="https://raw.githubusercontent.com/smithersai/smithers/main/docs/components/worktree.mdx">Smithers: Worktree component</a><small>Worktree cwd behavior and sandbox/git metadata caveat.</small></li>
+            <li><a href="https://docs.docker.com/ai/sandboxes/architecture/">Docker Sandboxes architecture</a><small>MicroVM, private daemon, workspace passthrough and persistence.</small></li>
+            <li><a href="https://docs.docker.com/ai/sandboxes/workflows/">Docker Sandboxes workflows</a><small>Direct, clone and host-worktree trade-offs.</small></li>
+            <li><a href="https://docs.docker.com/ai/sandboxes/security/credentials/">Docker Sandboxes credentials</a><small>Host keychain, proxy injection and SSH agent forwarding.</small></li>
+            <li><a href="https://github.com/anthropic-experimental/sandbox-runtime">Anthropic sandbox-runtime</a><small>Apache-2.0, OS-level filesystem and network restrictions.</small></li>
+            <li><a href="https://github.com/superradcompany/microsandbox">Microsandbox</a><small>Apache-2.0 local-first microVM runtime; v0.6.10 on 18 Aug 2026.</small></li>
+            <li><a href="https://github.com/devcontainers/cli">Dev Container CLI</a><small>Reference CLI, lifecycle commands and lockfiles.</small></li>
+            <li><a href="https://github.com/dagger/container-use">Dagger container-use</a><small>Experimental MCP-based agent environments.</small></li>
+            <li><a href="https://coder.com/docs/ai-coder/tasks">Coder Tasks lifecycle notice</a><small>Tasks enter ESR and leave new releases from Sep 2026.</small></li>
+            <li><a href="https://github.com/daytonaio/daytona">Daytona OSS repository</a><small>Public core marked unmaintained since June 2026.</small></li>
+          </ol>
+          <div class="callout"><strong>Unverified in this research:</strong> real macOS execution of Smithers 0.35 with Microsandbox, sandboxed hijack behavior, platform setup duration, memory consumption and secret bindings. Эти пункты являются trial gates, а не установленными фактами.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page footer">Artifact: agent-isolation-pov / format: self-contained HTML / generated for Claude.ai-compatible rendering / no external assets or scripts.</footer>
+</body>
+</html>
