@@ -66,6 +66,22 @@ jobs:
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
 
+      # `chezmoi apply` provisions the deployed runtime at ~/.claude/.smithers,
+      # but tests/scripts.bats runs `se` straight from the checkout, whose
+      # SMITHERS_DIR is the adjacent home/private_dot_claude/dot_smithers.
+      # Without bun and node_modules there, six `se` tests fail on the missing
+      # dependency instead of on the behavior they assert.
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install smithers dependencies in the source tree
+        working-directory: home/private_dot_claude/dot_smithers
+        run: bun install --frozen-lockfile
+
+      # Report the gap once, here, instead of once per dependent test.
+      - name: Verify the smithers binary the tests call
+        run: test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
+
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
         run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
@@ -102,6 +118,18 @@ jobs:
 
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
+
+      # See the ubuntu job: the checkout-based `se` tests read their smithers
+      # directory from the source tree, which the apply does not provision.
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install smithers dependencies in the source tree
+        working-directory: home/private_dot_claude/dot_smithers
+        run: bun install --frozen-lockfile
+
+      - name: Verify the smithers binary the tests call
+        run: test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
 
       - name: Run post-apply tests
         run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats

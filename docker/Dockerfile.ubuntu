@@ -54,4 +54,9 @@ RUN brew install bats-core
 # it. Homebrew ships a current fzf; Ubuntu's apt package predates --accept-nth.
 RUN brew install fzf
 
+# `se flow` shells out to bun to render its plan, so tests/scripts.bats needs
+# bun on PATH. The source tree is mounted read-only, so its node_modules must
+# come from the host checkout; this image supplies only the interpreter.
+RUN brew install oven-sh/bun/bun
+
 CMD ["/bin/zsh"]
