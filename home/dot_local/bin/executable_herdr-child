@@ -343,8 +343,11 @@ $text"
     printf 'herdr-child: reply delivery failed; waiting label remains published\n' >&2
     exit 1
   fi
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
-    --clear-state-labels --seq "$(now_seq)" >/dev/null
+  if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+    --clear-state-labels --seq "$(now_seq)" >/dev/null; then
+    printf 'herdr-child: reply delivered to %s in %s, but the waiting label could not be cleared\n' "$name" "$pane" >&2
+    exit 1
+  fi
   printf 'Reply delivered to %s in %s.\n' "$name" "$pane"
 }
 

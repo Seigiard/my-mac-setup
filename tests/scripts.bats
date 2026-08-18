@@ -117,8 +117,12 @@ case "$1 $2" in
       grandparent="$(ps -o ppid= -p "$parent" | tr -d ' ')"
       printf '{"result":{"agents":[{"name":"consult-claude-%s","pane_id":"wT:p8"},{"name":"consult-claude-%s","pane_id":"wT:p7"}]}}\n' "$parent" "$grandparent"
     else printf '{"result":{"agents":[]}}\n'; fi ;;
-  "agent read") printf 'ANSWER from child\n' ;;
+  "agent read") [ "${STUB_READ_FAIL:-0}" = 1 ] && { printf 'read failed\n' >&2; exit 1; }; printf 'ANSWER from child\n' ;;
   "agent get") printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
+  "pane get")
+    if [ "${STUB_WAITING_LABEL:-0}" = 1 ]; then
+      printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
+    else printf '{"result":{"pane":{}}}\n'; fi ;;
   *) exit 2 ;;
 esac
 SH
@@ -130,12 +134,20 @@ SH
   assert_success
   run bash "$ASK_HERDR_DIR/ask.sh"
   assert_failure 2
+  assert_output --partial "Usage:"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 }
 
 @test "ask.sh rejects unknown agents and the removed headless flag" {
   run bash "$ASK_HERDR_DIR/ask.sh" bogus question
   assert_failure 2
   assert_output --partial "claude opencode pi"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
+
+  run bash "$ASK_HERDR_DIR/ask.sh" claude question --model
+  assert_failure 2
+  assert_output --partial "Usage:"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -215,6 +227,22 @@ SH
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
   assert_file_contains "$CHILD_STUB/herdr.log" '^agent read .*--source recent-unwrapped'
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_WAITING_LABEL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" pi question --rw
+  assert_failure 1
+  assert_output --partial "ANSWER from child"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
+}
+
+@test "ask.sh reports undelivered when child output cannot be read" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_READ_FAIL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 1
+  assert_output --partial "read failed"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
 
 @test "ask.sh reports a still-working child with exit 124" {
@@ -281,7 +309,7 @@ case "${1:-} ${2:-}" in
     [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
     [ "${STUB_PROMPT_TIMEOUT:-0}" = 1 ] && { printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; }
     printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
-  "pane report-metadata") printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
+  "pane report-metadata") [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1; printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
   "pane get")
     if [ "${STUB_LABEL:-0}" = 1 ]; then
       printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
@@ -516,6 +544,14 @@ child_start() {
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   [[ "$call2" == agent\ prompt*parent-reply*pane=wT:p0* ]]
   [[ "$call3" == pane\ report-metadata*wT:p9*--clear-state-labels* ]]
+
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_REPORT_FAIL=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision
+  assert_failure
+  assert_output --partial "reply delivered to child-a in wT:p9"
+  assert_output --partial "waiting label could not be cleared"
 
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \

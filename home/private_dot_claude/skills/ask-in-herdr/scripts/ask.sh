@@ -19,11 +19,11 @@ status_exit() {
   exit "$code"
 }
 
-[ $# -ge 2 ] || { usage; exit 2; }
+[ $# -ge 2 ] || { usage; status_exit refused 2; }
 AGENT="$1"
 QUESTION="$2"
 shift 2
-case "$AGENT" in claude|opencode|pi) ;; *) printf "ask.sh: unknown agent '%s' (have: claude opencode pi)\n" "$AGENT" >&2; exit 2 ;; esac
+case "$AGENT" in claude|opencode|pi) ;; *) printf "ask.sh: unknown agent '%s' (have: claude opencode pi)\n" "$AGENT" >&2; status_exit refused 2 ;; esac
 
 RW=0
 MODEL=""
@@ -35,11 +35,11 @@ SKILLS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --rw) RW=1; shift ;;
-    --model) [ $# -ge 2 ] || { usage; exit 2; }; MODEL="$2"; shift 2 ;;
-    --effort) [ $# -ge 2 ] || { usage; exit 2; }; EFFORT="$2"; shift 2 ;;
-    --cwd) [ $# -ge 2 ] || { usage; exit 2; }; CWD="$2"; shift 2 ;;
-    --skills) [ $# -ge 2 ] || { usage; exit 2; }; SKILLS+=("$2"); SKILLS_COUNT=$((SKILLS_COUNT + 1)); shift 2 ;;
-    --agent) [ $# -ge 2 ] || { usage; exit 2; }; AGENT_NAME="$2"; shift 2 ;;
+    --model) [ $# -ge 2 ] || { usage; status_exit refused 2; }; MODEL="$2"; shift 2 ;;
+    --effort) [ $# -ge 2 ] || { usage; status_exit refused 2; }; EFFORT="$2"; shift 2 ;;
+    --cwd) [ $# -ge 2 ] || { usage; status_exit refused 2; }; CWD="$2"; shift 2 ;;
+    --skills) [ $# -ge 2 ] || { usage; status_exit refused 2; }; SKILLS+=("$2"); SKILLS_COUNT=$((SKILLS_COUNT + 1)); shift 2 ;;
+    --agent) [ $# -ge 2 ] || { usage; status_exit refused 2; }; AGENT_NAME="$2"; shift 2 ;;
     *) printf "ask.sh: unknown flag '%s'\n" "$1" >&2; status_exit refused 2 ;;
   esac
 done
@@ -124,12 +124,27 @@ fi
 
 source=recent-unwrapped
 [ "$AGENT" != claude ] || source=visible
-herdr agent read "$started_name" --source "$source" --lines 200 || true
+set +e
+herdr agent read "$started_name" --source "$source" --lines 200
+read_status=$?
+set -e
+if [ "$read_status" -ne 0 ]; then
+  status_exit undelivered 1
+fi
 printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr pane close %s)\n' "$pane" "$pane" >&2
 
 if [ "$start_status" -eq 124 ]; then
   cat "$start_err" >&2
   status_exit working 124
+fi
+
+pane_json="$(herdr pane get "$pane" 2>/dev/null || true)"
+waiting_label="$(printf '%s' "$pane_json" | python3 -c 'import json,sys
+pane=json.load(sys.stdin).get("result",{}).get("pane",{})
+labels=pane.get("state_labels") or {}
+raise SystemExit(0 if any(str(v)=="waiting for parent" for v in labels.values()) else 1)' 2>/dev/null && printf yes || true)"
+if [ "$waiting_label" = yes ]; then
+  status_exit blocked 1
 fi
 
 agent_json="$(herdr agent get "$started_name" 2>/dev/null || true)"
