@@ -302,6 +302,89 @@ PY
   assert_success
 }
 
+# ===========================================
+# U4 -- the main command list scrolls
+# ===========================================
+
+# 40 commands in 8 groups at the real popup height of 34 rows. The old list
+# truncated to 24 commands and drew its last row onto the description line.
+scroll_fixture() {
+  python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+commands = [
+    palette.Command(
+        title=f"Command {index:02d}",
+        description="",
+        kind="shell",
+        group=f"Group {index // 5}",
+        raw={"type": "shell", "command": "true"},
+    )
+    for index in range(40)
+]
+rows, top_margin, body_top = 34, 1, 2
+
+visible = palette.visible_commands("", commands)
+print("visible", len(visible))
+
+display_rows = palette.grouped_rows(visible)
+print("display_rows", len(display_rows))
+
+command_rows = palette.command_row_indices(display_rows)
+reachable = 0
+lowest_drawn = 0
+for selected in range(len(visible)):
+    start, max_visible = palette.palette_scroll_window(display_rows, selected, rows, top_margin, body_top)
+    if start <= command_rows[selected] < start + max_visible:
+        reachable += 1
+    lowest_drawn = max(lowest_drawn, top_margin + body_top + min(max_visible, len(display_rows) - start) - 1)
+print("reachable", reachable)
+print("lowest_drawn", lowest_drawn)
+print("detail_y", rows - 3)
+
+ten = commands[:10]
+ten_rows = palette.grouped_rows(palette.visible_commands("", ten))
+start, max_visible = palette.palette_scroll_window(ten_rows, 0, rows, top_margin, body_top)
+print("ten_start", start)
+print("ten_fits", int(max_visible >= len(ten_rows)))
+
+flat = [palette.Command(title=f"Flat {i}", description="", kind="shell", group="One", raw={"type": "shell", "command": "true"}) for i in range(40)]
+flat_rows = palette.grouped_rows(flat)
+start, max_visible = palette.palette_scroll_window(flat_rows, 39, rows, top_margin, body_top)
+print("flat_last_visible", int(start <= 40 < start + max_visible))
+PY
+}
+
+@test "R3: every command is reachable at 40 commands in 8 groups" {
+  run scroll_fixture
+  assert_success
+  assert_line "visible 40"
+  assert_line "reachable 40"
+}
+
+@test "R3: the last drawn row never reaches the description line" {
+  run scroll_fixture
+  assert_success
+  local lowest detail
+  lowest="$(printf '%s\n' "$output" | awk '/^lowest_drawn /{print $2}')"
+  detail="$(printf '%s\n' "$output" | awk '/^detail_y /{print $2}')"
+  [ "$lowest" -lt "$detail" ]
+}
+
+@test "R3: ten commands still render unscrolled" {
+  run scroll_fixture
+  assert_success
+  assert_line "ten_start 0"
+  assert_line "ten_fits 1"
+}
+
+@test "R3: a single group with no extra headers still scrolls" {
+  run scroll_fixture
+  assert_success
+  assert_line "flat_last_visible 1"
+}
+
 @test "R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH" {
   local stub="$PALETTE_WORK/nofzf"
   mkdir -p "$stub"

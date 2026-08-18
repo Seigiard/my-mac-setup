@@ -580,8 +580,14 @@ def result_limit_for_rows(rows: int) -> int:
     return max(1, min(DEFAULT_LIMIT, rows - 10))
 
 
-def visible_commands(query: str, commands: list[Command], rows: int) -> list[Command]:
-    return ranked(query, commands, result_limit_for_rows(rows))
+def visible_commands(query: str, commands: list[Command]) -> list[Command]:
+    """Every match, in rank order.
+
+    The main list scrolls, so the terminal height no longer decides which
+    commands exist. Truncating by height was what made command 25 of 40
+    unreachable by keyboard.
+    """
+    return ranked(query, commands, len(commands))
 
 
 def display_group_label(command: Command, include_origin: bool) -> str:
@@ -599,6 +605,30 @@ def grouped_rows(commands: list[Command]) -> list[tuple[str, str, Command | None
             rows.append(("header", current_group, None))
         rows.append(("command", "", command))
     return rows
+
+
+def command_row_indices(display_rows: list[tuple[str, str, Command | None]]) -> list[int]:
+    """Display-row index of each command, skipping the group headers."""
+    return [index for index, (row_kind, _, _) in enumerate(display_rows) if row_kind == "command"]
+
+
+def palette_scroll_window(
+    display_rows: list[tuple[str, str, Command | None]],
+    selected: int,
+    rows: int,
+    top_margin: int,
+    body_top: int,
+) -> tuple[int, int]:
+    """Window the main list on DISPLAY rows, not on commands.
+
+    grouped_rows inserts a header per group, and counting only commands is what
+    put the last row on the description line: 40 commands in 8 groups draw 48
+    display rows, not 40.
+    """
+    command_rows = command_row_indices(display_rows)
+    selected_row = command_rows[selected] if 0 <= selected < len(command_rows) else 0
+    start, max_visible, _ = curses_scroll_window(rows, top_margin, body_top, len(display_rows), selected_row)
+    return start, max_visible
 
 
 def contains_target_pane_placeholder(value: Any) -> bool:
@@ -913,11 +943,13 @@ def render_curses_palette(
         left_width = min(74, max(38, cols - 4))
     block_width = left_width + len(column_separator) + right_width
     pad = max(0, (cols - block_width) // 2)
-    visible = visible_commands(query, commands, rows)
+    visible = visible_commands(query, commands)
     selected = min(selected, max(0, len(visible) - 1))
     display_rows = grouped_rows(visible) if not query else [("command", "", command) for command in visible]
     kb_lines = key_binding_lines(right_width, key_binding_groups) if show_keybindings else []
     top_margin = 1
+    body_top = 2
+    start, max_visible = palette_scroll_window(display_rows, selected, rows, top_margin, body_top)
 
     stdscr.erase()
 
@@ -932,15 +964,14 @@ def render_curses_palette(
     prompt_attr = attrs["normal"] if query else attrs["muted"]
     left_at(0, f"❯ {fit(prompt, left_width - 2)}", prompt_attr)
 
-    body_top = 2
     if not visible:
         left_at(body_top, "No matching commands", attrs["muted"])
     else:
         group_width = 14
         include_origin = len({command.origin for command in visible}) > 1
         title_width = max(12, left_width - group_width - 3) if query else max(12, left_width - 4)
-        command_index = 0
-        for row_index, (row_kind, label, command) in enumerate(display_rows):
+        command_index = sum(1 for row_kind, _, _ in display_rows[:start] if row_kind == "command")
+        for row_index, (row_kind, label, command) in enumerate(display_rows[start : start + max_visible]):
             y_offset = body_top + row_index
             if row_kind == "header":
                 left_at(y_offset, f"  {label}", attrs["header"])
