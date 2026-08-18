@@ -385,6 +385,108 @@ PY
   assert_line "flat_last_visible 1"
 }
 
+# ===========================================
+# U5 -- pane_run refuses a pane an agent owns
+# ===========================================
+
+# A `herdr` on PATH that logs its argv and answers `pane get` with the agent
+# ownership the test wants. AGENT_JSON is the `agent` field, verbatim JSON.
+stub_herdr() {
+  local dir="$1" agent_json="$2"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'LOG=%s/herdr.log\n' "$dir"
+    printf 'AGENT=%s\n' "$(printf '%q' "$agent_json")"
+  } > "$dir/herdr"
+  cat >> "$dir/herdr" <<'SH'
+printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in
+  "pane get")
+    [ "$AGENT" = "unreachable" ] && exit 1
+    printf '{"result":{"pane":{"pane_id":"%s","agent":%s}}}\n' "$3" "$AGENT" ;;
+  "pane run") printf 'ran\n' ;;
+  "notification show") : ;;
+  *) exit 2 ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/herdr"
+}
+
+# Run the `Edit command palette config` pane_run command against a stub herdr.
+run_pane_run() {
+  local dir="$1"
+  env HERDR_BIN_PATH="$dir/herdr" HERDR_TARGET_PANE_ID="w1:p1" \
+    HERDR_TARGET_CWD="$dir" HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" \
+    python3 - <<'PY'
+import pathlib
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.kind == "pane_run")
+code, output, _ = palette.run_command(command, config_path)
+print(f"code={code}")
+print(output)
+PY
+}
+
+@test "R4: pane_run refuses a pane an agent owns and says why" {
+  stub_herdr "$PALETTE_WORK/agent" '"claude"'
+  run run_pane_run "$PALETTE_WORK/agent"
+  assert_success
+  refute_line --partial "code=0"
+  assert_output --partial "w1:p1"
+  assert_output --partial "claude"
+
+  run cat "$PALETTE_WORK/agent/herdr.log"
+  assert_success
+  refute_output --partial "pane run"
+  assert_output --partial "notification show"
+}
+
+@test "R4: pane_run proceeds when no agent owns the pane" {
+  stub_herdr "$PALETTE_WORK/free" 'null'
+  run run_pane_run "$PALETTE_WORK/free"
+  assert_success
+  assert_line "code=0"
+
+  run cat "$PALETTE_WORK/free/herdr.log"
+  assert_success
+  assert_output --partial "pane run"
+  refute_output --partial "notification show"
+}
+
+@test "R4: a failed pane lookup is reported, not treated as a free pane" {
+  stub_herdr "$PALETTE_WORK/broken" 'unreachable'
+  run run_pane_run "$PALETTE_WORK/broken"
+  assert_success
+  refute_line "code=0"
+  assert_output --partial "w1:p1"
+
+  run cat "$PALETTE_WORK/broken/herdr.log"
+  assert_success
+  refute_output --partial "pane run"
+}
+
+@test "R4: tab_run is unaffected by the pane_run guard" {
+  run python3 - <<'PY'
+import inspect
+
+import palette_boot
+
+palette = palette_boot.palette()
+source = inspect.getsource(palette.run_command_with_variables)
+tab_run = source.split('command.kind == "tab_run"', 1)[1]
+assert "pane_agent" not in tab_run, "the agent guard leaked into tab_run"
+print("tab_run clean")
+PY
+  assert_success
+  assert_output --partial "tab_run clean"
+}
+
 @test "R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH" {
   local stub="$PALETTE_WORK/nofzf"
   mkdir -p "$stub"

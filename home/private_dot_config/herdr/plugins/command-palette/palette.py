@@ -1493,6 +1493,34 @@ def json_result(command: list[str]) -> dict[str, Any]:
     return result_data if isinstance(result_data, dict) else {}
 
 
+def pane_agent(herdr: str, pane_id: str) -> str | None:
+    """Who owns a pane: the agent's name, "" for nobody, None if unknown.
+
+    None is deliberately not "nobody". A lookup that produced no well-formed
+    answer is not evidence that the pane is free, and the caller must refuse
+    rather than type a shell line into someone's agent on a guess.
+    """
+    pane = json_result([herdr, "pane", "get", pane_id]).get("pane")
+    if not isinstance(pane, dict):
+        return None
+    agent = pane.get("agent")
+    return agent.strip() if isinstance(agent, str) else ""
+
+
+def notify(herdr: str, title: str, body: str) -> None:
+    """Best-effort user-visible notice. Never raises; never blocks the caller."""
+    try:
+        subprocess.run(
+            [herdr, "notification", "show", title, "--body", body],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=FZF_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def target_pane_cwd(herdr: str, target_pane: str) -> str:
     if not target_pane:
         return ""
@@ -1648,6 +1676,20 @@ def run_command_with_variables(command: Command, config_path: Path, variables: d
         pane_command = expand(raw.get("command", ""), variables)
         if not pane_command:
             raise ValueError(f"{command.title}: pane_run requires command")
+
+        # `herdr pane run` types the line into the pane. When an agent owns that
+        # pane, herdr submits it as a prompt -- so the shell command becomes
+        # something an agent reads and acts on. Refuse instead.
+        agent = pane_agent(herdr, target_pane)
+        if agent is None:
+            message = f"Could not read pane {target_pane}, so {command.title} was not run."
+            notify(herdr, "Command palette: pane unreadable", message)
+            return 1, message, True
+        if agent:
+            message = f"Pane {target_pane} is owned by the {agent} agent, so {command.title} was not run."
+            notify(herdr, "Command palette: pane belongs to an agent", message)
+            return 1, message, True
+
         result = subprocess.run([herdr, "pane", "run", target_pane, str(pane_command)], text=True, capture_output=True)
         return result.returncode, (result.stdout or "") + (result.stderr or ""), pause
 
