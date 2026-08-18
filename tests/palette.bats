@@ -679,8 +679,11 @@ TOML
     python3 "$PALETTE_DIR/palette.py"
   assert_failure
   assert_output --partial "fzf"
-  assert_output --partial "home/private_dot_config/brewfiles/Brewfile"
   assert_output --partial "PATH"
+  # Both Brewfile paths: the repo one says where to edit the declaration, the
+  # deployed one is what the install command can actually be run against.
+  assert_output --partial "home/private_dot_config/brewfiles/Brewfile"
+  assert_output --partial "brew bundle --file=~/.config/brewfiles/Brewfile"
 }
 
 @test "R9: an fzf that never answers leaves the palette alive and empty" {
