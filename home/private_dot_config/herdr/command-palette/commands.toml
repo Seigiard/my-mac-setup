@@ -9,6 +9,10 @@ command = "lazygit"
 [[commands]]
 group = "Git"
 title = "Lazygit in popup"
+# The Cyrillic entries are `lg` and `lazy` typed on the ЙЦУКЕН layout: the
+# palette opens in whatever layout you were already typing in, and the shortcut
+# list is literal text, so nothing in the palette has to know about layouts.
+shortcuts = ["lg", "дп", "дфян"]
 description = "Open lazygit in a 90%×90% popup in the current pane's directory"
 type = "shell"
 pause = false
@@ -38,6 +42,7 @@ command = "zsh -ic 'gpmain'"
 [[commands]]
 group = "Editor"
 title = "Open in Zed"
+shortcuts = ["zed", "яув"]
 description = "Open the current pane's directory in Zed"
 type = "shell"
 pause = false
@@ -46,6 +51,7 @@ command = "zed {target_cwd_q}"
 [[commands]]
 group = "Herdr"
 title = "Switch workspace"
+shortcuts = ["ws", "цы"]
 description = "Choose and focus a workspace"
 type = "workspace_picker"
 
@@ -67,6 +73,7 @@ args = ["server", "reload-config"]
 [[commands]]
 group = "Settings"
 title = "Edit command palette config"
+shortcuts = ["edit", "увше"]
 description = "Open commands.toml in the original pane with $EDITOR"
 type = "pane_run"
 command = "${EDITOR:-vi} {config_file_q}"

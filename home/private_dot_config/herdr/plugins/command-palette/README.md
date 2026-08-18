@@ -98,6 +98,26 @@ Each command may include a `group` field. The palette shows section headers when
 the search query is empty, and includes the group label in search results. If
 `group` is omitted, the command falls back to `Other`.
 
+## Searching
+
+A query is matched in two tiers, and **only the title and the shortcuts are ever
+searched** — never the description, never the group. Matching a group makes the
+result depend on an unrelated word: with the group in the search surface, `edit`
+selects "Open in Zed" because its group is "Editor".
+
+1. **Shortcuts**, matched in Python by case-insensitive prefix. A command may
+   declare `shortcuts = ["lg", "дп"]` — a list of whitespace-free strings. Every
+   shortcut hit sorts above every title hit, and the match is prefix, never
+   fuzzy, so `lg` keeps meaning the same command when new commands are added.
+   A Cyrillic entry is the Latin one typed on the ЙЦУКЕН layout: the palette
+   opens in whatever layout you were already typing in.
+2. **Titles**, ranked by `fzf --filter`.
+
+`fzf` is a hard dependency, declared in
+`home/private_dot_config/brewfiles/Brewfile`. The palette refuses to start
+without it rather than falling back to a second, untested matcher that would
+hide a broken deployment.
+
 On wide terminals the palette renders a second right-hand panel with keybinding
 hints read from Ghostty config inline comments:
 

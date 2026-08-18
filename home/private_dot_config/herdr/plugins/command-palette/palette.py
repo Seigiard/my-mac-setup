@@ -15,6 +15,7 @@ import locale
 import os
 import select
 import shlex
+import shutil
 import subprocess
 import sys
 import termios
@@ -29,6 +30,15 @@ DEFAULT_LIMIT = 40
 ESC = "\x1b["
 RUNNABLE_KINDS = {"herdr", "pane_run", "tab_run", "workspace_picker", "shell", "overlay_shell", "plugin_action"}
 COMMAND_KINDS = RUNNABLE_KINDS | {"select", "form"}
+
+# fzf scores; the palette renders. 0.56 is the release that added --accept-nth,
+# which is how a match finds its way back to a Command object.
+FZF_MIN_VERSION = (0, 56)
+# Measured at 3.0-3.2 ms median across 10/100/1000 rows on this machine: the
+# cost is process spawn, not search, so it does not grow with the command list.
+# Two seconds is ~600x that, unreachable by a slow machine and reached only by a
+# hung binary.
+FZF_TIMEOUT_SECONDS = 2
 
 try:
     locale.setlocale(locale.LC_ALL, "")
@@ -45,10 +55,7 @@ class Command:
     raw: dict[str, Any]
     origin: str = "Global"
     source: str = ""
-
-    @property
-    def search_text(self) -> str:
-        return f"{self.origin} {self.group} {self.title} {self.description} {self.kind}"
+    shortcuts: tuple[str, ...] = ()
 
     @property
     def display_group(self) -> str:
@@ -65,10 +72,6 @@ class Choice:
     @property
     def selectable(self) -> bool:
         return bool(self.label)
-
-    @property
-    def search_text(self) -> str:
-        return f"{self.label} {self.description} {self.value}"
 
 
 def xdg_config_home() -> Path:
@@ -247,7 +250,33 @@ def command_kind(raw: dict[str, Any]) -> str:
     return kind
 
 
+def validate_shortcuts(raw: dict[str, Any], title: str, source: str) -> tuple[str, ...]:
+    """Read and check the optional per-command `shortcuts` list.
+
+    A silently ignored shortcut is worse than a rejected one: the user's muscle
+    memory stops working and nothing says why. So every malformed shape is an
+    error at load time. Whitespace is banned because the query is never split,
+    so a shortcut with a space could not be reached by prefix anyway.
+    """
+    value = raw.get("shortcuts")
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"command '{title}' ({source}) shortcuts must be a list of strings")
+    shortcuts: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            raise ValueError(f"command '{title}' ({source}) shortcut {entry!r} must be a string")
+        if not entry.strip():
+            raise ValueError(f"command '{title}' ({source}) has an empty shortcut")
+        if any(char.isspace() for char in entry):
+            raise ValueError(f"command '{title}' ({source}) shortcut '{entry}' must not contain whitespace")
+        shortcuts.append(entry)
+    return tuple(shortcuts)
+
+
 def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> None:
+    validate_shortcuts(raw, title, source)
     kind = command_kind(raw)
     if kind not in COMMAND_KINDS:
         raise ValueError(
@@ -284,6 +313,7 @@ def command_from_raw(item: dict[str, Any], source: str, origin: str) -> Command:
         raw=item,
         origin=origin,
         source=source,
+        shortcuts=validate_shortcuts(item, title, source),
     )
 
 
@@ -349,38 +379,201 @@ def load_commands() -> tuple[Path, list[Command]]:
     return path, normalize_group_order(commands)
 
 
-def fuzzy_score(query: str, text: str) -> float:
-    query = query.strip().lower()
-    if not query:
-        return 1.0
-    text = text.lower()
-    text_index = 0
-    score = 0.0
-    streak = 0
-    for char in query:
-        found = text.find(char, text_index)
-        if found == -1:
-            return -1.0
-        boundary = found == 0 or text[found - 1] in "/-_ .:"
-        streak = streak + 1 if found == text_index else 1
-        score += 10 + streak * 4 + (8 if boundary else 0) - min(found - text_index, 12)
-        text_index = found + 1
-    return score - min(len(text) / 50, 10)
+def fzf_requirement_message(reason: str) -> str:
+    """The one place the missing/too-old fzf text lives.
+
+    Both rendering paths in fail_hard_dependency read it, so they cannot drift,
+    and tests/palette.bats pins the three facts that make the failure fixable:
+    what is missing, where it is declared, and that PATH can hide it.
+    """
+    return "\n".join(
+        [
+            f"command palette cannot start: {reason}",
+            "",
+            "fzf is the palette's matcher and there is no fallback. A second,",
+            "untested matcher would hide a broken deployment instead of showing it.",
+            "",
+            "fzf is declared in home/private_dot_config/brewfiles/Brewfile.",
+            "",
+            "If fzf is already installed, PATH is the problem: a bare",
+            "/usr/bin:/bin PATH hides an fzf that lives in /opt/homebrew/bin.",
+        ]
+    )
+
+
+def fail_hard_dependency(message: str) -> None:
+    """Report a missing dependency where the user is actually looking.
+
+    The palette runs in a popup pane opened by a keybinding. A process that
+    writes to stderr and exits leaves a pane that flashes and vanishes, so the
+    message is never read. On a TTY, draw it and wait for a key. Off a TTY --
+    under bats, or piped -- print to stderr and exit, so no test can hang here.
+    """
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        try:
+            setup_terminal()
+            render_message(f"{ESC}31m{message}{ESC}0m\n\n{ESC}2mPress any key to close.{ESC}0m")
+            wait_for_key()
+        finally:
+            restore_terminal()
+    else:
+        print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def fzf_version(fzf: str) -> tuple[int, int] | None:
+    try:
+        result = subprocess.run([fzf, "--version"], text=True, capture_output=True, timeout=FZF_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    parts = (result.stdout or "").split()
+    if not parts:
+        return None
+    numbers = parts[0].split(".")
+    try:
+        return int(numbers[0]), int(numbers[1])
+    except (IndexError, ValueError):
+        return None
+
+
+_fzf_binary: str | None = None
+
+
+def resolve_fzf() -> str:
+    """Return the fzf path, or fail loudly. Resolved once per process."""
+    global _fzf_binary
+    if _fzf_binary is not None:
+        return _fzf_binary
+
+    fzf = shutil.which("fzf")
+    if not fzf:
+        fail_hard_dependency(fzf_requirement_message("fzf was not found on PATH."))
+    version = fzf_version(fzf)
+    if version is None:
+        fail_hard_dependency(fzf_requirement_message(f"{fzf} did not report a version."))
+    elif version < FZF_MIN_VERSION:
+        fail_hard_dependency(
+            fzf_requirement_message(
+                f"fzf {version[0]}.{version[1]} at {fzf} is too old; "
+                f"--accept-nth needs {FZF_MIN_VERSION[0]}.{FZF_MIN_VERSION[1]} or newer."
+            )
+        )
+    _fzf_binary = fzf
+    return fzf
+
+
+_search_status = ""
+
+
+def last_search_status() -> str:
+    """The status line for the most recent search, empty when it went fine."""
+    return _search_status
+
+
+def sanitize_field(text: str) -> str:
+    """Keep a value inside its own TSV column."""
+    for char in ("\t", "\n", "\r"):
+        text = text.replace(char, " ")
+    return text
+
+
+def fzf_filter(query: str, values: list[str], fzf: str) -> list[int] | None:
+    """Rank `values` against `query`, best first, and return their indices.
+
+    Rows are `<index>\\t<value>`; --nth 2 searches the value column only and
+    --accept-nth {1} returns the index, so what is matched and what is returned
+    stay independent of what is displayed. --delimiter is not optional: fzf's
+    default is AWK whitespace, which would split a value with a space in it.
+
+    None means the call produced no well-formed answer -- it timed out. The
+    caller keeps the palette and the typed query alive rather than tearing both
+    down over one unanswered call; the next keystroke retries.
+    """
+    if not values:
+        return []
+
+    rows = "\n".join(f"{index}\t{sanitize_field(value)}" for index, value in enumerate(values))
+    try:
+        result = subprocess.run(
+            [fzf, "--filter", query, "--delimiter", "\t", "--nth", "2", "--accept-nth", "{1}"],
+            input=rows,
+            text=True,
+            capture_output=True,
+            timeout=FZF_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+    # Exit 1 is "nothing matched" -- a legitimate result for a typo, not a
+    # failure. Anything else means the binary is broken, and that surfaces.
+    if result.returncode == 1:
+        return []
+    if result.returncode != 0:
+        raise RuntimeError(f"fzf failed ({result.returncode}): {(result.stderr or '').strip()}")
+
+    indices: list[int] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line.isdigit():
+            indices.append(int(line))
+    return indices
+
+
+def shortcut_rank(query: str, command: Command) -> int | None:
+    """0 for an exact shortcut, 1 for a prefix of one, None for no hit.
+
+    Prefix, never fuzzy: the whole value of a shortcut is that `lg` means one
+    command forever, and a fuzzy match would make that depend on what else
+    happens to be in the list.
+    """
+    best: int | None = None
+    for shortcut in command.shortcuts:
+        folded = shortcut.casefold()
+        if folded == query:
+            return 0
+        if folded.startswith(query):
+            best = 1
+    return best
+
+
+def shortcut_matches(query: str, commands: list[Command]) -> list[Command]:
+    hits = [
+        (rank, order, command)
+        for order, command in enumerate(commands)
+        for rank in (shortcut_rank(query, command),)
+        if rank is not None
+    ]
+    hits.sort(key=lambda item: (item[0], item[1]))
+    return [command for _, _, command in hits]
 
 
 def ranked(query: str, commands: list[Command], limit: int) -> list[Command]:
-    if not query.strip():
+    """Two tiers: literal shortcuts in Python, then fuzzy titles in fzf.
+
+    Neither the group nor the description is ever searched. Both were measured
+    and both regress the acceptance queries -- the "Editor" group makes `edit`
+    select "Open in Zed" -- and the shortcut tier covers what they were meant to.
+    """
+    global _search_status
+    _search_status = ""
+
+    folded = query.strip().casefold()
+    if not folded:
         return commands[:limit]
 
-    scored = [
-        (fuzzy_score(query, command.search_text), command)
-        for command in commands
-    ]
-    return [
-        command
-        for score, command in sorted(scored, key=lambda item: (-item[0], item[1].title.lower()))
-        if score >= 0
-    ][:limit]
+    hits = shortcut_matches(folded, commands)
+    matched = {id(command) for command in hits}
+    remainder = [command for command in commands if id(command) not in matched]
+
+    indices = fzf_filter(query.strip(), [command.title for command in remainder], resolve_fzf())
+    if indices is None:
+        _search_status = f"fzf timed out after {FZF_TIMEOUT_SECONDS}s — press a key to retry"
+        return hits[:limit]
+
+    hits.extend(remainder[index] for index in indices if 0 <= index < len(remainder))
+    return hits[:limit]
 
 
 def result_limit_for_rows(rows: int) -> int:
@@ -779,7 +972,10 @@ def render_curses_palette(
                 curses_add(stdscr, y, right_x, text, attrs[style])
 
     detail_y = rows - 3
-    if visible:
+    status = last_search_status()
+    if status:
+        detail = status
+    elif visible:
         detail = visible[selected].description or visible[selected].kind
     else:
         detail = f"Edit {short_path(config_path)}"
@@ -999,13 +1195,20 @@ def command_choices(command: Command) -> list[Choice]:
 
 
 def visible_choices(query: str, choices: list[Choice], rows: int) -> list[Choice]:
+    """Rank a select command's options through the same scorer as the main list.
+
+    A Choice has no group and no shortcuts, so only the label is searched --
+    the direct reading of the palette's "titles only" rule.
+    """
+    limit = result_limit_for_rows(rows)
     if not query.strip():
-        return choices[: result_limit_for_rows(rows)]
+        return choices[:limit]
+
     selectable = [choice for choice in choices if choice.selectable]
-    scored = [(fuzzy_score(query, choice.search_text), choice) for choice in selectable]
-    return [choice for score, choice in sorted(scored, key=lambda item: (-item[0], item[1].label.lower())) if score >= 0][
-        : result_limit_for_rows(rows)
-    ]
+    indices = fzf_filter(query.strip(), [choice.label for choice in selectable], resolve_fzf())
+    if indices is None:
+        return []
+    return [selectable[index] for index in indices if 0 <= index < len(selectable)][:limit]
 
 
 def selectable_index_at_or_after(choices: list[Choice], selected: int) -> int:
@@ -1522,7 +1725,12 @@ def wait_for_key() -> None:
 
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "--validate":
+        # Validation reads config; it never searches. Keep it usable without fzf.
         return validate_cli(sys.argv[2:])
+
+    # Before the TTY check, so a broken deployment is named rather than reported
+    # as a missing terminal.
+    resolve_fzf()
 
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise SystemExit("command palette needs a TTY")
