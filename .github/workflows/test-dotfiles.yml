@@ -85,9 +85,15 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
+      # --backend=copyfile: with bun's default backend this runner links
+      # packages out of ~/.bun/install/cache, and a package that runs from
+      # there resolves its imports against the cache rather than node_modules,
+      # so `se flow` dies on "Cannot find module 'effect/Effect'". Copying
+      # gives the same tree a fresh install produces on macOS, where the five
+      # `se flow` tests pass.
       - name: Install smithers dependencies in the source tree
         working-directory: home/private_dot_claude/dot_smithers
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --backend=copyfile
 
       # Report the gap once, here, instead of once per dependent test.
       - name: Verify the smithers binary the tests call
