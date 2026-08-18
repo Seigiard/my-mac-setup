@@ -1,3 +1,9 @@
 # The palette's global commands.toml is managed directly now. Drop the old
 # read-only seed that earlier applies left inside the plugin directory.
 .config/herdr/plugins/command-palette/defaults
+
+# The child launch contract replaces the turn-bound herdr-pair protocol.
+.claude/skills/herdr-pair
+
+# The herdr-only peer consult is deployed under its capability-specific name.
+.claude/skills/ask-agent

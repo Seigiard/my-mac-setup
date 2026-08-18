@@ -1,8 +1,6 @@
 # External coding-agent CLI flags (headless invocation)
 
-Reference for invoking external coding-agent CLIs in **headless / one-shot** mode —
-kept for a possible future `ask-agent` "yolo" mode that consults providers beyond
-the current `claude` / `pi` / `opencode` trio.
+Reference for invoking external coding-agent command-line interfaces in **headless / one-shot** mode. The `ask-in-herdr` skill does not use these recipes: it starts live agents through `herdr-child`. `docs/issues/2026-08-18-003-headless-peer-consult-outside-herdr.md` tracks any future headless peer consult.
 
 **Provenance.** The `claude` row is **verified live** here (Claude Code 2.1.181:
 `claude -p` returns clean output, generates its own child session, does not
@@ -13,20 +11,11 @@ treat them as a starting point, re-check each CLI's `--help` before wiring it in
 Source files (oh-my-claude-sisyphus npm package):
 `scripts/run-provider-advisor.js` and `dist/team/model-contract.js`.
 
-## Why this is not a drop-in for ask-agent
+## Why this is not a drop-in for ask-in-herdr
 
-`ask-agent` is **read-only by default** (hard tool allowlist). Every recipe below
-runs the provider in **full-permission / yolo** mode (`--dangerously-…`, `--yolo`,
-`--always-approve`). Adding any of these as a read-only consult is **not** a
-copy-paste — only some have a real read-only mode:
+Every recipe below runs the provider in **full-permission / yolo** mode (`--dangerously-…`, `--yolo`, `--always-approve`). `ask-in-herdr` instead delegates each live child's tool posture, coordinates, and callback channel to `herdr-child`. A future headless consult must design its own containment and answer transport rather than copying these commands into the live-agent skill.
 
-- **claude** — `--allowed-tools Read Grep Glob WebFetch WebSearch --disallowed-tools Bash Edit Write` (already used).
-- **pi** — `--tools read,grep,find,ls` (already used).
-- **codex** — has sandbox modes; a read-only sandbox exists (verify exact flag).
-- **gemini / grok / cursor / antigravity** — no clean per-call read-only; headless = yolo.
-
-So this table is for a deliberate **yolo / read-write** consult mode, not the
-default read-only path.
+Codex has sandbox modes and can provide a read-only sandbox after its exact flag is verified. Gemini, Grok, Cursor, and Antigravity have no clean per-call read-only mode in this document; their headless recipes are yolo.
 
 ## Flags
 
@@ -44,9 +33,9 @@ default read-only path.
 - **Prompt via stdin vs argv (the #3221 trap).** The claude CLI parses a prompt
   whose first token starts with `-` (a leading dash or YAML frontmatter `---`) as
   an **option** and drops the prompt; long / multiline argv is fragile too. Route
-  those over stdin (`claude -p` with no prompt arg reads stdin). `ask-agent`'s
-  `agents/claude.sh` already does this: pipe when the prompt is leading-dash,
-  multiline, or > 500 chars; keep `-p <prompt>` argv otherwise.
+  those over stdin (`claude -p` with no prompt arg reads stdin). A future headless
+  implementation must pipe when the prompt is leading-dash, multiline, or longer
+  than 500 characters; otherwise it can keep `-p <prompt>` in argv.
   - oh-my-claude pipes **codex** and **gemini** via stdin on the same condition
     (multiline / > 500 chars / Windows).
   - **grok** never pipes the prompt — its stdin is reserved for ACP JSON-RPC.

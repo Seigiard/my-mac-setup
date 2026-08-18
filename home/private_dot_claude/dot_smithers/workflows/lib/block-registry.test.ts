@@ -116,7 +116,7 @@ describe("BlockRegistry registration guards", () => {
   test("an external block with a contract registers", () => {
     const registry = new BlockRegistry();
     registry.register(
-      agentBlock({ name: "ext-review", external: true, externalContract: { dispatchScan: true, invocation: "read-only-ask-agent" } }),
+      agentBlock({ name: "ext-review", external: true, externalContract: { dispatchScan: true, invocation: "read-only-external-agent" } }),
     );
     expect(registry.get("ext-review")?.external).toBe(true);
   });
