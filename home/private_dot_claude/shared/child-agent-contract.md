@@ -4,7 +4,7 @@ This contract defines how a parent agent and a child agent communicate through h
 
 ## Herdr behaviour this contract depends on
 
-The following measurements used the isolated `childspike` session on 2026-08-18 with herdr 0.8.0.
+The following measurements used herdr 0.8.0 on 2026-08-18. Most ran in the isolated `childspike` session. The final claude mirror ran from the source checkout in a temporary child pane after the account limit reset.
 
 ### A prompt submitted while an agent is working is queued
 
@@ -28,7 +28,9 @@ herdr --session childspike agent prompt probe-open \
   'Use bash to append OPEN_SECOND_PROCESSED to /tmp/childspike-open-delivery.txt.'
 ```
 
-Both opencode and pi processed a second prompt submitted while their status was `working`. The opencode file contained, in order, `OPEN_FIRST_DONE` and `OPEN_SECOND_PROCESSED`. Claude could not complete the mirror measurement because its first prompt reported `You've hit your weekly limit`; this kind-specific mirror remains unverified.
+Both opencode and pi processed a second prompt submitted while their status was `working`. The opencode file contained, in order, `OPEN_FIRST_DONE` and `OPEN_SECOND_PROCESSED`.
+
+The claude mirror used `herdr-child start --kind claude --model haiku` and then `herdr agent prompt contract-claude-probe <second-prompt>` after `agent get` reported `working`. The queued call exited 0 after 20 ms. `/tmp/childspike-claude-delivery.txt` later contained, in order, `CLAUDE_FIRST_DONE` and `CLAUDE_SECOND_PROCESSED`. Thus all three supported child kinds process a prompt submitted during a working turn.
 
 ### Opencode and pi start interactively, and native arguments pass through
 
