@@ -2,6 +2,11 @@
 
 load 'helpers/common'
 
+setup() {
+  unset HERDR_CHILD_NAME
+  unset HERDR_CHILD_PARENT_PANE
+}
+
 teardown() {
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${HTS_WORK:-}" ]] && rm -rf "$HTS_WORK" || true
@@ -182,6 +187,7 @@ SH
     bash "$ASK_HERDR_DIR/ask.sh" claude "hi there"
   assert_success
   assert_output --partial "ANSWER from child"
+  assert_output --partial "close with: herdr-child reap consult-claude-"
   assert_output --partial "ask.sh: status=answered"
   run grep -E -- '^start --kind claude --name consult-claude-[0-9]+ --posture ro ' "$CHILD_STUB/child.log"
   assert_success
@@ -254,6 +260,29 @@ SH
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
 }
 
+@test "ask.sh classifies successful waits with working, unknown, and fallback statuses" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=working HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 124
+  assert_output --partial "ANSWER from child"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=unknown HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 124
+  assert_output --partial "ANSWER from child"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=surprised HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 1
+  assert_output --partial "ANSWER from child"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+}
+
 @test "ask.sh maps child start failures to refused or undelivered" {
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -284,13 +313,23 @@ printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
 printf '\n' >> "$CHILD_STUB/calls.log"
 case "${1:-} ${2:-}" in
   "agent list")
-    if [ -n "${STUB_AGENTS_JSON:-}" ]; then printf '%s\n' "$STUB_AGENTS_JSON"
+    if [ -n "${STUB_AGENTS_JSON_FIRST:-}" ] && [ ! -f "$CHILD_STUB/list-once" ]; then
+      : > "$CHILD_STUB/list-once"
+      printf '%s\n' "$STUB_AGENTS_JSON_FIRST"
+    elif [ -n "${STUB_AGENTS_JSON_SECOND:-}" ]; then
+      printf '%s\n' "$STUB_AGENTS_JSON_SECOND"
+    elif [ -n "${STUB_AGENTS_JSON:-}" ]; then printf '%s\n' "$STUB_AGENTS_JSON"
     else printf '{"result":{"agents":[]}}\n'
     fi ;;
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
+    : > "$CHILD_STUB/split-seen"
     printf '{"result":{"pane":{"pane_id":"wT:p9"}}}\n' ;;
   "agent start")
+    if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
+      printf 'agent start before pane split\n' >&2
+      exit 1
+    fi
     if [ "${STUB_START_MODE:-ok}" = busy-once ] && [ ! -f "$CHILD_STUB/start-once" ]; then
       : > "$CHILD_STUB/start-once"
       printf '{"error":{"code":"agent_pane_busy","message":"not an available shell"}}\n' >&2
@@ -311,7 +350,9 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
   "pane report-metadata") [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1; printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
   "pane get")
-    if [ "${STUB_LABEL:-0}" = 1 ]; then
+    if [ "${STUB_PANE_GET_MALFORMED:-0}" = 1 ]; then
+      printf 'not json\n'
+    elif [ "${STUB_LABEL:-0}" = 1 ]; then
       printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
     else
       printf '{"result":{"pane":{}}}\n'
@@ -420,7 +461,7 @@ child_start() {
 
 @test "herdr-child splits, starts, and prompts in order with both coordinates" {
   child_stub_herdr
-  run child_start --kind claude --name child-a --wait --timeout 5000
+  STUB_REQUIRE_SPLIT=1 run child_start --kind claude --name child-a --wait --timeout 5000
   assert_success
   local call1 call2 call3 call4
   call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
@@ -603,9 +644,32 @@ child_start() {
   assert_output --partial "work-a: kept; status is working"
   assert_output --partial "focus-a: kept"
   run grep -c '^agent list' "$CHILD_STUB/calls.log"
-  assert_output 1
+  assert_output 2
   run grep -c '^pane close' "$CHILD_STUB/calls.log"
   assert_output 1
+}
+
+@test "herdr-child reap closes an unfocused idle pane" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap idle-a
+  assert_success
+  assert_output --partial "idle-a: closed pane wT:p1"
+  run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
+  assert_output 1
+}
+
+@test "herdr-child reap preserves a pane when fresh state no longer matches" {
+  child_stub_herdr
+  local initial='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p1","agent_status":"done","focused":false}]}}'
+  local fresh='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p2","agent_status":"done","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON_FIRST="$initial" STUB_AGENTS_JSON_SECOND="$fresh" \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap stale-a
+  assert_success
+  assert_output --partial "stale-a: kept; child name and pane no longer identify the same live agent"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 @test "herdr-child reap refuses outside herdr and from a child pane" {
@@ -626,6 +690,17 @@ child_start() {
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap wait-a
   assert_success
   assert_output --partial "has a waiting state label"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child reap preserves a settled pane when pane metadata is malformed" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"bad-meta-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_GET_MALFORMED=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap bad-meta-a
+  assert_success
+  assert_output --partial "bad-meta-a: kept; pane metadata could not be read"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 }

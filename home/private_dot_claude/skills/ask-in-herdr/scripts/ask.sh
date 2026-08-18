@@ -131,7 +131,7 @@ set -e
 if [ "$read_status" -ne 0 ]; then
   status_exit undelivered 1
 fi
-printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr pane close %s)\n' "$pane" "$pane" >&2
+printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr-child reap %s)\n' "$pane" "$started_name" >&2
 
 if [ "$start_status" -eq 124 ]; then
   cat "$start_err" >&2
