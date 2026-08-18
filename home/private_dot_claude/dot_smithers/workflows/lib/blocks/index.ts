@@ -20,7 +20,7 @@ import {
 import { parseWorkEnvelope, workEnvelopeSchema } from "../envelopes.ts";
 import { codeReviewGate, type GateResult, rescanGate } from "../gates.ts";
 
-const EXTERNAL_CONTRACT: ExternalContract = { dispatchScan: true, invocation: "read-only-ask-agent" };
+const EXTERNAL_CONTRACT: ExternalContract = { dispatchScan: true, invocation: "read-only-external-agent" };
 
 const green: GateResult = { state: "green", reasons: [] };
 function red(reason: string): GateResult {

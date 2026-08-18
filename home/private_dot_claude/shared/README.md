@@ -9,8 +9,8 @@ Count the skills that read it.
 | Readers | Home | Examples |
 |---|---|---|
 | Every session, unconditionally | `~/.claude/CLAUDE.md`, `~/.claude/rules/*.md` (path-scoped), the writing-style output style | global instructions, comment policy, PR rules |
-| Two or more skills | **here**, `~/.claude/shared/<name>.md` | `pf-cycle.md`, `se-harness.md`, `decision-brief.md` |
-| Exactly one skill | that skill's own `references/` | `herdr-pair/references/peer-protocol.md`, `pf-build/references/demo.md` |
+| Two or more skills | **here**, `~/.claude/shared/<name>.md` | `pf-cycle.md`, `se-harness.md`, `decision-brief.md`, `child-agent-contract.md` |
+| Exactly one skill | that skill's own `references/` | `pf-build/references/implementer-prompt.md`, `pf-build/references/demo.md` |
 
 A document with no reader at all does not get created.
 

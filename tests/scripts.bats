@@ -4,8 +4,8 @@ load 'helpers/common'
 
 teardown() {
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
-  [[ -n "${PAIR_COWORKERS:-}" ]] && rm -rf "$PAIR_COWORKERS" || true
   [[ -n "${HTS_WORK:-}" ]] && rm -rf "$HTS_WORK" || true
+  [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
 }
 
 # ===========================================
@@ -89,188 +89,487 @@ teardown() {
 }
 
 # ===========================================
-# ask-agent skill scripts
+# ask-in-herdr skill script
 # ===========================================
 
-ASK_AGENT_DIR="$SOURCE_ROOT/private_dot_claude/skills/ask-agent/scripts"
+ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_claude/skills/ask-in-herdr/scripts"
 
-@test "ask-agent scripts are valid bash" {
-  for s in ask.sh agents/claude.sh agents/opencode.sh agents/pi.sh; do
-    run bash -n "$ASK_AGENT_DIR/$s"
-    assert_success
-  done
-}
-
-@test "ask.sh uses set -euo pipefail" {
-  run grep -q "set -euo pipefail" "$ASK_AGENT_DIR/ask.sh"
-  assert_success
-}
-
-@test "ask.sh with no args exits 2" {
-  run bash "$ASK_AGENT_DIR/ask.sh"
-  assert_failure 2
-}
-
-@test "ask.sh with an unknown agent exits 2 and lists the valid agents" {
-  run bash "$ASK_AGENT_DIR/ask.sh" bogus "question"
-  assert_failure 2
-  assert_output --partial "claude opencode pi"
-}
-
-@test "ask.sh claude read-only maps to allowlist plus explicit deny" {
-  local stubdir; stubdir="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*"\n' > "$stubdir/claude"
-  chmod +x "$stubdir/claude"
-  run env PATH="$stubdir:$PATH" HERDR_ENV="" bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
-  rm -rf "$stubdir"
-  assert_success
-  assert_output --partial -- "-p hi there"
-  assert_output --partial -- "--allowed-tools Read Grep Glob WebFetch WebSearch"
-  assert_output --partial -- "--disallowed-tools Bash Edit Write"
-}
-
-# A prompt whose first token is an option (e.g. YAML frontmatter `---` or a leading
-# `-`) is misparsed by the claude CLI as a flag, dropping the prompt. It must reach
-# claude via stdin (`claude -p` reads the prompt from stdin), not as a -p argv value.
-# `</dev/null` on run keeps the stub's `cat` from blocking in the (red) argv path.
-@test "ask.sh claude routes a leading-dash prompt via stdin, not argv" {
-  local stubdir; stubdir="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nprintf "ARGS[%%s]\\n" "$*"\nprintf "STDIN[%%s]" "$(cat)"\n' > "$stubdir/claude"
-  chmod +x "$stubdir/claude"
-  run env PATH="$stubdir:$PATH" HERDR_ENV="" bash "$ASK_AGENT_DIR/ask.sh" claude "--- look at this" </dev/null
-  rm -rf "$stubdir"
-  assert_success
-  assert_output --partial "STDIN[--- look at this]"
-  refute_output --partial -- "-p --- look at this"
-  assert_output --partial -- "ARGS[-p --allowed-tools"
-}
-
-@test "ask.sh claude routes a multiline prompt via stdin" {
-  local stubdir; stubdir="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nprintf "ARGS[%%s]\\n" "$*"\nprintf "STDIN[%%s]" "$(cat)"\n' > "$stubdir/claude"
-  chmod +x "$stubdir/claude"
-  run env PATH="$stubdir:$PATH" HERDR_ENV="" bash "$ASK_AGENT_DIR/ask.sh" claude "$(printf 'line one\nline two')" </dev/null
-  rm -rf "$stubdir"
-  assert_success
-  assert_output --partial "STDIN[line one"
-  assert_output --partial "line two]"
-  refute_output --partial -- "-p line one"
-}
-
-# --- ask.sh herdr pane mode ------------------------------------------------
-# The pane path once called `herdr wait output`, a verb herdr does not have. It failed
-# instantly, the EXIT trap then deleted the question file out from under the starting
-# pane, and the caller was told the consult had "timed out" after 30 minutes. The three
-# tests below pin the verb, the question file's lifetime, and the honest error text.
-#
-# ask_stub_herdr <dir> <ok|timeout|wait-fails|no-wait-verb> — a herdr on PATH that logs
-# every `pane run` command to <dir>/cmd.log and, in `ok` mode, executes it as the pane
-# would. `timeout` reproduces herdr 0.8: a wait timeout is JSON on stdout with exit 0.
-ask_stub_herdr() {
-  local dir="$1" mode="$2"
-  cat > "$dir/herdr" <<SH
+ask_live_stub() {
+  CHILD_STUB="$(mktemp -d)"
+  export CHILD_STUB
+  cat > "$CHILD_STUB/herdr-child" <<'SH'
 #!/usr/bin/env bash
-MODE=$mode
-LOG=$dir/cmd.log
+printf '%q ' "$@" >> "$CHILD_STUB/child.log"; printf '\n' >> "$CHILD_STUB/child.log"
+name=""
+while [ $# -gt 0 ]; do
+  case "$1" in --name) name="$2"; shift 2 ;; *) shift ;; esac
+done
+printf '{"agent":"%s","pane":"wT:p9"}\n' "$name"
+[ "${STUB_CHILD_STATUS:-0}" -eq 0 ] || { printf 'child-start-error\n' >&2; exit "$STUB_CHILD_STATUS"; }
 SH
-  cat >> "$dir/herdr" <<'SH'
+  cat > "$CHILD_STUB/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%q ' "$@" >> "$CHILD_STUB/herdr.log"; printf '\n' >> "$CHILD_STUB/herdr.log"
 case "$1 $2" in
-  "pane split") printf '{"result":{"pane":{"pane_id":"wT:p1"}}}\n' ;;
-  "pane wait-output")
-    # no-wait-verb: this herdr predates the verb, so even --help is rejected
-    [ "$MODE" = no-wait-verb ] && exit 2
-    case " $* " in *" --help "*) exit 0 ;; esac
-    printf '%s\n' "$*" >> "$LOG.wait"
-    case "$MODE" in
-      ok)      printf '{"id":"cli:pane:wait-output","result":{"type":"output_matched"}}\n' ;;
-      timeout) printf '{"error":{"code":"timeout","message":"timed out waiting for output match"}}\n' ;;
-      *)       printf 'unknown option: %s\n' "$4"; exit 2 ;;
-    esac ;;
-  "pane run")
-    shift 3; printf '%s\n' "$*" >> "$LOG"
-    [ "$MODE" = ok ] && bash -c "$*" >/dev/null 2>&1
-    exit 0 ;;
+  "agent list")
+    if [ "${STUB_NAME_COLLISION:-0}" = 1 ]; then
+      parent="$PPID"
+      grandparent="$(ps -o ppid= -p "$parent" | tr -d ' ')"
+      printf '{"result":{"agents":[{"name":"consult-claude-%s","pane_id":"wT:p8"},{"name":"consult-claude-%s","pane_id":"wT:p7"}]}}\n' "$parent" "$grandparent"
+    else printf '{"result":{"agents":[]}}\n'; fi ;;
+  "agent read") printf 'ANSWER from child\n' ;;
+  "agent get") printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
   *) exit 2 ;;
 esac
 SH
-  chmod +x "$dir/herdr"
+  chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr"
 }
 
-# herdr 0.8 answers a wait timeout with exit code 0 and a JSON error body. Trusting the
-# exit status would report a timed-out consult as a completed one.
-@test "ask.sh reports a pane wait timeout that herdr signals with exit code 0" {
-  local stub; stub="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"; chmod +x "$stub/claude"
-  ask_stub_herdr "$stub" timeout
-  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
-  assert_failure 124
-  assert_output --partial "did not finish within"
-  local qf; qf="$(sed -n 's/.*QF=\([^ ]*\).*/\1/p' "$stub/cmd.log" | head -1)"
-  [ -f "$qf" ]   # the pane runs on past the timeout and still needs the question
-  rm -f "$qf"
-  rm -rf "$stub"
-}
-
-@test "ask.sh pane mode waits with 'herdr pane wait-output' and delivers the answer" {
-  local stub; stub="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nprintf "ANSWER[%%s]\\n" "$*"\n' > "$stub/claude"
-  chmod +x "$stub/claude"
-  ask_stub_herdr "$stub" ok
-  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+@test "ask-in-herdr script is valid bash and requires arguments" {
+  run bash -n "$ASK_HERDR_DIR/ask.sh"
   assert_success
-  # The question reached the agent: the pane read the question file while it still existed.
-  assert_output --partial "ANSWER[-p hi there"
-  refute_output --partial "No such file or directory"
-  # herdr 0.8 parses the pane id only in front of the options, whatever --help implies.
-  run grep -qE '^pane wait-output wT:p1 --match ' "$stub/cmd.log.wait"
-  assert_success
-  rm -rf "$stub"
+  run bash "$ASK_HERDR_DIR/ask.sh"
+  assert_failure 2
 }
 
-@test "ask.sh keeps the question file alive when the pane wait fails" {
-  local stub; stub="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"; chmod +x "$stub/claude"
-  ask_stub_herdr "$stub" wait-fails
-  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+@test "ask.sh rejects unknown agents and the removed headless flag" {
+  run bash "$ASK_HERDR_DIR/ask.sh" bogus question
+  assert_failure 2
+  assert_output --partial "claude opencode pi"
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question --headless
+  assert_failure 2
+  assert_output --partial "unknown flag '--headless'"
+  assert_output --partial "ask.sh: status=refused"
+  [ ! -f "$CHILD_STUB/child.log" ]
+}
+
+@test "ask.sh refuses outside herdr and when herdr-child is absent" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 2
+  assert_output --partial "status=refused"
+  [ ! -f "$CHILD_STUB/child.log" ]
+
+  local no_child; no_child="$(mktemp -d)"
+  cp "$CHILD_STUB/herdr" "$no_child/herdr"
+  run env PATH="$no_child:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 2
+  assert_output --partial "herdr-child is not on PATH"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
+  rm -rf "$no_child"
+}
+
+@test "ask.sh starts a read-only live child and returns its answer" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude "hi there"
+  assert_success
+  assert_output --partial "ANSWER from child"
+  assert_output --partial "ask.sh: status=answered"
+  run grep -E -- '^start --kind claude --name consult-claude-[0-9]+ --posture ro ' "$CHILD_STUB/child.log"
+  assert_success
+  run grep -E -- '--prompt-file .* --wait --timeout 1800000' "$CHILD_STUB/child.log"
+  assert_success
+  run grep -E -- '^agent read consult-claude-[0-9]+ --source visible --lines 200' "$CHILD_STUB/herdr.log"
+  assert_success
+}
+
+@test "ask.sh forwards posture and every native caller option" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" pi question --rw --model M --effort high \
+      --cwd "$PWD" --skills A --skills B --agent N
+  assert_success
+  run grep -E -- '--posture rw' "$CHILD_STUB/child.log"
+  assert_success
+  run grep -E -- '--model M --effort high --agent N --skills A --skills B' "$CHILD_STUB/child.log"
+  assert_success
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" opencode question
+  assert_success
+  run grep -q -- '--model' "$CHILD_STUB/child.log"
+  assert_failure
+}
+
+@test "ask.sh retries a colliding derived name with a valid suffix" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_NAME_COLLISION=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_success
+  run grep -E -- '--name consult-claude-[0-9]+-2' "$CHILD_STUB/child.log"
+  assert_success
+}
+
+@test "ask.sh reports blocked children after printing their answer" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=blocked HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" opencode question
   assert_failure 1
-  # An immediate wait failure is not a timeout, and must not be reported as one.
-  assert_output --partial "herdr pane wait-output' failed"
-  refute_output --partial "did not finish within"
-  local qf; qf="$(sed -n 's/.*QF=\([^ ]*\).*/\1/p' "$stub/cmd.log" | head -1)"
-  [ -n "$qf" ]
-  [ -f "$qf" ]   # the pane is still starting; deleting this is what emptied the consult
-  rm -f "$qf"
-  rm -rf "$stub"
+  assert_output --partial "ANSWER from child"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
+  assert_file_contains "$CHILD_STUB/herdr.log" '^agent read .*--source recent-unwrapped'
 }
 
-@test "ask.sh falls back to headless when herdr has no pane wait-output verb" {
-  local stub; stub="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nprintf "ANSWER[%%s]\\n" "$*"\n' > "$stub/claude"
-  chmod +x "$stub/claude"
-  ask_stub_herdr "$stub" no-wait-verb
-  run env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_AGENT_DIR/ask.sh" claude "hi there"
+@test "ask.sh reports a still-working child with exit 124" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 124
+  assert_output --partial "ANSWER from child"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+}
+
+@test "ask.sh maps child start failures to refused or undelivered" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" pi question
+  assert_failure 2
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 1
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+}
+
+# ===========================================
+# herdr-child launch and return contract
+# ===========================================
+
+HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
+
+child_stub_herdr() {
+  CHILD_STUB="$(mktemp -d)"
+  export CHILD_STUB
+  cat > "$CHILD_STUB/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
+printf '\n' >> "$CHILD_STUB/calls.log"
+case "${1:-} ${2:-}" in
+  "agent list")
+    if [ -n "${STUB_AGENTS_JSON:-}" ]; then printf '%s\n' "$STUB_AGENTS_JSON"
+    else printf '{"result":{"agents":[]}}\n'
+    fi ;;
+  "pane split")
+    [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
+    printf '{"result":{"pane":{"pane_id":"wT:p9"}}}\n' ;;
+  "agent start")
+    if [ "${STUB_START_MODE:-ok}" = busy-once ] && [ ! -f "$CHILD_STUB/start-once" ]; then
+      : > "$CHILD_STUB/start-once"
+      printf '{"error":{"code":"agent_pane_busy","message":"not an available shell"}}\n' >&2
+      exit 1
+    fi
+    if [ "${STUB_START_MODE:-ok}" = busy ]; then
+      printf '{"error":{"code":"agent_pane_busy","message":"not an available shell"}}\n' >&2
+      exit 1
+    fi
+    if [ "${STUB_START_MODE:-ok}" = error ]; then
+      printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
+      exit 1
+    fi
+    printf '{"result":{"agent":{"interactive_ready":true}}}\n' ;;
+  "agent prompt")
+    [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
+    [ "${STUB_PROMPT_TIMEOUT:-0}" = 1 ] && { printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; }
+    printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
+  "pane report-metadata") printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
+  "pane get")
+    if [ "${STUB_LABEL:-0}" = 1 ]; then
+      printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
+    else
+      printf '{"result":{"pane":{}}}\n'
+    fi ;;
+  "pane close") exit "${STUB_CLOSE_STATUS:-0}" ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/herdr"
+}
+
+child_start() {
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" start "$@" --prompt "test task"
+}
+
+@test "herdr-child requires a subcommand and herdr environment" {
+  run bash "$HERDR_CHILD"
+  assert_failure 2
+  assert_output --partial "Usage:"
+
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" start --kind claude --name child-a --prompt task
+  assert_failure
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child refuses pi read-only before splitting a pane" {
+  child_stub_herdr
+  run child_start --kind pi --name child-pi --posture ro
+  assert_failure 2
+  assert_output --partial "return channel requires bash"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child rejects invalid and live names before splitting" {
+  child_stub_herdr
+  run child_start --kind claude --name Invalid
+  assert_failure 2
+  [ ! -f "$CHILD_STUB/calls.log" ]
+
+  STUB_AGENTS_JSON='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p8"}]}}' \
+    run child_start --kind claude --name child-a
+  assert_failure 2
+  assert_output --partial "already live"
+  run grep -q '^pane split' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child maps claude postures and skill directories" {
+  child_stub_herdr
+  run child_start --kind claude --name child-ro --skills A --skills B
   assert_success
-  assert_output --partial "running headless instead"
-  assert_output --partial "ANSWER[-p hi there"
-  [ ! -f "$stub/cmd.log" ]   # no pane was spent on a herdr that cannot wait
-  rm -rf "$stub"
+  assert_output '{"agent":"child-ro","pane":"wT:p9"}'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--add-dir A --add-dir B.*--disallowed-tools Edit Write NotebookEdit AskUserQuestion'
+
+  : > "$CHILD_STUB/calls.log"
+  run child_start --kind claude --name child-rw --posture rw
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--disallowed-tools AskUserQuestion'
+  run grep -q 'disallowed-tools Edit' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child maps opencode permissions, model, and configured agent" {
+  child_stub_herdr
+  run child_start --kind opencode --name child-open --agent reviewer
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model openai/gpt-5.5 --agent reviewer'
+
+  : > "$CHILD_STUB/calls.log"
+  run child_start --kind opencode --name child-open-rw --posture rw
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny'
+  run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child maps pi model, effort, skills, and question exclusion" {
+  child_stub_herdr
+  run child_start --kind pi --name child-pi --posture rw --skills A --skills B
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model openai-codex/gpt-5.5 --thinking medium --skill A --skill B'
+
+  : > "$CHILD_STUB/calls.log"
+  run child_start --kind pi --name child-pi-high --posture rw --model custom/model --effort high
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --thinking high'
+}
+
+@test "herdr-child rejects native options that the selected kind cannot map" {
+  child_stub_herdr
+  run child_start --kind claude --name child-a --effort high
+  assert_failure 2
+  assert_output --partial "--effort is not supported for claude"
+  run child_start --kind pi --name child-b --posture rw --agent reviewer
+  assert_failure 2
+  assert_output --partial "--agent is not supported for pi"
+  run child_start --kind opencode --name child-c --skills A
+  assert_failure 2
+  assert_output --partial "--skills is not supported for opencode"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child splits, starts, and prompts in order with both coordinates" {
+  child_stub_herdr
+  run child_start --kind claude --name child-a --wait --timeout 5000
+  assert_success
+  local call1 call2 call3 call4
+  call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
+  call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
+  call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
+  call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  [[ "$call1" == agent\ list* ]]
+  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
+  [[ "$call3" == agent\ start* ]]
+  [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
+}
+
+@test "herdr-child caps startup timeout while preserving a long prompt wait" {
+  child_stub_herdr
+  run child_start --kind claude --name child-a --wait --timeout 1800000
+  assert_success
+  local start_call prompt_call
+  start_call="$(sed -n '3p' "$CHILD_STUB/calls.log")"
+  prompt_call="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  [[ "$start_call" == *--timeout\ 300000* ]]
+  [[ "$prompt_call" == *--timeout\ 1800000* ]]
+}
+
+@test "herdr-child retries only the pane-readiness start failure" {
+  child_stub_herdr
+  STUB_START_MODE=busy-once run child_start --kind claude --name child-a
+  assert_success
+  run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_output 2
+
+  child_stub_herdr
+  STUB_START_MODE=error run child_start --kind claude --name child-b
+  assert_failure
+  assert_output --partial "agent start failed"
+  run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_output 1
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child closes its pane after three readiness failures" {
+  child_stub_herdr
+  STUB_START_MODE=busy run child_start --kind claude --name child-a
+  assert_failure
+  assert_output --partial "three agent start attempts"
+  run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_output 3
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child distinguishes a stalled initial prompt" {
+  child_stub_herdr
+  STUB_PROMPT_FAIL=1 run child_start --kind claude --name child-a --wait
+  assert_failure
+  assert_output --partial "initial prompt stalled"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child preserves a working pane when the wait times out" {
+  child_stub_herdr
+  STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --name child-a --wait
+  assert_failure 124
+  assert_output --partial '{"agent":"child-a","pane":"wT:p9"}'
+  assert_output --partial "wait timed out"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child ask publishes before delivery and uses the versioned marker" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
+    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
+    bash "$HERDR_CHILD" ask "Which path?"
+  assert_success
+  local call1 call2 call3
+  call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
+  call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
+  call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
+  [[ "$call1" == pane\ report-metadata*wT:p9*--source\ child-agent*--state-label*--ttl-ms\ 3600000* ]]
+  [[ "$call2" == agent\ list* ]]
+  [[ "$call3" == agent\ prompt*wT:p0*child-ask\\\ v1\\\ agent=child-a\\\ pane=wT:p9* ]]
+  [[ "$call3" != *--wait* ]]
+}
+
+@test "herdr-child ask leaves the label when parent lookup or delivery fails" {
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
+    bash "$HERDR_CHILD" ask question
+  assert_failure
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane report-metadata'
+  run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
+  assert_failure
+
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
+    bash "$HERDR_CHILD" ask question
+  assert_failure
+  assert_output --partial "waiting label remains published"
+}
+
+@test "herdr-child reply validates the live pair, delivers, then clears" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 "Use path A"
+  assert_success
+  local call2 call3
+  call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
+  call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
+  [[ "$call2" == agent\ prompt*parent-reply\\\ v1\\\ pane=wT:p0* ]]
+  [[ "$call3" == pane\ report-metadata*wT:p9*--clear-state-labels* ]]
+
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reply --to child-a --pane wT:p8 decision
+  assert_failure
+  run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child reply keeps the label when delivery fails and refuses child callers" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision
+  assert_failure
+  run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
+  assert_failure
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision
+  assert_failure
+  assert_output --partial "parent-side"
+}
+
+@test "herdr-child reap closes only settled, unfocused, non-waiting panes" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"done-a","pane_id":"wT:p1","agent_status":"done","focused":false},{"name":"work-a","pane_id":"wT:p2","agent_status":"working","focused":false},{"name":"focus-a","pane_id":"wT:p3","agent_status":"idle","focused":true}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap done-a missing-a work-a focus-a
+  assert_success
+  assert_output --partial "done-a: closed pane wT:p1"
+  assert_output --partial "missing-a: skipped"
+  assert_output --partial "work-a: kept; status is working"
+  assert_output --partial "focus-a: kept"
+  run grep -c '^agent list' "$CHILD_STUB/calls.log"
+  assert_output 1
+  run grep -c '^pane close' "$CHILD_STUB/calls.log"
+  assert_output 1
+}
+
+@test "herdr-child reap preserves a settled pane with a waiting label" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"wait-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_LABEL=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap wait-a
+  assert_success
+  assert_output --partial "has a waiting state label"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 # One dead verb (`herdr wait output`, which herdr spells `herdr pane wait-output`) cost a
 # whole broken mode for six weeks. Every herdr command a skill script runs is checked
 # here: its group against the allowlist always, and the full command against the installed
-# binary when there is one — CI has no herdr, a dev machine does. Scope is `*.sh` only;
-# prose in SKILL.md mentions herdr commands in sentences and cannot be parsed this way.
+# binary when there is one — CI has no herdr, a dev machine does. Scope includes skill
+# scripts and the shared launch executable, where the surviving herdr calls are concentrated.
 @test "skill scripts call only herdr commands that exist" {
   local groups='agent|api|channel|completion|config|integration|notification|pane|plugin|session|tab|workspace|worktree|status|update|server'
   local calls bad="" grp cmd
   # Comment lines out, then command position only: line start, or after a pipe, `;`,
   # `&&`, `(`, backtick or `$(` — prose about herdr must not read as a call.
-  calls="$(grep -rh --include='*.sh' -E 'herdr' "$SOURCE_ROOT/private_dot_claude/skills" \
+  calls="$({ grep -rh --include='*.sh' -E 'herdr' "$SOURCE_ROOT/private_dot_claude/skills"; \
+      grep -h -E 'herdr' "$HERDR_CHILD"; } \
     | grep -vE '^[[:space:]]*#' \
     | grep -oE '(^|[|;&(`]|\$\()[[:space:]]*herdr [a-z][a-z-]*( [a-z][a-z-]*)?' \
     | sed 's/.*herdr //' | sort -u)"
@@ -284,152 +583,6 @@ SH
     fi
   done <<< "$calls"
   [ -z "$bad" ] || fail "skill scripts call herdr commands that do not exist:$bad"
-}
-
-# ===========================================
-# herdr-pair skill scripts
-# ===========================================
-
-PAIR_DIR="$SOURCE_ROOT/private_dot_claude/skills/herdr-pair/scripts"
-
-# Each session test points the session store at a throwaway dir so it never
-# touches the real ~/.herdr-coworkers. teardown removes PAIR_COWORKERS.
-pair_new_store() {
-  PAIR_COWORKERS="$(mktemp -d)"
-  export HERDR_COWORKERS_DIR="$PAIR_COWORKERS"
-}
-
-@test "session.sh is valid bash" {
-  run bash -n "$PAIR_DIR/session.sh"
-  assert_success
-}
-
-@test "session.sh uses set -euo pipefail" {
-  run grep -q "set -euo pipefail" "$PAIR_DIR/session.sh"
-  assert_success
-}
-
-@test "session.sh create writes a well-formed per-tab session and prints the sid" {
-  pair_new_store
-  run bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid 123-abcd \
-    --a-agent claude --a-pane wB:p1 --b-agent pi --b-pane wB:p2
-  assert_success
-  assert_output --partial "123-abcd"
-  assert_file_exists "$PAIR_COWORKERS/wB/wB_tX/session.json"
-  run python3 - "$PAIR_COWORKERS/wB/wB_tX/session.json" <<'PY'
-import json, sys
-s = json.load(open(sys.argv[1]))
-assert s["sid"] == "123-abcd", s
-assert s["workspace_id"] == "wB", s
-assert s["tab_id"] == "wB:tX", s
-assert s["roles"]["a"] == {"agent_type": "claude", "pane_id": "wB:p1"}, s
-assert s["roles"]["b"] == {"agent_type": "pi", "pane_id": "wB:p2"}, s
-assert s["round"] == 0, s
-assert s["last_status"] == {"a": None, "b": None}, s
-assert s["no_progress_count"] == 0, s
-assert s["workbench"] == {"tab_id": None, "server_pane": None, "logs_pane": None}, s
-assert "created_at" in s, s
-PY
-  assert_success
-}
-
-@test "session.sh get round-trips a created session" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid 123-abcd \
-    --a-agent claude --a-pane wB:p1 --b-agent pi --b-pane wB:p2
-  run bash "$PAIR_DIR/session.sh" get --ws wB --tab wB:tX
-  assert_success
-  assert_output --partial '"sid": "123-abcd"'
-  assert_output --partial '"agent_type": "pi"'
-}
-
-@test "session.sh create refuses to clobber an existing session for the same tab" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid one \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  run bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid two \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  assert_failure
-  run bash "$PAIR_DIR/session.sh" get --ws wB --tab wB:tX
-  assert_output --partial '"sid": "one"'
-}
-
-@test "session.sh update bumps round and sets last_status, preserving prior fields" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid s \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status task
-  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role b --status review
-  run python3 - "$PAIR_COWORKERS/wB/wB_tX/session.json" <<'PY'
-import json, sys
-s = json.load(open(sys.argv[1]))
-assert s["round"] == 2, s
-assert s["last_status"] == {"a": "task", "b": "review"}, s
-assert s["roles"]["a"]["pane_id"] == "p1", s
-assert s["sid"] == "s", s
-PY
-  assert_success
-}
-
-@test "session.sh update adjusts no_progress_count with inc and reset" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid s \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status review --no-progress inc
-  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role b --status review --no-progress inc
-  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["no_progress_count"])' "$PAIR_COWORKERS/wB/wB_tX/session.json"
-  assert_output "2"
-  bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status task --no-progress reset
-  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["no_progress_count"])' "$PAIR_COWORKERS/wB/wB_tX/session.json"
-  assert_output "0"
-}
-
-@test "session.sh flattens ':' in tab id to '_' in the on-disk path" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab "wB:t9" --sid s \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  assert_file_exists "$PAIR_COWORKERS/wB/wB_t9/session.json"
-  assert_file_not_exists "$PAIR_COWORKERS/wB/wB:t9/session.json"
-}
-
-@test "session.sh get on a missing session fails clearly" {
-  pair_new_store
-  run bash "$PAIR_DIR/session.sh" get --ws wB --tab wB:tX
-  assert_failure
-}
-
-@test "session.sh update on a missing session fails and invents no state" {
-  pair_new_store
-  run bash "$PAIR_DIR/session.sh" update --ws wB --tab wB:tX --role a --status task
-  assert_failure
-  assert_file_not_exists "$PAIR_COWORKERS/wB/wB_tX/session.json"
-}
-
-@test "session.sh rejects path-traversal in --ws/--tab for every subcommand" {
-  pair_new_store
-  # '..' must not slip past the path guard (would let `trash` rm -rf outside the store).
-  run bash "$PAIR_DIR/session.sh" trash --ws ".." --tab ".."
-  assert_failure 2
-  run bash "$PAIR_DIR/session.sh" create --ws ".." --tab ".." --sid s \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  assert_failure 2
-  run bash "$PAIR_DIR/session.sh" create --ws "a/b" --tab x --sid s \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  assert_failure 2
-  run bash "$PAIR_DIR/session.sh" get --ws wB --tab "../../etc"
-  assert_failure 2
-}
-
-@test "session.sh trash removes only this tab's session dir, leaving sibling tabs" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:t1 --sid s1 \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:t2 --sid s2 \
-    --a-agent claude --a-pane p3 --b-agent pi --b-pane p4
-  run bash "$PAIR_DIR/session.sh" trash --ws wB --tab wB:t1
-  assert_success
-  assert_dir_not_exists "$PAIR_COWORKERS/wB/wB_t1"
-  assert_dir_exists "$PAIR_COWORKERS/wB/wB_t2"
 }
 
 # ===========================================
@@ -467,214 +620,6 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial "skipping agent-state integration refresh"
-}
-
-# ===========================================
-# herdr-pair transport scripts (spawn / send / recv)
-# ===========================================
-
-@test "herdr-pair transport scripts are valid bash" {
-  for s in spawn-partner.sh send.sh recv.sh; do
-    run bash -n "$PAIR_DIR/$s"
-    assert_success
-  done
-}
-
-@test "herdr-pair transport scripts use set -euo pipefail" {
-  for s in spawn-partner.sh send.sh recv.sh; do
-    run grep -q "set -euo pipefail" "$PAIR_DIR/$s"
-    assert_success
-  done
-}
-
-# Behavioral coverage for send.sh / spawn-partner.sh using a fake `herdr` on PATH, so the
-# highest-risk paths (missing flag, non-agent pane, unconfirmed delivery) run in CI.
-
-@test "send.sh with a missing required flag exits 2 naming the flag (bash-3.2 safe)" {
-  stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/herdr"; chmod +x "$stub/herdr"
-  run env PATH="$stub:$PATH" bash "$PAIR_DIR/send.sh" \
-    --self-role a --partner-role b --kind task --sid s --no-session-update --body hi
-  rm -rf "$stub"
-  assert_failure 2
-  assert_output --partial -- "--partner-pane required"
-}
-
-@test "send.sh refuses to send into a non-agent pane" {
-  stub="$(mktemp -d)"
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-[ "$1 $2" = "pane get" ] && printf '{"result":{"pane":{"agent_status":"unknown"}}}\n'
-exit 0
-SH
-  chmod +x "$stub/herdr"
-  run env PATH="$stub:$PATH" bash "$PAIR_DIR/send.sh" \
-    --partner-pane wB:p9 --self-role a --partner-role b --kind task --sid s --no-session-update --body hi
-  rm -rf "$stub"
-  assert_failure 1
-  assert_output --partial "not a receptive agent"
-}
-
-@test "send.sh records no turn when delivery cannot be confirmed" {
-  pair_new_store
-  bash "$PAIR_DIR/session.sh" create --ws wB --tab wB:tX --sid s \
-    --a-agent claude --a-pane p1 --b-agent pi --b-pane p2
-  stub="$(mktemp -d)"
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-case "$1 $2" in
-  "pane get")   printf '{"result":{"pane":{"agent_status":"idle"}}}\n' ;;  # never leaves idle
-  "agent wait") exit 1 ;;                                                   # working-wait times out
-esac
-exit 0
-SH
-  chmod +x "$stub/herdr"
-  run env PATH="$stub:$PATH" bash "$PAIR_DIR/send.sh" \
-    --partner-pane p2 --self-role a --partner-role b --kind task --sid s --ws wB --tab wB:tX --body hi
-  rm -rf "$stub"
-  assert_failure 1
-  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["round"])' "$PAIR_COWORKERS/wB/wB_tX/session.json"
-  assert_output "0"
-}
-
-@test "spawn-partner.sh rejects an unsupported agent" {
-  stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/herdr"; chmod +x "$stub/herdr"
-  proto="$(mktemp)"; echo proto > "$proto"
-  run env PATH="$stub:$PATH" bash "$PAIR_DIR/spawn-partner.sh" --agent codex --proto "$proto" --self wB:p1
-  rm -rf "$stub"; rm -f "$proto"
-  assert_failure 2
-  assert_output --partial "unsupported agent"
-}
-
-@test "spawn-partner.sh requires --proto" {
-  stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/herdr"; chmod +x "$stub/herdr"
-  run env PATH="$stub:$PATH" bash "$PAIR_DIR/spawn-partner.sh" --agent pi --self wB:p1
-  rm -rf "$stub"
-  assert_failure 2
-  assert_output --partial -- "--proto"
-}
-
-# recv.sh is a pure parser (text in via stdin), so its behavior is unit-testable offline.
-# Fixtures mirror real pi TUI output: leading-indented lines plus trailing TUI chrome.
-
-@test "recv.sh extracts the latest reply addressed to self and prints its kind" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid probe1 <<'EOF'
- [pair a -> b kind=task sid=probe1]
-
- Protocol probe. Reply per protocol.
-
- [pair b -> a kind=ready sid=probe1]
-
- Received; no files edited.
-
-────────────────────────────────────────
-~/Projects/my-mac-setup (feat/herdr-pair-skill)
-$0.033 (sub) 2.3%/272k (auto)
-EOF
-  assert_success
-  assert_line --index 0 "ready"
-  assert_output --partial "Received; no files edited."
-  refute_output --partial "0.033"
-}
-
-@test "recv.sh tolerates a Claude Code bullet glyph prefixing the header line" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid e2e-003 <<'EOF'
-⏺ [pair b -> a kind=ready sid=e2e-003]
-
-This reply confirms the pair channel works.
-EOF
-  assert_success
-  assert_line --index 0 "ready"
-}
-
-@test "recv.sh does not match a header quoted mid-sentence as a real reply" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
-Lead your reply with [pair b -> a kind=ready sid=s1] then prose.
-EOF
-  assert_failure 3
-}
-
-@test "recv.sh ignores a stale reply before the driver's last outgoing message (cursor)" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
-[pair b -> a kind=accepted sid=s1]
-stale reply from a previous turn — must be ignored
-[pair a -> b kind=task sid=s1]
-my latest outgoing message (the cursor)
-[pair b -> a kind=ready sid=s1]
-the real reply to this turn
-EOF
-  assert_success
-  assert_line --index 0 "ready"
-}
-
-@test "recv.sh takes the first real reply after the cursor, not a header quoted in the body" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
-[pair a -> b kind=task sid=s1]
-[pair b -> a kind=ready sid=s1]
-Done. For reference the accepted header looks like:
-[pair b -> a kind=accepted sid=s1]
-EOF
-  assert_success
-  assert_line --index 0 "ready"
-}
-
-@test "recv.sh ignores messages addressed to the partner, not self" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
-[pair a -> b kind=task sid=s1]
-this is my own outgoing message
-EOF
-  assert_failure 3
-}
-
-@test "recv.sh reports an sid mismatch as a distinct error" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid expected <<'EOF'
-[pair b -> a kind=ready sid=different]
-body
-EOF
-  assert_failure 4
-  assert_output --partial "sid mismatch"
-}
-
-@test "recv.sh exits 3 when there is no reply addressed to self" {
-  run bash "$PAIR_DIR/recv.sh" --self-role a --partner-role b --sid s1 <<'EOF'
-just some noise
-no headers here
-EOF
-  assert_failure 3
-}
-
-# ===========================================
-# herdr-pair skill structure (source tree)
-# ===========================================
-
-PAIR_SKILL="$SOURCE_ROOT/private_dot_claude/skills/herdr-pair"
-
-@test "herdr-pair skill source has all expected files" {
-  assert_file_exists "$PAIR_SKILL/SKILL.md"
-  assert_file_exists "$PAIR_SKILL/references/peer-protocol.md"
-  assert_file_exists "$PAIR_SKILL/references/workbench-tab.md"
-  assert_file_exists "$PAIR_SKILL/scripts/session.sh"
-  assert_file_exists "$PAIR_SKILL/scripts/spawn-partner.sh"
-  assert_file_exists "$PAIR_SKILL/scripts/send.sh"
-  assert_file_exists "$PAIR_SKILL/scripts/recv.sh"
-}
-
-@test "herdr-pair SKILL.md frontmatter is valid and triggers on the pair header" {
-  run python3 - "$PAIR_SKILL/SKILL.md" <<'PY'
-import sys
-t = open(sys.argv[1]).read()
-assert t.startswith("---\n"), "no opening frontmatter fence"
-end = t.index("\n---\n", 4)
-fm = t[4:end]
-keys = {}
-for line in fm.splitlines():
-    if ":" in line and not line.startswith(" "):
-        k, v = line.split(":", 1)
-        keys[k.strip()] = v.strip()
-assert keys.get("name") == "herdr-pair", keys
-assert "[pair" in keys.get("description", ""), "description must trigger on the [pair header"
-assert keys.get("argument-hint"), keys   # /herdr-pair takes arguments, so the hint must exist
-PY
-  assert_success
 }
 
 # ===========================================

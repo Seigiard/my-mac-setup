@@ -31,10 +31,10 @@ export interface CostProfile {
 
 // External blocks (`external: true`) egress data to a third-party vendor. The
 // contract forces the KTD13 dispatch-time payload scan and the read-only
-// ask-agent invocation path; a block that omits it is refused at registration.
+// external-agent invocation path; a block that omits it is refused at registration.
 export interface ExternalContract {
   dispatchScan: true;
-  invocation: "read-only-ask-agent";
+  invocation: "read-only-external-agent";
 }
 
 export interface AgentBuild {

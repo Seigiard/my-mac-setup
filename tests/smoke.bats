@@ -245,10 +245,11 @@ TOML
   assert_failure
 }
 
-@test "ask-agent skill is deployed" {
-  assert_file_exists "$HOME/.claude/skills/ask-agent/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/ask.sh"
-  assert_file_exists "$HOME/.claude/skills/ask-agent/scripts/agents/claude.sh"
+@test "ask-in-herdr skill and shared child contract are deployed" {
+  assert_file_exists "$HOME/.claude/skills/ask-in-herdr/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/ask-in-herdr/scripts/ask.sh"
+  assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
+  assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
 }
 
 @test "se-flow orchestrator skill is deployed" {
@@ -315,20 +316,11 @@ TOML
   assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
   assert_file_exists "$HOME/.claude/shared/se-harness.md"
   assert_file_exists "$HOME/.claude/shared/decision-brief.md"
+  assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
 
   # No skill may point into another skill's references/ — shared material lives in shared/.
   run grep -rEl '~/\.claude/skills/[a-z-]+/references/' "$HOME/.claude/skills"
   assert_output ""
-}
-
-@test "herdr-pair skill is deployed" {
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/references/peer-protocol.md"
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/references/workbench-tab.md"
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/session.sh"
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/spawn-partner.sh"
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/send.sh"
-  assert_file_exists "$HOME/.claude/skills/herdr-pair/scripts/recv.sh"
 }
 
 # ===========================================
@@ -776,9 +768,11 @@ se_fixture_repo() {
 # herdr task sync (engine, adapters, sidebar)
 # ===========================================
 
-@test "herdr-task-sync engine is deployed and executable" {
+@test "herdr task and child engines are deployed and executable" {
   assert_file_exists "$HOME/.local/bin/herdr-task-sync"
   assert_file_executable "$HOME/.local/bin/herdr-task-sync"
+  assert_file_exists "$HOME/.local/bin/herdr-child"
+  assert_file_executable "$HOME/.local/bin/herdr-child"
 }
 
 @test "herdr-task-sync Claude Code hook is deployed and executable" {

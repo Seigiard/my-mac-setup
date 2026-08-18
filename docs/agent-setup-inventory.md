@@ -51,6 +51,7 @@ https://ccsafetynet.com/docs/installation
 
 | Skill             | Source                              | Managed     |
 | ----------------- | ----------------------------------- | ----------- |
+| ask-in-herdr      | `repo`                              | repo        |
 | crit              | `?` (crit CLI's skill — confirm)    | manual      |
 | eli5              | `repo`                              | repo        |
 | handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
@@ -64,8 +65,6 @@ https://ccsafetynet.com/docs/installation
 | se-plan           | `repo` (local CE wrapper)           | repo        |
 | writing-for-agents | `repo` (vendored from `gh:mattpocock/skills`) | repo |
 
-Authored in repo but not currently applied live: `ask-agent`, `herdr-pair`
-(see Drift).
 
 ### Smithers workflows (`~/.claude/.smithers/`)
 
@@ -159,8 +158,6 @@ Ignored on purpose; not reproduced by this repo.
 ## Drift / to confirm
 
 - Source of `crit` and `handoff` unconfirmed (`manual` installs, not reproduced).
-- Authored skills `ask-agent`, `herdr-pair` exist in the repo but are not applied
-  to live `~/.claude/skills/` — confirm whether they should be.
 - OpenCode carries `agent-enhancer`, `open-source-librarian`, `review` agents —
   confirm whether authored-and-synced or stragglers.
 - Whether to make `herdr` multi-tool now (currently Claude-only live).

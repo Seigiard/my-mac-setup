@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Refresh herdr's agent-state integrations so `herdr wait agent-status` works for the
-# agents the herdr-pair skill drives. herdr ships per-agent state hooks and bumps their
-# version with each release; this re-runs `herdr integration install` whenever herdr is
+# Refresh herdr's agent-state integrations so the child launch contract can read each
+# agent's lifecycle state. herdr ships per-agent state hooks and bumps their version
+# with each release; this re-runs `herdr integration install` whenever herdr is
 # upgraded (exactly when the hooks go stale), instead of vendoring the hooks here.
 #
 # Re-run trigger — the hashed herdr version below changes on upgrade, so chezmoi re-runs
