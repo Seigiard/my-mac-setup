@@ -583,14 +583,10 @@ se_fixture_repo() {
   assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/lib/stage-gate.ts"
 }
 
-@test "opencode config allows the /tmp/ce-simplify staging directory (R11)" {
+@test "opencode config allows every external staging directory (R11)" {
   local cfg="$SE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
   assert_file_exists "$cfg"
-  run grep -F '/tmp/ce-simplify/*' "$cfg"
-  assert_success
-  run grep -F '/tmp/ce-simplify/**/*' "$cfg"
-  assert_success
-  run grep -F '/private/tmp/ce-simplify/**/*' "$cfg"
+  run grep -F '"*": "allow"' "$cfg"
   assert_success
 }
 
