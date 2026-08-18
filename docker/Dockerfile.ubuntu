@@ -54,9 +54,11 @@ RUN brew install bats-core
 # it. Homebrew ships a current fzf; Ubuntu's apt package predates --accept-nth.
 RUN brew install fzf
 
-# `se flow` shells out to bun to render its plan, so tests/scripts.bats needs
-# bun on PATH. The source tree is mounted read-only, so its node_modules must
-# come from the host checkout; this image supplies only the interpreter.
+# `se flow` shells out to bun to render its plan. bun also has to be on PATH
+# before the apply, or run_onchange_after_4-install-smithers-deps.sh exits 0
+# without provisioning ~/.claude/.smithers and the flow tests then run bun in
+# a directory with no node_modules. Linuxbrew's prefix is on PATH in this
+# image, so installing the formula is enough.
 RUN brew install oven-sh/bun/bun
 
 CMD ["/bin/zsh"]

@@ -54,6 +54,16 @@ jobs:
         env:
           FZF_VERSION: "0.74.3"
 
+      # Must precede the apply: run_onchange_after_4-install-smithers-deps.sh
+      # provisions ~/.claude/.smithers only when bun is on PATH, and exits 0
+      # without a word when it is not. The Brewfile does install bun, but into
+      # Linuxbrew's prefix, which this job never puts on PATH — so the apply
+      # silently leaves the runtime without node_modules and the `se flow`
+      # tests then run bun in a directory that has none. macOS never hits this
+      # because brew's prefix is on PATH there by default.
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
       # Stage 1: Initialize chezmoi (non-interactive via env vars)
       - name: Initialize chezmoi
         run: chezmoi init --source=./home
@@ -73,31 +83,18 @@ jobs:
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
 
-      # `chezmoi apply` provisions the deployed runtime at ~/.claude/.smithers,
-      # but tests/scripts.bats runs `se` straight from the checkout, whose
-      # SMITHERS_DIR is the adjacent home/private_dot_claude/dot_smithers.
-      # Without node_modules there, six `se` tests fail on the missing
-      # dependency instead of on the behavior they assert.
-      #
-      # The Brewfile does install bun, but into Linuxbrew's prefix, which this
-      # job never puts on PATH; setup-bun keeps that independent of the apply
-      # rather than exposing every brewed binary to the test step.
-      - name: Install bun
-        uses: oven-sh/setup-bun@v2
-
-      # --backend=copyfile: with bun's default backend this runner links
-      # packages out of ~/.bun/install/cache, and a package that runs from
-      # there resolves its imports against the cache rather than node_modules,
-      # so `se flow` dies on "Cannot find module 'effect/Effect'". Copying
-      # gives the same tree a fresh install produces on macOS, where the five
-      # `se flow` tests pass.
+      # The other smithers directory. Tests that set SE_SMITHERS_DIR point `se`
+      # at the checkout instead of the deployed runtime, and nothing provisions
+      # that copy — the apply deploys from it, it does not build it.
       - name: Install smithers dependencies in the source tree
         working-directory: home/private_dot_claude/dot_smithers
-        run: bun install --frozen-lockfile --backend=copyfile
+        run: bun install --frozen-lockfile
 
-      # Report the gap once, here, instead of once per dependent test.
-      - name: Verify the smithers binary the tests call
-        run: test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
+      # Report each gap once, here, instead of once per dependent test.
+      - name: Verify both smithers directories the tests call
+        run: |
+          test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
+          test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
 
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
@@ -136,8 +133,8 @@ jobs:
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
 
-      # See the ubuntu job: the checkout-based `se` tests read their smithers
-      # directory from the source tree, which the apply does not provision.
+      # See the ubuntu job. The deployed runtime needs no step here: brew's
+      # prefix is on PATH, so the apply's own script already provisioned it.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
@@ -145,8 +142,10 @@ jobs:
         working-directory: home/private_dot_claude/dot_smithers
         run: bun install --frozen-lockfile
 
-      - name: Verify the smithers binary the tests call
-        run: test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
+      - name: Verify both smithers directories the tests call
+        run: |
+          test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
+          test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
 
       - name: Run post-apply tests
         run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
