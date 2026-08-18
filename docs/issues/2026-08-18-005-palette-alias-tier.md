@@ -5,6 +5,12 @@ date: 2026-08-18
 status: open
 ---
 
+**Partly superseded.** `docs/plans/2026-08-18-1254-fix-command-palette-defects-plan.md` implements the
+core of this issue as R10: a per-command `shortcuts` list matched by case-insensitive prefix, ranked
+above the fuzzy tier and never scored against it. What remains open here is only the collision
+question in the first open decision below — the plan breaks ties by group order and defers the real
+rule to this issue.
+
 ## Why this exists
 
 The command palette is a herdr plugin at `home/private_dot_config/herdr/plugins/command-palette/`
