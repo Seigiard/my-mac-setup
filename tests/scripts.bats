@@ -460,6 +460,15 @@ child_start() {
   assert_failure
 }
 
+@test "herdr-child ask requires every injected child coordinate" {
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_NAME=child-a bash "$HERDR_CHILD" ask question
+  assert_failure
+  assert_output --partial "HERDR_CHILD_PARENT_PANE is missing"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
 @test "herdr-child ask publishes before delivery and uses the versioned marker" {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
@@ -516,6 +525,22 @@ child_start() {
   assert_failure
 }
 
+@test "herdr-child ask and reply publish strictly increasing label sequences" {
+  child_stub_herdr
+  local parent_agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$parent_agents" HERDR_ENV=1 \
+    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
+    bash "$HERDR_CHILD" ask question >/dev/null
+  local child_agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$child_agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision >/dev/null
+  local first_seq second_seq
+  first_seq="$(grep '^pane report-metadata' "$CHILD_STUB/calls.log" | sed -n '1s/.*--seq \([0-9]*\).*/\1/p')"
+  second_seq="$(grep '^pane report-metadata' "$CHILD_STUB/calls.log" | sed -n '2s/.*--seq \([0-9]*\).*/\1/p')"
+  [ -n "$first_seq" ]
+  [ "$second_seq" -gt "$first_seq" ]
+}
+
 @test "herdr-child reply keeps the label when delivery fails and refuses child callers" {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
@@ -545,6 +570,17 @@ child_start() {
   assert_output 1
   run grep -c '^pane close' "$CHILD_STUB/calls.log"
   assert_output 1
+}
+
+@test "herdr-child reap refuses outside herdr and from a child pane" {
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap child-a
+  assert_failure
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" reap child-a
+  assert_failure
+  assert_output --partial "parent-side"
 }
 
 @test "herdr-child reap preserves a settled pane with a waiting label" {
