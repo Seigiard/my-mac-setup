@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Install and enable the macOS Herdr plugins that remain managed by their GitHub sources.
+# Herdr records the source repository so herdr-auto-update can update these plugins later.
+#
+# Hash triggers:
+# {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
+# {{ if lookPath "herdr" }}herdr version: {{ output "herdr" "--version" | sha256sum }}{{ else }}herdr version: unavailable at apply time{{ end }}
+
+# Keep this tolerant: a missing Herdr or an unavailable GitHub repository must not make
+# chezmoi apply fail. Report every failed plugin so the user has an exact recovery command.
+set -u
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  exit 0
+fi
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping GitHub plugin installation"
+  exit 0
+fi
+
+plugins=(
+  "ImArtisann/zed-herdr:artisann.zed-herdr"
+  "dio16/herdr-auto-update:herdr-auto-update"
+)
+failed=()
+
+for entry in "${plugins[@]}"; do
+  repo="${entry%%:*}"
+  plugin_id="${entry#*:}"
+
+  if ! herdr plugin install "$repo" -y >/dev/null 2>&1; then
+    failed+=("$repo (install: herdr plugin install $repo -y)")
+    continue
+  fi
+
+  if herdr plugin enable "$plugin_id" >/dev/null 2>&1; then
+    echo "Installed and enabled Herdr plugin $plugin_id from $repo"
+  else
+    failed+=("$repo (enable: herdr plugin enable $plugin_id)")
+  fi
+done
+
+if herdr server reload-config >/dev/null 2>&1; then
+  echo "Reloaded Herdr config"
+else
+  echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+fi
+
+if [[ ${#failed[@]} -gt 0 ]]; then
+  printf 'Warning: failed to configure Herdr plugin %s\n' "${failed[@]}" >&2
+fi
+
+exit 0
