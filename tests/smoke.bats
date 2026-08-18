@@ -484,9 +484,20 @@ TOML
   assert_success
 }
 
-@test "fzf is available (if installed)" {
-  command_exists fzf || skip "fzf not installed"
+# fzf is a hard dependency of the command palette: palette.py shells out to
+# `fzf --filter` as its only scorer and refuses to start without it. So this
+# test asserts rather than skips, and it asserts the version floor -- 0.56 is
+# the release that added --accept-nth, which the palette uses to map a match
+# back to its command.
+@test "fzf is installed and at least 0.56 (command palette scorer)" {
+  run command -v fzf
+  assert_success
+
   run fzf --version
+  assert_success
+  local version="${output%% *}"
+
+  run python3 -c 'import sys; p=sys.argv[1].split("."); sys.exit(0 if (int(p[0]), int(p[1])) >= (0, 56) else 1)' "$version"
   assert_success
 }
 

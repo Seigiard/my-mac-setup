@@ -36,6 +36,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bats
 
+      # The command palette shells out to `fzf --filter` and refuses to start
+      # without it. Ubuntu's apt fzf predates --accept-nth, which the palette
+      # uses to map a match back to its command, so install the upstream build.
+      - name: Install fzf
+        run: |
+          curl -fsSL "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin fzf
+          fzf --version
+        env:
+          FZF_VERSION: "0.74.3"
+
       # Stage 1: Initialize chezmoi (non-interactive via env vars)
       - name: Initialize chezmoi
         run: chezmoi init --source=./home
@@ -72,6 +83,10 @@ jobs:
 
       - name: Install bats
         run: brew install bats-core
+
+      # See the ubuntu job: fzf is the command palette's scorer, not optional.
+      - name: Install fzf
+        run: brew install fzf
 
       - name: Initialize chezmoi
         run: chezmoi init --source=./home

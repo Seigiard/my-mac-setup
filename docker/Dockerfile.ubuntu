@@ -50,4 +50,8 @@ RUN brew install chezmoi
 # Install bats for testing
 RUN brew install bats-core
 
+# fzf is the command palette's scorer, so the palette refuses to start without
+# it. Homebrew ships a current fzf; Ubuntu's apt package predates --accept-nth.
+RUN brew install fzf
+
 CMD ["/bin/zsh"]
