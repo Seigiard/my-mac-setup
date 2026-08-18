@@ -39,6 +39,9 @@ FZF_MIN_VERSION = (0, 56)
 # Two seconds is ~600x that, unreachable by a slow machine and reached only by a
 # hung binary.
 FZF_TIMEOUT_SECONDS = 2
+# A herdr CLI call goes over a local unix socket; anything slower than this is a
+# stuck server, not a busy one.
+HERDR_CALL_TIMEOUT_SECONDS = 2
 
 try:
     locale.setlocale(locale.LC_ALL, "")
@@ -335,8 +338,9 @@ def validate_shortcuts(raw: dict[str, Any], title: str, source: str) -> tuple[st
     return tuple(shortcuts)
 
 
-def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> None:
-    validate_shortcuts(raw, title, source)
+def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> tuple[str, tuple[str, ...]]:
+    """Check a raw command and return the kind and shortcuts it resolved to."""
+    shortcuts = validate_shortcuts(raw, title, source)
     kind = command_kind(raw)
     if kind not in COMMAND_KINDS:
         raise ValueError(
@@ -358,23 +362,24 @@ def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> None:
             if not isinstance(options, list) or not any(isinstance(option, dict) and option.get("label") for option in options):
                 raise ValueError(f"command '{title}' ({source}) select commands need at least one labeled option")
     validate_value_quoting(raw, title, source, kind)
+    return kind, shortcuts
 
 
 def command_from_raw(item: dict[str, Any], source: str, origin: str) -> Command:
     title = str(item.get("title") or item.get("name") or "").strip()
     if not title:
         raise ValueError(f"command in {source} is missing title")
-    validate_command_raw(item, title, source)
+    kind, shortcuts = validate_command_raw(item, title, source)
     group = str(item.get("group") or "Other").strip() or "Other"
     return Command(
         title=title,
         description=str(item.get("description") or "").strip(),
-        kind=command_kind(item),
+        kind=kind,
         group=group,
         raw=item,
         origin=origin,
         source=source,
-        shortcuts=validate_shortcuts(item, title, source),
+        shortcuts=shortcuts,
     )
 
 
@@ -1576,7 +1581,7 @@ def notify(herdr: str, title: str, body: str) -> None:
             check=False,
             capture_output=True,
             text=True,
-            timeout=FZF_TIMEOUT_SECONDS,
+            timeout=HERDR_CALL_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.SubprocessError):
         pass

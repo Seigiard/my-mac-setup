@@ -17,17 +17,13 @@ setup() {
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
   export PYTHONPATH="$BATS_TEST_DIRNAME/helpers${PYTHONPATH:+:$PYTHONPATH}"
   PALETTE_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette.XXXXXX")"
+  # Docker mounts the source tree read-only, so __pycache__ cannot live beside
+  # the sources. py_compile reports that as a failure; redirect the cache.
+  export PYTHONPYCACHEPREFIX="$PALETTE_WORK/pycache"
 }
 
 teardown() {
   [[ -n "${PALETTE_WORK:-}" ]] && rm -rf "$PALETTE_WORK" || true
-}
-
-# Run a python snippet (read from stdin) with the palette modules importable.
-palette_py() {
-  local script="$PALETTE_WORK/snippet.py"
-  cat > "$script"
-  python3 "$script"
 }
 
 # ===========================================

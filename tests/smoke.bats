@@ -486,10 +486,9 @@ TOML
 
 # fzf is a hard dependency of the command palette: palette.py shells out to
 # `fzf --filter` as its only scorer and refuses to start without it. So this
-# test asserts rather than skips, and it asserts the version floor -- 0.56 is
-# the release that added --accept-nth, which the palette uses to map a match
-# back to its command.
-@test "fzf is installed and at least 0.56 (command palette scorer)" {
+# test asserts rather than skips, and it asserts the version floor. The floor
+# is read from palette.py's own FZF_MIN_VERSION so the two cannot drift.
+@test "fzf is installed and meets the command palette's version floor" {
   run command -v fzf
   assert_success
 
@@ -497,7 +496,16 @@ TOML
   assert_success
   local version="${output%% *}"
 
-  run python3 -c 'import sys; p=sys.argv[1].split("."); sys.exit(0 if (int(p[0]), int(p[1])) >= (0, 56) else 1)' "$version"
+  run python3 - "$version" <<'PY'
+import importlib.util, os, sys
+path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
+spec = importlib.util.spec_from_file_location("palette", path)
+palette = importlib.util.module_from_spec(spec)
+sys.modules["palette"] = palette
+spec.loader.exec_module(palette)
+found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
+assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
+PY
   assert_success
 }
 

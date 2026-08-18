@@ -74,6 +74,18 @@ def focused_cwd_from_context() -> str:
     return ""
 
 
+def result_envelope(stdout: str) -> dict[str, Any]:
+    """The `result` object of a herdr JSON response, or {} for anything else."""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result_data = data.get("result")
+    return result_data if isinstance(result_data, dict) else {}
+
+
 def json_result(command: list[str]) -> dict[str, Any]:
     try:
         result = subprocess.run(command, text=True, capture_output=True)
@@ -81,14 +93,15 @@ def json_result(command: list[str]) -> dict[str, Any]:
         return {}
     if result.returncode != 0:
         return {}
+    return result_envelope(result.stdout)
+
+
+def run_quietly(args: list[str]) -> None:
+    """Issue a herdr call whose result nothing reads. Never raises."""
     try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    result_data = data.get("result")
-    return result_data if isinstance(result_data, dict) else {}
+        subprocess.run(args, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 
 def pane_is_palette(pane: dict[str, Any]) -> bool:
@@ -98,40 +111,32 @@ def pane_is_palette(pane: dict[str, Any]) -> bool:
 
 def opened_pane_id(stdout: str) -> str:
     """The pane id from a `herdr plugin pane open` response."""
-    try:
-        data = json.loads(stdout)
-    except (json.JSONDecodeError, TypeError):
-        return ""
-    if not isinstance(data, dict):
-        return ""
-    plugin_pane = data.get("result", {}).get("plugin_pane") if isinstance(data.get("result"), dict) else None
+    plugin_pane = result_envelope(stdout).get("plugin_pane")
     pane = plugin_pane.get("pane") if isinstance(plugin_pane, dict) else None
     pane_id = pane.get("pane_id") if isinstance(pane, dict) else None
     return pane_id if isinstance(pane_id, str) else ""
 
 
 def mark_palette_pane(herdr: str, pane_id: str) -> None:
-    """Stamp a freshly opened palette pane so the next keypress can find it."""
+    """Stamp a freshly opened palette pane so the next keypress can find it.
+
+    Issued synchronously, before this process exits: a detached write would race
+    a second press of the keybinding, which is the case the stamp exists for.
+    """
     if not pane_id:
         return
-    try:
-        subprocess.run(
-            [
-                herdr,
-                "pane",
-                "report-metadata",
-                pane_id,
-                "--source",
-                PLUGIN_ID,
-                "--token",
-                f"{PALETTE_TOKEN}={PALETTE_TOKEN_VALUE}",
-            ],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        pass
+    run_quietly(
+        [
+            herdr,
+            "pane",
+            "report-metadata",
+            pane_id,
+            "--source",
+            PLUGIN_ID,
+            "--token",
+            f"{PALETTE_TOKEN}={PALETTE_TOKEN_VALUE}",
+        ]
+    )
 
 
 def current_pane_id(herdr: str) -> str:
@@ -161,15 +166,7 @@ def workspace_palette_pane(herdr: str, workspace_id: str) -> str:
 def focus_plugin_pane(herdr: str, pane_id: str) -> None:
     if not pane_id:
         return
-    try:
-        subprocess.run(
-            [herdr, "plugin", "pane", "focus", pane_id],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        pass
+    run_quietly([herdr, "plugin", "pane", "focus", pane_id])
 
 
 def main() -> int:
@@ -189,9 +186,10 @@ def main() -> int:
     # palette, or this workspace already has one, just keep/focus the existing
     # overlay instead of creating a nested one.
     #
-    # The guard matches the palette's own metadata token. It used to substring
-    # match "palette.py" against a pane's argv, cmdline and cwd, which an editor
-    # with the file open, a grep over it, or an agent discussing it all satisfy.
+    # The guard matches the palette's own metadata token, never a process
+    # substring: an editor with palette.py open, a grep over it, or an agent
+    # discussing it all mention the name, so matching on argv, cmdline or cwd
+    # would take their pane for the palette.
     current_pane = json_result([herdr, "pane", "get", target_pane]).get("pane") if target_pane else None
     if isinstance(current_pane, dict) and pane_is_palette(current_pane):
         focus_plugin_pane(herdr, target_pane)
