@@ -23,6 +23,7 @@ fi
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
     "npm:pi-subagentura",
+    "npm:@trevonistrevon/pi-loop",
     "npm:pi-web-access",
     "npm:pi-context-view",
     "npm:@ff-labs/pi-fff",

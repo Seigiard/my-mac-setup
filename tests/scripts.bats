@@ -1818,6 +1818,7 @@ se_fake_runtime() {
     (.packages | index("git:github.com/EveryInc/compound-engineering-plugin") != null) and
     (.packages | index("npm:pi-ask-user") != null) and
     (.packages | index("npm:pi-subagentura") != null) and
+    (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
     (.packages | index("npm:pi-web-access") != null) and
     (.packages | index("npm:pi-context-view") != null) and
     (.packages | index("npm:@ff-labs/pi-fff") != null)
@@ -1827,7 +1828,7 @@ se_fake_runtime() {
 
 @test "Pi settings modifier is idempotent" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:pi-subagentura","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"]}'
+  local input='{"packages":["npm:pi-subagentura","npm:@trevonistrevon/pi-loop","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"]}'
 
   run bash "$modifier" <<< "$input"
 
@@ -1835,6 +1836,7 @@ se_fake_runtime() {
   run jq -e '
     [
       "npm:pi-subagentura",
+      "npm:@trevonistrevon/pi-loop",
       "npm:pi-web-access",
       "npm:pi-context-view",
       "npm:@ff-labs/pi-fff"

@@ -120,6 +120,7 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 | pi-agent-browser-native      | `npm:pi-agent-browser-native`                             | manual  |
 | pi-ask-user                  | `npm:pi-ask-user`                                         | repo    |
 | pi-subagentura               | `npm:pi-subagentura`                                      | repo    |
+| pi-loop                      | `npm:@trevonistrevon/pi-loop`                             | repo    |
 
 ### Skills (`~/.pi/agent/skills/`)
 
