@@ -1,5 +1,5 @@
 {
   "$schema": "https://opencode.ai/tui.json",
-  "theme": "flexoki-light-forced",
+  "theme": "system",
   "plugin": []
 }
