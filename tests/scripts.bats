@@ -867,6 +867,7 @@ PY
 # ===========================================
 
 HTS_ENGINE="$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync"
+HTS_PLUGIN_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 
 # Build a sandbox with a stub `herdr` that records its argv. PATH is pinned to
 # the stub directory plus the system directories, so a real `pi` or `claude`
@@ -3041,6 +3042,109 @@ EOF
   run jq -e '[.panes[0].label,.tabs[0].label,.panes[0].tokens.worktree] | all(.[]; test("^[A-Za-z0-9._:/ ~·\\[\\]-]+$"))' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "plain-worktree · plain-task"
+}
+
+@test "herdr-task-sync plugin exposes only the approved pane and tab invalidations" {
+  local manifest="$HTS_PLUGIN_DIR/herdr-plugin.toml"
+  run awk '
+    /^on = "/ {
+      event = $0
+      sub(/^on = "/, "", event)
+      sub(/"$/, "", event)
+      next
+    }
+    /^command = / && event != "" {
+      command = $0
+      sub(/^command = /, "", command)
+      print event "|" command
+      event = ""
+    }
+  ' "$manifest"
+  assert_success
+  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
+  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
+  run grep -E '^\[\[actions\]\]|^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
+  assert_failure
+}
+
+@test "herdr-task-sync plugin wrappers recover the daemon and isolate call failures" {
+  local home="$BATS_TEST_TMPDIR/home" engine_log="$BATS_TEST_TMPDIR/plugin-engine.log"
+  mkdir -p "$home/.local/bin"
+  cat > "$home/.local/bin/herdr-task-sync" <<'SH'
+#!/bin/sh
+printf '%s|%s|%s\n' "${HTS_PLUGIN_CASE:-}" "$1" "${HERDR_SOCKET_PATH:-}" >> "$HTS_PLUGIN_ENGINE_LOG"
+printf 'unexpected stdout\n'
+printf 'unexpected stderr\n' >&2
+[ "${HTS_PLUGIN_FAIL_ARG:-}" != "$1" ] || exit 23
+exit 0
+SH
+  chmod +x "$home/.local/bin/herdr-task-sync"
+
+  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
+    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=startup \
+    HTS_PLUGIN_FAIL_ARG=--ensure-daemon sh "$HTS_PLUGIN_DIR/ensure.sh"
+  assert_success
+  assert_output ""
+  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
+    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=event-fails \
+    HTS_PLUGIN_FAIL_ARG=--event sh "$HTS_PLUGIN_DIR/ensure.sh" --event
+  assert_success
+  assert_output ""
+  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
+    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=daemon-fails \
+    HTS_PLUGIN_FAIL_ARG=--ensure-daemon sh "$HTS_PLUGIN_DIR/ensure.sh" --event
+  assert_success
+  assert_output ""
+  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
+    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=sweep \
+    HTS_PLUGIN_FAIL_ARG=--sweep sh "$HTS_PLUGIN_DIR/sweep.sh"
+  assert_success
+  assert_output ""
+  run cat "$engine_log"
+  assert_output $'startup|--ensure-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nevent-fails|--ensure-daemon|/tmp/u5.sock\ndaemon-fails|--event|/tmp/u5.sock\ndaemon-fails|--ensure-daemon|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
+}
+
+@test "herdr-task-sync sweep repairs an external pane rename without pane.updated" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_run --agent claude --session sweep-correction --set automatic-task < /dev/null
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 external-label
+  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" external-label
+
+  : > "$HTS_LOG"
+  run hts_sweep_run --sweep
+  assert_success
+  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" cc:automatic-task
+  assert_file_contains "$HTS_LOG" '^pane rename pane-1 cc:automatic-task$'
+}
+
+@test "herdr-task-sync sweep repairs process and CWD changes through the presentation coordinator" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local old="$HTS_WORK/repos/old" new="$HTS_WORK/repos/new-worktree" common="$HTS_WORK/repos/.git"
+  mkdir -p "$old" "$new" "$common"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$old" present "$old")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_git_location_fixture "$old" "$old" "$common" refs/heads/old
+  hts_set_process_label pane-1 btop
+  hts_event_run
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" old
+
+  hts_git_location_fixture "$new" "$new" "$common" refs/heads/new-branch
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$new" "$new"
+  hts_set_process_label pane-1 'cargo test'
+  : > "$HTS_LOG"
+  run hts_sweep_run --sweep
+  assert_success
+
+  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" new-worktree
+  assert_file_contains "$HTS_LOG" '^api snapshot$'
+  assert_file_contains "$HTS_LOG" '^pane rename pane-1 cargo test$'
 }
 
 @test "herdr-task-sync passes bash syntax check" {

@@ -835,3 +835,51 @@ PY
   # the sidebar shows the agent and its task through the `pane` row.
   assert_file_contains "$config" '^rows = .*"pane"'
 }
+
+@test "herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs" {
+  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
+  local manifest="$plugin/herdr-plugin.toml"
+  assert_file_exists "$manifest"
+  assert_file_exists "$plugin/ensure.sh"
+  assert_file_exists "$plugin/sweep.sh"
+  run sh -n "$plugin/ensure.sh"
+  assert_success
+  run sh -n "$plugin/sweep.sh"
+  assert_success
+
+  run awk '
+    /^on = "/ {
+      event = $0
+      sub(/^on = "/, "", event)
+      sub(/"$/, "", event)
+      next
+    }
+    /^command = / && event != "" {
+      command = $0
+      sub(/^command = /, "", command)
+      print event "|" command
+      event = ""
+    }
+  ' "$manifest"
+  assert_success
+  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
+  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
+  run grep -E '^\[\[actions\]\]|^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
+  assert_failure
+}
+
+@test "herdr pane-label plugin keeps startup sweep and relink deployment wiring" {
+  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
+  local manifest="$plugin/herdr-plugin.toml"
+  local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
+  assert_file_contains "$manifest" '^\[\[startup\]\]$'
+  assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
+  assert_file_contains "$plugin/ensure.sh" 'herdr-task-sync'
+  assert_file_contains "$plugin/ensure.sh" 'sync.*--ensure-daemon'
+  assert_file_contains "$plugin/sweep.sh" 'sync.*--sweep'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
+  assert_file_contains "$relink" 'herdr plugin link'
+  assert_file_contains "$relink" 'herdr plugin enable seigi.pane-labels'
+}
