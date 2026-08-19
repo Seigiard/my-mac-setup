@@ -877,26 +877,250 @@ hts_setup() {
   HTS_STUB="$HTS_WORK/stub"
   HTS_STATE="$HTS_WORK/state"
   HTS_LOG="$HTS_WORK/herdr.log"
-  mkdir -p "$HTS_STUB" "$HTS_STATE"
+  HTS_DEFAULT_SOCKET="$HTS_WORK/session.sock"
+  HTS_SOCKET_ROOT="$HTS_WORK/sockets"
+  export HTS_WORK HTS_DEFAULT_SOCKET HTS_SOCKET_ROOT
+  export HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET"
+  mkdir -p "$HTS_STUB" "$HTS_STATE" "$HTS_SOCKET_ROOT/socket-1"
   : > "$HTS_LOG"
-  # `pane list`, `pane process-info` and `tab list` are the herdr calls whose
-  # answers the engine reads back, so the stub records every call and replays a
-  # fixture for those three.
-  cat > "$HTS_STUB/herdr" <<SH
+  printf '%s' "$HTS_DEFAULT_SOCKET" > "$HTS_SOCKET_ROOT/socket-1/socket-path"
+  printf '%s' "$HTS_LOG" > "$HTS_SOCKET_ROOT/socket-1/log-path"
+  printf '%s' 2 > "$HTS_SOCKET_ROOT/next-id"
+  hts_init_socket_dir "$HTS_SOCKET_ROOT/socket-1"
+
+  # The mutable fixture uses exact socket paths as identities. Numeric storage
+  # directories avoid the collision caused by replacing punctuation in names.
+  cat > "$HTS_WORK/fixture-lib.sh" <<'SH'
+hts_fixture_init_dir() {
+  mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
+  [ -f "$1/state.json" ] || printf '%s\n' \
+    '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
+    > "$1/state.json"
+  [ -f "$1/call-seq" ] || printf '%s' 0 > "$1/call-seq"
+  [ -f "$1/herdr.log" ] || : > "$1/herdr.log"
+}
+
+hts_fixture_socket_dir() {
+  local socket_path="${1:-${HERDR_SOCKET_PATH:-$HTS_DEFAULT_SOCKET}}"
+  local dir id lock="$HTS_SOCKET_ROOT/registry.lock"
+  while ! mkdir "$lock" 2>/dev/null; do sleep 0.01; done
+  for dir in "$HTS_SOCKET_ROOT"/socket-*; do
+    [ -d "$dir" ] || continue
+    if [ -f "$dir/socket-path" ] && [ "$(cat "$dir/socket-path")" = "$socket_path" ]; then
+      rmdir "$lock"
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+  id="$(cat "$HTS_SOCKET_ROOT/next-id")"
+  printf '%s' $((id + 1)) > "$HTS_SOCKET_ROOT/next-id"
+  dir="$HTS_SOCKET_ROOT/socket-$id"
+  mkdir -p "$dir"
+  printf '%s' "$socket_path" > "$dir/socket-path"
+  hts_fixture_init_dir "$dir"
+  rmdir "$lock"
+  printf '%s\n' "$dir"
+}
+
+hts_fixture_log() {
+  if [ -f "$1/log-path" ]; then
+    cat "$1/log-path"
+  else
+    printf '%s/herdr.log\n' "$1"
+  fi
+}
+
+hts_fixture_next_call() {
+  local dir="$1" lock="$1/locks/call-seq" seq
+  while ! mkdir "$lock" 2>/dev/null; do sleep 0.01; done
+  seq=$(( $(cat "$dir/call-seq") + 1 ))
+  printf '%s' "$seq" > "$dir/call-seq"
+  rmdir "$lock"
+  printf '%s\n' "$seq"
+}
+
+hts_fixture_state_lock() {
+  while ! mkdir "$1/locks/state" 2>/dev/null; do sleep 0.01; done
+}
+
+hts_fixture_state_unlock() {
+  rmdir "$1/locks/state"
+}
+SH
+
+  # Every read is generated from current state. Rename and metadata calls
+  # mutate that state before their exact per-socket completion marker appears.
+  cat > "$HTS_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$HTS_LOG"
-if [ "\$1" = "pane" ] && [ "\$2" = "list" ]; then
-  cat "$HTS_WORK/pane-list.json" 2>/dev/null
+source "$HTS_WORK/fixture-lib.sh"
+dir="$(hts_fixture_socket_dir)"
+log="$(hts_fixture_log "$dir")"
+call="$*"
+seq="$(hts_fixture_next_call "$dir")"
+printf '%s\n' "$call" >> "$log"
+printf '%s\n' "$call" > "$dir/calls/$seq"
+
+finish_call() {
+  if [ -f "$dir/after/$seq.json" ]; then
+    hts_fixture_state_lock "$dir"
+    cp "$dir/after/$seq.json" "$dir/state.json"
+    hts_fixture_state_unlock "$dir"
+  fi
+  : > "$dir/completions/$seq"
+}
+trap finish_call EXIT
+
+state="$dir/state.json"
+if [ "$1" = "pane" ] && [ "$2" = "list" ]; then
+  jq -c '{id:"cli:pane:list",result:{panes:.panes,type:"pane_list"}}' "$state"
+elif [ "$1" = "pane" ] && [ "$2" = "get" ]; then
+  pane="$(jq -c --arg id "$3" '.panes[] | select(.pane_id == $id)' "$state")"
+  [ -n "$pane" ] || exit 1
+  jq -cn --argjson pane "$pane" '{id:"cli:pane:get",result:{pane:$pane,type:"pane_info"}}'
+elif [ "$1" = "pane" ] && [ "$2" = "process-info" ]; then
+  cat "$dir/proc-${4:-$3}.json" 2>/dev/null
+elif [ "$1" = "tab" ] && [ "$2" = "list" ]; then
+  jq -c '{id:"cli:tab:list",result:{tabs:.tabs,type:"tab_list"}}' "$state"
+elif [ "$1" = "tab" ] && [ "$2" = "get" ]; then
+  tab="$(jq -c --arg id "$3" '.tabs[] | select(.tab_id == $id)' "$state")"
+  [ -n "$tab" ] || exit 1
+  jq -cn --argjson tab "$tab" '{id:"cli:tab:get",result:{tab:$tab,type:"tab_info"}}'
+elif [ "$1" = "api" ] && [ "$2" = "snapshot" ]; then
+  if [ "$(jq -r '.complete' "$state")" = "true" ]; then
+    jq -c '{id:"cli:api:snapshot",result:{snapshot:{protocol:.protocol,panes:.panes,tabs:.tabs,agents:.agents,layouts:.layouts,workspaces:.workspaces},type:"session_snapshot"}}' "$state"
+  else
+    jq -c '{id:"cli:api:snapshot",result:{snapshot:{protocol:.protocol,panes:.panes},type:"session_snapshot"}}' "$state"
+  fi
+elif [ "$1" = "pane" ] && [ "$2" = "rename" ]; then
+  tmp="$state.tmp.$$"
+  hts_fixture_state_lock "$dir"
+  jq --arg id "$3" --arg label "$4" \
+    '.panes |= map(if .pane_id == $id then .label = $label else . end)' \
+    "$state" > "$tmp" && mv "$tmp" "$state"
+  result=$?
+  hts_fixture_state_unlock "$dir"
+  [ "$result" -eq 0 ] || exit "$result"
+elif [ "$1" = "tab" ] && [ "$2" = "rename" ]; then
+  tmp="$state.tmp.$$"
+  hts_fixture_state_lock "$dir"
+  jq --arg id "$3" --arg label "$4" \
+    '.tabs |= map(if .tab_id == $id then .label = $label else . end)' \
+    "$state" > "$tmp" && mv "$tmp" "$state"
+  result=$?
+  hts_fixture_state_unlock "$dir"
+  [ "$result" -eq 0 ] || exit "$result"
+elif [ "$1" = "pane" ] && [ "$2" = "report-metadata" ]; then
+  shift 2
+  source_id= pane_id= report_seq= tokens='{}' clear_tokens='[]'
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --source) source_id="$2"; shift 2 ;;
+      --seq) report_seq="$2"; shift 2 ;;
+      --token) tokens="$(jq -c --arg pair "$2" '. + {($pair | split("=")[0]): ($pair | split("=")[1:] | join("="))}' <<< "$tokens")"; shift 2 ;;
+      --clear-token) clear_tokens="$(jq -c --arg name "$2" '. + [$name]' <<< "$clear_tokens")"; shift 2 ;;
+      --*) shift 2 ;;
+      *) pane_id="$1"; shift ;;
+    esac
+  done
+  [ -n "$source_id" ] && [ -n "$pane_id" ] || exit 2
+  [ -n "$report_seq" ] || report_seq=0
+  tmp="$state.tmp.$$"
+  hts_fixture_state_lock "$dir"
+  jq --arg pane "$pane_id" --arg source "$source_id" --argjson seq "$report_seq" \
+    --argjson tokens "$tokens" --argjson clears "$clear_tokens" '
+      (.metadata[$pane][$source].seq // -1) as $current
+      | if $seq < $current then . else
+          .metadata[$pane][$source].seq = $seq
+          | .metadata[$pane][$source].tokens = ((.metadata[$pane][$source].tokens // {}) + $tokens | with_entries(select(.key as $key | $clears | index($key) | not)))
+          | (.metadata[$pane] // {} | [.[] | .tokens // {}] | add // {}) as $merged
+          | .panes |= map(if .pane_id == $pane then
+              .tokens = ((reduce $clears[] as $key ((.tokens // {}); del(.[$key]))) + $merged)
+            else . end)
+        end' "$state" > "$tmp" && mv "$tmp" "$state"
+  result=$?
+  hts_fixture_state_unlock "$dir"
+  [ "$result" -eq 0 ] || exit "$result"
 fi
-if [ "\$1" = "pane" ] && [ "\$2" = "process-info" ]; then
-  cat "$HTS_WORK/proc-\$4.json" 2>/dev/null
-fi
-if [ "\$1" = "tab" ] && [ "\$2" = "list" ]; then
-  cat "$HTS_WORK/tab-list.json" 2>/dev/null
-fi
-exit 0
 SH
   chmod +x "$HTS_STUB/herdr"
+
+  # A controlled model call blocks on its own release marker. Tests can finish
+  # generation 2 before generation 1 and wait for either completion exactly.
+  cat > "$HTS_WORK/model-stub" <<'SH'
+#!/usr/bin/env bash
+set -e
+name="$(basename "$0")"
+root="$HTS_WORK/models/$name"
+lock="$root/allocate.lock"
+mkdir -p "$root"
+while ! mkdir "$lock" 2>/dev/null; do sleep 0.01; done
+call=$(( $(cat "$root/next" 2>/dev/null || printf '%s' 0) + 1 ))
+printf '%s' "$call" > "$root/next"
+rmdir "$lock"
+fixture="$root/$call"
+mkdir -p "$fixture"
+cat > "$fixture/stdin"
+: > "$fixture/started"
+for _ in $(seq 1 1000); do
+  [ -e "$fixture/release" ] && break
+  sleep 0.01
+done
+[ -e "$fixture/release" ] || exit 124
+cat "$fixture/stdout" 2>/dev/null || true
+status="$(cat "$fixture/status" 2>/dev/null || printf '%s' 0)"
+: > "$fixture/completed"
+exit "$status"
+SH
+  chmod +x "$HTS_WORK/model-stub"
+
+  # Git fixtures are selected by exact CWD. A blocked target lets an actual
+  # 75 ms watchdog expire while seven independent probes complete normally.
+  cat > "$HTS_STUB/git" <<'SH'
+#!/usr/bin/env bash
+cwd= command_args="$*"
+if [ "$1" = "-C" ]; then cwd="$2"; shift 2; fi
+for fixture in "$HTS_WORK"/git-fixtures/*; do
+  [ -d "$fixture" ] || continue
+  [ "$(cat "$fixture/cwd")" = "$cwd" ] || continue
+  printf '%s\n' "$command_args" >> "$fixture/calls"
+  : > "$fixture/started"
+  if [ -n "${HTS_GIT_PROBE_ID:-}" ]; then
+    mkdir -p "$HTS_WORK/git-started"
+    : > "$HTS_WORK/git-started/$HTS_GIT_PROBE_ID"
+  fi
+  if [ -f "$fixture/block" ]; then
+    while [ ! -f "$fixture/release" ]; do sleep 0.01; done
+  fi
+  cat "$fixture/stdout"
+  exit "$(cat "$fixture/status")"
+done
+exit 1
+SH
+  chmod +x "$HTS_STUB/git"
+
+  cat > "$HTS_STUB/hts-crash-worker" <<'SH'
+#!/usr/bin/env bash
+set -e
+state="$1"
+crash_after="${2:-none}"
+markers="$state.markers"
+mkdir -p "$markers"
+[ -f "$state" ] || printf '%s\n' '{"completed":[],"complete":false}' > "$state"
+for boundary in enqueue state presentation; do
+  if jq -e --arg boundary "$boundary" '.completed | index($boundary)' "$state" >/dev/null; then
+    continue
+  fi
+  tmp="$state.tmp.$$"
+  jq --arg boundary "$boundary" '.completed += [$boundary]' "$state" > "$tmp"
+  mv "$tmp" "$state"
+  : > "$markers/$boundary"
+  [ "$crash_after" != "$boundary" ] || exit 97
+done
+tmp="$state.tmp.$$"
+jq '.complete = true' "$state" > "$tmp"
+mv "$tmp" "$state"
+SH
+  chmod +x "$HTS_STUB/hts-crash-worker"
   # jq lives outside /usr/bin on Homebrew installs (macOS and the Linux test
   # container alike), so link it in rather than widening the pinned PATH — a
   # wider PATH would also expose the real pi and claude.
@@ -922,22 +1146,186 @@ hts_run() {
   env PATH="$HTS_STUB:/usr/bin:/bin" \
     HERDR_ENV=1 \
     HERDR_PANE_ID=pane-1 \
+    HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
     bash "$HTS_ENGINE" "$@"
 }
 
 hts_pane_list() {
-  printf '%s' "$1" > "$HTS_WORK/pane-list.json"
+  local state tmp
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  tmp="$state.tmp"
+  jq --argjson panes "$(jq -c '.result.panes' <<< "$1")" '.panes = $panes' "$state" > "$tmp" && mv "$tmp" "$state"
 }
 
 # $1 = pane id, $2 = the `pane process-info` payload the stub replays for it
 hts_proc_info() {
-  printf '%s' "$2" > "$HTS_WORK/proc-$1.json"
+  local dir
+  dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
+  printf '%s' "$2" > "$dir/proc-$1.json"
 }
 
 hts_tab_list() {
-  printf '%s' "$1" > "$HTS_WORK/tab-list.json"
+  local state tmp
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  tmp="$state.tmp"
+  jq --argjson tabs "$(jq -c '.result.tabs' <<< "$1")" '.tabs = $tabs' "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_init_socket_dir() {
+  mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
+  printf '%s\n' \
+    '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
+    > "$1/state.json"
+  printf '%s' 0 > "$1/call-seq"
+  : > "$1/herdr.log"
+}
+
+hts_socket_dir() {
+  # shellcheck source=/dev/null
+  source "$HTS_WORK/fixture-lib.sh"
+  hts_fixture_socket_dir "$1"
+}
+
+hts_socket_state() {
+  printf '%s/state.json\n' "$(hts_socket_dir "$1")"
+}
+
+hts_socket_log() {
+  local dir
+  dir="$(hts_socket_dir "$1")"
+  if [[ -f "$dir/log-path" ]]; then
+    cat "$dir/log-path"
+  else
+    printf '%s/herdr.log\n' "$dir"
+  fi
+}
+
+hts_socket_run() {
+  local socket_path="$1"
+  shift
+  env PATH="$HTS_STUB:/usr/bin:/bin" HERDR_SOCKET_PATH="$socket_path" herdr "$@"
+}
+
+hts_set_pane() {
+  local state tmp
+  state="$(hts_socket_state "$1")"
+  tmp="$state.tmp"
+  jq --argjson pane "$2" \
+    '.panes = ([.panes[] | select(.pane_id != $pane.pane_id)] + [$pane])' \
+    "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_remove_pane() {
+  local state tmp
+  state="$(hts_socket_state "$1")"
+  tmp="$state.tmp"
+  jq --arg id "$2" '.panes |= map(select(.pane_id != $id))' "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_set_tab() {
+  local state tmp
+  state="$(hts_socket_state "$1")"
+  tmp="$state.tmp"
+  jq --argjson tab "$2" \
+    '.tabs = ([.tabs[] | select(.tab_id != $tab.tab_id)] + [$tab])' \
+    "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_snapshot_complete() {
+  local state tmp
+  state="$(hts_socket_state "$1")"
+  tmp="$state.tmp"
+  jq --argjson complete "$2" '.complete = $complete' "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_after_next_call_state() {
+  local dir next
+  dir="$(hts_socket_dir "$1")"
+  next=$(( $(cat "$dir/call-seq") + 1 ))
+  printf '%s\n' "$2" > "$dir/after/$next.json"
+}
+
+hts_wait_for_file() {
+  local file="$1" i
+  for i in $(seq 1 1000); do
+    [[ -e "$file" ]] && return 0
+    sleep 0.01
+  done
+  return 1
+}
+
+hts_wait_for_socket_call() {
+  local dir="$1" call_number="$2"
+  hts_wait_for_file "$dir/calls/$call_number"
+}
+
+hts_wait_for_socket_completion() {
+  local dir="$1" call_number="$2"
+  hts_wait_for_file "$dir/completions/$call_number"
+}
+
+hts_stub_controlled_engine() {
+  ln -s "$HTS_WORK/model-stub" "$HTS_STUB/$1"
+  mkdir -p "$HTS_WORK/models/$1"
+  printf '%s' 0 > "$HTS_WORK/models/$1/next"
+}
+
+hts_model_fixture() {
+  local fixture="$HTS_WORK/models/$1/$2"
+  mkdir -p "$fixture"
+  printf '%s\n' "$3" > "$fixture/stdout"
+  printf '%s' "${4:-0}" > "$fixture/status"
+}
+
+hts_release_model() {
+  : > "$HTS_WORK/models/$1/$2/release"
+}
+
+hts_git_fixture() {
+  local id fixture next="$HTS_WORK/git-fixtures/next"
+  mkdir -p "$HTS_WORK/git-fixtures"
+  id="$(cat "$next" 2>/dev/null || printf '%s' 1)"
+  printf '%s' $((id + 1)) > "$next"
+  fixture="$HTS_WORK/git-fixtures/$id"
+  mkdir -p "$fixture"
+  printf '%s' "$1" > "$fixture/cwd"
+  printf '%s\n' "$2" > "$fixture/stdout"
+  printf '%s' "${3:-0}" > "$fixture/status"
+  : > "$fixture/calls"
+  [[ "${4:-ready}" = "block" ]] && : > "$fixture/block"
+  return 0
+}
+
+hts_git_probe() {
+  local pane="$1" cwd="$2" result_dir="$HTS_WORK/git-results" git_pid timer_pid git_status
+  mkdir -p "$result_dir"
+  env PATH="$HTS_STUB:/usr/bin:/bin" HTS_GIT_PROBE_ID="$pane" \
+    git -C "$cwd" rev-parse --show-toplevel \
+    > "$result_dir/$pane.output" 2>/dev/null &
+  git_pid=$!
+  hts_wait_for_file "$HTS_WORK/git-started/$pane"
+  (
+    sleep 0.075
+    if kill -0 "$git_pid" 2>/dev/null; then
+      : > "$result_dir/$pane.timed-out"
+      kill "$git_pid" 2>/dev/null || true
+    fi
+  ) &
+  timer_pid=$!
+  if wait "$git_pid"; then git_status=0; else git_status=$?; fi
+  kill "$timer_pid" 2>/dev/null || true
+  wait "$timer_pid" 2>/dev/null || true
+  if [[ -e "$result_dir/$pane.timed-out" || "$git_status" -ne 0 ]]; then
+    printf '%s\n' stale > "$result_dir/$pane"
+  else
+    printf 'fresh:%s\n' "$(cat "$result_dir/$pane.output")" > "$result_dir/$pane"
+  fi
+}
+
+hts_crash_run() {
+  "$HTS_STUB/hts-crash-worker" "$1" "${2:-none}"
 }
 
 # The sweep modes carry no agent and no pane, so they run the script directly
@@ -1005,6 +1393,183 @@ hts_state_file() {
 
 hts_state_field() {
   grep -m1 "^${2}=" "$1" | cut -d= -f2- | base64 -d
+}
+
+@test "herdr-task-sync harness fresh reads follow pane and tab mutations" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    '{"pane_id":"pane-1","tab_id":"tab-1","terminal_id":"term-1","cwd":"/repo/one","label":"old","tokens":{}}'
+  hts_set_tab "$HTS_DEFAULT_SOCKET" \
+    '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 new
+  assert_success
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" tab rename tab-1 new-tab
+  assert_success
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  assert_success
+  assert_output --partial '"label":"new"'
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" tab get tab-1
+  assert_success
+  assert_output --partial '"label":"new-tab"'
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" api snapshot
+  assert_success
+  assert_output --partial '"tabs":[{"tab_id":"tab-1"'
+
+  hts_snapshot_complete "$HTS_DEFAULT_SOCKET" false
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" api snapshot
+  assert_success
+  refute_output --partial '"tabs"'
+}
+
+@test "herdr-task-sync harness controls reverse model completion by generation" {
+  hts_setup
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 older
+  hts_model_fixture pi 2 newer
+
+  printf '%s\n' first | "$HTS_STUB/pi" > "$HTS_WORK/model-1.out" &
+  local first_pid=$!
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  printf '%s\n' second | "$HTS_STUB/pi" > "$HTS_WORK/model-2.out" &
+  local second_pid=$!
+  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
+
+  hts_release_model pi 2
+  hts_wait_for_file "$HTS_WORK/models/pi/2/completed"
+  wait "$second_pid"
+  assert_file_not_exists "$HTS_WORK/models/pi/1/completed"
+  hts_release_model pi 1
+  hts_wait_for_file "$HTS_WORK/models/pi/1/completed"
+  wait "$first_pid"
+  assert_equal "$(cat "$HTS_WORK/model-1.out")" older
+  assert_equal "$(cat "$HTS_WORK/model-2.out")" newer
+}
+
+@test "herdr-task-sync harness isolates colliding sanitized socket names" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local socket_one="$HTS_WORK/a-b.sock" socket_two="$HTS_WORK/a_b.sock"
+  local dir_one dir_two sanitized_one sanitized_two
+  sanitized_one="$(printf '%s' "$socket_one" | sed 's/[^[:alnum:]]/_/g')"
+  sanitized_two="$(printf '%s' "$socket_two" | sed 's/[^[:alnum:]]/_/g')"
+  assert_equal "$sanitized_one" "$sanitized_two"
+  dir_one="$(hts_socket_dir "$socket_one")"
+  dir_two="$(hts_socket_dir "$socket_two")"
+  [[ "$dir_one" != "$dir_two" ]]
+  hts_set_pane "$socket_one" '{"pane_id":"pane-1","label":"one","tokens":{}}'
+  hts_set_pane "$socket_two" '{"pane_id":"pane-1","label":"two","tokens":{}}'
+
+  run hts_socket_run "$socket_one" api snapshot
+  assert_success
+  assert_output --partial '"label":"one"'
+  run hts_socket_run "$socket_two" api snapshot
+  assert_success
+  assert_output --partial '"label":"two"'
+  hts_wait_for_socket_call "$dir_one" 1
+  hts_wait_for_socket_completion "$dir_one" 1
+  hts_wait_for_socket_call "$dir_two" 1
+  hts_wait_for_socket_completion "$dir_two" 1
+  mkdir "$dir_one/locks/held" "$dir_two/locks/held"
+  assert_dir_exists "$dir_one/locks/held"
+  assert_dir_exists "$dir_two/locks/held"
+  assert_dir_exists "$dir_one/locks"
+  assert_dir_exists "$dir_two/locks"
+  assert_equal "$(wc -l < "$(hts_socket_log "$socket_one")" | tr -d ' ')" 1
+  assert_equal "$(wc -l < "$(hts_socket_log "$socket_two")" | tr -d ' ')" 1
+}
+
+@test "herdr-task-sync harness applies source metadata sequence and clear rules" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","label":"agent","tokens":{}}'
+
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 2 --token repo=alpha
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source task pane-1 --seq 1 --token task=review
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 1 --clear-token repo
+  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo' "$state")" alpha
+  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" review
+
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 3 --clear-token repo
+  assert_equal "$(jq -r '.metadata["pane-1"].location.seq' "$state")" 3
+  assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo // "cleared"' "$state")" cleared
+  assert_equal "$(jq -r '.panes[0].tokens.repo // "cleared"' "$state")" cleared
+  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" review
+}
+
+@test "herdr-task-sync harness models target loss move reuse and final-read change" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    '{"pane_id":"pane-1","tab_id":"tab-1","terminal_id":"term-1","cwd":"/repo/one","label":"one","tokens":{}}'
+  hts_remove_pane "$HTS_DEFAULT_SOCKET" pane-1
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  assert_failure
+  run grep -q '^pane rename' "$HTS_LOG"
+  assert_failure
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    '{"pane_id":"pane-1","tab_id":"tab-2","terminal_id":"term-2","cwd":"/repo/two","label":"two","tokens":{}}'
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  assert_success
+  assert_output --partial '"tab_id":"tab-2"'
+  assert_output --partial '"terminal_id":"term-2"'
+
+  local state next_state
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  next_state="$(jq -c '.panes[0].terminal_id = "term-3" | .panes[0].cwd = "/repo/three" | .panes[0].label = "three"' "$state")"
+  hts_after_next_call_state "$HTS_DEFAULT_SOCKET" "$next_state"
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  assert_success
+  assert_output --partial '"terminal_id":"term-2"'
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 stale-write
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  assert_output --partial '"terminal_id":"term-3"'
+  assert_output --partial '"label":"stale-write"'
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 converged
+  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  assert_output --partial '"label":"converged"'
+}
+
+@test "herdr-task-sync harness restarts from every durable crash boundary" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local boundary state
+  for boundary in enqueue state presentation; do
+    state="$HTS_WORK/crash-$boundary.json"
+    run hts_crash_run "$state" "$boundary"
+    assert_failure 97
+    assert_equal "$(jq -r '.complete' "$state")" false
+    assert_file_exists "$state.markers/$boundary"
+
+    run hts_crash_run "$state"
+    assert_success
+    assert_equal "$(jq -r '.complete' "$state")" true
+    assert_equal "$(jq -r '.completed | length' "$state")" 3
+    assert_equal "$(jq -r '.completed | unique | length' "$state")" 3
+  done
+}
+
+@test "herdr-task-sync harness gives eight panes independent 75 ms Git budgets" {
+  hts_setup
+  local i pids= pid
+  for i in 1 2 3 4 5 6 7; do
+    hts_git_fixture "/repo/$i" "/repo/$i"
+  done
+  hts_git_fixture /repo/8 /repo/8 0 block
+
+  for i in 1 2 3 4 5 6 7 8; do
+    hts_git_probe "pane-$i" "/repo/$i" &
+    pids="$pids $!"
+  done
+  for pid in $pids; do wait "$pid"; done
+
+  for i in 1 2 3 4 5 6 7; do
+    assert_equal "$(cat "$HTS_WORK/git-results/pane-$i")" "fresh:/repo/$i"
+  done
+  assert_equal "$(cat "$HTS_WORK/git-results/pane-8")" stale
 }
 
 @test "herdr-task-sync passes bash syntax check" {
@@ -1238,7 +1803,7 @@ SH
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_call 'tab rename'
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 first · second"
+  assert_output "tab rename tab-1 cc:cache-review · second"
 }
 
 # A pane with no agent is named after its command. The name belongs to the
@@ -1259,7 +1824,7 @@ SH
   hts_wait_for_call 'tab rename'
   assert_equal "$(hts_pane_label pane-2)" "bun run dev"
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 agent-label · bun run dev"
+  assert_output "tab rename tab-1 cc:cache-review · bun run dev"
 }
 
 # A pane whose foreground process group is its own shell runs nothing. It keeps
@@ -1278,7 +1843,7 @@ SH
   hts_wait_for_call 'tab rename'
   assert_equal "$(hts_pane_label pane-2)" "~"
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 agent-label · ~"
+  assert_output "tab rename tab-1 cc:cache-review · ~"
 }
 
 # The naming call knows one tab and not its position, so it cannot number a
