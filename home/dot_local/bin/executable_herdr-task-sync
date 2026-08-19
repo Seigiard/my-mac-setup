@@ -48,6 +48,7 @@ IDLE_PANE_LABEL="~"
 # Panes are joined with a middle dot (U+00B7): a full-height bar drew a wall
 # through the tab row. Override with HERDR_TASK_SYNC_SEPARATOR.
 LABEL_SEPARATOR="${HERDR_TASK_SYNC_SEPARATOR:- · }"
+FIELD_SEPARATOR=$'\037'
 WORKTREE_TOKEN_MAX_LEN=18
 LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"
 LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}"
@@ -744,7 +745,7 @@ path_suffix() {
 deterministic_digest() {
   local value="$1" file="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" digest round checksum
   if [ -n "$file" ] && [ -f "$file" ]; then
-    digest="$(awk -F "$(printf '\037')" -v root="$value" '$1 == root { print $2; exit }' "$file")"
+    digest="$(awk -F "$FIELD_SEPARATOR" -v root="$value" '$1 == root { print $2; exit }' "$file")"
     if [ -n "$digest" ]; then
       printf '%s' "$digest"
       return 0
@@ -762,7 +763,7 @@ deterministic_digest() {
 
 token_is_taken() {
   local token="$1" mappings="$2" _root existing
-  while IFS="$(printf '\037')" read -r _root existing; do
+  while IFS="$FIELD_SEPARATOR" read -r _root existing; do
     [ -n "$existing" ] || continue
     [ "$existing" != "$token" ] || return 0
   done <<EOF
@@ -831,7 +832,7 @@ EOF
       fi
     fi
     mappings="${mappings}${mappings:+
-}${root}$(printf '\037')${candidate}"
+}${root}${FIELD_SEPARATOR}${candidate}"
   done <<EOF
 $roots
 EOF
@@ -840,7 +841,7 @@ EOF
 
 worktree_token_for_root() {
   local wanted="$1" mappings="$2" root token
-  while IFS="$(printf '\037')" read -r root token; do
+  while IFS="$FIELD_SEPARATOR" read -r root token; do
     if [ "$root" = "$wanted" ]; then
       printf '%s' "$token"
       return 0
@@ -1028,7 +1029,7 @@ reconcile_presentation_pass() {
   # Location probes own no presentation state. Run one bounded probe per pane,
   # reap every child, then let the parent consume immutable results in the
   # snapshot's original order.
-  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
     [ -n "$id" ] || continue
     pane_json="$(printf '%s' "$pane_json_encoded" | base64 -d 2>/dev/null)"
     location_file="$(location_state_file "$id")"
@@ -1099,7 +1100,7 @@ $location_results
 EOF
   [ "$location_child_failed" -eq 0 ] || return 1
 
-  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
     [ -n "$id" ] || continue
     location_result="${location_probe_results%%$'\n'*}"
     [ -n "$location_result" ] || return 1
@@ -1109,7 +1110,7 @@ EOF
       location_probe_results="${location_probe_results#*$'\n'}"
     fi
     location_file="$(location_state_file "$id")"
-    IFS="$(printf '\037')" read -r location_outcome checkout_root repository_anchor repo branch <<EOF
+    IFS="$FIELD_SEPARATOR" read -r location_outcome checkout_root repository_anchor repo branch <<EOF
 $location_result
 EOF
     location_status=""
@@ -1173,7 +1174,7 @@ EOF
       [ -n "$intended" ] || intended="$IDLE_PANE_LABEL"
     fi
     pane_intents="${pane_intents}${pane_intents:+
-}${id}$(printf '\037')${terminal}$(printf '\037')${tab_id}$(printf '\037')${workspace}$(printf '\037')${agent_of}$(printf '\037')${native_session}$(printf '\037')${current}$(printf '\037')${intended}$(printf '\037')${current_task}$(printf '\037')${slug}$(printf '\037')${metadata_seq}$(printf '\037')${location_outcome}$(printf '\037')${checkout_root}$(printf '\037')${repository_anchor}$(printf '\037')${repo}$(printf '\037')${branch}$(printf '\037')${location_status}$(printf '\037')${current_repo}$(printf '\037')${current_worktree}$(printf '\037')${current_branch}$(printf '\037')${current_location_status}"
+}${id}${FIELD_SEPARATOR}${terminal}${FIELD_SEPARATOR}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${agent_of}${FIELD_SEPARATOR}${native_session}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${intended}${FIELD_SEPARATOR}${current_task}${FIELD_SEPARATOR}${slug}${FIELD_SEPARATOR}${metadata_seq}${FIELD_SEPARATOR}${location_outcome}${FIELD_SEPARATOR}${checkout_root}${FIELD_SEPARATOR}${repository_anchor}${FIELD_SEPARATOR}${repo}${FIELD_SEPARATOR}${branch}${FIELD_SEPARATOR}${location_status}${FIELD_SEPARATOR}${current_repo}${FIELD_SEPARATOR}${current_worktree}${FIELD_SEPARATOR}${current_branch}${FIELD_SEPARATOR}${current_location_status}"
   done <<EOF
 $pane_rows
 EOF
@@ -1181,7 +1182,7 @@ EOF
   agent="$saved_agent"
   session="$saved_session"
 
-  roots="$(while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status; do
+  roots="$(while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status; do
     [ -z "$_checkout_root" ] || printf '%s\n' "$_checkout_root"
   done <<EOF
 $pane_intents
@@ -1189,7 +1190,7 @@ EOF
 )"
   roots="$(printf '%s\n' "$roots" | sed '/^$/d' | LC_ALL=C sort -u)"
   root_tokens="$(build_worktree_tokens "$roots")"
-  while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status; do
+  while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status; do
     [ -n "$_pane_id" ] || continue
     _worktree_token=""
     if [ -n "$_checkout_root" ]; then
@@ -1198,7 +1199,7 @@ EOF
       _worktree_token="$_current_worktree"
     fi
     pane_presentations="${pane_presentations}${pane_presentations:+
-}${_pane_id}$(printf '\037')${_pane_terminal}$(printf '\037')${pane_tab}$(printf '\037')${_pane_workspace}$(printf '\037')${_pane_agent}$(printf '\037')${_pane_native_session}$(printf '\037')${_pane_current}$(printf '\037')${pane_intended}$(printf '\037')${_pane_task}$(printf '\037')${_pane_slug}$(printf '\037')${_pane_metadata}$(printf '\037')${_location_outcome}$(printf '\037')${_checkout_root}$(printf '\037')${_repository_anchor}$(printf '\037')${_repo}$(printf '\037')${_branch}$(printf '\037')${_location_status}$(printf '\037')${_current_repo}$(printf '\037')${_current_worktree}$(printf '\037')${_current_branch}$(printf '\037')${_current_location_status}$(printf '\037')${_worktree_token}"
+}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_current_repo}${FIELD_SEPARATOR}${_current_worktree}${FIELD_SEPARATOR}${_current_branch}${FIELD_SEPARATOR}${_current_location_status}${FIELD_SEPARATOR}${_worktree_token}"
   done <<EOF
 $pane_intents
 EOF
@@ -1210,7 +1211,7 @@ EOF
     retained_pane="$(read_state_field "$state_file" pane)"
     [ -n "$retained_pane" ] || continue
     found=0
-    while IFS="$(printf '\037')" read -r _pane_id _; do
+    while IFS="$FIELD_SEPARATOR" read -r _pane_id _; do
       [ "$_pane_id" != "$retained_pane" ] || { found=1; break; }
     done <<EOF
 $pane_presentations
@@ -1224,7 +1225,7 @@ EOF
       | .counts[$ws] = ((.counts[$ws] // 0) + 1)
       | .out += [[$t.tab_id, $ws, ($t.label // ""), (.counts[$ws] | tostring)]])
     | .out[] | join("\u001f")' 2>/dev/null)"
-  while IFS="$(printf '\037')" read -r tab_id workspace current index; do
+  while IFS="$FIELD_SEPARATOR" read -r tab_id workspace current index; do
     [ -n "$tab_id" ] || continue
     parts=""
     segment_rows=""
@@ -1234,14 +1235,14 @@ EOF
     all_fresh_git=1
     first_root=""
     multiple_roots=0
-    while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status _worktree_token; do
+    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status _worktree_token; do
       [ "$pane_tab" = "$tab_id" ] || continue
       [ -n "$pane_intended" ] || continue
       pane_count=$((pane_count + 1))
       [ "$pane_intended" = "$IDLE_PANE_LABEL" ] || named=1
       if [ -z "$parts" ]; then parts="$pane_intended"; else parts="$parts$LABEL_SEPARATOR$pane_intended"; fi
       segment_rows="${segment_rows}${segment_rows:+
-}${_worktree_token}$(printf '\037')${_location_status}$(printf '\037')${pane_intended}"
+}${_worktree_token}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${pane_intended}"
       if [ -n "$_checkout_root" ]; then
         all_non_git=0
         if [ -z "$first_root" ]; then
@@ -1268,7 +1269,7 @@ EOF
       parts="$(worktree_token_for_root "$first_root" "$root_tokens")$LABEL_SEPARATOR$parts"
     elif [ "$pane_count" -eq 2 ]; then
       token_one=""; status_one=""; text_one=""; token_two=""; status_two=""; text_two=""
-      while IFS="$(printf '\037')" read -r _worktree_token _location_status segment; do
+      while IFS="$FIELD_SEPARATOR" read -r _worktree_token _location_status segment; do
         if [ -z "$text_one" ]; then
           token_one="$_worktree_token"; status_one="$_location_status"; text_one="$segment"
         else
@@ -1280,7 +1281,7 @@ EOF
       parts="$(compose_two_mixed_segments "$token_one" "$status_one" "$text_one" "$token_two" "$status_two" "$text_two")"
     else
       parts=""
-      while IFS="$(printf '\037')" read -r _worktree_token _location_status segment; do
+      while IFS="$FIELD_SEPARATOR" read -r _worktree_token _location_status segment; do
         if [ -n "$_worktree_token" ]; then
           [ -z "$_location_status" ] || _worktree_token="$_worktree_token [stale]"
           segment="$_worktree_token $segment"
@@ -1291,7 +1292,7 @@ $segment_rows
 EOF
     fi
     tab_intents="${tab_intents}${tab_intents:+
-}${tab_id}$(printf '\037')${workspace}$(printf '\037')${current}$(printf '\037')${parts}"
+}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${parts}"
   done <<EOF
 $tab_rows
 EOF
@@ -1299,7 +1300,7 @@ EOF
   # Herdr 0.8 has no rename compare-and-swap. A target can change after the
   # final get and briefly receive stale intent; the next pass repairs it.
   presentation_generation_valid "$pass" || return 2
-  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch location_status current_repo current_worktree current_branch current_location_status worktree_token; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch location_status current_repo current_worktree current_branch current_location_status worktree_token; do
     [ -n "$id" ] || continue
     if [ -n "$slug" ] && [ "$current_task" != "$slug" ]; then
       presentation_generation_valid "$pass" || return 2
@@ -1369,7 +1370,7 @@ EOF
 $pane_presentations
 EOF
 
-  while IFS="$(printf '\037')" read -r tab_id workspace current intended; do
+  while IFS="$FIELD_SEPARATOR" read -r tab_id workspace current intended; do
     [ -n "$tab_id" ] || continue
     [ "$current" != "$intended" ] || continue
     presentation_generation_valid "$pass" || return 2
