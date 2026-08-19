@@ -15,6 +15,7 @@ setup() {
   command_exists python3 || skip "python3 not installed"
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
+  export OPEN_IN_ZED_PY="$PALETTE_DIR/open_in_zed.py"
   export PYTHONPATH="$BATS_TEST_DIRNAME/helpers${PYTHONPATH:+:$PYTHONPATH}"
   PALETTE_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette.XXXXXX")"
   # Docker mounts the source tree read-only, so __pycache__ cannot live beside
@@ -34,7 +35,165 @@ teardown() {
   run python3 -m py_compile \
     "$PALETTE_DIR/palette.py" \
     "$PALETTE_DIR/open.py" \
+    "$PALETTE_DIR/open_in_zed.py" \
     "$PALETTE_DIR/smart_close.py"
+  assert_success
+}
+
+@test "Open in Zed resolves a nested repository directory and reuses the Zed window" {
+  local repository="$PALETTE_WORK/repository"
+  local nested="$repository/packages/app"
+  local fake_zed="$PALETTE_WORK/zed"
+  local calls="$PALETTE_WORK/zed.calls"
+
+  git init -q "$repository"
+  repository="$(cd "$repository" && pwd -P)"
+  nested="$repository/packages/app"
+  mkdir -p "$nested"
+  cat > "$fake_zed" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" > "$ZED_CALLS"
+SH
+  chmod +x "$fake_zed"
+
+  run env ZED_BIN="$fake_zed" ZED_CALLS="$calls" python3 "$OPEN_IN_ZED_PY" "$nested"
+  assert_success
+  run cat "$calls"
+  assert_success
+  assert_line --index 0 -- "-e"
+  assert_line --index 1 "$repository"
+}
+
+@test "Open in Zed falls back to a valid non-Git directory" {
+  local directory="$PALETTE_WORK/plain-directory"
+  local fake_zed="$PALETTE_WORK/zed"
+  local calls="$PALETTE_WORK/zed.calls"
+
+  mkdir -p "$directory"
+  directory="$(cd "$directory" && pwd -P)"
+  cat > "$fake_zed" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" > "$ZED_CALLS"
+SH
+  chmod +x "$fake_zed"
+
+  run env ZED_BIN="$fake_zed" ZED_CALLS="$calls" python3 "$OPEN_IN_ZED_PY" "$directory"
+  assert_success
+  run cat "$calls"
+  assert_success
+  assert_line --index 0 -- "-e"
+  assert_line --index 1 "$directory"
+}
+
+@test "Open in Zed rejects an empty directory before starting Zed" {
+  local fake_zed="$PALETTE_WORK/zed"
+  local calls="$PALETTE_WORK/zed.calls"
+
+  cat > "$fake_zed" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" > "$ZED_CALLS"
+SH
+  chmod +x "$fake_zed"
+
+  run env ZED_BIN="$fake_zed" ZED_CALLS="$calls" python3 "$OPEN_IN_ZED_PY" ""
+  assert_failure
+  assert_output --partial "directory must not be empty"
+  [ ! -e "$calls" ]
+}
+
+@test "Open in Zed rejects a missing directory before starting Zed" {
+  local fake_zed="$PALETTE_WORK/zed"
+  local calls="$PALETTE_WORK/zed.calls"
+
+  cat > "$fake_zed" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" > "$ZED_CALLS"
+SH
+  chmod +x "$fake_zed"
+
+  run env ZED_BIN="$fake_zed" ZED_CALLS="$calls" python3 "$OPEN_IN_ZED_PY" "$PALETTE_WORK/missing"
+  assert_failure
+  assert_output --partial "not a directory"
+  [ ! -e "$calls" ]
+}
+
+@test "Open in Zed resolves Zed from PATH and returns its exit status" {
+  local directory="$PALETTE_WORK/plain-directory"
+  local bin="$PALETTE_WORK/bin"
+
+  mkdir -p "$directory" "$bin"
+  cat > "$bin/zed" <<'SH'
+#!/bin/sh
+exit 7
+SH
+  chmod +x "$bin/zed"
+
+  run env -u ZED_BIN PATH="$bin:$PATH" python3 "$OPEN_IN_ZED_PY" "$directory"
+  assert_equal "$status" 7
+}
+
+@test "Open in Zed rejects an invalid configured executable" {
+  local directory="$PALETTE_WORK/plain-directory"
+  mkdir -p "$directory"
+
+  run env ZED_BIN="$PALETTE_WORK/missing-zed" python3 "$OPEN_IN_ZED_PY" "$directory"
+  assert_failure
+  assert_output --partial "ZED_BIN is not executable"
+}
+
+@test "Open in Zed reports its bounded timeout" {
+  local directory="$PALETTE_WORK/plain-directory"
+  local fake_zed="$PALETTE_WORK/zed"
+  mkdir -p "$directory"
+  cat > "$fake_zed" <<'SH'
+#!/bin/sh
+sleep 1
+SH
+  chmod +x "$fake_zed"
+
+  run env OPEN_IN_ZED_PY="$OPEN_IN_ZED_PY" DIRECTORY="$directory" ZED_BIN="$fake_zed" python3 - <<'PY'
+import importlib.util
+import os
+import sys
+
+path = os.environ["OPEN_IN_ZED_PY"]
+spec = importlib.util.spec_from_file_location("open_in_zed", path)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+module.COMMAND_TIMEOUT_SECONDS = 0.01
+raise SystemExit(module.main([path, os.environ["DIRECTORY"]]))
+PY
+  assert_equal "$status" 124
+  assert_output --partial "Zed did not respond"
+}
+
+@test "Open in Zed uses the standard macOS CLI fallback" {
+  local fake_zed="$PALETTE_WORK/zed"
+  touch "$fake_zed"
+  chmod +x "$fake_zed"
+
+  run env -u ZED_BIN OPEN_IN_ZED_PY="$OPEN_IN_ZED_PY" FAKE_ZED="$fake_zed" python3 - <<'PY'
+import importlib.util
+import os
+from pathlib import Path
+import sys
+
+path = os.environ["OPEN_IN_ZED_PY"]
+spec = importlib.util.spec_from_file_location("open_in_zed", path)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+module.sys.platform = "darwin"
+module.shutil.which = lambda _: None
+module.MACOS_ZED_CLI = Path(os.environ["FAKE_ZED"])
+assert module.resolve_zed() == os.environ["FAKE_ZED"]
+PY
+  assert_success
+}
+
+@test "Open in Zed command uses the validated helper" {
+  run grep -F 'command = "python3 {plugin_root_q}/open_in_zed.py {target_cwd_q}"' "$REAL_COMMANDS"
   assert_success
 }
 

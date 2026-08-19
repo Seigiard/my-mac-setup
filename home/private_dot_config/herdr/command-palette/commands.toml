@@ -46,7 +46,7 @@ shortcuts = ["zed", "яув"]
 description = "Open the current pane's directory in Zed"
 type = "shell"
 pause = false
-command = "zed {target_cwd_q}"
+command = "python3 {plugin_root_q}/open_in_zed.py {target_cwd_q}"
 
 [[commands]]
 group = "Herdr"

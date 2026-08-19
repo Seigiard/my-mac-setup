@@ -21,11 +21,36 @@ if ! command -v herdr >/dev/null 2>&1; then
   exit 0
 fi
 
+failed=()
+
+# Remove plugins whose behavior moved into the local command palette.
+if plugin_json="$(herdr plugin list --json 2>/dev/null)"; then
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    plugins = data.get("result", {}).get("plugins", [])
+except (AttributeError, json.JSONDecodeError):
+    raise SystemExit(2)
+raise SystemExit(0 if any(plugin.get("plugin_id") == "artisann.zed-herdr" for plugin in plugins) else 1)
+' 2>/dev/null
+  zed_herdr_state=$?
+  if [[ $zed_herdr_state -eq 0 ]]; then
+    if herdr plugin uninstall artisann.zed-herdr >/dev/null 2>&1; then
+      echo "Removed obsolete Herdr plugin artisann.zed-herdr"
+    else
+      failed+=("artisann.zed-herdr (uninstall: herdr plugin uninstall artisann.zed-herdr)")
+    fi
+  elif [[ $zed_herdr_state -ne 1 ]]; then
+    failed+=("failed to inspect obsolete plugin artisann.zed-herdr (herdr plugin list --json)")
+  fi
+else
+  failed+=("failed to list Herdr plugins (herdr plugin list --json)")
+fi
+
 plugins=(
-  "ImArtisann/zed-herdr:artisann.zed-herdr"
   "dio16/herdr-auto-update:herdr-auto-update"
 )
-failed=()
 
 for entry in "${plugins[@]}"; do
   repo="${entry%%:*}"
