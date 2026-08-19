@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Install and enable the macOS Herdr plugins that remain managed by their GitHub sources.
 # Herdr records the source repository so herdr-auto-update can update these plugins later.
+# Runs last of the herdr scripts so its single `herdr server reload-config` also picks up the
+# locally linked plugins that scripts 5 and 6 install.
 #
 # Hash triggers:
 # {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
