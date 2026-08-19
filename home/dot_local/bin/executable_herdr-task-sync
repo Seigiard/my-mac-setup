@@ -51,6 +51,8 @@ LABEL_SEPARATOR="${HERDR_TASK_SYNC_SEPARATOR:- · }"
 WORKTREE_TOKEN_MAX_LEN=18
 LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"
 LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}"
+STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}"
+case "$STATE_MAX_AGE_DAYS" in '' | *[!0-9]*) STATE_MAX_AGE_DAYS=14 ;; esac
 # Seconds between two sweeps of the daemon. Five keeps a finished command
 # visible for at most one glance without hammering the herdr socket.
 SWEEP_INTERVAL="${HERDR_TASK_SYNC_SWEEP_INTERVAL:-5}"
@@ -501,6 +503,52 @@ branch=$(encode_value "$branch")"
   atomic_write "$file" "$content"
 }
 
+location_state_matches() {
+  local file="$1" pane_id="$2" root="$3" anchor="$4" repo="$5" branch="$6"
+  [ "$(read_state_field "$file" pane)" = "$pane_id" ] &&
+    [ "$(read_state_field "$file" checkout_root)" = "$root" ] &&
+    [ "$(read_state_field "$file" repository_anchor)" = "$anchor" ] &&
+    [ "$(read_state_field "$file" repo)" = "$repo" ] &&
+    [ "$(read_state_field "$file" branch)" = "$branch" ]
+}
+
+cleanup_old_task_context() {
+  local snapshot="$1" task_root task_file task_agent task_pane task_session pane_dir control
+  local active_agent active_session generation committed
+  task_root="$(namespace_dir)/tasks"
+  [ -d "$task_root" ] || return 0
+  find "$task_root" -type f -name '*.state' -mtime "+$STATE_MAX_AGE_DAYS" -print 2>/dev/null |
+    while IFS= read -r task_file; do
+      task_agent="$(read_state_field "$task_file" agent)"
+      task_pane="$(read_state_field "$task_file" pane)"
+      task_session="$(read_state_field "$task_file" session)"
+      [ -n "$task_agent" ] && [ -n "$task_pane" ] && [ -n "$task_session" ] || continue
+      pane_dir="$(namespace_dir)/panes/$(encode_key "$task_pane")"
+      [ ! -d "$pane_dir/worker.claim" ] || continue
+      control="$pane_dir/control.state"
+      active_agent="$(read_state_field "$control" active_agent)"
+      active_session="$(read_state_field "$control" active_session)"
+      generation="$(record_number "$control" generation)"
+      committed="$(record_number "$control" committed_generation)"
+      if [ "$active_agent" = "$task_agent" ] && [ "$active_session" = "$task_session" ] &&
+        [ "${generation:-0}" != "${committed:-0}" ]; then
+        continue
+      fi
+      if printf '%s' "$snapshot" | jq -e --arg pane "$task_pane" \
+        --arg agent "$task_agent" --arg session "$task_session" '
+          .result.snapshot.panes[]?
+          | select(.pane_id == $pane)
+          | select((.agent // "") == $agent)
+          | select((.agent_session.value // "") == $session)
+        ' >/dev/null 2>&1; then
+        continue
+      fi
+      # Keep migration markers and pane high-water records: they fence late
+      # legacy writers and stale workers even after prompt context expires.
+      rm -f "$task_file" 2>/dev/null || true
+    done
+}
+
 text_length() {
   printf '%s' "$1" | wc -m | tr -d '[:space:]'
 }
@@ -573,6 +621,10 @@ repository_name() {
   fi
 }
 
+transient_location_result() {
+  printf 'transient\037%s\037%s\037%s\037%s' "$1" "$2" "$3" "$4"
+}
+
 authoritative_worktree_deleted() {
   local root="$1" anchor="$2" outfile errfile status
   [ -n "$root" ] && [ -n "$anchor" ] && [ -d "$anchor" ] || return 1
@@ -614,8 +666,7 @@ resolve_pane_location() {
     if authoritative_worktree_deleted "$prior_root" "$prior_anchor"; then
       printf 'non_git\037\037\037\037\037'
     else
-      printf 'transient\037%s\037%s\037%s\037%s' \
-        "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
     fi
     return 0
   fi
@@ -624,20 +675,17 @@ resolve_pane_location() {
   case "$cwd" in
     */.git | */.git/*)
       candidate="$(admin_checkout_for_path "$cwd" 2>/dev/null)" || {
-        printf 'transient\037%s\037%s\037%s\037%s' \
-          "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+        transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
         return 0
       }
       ;;
   esac
   command -v git >/dev/null 2>&1 || {
-    printf 'transient\037%s\037%s\037%s\037%s' \
-      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
     return 0
   }
   outfile="$(mktemp "$(namespace_dir)/.git-location.XXXXXX" 2>/dev/null)" || {
-    printf 'transient\037%s\037%s\037%s\037%s' \
-      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
     return 0
   }
   errfile="$outfile.err"
@@ -654,8 +702,7 @@ resolve_pane_location() {
       printf 'non_git\037\037\037\037\037'
     else
       rm -f "$outfile" "$errfile"
-      printf 'transient\037%s\037%s\037%s\037%s' \
-        "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
     fi
     return 0
   fi
@@ -665,23 +712,20 @@ resolve_pane_location() {
   branch="$(sed -n '3p' "$outfile")"
   rm -f "$outfile" "$errfile"
   if [ "$lines" != 3 ] || [ -z "$root" ] || [ -z "$anchor" ]; then
-    printf 'transient\037%s\037%s\037%s\037%s' \
-      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
     return 0
   fi
   case "$branch" in
     refs/heads/*) branch="${branch#refs/heads/}" ;;
     HEAD) branch="" ;;
     *)
-      printf 'transient\037%s\037%s\037%s\037%s' \
-        "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
       return 0
       ;;
   esac
   repo="$(repository_name "$anchor")"
   [ -n "$repo" ] || {
-    printf 'transient\037%s\037%s\037%s\037%s' \
-      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
     return 0
   }
   printf 'git\037%s\037%s\037%s\037%s' "$root" "$anchor" "$repo" "$branch"
@@ -906,7 +950,11 @@ start_presentation_coordinator() {
   [ -z "${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" ] || return 0
   local self
   self="$(script_path)" || return 0
+  # Herdr reaps a plugin hook's process group after the hook exits. Job control
+  # gives the coordinator its own group so event-triggered work can finish.
+  set -m
   nohup bash "$self" --presentation-worker </dev/null >/dev/null 2>&1 &
+  set +m
 }
 
 complete_presentation_generation() {
@@ -974,6 +1022,8 @@ reconcile_presentation_pass() {
   local final_payload final_label final_task final_repo final_worktree final_branch final_location_status
   local segment_rows pane_count all_non_git all_fresh_git first_root multiple_roots segment
   local token_one status_one text_one token_two status_two text_two state_file retained_pane found
+  local location_pids="" location_results="" location_result_file location_pid
+  local location_probe_results="" location_child_failed=0 location_index=0
   command -v jq >/dev/null 2>&1 || return 1
   snapshot="$(herdr api snapshot 2>/dev/null)" || return 1
   printf '%s' "$snapshot" | jq -e '
@@ -985,6 +1035,7 @@ reconcile_presentation_pass() {
       and (.layouts | type == "array")
       and (.workspaces | type == "array")
   ' >/dev/null 2>&1 || return 1
+  cleanup_old_task_context "$snapshot"
 
   pane_rows="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.panes[]?
@@ -994,18 +1045,98 @@ reconcile_presentation_pass() {
        (.tokens.repo // ""), (.tokens.worktree // ""), (.tokens.branch // ""),
        (.tokens.location_status // ""), (@base64)]
     | join("\u001f")' 2>/dev/null)"
+
+  # Location probes own no presentation state. Run one bounded probe per pane,
+  # reap every child, then let the parent consume immutable results in the
+  # snapshot's original order.
   while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
     [ -n "$id" ] || continue
     pane_json="$(printf '%s' "$pane_json_encoded" | base64 -d 2>/dev/null)"
     location_file="$(location_state_file "$id")"
-    location_result="$(resolve_pane_location "$pane_json" "$location_file")"
+    location_result_file="$(umask 077; mktemp "$(namespace_dir)/.location-result.XXXXXX" 2>/dev/null)" || {
+      while IFS= read -r location_pid; do
+        [ -n "$location_pid" ] && wait "$location_pid" 2>/dev/null || true
+      done <<EOF
+$location_pids
+EOF
+      while IFS= read -r location_result_file; do
+        [ -z "$location_result_file" ] || rm -f "$location_result_file"
+      done <<EOF
+$location_results
+EOF
+      return 1
+    }
+    (
+      if [ -n "${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER:-}" ] && \
+        [ -n "${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT:-}" ]; then
+        mkdir -p "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER" || exit 1
+        : > "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER/$(encode_key "$id")"
+        while :; do
+          set -- "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER"/*
+          [ "$#" -ge "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT" ] && break
+          sleep 0.001
+        done
+        if [ -n "${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE:-}" ]; then
+          while [ ! -e "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE" ]; do
+            sleep 0.001
+          done
+        fi
+      fi
+      resolve_pane_location "$pane_json" "$location_file" > "$location_result_file"
+    ) &
+    location_pids="${location_pids}${location_pids:+
+}$!"
+    location_results="${location_results}${location_results:+
+}$location_result_file"
+  done <<EOF
+$pane_rows
+EOF
+  while IFS= read -r location_pid; do
+    [ -n "$location_pid" ] || continue
+    wait "$location_pid" || location_child_failed=1
+  done <<EOF
+$location_pids
+EOF
+  if [ "$location_child_failed" -ne 0 ]; then
+    while IFS= read -r location_result_file; do
+      [ -z "$location_result_file" ] || rm -f "$location_result_file"
+    done <<EOF
+$location_results
+EOF
+    return 1
+  fi
+  while IFS= read -r location_result_file; do
+    [ -n "$location_result_file" ] || continue
+    location_result="$(cat "$location_result_file" 2>/dev/null)"
+    rm -f "$location_result_file"
+    if [ -z "$location_result" ]; then
+      location_child_failed=1
+      continue
+    fi
+    location_probe_results="${location_probe_results}${location_probe_results:+
+}$location_result"
+  done <<EOF
+$location_results
+EOF
+  [ "$location_child_failed" -eq 0 ] || return 1
+
+  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
+    [ -n "$id" ] || continue
+    location_index=$((location_index + 1))
+    location_result="$(printf '%s\n' "$location_probe_results" | sed -n "${location_index}p")"
+    [ -n "$location_result" ] || return 1
+    location_file="$(location_state_file "$id")"
     IFS="$(printf '\037')" read -r location_outcome checkout_root repository_anchor repo branch <<EOF
 $location_result
 EOF
     location_status=""
     case "$location_outcome" in
       git)
-        write_location_state "$location_file" "$id" "$checkout_root" "$repository_anchor" "$repo" "$branch" || return 1
+        if ! location_state_matches "$location_file" "$id" "$checkout_root" \
+          "$repository_anchor" "$repo" "$branch"; then
+          write_location_state "$location_file" "$id" "$checkout_root" \
+            "$repository_anchor" "$repo" "$branch" || return 1
+        fi
         ;;
       non_git)
         rm -f "$location_file" 2>/dev/null || return 1
@@ -1313,7 +1444,7 @@ run_presentation_coordinator() {
       # Do not spin on one failed generation. A newer invalidation that arrived
       # during the failed pass still gets one fresh claim and snapshot.
       [ "${pending:-0}" -gt "${pass:-0}" ] && continue
-      return 0
+      return "$status"
     fi
     [ "${pending:-0}" -gt "${completed:-0}" ] || return 0
     # Reacquire after owner-only release. A producer racing the release either
@@ -1374,6 +1505,7 @@ run_sweep_daemon() {
 # daemon makes this a no-op; a lock left behind by a killed daemon is cleared.
 ensure_sweep_daemon() {
   local self="$1" pid
+  [ -z "${HERDR_TASK_SYNC_TEST_NO_DAEMON:-}" ] || return 0
   if [ -d "$SWEEP_LOCK_DIR" ]; then
     pid="$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
@@ -1704,7 +1836,14 @@ script_path() {
 }
 
 case "$mode" in
-  event | presentation-worker | sweep | sweep-daemon | ensure-daemon)
+  event)
+    if [ -z "$SOCKET_PATH" ]; then
+      printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
+      exit 0
+    fi
+    SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
+    ;;
+  presentation-worker | sweep | sweep-daemon | ensure-daemon)
     if [ -z "$SOCKET_PATH" ]; then
       printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
       exit 0
@@ -1716,7 +1855,11 @@ esac
 
 case "$mode" in
   event)
-    request_presentation && start_presentation_coordinator
+    if request_presentation; then
+      start_presentation_coordinator || true
+    fi
+    event_self="$(script_path 2>/dev/null)" || event_self=""
+    [ -z "$event_self" ] || ensure_sweep_daemon "$event_self" || true
     exit 0
     ;;
   presentation-worker)

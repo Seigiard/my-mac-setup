@@ -7,7 +7,6 @@ sync="$HOME/.local/bin/herdr-task-sync"
 case "${1:-}" in
   --event)
     "$sync" --event >/dev/null 2>&1 || true
-    "$sync" --ensure-daemon >/dev/null 2>&1 || true
     ;;
   '') "$sync" --ensure-daemon >/dev/null 2>&1 || true ;;
 esac

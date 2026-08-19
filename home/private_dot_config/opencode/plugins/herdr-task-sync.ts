@@ -40,6 +40,7 @@ function callEngine(args: string[], prompt: string): Promise<void> {
         stdio: ["pipe", "ignore", "ignore"],
       })
       let settled = false
+      const ignoreStdinError = () => {}
       const finish = () => {
         if (settled) return
         settled = true
@@ -47,12 +48,14 @@ function callEngine(args: string[], prompt: string): Promise<void> {
         resolve()
       }
       const timer = setTimeout(() => {
-        child.kill()
+        child.stdin?.destroy()
+        child.kill("SIGTERM")
         finish()
       }, 1000)
-      child.on("error", finish)
-      child.on("close", finish)
-      child.stdin?.on("error", () => {})
+      timer.unref?.()
+      child.once("error", finish)
+      child.once("close", finish)
+      child.stdin?.once("error", ignoreStdinError)
       child.stdin?.end(prompt)
     } catch {
       // Naming is best-effort: a missing engine must never break an opencode run.
@@ -84,8 +87,11 @@ export const HerdrTaskSyncPlugin: Plugin = async () => {
       await callEngine(["--agent", "opencode", "--session", sessionID], prompt)
     },
     event: async ({ event }) => {
+      const type = (event as any)?.type
       const info = (event as any)?.properties?.info
-      if (info?.id && info.parentID) {
+      if (type === "session.deleted" && info?.id) {
+        childSessions.delete(info.id)
+      } else if (info?.id && info.parentID) {
         childSessions.add(info.id)
       }
     },

@@ -48,7 +48,7 @@ prompt_new_tab_name = false
 sidebar_min_width = 22
 
 # The `pane` row renders the pane label, which herdr-task-sync
-# (~/.local/bin/herdr-task-sync) sets to `<agent badge> <task slug>`. The same
+# (~/.local/bin/herdr-task-sync) sets to `<agent-prefix>:<task-slug>`. The same
 # script rebuilds each tab label from the labels of its panes, so the agent and
 # the task appear once per pane instead of once per row. Herdr 0.8 collapses a
 # custom-token row when its token is empty, so worktree and stale status remain

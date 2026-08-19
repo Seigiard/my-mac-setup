@@ -874,7 +874,7 @@ assert_herdr_sidebar_deployment_contract() {
   assert_success
   [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
 
-  run grep -Ei '\[\[actions\]\]|reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
+  run grep -Ei 'reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
     "$engine" "$plugin/herdr-plugin.toml" "$plugin/ensure.sh" "$plugin/sweep.sh"
   assert_failure
   run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \

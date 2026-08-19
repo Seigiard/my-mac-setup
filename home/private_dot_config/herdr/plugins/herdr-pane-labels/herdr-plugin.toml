@@ -53,3 +53,9 @@ command = ["sh", "ensure.sh", "--event"]
 [[events]]
 on = "tab.renamed"
 command = ["sh", "ensure.sh", "--event"]
+
+[[actions]]
+id = "sweep"
+title = "Pane labels: refresh now"
+contexts = ["workspace"]
+command = ["sh", "sweep.sh"]

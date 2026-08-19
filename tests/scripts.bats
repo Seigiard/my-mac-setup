@@ -1016,6 +1016,7 @@ elif [ "$1" = "tab" ] && [ "$2" = "get" ]; then
   [ -n "$tab" ] || exit 1
   jq -cn --argjson tab "$tab" '{id:"cli:tab:get",result:{tab:$tab,type:"tab_info"}}'
 elif [ "$1" = "api" ] && [ "$2" = "snapshot" ]; then
+  [ ! -f "$dir/fail-snapshot" ] || exit 1
   if [ -f "$dir/fail-next-snapshot" ]; then
     rm -f "$dir/fail-next-snapshot"
     exit 1
@@ -1127,13 +1128,15 @@ if [ -d "$fixture" ]; then
   printf '%s\n' "$command_args" >> "$fixture/calls"
   printf '%s' "${LC_ALL:-}" > "$fixture/locale"
   : > "$fixture/started"
+  mkdir -p "$HTS_WORK/git-started"
+  : > "$HTS_WORK/git-started/${fixture##*/}"
   if [ -n "${HTS_GIT_PROBE_ID:-}" ]; then
-    mkdir -p "$HTS_WORK/git-started"
     : > "$HTS_WORK/git-started/$HTS_GIT_PROBE_ID"
   fi
   if [ -f "$fixture/block" ]; then
     while [ ! -f "$fixture/release" ]; do sleep 0.01; done
   fi
+  : > "$fixture/completed"
   cat "$fixture/stderr" >&2
   cat "$fixture/stdout"
   exit "$(cat "$fixture/status")"
@@ -1188,18 +1191,7 @@ SH
 }
 
 hts_run() {
-  hts_prepare_invocation_target "$HTS_DEFAULT_SOCKET" "$@"
-  env PATH="$HTS_STUB:/usr/bin:/bin" \
-    HERDR_ENV=1 \
-    HERDR_PANE_ID=pane-1 \
-    HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
-    HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
-    HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
-    HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
-    HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
-    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
-    bash "$HTS_ENGINE" "$@"
+  hts_run_for_socket "$HTS_DEFAULT_SOCKET" "$@"
 }
 
 hts_run_for_socket() {
@@ -1248,9 +1240,7 @@ hts_pane_list() {
 
 # $1 = pane id, $2 = the `pane process-info` payload the stub replays for it
 hts_proc_info() {
-  local dir
-  dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
-  printf '%s' "$2" > "$dir/proc-$1.json"
+  hts_proc_info_for_socket "$HTS_DEFAULT_SOCKET" "$@"
 }
 
 hts_proc_info_for_socket() {
@@ -1495,6 +1485,8 @@ hts_event_run() {
     HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
     HERDR_TASK_SYNC_LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}" \
+    HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}" \
+    HERDR_TASK_SYNC_TEST_NO_DAEMON="${HERDR_TASK_SYNC_TEST_NO_DAEMON-1}" \
     bash "$HTS_ENGINE" --event
 }
 
@@ -1504,6 +1496,7 @@ hts_event_run_for_socket() {
     HERDR_SOCKET_PATH="$socket_path" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
+    HERDR_TASK_SYNC_TEST_NO_DAEMON="${HERDR_TASK_SYNC_TEST_NO_DAEMON-1}" \
     bash "$HTS_ENGINE" --event
 }
 
@@ -1516,6 +1509,10 @@ hts_presentation_run() {
     HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
     HERDR_TASK_SYNC_LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}" \
+    HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}" \
+    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER:-}" \
+    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT:-}" \
+    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE:-}" \
     bash "$HTS_ENGINE" --presentation-worker
 }
 
@@ -2347,6 +2344,97 @@ PY
   assert_output "1"
 }
 
+@test "herdr-task-sync adapters bound and clean up direct engine processes" {
+  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
+  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
+  local adapter
+  for adapter in "$pi_adapter" "$opencode_adapter"; do
+    run grep -Fq 'child.stdin?.destroy()' "$adapter"
+    assert_success
+    run grep -Fq 'child.kill("SIGTERM")' "$adapter"
+    assert_success
+    run grep -Fq 'child.once("error", finish)' "$adapter"
+    assert_success
+    run grep -Fq 'child.once("close", finish)' "$adapter"
+    assert_success
+    run grep -Fq 'timer.unref?.()' "$adapter"
+    assert_success
+    run grep -Fq 'removeListener("error"' "$adapter"
+    assert_failure
+  done
+}
+
+@test "herdr-task-sync adapters return when a direct engine hangs" {
+  command -v bun >/dev/null || skip "bun not available"
+  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
+  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
+  local home="$BATS_TEST_TMPDIR/adapter-timeout-home"
+  mkdir -p "$home/.local/bin"
+  cat > "$home/.local/bin/herdr-task-sync" <<'SH'
+#!/bin/sh
+cat >/dev/null
+trap 'exit 0' TERM
+while :; do sleep 0.05; done
+SH
+  chmod +x "$home/.local/bin/herdr-task-sync"
+
+  run env HOME="$home" HERDR_ENV=1 PI_ADAPTER_PATH="$pi_adapter" \
+    OPENCODE_ADAPTER_PATH="$opencode_adapter" bun -e '
+      const piHandlers = {}
+      const piExtension = (await import(`file://${process.env.PI_ADAPTER_PATH}`)).default
+      piExtension({
+        getSessionName: () => undefined,
+        on: (event, handler) => { piHandlers[event] = handler },
+      })
+      const context = {
+        hasUI: true,
+        sessionManager: { getSessionId: () => "pi-root" },
+      }
+      await piHandlers.session_start({}, context)
+      const piStart = performance.now()
+      await piHandlers.before_agent_start({ prompt: "hung pi engine" }, context)
+      if (performance.now() - piStart > 1750) throw new Error("pi adapter exceeded timeout")
+
+      const { HerdrTaskSyncPlugin } = await import(`file://${process.env.OPENCODE_ADAPTER_PATH}`)
+      const hooks = await HerdrTaskSyncPlugin()
+      const opencodeStart = performance.now()
+      await hooks["chat.message"](
+        { sessionID: "opencode-root" },
+        { parts: [{ type: "text", text: "hung opencode engine" }] },
+      )
+      if (performance.now() - opencodeStart > 1750) throw new Error("opencode adapter exceeded timeout")
+    '
+  assert_success
+}
+
+@test "herdr-task-sync opencode forgets a deleted child session" {
+  command -v bun >/dev/null || skip "bun not available"
+  local adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
+  local home log
+  hts_setup
+  home="$HTS_WORK/adapter-home"
+  log="$HTS_WORK/adapter.log"
+  mkdir -p "$home/.local/bin"
+  cat > "$home/.local/bin/herdr-task-sync" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HTS_ADAPTER_LOG"
+cat >/dev/null
+SH
+  chmod +x "$home/.local/bin/herdr-task-sync"
+
+  run env HOME="$home" HERDR_ENV=1 HTS_ADAPTER_LOG="$log" ADAPTER_PATH="$adapter" bun -e '
+    const { HerdrTaskSyncPlugin } = await import(`file://${process.env.ADAPTER_PATH}`)
+    const hooks = await HerdrTaskSyncPlugin()
+    await hooks.event({ event: { type: "session.created", properties: { info: { id: "child-1", parentID: "root-1" } } } })
+    await hooks["chat.message"]({ sessionID: "child-1" }, { parts: [{ type: "text", text: "ignored child prompt" }] })
+    await hooks.event({ event: { type: "session.deleted", properties: { info: { id: "child-1" } } } })
+    await hooks["chat.message"]({ sessionID: "child-1" }, { parts: [{ type: "text", text: "new root prompt" }] })
+  '
+  assert_success
+  run cat "$log"
+  assert_output "--agent opencode --session child-1"
+}
+
 @test "herdr-task-sync presentation coordinates concurrent panes in one shared tab" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2454,6 +2542,27 @@ PY
   assert_output "2"
 }
 
+@test "herdr-task-sync event presentation leaves the hook process group" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
+  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  local pause="$HTS_WORK/process-group" claim worker_pid worker_pgid hook_pgid
+
+  HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="$pause" hts_event_run
+  hts_wait_for_file "$pause.reached"
+  claim="$(hts_namespace "$HTS_DEFAULT_SOCKET")/presentation.claim/owner"
+  worker_pid="$(hts_record_number "$claim" pid)"
+  worker_pgid="$(ps -p "$worker_pid" -o pgid= | tr -d '[:space:]')"
+  hook_pgid="$(ps -p "$$" -o pgid= | tr -d '[:space:]')"
+  : > "$pause.release"
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+
+  [ -n "$worker_pgid" ]
+  [ "$worker_pgid" != "$hook_pgid" ]
+}
+
 @test "herdr-task-sync presentation automatically corrects divergent pane and tab labels" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2505,6 +2614,63 @@ PY
   hts_event_run
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
   assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
+}
+
+@test "herdr-task-sync presentation skips reused pane and tab identities at the final read" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old-pane","tokens":{}}'
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  local state next_state
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  next_state="$(jq -c '
+    .panes[0].terminal_id = "term-2"
+    | .panes[0].label = "reused-pane"
+    | .tabs[0].workspace_id = "ws-2"
+    | .tabs[0].label = "reused-tab"
+  ' "$state")"
+  hts_after_next_call_state "$HTS_DEFAULT_SOCKET" "$next_state"
+
+  hts_event_run
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  assert_equal "$(jq -r '.panes[0].label' "$state")" reused-pane
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" reused-tab
+  run grep -E '^(pane|tab) rename' "$HTS_LOG"
+  assert_failure
+
+  hts_event_run
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  assert_equal "$(jq -r '.panes[0].label' "$state")" btop
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" btop
+}
+
+@test "herdr-task-sync age cleanup removes only inactive task payloads" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local old_task old_marker active_task active_control active_high_water
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
+    --agent claude --session expired-session --set expired-task < /dev/null
+  old_task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 expired-session)"
+  old_marker="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 expired-session)"
+  hts_wait_for_task_slug "$old_task" expired-task
+
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
+    --agent claude --session active-session --set active-task < /dev/null
+  active_task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 active-session)"
+  active_control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  active_high_water="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/high-water.state"
+  hts_wait_for_task_slug "$active_task" active-task
+  hts_wait_for_quiescence "$active_control"
+  touch -t 200001010000 "$old_task" "$active_task"
+
+  HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS=0 hts_location_pass
+
+  assert_file_not_exists "$old_task"
+  assert_file_exists "$old_marker"
+  assert_file_exists "$active_task"
+  assert_file_exists "$active_control"
+  assert_file_exists "$active_high_water"
 }
 
 @test "herdr-task-sync presentation preserves state on incomplete and transient snapshots" {
@@ -2754,6 +2920,28 @@ EOF
   assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
 }
 
+@test "herdr-task-sync dangling administrative gitdir retains stale location" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local main="$HTS_WORK/checkouts/repository" linked="$HTS_WORK/linked/feature"
+  local common="$main/.git" admin="$common/worktrees/feature/logs" state
+  mkdir -p "$common/worktrees/feature/logs" "$linked"
+  printf '%s/.git\n' "$linked" > "$common/worktrees/feature/gitdir"
+  hts_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$linked" present "$linked")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 worker
+  hts_location_pass
+
+  printf '%s\n' "$HTS_WORK/missing/.git" > "$common/worktrees/feature/gitdir"
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$linked" "$admin"
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" feature
+  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
+  assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
+}
+
 @test "herdr-task-sync location detached and non-Git clears are source-local with monotonic restart high-water" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2831,6 +3019,124 @@ EOF
   hts_location_pass
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_success
+}
+
+@test "herdr-task-sync coordinator resolves eight pane locations concurrently within one event envelope" {
+  command -v jq >/dev/null || skip "jq not available"
+  command -v python3 >/dev/null || skip "python3 not available"
+  hts_setup
+  local i root common cwd fixture blocked_fixture state start end elapsed pane stale_label
+  local reconcile pending completed coordinator_pid deadline_pid deadline="$HTS_WORK/coordinator-deadline"
+  for i in $(seq 1 8); do
+    root="$HTS_WORK/repos/repo-$i"
+    common="$HTS_WORK/repos/repo-$i.git"
+    cwd="$root/work"
+    mkdir -p "$cwd" "$common"
+    if [ "$i" -eq 1 ]; then
+      hts_git_location_fixture "$cwd" "$root" "$common" refs/heads/initial-1
+    else
+      hts_git_fixture "$cwd" "" 1 ready 'fatal: not a git repository'
+    fi
+    pane="$(hts_process_pane_json "pane-$i" tab-1 "$cwd")"
+    pane="$(jq -c --arg label "stable-$i" '.agent = "claude" | .label = $label' <<< "$pane")"
+    hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane"
+  done
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_location_pass
+
+  rm -f "$HTS_WORK/git-started"/*
+  for i in $(seq 1 8); do
+    root="$HTS_WORK/repos/repo-$i"
+    common="$HTS_WORK/repos/repo-$i.git"
+    cwd="$root/work"
+    fixture="$(hts_git_fixture_dir "$cwd")"
+    rm -f "$fixture/started" "$fixture/completed"
+    if [ "$i" -eq 1 ]; then
+      : > "$fixture/block"
+      blocked_fixture="$fixture"
+    fi
+  done
+
+  stale_label="repo-1 [stale] stable-1"
+  for i in $(seq 2 8); do stale_label="$stale_label · stable-$i"; done
+  hts_set_tab "$HTS_DEFAULT_SOCKET" "$(jq -cn --arg label "$stale_label" \
+    '{tab_id:"tab-1",workspace_id:"ws-1",label:$label}')"
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
+  reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
+  pending="$(hts_record_number "$reconcile" pending_generation)"
+  export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="$HTS_WORK/location-probes-started"
+  export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT=8
+  export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="$HTS_WORK/location-probes-release"
+  export HERDR_TASK_SYNC_GIT_BUDGET=0.075
+  hts_presentation_run &
+  coordinator_pid=$!
+  for i in $(seq 1 8); do
+    hts_wait_for_file "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER/$(hts_key "pane-$i")"
+  done
+  start="$(python3 -c 'import time; print(int(time.monotonic() * 1000))')"
+  (sleep 1; : > "$deadline") &
+  deadline_pid=$!
+  : > "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE"
+  while :; do
+    completed="$(hts_record_number "$reconcile" completed_generation 2>/dev/null || true)"
+    if [ "$completed" = "$pending" ]; then
+      end="$(python3 -c 'import time; print(int(time.monotonic() * 1000))')"
+      break
+    fi
+    if [ -e "$deadline" ]; then
+      kill "$coordinator_pid" 2>/dev/null || true
+      wait "$coordinator_pid" 2>/dev/null || true
+      fail "coordinator generation did not complete within 1000ms"
+    fi
+    sleep 0.005
+  done
+  kill "$deadline_pid" 2>/dev/null || true
+  wait "$deadline_pid" 2>/dev/null || true
+  wait "$coordinator_pid"
+  unset HERDR_TASK_SYNC_TEST_LOCATION_BARRIER \
+    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT \
+    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE HERDR_TASK_SYNC_GIT_BUDGET
+  elapsed=$((end - start))
+  [ "$elapsed" -lt 1000 ] || fail "coordinator pass took ${elapsed}ms"
+
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.branch == "initial-1" and .tokens.location_status == "stale"' "$state"
+  assert_success
+  for i in $(seq 2 8); do
+    run jq -e --arg pane "pane-$i" \
+      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null)' "$state"
+    assert_success
+    fixture="$(hts_git_fixture_dir "$HTS_WORK/repos/repo-$i/work")"
+    assert_file_exists "$fixture/started"
+    assert_file_exists "$fixture/completed"
+  done
+  assert_file_exists "$blocked_fixture/started"
+  assert_file_not_exists "$blocked_fixture/completed"
+}
+
+@test "herdr-task-sync no-op location event preserves the state file" {
+  command -v jq >/dev/null || skip "jq not available"
+  command -v perl >/dev/null || skip "perl not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" cwd="$HTS_WORK/repo/work"
+  local location_file before_link before_mtime after_mtime
+  mkdir -p "$cwd" "$common"
+  hts_git_location_fixture "$cwd" "$root" "$common" refs/heads/main
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$cwd")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 task
+  hts_location_pass
+
+  location_file="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/location.state"
+  before_link="$HTS_WORK/location-before.state"
+  touch -t 200001010000 "$location_file"
+  ln "$location_file" "$before_link"
+  before_mtime="$(perl -e 'print((stat shift)[9])' "$location_file")"
+  hts_location_pass
+  after_mtime="$(perl -e 'print((stat shift)[9])' "$location_file")"
+
+  [ "$location_file" -ef "$before_link" ]
+  assert_equal "$after_mtime" "$before_mtime"
 }
 
 @test "herdr-task-sync transient location preserves live token-only identity when retained state is unavailable" {
@@ -3082,11 +3388,14 @@ EOF
   assert_success
   assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
   assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
-  run grep -E '^\[\[actions\]\]|^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
+  assert_file_contains "$manifest" '^id = "sweep"$'
+  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
+  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
+  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
   assert_failure
 }
 
-@test "herdr-task-sync plugin wrappers recover the daemon and isolate call failures" {
+@test "herdr-task-sync plugin wrappers invoke one engine mode and isolate failures" {
   local home="$BATS_TEST_TMPDIR/home" engine_log="$BATS_TEST_TMPDIR/plugin-engine.log"
   mkdir -p "$home/.local/bin"
   cat > "$home/.local/bin/herdr-task-sync" <<'SH'
@@ -3110,17 +3419,45 @@ SH
   assert_success
   assert_output ""
   run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=daemon-fails \
-    HTS_PLUGIN_FAIL_ARG=--ensure-daemon sh "$HTS_PLUGIN_DIR/ensure.sh" --event
-  assert_success
-  assert_output ""
-  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
     HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=sweep \
     HTS_PLUGIN_FAIL_ARG=--sweep sh "$HTS_PLUGIN_DIR/sweep.sh"
   assert_success
   assert_output ""
   run cat "$engine_log"
-  assert_output $'startup|--ensure-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nevent-fails|--ensure-daemon|/tmp/u5.sock\ndaemon-fails|--event|/tmp/u5.sock\ndaemon-fails|--ensure-daemon|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
+  assert_output $'startup|--ensure-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
+}
+
+@test "herdr-task-sync event requests reconciliation and ensures the daemon fail-open" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local namespace reconcile sweep_lock pending pid owner start socket_record
+  namespace="$(hts_namespace "$HTS_DEFAULT_SOCKET")"
+  reconcile="$namespace/reconcile.state"
+  sweep_lock="$namespace/sweep.lock"
+
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
+  pending="$(hts_record_number "$reconcile" pending_generation)"
+  mkdir "$namespace/presentation-inbox.lock"
+  owner="event-test-owner"
+  start="$(ps -p "$$" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  socket_record="owner_id=$(printf '%s' "$owner" | base64 | tr -d '\n')
+pid=$$
+process_start=$(printf '%s' "$start" | base64 | tr -d '\n')
+socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
+  printf '%s\n' "$socket_record" > "$namespace/presentation-inbox.lock/owner"
+
+  export HERDR_TASK_SYNC_TEST_NO_DAEMON=
+  export HERDR_TASK_SYNC_LOCK_ATTEMPTS=1
+  run hts_event_run
+  unset HERDR_TASK_SYNC_TEST_NO_DAEMON HERDR_TASK_SYNC_LOCK_ATTEMPTS
+  assert_success
+  hts_wait_for_file "$sweep_lock/pid"
+  assert_equal "$(hts_record_number "$reconcile" pending_generation)" "$pending"
+  pid="$(cat "$sweep_lock/pid")"
+  kill "$pid" 2>/dev/null || true
+  rm -f "$namespace/presentation-inbox.lock/owner"
+  rmdir "$namespace/presentation-inbox.lock"
+
 }
 
 @test "herdr-task-sync sweep repairs an external pane rename without pane.updated" {
@@ -3595,6 +3932,29 @@ SH
   local pid; pid="$(cat "$sweep_lock/pid" 2>/dev/null)"
   [ -n "$pid" ] && [ "$pid" != "999999" ]
   kill "$pid" 2>/dev/null || true
+}
+
+@test "herdr-task-sync sweep daemon exits after three unreachable snapshots" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local dir daemon_pid i
+  dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
+  : > "$dir/fail-snapshot"
+  HTS_SWEEP_INTERVAL=0.01 hts_sweep_run --sweep-daemon &
+  daemon_pid=$!
+  for i in $(seq 1 200); do
+    kill -0 "$daemon_pid" 2>/dev/null || break
+    sleep 0.01
+  done
+  if kill -0 "$daemon_pid" 2>/dev/null; then
+    kill "$daemon_pid" 2>/dev/null || true
+    wait "$daemon_pid" 2>/dev/null || true
+    fail "sweep daemon kept polling an unreachable socket"
+  fi
+  wait "$daemon_pid"
+  run grep -c '^api snapshot$' "$HTS_LOG"
+  assert_output "3"
+  assert_dir_not_exists "$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
 }
 
 # ===========================================
