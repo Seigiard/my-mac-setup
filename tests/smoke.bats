@@ -1115,7 +1115,10 @@ assert_herdr_sidebar_deployment_contract() {
   assert_success
   assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
   assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
-  run grep -E '^\[\[actions\]\]|^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
+  assert_file_contains "$manifest" '^id = "sweep"$'
+  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
+  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
+  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
   assert_failure
 }
 
