@@ -1006,10 +1006,135 @@ PY
   assert_file_contains "$plugin" 'parentID'
 }
 
-@test "herdr agents sidebar renders the pane label" {
-  local config="$HOME/.config/herdr/config.toml"
-  assert_file_contains "$config" '^\[ui.sidebar.agents\]'
-  # herdr-task-sync writes '<agent badge> <task slug>' into the pane label, so
-  # the sidebar shows the agent and its task through the `pane` row.
-  assert_file_contains "$config" '^rows = .*"pane"'
+assert_herdr_sidebar_deployment_contract() {
+  local config="$1"
+  local engine="$2"
+  local plugin="$3"
+  local claude_adapter="$4"
+  local opencode_adapter="$5"
+  local pi_adapter="$6"
+  local width
+  local writer_files=(
+    "$engine"
+    "$plugin/herdr-plugin.toml"
+    "$plugin/ensure.sh"
+    "$plugin/sweep.sh"
+    "$claude_adapter"
+    "$opencode_adapter"
+    "$pi_adapter"
+  )
+  local writer_roots=(
+    "$(dirname "$engine")"
+    "$(dirname "$config")"
+    "$(dirname "$claude_adapter")"
+    "$(dirname "$opencode_adapter")"
+    "$(dirname "$pi_adapter")"
+  )
+
+  assert_file_contains "$config" '^sidebar_min_width = 22$'
+  assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
+  # Herdr 0.8 collapses an empty custom-token row when the token is the row's
+  # only item. Separate rows also leave all 18 content columns to pane tasks.
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace"\], \["pane"\], \["\$worktree"\], \["\$location_status"\]\]$'
+  width="$(awk '
+    $0 == "[ui]" { in_ui = 1; next }
+    /^\[/ { in_ui = 0 }
+    in_ui && /^sidebar_min_width = [0-9]+$/ { print $3 }
+  ' "$config")"
+  [ "$width" -eq 22 ]
+  [ "$((width - 4))" -ge 18 ]
+  [ "$((width - 4))" -ge 8 ]
+
+  run grep -hRE '^[[:space:]]*herdr pane rename ' "${writer_roots[@]}"
+  assert_success
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
+  run grep -hRE '^[[:space:]]*herdr tab rename ' "${writer_roots[@]}"
+  assert_success
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
+
+  run grep -Ei 'reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
+    "$engine" "$plugin/herdr-plugin.toml" "$plugin/ensure.sh" "$plugin/sweep.sh"
+  assert_failure
+  run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
+    "$config" "${writer_files[@]}"
+  assert_success
+  assert_output $'rows = [["state_icon", "workspace"], ["pane"], ["$worktree"], ["$location_status"]]\n# in the tab label. Plain ASCII on purpose: the earlier Nerd Font glyph badges'
+  assert_file_contains "$config" '"state_icon"'
+  assert_file_contains "$engine" 'LABEL_SEPARATOR=.* · '
+  assert_file_contains "$engine" '…'
+
+  run grep -Ei 'location_status|(^|[^[:alnum:]_])(location|worktree|branch|git)([^[:alnum:]_]|$)' \
+    "$claude_adapter" "$opencode_adapter" "$pi_adapter"
+  assert_failure
+}
+
+@test "herdr managed source preserves the U6 sidebar and ownership boundaries" {
+  assert_herdr_sidebar_deployment_contract \
+    "$SOURCE_ROOT/private_dot_config/herdr/config.toml" \
+    "$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync" \
+    "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels" \
+    "$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh" \
+    "$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts" \
+    "$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
+}
+
+@test "herdr deployed files preserve the U6 sidebar and ownership boundaries" {
+  assert_herdr_sidebar_deployment_contract \
+    "$HOME/.config/herdr/config.toml" \
+    "$HOME/.local/bin/herdr-task-sync" \
+    "$HOME/.config/herdr/plugins/herdr-pane-labels" \
+    "$HOME/.claude/hooks/herdr-task-sync-hook.sh" \
+    "$HOME/.config/opencode/plugins/herdr-task-sync.ts" \
+    "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
+}
+
+@test "herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs" {
+  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
+  local manifest="$plugin/herdr-plugin.toml"
+  assert_file_exists "$manifest"
+  assert_file_exists "$plugin/ensure.sh"
+  assert_file_exists "$plugin/sweep.sh"
+  run sh -n "$plugin/ensure.sh"
+  assert_success
+  run sh -n "$plugin/sweep.sh"
+  assert_success
+
+  run awk '
+    /^on = "/ {
+      event = $0
+      sub(/^on = "/, "", event)
+      sub(/"$/, "", event)
+      next
+    }
+    /^command = / && event != "" {
+      command = $0
+      sub(/^command = /, "", command)
+      print event "|" command
+      event = ""
+    }
+  ' "$manifest"
+  assert_success
+  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
+  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
+  assert_file_contains "$manifest" '^id = "sweep"$'
+  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
+  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
+  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
+  assert_failure
+}
+
+@test "herdr pane-label plugin keeps startup sweep and relink deployment wiring" {
+  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
+  local manifest="$plugin/herdr-plugin.toml"
+  local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
+  assert_file_contains "$manifest" '^\[\[startup\]\]$'
+  assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
+  assert_file_contains "$plugin/ensure.sh" 'herdr-task-sync'
+  assert_file_contains "$plugin/ensure.sh" 'sync.*--ensure-daemon'
+  assert_file_contains "$plugin/sweep.sh" 'sync.*--sweep'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
+  assert_file_contains "$relink" 'herdr plugin link'
+  assert_file_contains "$relink" 'herdr plugin enable seigi.pane-labels'
 }

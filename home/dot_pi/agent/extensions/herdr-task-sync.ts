@@ -9,7 +9,8 @@
 //                        the session has one (a /name'd or resumed session)
 //   before_agent_start   name the session from the submitted prompt
 //
-// The engine detaches its own worker, so nothing here waits on a model call.
+// The engine returns after its bounded atomic inbox commit. Model and
+// presentation work stays detached inside the engine.
 // @ts-nocheck
 
 import { spawn } from "node:child_process";
@@ -42,19 +43,35 @@ function sessionId(ctx: any): string | undefined {
   }
 }
 
-function callEngine(args: string[], prompt: string): void {
-  try {
-    const child = spawn(enginePath(), args, {
-      detached: true,
-      stdio: ["pipe", "ignore", "ignore"],
-    });
-    child.on("error", () => {});
-    child.stdin?.on("error", () => {});
-    child.stdin?.end(prompt);
-    child.unref();
-  } catch {
-    // Naming is best-effort: a missing engine must never break a pi session.
-  }
+function callEngine(args: string[], prompt: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(enginePath(), args, {
+        stdio: ["pipe", "ignore", "ignore"],
+      });
+      let settled = false;
+      const ignoreStdinError = () => {};
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        child.stdin?.destroy();
+        child.kill("SIGTERM");
+        finish();
+      }, 1000);
+      timer.unref?.();
+      child.once("error", finish);
+      child.once("close", finish);
+      child.stdin?.once("error", ignoreStdinError);
+      child.stdin?.end(prompt);
+    } catch {
+      // Naming is best-effort: a missing engine must never break a pi session.
+      resolve();
+    }
+  });
 }
 
 export default function (pi) {
@@ -65,7 +82,7 @@ export default function (pi) {
   // the pane. herdr's own extension gates on the same flag.
   let rootSession = false;
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     if (ctx?.hasUI !== true) return;
     rootSession = true;
     const id = sessionId(ctx);
@@ -77,15 +94,15 @@ export default function (pi) {
       name = undefined;
     }
     if (typeof name !== "string" || name.trim() === "") return;
-    callEngine(["--agent", "pi", "--session", id, "--set", name], "");
+    await callEngine(["--agent", "pi", "--session", id, "--set", name], "");
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!rootSession) return;
     const id = sessionId(ctx);
     if (!id) return;
     const prompt = typeof event?.prompt === "string" ? event.prompt : "";
     if (prompt.trim() === "") return;
-    callEngine(["--agent", "pi", "--session", id], prompt);
+    await callEngine(["--agent", "pi", "--session", id], prompt);
   });
 }

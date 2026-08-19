@@ -19,7 +19,8 @@ import path from "node:path"
 // learned from session events and their messages are dropped — otherwise a
 // subagent's prompt would rename the pane.
 //
-// The engine detaches its own worker, so nothing here waits on a model call.
+// The engine returns after its bounded atomic inbox commit. Model and
+// presentation work stays detached inside the engine.
 
 const ENGINE_NAME = "herdr-task-sync"
 
@@ -32,19 +33,35 @@ function enginePath(): string {
   return ENGINE_NAME
 }
 
-function callEngine(args: string[], prompt: string): void {
-  try {
-    const child = spawn(enginePath(), args, {
-      detached: true,
-      stdio: ["pipe", "ignore", "ignore"],
-    })
-    child.on("error", () => {})
-    child.stdin?.on("error", () => {})
-    child.stdin?.end(prompt)
-    child.unref()
-  } catch {
-    // Naming is best-effort: a missing engine must never break an opencode run.
-  }
+function callEngine(args: string[], prompt: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(enginePath(), args, {
+        stdio: ["pipe", "ignore", "ignore"],
+      })
+      let settled = false
+      const ignoreStdinError = () => {}
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(() => {
+        child.stdin?.destroy()
+        child.kill("SIGTERM")
+        finish()
+      }, 1000)
+      timer.unref?.()
+      child.once("error", finish)
+      child.once("close", finish)
+      child.stdin?.once("error", ignoreStdinError)
+      child.stdin?.end(prompt)
+    } catch {
+      // Naming is best-effort: a missing engine must never break an opencode run.
+      resolve()
+    }
+  })
 }
 
 export const HerdrTaskSyncPlugin: Plugin = async () => {
@@ -67,11 +84,14 @@ export const HerdrTaskSyncPlugin: Plugin = async () => {
         .join("\n")
       if (prompt.trim() === "") return
 
-      callEngine(["--agent", "opencode", "--session", sessionID], prompt)
+      await callEngine(["--agent", "opencode", "--session", sessionID], prompt)
     },
     event: async ({ event }) => {
+      const type = (event as any)?.type
       const info = (event as any)?.properties?.info
-      if (info?.id && info.parentID) {
+      if (type === "session.deleted" && info?.id) {
+        childSessions.delete(info.id)
+      } else if (info?.id && info.parentID) {
         childSessions.add(info.id)
       }
     },
