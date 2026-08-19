@@ -272,7 +272,7 @@ alias hlstatus='/opt/homelab/scripts/docker/status.sh'
 alias hllogs='cd /opt/homelab && docker compose logs -f'
 
 # -------------------------------------------
-# Claude Code + Tmux
+# Claude Code
 # -------------------------------------------
 
 alias fable='claude --model fable --effort high'
@@ -285,47 +285,6 @@ omc() {
   CODEX_HOME="$HOME/.claude-omc/codex" \
   OMC_STATE_DIR="$HOME/.claude-omc/state" \
   claude "$@"
-}
-
-tm() {
-  local session_name="${1:-$(basename "$PWD" | tr '.' '_')}"
-  printf '\033]0;💻 %s\007' "$session_name"
-  if tmux has-session -t "$session_name" 2>/dev/null; then
-    tmux attach-session -t "$session_name"
-  else
-    tmux new-session -s "$session_name"
-  fi
-}
-
-# Tmux picker: fzf to choose session, or arg, or fall back to tm (current dir)
-tp() {
-  if ! has tmux; then
-    echo "tmux is not installed"
-    return 1
-  fi
-
-  if [[ $(tmux list-sessions 2>/dev/null | wc -l) -eq 0 ]]; then
-    tm
-    return
-  fi
-
-  if [[ $# -eq 0 ]]; then
-    local selected_session
-    selected_session=$(tmux list-sessions -F "#{session_attached} #{session_name}#{?session_attached, (attached),}" \
-      | sort -rn \
-      | sed -E 's/^[0-9]+ //' \
-      | fzf --height 40% --reverse \
-      | sed -E 's/ \(attached\)$//')
-
-    if [[ -n "$selected_session" ]]; then
-      printf '\033]0;💻 %s\007' "$selected_session"
-      tmux attach-session -t "$selected_session"
-    else
-      tm
-    fi
-  else
-    tm "$1"
-  fi
 }
 
 # -------------------------------------------

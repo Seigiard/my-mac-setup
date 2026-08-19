@@ -36,15 +36,11 @@ brew "zoxide"
 brew "eza"
 brew "ouch"
 
-# Terminal multiplexers
-brew "tmux"
-
 # AI coding agents & tooling
 brew "opencode"
 brew "agent-browser"
 brew "pi-coding-agent"
 brew "herdr"        # agent multiplexer
-brew "crit"         # local plan/code review
 
 # Dev tools
 brew "act"          # run GitHub Actions locally
