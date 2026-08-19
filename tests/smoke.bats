@@ -820,6 +820,44 @@ PY
   assert_file_contains "$ext" 'getSessionName'
 }
 
+@test "Pi brew auto updater is deployed with startup and manual entry points" {
+  local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
+  assert_file_exists "$ext"
+  assert_file_contains "$ext" 'pi.on("session_start"'
+  assert_file_contains "$ext" 'event.reason !== "startup"'
+  assert_file_contains "$ext" 'registerCommand("brew-auto-update-now"'
+  assert_file_contains "$ext" 'PI_OFFLINE'
+  assert_file_contains "$ext" 'PI_BREW_AUTO_UPDATE'
+}
+
+@test "Pi brew auto updater keeps package-manager commands scoped" {
+  local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
+  run python3 - "$ext" <<'PY'
+import re
+import sys
+
+source = open(sys.argv[1], encoding="utf-8").read()
+required = [
+    r'command: "brew",\s+args: \["update"\]',
+    r'command: "brew",\s+args: \["upgrade", "pi-coding-agent"\]',
+    r'command: "pi",\s+args: \["update", "--extensions"\]',
+    r'deps\.exec\(step\.command, \[\.\.\.step\.args\]',
+]
+for pattern in required:
+    assert re.search(pattern, source), pattern
+for forbidden in ('"--self"', '"--all"', 'command: "npm"'):
+    assert forbidden not in source, forbidden
+assert len(re.findall(r'command: "brew"', source)) == 2
+assert len(re.findall(r'command: "pi"', source)) == 1
+PY
+  assert_success
+}
+
+@test "Pi brew auto updater focused tests pass" {
+  run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
+  assert_success
+}
+
 @test "herdr-task-sync opencode plugin is deployed and filters child sessions" {
   local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
   assert_file_exists "$plugin"
