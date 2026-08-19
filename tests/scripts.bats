@@ -1861,6 +1861,17 @@ se_fake_runtime() {
   assert_success
 }
 
+@test "Claude Code daltonized theme extends light ANSI with terminal colors" {
+  local theme="$SOURCE_ROOT/private_dot_claude/themes/light-ansi-daltonized.json"
+
+  run jq -e '
+    .base == "light-ansi" and
+    (.overrides | length > 0) and
+    ([.overrides[] | select(startswith("ansi:") | not)] | length == 0)
+  ' "$theme"
+  assert_success
+}
+
 # ===========================================
 # morning-cleanup script
 # ===========================================

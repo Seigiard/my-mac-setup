@@ -359,8 +359,9 @@ TOML
 }
 
 @test "coding agents use terminal color palettes" {
-  run jq -e '.theme == "light-ansi"' "$HOME/.claude/settings.json"
+  run jq -e '.theme == "custom:light-ansi-daltonized"' "$HOME/.claude/settings.json"
   assert_success
+  assert_file_exists "$HOME/.claude/themes/light-ansi-daltonized.json"
 
   run jq -e '.theme == "terminal"' "$HOME/.pi/agent/settings.json"
   assert_success
