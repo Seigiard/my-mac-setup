@@ -9,6 +9,8 @@
 #
 # `session` and `compact` run the engine in transcript mode: no prompt on
 # stdin, the naming context comes from the transcript file instead.
+# The hook waits for the engine's bounded atomic inbox commit. The engine keeps
+# model and presentation work detached from the Claude callback.
 #
 # Every path writes nothing to stdout and exits 0. Claude Code injects a
 # UserPromptSubmit hook's stdout into the conversation on exit 0, so a stray

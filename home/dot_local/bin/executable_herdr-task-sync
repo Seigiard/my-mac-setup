@@ -52,6 +52,8 @@ LABEL_SEPARATOR="${HERDR_TASK_SYNC_SEPARATOR:- · }"
 # visible for at most one glance without hammering the herdr socket.
 SWEEP_INTERVAL="${HERDR_TASK_SYNC_SWEEP_INTERVAL:-5}"
 SWEEP_LOCK_DIR="$STATE_DIR/sweep.lock"
+INBOX_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-20}"
+SOCKET_PATH="${HERDR_SOCKET_PATH:-}"
 
 agent=""
 session=""
@@ -60,7 +62,6 @@ transcript=""
 set_name=""
 seq=""
 worker_mode=0
-prompt_file=""
 
 mode="name"
 
@@ -80,8 +81,6 @@ while [ $# -gt 0 ]; do
     --pane) pane="${2:-}"; shift 2 ;;
     --transcript) transcript="${2:-}"; shift 2 ;;
     --set) set_name="${2:-}"; shift 2 ;;
-    --seq) seq="${2:-}"; shift 2 ;;
-    --prompt-file) prompt_file="${2:-}"; shift 2 ;;
     --worker) worker_mode=1; shift ;;
     --sweep) mode="sweep"; shift ;;
     --sweep-daemon) mode="sweep-daemon"; shift ;;
@@ -112,9 +111,12 @@ slug_word_count() {
   printf '%s' "$1" | tr '-' '\n' | grep -c '.' || true
 }
 
-# A microsecond stamp so a newer prompt's worker wins the pane even when an
-# older worker's model call finishes later (herdr keeps the highest --seq).
+# A microsecond floor for monotonic inbox generations and metadata sequences.
 now_seq() {
+  if [ -n "${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" ]; then
+    printf '%s' "$HERDR_TASK_SYNC_TEST_NOW_SEQ"
+    return 0
+  fi
   if command -v python3 >/dev/null 2>&1; then
     local value
     value="$(python3 -c 'import time; print(int(time.time()*1000000))' 2>/dev/null)"
@@ -130,9 +132,170 @@ sanitize_key() {
   LC_ALL=C printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-64
 }
 
-state_file_path() {
+legacy_state_file_path() {
   printf '%s/%s.state' "$STATE_DIR" \
     "$(sanitize_key "${agent}-${pane}-${session}")"
+}
+
+encode_key() {
+  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+}
+
+encode_value() {
+  printf '%s' "$1" | base64 | tr -d '\n'
+}
+
+namespace_dir() {
+  [ -n "$SOCKET_PATH" ] || return 1
+  printf '%s/sockets/%s' "$STATE_DIR" "$(encode_key "$SOCKET_PATH")"
+}
+
+pane_state_dir() {
+  printf '%s/panes/%s' "$(namespace_dir)" "$(encode_key "$pane")"
+}
+
+task_state_file() {
+  local identity
+  identity="$(printf '%s\037%s\037%s' "$agent" "$pane" "$session")"
+  printf '%s/tasks/%s.state' "$(namespace_dir)" "$(encode_key "$identity")"
+}
+
+migration_marker_file() {
+  local identity
+  identity="$(printf '%s\037%s\037%s' "$agent" "$pane" "$session")"
+  printf '%s/migration/%s.done' "$(namespace_dir)" "$(encode_key "$identity")"
+}
+
+atomic_write() {
+  local file="$1" content="$2" dir tmp
+  [ ! -d "$file" ] || return 1
+  dir="$(dirname "$file")"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  tmp="$(umask 077; mktemp "$dir/.record.XXXXXX" 2>/dev/null)" || return 1
+  if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if [ -d "$file" ] || ! mv "$tmp" "$file" 2>/dev/null; then
+    rm -f "$tmp"
+    return 1
+  fi
+  return 0
+}
+
+record_number() {
+  local file="$1" key="$2" value
+  [ -f "$file" ] || return 0
+  value="$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -1)"
+  case "$value" in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  printf '%s' "$value"
+}
+
+max_number() {
+  local max=0 value
+  for value in "$@"; do
+    case "$value" in '' | *[!0-9]*) continue ;; esac
+    [ "$value" -le "$max" ] || max="$value"
+  done
+  printf '%s' "$max"
+}
+
+process_start_token() {
+  ps -p "$1" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+claim_owner_id=""
+
+recover_claim() {
+  local lock="$1" attempt="$2" owner pid start socket current_start
+  owner="$(read_state_field "$lock/owner" owner_id)"
+  if [ -z "$owner" ]; then
+    [ "$attempt" -ge 3 ] || return 1
+    if [ -f "$lock/owner" ] && [ -z "$(read_state_field "$lock/owner" owner_id)" ]; then
+      rm -f "$lock/owner" 2>/dev/null
+    fi
+    rmdir "$lock" 2>/dev/null || true
+    return 1
+  fi
+  pid="$(record_number "$lock/owner" pid)"
+  start="$(read_state_field "$lock/owner" process_start)"
+  socket="$(read_state_field "$lock/owner" socket_path)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    current_start="$(process_start_token "$pid")"
+    if [ "$socket" = "$SOCKET_PATH" ] && \
+      { [ -z "$start" ] || [ "$start" = "$current_start" ]; }; then
+      return 1
+    fi
+  fi
+  [ "$(read_state_field "$lock/owner" owner_id)" = "$owner" ] || return 1
+  rm -f "$lock/owner" 2>/dev/null
+  rmdir "$lock" 2>/dev/null || true
+  return 0
+}
+
+acquire_claim() {
+  local lock="$1" attempts="$2" attempt=0 owner start owner_record
+  while [ "$attempt" -lt "$attempts" ]; do
+    attempt=$((attempt + 1))
+    if mkdir "$lock" 2>/dev/null; then
+      owner="$$.$RANDOM.$(now_seq)"
+      start="$(process_start_token "$$")"
+      owner_record="owner_id=$(encode_value "$owner")
+pid=$$
+process_start=$(encode_value "$start")
+socket_path=$(encode_value "$SOCKET_PATH")"
+      if ! atomic_write "$lock/owner" "$owner_record"; then
+        rmdir "$lock" 2>/dev/null || true
+        return 1
+      fi
+      claim_owner_id="$owner"
+      return 0
+    fi
+    recover_claim "$lock" "$attempt" || true
+    sleep 0.01
+  done
+  return 1
+}
+
+release_claim() {
+  local lock="$1" owner="$2"
+  [ -n "$owner" ] || return 0
+  [ "$(read_state_field "$lock/owner" owner_id)" = "$owner" ] || return 0
+  rm -f "$lock/owner" 2>/dev/null
+  rmdir "$lock" 2>/dev/null || true
+}
+
+initialize_namespace() {
+  local namespace socket_record reconcile_record
+  namespace="$(namespace_dir)" || return 1
+  mkdir -p "$namespace/panes" "$namespace/tasks" "$namespace/migration" 2>/dev/null || return 1
+  socket_record="socket_path=$(encode_value "$SOCKET_PATH")"
+  [ -f "$namespace/socket.state" ] || atomic_write "$namespace/socket.state" "$socket_record" || return 1
+  reconcile_record="pending_generation=0
+task_metadata_high_water=0
+location_metadata_high_water=0
+checkout_root=$(encode_value "")
+repository_anchor=$(encode_value "")
+retained_location=$(encode_value "")"
+  [ -f "$namespace/reconcile.state" ] || \
+    atomic_write "$namespace/reconcile.state" "$reconcile_record" || return 1
+  return 0
+}
+
+# Agent and test harnesses can keep control pipes on descriptors above stderr.
+# Detached descendants must not keep those pipes alive after their callback or
+# test process has completed. Bash 3.2 reserves descriptor 255 for this script.
+close_inherited_descriptors() {
+  local descriptor fd
+  for descriptor in /dev/fd/*; do
+    fd="${descriptor##*/}"
+    case "$fd" in
+      0 | 1 | 2 | 255 | *[!0-9]*) continue ;;
+    esac
+    eval "exec ${fd}>&-" 2>/dev/null || true
+  done
 }
 
 # Run a command with the prompt on stdin under a hard timeout. macOS ships no
@@ -168,7 +331,10 @@ case "$mode" in
     # another worker.
     [ -z "${HERDR_TASK_SYNC_ACTIVE:-}" ] || exit 0
     [ -n "$pane" ] || exit 0
-    [ -n "$agent" ] || exit 0
+    [ -n "$SOCKET_PATH" ] || exit 0
+    if [ "$worker_mode" -eq 0 ]; then
+      [ -n "$agent" ] || exit 0
+    fi
     ;;
 esac
 
@@ -182,13 +348,93 @@ read_state_field() {
   printf '%s' "$encoded" | base64 -d 2>/dev/null || true
 }
 
-write_state() {
-  local file="$1" slug="$2" first="$3" latest="$4"
-  {
-    printf 'slug=%s\n' "$(printf '%s' "$slug" | base64 | tr -d '\n')"
-    printf 'first_prompt=%s\n' "$(printf '%s' "$first" | base64 | tr -d '\n')"
-    printf 'latest_prompt=%s\n' "$(printf '%s' "$latest" | base64 | tr -d '\n')"
-  } >"$file" 2>/dev/null
+write_task_state() {
+  local file="$1" generation="$2" slug="$3" first="$4" latest="$5" present="$6"
+  local presentation_generation="${7:-0}" metadata_seq="${8:-0}"
+  local content
+  content="agent=$(encode_value "$agent")
+pane=$(encode_value "$pane")
+session=$(encode_value "$session")
+generation=$generation
+slug=$(encode_value "$slug")
+first_prompt=$(encode_value "$first")
+latest_prompt=$(encode_value "$latest")
+presentation_required=$present
+presentation_generation=$presentation_generation
+metadata_seq=$metadata_seq"
+  atomic_write "$file" "$content"
+}
+
+write_reconcile_state() {
+  local file="$1" pending="$2" task_metadata="$3" location_metadata="$4"
+  local checkout_root="$5" repository_anchor="$6" retained_location="$7" content
+  content="pending_generation=$pending
+task_metadata_high_water=$task_metadata
+location_metadata_high_water=$location_metadata
+checkout_root=$(encode_value "$checkout_root")
+repository_anchor=$(encode_value "$repository_anchor")
+retained_location=$(encode_value "$retained_location")"
+  atomic_write "$file" "$content"
+}
+
+write_high_water() {
+  local file="$1" generation="$2" committed="$3" metadata="$4" content
+  content="generation=$generation
+committed_generation=$committed
+task_metadata_high_water=$metadata"
+  atomic_write "$file" "$content"
+}
+
+write_control() {
+  local file="$1" generation="$2" committed="$3" presentation="$4" metadata="$5"
+  local kind="$6" value="$7" first="$8" content
+  content="active_agent=$(encode_value "$agent")
+active_session=$(encode_value "$session")
+generation=$generation
+committed_generation=$committed
+presentation_generation=$presentation
+task_metadata_high_water=$metadata
+request_kind=$(encode_value "$kind")
+request_value=$(encode_value "$value")
+first_prompt=$(encode_value "$first")"
+  atomic_write "$file" "$content"
+}
+
+legacy_record_complete() {
+  local file="$1" key encoded
+  [ -f "$file" ] || return 1
+  for key in slug first_prompt latest_prompt; do
+    grep -q "^${key}=" "$file" 2>/dev/null || return 1
+    encoded="$(grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2-)"
+    printf '%s' "$encoded" | base64 -d >/dev/null 2>&1 || return 1
+  done
+  [ -n "$(read_state_field "$file" slug)" ]
+}
+
+import_legacy_state() {
+  local task_file="$1" marker legacy slug first latest marker_record
+  marker="$(migration_marker_file)"
+  [ -f "$marker" ] && return 0
+  marker_record="cutover=1"
+
+  # A canonical record without its marker means a predecessor crashed between
+  # those two atomic replacements. Keep the canonical record and finish only
+  # the one-way cutover; a late legacy writer has no authority.
+  if legacy_record_complete "$task_file"; then
+    atomic_write "$marker" "$marker_record"
+    return $?
+  fi
+
+  legacy="$(legacy_state_file_path)"
+  if legacy_record_complete "$legacy"; then
+    slug="$(read_state_field "$legacy" slug)"
+    first="$(read_state_field "$legacy" first_prompt)"
+    latest="$(read_state_field "$legacy" latest_prompt)"
+    write_task_state "$task_file" 0 "$slug" "$first" "$latest" 0 0 0 || return 1
+  fi
+  # Malformed and absent legacy input also complete the cutover. This prevents
+  # an old producer that writes later from entering canonical state.
+  atomic_write "$marker" "$marker_record"
 }
 
 # A pane label opens with a short agent prefix, so several labels still fit
@@ -510,61 +756,214 @@ call_engine_chain() {
   return 1
 }
 
-run_worker() {
-  local prompt="" file previous first latest naming_prompt slug
+commit_task_result() {
+  local control="$1" high_water="$2" task_file="$3" expected_generation="$4"
+  local slug="$5" first="$6" latest="$7" presentation_required="$8"
+  local lock owner current_generation current_agent current_session
+  local presentation metadata request_kind request_value control_first
+  local reconcile reconcile_lock reconcile_owner pending location_metadata
+  local checkout_root repository_anchor retained_location now task_generation
+  lock="$(pane_state_dir)/control.lock"
+  acquire_claim "$lock" "$INBOX_LOCK_ATTEMPTS" || return 1
+  owner="$claim_owner_id"
 
-  if [ -n "$prompt_file" ] && [ -f "$prompt_file" ]; then
-    prompt="$(cat "$prompt_file" 2>/dev/null)"
-    rm -f "$prompt_file"
+  current_generation="$(record_number "$control" generation)"
+  current_agent="$(read_state_field "$control" active_agent)"
+  current_session="$(read_state_field "$control" active_session)"
+  if [ "$current_generation" != "$expected_generation" ] || \
+    [ "$current_agent" != "$agent" ] || [ "$current_session" != "$session" ]; then
+    release_claim "$lock" "$owner"
+    return 2
   fi
 
-  mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
-  chmod 700 "$STATE_DIR" 2>/dev/null
-  umask 077
-  find "$STATE_DIR" -type f -name '*.state' -mtime "+$STATE_MAX_AGE_DAYS" -delete 2>/dev/null
-  # Prompt hand-off files outlive only a worker that died before reading them.
-  find "$STATE_DIR" -type f -name 'prompt.*' -mtime +1 -delete 2>/dev/null
+  presentation="$(record_number "$control" presentation_generation)"
+  metadata="$(max_number \
+    "$(record_number "$control" task_metadata_high_water)" \
+    "$(record_number "$high_water" task_metadata_high_water)")"
+  request_kind="$(read_state_field "$control" request_kind)"
+  request_value="$(read_state_field "$control" request_value)"
+  control_first="$(read_state_field "$control" first_prompt)"
 
-  file="$(state_file_path)"
-
-  # --set is the pi session-name seed: publish it as given, no model call.
-  if [ -n "$set_name" ]; then
-    slug="$(normalize_slug "$set_name")"
-    [ -n "$slug" ] || exit 0
-    write_state "$file" "$slug" "$(read_state_field "$file" first_prompt)" \
-      "$(read_state_field "$file" latest_prompt)"
-    publish "$slug"
-    exit 0
-  fi
-
-  if [ -z "$(printf '%s' "$prompt" | tr -d '[:space:]')" ] && [ -n "$transcript" ]; then
-    # Transcript mode (session start, resume, pre-compact): the naming context
-    # comes from the transcript's substantive user entries, not from stdin.
-    local entries
-    entries="$(transcript_user_entries "$transcript")"
-    [ -n "$entries" ] || exit 0
-    first="$(printf '%s\n' "$entries" | head -1)"
-    latest="$(printf '%s\n' "$entries" | tail -1)"
+  if [ "$presentation_required" -eq 1 ]; then
+    reconcile="$(namespace_dir)/reconcile.state"
+    reconcile_lock="$(namespace_dir)/reconcile.lock"
+    acquire_claim "$reconcile_lock" "$INBOX_LOCK_ATTEMPTS" || {
+      release_claim "$lock" "$owner"
+      return 1
+    }
+    reconcile_owner="$claim_owner_id"
+    task_generation="$(record_number "$task_file" generation)"
+    if [ "$task_generation" = "$expected_generation" ]; then
+      presentation="$(record_number "$task_file" presentation_generation)"
+      metadata="$(record_number "$task_file" metadata_seq)"
+    fi
+    if [ -z "$presentation" ] || [ "$presentation" -eq 0 ] || \
+      [ -z "$metadata" ] || [ "$metadata" -eq 0 ]; then
+      now="$(now_seq)"
+      metadata="$(max_number \
+        "$(record_number "$control" task_metadata_high_water)" \
+        "$(record_number "$high_water" task_metadata_high_water)" \
+        "$(record_number "$reconcile" task_metadata_high_water)" \
+        "$expected_generation" "$now")"
+      metadata=$((metadata + 1))
+      presentation="$(max_number \
+        "$(record_number "$reconcile" pending_generation)" "$metadata" "$now")"
+      presentation=$((presentation + 1))
+    fi
+    pending="$(max_number \
+      "$(record_number "$reconcile" pending_generation)" "$presentation")"
+    metadata="$(max_number \
+      "$(record_number "$reconcile" task_metadata_high_water)" "$metadata")"
+    location_metadata="$(record_number "$reconcile" location_metadata_high_water)"
+    checkout_root="$(read_state_field "$reconcile" checkout_root)"
+    repository_anchor="$(read_state_field "$reconcile" repository_anchor)"
+    retained_location="$(read_state_field "$reconcile" retained_location)"
   else
-    # KTD6's only local filter: an empty or whitespace-only prompt.
-    [ -n "$(printf '%s' "$prompt" | tr -d '[:space:]')" ] || exit 0
-    first="$(read_state_field "$file" first_prompt)"
-    [ -n "$first" ] || first="$prompt"
-    latest="$prompt"
+    reconcile=""
+    reconcile_lock=""
+    reconcile_owner=""
   fi
 
-  previous="$(read_state_field "$file" slug)"
+  write_task_state "$task_file" "$expected_generation" "$slug" "$first" "$latest" \
+    "$presentation_required" "${presentation:-0}" "${metadata:-0}" || {
+      [ -z "$reconcile_lock" ] || release_claim "$reconcile_lock" "$reconcile_owner"
+      release_claim "$lock" "$owner"
+      return 1
+    }
+  if [ -n "$reconcile" ]; then
+    write_reconcile_state "$reconcile" "$pending" "$metadata" \
+      "${location_metadata:-0}" "$checkout_root" "$repository_anchor" \
+      "$retained_location" || {
+        release_claim "$reconcile_lock" "$reconcile_owner"
+        release_claim "$lock" "$owner"
+        return 1
+      }
+    release_claim "$reconcile_lock" "$reconcile_owner"
+  fi
+  write_high_water "$high_water" "$expected_generation" "$expected_generation" "$metadata" || {
+    release_claim "$lock" "$owner"
+    return 1
+  }
+  write_control "$control" "$expected_generation" "$expected_generation" \
+    "$presentation" "$metadata" "$request_kind" "$request_value" "$control_first" || {
+      release_claim "$lock" "$owner"
+      return 1
+    }
+  release_claim "$lock" "$owner"
+  return 0
+}
 
-  naming_prompt="$(build_naming_prompt "$previous" "$first" "$latest")"
-  slug="$(call_engine_chain "$naming_prompt")" || slug=""
+run_worker() {
+  local pane_dir control high_water worker_lock worker_owner
+  local generation committed kind value first latest previous slug naming_prompt
+  local task_file task_generation presentation_required commit_status abort_worker
+  initialize_namespace || exit 0
+  pane_dir="$(pane_state_dir)"
+  mkdir -p "$pane_dir" 2>/dev/null || exit 0
+  control="$pane_dir/control.state"
+  high_water="$pane_dir/high-water.state"
+  worker_lock="$pane_dir/worker.claim"
+  umask 077
+  find "$(namespace_dir)/tasks" -type f -name '*.state' \
+    -mtime "+$STATE_MAX_AGE_DAYS" -delete 2>/dev/null
 
-  # An exhausted chain publishes nothing: the previous slug stays and the
-  # sidebar never shows a stale error.
-  [ -n "$slug" ] || exit 0
+  while :; do
+    acquire_claim "$worker_lock" "$INBOX_LOCK_ATTEMPTS" || exit 0
+    worker_owner="$claim_owner_id"
+    abort_worker=0
 
-  write_state "$file" "$slug" "$first" "$latest"
-  publish "$slug"
-  exit 0
+    while :; do
+      generation="$(record_number "$control" generation)"
+      committed="$(record_number "$control" committed_generation)"
+      [ -n "$generation" ] || break
+      [ "${committed:-0}" -lt "$generation" ] || break
+
+      agent="$(read_state_field "$control" active_agent)"
+      session="$(read_state_field "$control" active_session)"
+      kind="$(read_state_field "$control" request_kind)"
+      value="$(read_state_field "$control" request_value)"
+      first="$(read_state_field "$control" first_prompt)"
+      if [ -z "$agent" ] || [ -z "$session" ]; then
+        abort_worker=1
+        break
+      fi
+      task_file="$(task_state_file)"
+      task_generation="$(record_number "$task_file" generation)"
+
+      if [ "$task_generation" = "$generation" ] && \
+        [ "$(read_state_field "$task_file" agent)" = "$agent" ] && \
+        [ "$(read_state_field "$task_file" session)" = "$session" ]; then
+        slug="$(read_state_field "$task_file" slug)"
+        first="$(read_state_field "$task_file" first_prompt)"
+        latest="$(read_state_field "$task_file" latest_prompt)"
+        presentation_required="$(record_number "$task_file" presentation_required)"
+        [ -n "$presentation_required" ] || presentation_required=0
+      else
+        previous="$(read_state_field "$task_file" slug)"
+        case "$kind" in
+          set)
+            slug="$(normalize_slug "$value")"
+            latest="$(read_state_field "$task_file" latest_prompt)"
+            [ -n "$first" ] || first="$(read_state_field "$task_file" first_prompt)"
+            if [ -n "$slug" ]; then
+              presentation_required=1
+            else
+              slug="$previous"
+              presentation_required=0
+            fi
+            ;;
+          prompt | transcript)
+            latest="$value"
+            naming_prompt="$(build_naming_prompt "$previous" "$first" "$latest")"
+            slug="$(call_engine_chain "$naming_prompt")" || slug=""
+            if [ -n "$slug" ]; then
+              presentation_required=1
+            else
+              # Model failure commits the newest context but retains the prior
+              # semantic slug and does not request redundant presentation.
+              slug="$previous"
+              presentation_required=0
+            fi
+            ;;
+          *)
+            abort_worker=1
+            break
+            ;;
+        esac
+      fi
+
+      if commit_task_result "$control" "$high_water" "$task_file" "$generation" \
+        "$slug" "$first" "$latest" "$presentation_required"; then
+        commit_status=0
+      else
+        commit_status=$?
+      fi
+      # Status 2 means a newer committed inbox generation or native session
+      # superseded this model result. Read the inbox again without side effects.
+      if [ "$commit_status" -eq 1 ]; then
+        abort_worker=1
+        break
+      fi
+      if [ "$commit_status" -eq 0 ] && [ "$presentation_required" -eq 1 ] && \
+        [ -n "$slug" ]; then
+        if [ "$(record_number "$control" generation)" = "$generation" ] && \
+          [ "$(record_number "$control" committed_generation)" = "$generation" ] && \
+          [ "$(read_state_field "$control" active_agent)" = "$agent" ] && \
+          [ "$(read_state_field "$control" active_session)" = "$session" ]; then
+          seq="$(record_number "$control" task_metadata_high_water)"
+          publish "$slug"
+        fi
+      fi
+    done
+
+    release_claim "$worker_lock" "$worker_owner"
+    [ "$abort_worker" -eq 0 ] || exit 0
+    generation="$(record_number "$control" generation)"
+    committed="$(record_number "$control" committed_generation)"
+    [ -n "$generation" ] && [ "${committed:-0}" -lt "$generation" ] || exit 0
+    # Reacquire after release. An enqueue racing the quiescence edge is either
+    # handled here or by the worker it starts; no pending generation is lost.
+  done
 }
 
 # `$0` is a bare name when the script came from PATH, and a re-entry must run
@@ -581,11 +980,20 @@ script_path() {
 }
 
 case "$mode" in
+  sweep | sweep-daemon | ensure-daemon)
+    [ -n "$SOCKET_PATH" ] || exit 0
+    initialize_namespace || exit 0
+    SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
+    ;;
+esac
+
+case "$mode" in
   sweep)
     sweep_tabs
     exit 0
     ;;
   sweep-daemon)
+    close_inherited_descriptors
     run_sweep_daemon
     exit 0
     ;;
@@ -596,44 +1004,108 @@ case "$mode" in
 esac
 
 if [ "$worker_mode" -eq 1 ]; then
+  close_inherited_descriptors
   run_worker
   exit 0
 fi
 
 # -------------------------------------------------------------- entry point
 
-# A new session id must reset the stored context, so the state file is keyed by
-# pane id plus session id and a fresh key simply starts empty.
-[ -n "$session" ] || session="unknown"
+[ -n "$session" ] || exit 0
 
 prompt=""
 if [ ! -t 0 ]; then
   prompt="$(cat 2>/dev/null)"
 fi
 
-if [ -z "$set_name" ] && [ -z "$transcript" ] &&
-  [ -z "$(printf '%s' "$prompt" | tr -d '[:space:]')" ]; then
+request_kind=""
+request_value=""
+request_first=""
+if [ -n "$set_name" ]; then
+  request_kind="set"
+  request_value="$set_name"
+elif [ -n "$(printf '%s' "$prompt" | tr -d '[:space:]')" ]; then
+  request_kind="prompt"
+  request_value="$prompt"
+elif [ -n "$transcript" ]; then
+  entries="$(transcript_user_entries "$transcript")"
+  [ -n "$entries" ] || exit 0
+  request_kind="transcript"
+  request_first="$(printf '%s\n' "$entries" | head -1)"
+  request_value="$(printf '%s\n' "$entries" | tail -1)"
+else
   exit 0
 fi
 
-seq="$(now_seq)"
+mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+chmod 700 "$STATE_DIR" 2>/dev/null
+umask 077
+initialize_namespace || exit 0
 
+pane_dir="$(pane_state_dir)"
+mkdir -p "$pane_dir" 2>/dev/null || exit 0
+control="$pane_dir/control.state"
+high_water="$pane_dir/high-water.state"
+control_lock="$pane_dir/control.lock"
+task_file="$(task_state_file)"
+
+# The callback waits only for this bounded claim and two atomic replacements.
+# Model and presentation work starts after the durable inbox generation exists.
+acquire_claim "$control_lock" "$INBOX_LOCK_ATTEMPTS" || exit 0
+inbox_owner="$claim_owner_id"
+if ! import_legacy_state "$task_file"; then
+  release_claim "$control_lock" "$inbox_owner"
+  exit 0
+fi
+
+old_agent="$(read_state_field "$control" active_agent)"
+old_session="$(read_state_field "$control" active_session)"
+control_first="$(read_state_field "$control" first_prompt)"
+task_first="$(read_state_field "$task_file" first_prompt)"
+if [ "$request_kind" = "transcript" ]; then
+  first="$request_first"
+elif [ "$old_agent" = "$agent" ] && [ "$old_session" = "$session" ] && \
+  [ -n "$control_first" ]; then
+  first="$control_first"
+elif [ -n "$task_first" ]; then
+  first="$task_first"
+elif [ "$request_kind" = "prompt" ]; then
+  first="$request_value"
+else
+  first=""
+fi
+
+generation="$(max_number \
+  "$(record_number "$control" generation)" \
+  "$(record_number "$high_water" generation)" \
+  "$(record_number "$task_file" generation)" \
+  "$(now_seq)")"
+generation=$((generation + 1))
+committed="$(max_number \
+  "$(record_number "$control" committed_generation)" \
+  "$(record_number "$high_water" committed_generation)")"
+presentation="$(record_number "$control" presentation_generation)"
+metadata="$(max_number \
+  "$(record_number "$control" task_metadata_high_water)" \
+  "$(record_number "$high_water" task_metadata_high_water)")"
+
+# Advancing the high-water record before the inbox can consume a generation on
+# write failure, but it cannot accept a request that was never atomically stored.
+if ! write_high_water "$high_water" "$generation" "$committed" "$metadata" || \
+  ! write_control "$control" "$generation" "$committed" "$presentation" \
+    "$metadata" "$request_kind" "$request_value" "$first"; then
+  release_claim "$control_lock" "$inbox_owner"
+  exit 0
+fi
+release_claim "$control_lock" "$inbox_owner"
+
+[ -z "${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" ] || exit 0
 self="$(script_path)" || exit 0
 [ -n "$self" ] || exit 0
 
-mkdir -p "$STATE_DIR" 2>/dev/null
-chmod 700 "$STATE_DIR" 2>/dev/null
-prompt_file="$(umask 077; mktemp "$STATE_DIR/prompt.XXXXXX" 2>/dev/null)" || exit 0
-printf '%s' "$prompt" >"$prompt_file" 2>/dev/null
-
-# Hand the slow part to a detached worker so prompt handling, agent startup,
-# and shutdown never wait on a model call.
-# `bash "$self"` rather than "$self": the worker must start even when the file
-# has no execute bit (a chezmoi source checkout, or a test running it in place).
-nohup bash "$self" --worker \
-  --agent "$agent" --session "$session" --pane "$pane" \
-  --transcript "$transcript" --set "$set_name" \
-  --seq "$seq" --prompt-file "$prompt_file" \
-  </dev/null >/dev/null 2>&1 &
+# `bash "$self"` works from a non-executable chezmoi source checkout. The
+# claimed worker reads the inbox rather than request argv, so every completion
+# is fenced against the latest active native session and committed generation.
+nohup bash "$self" --worker --pane "$pane" </dev/null >/dev/null 2>&1 &
 
 exit 0

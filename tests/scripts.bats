@@ -902,8 +902,13 @@ hts_fixture_init_dir() {
 
 hts_fixture_socket_dir() {
   local socket_path="${1:-${HERDR_SOCKET_PATH:-$HTS_DEFAULT_SOCKET}}"
-  local dir id lock="$HTS_SOCKET_ROOT/registry.lock"
-  while ! mkdir "$lock" 2>/dev/null; do sleep 0.01; done
+  local dir id lock="$HTS_SOCKET_ROOT/registry.lock" attempts=0
+  [ -d "$HTS_SOCKET_ROOT" ] || return 1
+  while ! mkdir "$lock" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ -d "$HTS_SOCKET_ROOT" ] && [ "$attempts" -lt 1000 ] || return 1
+    sleep 0.01
+  done
   for dir in "$HTS_SOCKET_ROOT"/socket-*; do
     [ -d "$dir" ] || continue
     if [ -f "$dir/socket-path" ] && [ "$(cat "$dir/socket-path")" = "$socket_path" ]; then
@@ -931,8 +936,13 @@ hts_fixture_log() {
 }
 
 hts_fixture_next_call() {
-  local dir="$1" lock="$1/locks/call-seq" seq
-  while ! mkdir "$lock" 2>/dev/null; do sleep 0.01; done
+  local dir="$1" lock="$1/locks/call-seq" seq attempts=0
+  [ -d "$dir/locks" ] || return 1
+  while ! mkdir "$lock" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ -d "$dir/locks" ] && [ "$attempts" -lt 1000 ] || return 1
+    sleep 0.01
+  done
   seq=$(( $(cat "$dir/call-seq") + 1 ))
   printf '%s' "$seq" > "$dir/call-seq"
   rmdir "$lock"
@@ -940,7 +950,13 @@ hts_fixture_next_call() {
 }
 
 hts_fixture_state_lock() {
-  while ! mkdir "$1/locks/state" 2>/dev/null; do sleep 0.01; done
+  local attempts=0
+  [ -d "$1/locks" ] || return 1
+  while ! mkdir "$1/locks/state" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ -d "$1/locks" ] && [ "$attempts" -lt 1000 ] || return 1
+    sleep 0.01
+  done
 }
 
 hts_fixture_state_unlock() {
@@ -953,16 +969,26 @@ SH
   cat > "$HTS_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 source "$HTS_WORK/fixture-lib.sh"
-dir="$(hts_fixture_socket_dir)"
+if [ -f "$HTS_WORK/block-herdr" ]; then
+  block_attempts=0
+  release_file="${HTS_DESCRIPTOR_RELEASE_FILE:-$HTS_WORK/release-herdr}"
+  : > "$HTS_WORK/herdr-blocked"
+  while [ ! -f "$release_file" ]; do
+    block_attempts=$((block_attempts + 1))
+    [ "$block_attempts" -lt 3000 ] || exit 124
+    sleep 0.01
+  done
+fi
+dir="$(hts_fixture_socket_dir)" || exit 1
 log="$(hts_fixture_log "$dir")"
 call="$*"
-seq="$(hts_fixture_next_call "$dir")"
+seq="$(hts_fixture_next_call "$dir")" || exit 1
 printf '%s\n' "$call" >> "$log"
 printf '%s\n' "$call" > "$dir/calls/$seq"
 
 finish_call() {
   if [ -f "$dir/after/$seq.json" ]; then
-    hts_fixture_state_lock "$dir"
+    hts_fixture_state_lock "$dir" || return
     cp "$dir/after/$seq.json" "$dir/state.json"
     hts_fixture_state_unlock "$dir"
   fi
@@ -993,7 +1019,7 @@ elif [ "$1" = "api" ] && [ "$2" = "snapshot" ]; then
   fi
 elif [ "$1" = "pane" ] && [ "$2" = "rename" ]; then
   tmp="$state.tmp.$$"
-  hts_fixture_state_lock "$dir"
+  hts_fixture_state_lock "$dir" || exit 1
   jq --arg id "$3" --arg label "$4" \
     '.panes |= map(if .pane_id == $id then .label = $label else . end)' \
     "$state" > "$tmp" && mv "$tmp" "$state"
@@ -1002,7 +1028,7 @@ elif [ "$1" = "pane" ] && [ "$2" = "rename" ]; then
   [ "$result" -eq 0 ] || exit "$result"
 elif [ "$1" = "tab" ] && [ "$2" = "rename" ]; then
   tmp="$state.tmp.$$"
-  hts_fixture_state_lock "$dir"
+  hts_fixture_state_lock "$dir" || exit 1
   jq --arg id "$3" --arg label "$4" \
     '.tabs |= map(if .tab_id == $id then .label = $label else . end)' \
     "$state" > "$tmp" && mv "$tmp" "$state"
@@ -1025,7 +1051,7 @@ elif [ "$1" = "pane" ] && [ "$2" = "report-metadata" ]; then
   [ -n "$source_id" ] && [ -n "$pane_id" ] || exit 2
   [ -n "$report_seq" ] || report_seq=0
   tmp="$state.tmp.$$"
-  hts_fixture_state_lock "$dir"
+  hts_fixture_state_lock "$dir" || exit 1
   jq --arg pane "$pane_id" --arg source "$source_id" --argjson seq "$report_seq" \
     --argjson tokens "$tokens" --argjson clears "$clear_tokens" '
       (.metadata[$pane][$source].seq // -1) as $current
@@ -1149,7 +1175,37 @@ hts_run() {
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
+    HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
+    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
     bash "$HTS_ENGINE" "$@"
+}
+
+hts_run_for_socket() {
+  local socket_path="$1"
+  shift
+  env PATH="$HTS_STUB:/usr/bin:/bin" \
+    HERDR_ENV=1 \
+    HERDR_PANE_ID=pane-1 \
+    HERDR_SOCKET_PATH="$socket_path" \
+    HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
+    HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
+    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
+    bash "$HTS_ENGINE" "$@"
+}
+
+hts_worker_run() {
+  env PATH="$HTS_STUB:/usr/bin:/bin" \
+    HERDR_ENV=1 \
+    HERDR_PANE_ID=pane-1 \
+    HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
+    HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
+    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
+    bash "$HTS_ENGINE" --worker --pane pane-1
 }
 
 hts_pane_list() {
@@ -1387,12 +1443,164 @@ hts_pane_label() {
   sed -n "s/^pane rename ${1:-pane-1} //p" "$HTS_LOG" | tail -1
 }
 
-hts_state_file() {
+hts_legacy_state_file() {
   printf '%s/%s.state' "$HTS_STATE" "$1"
 }
 
 hts_state_field() {
   grep -m1 "^${2}=" "$1" | cut -d= -f2- | base64 -d
+}
+
+hts_key() {
+  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+}
+
+hts_namespace() {
+  printf '%s/sockets/%s\n' "$HTS_STATE" "$(hts_key "$1")"
+}
+
+hts_pane_state_dir() {
+  printf '%s/panes/%s\n' "$(hts_namespace "$1")" "$(hts_key "$2")"
+}
+
+hts_control_file() {
+  printf '%s/control.state\n' "$(hts_pane_state_dir "$1" "$2")"
+}
+
+hts_task_file() {
+  local identity
+  identity="$(printf '%s\037%s\037%s' "$2" "$3" "$4")"
+  printf '%s/tasks/%s.state\n' "$(hts_namespace "$1")" "$(hts_key "$identity")"
+}
+
+hts_migration_marker() {
+  local identity
+  identity="$(printf '%s\037%s\037%s' "$2" "$3" "$4")"
+  printf '%s/migration/%s.done\n' "$(hts_namespace "$1")" "$(hts_key "$identity")"
+}
+
+hts_record_text() {
+  hts_state_field "$1" "$2"
+}
+
+hts_record_number() {
+  sed -n "s/^${2}=//p" "$1" | head -1
+}
+
+hts_wait_for_record_number() {
+  local file="$1" field="$2" expected="$3" i value
+  for i in $(seq 1 1000); do
+    value="$(hts_record_number "$file" "$field" 2>/dev/null || true)"
+    [[ -n "$value" && "$value" -ge "$expected" ]] && return 0
+    sleep 0.01
+  done
+  return 1
+}
+
+hts_wait_for_quiescence() {
+  local control="$1" i generation committed worker_claim
+  worker_claim="$(dirname "$control")/worker.claim"
+  for i in $(seq 1 1000); do
+    generation="$(hts_record_number "$control" generation 2>/dev/null || true)"
+    committed="$(hts_record_number "$control" committed_generation 2>/dev/null || true)"
+    if [[ -n "$generation" && "$generation" = "$committed" && ! -d "$worker_claim" ]]; then
+      sleep 0.02
+      [[ ! -d "$worker_claim" ]] && return 0
+    fi
+    sleep 0.01
+  done
+  return 1
+}
+
+hts_write_legacy_state() {
+  local file="$1" slug="$2" first="$3" latest="$4"
+  {
+    printf 'slug=%s\n' "$(printf '%s' "$slug" | base64 | tr -d '\n')"
+    printf 'first_prompt=%s\n' "$(printf '%s' "$first" | base64 | tr -d '\n')"
+    printf 'latest_prompt=%s\n' "$(printf '%s' "$latest" | base64 | tr -d '\n')"
+  } > "$file"
+}
+
+hts_wait_for_task_slug() {
+  local file="$1" expected="$2" i
+  for i in $(seq 1 1000); do
+    [[ "$(hts_record_text "$file" slug 2>/dev/null || true)" = "$expected" ]] && return 0
+    sleep 0.01
+  done
+  return 1
+}
+
+@test "herdr-task-sync descriptor child probe" {
+  [ -n "${HTS_DESCRIPTOR_PID_FILE:-}" ] || skip "internal descriptor probe"
+  hts_setup
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 descriptor-probe
+  local control task generation
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 descriptor-s)"
+
+  hts_run --agent claude --session descriptor-s <<< 'descriptor probe prompt'
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  generation="$(hts_record_number "$control" generation)"
+  : > "$HTS_WORK/block-herdr"
+  hts_release_model pi 1
+  hts_wait_for_task_slug "$task" descriptor-probe
+  hts_wait_for_record_number "$control" committed_generation "$generation"
+  hts_wait_for_file "$HTS_WORK/herdr-blocked"
+  hts_record_number \
+    "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim/owner" pid \
+    > "$HTS_DESCRIPTOR_PID_FILE"
+}
+
+@test "herdr-task-sync bounded Bats invocation exits after detached work" {
+  command -v python3 >/dev/null || skip "python3 not available"
+  local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
+  local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
+  bats_bin="$(command -v bats)"
+  export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
+  export HTS_DESCRIPTOR_PID_FILE="$pid_file"
+  run python3 - "$bats_bin" "$BATS_TEST_FILENAME" <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+command = [
+    sys.argv[1],
+    sys.argv[2],
+    "--filter",
+    "^herdr-task-sync descriptor child probe$",
+]
+try:
+    result = subprocess.run(command, capture_output=True, text=True, timeout=12)
+except subprocess.TimeoutExpired as error:
+    Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"]).touch()
+    if error.stdout:
+        sys.stdout.write(error.stdout if isinstance(error.stdout, str) else error.stdout.decode())
+    print("inner Bats invocation exceeded 12 seconds", file=sys.stderr)
+    raise SystemExit(124)
+
+sys.stdout.write(result.stdout)
+sys.stderr.write(result.stderr)
+if result.returncode != 0:
+    raise SystemExit(result.returncode)
+
+Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"]).touch()
+pid = int(Path(os.environ["HTS_DESCRIPTOR_PID_FILE"]).read_text())
+for _ in range(500):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        break
+    time.sleep(0.01)
+else:
+    print(f"detached worker {pid} did not exit after release", file=sys.stderr)
+    raise SystemExit(125)
+PY
+  unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
+  assert_success
+  assert_output --partial "ok 1 herdr-task-sync descriptor child probe"
 }
 
 @test "herdr-task-sync harness fresh reads follow pane and tab mutations" {
@@ -1572,6 +1780,383 @@ hts_state_field() {
   assert_equal "$(cat "$HTS_WORK/git-results/pane-8")" stale
 }
 
+@test "herdr-task-sync latest committed request survives stale completion and a third request" {
+  hts_setup
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 stale-first
+  hts_model_fixture pi 2 newest-third
+
+  hts_run --agent claude --session s1 <<< 'first request'
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  hts_run --agent claude --session s1 <<< 'second request'
+  hts_run --agent claude --session s1 <<< 'third request'
+
+  hts_release_model pi 1
+  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
+  hts_release_model pi 2
+
+  local control task
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  hts_wait_for_quiescence "$control"
+  hts_wait_for_task_slug "$task" newest-third
+  assert_equal "$(hts_record_text "$task" latest_prompt)" "third request"
+  assert_equal "$(hts_record_text "$task" first_prompt)" "first request"
+  assert_equal "$(hts_record_number "$control" generation)" \
+    "$(hts_record_number "$control" committed_generation)"
+  local reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
+  assert_equal "$(hts_record_number "$control" presentation_generation)" \
+    "$(hts_record_number "$reconcile" pending_generation)"
+  assert_equal "$(hts_record_number "$control" task_metadata_high_water)" \
+    "$(hts_record_number "$reconcile" task_metadata_high_water)"
+  assert_file_not_exists "$HTS_WORK/models/pi/3/started"
+  hts_wait_for_publish
+  run grep -c -- '--token task=' "$HTS_LOG"
+  assert_output "1"
+}
+
+@test "herdr-task-sync active native session fences reused pane and session identifiers" {
+  hts_setup
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 stale-old-session
+
+  hts_run --agent claude --session reused <<< 'old native session prompt'
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  hts_run --agent pi --session reused --set 'fresh native session' < /dev/null
+  hts_release_model pi 1
+
+  local control fresh stale
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  fresh="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 reused)"
+  stale="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 reused)"
+  hts_wait_for_quiescence "$control"
+  hts_wait_for_task_slug "$fresh" fresh-native-session
+  assert_file_not_exists "$stale"
+  assert_equal "$(hts_record_text "$control" active_agent)" pi
+  assert_equal "$(hts_record_text "$control" active_session)" reused
+  hts_wait_for_publish
+  run grep -c -- '--token task=' "$HTS_LOG"
+  assert_output "1"
+}
+
+@test "herdr-task-sync prompt transcript and direct set share one committed-generation contract" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_stub_engine pi model-task 0 0
+  local transcript="$HTS_WORK/transcript.jsonl"
+  printf '%s\n' \
+    '{"type":"user","message":{"role":"user","content":"transcript first"}}' \
+    '{"type":"user","message":{"role":"user","content":"transcript latest"}}' > "$transcript"
+
+  hts_run --pane pane-prompt --agent claude --session prompt-s <<< 'prompt request'
+  hts_wait_for_task_slug \
+    "$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-prompt prompt-s)" model-task
+  hts_run --pane pane-transcript --agent claude --session transcript-s \
+    --transcript "$transcript" < /dev/null
+  hts_wait_for_task_slug \
+    "$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)" model-task
+  hts_run --pane pane-direct --agent pi --session direct-s --set 'Direct Task' < /dev/null
+  hts_wait_for_task_slug \
+    "$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-direct direct-s)" direct-task
+
+  local mode pane control task
+  for mode in prompt transcript direct; do
+    pane="pane-$mode"
+    control="$(hts_control_file "$HTS_DEFAULT_SOCKET" "$pane")"
+    hts_wait_for_quiescence "$control"
+    assert_equal "$(hts_record_number "$control" generation)" \
+      "$(hts_record_number "$control" committed_generation)"
+    [[ "$(hts_record_number "$control" presentation_generation)" -gt 0 ]]
+  done
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)"
+  assert_equal "$(hts_record_text "$task" first_prompt)" "transcript first"
+  assert_equal "$(hts_record_text "$task" latest_prompt)" "transcript latest"
+}
+
+@test "herdr-task-sync failed latest model retains newest context and prior slug" {
+  hts_setup
+  hts_run --agent claude --session s1 --set baseline-task < /dev/null
+  local control task before failed_generation
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  hts_wait_for_task_slug "$task" baseline-task
+  before="$(hts_record_number "$control" generation)"
+
+  hts_run --agent claude --session s1 <<< 'failed model context'
+  hts_wait_for_record_number "$control" generation $((before + 1))
+  hts_wait_for_quiescence "$control"
+  failed_generation="$(hts_record_number "$control" generation)"
+  assert_equal "$(hts_record_text "$task" slug)" baseline-task
+  assert_equal "$(hts_record_text "$task" first_prompt)" "failed model context"
+  assert_equal "$(hts_record_text "$task" latest_prompt)" "failed model context"
+
+  hts_stub_engine pi recovered-task 0 0
+  hts_run --agent claude --session s1 <<< 'request after failure'
+  hts_wait_for_record_number "$control" generation $((failed_generation + 1))
+  hts_wait_for_task_slug "$task" recovered-task
+  run cat "$HTS_WORK/pi-stdin.txt"
+  assert_output --partial "Current name: baseline-task"
+  assert_output --partial "failed model context"
+  assert_output --partial "request after failure"
+}
+
+@test "herdr-task-sync atomic records never expose truncation or mixed fields" {
+  hts_setup
+  local task control reconcile stop="$HTS_WORK/stop-reader" bad="$HTS_WORK/bad-reader" reader i
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 atomic-s)"
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
+  (
+    while [[ ! -e "$stop" ]]; do
+      if [[ -f "$task" ]]; then
+        [[ "$(grep -c '^generation=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^slug=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^first_prompt=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^latest_prompt=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
+        hts_record_text "$task" slug >/dev/null 2>&1 || : > "$bad"
+        hts_record_number "$task" generation | grep -Eq '^[0-9]+$' || : > "$bad"
+      fi
+      if [[ -f "$control" ]]; then
+        [[ "$(grep -c '^generation=' "$control" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^committed_generation=' "$control" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^active_agent=' "$control" 2>/dev/null)" = 1 ]] || : > "$bad"
+        hts_record_text "$control" active_agent >/dev/null 2>&1 || : > "$bad"
+      fi
+      if [[ -f "$reconcile" ]]; then
+        [[ "$(grep -c '^pending_generation=' "$reconcile" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^task_metadata_high_water=' "$reconcile" 2>/dev/null)" = 1 ]] || : > "$bad"
+        [[ "$(grep -c '^repository_anchor=' "$reconcile" 2>/dev/null)" = 1 ]] || : > "$bad"
+      fi
+      sleep 0.005
+    done
+  ) &
+  reader=$!
+  for i in $(seq 1 40); do
+    hts_run --agent pi --session atomic-s --set "atomic-$i" < /dev/null
+  done
+  hts_wait_for_task_slug "$task" atomic-40
+  : > "$stop"
+  wait "$reader"
+  assert_file_not_exists "$bad"
+}
+
+@test "herdr-task-sync one-way legacy import is atomic idempotent and ignores late legacy writes" {
+  hts_setup
+  local legacy task marker task_two marker_two malformed task_three marker_three
+  legacy="$(hts_legacy_state_file claude-pane-1-s1)"
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  marker="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  hts_write_legacy_state "$legacy" legacy-task 'legacy first' 'legacy latest'
+
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s1 <<< 'new request'
+  assert_equal "$(hts_record_text "$task" slug)" legacy-task
+  assert_file_exists "$marker"
+  hts_write_legacy_state "$legacy" late-old-worker changed changed
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s1 <<< 'later request'
+  assert_equal "$(hts_record_text "$task" slug)" legacy-task
+
+  task_two="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s2)"
+  marker_two="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 s2)"
+  mkdir -p "$(dirname "$task_two")"
+  hts_write_legacy_state "$task_two" canonical-before-marker 'canonical first' 'canonical latest'
+  hts_write_legacy_state "$(hts_legacy_state_file claude-pane-1-s2)" should-not-replace old old
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s2 <<< 'resume after crash'
+  assert_equal "$(hts_record_text "$task_two" slug)" canonical-before-marker
+  assert_file_exists "$marker_two"
+
+  malformed="$(hts_legacy_state_file claude-pane-1-s3)"
+  task_three="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s3)"
+  marker_three="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 s3)"
+  printf 'slug=%%%s\n' broken > "$malformed"
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s3 <<< 'malformed import'
+  assert_file_exists "$marker_three"
+  assert_file_not_exists "$task_three"
+  hts_write_legacy_state "$malformed" too-late late late
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s3 <<< 'second start'
+  assert_file_not_exists "$task_three"
+}
+
+@test "herdr-task-sync restart recovers accepted and interrupted worker generations" {
+  hts_setup
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 abandoned-result
+  hts_model_fixture pi 2 recovered-result
+  local control task first_worker first_owner second_worker worker_claim
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 restart-s)"
+
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session restart-s <<< 'restart request'
+  [[ "$(hts_record_number "$control" generation)" -gt \
+    "$(hts_record_number "$control" committed_generation)" ]]
+  hts_worker_run &
+  first_worker=$!
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  worker_claim="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim/owner"
+  first_owner="$(hts_record_number "$worker_claim" pid)"
+  kill "$first_owner" 2>/dev/null || true
+  wait "$first_worker" 2>/dev/null || true
+
+  hts_worker_run &
+  second_worker=$!
+  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
+  hts_release_model pi 2
+  wait "$second_worker"
+  hts_wait_for_task_slug "$task" recovered-result
+  hts_wait_for_quiescence "$control"
+  hts_release_model pi 1
+  assert_equal "$(hts_record_text "$task" slug)" recovered-result
+}
+
+@test "herdr-task-sync clock rollback and restart cannot lower generation or task high-water" {
+  hts_setup
+  local control first_generation first_high_water
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=9000 hts_run --agent pi --session clock-s --set first-clock < /dev/null
+  hts_wait_for_quiescence "$control"
+  first_generation="$(hts_record_number "$control" generation)"
+  first_high_water="$(hts_record_number "$control" task_metadata_high_water)"
+
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=100 hts_run --agent pi --session clock-s --set second-clock < /dev/null
+  hts_wait_for_record_number "$control" generation $((first_generation + 1))
+  hts_wait_for_quiescence "$control"
+  [[ "$(hts_record_number "$control" generation)" -gt "$first_generation" ]]
+  [[ "$(hts_record_number "$control" task_metadata_high_water)" -gt "$first_high_water" ]]
+  [[ "$(hts_record_number "$control" task_metadata_high_water)" -ge \
+    "$(hts_record_number "$control" committed_generation)" ]]
+}
+
+@test "herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions" {
+  hts_setup
+  local socket_one="$HTS_WORK/a-b.sock" socket_two="$HTS_WORK/a_b.sock"
+  local task_one task_two namespace_one namespace_two
+  namespace_one="$(hts_namespace "$socket_one")"
+  namespace_two="$(hts_namespace "$socket_two")"
+  [[ "$namespace_one" != "$namespace_two" ]]
+
+  hts_run_for_socket "$socket_one" --agent pi --session same --set socket-one < /dev/null
+  hts_run_for_socket "$socket_two" --agent pi --session same --set socket-two < /dev/null
+  task_one="$(hts_task_file "$socket_one" pi pane-1 same)"
+  task_two="$(hts_task_file "$socket_two" pi pane-1 same)"
+  hts_wait_for_task_slug "$task_one" socket-one
+  hts_wait_for_task_slug "$task_two" socket-two
+  hts_wait_for_quiescence "$(hts_control_file "$socket_one" pane-1)"
+  hts_wait_for_quiescence "$(hts_control_file "$socket_two" pane-1)"
+  assert_equal "$(hts_record_text "$task_one" slug)" socket-one
+  assert_equal "$(hts_record_text "$task_two" slug)" socket-two
+  assert_equal "$(hts_record_text "$namespace_one/socket.state" socket_path)" "$socket_one"
+  assert_equal "$(hts_record_text "$namespace_two/socket.state" socket_path)" "$socket_two"
+  [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]]
+  assert_equal "$(hts_record_number "$namespace_one/reconcile.state" location_metadata_high_water)" 0
+  grep -q '^checkout_root=' "$namespace_one/reconcile.state"
+  grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
+}
+
+@test "herdr-task-sync fails open for missing tools contention write failure and malformed input" {
+  hts_setup
+  local start end pane_dir
+  start="$(date +%s)"
+  run env PATH="/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
+    HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+    bash "$HTS_ENGINE" --agent claude --session missing <<< 'missing herdr'
+  end="$(date +%s)"
+  assert_success
+  [[ $((end - start)) -le 2 ]]
+
+  hts_setup
+  pane_dir="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)"
+  mkdir -p "$pane_dir/control.lock"
+  HERDR_TASK_SYNC_LOCK_ATTEMPTS=1
+  run hts_run --agent claude --session locked <<< 'contention'
+  unset HERDR_TASK_SYNC_LOCK_ATTEMPTS
+  assert_success
+  assert_file_not_exists "$pane_dir/control.state"
+  assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
+
+  hts_setup
+  printf 'not-a-directory\n' > "$HTS_STATE/sockets"
+  run hts_run --agent claude --session write-failure <<< 'state write failure'
+  assert_success
+
+  hts_setup
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
+    --agent pi --session worker-write-failure --set pending-task < /dev/null
+  local namespace control
+  namespace="$(hts_namespace "$HTS_DEFAULT_SOCKET")"
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  rmdir "$namespace/tasks"
+  printf 'not-a-directory\n' > "$namespace/tasks"
+  start="$(date +%s)"
+  run hts_worker_run
+  end="$(date +%s)"
+  assert_success
+  [[ $((end - start)) -le 2 ]]
+  [[ "$(hts_record_number "$control" generation)" -gt \
+    "$(hts_record_number "$control" committed_generation)" ]]
+
+  hts_setup
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
+    --agent pi --session commit-write-failure --set pending-task < /dev/null
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  local task_file
+  task_file="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-write-failure)"
+  mkdir "$task_file"
+  start="$(date +%s)"
+  run hts_worker_run
+  end="$(date +%s)"
+  assert_success
+  [[ $((end - start)) -le 2 ]]
+  [[ "$(hts_record_number "$control" generation)" -gt \
+    "$(hts_record_number "$control" committed_generation)" ]]
+  assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"
+
+  hts_setup
+  run hts_run --agent '' --session malformed <<< 'bad agent'
+  assert_success
+  run hts_run --agent claude --session '' --transcript "$HTS_WORK/missing.jsonl" < /dev/null
+  assert_success
+  hts_run --agent pi --session malformed-set --set '!!!' < /dev/null
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  hts_wait_for_quiescence "$control"
+  assert_equal "$(hts_record_number \
+    "$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state" pending_generation)" 0
+  assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
+}
+
+@test "herdr-task-sync orders adapter calls by inbox commit rather than invocation start" {
+  hts_setup
+  local fifo="$HTS_WORK/delayed-input" first_pid writer_pid task control first_generation
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-order)"
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  mkfifo "$fifo"
+  { sleep 1; printf 'delayed stdin' > "$fifo"; } &
+  writer_pid=$!
+  hts_run --agent pi --session commit-order --set invoked-first-committed-second < "$fifo" &
+  first_pid=$!
+
+  hts_run --agent pi --session commit-order --set invoked-second-committed-first < /dev/null
+  hts_wait_for_task_slug "$task" invoked-second-committed-first
+  first_generation="$(hts_record_number "$control" committed_generation)"
+  wait "$writer_pid"
+  wait "$first_pid"
+  hts_wait_for_task_slug "$task" invoked-first-committed-second
+  hts_wait_for_quiescence "$control"
+  [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]]
+}
+
+@test "herdr-task-sync agent adapters await only the engine enqueue boundary" {
+  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
+  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
+  local claude_adapter="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh"
+  run grep -c 'await callEngine' "$pi_adapter"
+  assert_output "2"
+  run grep -c 'await callEngine' "$opencode_adapter"
+  assert_output "1"
+  run bash -c "! grep -q 'detached: true' '$pi_adapter' '$opencode_adapter'"
+  assert_success
+  run grep -c "bounded atomic inbox commit" "$claude_adapter"
+  assert_output "1"
+}
+
 @test "herdr-task-sync passes bash syntax check" {
   run bash -n "$HTS_ENGINE"
   assert_success
@@ -1595,7 +2180,7 @@ hts_state_field() {
   assert_success
   hts_wait_for_publish
   assert_equal "$(hts_token)" "cache-review"
-  local state; state="$(hts_state_file claude-pane-1-s1)"
+  local state; state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
   assert_file_exists "$state"
   assert_equal "$(hts_state_field "$state" slug)" "cache-review"
   assert_equal "$(hts_state_field "$state" first_prompt)" "review the cache layer please"
@@ -1624,17 +2209,22 @@ hts_state_field() {
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_worker_exit
-  local state before
-  state="$(hts_state_file claude-pane-1-s1)"
-  before="$(cat "$state")"
+  local state before_slug control generation
+  state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  before_slug="$(hts_record_text "$state" slug)"
+  generation="$(hts_record_number "$control" generation)"
 
   rm -f "$HTS_STUB/pi"
   : > "$HTS_LOG"
   run hts_run --agent claude --session s1 <<< 'now fix the flaky login test'
   assert_success
-  sleep 2
+  hts_wait_for_record_number "$control" generation $((generation + 1))
+  hts_wait_for_quiescence "$control"
   assert_equal "$(cat "$HTS_LOG")" ""
-  assert_equal "$(cat "$state")" "$before"
+  assert_equal "$(hts_record_text "$state" slug)" "$before_slug"
+  assert_equal "$(hts_record_text "$state" first_prompt)" "review the cache layer please"
+  assert_equal "$(hts_record_text "$state" latest_prompt)" "now fix the flaky login test"
 }
 
 @test "herdr-task-sync resets the stored context on a new session id" {
@@ -1644,7 +2234,7 @@ hts_state_field() {
   hts_wait_for_worker_exit
   : > "$HTS_LOG"
   hts_run --agent claude --session s2 <<< 'now fix the flaky login test'
-  local state; state="$(hts_state_file claude-pane-1-s2)"
+  local state; state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s2)"
   # The second session's own state file, not the log: with two sessions in
   # play only a session-scoped signal proves whose worker got this far.
   hts_wait_for_state "$state"
@@ -1765,7 +2355,7 @@ SH
   hts_run --agent pi --session pis1 --set 'Fix CI Flake!' < /dev/null
   hts_wait_for_publish
   assert_equal "$(hts_token)" "fix-ci-flake"
-  local state; state="$(hts_state_file pi-pane-1-pis1)"
+  local state; state="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 pis1)"
   assert_equal "$(hts_state_field "$state" slug)" "fix-ci-flake"
   assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
 }
@@ -1960,12 +2550,12 @@ SH
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   sleep 30 &
-  local live=$!
-  mkdir -p "$HTS_STATE/sweep.lock"
-  printf '%s' "$live" > "$HTS_STATE/sweep.lock/pid"
+  local live=$! sweep_lock="$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
+  mkdir -p "$sweep_lock"
+  printf '%s' "$live" > "$sweep_lock/pid"
   run hts_sweep_run --ensure-daemon
   assert_success
-  assert_equal "$(cat "$HTS_STATE/sweep.lock/pid")" "$live"
+  assert_equal "$(cat "$sweep_lock/pid")" "$live"
   kill "$live" 2>/dev/null || true
 }
 
@@ -1977,13 +2567,14 @@ SH
   hts_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}'
   hts_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"}]}}'
-  mkdir -p "$HTS_STATE/sweep.lock"
+  local sweep_lock="$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
+  mkdir -p "$sweep_lock"
   # A pid that cannot be running: process ids are allocated from 1 upwards.
-  printf '%s' "999999" > "$HTS_STATE/sweep.lock/pid"
+  printf '%s' "999999" > "$sweep_lock/pid"
   run hts_sweep_run --ensure-daemon
   assert_success
   hts_wait_for_call 'tab rename'
-  local pid; pid="$(cat "$HTS_STATE/sweep.lock/pid" 2>/dev/null)"
+  local pid; pid="$(cat "$sweep_lock/pid" 2>/dev/null)"
   [ -n "$pid" ] && [ "$pid" != "999999" ]
   kill "$pid" 2>/dev/null || true
 }
