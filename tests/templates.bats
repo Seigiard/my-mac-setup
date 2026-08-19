@@ -214,3 +214,29 @@ render_with_source() {
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
   assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
+
+# ===========================================
+# .chezmoiremove
+# ===========================================
+
+@test ".chezmoiremove entries are absent from the source tree" {
+  assert_file_exists "$SOURCE_ROOT/.chezmoiremove"
+
+  # A path listed in .chezmoiremove that still exists in the source tree tells
+  # chezmoi to both create and delete the same target, and `apply` aborts with
+  # "inconsistent state". Only `apply` reports it — diff, status, verify and
+  # managed all exit 0 on the broken tree — so the guard has to live here.
+  # A stray untracked file (an editor or hook cache) inside a deleted directory
+  # is enough to resurrect it.
+  local conflicts=""
+  local entry
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    [[ -z "$entry" || "$entry" == \#* || "$entry" == '!'* ]] && continue
+    if PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+        --source "$SOURCE_ROOT" "$HOME/$entry" >/dev/null 2>&1; then
+      conflicts+="  $entry"$'\n'
+    fi
+  done < "$SOURCE_ROOT/.chezmoiremove"
+
+  [[ -z "$conflicts" ]] || fail "listed in .chezmoiremove but still in the source tree:"$'\n'"$conflicts"
+}
