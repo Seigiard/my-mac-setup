@@ -850,32 +850,6 @@ $mappings
 EOF
 }
 
-allocate_location_metadata_seq() {
-  local reconcile lock owner pending completed task_metadata location_metadata
-  local checkout_root repository_anchor retained_location now next
-  reconcile="$(namespace_dir)/reconcile.state"
-  lock="$(namespace_dir)/presentation-inbox.lock"
-  acquire_claim "$lock" "$INBOX_LOCK_ATTEMPTS" || return 1
-  owner="$claim_owner_id"
-  pending="$(record_number "$reconcile" pending_generation)"
-  completed="$(record_number "$reconcile" completed_generation)"
-  task_metadata="$(record_number "$reconcile" task_metadata_high_water)"
-  location_metadata="$(record_number "$reconcile" location_metadata_high_water)"
-  checkout_root="$(read_state_field "$reconcile" checkout_root)"
-  repository_anchor="$(read_state_field "$reconcile" repository_anchor)"
-  retained_location="$(read_state_field "$reconcile" retained_location)"
-  now="$(now_seq)"
-  next="$(max_number "$location_metadata" "$now")"
-  next=$((next + 1))
-  if ! write_reconcile_state "$reconcile" "${pending:-0}" "${completed:-0}" \
-    "${task_metadata:-0}" "$next" "$checkout_root" "$repository_anchor" "$retained_location"; then
-    release_claim "$lock" "$owner"
-    return 1
-  fi
-  release_claim "$lock" "$owner"
-  printf '%s' "$next"
-}
-
 compose_two_mixed_segments() {
   local token_one="$1" status_one="$2" text_one="$3" token_two="$4" status_two="$5" text_two="$6"
   local prefix_one="$token_one" prefix_two="$token_two" fixed available length_one length_two
@@ -934,7 +908,9 @@ request_presentation() {
   repository_anchor="$(read_state_field "$reconcile" repository_anchor)"
   retained_location="$(read_state_field "$reconcile" retained_location)"
   now="$(now_seq)"
-  generation="$(max_number "$pending" "$completed" "$now")"
+  # The durable pass generation also sequences location metadata, which avoids
+  # a second lock and clock read in the latency-sensitive presentation pass.
+  generation="$(max_number "$pending" "$completed" "$location_metadata" "$now")"
   generation=$((generation + 1))
   if ! write_reconcile_state "$reconcile" "$generation" "${completed:-0}" \
     "${task_metadata:-0}" "${location_metadata:-0}" "$checkout_root" \
@@ -971,6 +947,9 @@ complete_presentation_generation() {
   fi
   task_metadata="$(record_number "$reconcile" task_metadata_high_water)"
   location_metadata="$(record_number "$reconcile" location_metadata_high_water)"
+  if [ "$pass" -gt "${location_metadata:-0}" ]; then
+    location_metadata="$pass"
+  fi
   checkout_root="$(read_state_field "$reconcile" checkout_root)"
   repository_anchor="$(read_state_field "$reconcile" repository_anchor)"
   retained_location="$(read_state_field "$reconcile" retained_location)"
@@ -1023,7 +1002,7 @@ reconcile_presentation_pass() {
   local segment_rows pane_count all_non_git all_fresh_git first_root multiple_roots segment
   local token_one status_one text_one token_two status_two text_two state_file retained_pane found
   local location_pids="" location_results="" location_result_file location_pid
-  local location_probe_results="" location_child_failed=0 location_index=0
+  local location_probe_results="" location_child_failed=0
   command -v jq >/dev/null 2>&1 || return 1
   snapshot="$(herdr api snapshot 2>/dev/null)" || return 1
   printf '%s' "$snapshot" | jq -e '
@@ -1122,9 +1101,13 @@ EOF
 
   while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
     [ -n "$id" ] || continue
-    location_index=$((location_index + 1))
-    location_result="$(printf '%s\n' "$location_probe_results" | sed -n "${location_index}p")"
+    location_result="${location_probe_results%%$'\n'*}"
     [ -n "$location_result" ] || return 1
+    if [ "$location_probe_results" = "$location_result" ]; then
+      location_probe_results=""
+    else
+      location_probe_results="${location_probe_results#*$'\n'}"
+    fi
     location_file="$(location_state_file "$id")"
     IFS="$(printf '\037')" read -r location_outcome checkout_root repository_anchor repo branch <<EOF
 $location_result
@@ -1360,7 +1343,7 @@ EOF
       fi
       if [ "$location_changed" -eq 1 ]; then
         presentation_generation_valid "$pass" || return 2
-        location_seq="$(allocate_location_metadata_seq)" || continue
+        location_seq="$pass"
         presentation_generation_valid "$pass" || return 2
         set -- herdr pane report-metadata "$id" --source "$LOCATION_SOURCE_ID" --seq "$location_seq"
         if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
