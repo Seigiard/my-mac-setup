@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keep required Pi packages in settings while preserving Pi-managed runtime fields.
+# Keep the terminal theme and required packages while preserving Pi runtime fields.
 
 set -euo pipefail
 
@@ -34,6 +34,7 @@ fi
     if (!packages.includes(packageSource)) packages.push(packageSource);
   }
 
+  settings.theme = "terminal";
   settings.packages = packages;
   process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
 })().catch((error) => {

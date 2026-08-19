@@ -358,6 +358,19 @@ TOML
   assert_success
 }
 
+@test "coding agents use terminal color palettes" {
+  run jq -e '.theme == "light-ansi"' "$HOME/.claude/settings.json"
+  assert_success
+
+  run jq -e '.theme == "terminal"' "$HOME/.pi/agent/settings.json"
+  assert_success
+  assert_file_exists "$HOME/.pi/agent/themes/terminal.json"
+
+  run jq -e '.theme == "system"' "$HOME/.config/opencode/tui.json"
+  assert_success
+  assert_file_not_exists "$HOME/.config/opencode/themes/flexoki-light-forced.json"
+}
+
 @test "opencode reads the shared writing-style file via instructions" {
   assert_file_exists "$HOME/.config/agents/writing-style.md"
   run grep -q 'Answer first: the conclusion is line one.' "$HOME/.config/agents/writing-style.md"

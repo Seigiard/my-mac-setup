@@ -1805,7 +1805,7 @@ se_fake_runtime() {
 # Pi settings modifier
 # ===========================================
 
-@test "Pi settings modifier adds managed packages and preserves runtime settings" {
+@test "Pi settings modifier selects the terminal theme and preserves runtime settings" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"]}'
 
@@ -1813,7 +1813,7 @@ se_fake_runtime() {
 
   assert_success
   run jq -e '
-    .theme == "light" and
+    .theme == "terminal" and
     .lastChangelogVersion == "0.84.2" and
     (.packages | index("git:github.com/EveryInc/compound-engineering-plugin") != null) and
     (.packages | index("npm:pi-ask-user") != null) and
@@ -1841,9 +1841,23 @@ se_fake_runtime() {
       "npm:pi-context-view",
       "npm:@ff-labs/pi-fff"
     ] as $required |
-    .packages as $packages |
-    all($required[]; . as $package | [$packages[] | select(. == $package)] | length == 1)
+    (.theme == "terminal") and
+    (.packages as $packages |
+      all($required[]; . as $package | [$packages[] | select(. == $package)] | length == 1))
   ' <<< "$output"
+  assert_success
+}
+
+@test "Pi terminal theme uses only terminal palette colors" {
+  local theme="$SOURCE_ROOT/dot_pi/agent/themes/terminal.json"
+
+  run jq -e '
+    .name == "terminal" and
+    .colors.text == "" and
+    .colors.userMessageBg == "" and
+    ([.vars[]] | all(type == "number" and . >= 0 and . <= 15)) and
+    ([.colors[] | select(type == "string" and startswith("#"))] | length == 0)
+  ' "$theme"
   assert_success
 }
 
