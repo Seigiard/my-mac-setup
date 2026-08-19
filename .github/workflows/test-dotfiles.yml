@@ -32,6 +32,13 @@ jobs:
         with:
           submodules: recursive
 
+      # azure.archive.ubuntu.com outages hang apt for the whole job timeout:
+      # apt retries the dead mirror for every index file instead of failing
+      # over. The swap is unconditional — a health check would pass a half-dead
+      # mirror, and this job installs too little for mirror speed to matter.
+      - name: Drop the azure apt mirror
+        run: sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+
       - name: Install zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
 
@@ -161,6 +168,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # See the ubuntu job: the azure mirror hangs apt when it degrades.
+      - name: Drop the azure apt mirror
+        run: sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
 
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
