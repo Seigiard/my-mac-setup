@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Keep required Pi packages in settings while preserving Pi-managed runtime fields.
+
+set -euo pipefail
+
+if command -v bun >/dev/null 2>&1; then
+  runtime=(bun -e)
+elif command -v node >/dev/null 2>&1; then
+  runtime=(node -e)
+else
+  printf 'Pi settings modifier requires bun or node\n' >&2
+  exit 1
+fi
+
+# shellcheck disable=SC2016 # JavaScript template syntax must stay literal.
+"${runtime[@]}" '
+(async () => {
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+
+  const settings = input.trim() === "" ? {} : JSON.parse(input);
+  const required = [
+    "git:github.com/EveryInc/compound-engineering-plugin",
+    "npm:pi-ask-user",
+    "npm:pi-subagentura",
+  ];
+  const packages = Array.isArray(settings.packages) ? settings.packages : [];
+
+  for (const packageSource of required) {
+    if (!packages.includes(packageSource)) packages.push(packageSource);
+  }
+
+  settings.packages = packages;
+  process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
+})().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});
+'

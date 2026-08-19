@@ -107,16 +107,18 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Packages (`~/.pi/agent/settings.json` → `packages[]`) — `pi install <source>`
 
-| Package                 | Source                                           |
-| ----------------------- | ------------------------------------------------ |
-| pi-theme-flexoki        | `git:github.com/markacianfrani/pi-theme-flexoki` |
-| pi-fff                  | `npm:@ff-labs/pi-fff`                            |
-| pi-codex-conversion     | `npm:@howaboua/pi-codex-conversion`              |
-| pi-agents               | `npm:pi-agents`                                  |
-| pi-subagents            | `npm:pi-subagents`                               |
-| pi-intercom             | `npm:pi-intercom`                                |
-| pi-agent-browser-native | `npm:pi-agent-browser-native`                    |
-| pi-ask-user             | `npm:pi-ask-user`                                |
+| Package                      | Source                                                    | Managed |
+| ---------------------------- | --------------------------------------------------------- | ------- |
+| compound-engineering-plugin  | `git:github.com/EveryInc/compound-engineering-plugin`     | repo    |
+| pi-theme-flexoki             | `git:github.com/markacianfrani/pi-theme-flexoki`          | manual  |
+| pi-fff                       | `npm:@ff-labs/pi-fff`                                     | manual  |
+| pi-codex-conversion          | `npm:@howaboua/pi-codex-conversion`                       | manual  |
+| pi-agents                    | `npm:pi-agents`                                           | manual  |
+| pi-subagents                 | `npm:pi-subagents`                                        | manual  |
+| pi-intercom                  | `npm:pi-intercom`                                         | manual  |
+| pi-agent-browser-native      | `npm:pi-agent-browser-native`                             | manual  |
+| pi-ask-user                  | `npm:pi-ask-user`                                         | repo    |
+| pi-subagentura               | `npm:pi-subagentura`                                      | repo    |
 
 ### Skills (`~/.pi/agent/skills/`)
 
