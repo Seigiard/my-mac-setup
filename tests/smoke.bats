@@ -232,6 +232,13 @@ TOML
   assert_success
 }
 
+@test "pi settings include the managed subagent package" {
+  local settings="$HOME/.pi/agent/settings.json"
+  assert_file_exists "$settings"
+  run jq -e '.packages | index("npm:pi-subagentura") != null' "$settings"
+  assert_success
+}
+
 @test "opencode reads the shared writing-style file via instructions" {
   assert_file_exists "$HOME/.config/agents/writing-style.md"
   run grep -q 'Answer first: the conclusion is line one.' "$HOME/.config/agents/writing-style.md"

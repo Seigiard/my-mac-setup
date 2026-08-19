@@ -1802,6 +1802,38 @@ se_fake_runtime() {
 }
 
 # ===========================================
+# Pi settings modifier
+# ===========================================
+
+@test "Pi settings modifier adds subagentura and preserves runtime settings" {
+  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"]}'
+
+  run bash "$modifier" <<< "$input"
+
+  assert_success
+  run jq -e '
+    .theme == "light" and
+    .lastChangelogVersion == "0.84.2" and
+    (.packages | index("git:github.com/EveryInc/compound-engineering-plugin") != null) and
+    (.packages | index("npm:pi-ask-user") != null) and
+    (.packages | index("npm:pi-subagentura") != null)
+  ' <<< "$output"
+  assert_success
+}
+
+@test "Pi settings modifier is idempotent" {
+  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local input='{"packages":["npm:pi-subagentura","npm:pi-ask-user"]}'
+
+  run bash "$modifier" <<< "$input"
+
+  assert_success
+  run jq -e '[.packages[] | select(. == "npm:pi-subagentura")] | length == 1' <<< "$output"
+  assert_success
+}
+
+# ===========================================
 # morning-cleanup script
 # ===========================================
 
