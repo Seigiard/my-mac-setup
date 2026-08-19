@@ -1111,11 +1111,20 @@ SH
   cat > "$HTS_STUB/git" <<'SH'
 #!/usr/bin/env bash
 cwd= command_args="$*"
-if [ "$1" = "-C" ]; then cwd="$2"; shift 2; fi
-for fixture in "$HTS_WORK"/git-fixtures/*; do
-  [ -d "$fixture" ] || continue
-  [ "$(cat "$fixture/cwd")" = "$cwd" ] || continue
+if [ "$1" = "-C" ]; then
+  cwd="$2"
+  shift 2
+elif [ "${1#--git-dir=}" != "$1" ]; then
+  cwd="gitdir:${1#--git-dir=}"
+  shift
+elif [ "$1" = "--git-dir" ]; then
+  cwd="gitdir:$2"
+  shift 2
+fi
+fixture="$(awk -F "$(printf '\037')" -v cwd="$cwd" '$1 == cwd { print $2; exit }' "$HTS_WORK/git-fixtures/registry" 2>/dev/null)"
+if [ -d "$fixture" ]; then
   printf '%s\n' "$command_args" >> "$fixture/calls"
+  printf '%s' "${LC_ALL:-}" > "$fixture/locale"
   : > "$fixture/started"
   if [ -n "${HTS_GIT_PROBE_ID:-}" ]; then
     mkdir -p "$HTS_WORK/git-started"
@@ -1124,12 +1133,14 @@ for fixture in "$HTS_WORK"/git-fixtures/*; do
   if [ -f "$fixture/block" ]; then
     while [ ! -f "$fixture/release" ]; do sleep 0.01; done
   fi
+  cat "$fixture/stderr" >&2
   cat "$fixture/stdout"
   exit "$(cat "$fixture/status")"
-done
+fi
 exit 1
 SH
   chmod +x "$HTS_STUB/git"
+  "$HTS_STUB/git" --version >/dev/null 2>&1 || true
 
   cat > "$HTS_STUB/hts-crash-worker" <<'SH'
 #!/usr/bin/env bash
@@ -1380,9 +1391,58 @@ hts_git_fixture() {
   printf '%s' "$1" > "$fixture/cwd"
   printf '%s\n' "$2" > "$fixture/stdout"
   printf '%s' "${3:-0}" > "$fixture/status"
+  printf '%s\n' "${5:-}" > "$fixture/stderr"
   : > "$fixture/calls"
+  printf '%s\037%s\n' "$1" "$fixture" >> "$HTS_WORK/git-fixtures/registry"
   [[ "${4:-ready}" = "block" ]] && : > "$fixture/block"
   return 0
+}
+
+hts_git_location_fixture() {
+  local branch="${4:-refs/heads/main}"
+  hts_git_fixture "$1" "$(printf '%s\n%s\n%s' "$2" "$3" "$branch")" "${5:-0}" "${6:-ready}"
+}
+
+hts_git_fixture_dir() {
+  awk -F "$(printf '\037')" -v cwd="$1" '$1 == cwd { print $2; exit }' \
+    "$HTS_WORK/git-fixtures/registry"
+}
+
+hts_process_pane_json() {
+  local id="$1" tab="$2" cwd="$3" foreground_mode="${4:-present}" foreground="$3"
+  [ "$#" -lt 5 ] || foreground="$5"
+  jq -cn --arg id "$id" --arg tab "$tab" --arg cwd "$cwd" --arg fg "$foreground" \
+    --arg mode "$foreground_mode" '
+      {pane_id:$id,tab_id:$tab,workspace_id:"ws-1",terminal_id:("term-" + $id),agent:null,label:"",tokens:{},cwd:$cwd}
+      | if $mode == "absent" then . else .foreground_cwd = $fg end'
+}
+
+hts_set_process_label() {
+  hts_proc_info "$1" "$(jq -cn --arg command "$2" '{result:{process_info:{shell_pid:1,foreground_process_group_id:2,foreground_processes:[{pid:2,argv:[$command]}]}}}')"
+}
+
+hts_set_pane_location() {
+  local state tmp foreground="$4"
+  state="$(hts_socket_state "$1")"
+  tmp="$state.tmp"
+  jq --arg id "$2" --arg cwd "$3" --arg fg "$foreground" --arg mode "${5:-present}" '
+    .panes |= map(if .pane_id == $id then
+      .cwd = $cwd
+      | if $mode == "absent" then del(.foreground_cwd) else .foreground_cwd = $fg end
+    else . end)' "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_location_pass() {
+  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.2}" hts_event_run
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+}
+
+hts_location_source_tokens() {
+  jq -c --arg pane "$2" '.metadata[$pane]["location-sync"].tokens // {}' "$(hts_socket_state "$1")"
+}
+
+hts_location_source_seq() {
+  jq -r --arg pane "$2" '.metadata[$pane]["location-sync"].seq // 0' "$(hts_socket_state "$1")"
 }
 
 hts_git_probe() {
@@ -1430,6 +1490,10 @@ hts_event_run() {
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="${HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE:-}" \
+    HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
+    HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
+    HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
+    HERDR_TASK_SYNC_LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}" \
     bash "$HTS_ENGINE" --event
 }
 
@@ -1447,6 +1511,10 @@ hts_presentation_run() {
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TEST_CRASH_AFTER="${HERDR_TASK_SYNC_TEST_CRASH_AFTER:-}" \
+    HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
+    HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
+    HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
+    HERDR_TASK_SYNC_LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}" \
     bash "$HTS_ENGINE" --presentation-worker
 }
 
@@ -2632,6 +2700,347 @@ EOF
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" pi:restart-task
   run grep -ER 'intended_label|applied_label|manual_owner|reclaim|server_epoch|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
   assert_failure
+}
+
+@test "herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local main="$HTS_WORK/checkouts/repository" linked="$HTS_WORK/linked/feature"
+  local common="$main/.git" nongit="$HTS_WORK/outside" state
+  mkdir -p "$main/src/nested" "$common/objects" "$common/worktrees/feature/logs" "$linked/deep/path" "$nongit"
+  printf '%s/.git\n' "$linked" > "$common/worktrees/feature/gitdir"
+  hts_git_location_fixture "$main/src/nested" "$main" "$common" refs/heads/main
+  hts_git_location_fixture "$main" "$main" "$common" refs/heads/main
+  hts_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
+  hts_git_location_fixture "$linked/deep/path" "$linked" "$common" refs/heads/feature
+  hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json main-nested tab-1 "$main" present "$main/src/nested")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json main-admin tab-1 "$main" present "$common/objects")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json linked-admin tab-1 "$linked" present "$common/worktrees/feature/logs")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json fallback tab-1 "$linked/deep/path" absent)"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json foreground-wins tab-1 "$linked/deep/path" present "$nongit")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  for pane_id in main-nested main-admin linked-admin fallback foreground-wins; do hts_set_process_label "$pane_id" "$pane_id"; done
+  LANG=fr_FR.UTF-8 LC_ALL= hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.repo' "$state" | sort -u)" repository
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
+  run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null)' "$state"
+  assert_success
+  assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
+}
+
+@test "herdr-task-sync location detached and non-Git clears are source-local with monotonic restart high-water" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  local branch="$root/branch" detached="$root/detached" nongit="$HTS_WORK/non-git" state first_seq second_seq
+  mkdir -p "$branch" "$detached" "$nongit" "$common"
+  hts_git_location_fixture "$branch" "$root" "$common" refs/heads/topic
+  hts_git_location_fixture "$detached" "$root" "$common" HEAD
+  hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 worker
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 --source task-sync --token task=kept-task --seq 900
+
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=1000 hts_location_pass
+  first_seq="$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)"
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=1 hts_location_pass
+  second_seq="$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)"
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  [[ "$second_seq" -gt "$first_seq" ]]
+  assert_equal "$(jq -r '.panes[0].tokens.repo' "$state")" repo.git
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" repo
+  run jq -e '.panes[0].tokens.branch == null and .panes[0].tokens.task == "kept-task"' "$state"
+  assert_success
+
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
+  [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
+}
+
+@test "herdr-task-sync location transient modes retain identity as stale without foreground fallback" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  local fallback="$root/fallback" fresh="$root/fresh" permission="$HTS_WORK/permission" unavailable="$HTS_WORK/unavailable"
+  local malformed="$HTS_WORK/malformed" blocked="$HTS_WORK/blocked" missing="$HTS_WORK/missing" state
+  mkdir -p "$fresh" "$fallback" "$permission" "$unavailable" "$malformed" "$blocked" "$common"
+  hts_git_location_fixture "$fresh" "$root" "$common" refs/heads/main
+  hts_git_location_fixture "$fallback" "$root" "$common" refs/heads/main
+  hts_git_fixture "$permission" "denied" 126
+  hts_git_fixture "$unavailable" "missing" 127
+  hts_git_fixture "$malformed" "only-one-line" 0
+  hts_git_fixture "$blocked" "never" 0 block
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$fallback" present "$fresh")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 primary
+  hts_set_process_label pane-2 repaired
+  hts_location_pass
+
+  local transient
+  for transient in "$missing" "$permission" "$unavailable" "$malformed"; do
+    hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$transient")"
+    hts_location_pass
+    state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+    assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" repo
+    assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
+  done
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "")"
+  hts_location_pass
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" stale
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
+  HERDR_TASK_SYNC_GIT_BUDGET=0.075 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" repaired
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
+  hts_location_pass
+  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_success
+}
+
+@test "herdr-task-sync transient location preserves live token-only identity when retained state is unavailable" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local missing_one="$HTS_WORK/missing-one" unavailable="$HTS_WORK/unavailable"
+  local outside="$HTS_WORK/outside" pane_one pane_two location_two state
+  mkdir -p "$outside" "$unavailable"
+  hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hts_git_fixture "$unavailable" unavailable 127
+  pane_one="$(hts_process_pane_json pane-1 tab-1 "$missing_one")"
+  pane_one="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",branch:"topic-one"}' <<< "$pane_one")"
+  pane_two="$(hts_process_pane_json pane-2 tab-1 "$unavailable")"
+  pane_two="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",location_status:"current"}' <<< "$pane_two")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane_one"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane_two"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-3 tab-1 "$outside")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 one
+  hts_set_process_label pane-2 two
+  hts_set_process_label pane-3 three
+  location_two="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-2)/location.state"
+  mkdir -p "$(dirname "$location_two")"
+  printf '%s\n' not-a-location-record > "$location_two"
+
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  run jq -e '
+    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale"})
+    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale"})
+  ' "$state"
+  assert_success
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "live-token [stale] one · live-token [stale] two · three"
+  assert_file_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/location.state"
+  assert_equal "$(cat "$location_two")" not-a-location-record
+}
+
+@test "herdr-task-sync location authoritative worktree deletion clears retained evidence" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/linked/deleted" common="$HTS_WORK/main/.git"
+  local live="$root/live" missing="$root/gone"
+  mkdir -p "$live" "$common"
+  hts_git_location_fixture "$live" "$root" "$common" refs/heads/deleted
+  hts_git_fixture "gitdir:$common" "worktree $HTS_WORK/main\nHEAD 123456\nbranch refs/heads/main" 0
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$live")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 worker
+  hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" deleted
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$missing")"
+  hts_location_pass
+  run jq -e '.panes[0].tokens.repo == null and .panes[0].tokens.worktree == null and .panes[0].tokens.branch == null and .panes[0].tokens.location_status == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_success
+}
+
+@test "herdr-task-sync formatter prefixes homogeneous Git once and leaves all-non-Git unchanged" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/project" common="$HTS_WORK/project.git"
+  local one="$root/one" two="$root/two" missing="$root/missing" outside="$HTS_WORK/outside" state
+  mkdir -p "$one" "$two" "$outside" "$common"
+  hts_git_location_fixture "$one" "$root" "$common" refs/heads/main
+  hts_git_location_fixture "$two" "$root" "$common" HEAD
+  hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 alpha
+  hts_set_process_label pane-2 beta
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "project · alpha · beta"
+  run jq -e '.panes[] | select(.pane_id == "pane-2") | .tokens.branch == null' "$state"
+  assert_success
+
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-2 "$two" "$missing"
+  hts_location_pass
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "project alpha · project [stale] beta"
+
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$outside" "$outside"
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-2 "$outside" "$outside"
+  hts_location_pass
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
+}
+
+@test "herdr-task-sync formatter keeps mixed identities adjacent and repairs external labels" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root_a="$HTS_WORK/a" root_b="$HTS_WORK/b" common_a="$HTS_WORK/a.git" common_b="$HTS_WORK/b.git"
+  local cwd_a="$root_a/work" cwd_b="$root_b/work" outside="$HTS_WORK/outside" missing="$root_b/missing" state
+  mkdir -p "$cwd_a" "$cwd_b" "$outside" "$common_a" "$common_b"
+  hts_git_location_fixture "$cwd_a" "$root_a" "$common_a" refs/heads/a
+  hts_git_location_fixture "$cwd_b" "$root_b" "$common_b" refs/heads/b
+  hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$cwd_a")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$cwd_b")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 first
+  hts_set_process_label pane-2 second
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "a first · b second"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$cwd_b" present "$missing")"
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
+  hts_socket_run "$HTS_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .label' "$state")" first
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "a first · b [stale] second"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$outside")"
+  hts_location_pass
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "a first · second"
+}
+
+@test "herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local one="$HTS_WORK/team/feature" two="$HTS_WORK/release/feature" common="$HTS_WORK/repository/.git" state
+  mkdir -p "$one" "$two" "$common"
+  hts_git_location_fixture "$one" "$one" "$common" refs/heads/one
+  hts_git_location_fixture "$two" "$two" "$common" refs/heads/two
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 one
+  hts_set_process_label pane-2 two
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" team/feature
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")" release/feature
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "team/feature one · release/feature two"
+}
+
+@test "herdr-task-sync worktree tokens digest overlong roots and extend colliding digest prefixes" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local unique="$HTS_WORK/extraordinarily-long-worktree"
+  local one="$HTS_WORK/parent-component-that-is-long-one/shared-overlong-name"
+  local two="$HTS_WORK/parent-component-that-is-long-two/shared-overlong-name"
+  local common="$HTS_WORK/repository/.git" digests="$HTS_WORK/digests" state token_one token_two
+  mkdir -p "$unique" "$one" "$two" "$common"
+  hts_git_location_fixture "$unique" "$unique" "$common" refs/heads/unique
+  hts_git_location_fixture "$one" "$one" "$common" refs/heads/one
+  hts_git_location_fixture "$two" "$two" "$common" refs/heads/two
+  printf '%s\037%s\n%s\037%s\n' "$one" abcdef00000000000000000000000000 "$two" abcdef10000000000000000000000000 > "$digests"
+  export HERDR_TASK_SYNC_TEST_DIGEST_FILE="$digests"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$unique")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-3 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  for pane_id in pane-1 pane-2 pane-3; do hts_set_process_label "$pane_id" task; done
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  run jq -e '[.panes[].tokens.worktree | select(length <= 18 and test("^[A-Za-z0-9._/-]+~[0-9a-f]{6,}$"))] | length == 3' "$state"
+  assert_success
+  token_one="$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")"
+  token_two="$(jq -r '.panes[] | select(.pane_id == "pane-3") | .tokens.worktree' "$state")"
+  [[ "$token_one" != "$token_two" ]]
+  [[ "$token_one" = *abcdef || "$token_two" = *abcdef ]]
+  [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]]
+}
+
+@test "herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local common="$HTS_WORK/repository/.git" digests="$HTS_WORK/digests" panes='[]' before after i root
+  mkdir -p "$common"
+  : > "$digests"
+  for i in $(seq 1 12); do
+    root="$HTS_WORK/parent-component-that-is-deliberately-long-$i/shared-overlong-name"
+    mkdir -p "$root"
+    hts_git_location_fixture "$root" "$root" "$common" "refs/heads/b$i"
+    printf '%s\037%s\n' "$root" ffffffffffffffffffffffffffffffff >> "$digests"
+    panes="$(jq -c --argjson pane "$(hts_process_pane_json "pane-$i" tab-1 "$root")" '. + [$pane]' <<< "$panes")"
+    hts_set_process_label "pane-$i" task
+  done
+  export HERDR_TASK_SYNC_TEST_DIGEST_FILE="$digests"
+  hts_pane_list "$(jq -cn --argjson panes "$panes" '{result:{panes:$panes}}')"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_location_pass
+  before="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")"
+  run jq -e '[.panes[].tokens.worktree] | length == 12 and (unique | length == 12) and all(.[]; length <= 18)' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_success
+  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")" tmp="$HTS_WORK/reversed.json"
+  jq '.panes |= reverse' "$state" > "$tmp" && mv "$tmp" "$state"
+  hts_location_pass
+  after="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$state")"
+  assert_equal "$after" "$before"
+}
+
+@test "herdr-task-sync two-pane mixed formatter preserves identities and eight task columns at 80 columns" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local one="$HTS_WORK/abcdefghijklmnopqr" two="$HTS_WORK/stuvwxyzabcdefghi"
+  local common="$HTS_WORK/repository/.git" state label
+  mkdir -p "$one" "$two" "$common"
+  hts_git_location_fixture "$one" "$one" "$common" refs/heads/one
+  hts_git_location_fixture "$two" "$two" "$common" refs/heads/two
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
+  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
+  HERDR_TASK_SYNC_LABEL_COLUMNS=80 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  label="$(jq -r '.tabs[0].label' "$state")"
+  [[ "$(printf '%s' "$label" | wc -m | tr -d ' ')" -le 80 ]]
+  [[ "$label" = *abcdefghijklmnopqr* && "$label" = *stuvwxyzabcdefghi* && "$label" = *…* ]]
+  run jq -e '.tabs[0].label | capture("^abcdefghijklmnopqr (?<one>.+) · stuvwxyzabcdefghi (?<two>.+)$") | (.one | length) >= 8 and (.two | length) >= 8' "$state"
+  assert_success
+}
+
+@test "herdr-task-sync location and formatter add no icon glyphs or forbidden ownership state" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/plain-worktree" common="$HTS_WORK/repository/.git"
+  mkdir -p "$root" "$common"
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/plain
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 plain-task
+  hts_location_pass
+  run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
+  assert_failure
+  run jq -e '[.panes[0].label,.tabs[0].label,.panes[0].tokens.worktree] | all(.[]; test("^[A-Za-z0-9._:/ ~·\\[\\]-]+$"))' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_success
+  assert_equal "$(jq -r '.tabs[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "plain-worktree · plain-task"
 }
 
 @test "herdr-task-sync passes bash syntax check" {

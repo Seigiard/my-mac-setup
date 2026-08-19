@@ -33,6 +33,7 @@ ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"
 PI_MODEL="${HERDR_TASK_SYNC_PI_MODEL:-openai-codex/gpt-5.4-mini}"
 CLAUDE_MODEL="${HERDR_TASK_SYNC_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
 SOURCE_ID="task-sync"
+LOCATION_SOURCE_ID="location-sync"
 SLUG_MAX_LEN=40
 # R4 asks for 2-4 words. A wordier answer is prose, not a name — an engine that
 # explains itself instead of naming the session counts as a failed call, so the
@@ -47,6 +48,9 @@ IDLE_PANE_LABEL="~"
 # Panes are joined with a middle dot (U+00B7): a full-height bar drew a wall
 # through the tab row. Override with HERDR_TASK_SYNC_SEPARATOR.
 LABEL_SEPARATOR="${HERDR_TASK_SYNC_SEPARATOR:- · }"
+WORKTREE_TOKEN_MAX_LEN=18
+LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"
+LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}"
 # Seconds between two sweeps of the daemon. Five keeps a finished command
 # visible for at most one glance without hammering the herdr socket.
 SWEEP_INTERVAL="${HERDR_TASK_SYNC_SWEEP_INTERVAL:-5}"
@@ -482,6 +486,382 @@ pane_process_label() {
   ' 2>/dev/null
 }
 
+location_state_file() {
+  printf '%s/panes/%s/location.state' "$(namespace_dir)" "$(encode_key "$1")"
+}
+
+write_location_state() {
+  local file="$1" pane_id="$2" root="$3" anchor="$4" repo="$5" branch="$6"
+  local content
+  content="pane=$(encode_value "$pane_id")
+checkout_root=$(encode_value "$root")
+repository_anchor=$(encode_value "$anchor")
+repo=$(encode_value "$repo")
+branch=$(encode_value "$branch")"
+  atomic_write "$file" "$content"
+}
+
+text_length() {
+  printf '%s' "$1" | wc -m | tr -d '[:space:]'
+}
+
+text_prefix() {
+  [ "$2" -gt 0 ] || return 0
+  printf '%s' "$1" | cut -c "1-$2"
+}
+
+truncate_text() {
+  local text="$1" max="$2" length
+  length="$(text_length "$text")"
+  if [ "$length" -le "$max" ]; then
+    printf '%s' "$text"
+  elif [ "$max" -le 1 ]; then
+    printf '…'
+  else
+    printf '%s…' "$(text_prefix "$text" $((max - 1)))"
+  fi
+}
+
+admin_checkout_for_path() {
+  local path="$1" cursor gitdir candidate
+  (cd "$path" 2>/dev/null) || return 1
+  cursor="${path%/}"
+  while [ -n "$cursor" ]; do
+    if [ -f "$cursor/gitdir" ]; then
+      gitdir="$(sed -n '1p' "$cursor/gitdir" 2>/dev/null)"
+      case "$gitdir" in
+        /*/.git) candidate="${gitdir%/.git}" ;;
+        *) candidate="" ;;
+      esac
+      if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+        printf '%s' "$candidate"
+        return 0
+      fi
+      return 1
+    fi
+    if [ "${cursor##*/}" = ".git" ] && [ -d "${cursor%/.git}" ]; then
+      printf '%s' "${cursor%/.git}"
+      return 0
+    fi
+    [ "$cursor" != "/" ] || break
+    cursor="${cursor%/*}"
+    [ -n "$cursor" ] || cursor="/"
+  done
+  return 1
+}
+
+run_budgeted_command() {
+  local outfile="$1" errfile="$2"
+  shift 2
+  "$@" </dev/null >"$outfile" 2>"$errfile" &
+  local command_pid=$!
+  ( sleep "$LOCATION_GIT_BUDGET"; kill -9 "$command_pid" ) >/dev/null 2>&1 &
+  local watchdog=$! status=0
+  wait "$command_pid" || status=$?
+  kill "$watchdog" >/dev/null 2>&1 || true
+  wait "$watchdog" 2>/dev/null || true
+  return "$status"
+}
+
+repository_name() {
+  local anchor="$1" parent
+  if [ "${anchor##*/}" = ".git" ]; then
+    parent="${anchor%/.git}"
+    printf '%s' "${parent##*/}"
+  else
+    printf '%s' "${anchor##*/}"
+  fi
+}
+
+authoritative_worktree_deleted() {
+  local root="$1" anchor="$2" outfile errfile status
+  [ -n "$root" ] && [ -n "$anchor" ] && [ -d "$anchor" ] || return 1
+  outfile="$(mktemp "$(namespace_dir)/.worktrees.XXXXXX" 2>/dev/null)" || return 1
+  errfile="$outfile.err"
+  if run_budgeted_command "$outfile" "$errfile" \
+    env LC_ALL=C git --git-dir="$anchor" worktree list --porcelain; then
+    status=0
+  else
+    status=$?
+  fi
+  if [ "$status" -eq 0 ] && grep -q '^worktree ' "$outfile" 2>/dev/null && \
+    ! grep -Fqx "worktree $root" "$outfile" 2>/dev/null; then
+    rm -f "$outfile" "$errfile"
+    return 0
+  fi
+  rm -f "$outfile" "$errfile"
+  return 1
+}
+
+# Prints outcome, canonical checkout root, common Git directory, repository,
+# and symbolic branch separated by unit separators. A transient result carries
+# retained evidence when one exists; confirmed non-Git carries empty evidence.
+resolve_pane_location() {
+  local pane_json="$1" state_file="$2" has_foreground cwd prior_root prior_anchor
+  local prior_repo prior_branch candidate outfile errfile status root anchor branch repo lines
+  prior_root="$(read_state_field "$state_file" checkout_root)"
+  prior_anchor="$(read_state_field "$state_file" repository_anchor)"
+  prior_repo="$(read_state_field "$state_file" repo)"
+  prior_branch="$(read_state_field "$state_file" branch)"
+  has_foreground="$(printf '%s' "$pane_json" | jq -r 'has("foreground_cwd")' 2>/dev/null)"
+  if [ "$has_foreground" = "true" ]; then
+    cwd="$(printf '%s' "$pane_json" | jq -r 'if (.foreground_cwd | type) == "string" then .foreground_cwd else "" end' 2>/dev/null)"
+  else
+    cwd="$(printf '%s' "$pane_json" | jq -r 'if (.cwd | type) == "string" then .cwd else "" end' 2>/dev/null)"
+  fi
+
+  if [ -z "$cwd" ] || ! (cd "$cwd" 2>/dev/null); then
+    if authoritative_worktree_deleted "$prior_root" "$prior_anchor"; then
+      printf 'non_git\037\037\037\037\037'
+    else
+      printf 'transient\037%s\037%s\037%s\037%s' \
+        "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    fi
+    return 0
+  fi
+
+  candidate="$cwd"
+  case "$cwd" in
+    */.git | */.git/*)
+      candidate="$(admin_checkout_for_path "$cwd" 2>/dev/null)" || {
+        printf 'transient\037%s\037%s\037%s\037%s' \
+          "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+        return 0
+      }
+      ;;
+  esac
+  command -v git >/dev/null 2>&1 || {
+    printf 'transient\037%s\037%s\037%s\037%s' \
+      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    return 0
+  }
+  outfile="$(mktemp "$(namespace_dir)/.git-location.XXXXXX" 2>/dev/null)" || {
+    printf 'transient\037%s\037%s\037%s\037%s' \
+      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    return 0
+  }
+  errfile="$outfile.err"
+  if run_budgeted_command "$outfile" "$errfile" env LC_ALL=C git -C "$candidate" rev-parse \
+    --path-format=absolute --show-toplevel --git-common-dir --symbolic-full-name HEAD; then
+    status=0
+  else
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    if { [ "$status" -eq 1 ] || [ "$status" -eq 128 ]; } && \
+      grep -Eqi 'not a git repository|not inside a work tree' "$errfile" 2>/dev/null; then
+      rm -f "$outfile" "$errfile"
+      printf 'non_git\037\037\037\037\037'
+    else
+      rm -f "$outfile" "$errfile"
+      printf 'transient\037%s\037%s\037%s\037%s' \
+        "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    fi
+    return 0
+  fi
+  lines="$(wc -l < "$outfile" | tr -d '[:space:]')"
+  root="$(sed -n '1p' "$outfile")"
+  anchor="$(sed -n '2p' "$outfile")"
+  branch="$(sed -n '3p' "$outfile")"
+  rm -f "$outfile" "$errfile"
+  if [ "$lines" != 3 ] || [ -z "$root" ] || [ -z "$anchor" ]; then
+    printf 'transient\037%s\037%s\037%s\037%s' \
+      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    return 0
+  fi
+  case "$branch" in
+    refs/heads/*) branch="${branch#refs/heads/}" ;;
+    HEAD) branch="" ;;
+    *)
+      printf 'transient\037%s\037%s\037%s\037%s' \
+        "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+      return 0
+      ;;
+  esac
+  repo="$(repository_name "$anchor")"
+  [ -n "$repo" ] || {
+    printf 'transient\037%s\037%s\037%s\037%s' \
+      "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch"
+    return 0
+  }
+  printf 'git\037%s\037%s\037%s\037%s' "$root" "$anchor" "$repo" "$branch"
+}
+
+path_suffix() {
+  printf '%s\n' "$1" | awk -F/ -v count="$2" '{
+    start = NF - count + 1
+    if (start < 1) start = 1
+    out = $start
+    for (i = start + 1; i <= NF; i++) out = out "/" $i
+    print out
+  }'
+}
+
+deterministic_digest() {
+  local value="$1" file="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" digest round checksum
+  if [ -n "$file" ] && [ -f "$file" ]; then
+    digest="$(awk -F "$(printf '\037')" -v root="$value" '$1 == root { print $2; exit }' "$file")"
+    if [ -n "$digest" ]; then
+      printf '%s' "$digest"
+      return 0
+    fi
+  fi
+  digest=""
+  round=0
+  while [ "$round" -lt 4 ]; do
+    checksum="$(printf '%s:%s' "$round" "$value" | cksum | awk '{printf "%08x", $1}')"
+    digest="$digest$checksum"
+    round=$((round + 1))
+  done
+  printf '%s' "$digest"
+}
+
+token_is_taken() {
+  local token="$1" mappings="$2" _root existing
+  while IFS="$(printf '\037')" read -r _root existing; do
+    [ -n "$existing" ] || continue
+    [ "$existing" != "$token" ] || return 0
+  done <<EOF
+$mappings
+EOF
+  return 1
+}
+
+build_worktree_tokens() {
+  local roots="$1" mappings="" root other base candidate suffix components count unique
+  local digest digest_len fragment_len ordinal=0 ordinal_hex
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    ordinal=$((ordinal + 1))
+    base="${root##*/}"
+    count=0
+    while IFS= read -r other; do
+      [ "${other##*/}" = "$base" ] && count=$((count + 1))
+    done <<EOF
+$roots
+EOF
+    candidate=""
+    if [ "$count" -eq 1 ] && [ "$(text_length "$base")" -le "$WORKTREE_TOKEN_MAX_LEN" ]; then
+      candidate="$base"
+    elif [ "$count" -gt 1 ]; then
+      components="$(printf '%s' "$root" | awk -F/ '{print NF}')"
+      count=2
+      while [ "$count" -le "$components" ]; do
+        suffix="$(path_suffix "$root" "$count")"
+        unique=1
+        while IFS= read -r other; do
+          [ "$other" = "$root" ] && continue
+          if [ "$(path_suffix "$other" "$count")" = "$suffix" ]; then
+            unique=0
+            break
+          fi
+        done <<EOF
+$roots
+EOF
+        if [ "$unique" -eq 1 ]; then
+          [ "$(text_length "$suffix")" -le "$WORKTREE_TOKEN_MAX_LEN" ] && candidate="$suffix"
+          break
+        fi
+        count=$((count + 1))
+      done
+    fi
+    if [ -n "$candidate" ] && token_is_taken "$candidate" "$mappings"; then candidate=""; fi
+    if [ -z "$candidate" ]; then
+      digest="$(deterministic_digest "$root")"
+      digest_len=6
+      while [ "$digest_len" -le 16 ]; do
+        fragment_len=$((WORKTREE_TOKEN_MAX_LEN - digest_len - 1))
+        candidate="$(text_prefix "$base" "$fragment_len")~$(text_prefix "$digest" "$digest_len")"
+        token_is_taken "$candidate" "$mappings" || break
+        candidate=""
+        digest_len=$((digest_len + 1))
+      done
+      if [ -z "$candidate" ]; then
+        ordinal_hex="$(printf '%04x' "$ordinal")"
+        candidate="$(text_prefix "$base" 1)~$(text_prefix "$digest" 12)$ordinal_hex"
+        while token_is_taken "$candidate" "$mappings"; do
+          ordinal=$((ordinal + 1))
+          ordinal_hex="$(printf '%04x' "$ordinal")"
+          candidate="$(text_prefix "$base" 1)~$(text_prefix "$digest" 12)$ordinal_hex"
+        done
+      fi
+    fi
+    mappings="${mappings}${mappings:+
+}${root}$(printf '\037')${candidate}"
+  done <<EOF
+$roots
+EOF
+  printf '%s' "$mappings"
+}
+
+worktree_token_for_root() {
+  local wanted="$1" mappings="$2" root token
+  while IFS="$(printf '\037')" read -r root token; do
+    if [ "$root" = "$wanted" ]; then
+      printf '%s' "$token"
+      return 0
+    fi
+  done <<EOF
+$mappings
+EOF
+}
+
+allocate_location_metadata_seq() {
+  local reconcile lock owner pending completed task_metadata location_metadata
+  local checkout_root repository_anchor retained_location now next
+  reconcile="$(namespace_dir)/reconcile.state"
+  lock="$(namespace_dir)/presentation-inbox.lock"
+  acquire_claim "$lock" "$INBOX_LOCK_ATTEMPTS" || return 1
+  owner="$claim_owner_id"
+  pending="$(record_number "$reconcile" pending_generation)"
+  completed="$(record_number "$reconcile" completed_generation)"
+  task_metadata="$(record_number "$reconcile" task_metadata_high_water)"
+  location_metadata="$(record_number "$reconcile" location_metadata_high_water)"
+  checkout_root="$(read_state_field "$reconcile" checkout_root)"
+  repository_anchor="$(read_state_field "$reconcile" repository_anchor)"
+  retained_location="$(read_state_field "$reconcile" retained_location)"
+  now="$(now_seq)"
+  next="$(max_number "$location_metadata" "$now")"
+  next=$((next + 1))
+  if ! write_reconcile_state "$reconcile" "${pending:-0}" "${completed:-0}" \
+    "${task_metadata:-0}" "$next" "$checkout_root" "$repository_anchor" "$retained_location"; then
+    release_claim "$lock" "$owner"
+    return 1
+  fi
+  release_claim "$lock" "$owner"
+  printf '%s' "$next"
+}
+
+compose_two_mixed_segments() {
+  local token_one="$1" status_one="$2" text_one="$3" token_two="$4" status_two="$5" text_two="$6"
+  local prefix_one="$token_one" prefix_two="$token_two" fixed available length_one length_two
+  local budget_one=8 budget_two=8 extra turn=1 rendered_one rendered_two
+  [ -z "$status_one" ] || prefix_one="$prefix_one [stale]"
+  [ -z "$status_two" ] || prefix_two="$prefix_two [stale]"
+  fixed="$(text_length "$LABEL_SEPARATOR")"
+  [ -z "$prefix_one" ] || fixed=$((fixed + $(text_length "$prefix_one") + 1))
+  [ -z "$prefix_two" ] || fixed=$((fixed + $(text_length "$prefix_two") + 1))
+  available=$((LABEL_COLUMNS - fixed))
+  length_one="$(text_length "$text_one")"
+  length_two="$(text_length "$text_two")"
+  if [ "$length_one" -le "$budget_one" ]; then budget_one="$length_one"; fi
+  if [ "$length_two" -le "$budget_two" ]; then budget_two="$length_two"; fi
+  extra=$((available - budget_one - budget_two))
+  while [ "$extra" -gt 0 ] && { [ "$budget_one" -lt "$length_one" ] || [ "$budget_two" -lt "$length_two" ]; }; do
+    if [ "$turn" -eq 1 ] && [ "$budget_one" -lt "$length_one" ]; then
+      budget_one=$((budget_one + 1)); extra=$((extra - 1))
+    elif [ "$turn" -eq 2 ] && [ "$budget_two" -lt "$length_two" ]; then
+      budget_two=$((budget_two + 1)); extra=$((extra - 1))
+    fi
+    if [ "$turn" -eq 1 ]; then turn=2; else turn=1; fi
+  done
+  rendered_one="$(truncate_text "$text_one" "$budget_one")"
+  rendered_two="$(truncate_text "$text_two" "$budget_two")"
+  [ -z "$prefix_one" ] || rendered_one="$prefix_one $rendered_one"
+  [ -z "$prefix_two" ] || rendered_two="$prefix_two $rendered_two"
+  printf '%s%s%s' "$rendered_one" "$LABEL_SEPARATOR" "$rendered_two"
+}
+
 # Presentation has one durable inbox and one claimed coordinator per exact
 # Herdr socket. Events are invalidation only: every pass starts from one fresh,
 # complete session snapshot and computes all pane and tab intent from it.
@@ -580,13 +960,20 @@ tab_target_matches() {
 }
 
 reconcile_presentation_pass() {
-  local pass="$1" snapshot pane_rows tab_rows pane_intents="" tab_intents=""
+  local pass="$1" snapshot pane_rows tab_rows pane_intents="" pane_presentations="" tab_intents=""
   local id terminal tab_id workspace agent_of native_agent native_session current current_task
+  local current_repo current_worktree current_branch current_location_status pane_json_encoded pane_json
   local intended slug metadata_seq control active_agent active_session generation committed task_file
   local saved_pane="$pane" saved_agent="$agent" saved_session="$session" parts named index
+  local location_file location_result location_outcome checkout_root repository_anchor repo branch location_status
+  local roots root_tokens worktree_token location_seq location_changed
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
-  local _pane_current pane_intended _pane_task _pane_slug _pane_metadata
-  local final_payload final_label final_task
+  local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
+  local _checkout_root _repository_anchor _repo _branch _location_status
+  local _current_repo _current_worktree _current_branch _current_location_status _worktree_token
+  local final_payload final_label final_task final_repo final_worktree final_branch final_location_status
+  local segment_rows pane_count all_non_git all_fresh_git first_root multiple_roots segment
+  local token_one status_one text_one token_two status_two text_two state_file retained_pane found
   command -v jq >/dev/null 2>&1 || return 1
   snapshot="$(herdr api snapshot 2>/dev/null)" || return 1
   printf '%s' "$snapshot" | jq -e '
@@ -602,11 +989,44 @@ reconcile_presentation_pass() {
   pane_rows="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.panes[]?
     | [(.pane_id // ""), (.terminal_id // ""), (.tab_id // ""),
-       (.workspace_id // ""), (.agent // ""), (.agent_session.agent // ""),
-       (.agent_session.value // ""), (.label // ""), (.tokens.task // "")]
+        (.workspace_id // ""), (.agent // ""), (.agent_session.agent // ""),
+       (.agent_session.value // ""), (.label // ""), (.tokens.task // ""),
+       (.tokens.repo // ""), (.tokens.worktree // ""), (.tokens.branch // ""),
+       (.tokens.location_status // ""), (@base64)]
     | join("\u001f")' 2>/dev/null)"
-  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task; do
+  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status pane_json_encoded; do
     [ -n "$id" ] || continue
+    pane_json="$(printf '%s' "$pane_json_encoded" | base64 -d 2>/dev/null)"
+    location_file="$(location_state_file "$id")"
+    location_result="$(resolve_pane_location "$pane_json" "$location_file")"
+    IFS="$(printf '\037')" read -r location_outcome checkout_root repository_anchor repo branch <<EOF
+$location_result
+EOF
+    location_status=""
+    case "$location_outcome" in
+      git)
+        write_location_state "$location_file" "$id" "$checkout_root" "$repository_anchor" "$repo" "$branch" || return 1
+        ;;
+      non_git)
+        rm -f "$location_file" 2>/dev/null || return 1
+        checkout_root=""
+        repository_anchor=""
+        repo=""
+        branch=""
+        ;;
+      transient)
+        if [ -n "$checkout_root" ]; then
+          location_status="stale"
+        elif [ -n "$current_repo" ] && [ -n "$current_worktree" ]; then
+          # Fresh snapshot tokens are weaker than canonical evidence, but they
+          # remain valid presentation identity while Git is transient.
+          repo="$current_repo"
+          branch="$current_branch"
+          location_status="stale"
+        fi
+        ;;
+      *) return 1 ;;
+    esac
     intended="$current"
     slug=""
     metadata_seq=0
@@ -639,13 +1059,50 @@ reconcile_presentation_pass() {
       [ -n "$intended" ] || intended="$IDLE_PANE_LABEL"
     fi
     pane_intents="${pane_intents}${pane_intents:+
-}${id}$(printf '\037')${terminal}$(printf '\037')${tab_id}$(printf '\037')${workspace}$(printf '\037')${agent_of}$(printf '\037')${native_session}$(printf '\037')${current}$(printf '\037')${intended}$(printf '\037')${current_task}$(printf '\037')${slug}$(printf '\037')${metadata_seq}"
+}${id}$(printf '\037')${terminal}$(printf '\037')${tab_id}$(printf '\037')${workspace}$(printf '\037')${agent_of}$(printf '\037')${native_session}$(printf '\037')${current}$(printf '\037')${intended}$(printf '\037')${current_task}$(printf '\037')${slug}$(printf '\037')${metadata_seq}$(printf '\037')${location_outcome}$(printf '\037')${checkout_root}$(printf '\037')${repository_anchor}$(printf '\037')${repo}$(printf '\037')${branch}$(printf '\037')${location_status}$(printf '\037')${current_repo}$(printf '\037')${current_worktree}$(printf '\037')${current_branch}$(printf '\037')${current_location_status}"
   done <<EOF
 $pane_rows
 EOF
   pane="$saved_pane"
   agent="$saved_agent"
   session="$saved_session"
+
+  roots="$(while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status; do
+    [ -z "$_checkout_root" ] || printf '%s\n' "$_checkout_root"
+  done <<EOF
+$pane_intents
+EOF
+)"
+  roots="$(printf '%s\n' "$roots" | sed '/^$/d' | LC_ALL=C sort -u)"
+  root_tokens="$(build_worktree_tokens "$roots")"
+  while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status; do
+    [ -n "$_pane_id" ] || continue
+    _worktree_token=""
+    if [ -n "$_checkout_root" ]; then
+      _worktree_token="$(worktree_token_for_root "$_checkout_root" "$root_tokens")"
+    elif [ "$_location_outcome" = "transient" ] && [ -n "$_repo" ] && [ -n "$_current_worktree" ]; then
+      _worktree_token="$_current_worktree"
+    fi
+    pane_presentations="${pane_presentations}${pane_presentations:+
+}${_pane_id}$(printf '\037')${_pane_terminal}$(printf '\037')${pane_tab}$(printf '\037')${_pane_workspace}$(printf '\037')${_pane_agent}$(printf '\037')${_pane_native_session}$(printf '\037')${_pane_current}$(printf '\037')${pane_intended}$(printf '\037')${_pane_task}$(printf '\037')${_pane_slug}$(printf '\037')${_pane_metadata}$(printf '\037')${_location_outcome}$(printf '\037')${_checkout_root}$(printf '\037')${_repository_anchor}$(printf '\037')${_repo}$(printf '\037')${_branch}$(printf '\037')${_location_status}$(printf '\037')${_current_repo}$(printf '\037')${_current_worktree}$(printf '\037')${_current_branch}$(printf '\037')${_current_location_status}$(printf '\037')${_worktree_token}"
+  done <<EOF
+$pane_intents
+EOF
+
+  # A complete snapshot authoritatively deletes evidence for panes that no
+  # longer exist. No label policy or applied-label copy is retained.
+  for state_file in "$(namespace_dir)"/panes/*/location.state; do
+    [ -f "$state_file" ] || continue
+    retained_pane="$(read_state_field "$state_file" pane)"
+    [ -n "$retained_pane" ] || continue
+    found=0
+    while IFS="$(printf '\037')" read -r _pane_id _; do
+      [ "$_pane_id" != "$retained_pane" ] || { found=1; break; }
+    done <<EOF
+$pane_presentations
+EOF
+    [ "$found" -eq 1 ] || rm -f "$state_file" 2>/dev/null || true
+  done
 
   tab_rows="$(printf '%s' "$snapshot" | jq -r '
     reduce .result.snapshot.tabs[]? as $t ({counts: {}, out: []};
@@ -656,17 +1113,69 @@ EOF
   while IFS="$(printf '\037')" read -r tab_id workspace current index; do
     [ -n "$tab_id" ] || continue
     parts=""
+    segment_rows=""
     named=0
-    while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata; do
+    pane_count=0
+    all_non_git=1
+    all_fresh_git=1
+    first_root=""
+    multiple_roots=0
+    while IFS="$(printf '\037')" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _location_status _current_repo _current_worktree _current_branch _current_location_status _worktree_token; do
       [ "$pane_tab" = "$tab_id" ] || continue
       [ -n "$pane_intended" ] || continue
+      pane_count=$((pane_count + 1))
       [ "$pane_intended" = "$IDLE_PANE_LABEL" ] || named=1
       if [ -z "$parts" ]; then parts="$pane_intended"; else parts="$parts$LABEL_SEPARATOR$pane_intended"; fi
+      segment_rows="${segment_rows}${segment_rows:+
+}${_worktree_token}$(printf '\037')${_location_status}$(printf '\037')${pane_intended}"
+      if [ -n "$_checkout_root" ]; then
+        all_non_git=0
+        if [ -z "$first_root" ]; then
+          first_root="$_checkout_root"
+        elif [ "$first_root" != "$_checkout_root" ]; then
+          multiple_roots=1
+        fi
+        [ -z "$_location_status" ] || all_fresh_git=0
+      elif [ -n "$_worktree_token" ]; then
+        # Token-only evidence cannot prove that two panes share one checkout.
+        all_non_git=0
+        all_fresh_git=0
+      else
+        all_fresh_git=0
+      fi
     done <<EOF
-$pane_intents
+$pane_presentations
 EOF
     [ -n "$parts" ] || continue
-    [ "$named" -eq 1 ] || parts="$IDLE_PANE_LABEL $index"
+    if [ "$all_non_git" -eq 1 ]; then
+      [ "$named" -eq 1 ] || parts="$IDLE_PANE_LABEL $index"
+    elif [ "$all_fresh_git" -eq 1 ] && [ "$multiple_roots" -eq 0 ]; then
+      [ "$named" -eq 1 ] || parts="$IDLE_PANE_LABEL $index"
+      parts="$(worktree_token_for_root "$first_root" "$root_tokens")$LABEL_SEPARATOR$parts"
+    elif [ "$pane_count" -eq 2 ]; then
+      token_one=""; status_one=""; text_one=""; token_two=""; status_two=""; text_two=""
+      while IFS="$(printf '\037')" read -r _worktree_token _location_status segment; do
+        if [ -z "$text_one" ]; then
+          token_one="$_worktree_token"; status_one="$_location_status"; text_one="$segment"
+        else
+          token_two="$_worktree_token"; status_two="$_location_status"; text_two="$segment"
+        fi
+      done <<EOF
+$segment_rows
+EOF
+      parts="$(compose_two_mixed_segments "$token_one" "$status_one" "$text_one" "$token_two" "$status_two" "$text_two")"
+    else
+      parts=""
+      while IFS="$(printf '\037')" read -r _worktree_token _location_status segment; do
+        if [ -n "$_worktree_token" ]; then
+          [ -z "$_location_status" ] || _worktree_token="$_worktree_token [stale]"
+          segment="$_worktree_token $segment"
+        fi
+        if [ -z "$parts" ]; then parts="$segment"; else parts="$parts$LABEL_SEPARATOR$segment"; fi
+      done <<EOF
+$segment_rows
+EOF
+    fi
     tab_intents="${tab_intents}${tab_intents:+
 }${tab_id}$(printf '\037')${workspace}$(printf '\037')${current}$(printf '\037')${parts}"
   done <<EOF
@@ -676,7 +1185,7 @@ EOF
   # Herdr 0.8 has no rename compare-and-swap. A target can change after the
   # final get and briefly receive stale intent; the next pass repairs it.
   presentation_generation_valid "$pass" || return 2
-  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq; do
+  while IFS="$(printf '\037')" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch location_status current_repo current_worktree current_branch current_location_status worktree_token; do
     [ -n "$id" ] || continue
     if [ -n "$slug" ] && [ "$current_task" != "$slug" ]; then
       presentation_generation_valid "$pass" || return 2
@@ -690,6 +1199,49 @@ EOF
         presentation_crash_after metadata
       fi
     fi
+    location_changed=0
+    if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
+      [ "$current_repo" = "$repo" ] || location_changed=1
+      [ "$current_worktree" = "$worktree_token" ] || location_changed=1
+      [ "$current_branch" = "$branch" ] || location_changed=1
+      [ "$current_location_status" = "$location_status" ] || location_changed=1
+    elif [ "$location_outcome" = "non_git" ] && \
+      { [ -n "$current_repo" ] || [ -n "$current_worktree" ] || [ -n "$current_branch" ] || [ -n "$current_location_status" ]; }; then
+      location_changed=1
+    fi
+    if [ "$location_changed" -eq 1 ]; then
+      presentation_generation_valid "$pass" || return 2
+      final_payload="$(herdr pane get "$id" 2>/dev/null)" || continue
+      pane_target_matches "$final_payload" "$id" "$terminal" "$tab_id" "$agent_of" "$native_session" || continue
+      final_repo="$(printf '%s' "$final_payload" | jq -r '.result.pane.tokens.repo // ""' 2>/dev/null)"
+      final_worktree="$(printf '%s' "$final_payload" | jq -r '.result.pane.tokens.worktree // ""' 2>/dev/null)"
+      final_branch="$(printf '%s' "$final_payload" | jq -r '.result.pane.tokens.branch // ""' 2>/dev/null)"
+      final_location_status="$(printf '%s' "$final_payload" | jq -r '.result.pane.tokens.location_status // ""' 2>/dev/null)"
+      location_changed=0
+      if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
+        [ "$final_repo" = "$repo" ] || location_changed=1
+        [ "$final_worktree" = "$worktree_token" ] || location_changed=1
+        [ "$final_branch" = "$branch" ] || location_changed=1
+        [ "$final_location_status" = "$location_status" ] || location_changed=1
+      elif [ "$location_outcome" = "non_git" ] && \
+        { [ -n "$final_repo" ] || [ -n "$final_worktree" ] || [ -n "$final_branch" ] || [ -n "$final_location_status" ]; }; then
+        location_changed=1
+      fi
+      if [ "$location_changed" -eq 1 ]; then
+        presentation_generation_valid "$pass" || return 2
+        location_seq="$(allocate_location_metadata_seq)" || continue
+        presentation_generation_valid "$pass" || return 2
+        set -- herdr pane report-metadata "$id" --source "$LOCATION_SOURCE_ID" --seq "$location_seq"
+        if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
+          set -- "$@" --token "repo=$repo" --token "worktree=$worktree_token"
+          if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
+          if [ -n "$location_status" ]; then set -- "$@" --token "location_status=$location_status"; else set -- "$@" --clear-token location_status; fi
+        else
+          set -- "$@" --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status
+        fi
+        "$@" >/dev/null 2>&1 || continue
+      fi
+    fi
     [ "$current" != "$intended" ] || continue
     presentation_generation_valid "$pass" || return 2
     final_payload="$(herdr pane get "$id" 2>/dev/null)" || continue
@@ -700,7 +1252,7 @@ EOF
     herdr pane rename "$id" "$intended" >/dev/null 2>&1 || continue
     presentation_crash_after pane-rename
   done <<EOF
-$pane_intents
+$pane_presentations
 EOF
 
   while IFS="$(printf '\037')" read -r tab_id workspace current intended; do
