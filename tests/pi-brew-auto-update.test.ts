@@ -56,8 +56,21 @@ async function dependencies(
 }
 
 describe("brew auto update sequence", () => {
-  test("runs scoped Homebrew and Pi package commands in order", async () => {
-    const { deps, calls } = await dependencies();
+  test("does not notify when successful commands install no updates", async () => {
+    const { deps, calls } = await dependencies({
+      exec: async (command, args) => {
+        calls.push([command, args]);
+        return {
+          code: 0,
+          stdout: command === "pi" ? "Updated packages\n" : "",
+          stderr:
+            command === "brew" && args[0] === "upgrade"
+              ? "Warning: pi-coding-agent 0.84.2 already installed\n"
+              : "",
+          killed: false,
+        };
+      },
+    });
     const { ui, statuses, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -70,7 +83,47 @@ describe("brew auto update sequence", () => {
     ]);
     expect(statuses).toContain("Refreshing Homebrew metadata…");
     expect(statuses).toContain("Updating Pi packages…");
-    expect(notifications.at(-1)?.message).toContain("next Pi process");
+    expect(statuses.at(-1)).toBeUndefined();
+    expect(notifications).toEqual([]);
+  });
+
+  test.each([
+    {
+      label: "Homebrew",
+      command: "brew",
+      args: ["upgrade", "pi-coding-agent"],
+      stdout: "==> Upgrading pi-coding-agent\n  0.84.1 -> 0.84.2\n",
+    },
+    {
+      label: "Pi package",
+      command: "pi",
+      args: ["update", "--extensions"],
+      stdout: "Updating npm:example-extension...\nUpdated packages\n",
+    },
+  ])("notifies when a $label update was installed", async (updated) => {
+    const { deps, calls } = await dependencies({
+      exec: async (command, args) => {
+        calls.push([command, args]);
+        return {
+          code: 0,
+          stdout:
+            command === updated.command && Bun.deepEquals(args, updated.args) ? updated.stdout : "",
+          stderr: "",
+          killed: false,
+        };
+      },
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.status).toBe("complete");
+    expect(notifications).toEqual([
+      {
+        message: "Pi updates installed. They become active in the next Pi process.",
+        level: "info",
+      },
+    ]);
   });
 
   test("skips all network work when PI_OFFLINE is set", async () => {

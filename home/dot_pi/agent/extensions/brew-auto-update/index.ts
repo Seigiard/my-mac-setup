@@ -67,6 +67,7 @@ interface UpdateStep {
   args: string[];
   status: string;
   label: string;
+  installedUpdatePattern?: RegExp;
 }
 
 const UPDATE_STEPS: UpdateStep[] = [
@@ -81,12 +82,14 @@ const UPDATE_STEPS: UpdateStep[] = [
     args: ["upgrade", "pi-coding-agent"],
     status: "Upgrading pi-coding-agent through Homebrew…",
     label: "pi-coding-agent Homebrew upgrade",
+    installedUpdatePattern: /^==>\s+Upgrading(?:[^\n]*\n)?[^\n]*pi-coding-agent/im,
   },
   {
     command: "pi",
     args: ["update", "--extensions"],
     status: "Updating Pi packages…",
     label: "Pi package update",
+    installedUpdatePattern: /^Updating .+\.\.\.$/m,
   },
 ];
 
@@ -211,7 +214,7 @@ async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock
   return { acquired: false };
 }
 
-function setStatus(ui: UpdateUi, value: string): void {
+function setStatus(ui: UpdateUi, value: string | undefined): void {
   try {
     ui.setStatus(STATUS_ID, value);
   } catch {
@@ -266,6 +269,7 @@ export async function runBrewAutoUpdate(
     }
     lock = candidate;
 
+    let installedUpdate = false;
     for (const step of UPDATE_STEPS) {
       setStatus(ui, step.status);
       let result: ExecResult;
@@ -285,11 +289,16 @@ export async function runBrewAutoUpdate(
       if (result.code !== 0) {
         return reportFailure(ui, `${step.label} failed: ${failureDetail(result)}`);
       }
+      if (step.installedUpdatePattern) {
+        installedUpdate ||= step.installedUpdatePattern.test(`${result.stdout}\n${result.stderr}`);
+      }
     }
 
-    const message = "Pi update check complete. Installed updates become active in the next Pi process.";
-    setStatus(ui, message);
-    notify(ui, message, "info");
+    const message = installedUpdate
+      ? "Pi updates installed. They become active in the next Pi process."
+      : "Pi is up to date.";
+    setStatus(ui, installedUpdate ? message : undefined);
+    if (installedUpdate) notify(ui, message, "info");
     return { status: "complete", message };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
