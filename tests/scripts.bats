@@ -2180,20 +2180,39 @@ PY
 
 @test "herdr-task-sync clock rollback and restart cannot lower generation or task high-water" {
   hts_setup
-  local control first_generation first_high_water
+  local control task first_generation first_high_water first_task_metadata first_presentation
+  local second_generation second_high_water second_task_metadata second_presentation
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=9000 hts_run --agent pi --session clock-s --set first-clock < /dev/null
-  hts_wait_for_quiescence "$control"
-  first_generation="$(hts_record_number "$control" generation)"
-  first_high_water="$(hts_record_number "$control" task_metadata_high_water)"
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 clock-s)"
 
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=100 hts_run --agent pi --session clock-s --set second-clock < /dev/null
-  hts_wait_for_record_number "$control" generation $((first_generation + 1))
-  hts_wait_for_quiescence "$control"
-  [[ "$(hts_record_number "$control" generation)" -gt "$first_generation" ]]
-  [[ "$(hts_record_number "$control" task_metadata_high_water)" -gt "$first_high_water" ]]
-  [[ "$(hts_record_number "$control" task_metadata_high_water)" -ge \
-    "$(hts_record_number "$control" committed_generation)" ]]
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=9000 HERDR_TASK_SYNC_TEST_NO_WORKER=1 \
+    hts_run --agent pi --session clock-s --set first-clock < /dev/null
+  first_generation="$(hts_record_number "$control" generation)"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=9000 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_worker_run
+  assert_equal "$(hts_record_number "$control" committed_generation)" "$first_generation"
+  assert_equal "$(hts_record_number "$task" generation)" "$first_generation"
+  first_high_water="$(hts_record_number "$control" task_metadata_high_water)"
+  first_task_metadata="$(hts_record_number "$task" metadata_seq)"
+  first_presentation="$(hts_record_number "$control" presentation_generation)"
+
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_WORKER=1 \
+    hts_run --agent pi --session clock-s --set second-clock < /dev/null
+  second_generation="$(hts_record_number "$control" generation)"
+  [[ "$second_generation" -gt "$first_generation" ]]
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_worker_run
+  assert_equal "$(hts_record_number "$control" committed_generation)" "$second_generation"
+  assert_equal "$(hts_record_number "$task" generation)" "$second_generation"
+
+  second_high_water="$(hts_record_number "$control" task_metadata_high_water)"
+  second_task_metadata="$(hts_record_number "$task" metadata_seq)"
+  second_presentation="$(hts_record_number "$control" presentation_generation)"
+  [[ "$second_high_water" -gt "$first_high_water" ]] || \
+    fail "task metadata high-water did not advance: first=$first_high_water second=$second_high_water generation=$second_generation"
+  [[ "$second_task_metadata" -gt "$first_task_metadata" ]] || \
+    fail "task metadata sequence did not advance: first=$first_task_metadata second=$second_task_metadata generation=$second_generation"
+  [[ "$second_presentation" -gt "$first_presentation" ]] || \
+    fail "presentation generation did not advance: first=$first_presentation second=$second_presentation generation=$second_generation"
+  [[ "$second_high_water" -ge "$second_generation" ]]
 }
 
 @test "herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions" {

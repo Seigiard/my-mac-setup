@@ -1528,7 +1528,8 @@ commit_task_result() {
       presentation="$(record_number "$task_file" presentation_generation)"
       metadata="$(record_number "$task_file" metadata_seq)"
     fi
-    if [ -z "$presentation" ] || [ "$presentation" -eq 0 ] || \
+    if [ "$task_generation" != "$expected_generation" ] || \
+      [ -z "$presentation" ] || [ "$presentation" -eq 0 ] || \
       [ -z "$metadata" ] || [ "$metadata" -eq 0 ]; then
       now="$(now_seq)"
       metadata="$(max_number \
