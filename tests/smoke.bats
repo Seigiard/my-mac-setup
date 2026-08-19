@@ -68,6 +68,58 @@ load 'helpers/common'
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
 }
 
+@test "herdr GitHub plugins install automatically on macOS" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+
+  assert_file_exists "$script"
+  assert_file_contains "$script" "ImArtisann/zed-herdr:artisann.zed-herdr"
+  assert_file_contains "$script" "dio16/herdr-auto-update:herdr-auto-update"
+  assert_file_contains "$script" 'herdr plugin install "$repo" -y'
+  assert_file_contains "$script" 'herdr plugin enable "$plugin_id"'
+
+  run grep -Fq '[[ "$(uname -s)" != "Darwin" ]]' "$script"
+  assert_success
+
+  run bash -n "$script"
+  assert_success
+}
+
+@test "herdr plugin updates are automatic and owner-restricted" {
+  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
+
+  assert_file_exists "$config"
+  assert_file_contains "$config" 'auto_update = true'
+  assert_file_contains "$config" 'policy = "auto"'
+  assert_file_contains "$config" 'trusted_owners = \["ImArtisann", "dio16"\]'
+  assert_file_contains "$config" 'require_fast_forward = true'
+  assert_file_contains "$config" 'allow_force_push = false'
+  assert_file_contains "$config" 'immutable_pins = true'
+}
+
+# herdr-auto-update holds any plugin whose GitHub owner is absent from
+# trusted_owners, so adding a plugin without extending the list silently stops
+# that plugin from ever updating. Keep the two lists coupled.
+@test "every auto-installed herdr plugin owner is listed in trusted_owners" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
+
+  local owners_line
+  owners_line="$(grep '^trusted_owners' "$config")"
+
+  local owner
+  local count=0
+  while read -r owner; do
+    [ -n "$owner" ] || continue
+    count=$((count + 1))
+    if [[ "$owners_line" != *"\"$owner\""* ]]; then
+      fail "plugin owner $owner is installed by the script but missing from trusted_owners"
+    fi
+  done < <(awk '/^plugins=\(/{f=1;next} f&&/^\)/{f=0} f' "$script" |
+    sed -n 's/^[[:space:]]*"\([^\/"]*\)\/.*/\1/p')
+
+  [ "$count" -gt 0 ]
+}
+
 @test "herdr lazygit popup entrypoint is configured" {
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Lazygit in popup"
