@@ -52,7 +52,6 @@ https://ccsafetynet.com/docs/installation
 | Skill             | Source                              | Managed     |
 | ----------------- | ----------------------------------- | ----------- |
 | ask-in-herdr      | `repo`                              | repo        |
-| crit              | `?` (crit CLI's skill — confirm)    | manual      |
 | eli5              | `repo`                              | repo        |
 | handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
 | herdr             | `repo`                              | repo        |
@@ -91,10 +90,10 @@ No OpenCode plugins are installed via `plugin[]`.
 
 Local plugins kept in repo: `herdr-agent-state.js`.
 
-### Skills (`~/.config/opencode/skills/` — 39)
+### Skills (`~/.config/opencode/skills/` — 38)
 
 - `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
-- Own: `crit` (cross-tool), `lfg`.
+- Own: `lfg`.
 
 ### Agents (`~/.config/opencode/agent/` — ~51)
 
@@ -120,7 +119,7 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Skills (`~/.pi/agent/skills/`)
 
-`crit` (cross-tool) · `web-research`
+`web-research`
 
 ### Agents (`~/.pi/agent/agents/` — authored, keep)
 
@@ -140,7 +139,6 @@ Ignored on purpose; not reproduced by this repo.
 
 | Skill | Claude | OpenCode | Pi   | Source |
 | ----- | ------ | -------- | ---- | ------ |
-| crit  | ✓      | ✓        | ✓    | `?`    |
 | herdr | ✓      | want     | want | `repo` |
 
 ---
@@ -157,7 +155,7 @@ Ignored on purpose; not reproduced by this repo.
 
 ## Drift / to confirm
 
-- Source of `crit` and `handoff` unconfirmed (`manual` installs, not reproduced).
+- Source of `handoff` is unconfirmed (`manual` install, not reproduced).
 - OpenCode carries `agent-enhancer`, `open-source-librarian`, `review` agents —
   confirm whether authored-and-synced or stragglers.
 - Whether to make `herdr` multi-tool now (currently Claude-only live).
