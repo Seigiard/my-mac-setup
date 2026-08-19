@@ -81,26 +81,26 @@ describe("brew auto update sequence", () => {
       ["brew", ["upgrade", "pi-coding-agent"]],
       ["pi", ["update", "--extensions"]],
     ]);
-    expect(statuses).toContain("Refreshing Homebrew metadata…");
-    expect(statuses).toContain("Updating Pi packages…");
-    expect(statuses.at(-1)).toBeUndefined();
+    expect(statuses).toEqual([]);
     expect(notifications).toEqual([]);
   });
 
   test.each([
     {
-      label: "Homebrew",
+      label: "Pi",
       command: "brew",
       args: ["upgrade", "pi-coding-agent"],
       stdout: "==> Upgrading pi-coding-agent\n  0.84.1 -> 0.84.2\n",
+      message: "Pi updated. Restart Pi to use the new version.",
     },
     {
-      label: "Pi package",
+      label: "extensions",
       command: "pi",
       args: ["update", "--extensions"],
       stdout: "Updating npm:example-extension...\nUpdated packages\n",
+      message: "Pi extensions updated. Restart Pi to use them.",
     },
-  ])("notifies when a $label update was installed", async (updated) => {
+  ])("shows one specific notification when $label changed", async (updated) => {
     const { deps, calls } = await dependencies({
       exec: async (command, args) => {
         calls.push([command, args]);
@@ -113,14 +113,37 @@ describe("brew auto update sequence", () => {
         };
       },
     });
-    const { ui, notifications } = fakeUi();
+    const { ui, statuses, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
     expect(result.status).toBe("complete");
+    expect(statuses).toEqual([]);
+    expect(notifications).toEqual([{ message: updated.message, level: "info" }]);
+  });
+
+  test("combines Pi and extension updates into one notification", async () => {
+    const { deps } = await dependencies({
+      exec: async (command, args) => ({
+        code: 0,
+        stdout:
+          command === "brew" && args[0] === "upgrade"
+            ? "==> Upgrading pi-coding-agent\n  0.84.1 -> 0.84.2\n"
+            : command === "pi"
+              ? "Updating npm:example-extension...\nUpdated packages\n"
+              : "",
+        stderr: "",
+        killed: false,
+      }),
+    });
+    const { ui, statuses, notifications } = fakeUi();
+
+    await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(statuses).toEqual([]);
     expect(notifications).toEqual([
       {
-        message: "Pi updates installed. They become active in the next Pi process.",
+        message: "Pi and its extensions updated. Restart Pi to use them.",
         level: "info",
       },
     ]);
@@ -134,7 +157,7 @@ describe("brew auto update sequence", () => {
 
     expect(result.status).toBe("skipped");
     expect(calls).toEqual([]);
-    expect(statuses.at(-1)).toContain("offline");
+    expect(statuses).toEqual([]);
   });
 
   test("disables startup only when PI_BREW_AUTO_UPDATE is zero", async () => {
@@ -160,8 +183,8 @@ describe("brew auto update sequence", () => {
 
     expect(result.status).toBe("failed");
     expect(calls).toHaveLength(1);
-    expect(statuses.at(-1)).toContain("timed out");
-    expect(notifications.at(-1)?.level).toBe("error");
+    expect(statuses).toEqual([]);
+    expect(notifications).toEqual([]);
   });
 
   test("stops on command failure without aborting the caller", async () => {
@@ -175,7 +198,7 @@ describe("brew auto update sequence", () => {
 
     await expect(runBrewAutoUpdate("manual", ui, deps)).resolves.toMatchObject({ status: "failed" });
     expect(calls).toHaveLength(1);
-    expect(notifications.at(-1)?.message).toContain("network failed");
+    expect(notifications).toEqual([]);
   });
 });
 
@@ -187,13 +210,14 @@ describe("cross-process update lock", () => {
       join(deps.lockPath, "owner.json"),
       JSON.stringify({ pid: 9001, startedAt: deps.now(), token: "other" }),
     );
-    const { ui, statuses } = fakeUi();
+    const { ui, statuses, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result.status).toBe("contended");
     expect(calls).toEqual([]);
-    expect(statuses.at(-1)).toContain("another Pi process");
+    expect(statuses).toEqual([]);
+    expect(notifications).toEqual([]);
   });
 
   test("recovers a lock whose owner process is dead", async () => {

@@ -4,7 +4,6 @@ import { mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const STATUS_ID = "brew-auto-update";
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_STALE_LOCK_MS = 20 * 60_000;
 const OWNER_FILE = "owner.json";
@@ -62,34 +61,41 @@ export interface UpdateResult {
   message: string;
 }
 
+type InstalledUpdate = "pi" | "extensions";
+
 interface UpdateStep {
   command: string;
   args: string[];
-  status: string;
   label: string;
-  installedUpdatePattern?: RegExp;
+  installedUpdate?: {
+    kind: InstalledUpdate;
+    pattern: RegExp;
+  };
 }
 
 const UPDATE_STEPS: UpdateStep[] = [
   {
     command: "brew",
     args: ["update"],
-    status: "Refreshing Homebrew metadata…",
     label: "Homebrew metadata refresh",
   },
   {
     command: "brew",
     args: ["upgrade", "pi-coding-agent"],
-    status: "Upgrading pi-coding-agent through Homebrew…",
     label: "pi-coding-agent Homebrew upgrade",
-    installedUpdatePattern: /^==>\s+Upgrading(?:[^\n]*\n)?[^\n]*pi-coding-agent/im,
+    installedUpdate: {
+      kind: "pi",
+      pattern: /^==>\s+Upgrading(?:[^\n]*\n)?[^\n]*pi-coding-agent/im,
+    },
   },
   {
     command: "pi",
     args: ["update", "--extensions"],
-    status: "Updating Pi packages…",
     label: "Pi package update",
-    installedUpdatePattern: /^Updating .+\.\.\.$/m,
+    installedUpdate: {
+      kind: "extensions",
+      pattern: /^Updating .+\.\.\.$/m,
+    },
   },
 ];
 
@@ -214,14 +220,6 @@ async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock
   return { acquired: false };
 }
 
-function setStatus(ui: UpdateUi, value: string | undefined): void {
-  try {
-    ui.setStatus(STATUS_ID, value);
-  } catch {
-    // UI reporting must never interrupt startup or lock cleanup.
-  }
-}
-
 function notify(ui: UpdateUi, message: string, level: NotificationLevel): void {
   try {
     ui.notify(message, level);
@@ -236,10 +234,17 @@ function failureDetail(result: ExecResult): string {
   return output.length > 500 ? `…${output.slice(-500)}` : output;
 }
 
-function reportFailure(ui: UpdateUi, message: string): UpdateResult {
-  setStatus(ui, message);
-  notify(ui, message, "error");
+function reportFailure(message: string): UpdateResult {
   return { status: "failed", message };
+}
+
+function installedUpdateMessage(updates: Set<InstalledUpdate>): string | undefined {
+  if (updates.has("pi") && updates.has("extensions")) {
+    return "Pi and its extensions updated. Restart Pi to use them.";
+  }
+  if (updates.has("pi")) return "Pi updated. Restart Pi to use the new version.";
+  if (updates.has("extensions")) return "Pi extensions updated. Restart Pi to use them.";
+  return undefined;
 }
 
 export async function runBrewAutoUpdate(
@@ -249,12 +254,10 @@ export async function runBrewAutoUpdate(
 ): Promise<UpdateResult> {
   if (deps.env.PI_OFFLINE === "1") {
     const message = "Pi update skipped: offline mode is active.";
-    setStatus(ui, message);
     return { status: "skipped", message };
   }
   if (trigger === "startup" && deps.env.PI_BREW_AUTO_UPDATE === "0") {
     const message = "Pi startup update is disabled.";
-    setStatus(ui, message);
     return { status: "skipped", message };
   }
 
@@ -263,46 +266,39 @@ export async function runBrewAutoUpdate(
     const candidate = await acquireLock(deps);
     if (!candidate.acquired) {
       const message = "Pi update skipped: another Pi process owns the update lock.";
-      setStatus(ui, message);
-      notify(ui, message, "info");
       return { status: "contended", message };
     }
     lock = candidate;
 
-    let installedUpdate = false;
+    const installedUpdates = new Set<InstalledUpdate>();
     for (const step of UPDATE_STEPS) {
-      setStatus(ui, step.status);
       let result: ExecResult;
       try {
         result = await deps.exec(step.command, [...step.args], { timeout: deps.timeoutMs });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        return reportFailure(ui, `${step.label} failed: ${detail}`);
+        return reportFailure(`${step.label} failed: ${detail}`);
       }
 
       if (result.killed) {
         return reportFailure(
-          ui,
           `${step.label} timed out after ${Math.round(deps.timeoutMs / 60_000)} minutes.`,
         );
       }
       if (result.code !== 0) {
-        return reportFailure(ui, `${step.label} failed: ${failureDetail(result)}`);
+        return reportFailure(`${step.label} failed: ${failureDetail(result)}`);
       }
-      if (step.installedUpdatePattern) {
-        installedUpdate ||= step.installedUpdatePattern.test(`${result.stdout}\n${result.stderr}`);
+      if (step.installedUpdate?.pattern.test(`${result.stdout}\n${result.stderr}`)) {
+        installedUpdates.add(step.installedUpdate.kind);
       }
     }
 
-    const message = installedUpdate
-      ? "Pi updates installed. They become active in the next Pi process."
-      : "Pi is up to date.";
-    setStatus(ui, installedUpdate ? message : undefined);
-    if (installedUpdate) notify(ui, message, "info");
-    return { status: "complete", message };
+    const updateMessage = installedUpdateMessage(installedUpdates);
+    if (updateMessage) notify(ui, updateMessage, "info");
+    return { status: "complete", message: updateMessage ?? "Pi is up to date." };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return reportFailure(ui, `Pi update failed without blocking startup: ${detail}`);
+    return reportFailure(`Pi update failed without blocking startup: ${detail}`);
   } finally {
     await lock?.release();
   }
