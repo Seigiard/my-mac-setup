@@ -110,7 +110,9 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 | ---------------------------- | --------------------------------------------------------- | ------- |
 | compound-engineering-plugin  | `git:github.com/EveryInc/compound-engineering-plugin`     | repo    |
 | pi-theme-flexoki             | `git:github.com/markacianfrani/pi-theme-flexoki`          | manual  |
-| pi-fff                       | `npm:@ff-labs/pi-fff`                                     | manual  |
+| pi-web-access                | `npm:pi-web-access`                                       | repo    |
+| pi-context-view              | `npm:pi-context-view`                                     | repo    |
+| pi-fff                       | `npm:@ff-labs/pi-fff`                                     | repo    |
 | pi-codex-conversion          | `npm:@howaboua/pi-codex-conversion`                       | manual  |
 | pi-agents                    | `npm:pi-agents`                                           | manual  |
 | pi-subagents                 | `npm:pi-subagents`                                        | manual  |

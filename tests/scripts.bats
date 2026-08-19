@@ -1805,7 +1805,7 @@ se_fake_runtime() {
 # Pi settings modifier
 # ===========================================
 
-@test "Pi settings modifier adds subagentura and preserves runtime settings" {
+@test "Pi settings modifier adds managed packages and preserves runtime settings" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"]}'
 
@@ -1817,19 +1817,31 @@ se_fake_runtime() {
     .lastChangelogVersion == "0.84.2" and
     (.packages | index("git:github.com/EveryInc/compound-engineering-plugin") != null) and
     (.packages | index("npm:pi-ask-user") != null) and
-    (.packages | index("npm:pi-subagentura") != null)
+    (.packages | index("npm:pi-subagentura") != null) and
+    (.packages | index("npm:pi-web-access") != null) and
+    (.packages | index("npm:pi-context-view") != null) and
+    (.packages | index("npm:@ff-labs/pi-fff") != null)
   ' <<< "$output"
   assert_success
 }
 
 @test "Pi settings modifier is idempotent" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:pi-subagentura","npm:pi-ask-user"]}'
+  local input='{"packages":["npm:pi-subagentura","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"]}'
 
   run bash "$modifier" <<< "$input"
 
   assert_success
-  run jq -e '[.packages[] | select(. == "npm:pi-subagentura")] | length == 1' <<< "$output"
+  run jq -e '
+    [
+      "npm:pi-subagentura",
+      "npm:pi-web-access",
+      "npm:pi-context-view",
+      "npm:@ff-labs/pi-fff"
+    ] as $required |
+    .packages as $packages |
+    all($required[]; . as $package | [$packages[] | select(. == $package)] | length == 1)
+  ' <<< "$output"
   assert_success
 }
 

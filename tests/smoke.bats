@@ -284,10 +284,15 @@ TOML
   assert_success
 }
 
-@test "pi settings include the managed subagent package" {
+@test "pi settings include all managed packages" {
   local settings="$HOME/.pi/agent/settings.json"
   assert_file_exists "$settings"
-  run jq -e '.packages | index("npm:pi-subagentura") != null' "$settings"
+  run jq -e '
+    (.packages | index("npm:pi-subagentura") != null) and
+    (.packages | index("npm:pi-web-access") != null) and
+    (.packages | index("npm:pi-context-view") != null) and
+    (.packages | index("npm:@ff-labs/pi-fff") != null)
+  ' "$settings"
   assert_success
 }
 
