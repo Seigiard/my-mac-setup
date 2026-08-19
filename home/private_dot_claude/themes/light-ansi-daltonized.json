@@ -1,0 +1,20 @@
+{
+  "name": "Light ANSI Daltonized",
+  "base": "light-ansi",
+  "overrides": {
+    "claude": "ansi:cyan",
+    "permission": "ansi:magenta",
+    "success": "ansi:cyan",
+    "error": "ansi:magenta",
+    "warning": "ansi:yellow",
+    "merged": "ansi:blue",
+    "promptBorder": "ansi:blue",
+    "planMode": "ansi:cyan",
+    "autoAccept": "ansi:cyan",
+    "bashBorder": "ansi:yellow",
+    "ide": "ansi:blue",
+    "fastMode": "ansi:magenta",
+    "userMessageBackground": "ansi:whiteBright",
+    "userMessageBackgroundHover": "ansi:white"
+  }
+}
