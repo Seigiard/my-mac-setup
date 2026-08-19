@@ -23,11 +23,21 @@ env:
 jobs:
   test-ubuntu:
     runs-on: ubuntu-latest
+    # A normal run takes ~5 min; a hung apt mirror otherwise holds the job
+    # for the 360-min default and burns Actions minutes.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # azure.archive.ubuntu.com outages hang apt for the whole job timeout:
+      # apt retries the dead mirror for every index file instead of failing
+      # over. The swap is unconditional — a health check would pass a half-dead
+      # mirror, and this job installs too little for mirror speed to matter.
+      - name: Drop the azure apt mirror
+        run: sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
 
       - name: Install zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
@@ -102,6 +112,8 @@ jobs:
 
   test-macos:
     runs-on: macos-latest
+    # A normal run takes ~10 min; brew install times vary, so keep headroom.
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -152,9 +164,14 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # See the ubuntu job: the azure mirror hangs apt when it degrades.
+      - name: Drop the azure apt mirror
+        run: sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
 
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck

@@ -1,0 +1,16 @@
+# Check GitHub-installed Herdr plugins when the server starts and apply safe updates.
+auto_update = true
+notify = true
+policy = "auto"
+
+# Bound network checks so Herdr startup cannot hang indefinitely.
+timeout_secs = 20
+max_concurrency = 8
+
+# Only these GitHub owners can supply automatically executed plugin updates.
+trusted_owners = ["dio16"]
+
+# Accept forward-only branch updates. Keep explicit tag and commit pins immutable.
+require_fast_forward = true
+allow_force_push = false
+immutable_pins = true

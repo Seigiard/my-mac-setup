@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Install and enable the macOS Herdr plugins that remain managed by their GitHub sources.
+# Herdr records the source repository so herdr-auto-update can update these plugins later.
+# Runs last of the herdr scripts so its single `herdr server reload-config` also picks up the
+# locally linked plugins that scripts 5 and 6 install.
+#
+# Hash triggers:
+# {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
+# {{ if lookPath "herdr" }}herdr version: {{ output "herdr" "--version" | sha256sum }}{{ else }}herdr version: unavailable at apply time{{ end }}
+
+# Keep this tolerant: a missing Herdr or an unavailable GitHub repository must not make
+# chezmoi apply fail. Report every failed plugin so the user has an exact recovery command.
+set -u
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  exit 0
+fi
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping GitHub plugin installation"
+  exit 0
+fi
+
+failed=()
+
+# Remove plugins whose behavior moved into the local command palette.
+if plugin_json="$(herdr plugin list --json 2>/dev/null)"; then
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    plugins = data.get("result", {}).get("plugins", [])
+except (AttributeError, json.JSONDecodeError):
+    raise SystemExit(2)
+raise SystemExit(0 if any(plugin.get("plugin_id") == "artisann.zed-herdr" for plugin in plugins) else 1)
+' 2>/dev/null
+  zed_herdr_state=$?
+  if [[ $zed_herdr_state -eq 0 ]]; then
+    if herdr plugin uninstall artisann.zed-herdr >/dev/null 2>&1; then
+      echo "Removed obsolete Herdr plugin artisann.zed-herdr"
+    else
+      failed+=("artisann.zed-herdr (uninstall: herdr plugin uninstall artisann.zed-herdr)")
+    fi
+  elif [[ $zed_herdr_state -ne 1 ]]; then
+    failed+=("failed to inspect obsolete plugin artisann.zed-herdr (herdr plugin list --json)")
+  fi
+else
+  failed+=("failed to list Herdr plugins (herdr plugin list --json)")
+fi
+
+plugins=(
+  "dio16/herdr-auto-update:herdr-auto-update"
+)
+
+for entry in "${plugins[@]}"; do
+  repo="${entry%%:*}"
+  plugin_id="${entry#*:}"
+
+  if ! herdr plugin install "$repo" -y >/dev/null 2>&1; then
+    failed+=("$repo (install: herdr plugin install $repo -y)")
+    continue
+  fi
+
+  if herdr plugin enable "$plugin_id" >/dev/null 2>&1; then
+    echo "Installed and enabled Herdr plugin $plugin_id from $repo"
+  else
+    failed+=("$repo (enable: herdr plugin enable $plugin_id)")
+  fi
+done
+
+if herdr server reload-config >/dev/null 2>&1; then
+  echo "Reloaded Herdr config"
+else
+  echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+fi
+
+if [[ ${#failed[@]} -gt 0 ]]; then
+  printf 'Warning: failed to configure Herdr plugin %s\n' "${failed[@]}" >&2
+fi
+
+exit 0

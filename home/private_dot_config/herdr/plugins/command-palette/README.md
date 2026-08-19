@@ -88,6 +88,8 @@ Supported command types:
 - `pane_run`: sends a shell command to the pane that opened the palette.
 - `tab_run`: creates a new Herdr tab and runs a shell command there.
 - `shell`: runs a shell command inside the overlay and pauses for output.
+  `Open in Zed` delegates to `open_in_zed.py`, which validates the pane directory, prefers its
+  Git root, and opens that path in the existing Zed window without shell interpolation.
 - `overlay_shell`: replaces the overlay with an interactive shell command.
 - `plugin_action`: invokes another Herdr plugin action.
 - `workspace_picker`: opens a navigable workspace switcher.

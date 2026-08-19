@@ -58,6 +58,7 @@ load 'helpers/common'
   assert_file_exists "$HOME/.config/herdr/config.toml"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open.py"
+  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open_in_zed.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/palette.py"
   assert_file_exists "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
   assert_file_exists "$HOME/.config/herdr/command-palette/commands.toml"
@@ -68,6 +69,117 @@ load 'helpers/common'
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
 }
 
+@test "remaining herdr GitHub plugins install automatically on macOS" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+
+  assert_file_exists "$script"
+  run grep -F "ImArtisann/zed-herdr:artisann.zed-herdr" "$script"
+  assert_failure
+  assert_file_contains "$script" 'herdr plugin uninstall artisann.zed-herdr'
+  assert_file_contains "$script" "dio16/herdr-auto-update:herdr-auto-update"
+  assert_file_contains "$script" 'herdr plugin install "$repo" -y'
+  assert_file_contains "$script" 'herdr plugin enable "$plugin_id"'
+
+  run grep -Fq '[[ "$(uname -s)" != "Darwin" ]]' "$script"
+  assert_success
+
+  run bash -n "$script"
+  assert_success
+}
+
+@test "obsolete zed-herdr removal accepts formatted plugin JSON" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin"
+  local calls="$BATS_TEST_TMPDIR/herdr.calls"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  cat <<'JSON'
+{
+  "result": {
+    "plugins": [
+      { "plugin_id": "artisann.zed-herdr" }
+    ]
+  }
+}
+JSON
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
+  assert_success
+}
+
+@test "obsolete zed-herdr removal reports malformed plugin JSON" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+if [ "$*" = "plugin list --json" ]; then
+  printf '{malformed}\n'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
+@test "herdr plugin updates are automatic and owner-restricted" {
+  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
+
+  assert_file_exists "$config"
+  assert_file_contains "$config" 'auto_update = true'
+  assert_file_contains "$config" 'policy = "auto"'
+  assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
+  assert_file_contains "$config" 'require_fast_forward = true'
+  assert_file_contains "$config" 'allow_force_push = false'
+  assert_file_contains "$config" 'immutable_pins = true'
+}
+
+# herdr-auto-update holds any plugin whose GitHub owner is absent from
+# trusted_owners, so adding a plugin without extending the list silently stops
+# that plugin from ever updating. Keep the two lists coupled.
+@test "every auto-installed herdr plugin owner is listed in trusted_owners" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
+
+  local owners_line
+  owners_line="$(grep '^trusted_owners' "$config")"
+
+  local owner
+  local count=0
+  while read -r owner; do
+    [ -n "$owner" ] || continue
+    count=$((count + 1))
+    if [[ "$owners_line" != *"\"$owner\""* ]]; then
+      fail "plugin owner $owner is installed by the script but missing from trusted_owners"
+    fi
+  done < <(awk '/^plugins=\(/{f=1;next} f&&/^\)/{f=0} f' "$script" |
+    sed -n 's/^[[:space:]]*"\([^\/"]*\)\/.*/\1/p')
+
+  [ "$count" -gt 0 ]
+}
+
 @test "herdr lazygit popup entrypoint is configured" {
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Lazygit in popup"
@@ -76,6 +188,7 @@ load 'helpers/common'
 @test "herdr command palette sources are valid" {
   run python3 -m py_compile \
     "$HOME/.config/herdr/plugins/command-palette/open.py" \
+    "$HOME/.config/herdr/plugins/command-palette/open_in_zed.py" \
     "$HOME/.config/herdr/plugins/command-palette/palette.py" \
     "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
   assert_success
@@ -230,6 +343,32 @@ TOML
   assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
   run grep -q 'Answer first: the conclusion is line one.' "$HOME/.pi/agent/APPEND_SYSTEM.md"
   assert_success
+}
+
+@test "pi settings include all managed packages" {
+  local settings="$HOME/.pi/agent/settings.json"
+  assert_file_exists "$settings"
+  run jq -e '
+    (.packages | index("npm:pi-subagentura") != null) and
+    (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
+    (.packages | index("npm:pi-web-access") != null) and
+    (.packages | index("npm:pi-context-view") != null) and
+    (.packages | index("npm:@ff-labs/pi-fff") != null)
+  ' "$settings"
+  assert_success
+}
+
+@test "coding agents use terminal color palettes" {
+  run jq -e '.theme == "light-ansi"' "$HOME/.claude/settings.json"
+  assert_success
+
+  run jq -e '.theme == "terminal"' "$HOME/.pi/agent/settings.json"
+  assert_success
+  assert_file_exists "$HOME/.pi/agent/themes/terminal.json"
+
+  run jq -e '.theme == "system"' "$HOME/.config/opencode/tui.json"
+  assert_success
+  assert_file_not_exists "$HOME/.config/opencode/themes/flexoki-light-forced.json"
 }
 
 @test "opencode reads the shared writing-style file via instructions" {
@@ -818,6 +957,44 @@ PY
   assert_file_contains "$ext" 'before_agent_start'
   assert_file_contains "$ext" 'session_start'
   assert_file_contains "$ext" 'getSessionName'
+}
+
+@test "Pi brew auto updater is deployed with startup and manual entry points" {
+  local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
+  assert_file_exists "$ext"
+  assert_file_contains "$ext" 'pi.on("session_start"'
+  assert_file_contains "$ext" 'event.reason !== "startup"'
+  assert_file_contains "$ext" 'registerCommand("brew-auto-update-now"'
+  assert_file_contains "$ext" 'PI_OFFLINE'
+  assert_file_contains "$ext" 'PI_BREW_AUTO_UPDATE'
+}
+
+@test "Pi brew auto updater keeps package-manager commands scoped" {
+  local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
+  run python3 - "$ext" <<'PY'
+import re
+import sys
+
+source = open(sys.argv[1], encoding="utf-8").read()
+required = [
+    r'command: "brew",\s+args: \["update"\]',
+    r'command: "brew",\s+args: \["upgrade", "pi-coding-agent"\]',
+    r'command: "pi",\s+args: \["update", "--extensions"\]',
+    r'deps\.exec\(step\.command, \[\.\.\.step\.args\]',
+]
+for pattern in required:
+    assert re.search(pattern, source), pattern
+for forbidden in ('"--self"', '"--all"', 'command: "npm"'):
+    assert forbidden not in source, forbidden
+assert len(re.findall(r'command: "brew"', source)) == 2
+assert len(re.findall(r'command: "pi"', source)) == 1
+PY
+  assert_success
+}
+
+@test "Pi brew auto updater focused tests pass" {
+  run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
+  assert_success
 }
 
 @test "herdr-task-sync opencode plugin is deployed and filters child sessions" {
