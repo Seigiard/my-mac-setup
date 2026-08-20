@@ -49,12 +49,12 @@ sidebar_min_width = 32
 
 # The `pane` row renders the pane label, which herdr-task-sync
 # (~/.local/bin/herdr-task-sync) sets to `<agent-prefix>:<task-slug>`. The same
-# script rebuilds each tab label from the labels of its panes. Herdr 0.8
-# collapses a custom-token row when its token is empty, so the combined Git
-# location and stale status remain separate without leaving blank rows for
-# non-Git panes.
+# script rebuilds each tab label from the labels of its panes. The second row
+# is the combined Git location token (place icon + ref + optional folder
+# qualifier + stale suffix icon); herdr 0.8 collapses the row entirely for
+# non-Git panes because the token is empty.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace", "pane"], ["$location_label"], ["$location_status"]]
+rows = [["state_icon", "workspace", "pane"], ["$git_ref"]]
 
 [ui.toast]
 delivery = "system"   # off | herdr | terminal | system
