@@ -9,10 +9,10 @@
     "magenta": 5,
     "cyan": 6,
     "gray": 8,
-    "mutedText": "#6F6E69",
-    "dimText": "#878580",
-    "subtleLine": "#B7B5AC",
-    "softBg": "#F2F0E5"
+    "mutedText": 8,
+    "dimText": 8,
+    "subtleLine": 8,
+    "softBg": 15
   },
   "colors": {
     "accent": "cyan",
