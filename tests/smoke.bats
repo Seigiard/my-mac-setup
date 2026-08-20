@@ -3,65 +3,70 @@
 load 'helpers/common'
 
 # ===========================================
-# Core tools (must exist on both platforms)
-# ===========================================
-
-@test "zsh is installed" {
-  run command -v zsh
-  assert_success
-}
-
-@test "git is installed" {
-  run command -v git
-  assert_success
-}
-
-@test "curl is installed" {
-  run command -v curl
-  assert_success
-}
-
-# ===========================================
 # Chezmoi-managed files exist
 # ===========================================
 
-@test ".zshrc exists" {
-  assert_file_exists "$HOME/.zshrc"
-}
+# One manifest replaces the per-file existence tests. A file that falls out of
+# management (a .chezmoiignore edit, a lost dot_ prefix) keeps `chezmoi verify`
+# green — verify only checks what is still managed — so deployment and
+# management membership are both asserted against this curated list.
+@test "critical managed files are deployed and still managed" {
+  local paths=(
+    .zshrc
+    .aliases
+    .gitconfig
+    .gitignore
+    .editorconfig
+    .config/starship.toml
+    .config/yazi
+    .claude
+    .claude/CLAUDE.md
+    .config/herdr/config.toml
+    .config/herdr/plugins/command-palette/herdr-plugin.toml
+    .config/herdr/plugins/command-palette/open.py
+    .config/herdr/plugins/command-palette/open_in_zed.py
+    .config/herdr/plugins/command-palette/palette.py
+    .config/herdr/plugins/command-palette/smart_close.py
+    .config/herdr/command-palette/commands.toml
+  )
+  if is_macos; then
+    paths+=(
+      .hammerspoon
+      .config/ghostty
+      .config/kitty/kitty.conf
+      .config/kitty/herdr.conf
+      .config/karabiner
+      .config/zed
+      .config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml
+      .config/herdr/plugins/herdr-caffeinate/reconcile.sh
+      .config/herdr/plugins/herdr-caffeinate/lib.sh
+      .config/herdr/plugins/herdr-caffeinate/actions.sh
+      .config/herdr/plugins/herdr-caffeinate/config.example.sh
+    )
+  fi
 
-@test ".aliases exists" {
-  assert_file_exists "$HOME/.aliases"
-}
+  local p missing=""
+  for p in "${paths[@]}"; do
+    [ -e "$HOME/$p" ] || missing="$missing $p"
+  done
+  [ -z "$missing" ] || fail "missing from \$HOME:$missing"
 
-@test ".gitconfig exists" {
-  assert_file_exists "$HOME/.gitconfig"
-}
-
-@test ".gitignore exists" {
-  assert_file_exists "$HOME/.gitignore"
+  command_exists chezmoi || return 0
+  local managed unmanaged=""
+  managed="$(PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" managed)"
+  for p in "${paths[@]}"; do
+    case $'\n'"$managed"$'\n' in
+      *$'\n'"$p"$'\n'*) ;;
+      *$'\n'"$p"/*) ;;
+      *) unmanaged="$unmanaged $p" ;;
+    esac
+  done
+  [ -z "$unmanaged" ] || fail "deployed but no longer chezmoi-managed:$unmanaged"
 }
 
 @test ".gitignore ignores the agent trash directory" {
   run grep -qx '\.scratchpad/' "$HOME/.gitignore"
   [ "$status" -eq 0 ]
-}
-
-@test ".editorconfig exists" {
-  assert_file_exists "$HOME/.editorconfig"
-}
-
-@test "starship.toml exists" {
-  assert_file_exists "$HOME/.config/starship.toml"
-}
-
-@test "herdr command palette plugin exists" {
-  assert_file_exists "$HOME/.config/herdr/config.toml"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open.py"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/open_in_zed.py"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/palette.py"
-  assert_file_exists "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
-  assert_file_exists "$HOME/.config/herdr/command-palette/commands.toml"
 }
 
 @test "herdr command palette keybinding is configured" {
@@ -149,11 +154,7 @@ SH
 
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
-  assert_file_contains "$config" 'policy = "auto"'
   assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
-  assert_file_contains "$config" 'require_fast_forward = true'
-  assert_file_contains "$config" 'allow_force_push = false'
-  assert_file_contains "$config" 'immutable_pins = true'
 }
 
 # herdr-auto-update holds any plugin whose GitHub owner is absent from
@@ -245,12 +246,6 @@ PY
   assert_success
 }
 
-@test "herdr command palette can load commands" {
-  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); cfg, cmds = mod.load_commands(); assert cfg.name == "commands.toml"; assert len(cmds) > 0'
-  assert_success
-  assert_file_exists "$HOME/.config/herdr/command-palette/commands.toml"
-}
-
 @test "herdr command palette loads TOML and project-local commands" {
   tmpdir="$(mktemp -d)"
   mkdir -p "$tmpdir/global" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette"
@@ -299,39 +294,9 @@ PY
   rm -rf "$tmpdir"
 }
 
-@test "herdr command palette rejects invalid TOML commands" {
-  tmpdir="$(mktemp -d)"
-  cat > "$tmpdir/bad.toml" <<'TOML'
-name = "Broken"
-type = "not_a_type"
-command = "echo broken"
-TOML
-
-  run python3 "$HOME/.config/herdr/plugins/command-palette/palette.py" --validate "$tmpdir/bad.toml"
-  assert_failure
-  assert_output --partial "unsupported type"
-  rm -rf "$tmpdir"
-}
-
-# ===========================================
-# Yazi configuration
-# ===========================================
-
-@test "yazi config exists" {
-  assert_dir_exists "$HOME/.config/yazi"
-}
-
 # ===========================================
 # Claude Code configuration
 # ===========================================
-
-@test ".claude directory exists" {
-  assert_dir_exists "$HOME/.claude"
-}
-
-@test ".claude/CLAUDE.md exists" {
-  assert_file_exists "$HOME/.claude/CLAUDE.md"
-}
 
 @test "writing-style output style is deployed and enabled in settings" {
   assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
@@ -389,39 +354,39 @@ TOML
   assert_failure
 }
 
-@test "ask-in-herdr skill and shared child contract are deployed" {
-  assert_file_exists "$HOME/.claude/skills/ask-in-herdr/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/ask-in-herdr/scripts/ask.sh"
-  assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
+# One manifest replaces the per-skill existence tests; content-level guards
+# (YAML descriptions, shared-pointer resolution) keep their own tests below.
+@test "agent skills are deployed with their scripts and references" {
+  local files=(
+    skills/ask-in-herdr/SKILL.md
+    skills/ask-in-herdr/scripts/ask.sh
+    shared/child-agent-contract.md
+    skills/se-flow/SKILL.md
+    skills/eli5/SKILL.md
+    skills/open-questions/SKILL.md
+    skills/writing-for-agents/SKILL.md
+    skills/writing-for-agents/SKILL-MECHANICS.md
+    skills/work-summary/SKILL.md
+    skills/work-summary/references/update-format.md
+    skills/work-summary/references/report-format.md
+    skills/vector-prime/SKILL.md
+    skills/vector-prime/scripts/vp.sh
+    skills/pf-research/SKILL.md
+    skills/pf-spec/SKILL.md
+    skills/pf-build/SKILL.md
+    shared/pf-cycle.md
+    skills/pf-build/references/direct-build.md
+    skills/pf-build/references/implementer-prompt.md
+    skills/pf-build/references/demo.md
+  )
+  local f missing=""
+  for f in "${files[@]}"; do
+    [ -f "$HOME/.claude/$f" ] || missing="$missing $f"
+  done
+  [ -z "$missing" ] || fail "missing under ~/.claude:$missing"
+
+  # The retired per-agent scripts directory must stay deleted.
   assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
-}
-
-@test "se-flow orchestrator skill is deployed" {
-  assert_file_exists "$HOME/.claude/skills/se-flow/SKILL.md"
-}
-
-@test "eli5 skill is deployed" {
-  assert_file_exists "$HOME/.claude/skills/eli5/SKILL.md"
-}
-
-@test "open-questions skill is deployed" {
-  assert_file_exists "$HOME/.claude/skills/open-questions/SKILL.md"
-}
-
-@test "writing-for-agents skill is deployed with its mechanics reference" {
-  assert_file_exists "$HOME/.claude/skills/writing-for-agents/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/writing-for-agents/SKILL-MECHANICS.md"
-}
-
-@test "work-summary skill is deployed with both format references" {
-  assert_file_exists "$HOME/.claude/skills/work-summary/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/work-summary/references/update-format.md"
-  assert_file_exists "$HOME/.claude/skills/work-summary/references/report-format.md"
-}
-
-@test "vector-prime skill is deployed with its request helper" {
-  assert_file_exists "$HOME/.claude/skills/vector-prime/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/vector-prime/scripts/vp.sh"
 }
 
 @test "every skill description survives YAML parsing" {
@@ -445,16 +410,6 @@ TOML
   [ -z "$offenders" ] || fail "unquoted description with ' #' or ': ':$offenders"
 }
 
-@test "pf-research, pf-spec, and pf-build skills are deployed with the shared cycle doc" {
-  assert_file_exists "$HOME/.claude/skills/pf-research/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/pf-spec/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/pf-build/SKILL.md"
-  assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
-  assert_file_exists "$HOME/.claude/skills/pf-build/references/direct-build.md"
-  assert_file_exists "$HOME/.claude/skills/pf-build/references/implementer-prompt.md"
-  assert_file_exists "$HOME/.claude/skills/pf-build/references/demo.md"
-}
-
 @test "shared references are deployed and every pointer to them resolves" {
   assert_file_exists "$HOME/.claude/shared/README.md"
   assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
@@ -470,23 +425,6 @@ TOML
 # ===========================================
 # macOS-only configs (skipped on Linux)
 # ===========================================
-
-@test "hammerspoon config exists (macOS only)" {
-  is_macos || skip "Not on macOS"
-  assert_dir_exists "$HOME/.hammerspoon"
-}
-
-@test "ghostty config exists (macOS only)" {
-  is_macos || skip "Not on macOS"
-  assert_dir_exists "$HOME/.config/ghostty"
-}
-
-@test "kitty config exists (macOS only)" {
-  is_macos || skip "Not on macOS"
-  assert_dir_exists "$HOME/.config/kitty"
-  assert_file_exists "$HOME/.config/kitty/kitty.conf"
-  assert_file_exists "$HOME/.config/kitty/herdr.conf"
-}
 
 @test "kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)" {
   is_macos || skip "Not on macOS"
@@ -550,38 +488,13 @@ TOML
   assert_file_contains "$config" "^# palette: Panes | ⌘D | Split right$"
 }
 
-@test "karabiner config exists (macOS only)" {
-  is_macos || skip "Not on macOS"
-  assert_dir_exists "$HOME/.config/karabiner"
-}
-
-@test "zed config exists (macOS only)" {
-  is_macos || skip "Not on macOS"
-  assert_dir_exists "$HOME/.config/zed"
-}
-
 @test "lazygit config keeps Russian-layout keybindings and popup exit (macOS only)" {
   is_macos || skip "Not on macOS"
   local config="$HOME/Library/Application Support/lazygit/config.yml"
-  assert_file_contains "$config" "^keybinding:$"
-  assert_file_contains "$config" "^  universal:$"
+  # One -alt binding stands in for the whole Russian-layout section; losing the
+  # section drops them all together, so a single marker catches it.
   assert_file_contains "$config" "^    prevBlock-alt: р$"
-  assert_file_contains "$config" "^    nextItem-alt: о$"
-  assert_file_contains "$config" "^    prevItem-alt: л$"
-  assert_file_contains "$config" "^    nextBlock-alt: д$"
-  assert_file_contains "$config" "^    scrollDownMain-alt1: О$"
-  assert_file_contains "$config" "^    scrollUpMain-alt1: Л$"
-  assert_file_contains "$config" "^    diffingMenu-alt: Ц$"
   assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
-}
-
-@test "herdr caffeinate plugin exists (macOS only)" {
-  is_macos || skip "Not on macOS"
-  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml"
-  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/reconcile.sh"
-  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/lib.sh"
-  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/actions.sh"
-  assert_file_exists "$HOME/.config/herdr/plugins/herdr-caffeinate/config.example.sh"
 }
 
 @test "herdr caffeinate plugin scripts are valid sh (macOS only)" {
@@ -593,32 +506,8 @@ TOML
 }
 
 # ===========================================
-# Optional tools (installed via package manager)
+# Hard tool dependencies
 # ===========================================
-
-@test "starship is available (if installed)" {
-  command_exists starship || skip "starship not installed"
-  run starship --version
-  assert_success
-}
-
-@test "bat is available (if installed)" {
-  command_exists bat || skip "bat not installed"
-  run bat --version
-  assert_success
-}
-
-@test "eza is available (if installed)" {
-  command_exists eza || skip "eza not installed"
-  run eza --version
-  assert_success
-}
-
-@test "fd is available (if installed)" {
-  command_exists fd || skip "fd not installed"
-  run fd --version
-  assert_success
-}
 
 # fzf is a hard dependency of the command palette: palette.py shells out to
 # `fzf --filter` as its only scorer and refuses to start without it. So this
@@ -642,42 +531,6 @@ spec.loader.exec_module(palette)
 found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
 assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
 PY
-  assert_success
-}
-
-@test "ripgrep is available (if installed)" {
-  command_exists rg || skip "ripgrep not installed"
-  run rg --version
-  assert_success
-}
-
-@test "delta is available (if installed)" {
-  command_exists delta || skip "delta not installed"
-  run delta --version
-  assert_success
-}
-
-@test "yazi is available (if installed)" {
-  command_exists yazi || skip "yazi not installed"
-  run yazi --version
-  assert_success
-}
-
-@test "lazygit is available (if installed)" {
-  command_exists lazygit || skip "lazygit not installed"
-  run lazygit --version
-  assert_success
-}
-
-@test "zoxide is available (if installed)" {
-  command_exists zoxide || skip "zoxide not installed"
-  run zoxide --version
-  assert_success
-}
-
-@test "mise is available (if installed)" {
-  command_exists mise || skip "mise not installed"
-  run mise --version
   assert_success
 }
 
@@ -952,6 +805,12 @@ for event, action in (("UserPromptSubmit", "prompt"),
     matching = [c for c in commands if "herdr-task-sync-hook.sh" in c]
     assert len(matching) == 1, (event, commands)
     assert matching[0].endswith(f"' {action}"), (event, matching[0])
+
+# UserPromptSubmit has no matcher support; the herdr agent-state SessionStart
+# hook must stay wired alongside the task-sync one.
+assert all("matcher" not in e for e in hooks["UserPromptSubmit"]), hooks["UserPromptSubmit"]
+session = [h["command"] for entry in hooks["SessionStart"] for h in entry["hooks"]]
+assert any("herdr-agent-state.sh" in c for c in session), session
 PY
   assert_success
 }

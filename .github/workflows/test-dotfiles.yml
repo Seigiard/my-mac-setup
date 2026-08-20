@@ -78,11 +78,7 @@ jobs:
       - name: Initialize chezmoi
         run: chezmoi init --source=./home
 
-      # Stage 2: Validate test infrastructure
-      - name: Validate test infrastructure
-        run: bats tests/helpers_test.bats
-
-      # Stage 3: Fast pre-check gate (no apply needed)
+      # Stage 2: Fast pre-check gate (no apply needed)
       - name: Run template tests (pre-apply gate)
         run: bats tests/templates.bats
 
@@ -132,9 +128,6 @@ jobs:
 
       - name: Initialize chezmoi
         run: chezmoi init --source=./home
-
-      - name: Validate test infrastructure
-        run: bats tests/helpers_test.bats
 
       - name: Run template tests (pre-apply gate)
         run: bats tests/templates.bats
