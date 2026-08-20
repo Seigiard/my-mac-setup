@@ -71,3 +71,8 @@ A reusable unit of pipeline work (a scan, an agent run, a subflow) registered in
 
 ### Zero-in-flight rule
 The delivery rule that workflow code — the interpreter, blocks, and shared libraries — is edited only when no run is live or parked. A durable engine ties each run's identity to that code, so editing it under an in-flight run breaks the run's resume; runs are drained or explicitly written off first.
+
+## Theming
+
+### Palette-only contract
+The rule that TUI theme files managed by this repo (Claude Code, opencode, pi) reference the terminal's ANSI palette slots — indices 0–15, `ansi:` names, or "terminal default" — never baked hex, so every tool follows the terminal scheme automatically. Enforced syntactically by bats tests in `tests/scripts.bats`; the terminal-theme-playground project is its visual counterpart ("eyes", not enforcement).
