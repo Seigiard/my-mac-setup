@@ -45,6 +45,16 @@ cross-model review leg.
 - Alternatively, split `reconcile_presentation_pass` (currently about 480 lines,
   1091-1571) along its existing phase boundaries into functions that each own a
   narrower record.
+- A third, narrower option from the se-simplify run: the six `current_*`
+  baseline fields (`current_repo`, `current_worktree`, `current_branch`,
+  `current_location_status`, `current_git_ref`, `current_pane_inline`) are
+  threaded through intermediate stages that never read them — the roots loop
+  touches only `_checkout_root`, the git_ref loop only `_current_worktree` —
+  and are genuinely consumed only in the final diff loop. Drop them from the
+  intermediate records, build one narrow `pane_id<FS>baseline...` table from
+  `pane_rows` once, and look each pane's baseline up with a
+  `table_value_for`-style keyed read in the final loop. That shrinks the widest
+  records by five fields without the jq-per-row cost of the base64-JSON option.
 
 ## Open decisions
 
