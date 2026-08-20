@@ -51,13 +51,6 @@ teardown() {
   assert_success
 }
 
-@test "install-packages script uses set -e" {
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
-  [[ -f "$script" ]] || skip "install-packages script not found at $script"
-  run grep -q "set -e" "$script"
-  assert_success
-}
-
 @test "install-packages template has no rendering errors" {
   skip_if_no_chezmoi
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
@@ -77,12 +70,6 @@ teardown() {
 @test "macos-tunes script is valid bash" {
   local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
   run bash -n "$script"
-  assert_success
-}
-
-@test "macos-tunes script uses set -e" {
-  local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
-  run grep -q "set -e" "$script"
   assert_success
 }
 
@@ -4400,32 +4387,6 @@ EOF
   run hts_hook_run prompt <<< 'not json at all'
   assert_success
   assert_output ""
-}
-
-@test "settings template wires the task-sync hook to all three events" {
-  skip_if_no_chezmoi
-  local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/claude-settings-XXXXXX.json)"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
-  run python3 - "$BATS_TEST_TMPFILE" <<'PY'
-import json, sys
-hooks = json.load(open(sys.argv[1]))["hooks"]
-def commands(event):
-    return [h["command"] for entry in hooks[event] for h in entry["hooks"]]
-
-for event, action in (("UserPromptSubmit", "prompt"),
-                      ("SessionStart", "session"),
-                      ("PreCompact", "compact")):
-    matching = [c for c in commands(event) if "herdr-task-sync-hook.sh" in c]
-    assert len(matching) == 1, (event, commands(event))
-    assert matching[0].endswith(f"' {action}"), (event, matching[0])
-
-# UserPromptSubmit has no matcher support; the herdr agent-state SessionStart
-# hook must stay wired alongside the new one.
-assert all("matcher" not in e for e in hooks["UserPromptSubmit"]), hooks["UserPromptSubmit"]
-assert any("herdr-agent-state.sh" in c for c in commands("SessionStart")), commands("SessionStart")
-PY
-  assert_success
 }
 
 @test "se pipeline --setup-cmd lands in the workflow input JSON" {

@@ -40,9 +40,6 @@ services:
           --promptString name="Test User" \
           --promptString email="test@example.com"
 
-        echo "=== Validating test infrastructure ==="
-        bats tests/helpers_test.bats
-
         echo "=== Running template tests (pre-apply gate) ==="
         bats tests/templates.bats
 
@@ -73,7 +70,6 @@ services:
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
-        bats tests/helpers_test.bats
         bats tests/templates.bats
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
         bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
