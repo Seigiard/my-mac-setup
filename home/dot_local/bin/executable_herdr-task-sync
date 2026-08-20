@@ -59,6 +59,11 @@ ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 FIELD_SEPARATOR=$'\037'
 WORKTREE_TOKEN_MAX_LEN=18
+# A repo name qualifies a tab segment only when the tab spans several
+# repositories, and it is capped harder than the ref beside it: two prefixes at
+# full width (repo + icon + ref) plus their spaces and the pane separator
+# already claim 71 of the 80 label columns, leaving the two pane texts nine.
+REPO_TOKEN_MAX_LEN=12
 LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"
 LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}"
 STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}"
@@ -895,6 +900,18 @@ EOF
   printf '%s' "$mappings"
 }
 
+# Membership test over a newline-joined list. Used for pane sets that are
+# read straight off the snapshot rather than carried in a presentation record.
+list_contains_line() {
+  local wanted="$1" list="$2" line
+  while IFS= read -r line; do
+    [ "$line" != "$wanted" ] || return 0
+  done <<EOF
+$list
+EOF
+  return 1
+}
+
 # Look up the value column of a FIELD_SEPARATOR-joined two-column table
 # (key␟value rows). Serves worktree tokens and workspace names alike.
 table_value_for() {
@@ -951,6 +968,19 @@ native_session_matches_active() {
   return 1
 }
 
+# The repo name qualifies a tab segment prefix only while the tab spans more
+# than one repository. Both tab branches route through here so the rule and its
+# cap stay in one place. A pane with no prefix gets no repo either — a bare repo
+# name is not a location.
+repo_qualified_prefix() {
+  local repo="$1" prefix="$2"
+  if [ -n "$repo" ] && [ -n "$prefix" ]; then
+    printf '%s %s' "$(truncate_text "$repo" "$REPO_TOKEN_MAX_LEN")" "$prefix"
+  else
+    printf '%s' "$prefix"
+  fi
+}
+
 # Segment prefixes arrive fully formed ($git_ref segment form, optionally
 # repo-qualified); this function only balances the two pane texts within the
 # label column budget.
@@ -966,6 +996,21 @@ compose_two_mixed_segments() {
   length_two="$(text_length "$text_two")"
   if [ "$length_one" -le "$budget_one" ]; then budget_one="$length_one"; fi
   if [ "$length_two" -le "$budget_two" ]; then budget_two="$length_two"; fi
+  # Two repo-qualified prefixes can leave less room than the eight-column
+  # floors ask for. Shrink the floors to what is left instead of emitting a
+  # label past the budget: herdr clips an over-wide tab row, which hides more
+  # than a short pane name does. The loop below hands any slack back.
+  if [ $((budget_one + budget_two)) -gt "$available" ]; then
+    if [ "$available" -le 0 ]; then
+      budget_one=0
+      budget_two=0
+    else
+      budget_one=$((available / 2))
+      budget_two=$((available - budget_one))
+      [ "$budget_one" -le "$length_one" ] || budget_one="$length_one"
+      [ "$budget_two" -le "$length_two" ] || budget_two="$length_two"
+    fi
+  fi
   extra=$((available - budget_one - budget_two))
   while [ "$extra" -gt 0 ] && { [ "$budget_one" -lt "$length_one" ] || [ "$budget_two" -lt "$length_two" ]; }; do
     if [ "$turn" -eq 1 ] && [ "$budget_one" -lt "$length_one" ]; then
@@ -1176,19 +1221,17 @@ EOF
       done <<EOF
 $segment_rows
 EOF
-      # The repo name joins the segment prefix only while the tab spans more
-      # than one repository.
       if [ "$multiple_repos" -eq 1 ]; then
-        [ -z "$repo_one" ] || prefix_one="$repo_one $prefix_one"
-        [ -z "$repo_two" ] || prefix_two="$repo_two $prefix_two"
+        prefix_one="$(repo_qualified_prefix "$repo_one" "$prefix_one")"
+        prefix_two="$(repo_qualified_prefix "$repo_two" "$prefix_two")"
       fi
       parts="$(compose_two_mixed_segments "$prefix_one" "$text_one" "$prefix_two" "$text_two")"
     else
       parts=""
       while IFS="$FIELD_SEPARATOR" read -r segment_repo segment_prefix segment; do
         if [ -n "$segment_prefix" ]; then
-          if [ "$multiple_repos" -eq 1 ] && [ -n "$segment_repo" ]; then
-            segment_prefix="$segment_repo $segment_prefix"
+          if [ "$multiple_repos" -eq 1 ]; then
+            segment_prefix="$(repo_qualified_prefix "$segment_repo" "$segment_prefix")"
           fi
           segment="$segment_prefix $segment"
         fi
@@ -1224,6 +1267,7 @@ reconcile_presentation_pass() {
   local state_file retained_pane found
   local location_pids="" location_results="" location_result_file location_pid
   local location_probe_results="" location_child_failed=0
+  local legacy_label_panes final_location_label
   command -v jq >/dev/null 2>&1 || return 1
   snapshot="$(herdr api snapshot 2>/dev/null)" || return 1
   printf '%s' "$snapshot" | jq -e '
@@ -1246,6 +1290,17 @@ reconcile_presentation_pass() {
        (.tokens.location_status // ""), (.tokens.git_ref // ""),
        (.tokens.pane_inline // ""), (@base64)]
     | join("\u001f")' 2>/dev/null)"
+
+  # location_label is the retired predecessor of git_ref. It is deliberately
+  # absent from the presentation record, so a pane whose new tokens all match
+  # would compare equal, skip the write, and carry the legacy token forever.
+  # Naming those panes off the snapshot schedules the write without widening
+  # the record. A stale sweep daemon of the old version rewriting its own
+  # tokens after an upgrade is exactly how a pane reaches that state.
+  legacy_label_panes="$(printf '%s' "$snapshot" | jq -r '
+    .result.snapshot.panes[]?
+    | select((.tokens.location_label // "") != "")
+    | (.pane_id // "")' 2>/dev/null)"
 
   # Workspace names suppress the $git_ref folder qualifier when the worktree
   # token merely repeats the pane's workspace name. Live herdr 0.8 snapshots
@@ -1508,6 +1563,9 @@ EOF
     # retain as-is, and pane_inline alone is not worth a metadata write.
     if { [ -n "$repo" ] && [ -n "$worktree_token" ]; } || [ "$location_outcome" = "non_git" ]; then
       [ "$current_pane_inline" = "$pane_inline" ] || location_changed=1
+      # Same gate as the publish arms below: a transient pass with no evidence
+      # must keep retaining, so it also keeps the legacy token for now.
+      ! list_contains_line "$id" "$legacy_label_panes" || location_changed=1
     fi
     if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
       [ "$current_repo" = "$repo" ] || location_changed=1
@@ -1528,15 +1586,17 @@ EOF
       final_tokens="$(printf '%s' "$final_payload" | jq -r '
         .result.pane.tokens
         | [(.repo // ""), (.worktree // ""), (.branch // ""),
-           (.location_status // ""), (.git_ref // ""), (.pane_inline // "")]
+           (.location_status // ""), (.git_ref // ""), (.pane_inline // ""),
+           (.location_label // "")]
         | join("\u001f")' 2>/dev/null)"
       IFS="$FIELD_SEPARATOR" read -r final_repo final_worktree final_branch \
-        final_location_status final_git_ref final_pane_inline <<EOF
+        final_location_status final_git_ref final_pane_inline final_location_label <<EOF
 $final_tokens
 EOF
       location_changed=0
       if { [ -n "$repo" ] && [ -n "$worktree_token" ]; } || [ "$location_outcome" = "non_git" ]; then
         [ "$final_pane_inline" = "$pane_inline" ] || location_changed=1
+        [ -z "$final_location_label" ] || location_changed=1
       fi
       if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
         [ "$final_repo" = "$repo" ] || location_changed=1

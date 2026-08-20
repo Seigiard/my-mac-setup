@@ -873,13 +873,22 @@ HTS_PLUGIN_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 # the stub directory plus the system directories, so a real `pi` or `claude`
 # outside them can never be reached: a missing engine is then a property of the
 # test, not of the machine that runs it.
-# Codicon glyphs of the $git_ref grammar, generated from bash 3.2-safe octal
-# UTF-8 sequences — raw PUA glyphs must never be pasted into this file.
-HTS_ICON_BRANCH="$(printf '\356\261\257')"   # nf-cod-git_branch U+EC6F
-HTS_ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
-HTS_ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
-HTS_ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
-HTS_ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
+# Codicon glyphs of the $git_ref grammar. The octal UTF-8 table lives once, in
+# the engine; retyping it here would let an engine codepoint change pass while
+# the suite still asserted the old bytes. Raw PUA glyphs must never be pasted
+# into either file, so the sequences are read out and re-expanded.
+hts_icon() {
+  local octal
+  octal="$(sed -n "s/^ICON_$1=\"\\\$(printf '\\([^']*\\)')\".*/\\1/p" "$HTS_ENGINE")"
+  [ -n "$octal" ] || { printf 'missing ICON_%s in %s\n' "$1" "$HTS_ENGINE" >&2; return 1; }
+  # shellcheck disable=SC2059  # the format string is the engine's own octal table
+  printf "$octal"
+}
+HTS_ICON_BRANCH="$(hts_icon BRANCH)"     # nf-cod-git_branch U+EC6F
+HTS_ICON_WORKTREE="$(hts_icon WORKTREE)" # nf-cod-worktree U+EC7E
+HTS_ICON_COMMIT="$(hts_icon COMMIT)"     # nf-cod-git_commit U+EAFC
+HTS_ICON_FOLDER="$(hts_icon FOLDER)"     # nf-cod-folder U+EA83
+HTS_ICON_STALE="$(hts_icon STALE)"       # nf-cod-history U+EA82
 
 hts_setup() {
   HTS_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hts.XXXXXX")"
@@ -3610,6 +3619,69 @@ EOF
   [[ "$label" != *"$long_ref"* ]]
   # then: the sidebar git_ref token keeps the FULL ref — only tab prefixes cap
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref $HTS_ICON_FOLDER wt-one"
+}
+
+@test "herdr-task-sync two-pane mixed formatter caps repo names so a multi-repo tab holds the 80-column budget" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # given: two distinct repositories whose names pass the 12-column repo cap,
+  # each on a branch that also passes the 18-column ref cap. Both prefixes are
+  # therefore at full width, which is the shape that used to overflow.
+  local one="$HTS_WORK/integration-platform-connectors"
+  local two="$HTS_WORK/internal-developer-tooling"
+  local common_one="$one/.git" common_two="$two/.git" state label
+  mkdir -p "$common_one" "$common_two"
+  hts_git_location_fixture "$one" "$one" "$common_one" refs/heads/feat/connector-runtime-rewrite
+  hts_git_location_fixture "$two" "$two" "$common_two" refs/heads/fix/oauth-refresh-loop-retry
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
+  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
+  # when
+  HERDR_TASK_SYNC_LABEL_COLUMNS=80 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  label="$(jq -r '.tabs[0].label' "$state")"
+  # then: the whole label fits the budget the composer exists to enforce
+  [[ "$(printf '%s' "$label" | wc -m | tr -d ' ')" -le 80 ]]
+  # then: each segment carries its repo name capped at 12 columns
+  [[ "$label" = "integration… $HTS_ICON_BRANCH"* ]]
+  [[ "$label" = *" · internal-de… $HTS_ICON_BRANCH"* ]]
+  [[ "$label" != *integration-platform-connectors* ]]
+  [[ "$label" != *internal-developer-tooling* ]]
+}
+
+@test "herdr-task-sync location clears a retired location_label even when every published token already matches" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repository" common="$HTS_WORK/repository/.git" state
+  mkdir -p "$common"
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 worker
+  # given: one pass has already published every current token
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
+  # given: a stale daemon of the retired version puts location_label back while
+  # leaving every token this version compares untouched. It reports under the
+  # same source at the sequence the last pass used, which is what an old daemon
+  # sharing the generation counter does.
+  local legacy_seq
+  legacy_seq="$(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state")"
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 \
+    --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic'
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.location_label' "$state")" repository/topic
+  # when: the next pass computes identical tokens and would otherwise skip
+  hts_location_pass
+  # then: the legacy token is gone and the live tokens are unharmed
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
 
 @test "herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state" {
