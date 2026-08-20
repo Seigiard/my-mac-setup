@@ -834,30 +834,30 @@ EOF
 }
 
 build_worktree_tokens() {
-  local roots="$1" mappings="" root other base candidate suffix components count unique
+  local roots="$1" mappings="" root other base candidate suffix components base_matches suffix_components unique
   local digest digest_len fragment_len ordinal=0 ordinal_hex
   while IFS= read -r root; do
     [ -n "$root" ] || continue
     ordinal=$((ordinal + 1))
     base="${root##*/}"
-    count=0
+    base_matches=0
     while IFS= read -r other; do
-      [ "${other##*/}" = "$base" ] && count=$((count + 1))
+      [ "${other##*/}" = "$base" ] && base_matches=$((base_matches + 1))
     done <<EOF
 $roots
 EOF
     candidate=""
-    if [ "$count" -eq 1 ] && [ "$(text_length "$base")" -le "$WORKTREE_TOKEN_MAX_LEN" ]; then
+    if [ "$base_matches" -eq 1 ] && [ "$(text_length "$base")" -le "$WORKTREE_TOKEN_MAX_LEN" ]; then
       candidate="$base"
-    elif [ "$count" -gt 1 ]; then
+    elif [ "$base_matches" -gt 1 ]; then
       components="$(printf '%s' "$root" | awk -F/ '{print NF}')"
-      count=2
-      while [ "$count" -le "$components" ]; do
-        suffix="$(path_suffix "$root" "$count")"
+      suffix_components=2
+      while [ "$suffix_components" -le "$components" ]; do
+        suffix="$(path_suffix "$root" "$suffix_components")"
         unique=1
         while IFS= read -r other; do
           [ "$other" = "$root" ] && continue
-          if [ "$(path_suffix "$other" "$count")" = "$suffix" ]; then
+          if [ "$(path_suffix "$other" "$suffix_components")" = "$suffix" ]; then
             unique=0
             break
           fi
@@ -868,7 +868,7 @@ EOF
           [ "$(text_length "$suffix")" -le "$WORKTREE_TOKEN_MAX_LEN" ] && candidate="$suffix"
           break
         fi
-        count=$((count + 1))
+        suffix_components=$((suffix_components + 1))
       done
     fi
     if [ -n "$candidate" ] && token_is_taken "$candidate" "$mappings"; then candidate=""; fi
@@ -910,6 +910,20 @@ list_contains_line() {
 $list
 EOF
   return 1
+}
+
+# Remember the first non-empty value seen in the variable named by $2 and set
+# the flag variable named by $3 to 1 when a later value disagrees. Serves
+# compose_tab_intents' "does this tab span one repo / one checkout?" question.
+track_first_value() {
+  local value="$1" first_var="$2" flag_var="$3" first
+  [ -n "$value" ] || return 0
+  eval "first=\"\$$first_var\""
+  if [ -z "$first" ]; then
+    eval "$first_var=\"\$value\""
+  elif [ "$first" != "$value" ]; then
+    eval "$flag_var=1"
+  fi
 }
 
 # Look up the value column of a FIELD_SEPARATOR-joined two-column table
@@ -976,6 +990,20 @@ git_ref_for() {
   fi
   [ -z "$status" ] || label="$label $ICON_STALE"
   printf '%s' "$label"
+}
+
+# Tab segments stay compact: icon + capped ref only — the sidebar carries the
+# folder qualifier and the full ref. Ref-less evidence keeps its folder-icon
+# form (the full $git_ref, passed as $4). The cap keeps a long branch name
+# from eating the 80-column tab budget; the hoisted tab prefix reuses this
+# value too.
+git_ref_segment_for() {
+  local place="$1" ref="$2" status="$3" full_ref="$4"
+  if [ -n "$ref" ]; then
+    git_ref_for "$place" "$(truncate_text "$ref" "$WORKTREE_TOKEN_MAX_LEN")" "" "$status"
+  else
+    printf '%s' "$full_ref"
+  fi
 }
 
 native_session_matches_active() {
@@ -1188,6 +1216,7 @@ compose_tab_intents() {
     first_root=""
     first_prefix=""
     multiple_roots=0
+    # shellcheck disable=SC2034 # first_repo is read via eval in track_first_value
     first_repo=""
     multiple_repos=0
     while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _git_ref _worktree_token _segment_prefix; do
@@ -1198,21 +1227,13 @@ compose_tab_intents() {
       if [ -z "$parts" ]; then parts="$pane_intended"; else parts="$parts$LABEL_SEPARATOR$pane_intended"; fi
       segment_rows="${segment_rows}${segment_rows:+
 }${_repo}${FIELD_SEPARATOR}${_segment_prefix}${FIELD_SEPARATOR}${pane_intended}"
-      if [ -n "$_repo" ]; then
-        if [ -z "$first_repo" ]; then
-          first_repo="$_repo"
-        elif [ "$first_repo" != "$_repo" ]; then
-          multiple_repos=1
-        fi
-      fi
+      track_first_value "$_repo" first_repo multiple_repos
       if [ -n "$_checkout_root" ]; then
         all_non_git=0
-        if [ -z "$first_root" ]; then
-          first_root="$_checkout_root"
-          first_prefix="$_segment_prefix"
-        elif [ "$first_root" != "$_checkout_root" ]; then
-          multiple_roots=1
-        fi
+        # first_prefix rides with the first root: capture it before the
+        # tracker fills first_root.
+        [ -n "$first_root" ] || first_prefix="$_segment_prefix"
+        track_first_value "$_checkout_root" first_root multiple_roots
         [ -z "$_location_status" ] || all_fresh_git=0
       elif [ -n "$_worktree_token" ]; then
         # Token-only evidence cannot prove that two panes share one checkout.
@@ -1285,7 +1306,7 @@ reconcile_presentation_pass() {
   local final_payload final_label final_task final_tokens
   local final_repo final_worktree final_branch final_location_status final_git_ref
   local segment_prefix pane_baselines baseline_row
-  local state_file retained_pane found
+  local state_file retained_pane presented_pane_ids
   local location_pids="" location_results="" location_result_file location_pid
   local location_probe_results="" location_child_failed=0
   local legacy_label_panes final_location_label
@@ -1543,15 +1564,7 @@ EOF
       fi
     fi
     _git_ref="$(git_ref_for "$_place" "$_ref" "$_folder" "$_location_status")"
-    # Tab segments stay compact: icon + capped ref only — the sidebar carries
-    # the folder qualifier and the full ref. Ref-less evidence keeps its
-    # folder-icon form. The cap keeps a long branch name from eating the
-    # 80-column tab budget; the hoisted tab prefix reuses this value too.
-    if [ -n "$_ref" ]; then
-      _segment_prefix="$(git_ref_for "$_place" "$(truncate_text "$_ref" "$WORKTREE_TOKEN_MAX_LEN")" "" "$_location_status")"
-    else
-      _segment_prefix="$_git_ref"
-    fi
+    _segment_prefix="$(git_ref_segment_for "$_place" "$_ref" "$_location_status" "$_git_ref")"
     pane_presentations="${pane_presentations}${pane_presentations:+
 }${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}${FIELD_SEPARATOR}${_segment_prefix}"
   done <<EOF
@@ -1561,17 +1574,12 @@ EOF
 
   # A complete snapshot authoritatively deletes evidence for panes that no
   # longer exist. No label policy or applied-label copy is retained.
+  presented_pane_ids="$(printf '%s\n' "$pane_presentations" | cut -d "$FIELD_SEPARATOR" -f1)"
   for state_file in "$(namespace_dir)"/panes/*/location.state; do
     [ -f "$state_file" ] || continue
     retained_pane="$(read_state_field "$state_file" pane)"
     [ -n "$retained_pane" ] || continue
-    found=0
-    while IFS="$FIELD_SEPARATOR" read -r _pane_id _; do
-      [ "$_pane_id" != "$retained_pane" ] || { found=1; break; }
-    done <<EOF
-$pane_presentations
-EOF
-    [ "$found" -eq 1 ] || rm -f "$state_file" 2>/dev/null || true
+    list_contains_line "$retained_pane" "$presented_pane_ids" || rm -f "$state_file" 2>/dev/null || true
   done
 
   tab_intents="$(compose_tab_intents "$snapshot" "$pane_presentations" | filter_records_of_width 4)"
