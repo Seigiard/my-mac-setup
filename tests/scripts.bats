@@ -3082,6 +3082,69 @@ EOF
   assert_equal "$(grep -c -- '--short=7' "$detached_fixture/calls")" 1
 }
 
+@test "herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  local branch="$root/branch" empty_sha="$root/empty-sha" bad_sha="$root/bad-sha" state target fixture
+  mkdir -p "$branch" "$empty_sha" "$bad_sha" "$common" "$root/.git"
+  # given: real-git probe shape — the detached probes answer 3 lines, and the
+  # second `rev-parse --short=7` call yields an empty or non-hex SHA.
+  hts_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
+  hts_git_fixture "$empty_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  hts_git_fixture "$bad_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  : > "$(hts_git_fixture_dir "$empty_sha")/stdout.short"
+  printf 'not-a-sha\n' > "$(hts_git_fixture_dir "$bad_sha")/stdout.short"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repo"}'
+  hts_set_process_label pane-1 worker
+  # given: prior canonical identity from a healthy branch resolve
+  hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_BRANCH topic"
+
+  for target in "$empty_sha" "$bad_sha"; do
+    # when: the pane moves to a detached checkout whose SHA fetch fails
+    hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$target" "$target"
+    hts_location_pass
+    state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+    # then: the second call fired, and the pane retains the prior branch
+    # identity as stale — no commit ref built from a malformed SHA.
+    fixture="$(hts_git_fixture_dir "$target")"
+    assert_equal "$(grep -c -- '--short=7' "$fixture/calls")" 1
+    assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_STALE"
+    assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
+    assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
+  done
+}
+
+@test "herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" nongit="$HTS_WORK/non-git" state
+  mkdir -p "$root" "$common" "$nongit"
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
+  # given: panes still carrying the legacy location_label token published by
+  # the previously deployed version
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root" | jq -c '.tokens.location_label = "legacy label"')"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$nongit" | jq -c '.tokens = {location_label:"legacy label", git_ref:"stale ref"}')"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repo"}'
+  hts_set_process_label pane-1 worker
+  hts_set_process_label pane-2 shell
+  # when: one location/presentation pass runs
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  # then: the Git publish path sheds the legacy token while publishing git_ref
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label == null' "$state"
+  assert_success
+  # then: the non-Git clear path sheds it alongside the other location tokens
+  run jq -e '.panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == null)' "$state"
+  assert_success
+}
+
 @test "herdr-task-sync location transient modes retain identity as stale without foreground fallback" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3521,6 +3584,36 @@ EOF
     --arg two "$HTS_ICON_WORKTREE stuvwxyzabcdefghi" \
     '.tabs[0].label | capture("^" + $one + " (?<one>.+) · " + $two + " (?<two>.+)$") | (.one | length) >= 8 and (.two | length) >= 8' "$state"
   assert_success
+}
+
+@test "herdr-task-sync two-pane mixed formatter caps long branch refs in tab prefixes while the sidebar keeps the full ref" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local one="$HTS_WORK/wt-one" two="$HTS_WORK/wt-two"
+  local common="$HTS_WORK/repository/.git" state label
+  # given: a 44-character branch name — far past the 18-column prefix cap
+  local long_ref="feature/very-long-branch-name-that-overflows"
+  mkdir -p "$one" "$two" "$common"
+  hts_mark_linked_worktree "$one" "$common/worktrees/one"
+  hts_mark_linked_worktree "$two" "$common/worktrees/two"
+  hts_git_location_fixture "$one" "$one" "$common" "refs/heads/$long_ref"
+  hts_git_location_fixture "$two" "$two" "$common" refs/heads/short-two
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
+  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
+  # when
+  HERDR_TASK_SYNC_LABEL_COLUMNS=80 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  label="$(jq -r '.tabs[0].label' "$state")"
+  # then: the tab prefix carries the ref capped at 18 columns and the whole
+  # label still fits the 80-column budget
+  [[ "$(printf '%s' "$label" | wc -m | tr -d ' ')" -le 80 ]]
+  [[ "$label" = "$HTS_ICON_WORKTREE feature/very-long… "*" · $HTS_ICON_WORKTREE short-two "* ]]
+  [[ "$label" != *"$long_ref"* ]]
+  # then: the sidebar git_ref token keeps the FULL ref — only tab prefixes cap
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref $HTS_ICON_FOLDER wt-one"
 }
 
 @test "herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state" {

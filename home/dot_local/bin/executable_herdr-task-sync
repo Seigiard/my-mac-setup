@@ -684,7 +684,7 @@ resolve_pane_location() {
 
   if [ -z "$cwd" ] || ! (cd "$cwd" 2>/dev/null); then
     if authoritative_worktree_deleted "$prior_root" "$prior_anchor"; then
-      printf 'non_git\037\037\037\037\037\037\037'
+      printf 'non_git\037\037\037\037\037\037'
     else
       transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
     fi
@@ -719,7 +719,7 @@ resolve_pane_location() {
     if { [ "$status" -eq 1 ] || [ "$status" -eq 128 ]; } && \
       grep -Eqi 'not a git repository|not inside a work tree' "$errfile" 2>/dev/null; then
       rm -f "$outfile" "$errfile"
-      printf 'non_git\037\037\037\037\037\037\037'
+      printf 'non_git\037\037\037\037\037\037'
     else
       rm -f "$outfile" "$errfile"
       transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
@@ -1334,10 +1334,12 @@ EOF
       fi
     fi
     _git_ref="$(git_ref_for "$_place" "$_ref" "$_folder" "$_location_status")"
-    # Tab segments stay compact: icon + ref only — the sidebar carries the
-    # folder qualifier. Ref-less evidence keeps its folder-icon form.
+    # Tab segments stay compact: icon + capped ref only — the sidebar carries
+    # the folder qualifier and the full ref. Ref-less evidence keeps its
+    # folder-icon form. The cap keeps a long branch name from eating the
+    # 80-column tab budget; the hoisted tab prefix reuses this value too.
     if [ -n "$_ref" ]; then
-      _segment_prefix="$(git_ref_for "$_place" "$_ref" "" "$_location_status")"
+      _segment_prefix="$(git_ref_for "$_place" "$(truncate_text "$_ref" "$WORKTREE_TOKEN_MAX_LEN")" "" "$_location_status")"
     else
       _segment_prefix="$_git_ref"
     fi
@@ -1523,12 +1525,15 @@ EOF
         location_seq="$pass"
         presentation_generation_valid "$pass" || return 2
         set -- herdr pane report-metadata "$id" --source "$LOCATION_SOURCE_ID" --seq "$location_seq"
+        # location_label is the retired predecessor of git_ref: every write
+        # path clears it so panes labeled by the old deployed version shed
+        # the legacy token instead of carrying it forever.
         if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
-          set -- "$@" --token "repo=$repo" --token "worktree=$worktree_token" --token "git_ref=$git_ref" --token "pane_inline=$pane_inline"
+          set -- "$@" --token "repo=$repo" --token "worktree=$worktree_token" --token "git_ref=$git_ref" --token "pane_inline=$pane_inline" --clear-token location_label
           if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
           if [ -n "$location_status" ]; then set -- "$@" --token "location_status=$location_status"; else set -- "$@" --clear-token location_status; fi
         else
-          set -- "$@" --token "pane_inline=$pane_inline" --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref
+          set -- "$@" --token "pane_inline=$pane_inline" --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token location_label
         fi
         "$@" >/dev/null 2>&1 || continue
       fi
