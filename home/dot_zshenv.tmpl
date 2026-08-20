@@ -36,9 +36,24 @@ if has mise; then
   _mise_cache="$HOME/.cache/zsh/mise-activate.zsh"
   [[ -d "${_mise_cache:h}" ]] || mkdir -p "${_mise_cache:h}"
   if [[ ! -s "$_mise_cache" || "$_mise_cache" -ot "$(command -v mise)" ]]; then
-    mise activate zsh > "$_mise_cache" 2>/dev/null
+    # Write through a temp file: shells starting together (a multiplexer
+    # restoring its panes) all regenerate a stale cache, and redirecting
+    # straight into "$_mise_cache" leaves one shell's tail past the end of
+    # another's shorter output. `mise activate` embeds the generating shell's
+    # PATH, so the two outputs differ in length and the splice is visible --
+    # it left orphan handler lines at top level and every later shell printed
+    # "zsh: command not found: " while sourcing them.
+    # mktemp rather than "$_mise_cache.$$": zsh reports the parent shell's PID
+    # in a subshell, so $$ does not separate concurrent writers.
+    _mise_cache_tmp="$(mktemp "$_mise_cache.XXXXXX")"
+    if mise activate zsh > "$_mise_cache_tmp" 2>/dev/null; then
+      mv -f "$_mise_cache_tmp" "$_mise_cache"
+    else
+      rm -f "$_mise_cache_tmp"
+    fi
+    unset _mise_cache_tmp
   fi
-  source "$_mise_cache"
+  [[ -s "$_mise_cache" ]] && source "$_mise_cache"
   unset _mise_cache
 fi
 

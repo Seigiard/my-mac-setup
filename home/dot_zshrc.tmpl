@@ -86,9 +86,19 @@ cached_init() {
   local name="$1" bin="$2"; shift 2
   local cache="$_zsh_cache_dir/$name.zsh"
   if [[ ! -s "$cache" || "$cache" -ot "$(command -v "$bin")" ]]; then
-    "$@" > "$cache" 2>/dev/null
+    # Write through a temp file, as ~/.zshenv does for the mise cache and for
+    # the same reason: shells starting together would each truncate "$cache"
+    # and splice one generator's tail onto another's shorter output.
+    # mktemp rather than "$cache.$$": zsh reports the parent shell's PID in a
+    # subshell, so $$ does not separate concurrent writers.
+    local tmp="$(mktemp "$cache.XXXXXX")"
+    if "$@" > "$tmp" 2>/dev/null; then
+      mv -f "$tmp" "$cache"
+    else
+      rm -f "$tmp"
+    fi
   fi
-  source "$cache"
+  [[ -s "$cache" ]] && source "$cache"
 }
 
 # -------------------------------------------

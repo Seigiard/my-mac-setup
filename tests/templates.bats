@@ -91,6 +91,80 @@ teardown() {
 }
 
 # ===========================================
+# zsh init-cache generation (concurrency safety)
+#
+# Several shells can start at once — a terminal restoring its panes, or a
+# multiplexer opening a tab. Each one regenerates a stale cache. Writing the
+# cache path directly with `>` lets one shell's tail survive past the end of
+# another shell's shorter output, leaving a spliced file that the next shell
+# sources. That is how ~/.cache/zsh/mise-activate.zsh grew five orphan lines
+# and every new shell printed "zsh: command not found: ".
+# ===========================================
+
+@test "zshenv generates the mise cache through a temp file rename" {
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_success
+  assert_output --partial 'mv -f "$_mise_cache_tmp" "$_mise_cache"'
+  refute_output --partial 'mise activate zsh > "$_mise_cache"'
+}
+
+@test "zshrc cached_init generates the cache through a temp file rename" {
+  run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
+  assert_success
+  assert_output --partial 'mv -f "$tmp" "$cache"'
+  refute_output --partial '"$@" > "$cache"'
+}
+
+@test "zshrc cached_init never splices two concurrent generators" {
+  command_exists zsh || skip "zsh not installed"
+
+  local work="$BATS_TEST_TMPDIR/cached_init"
+  mkdir -p "$work/bin" "$work/cache"
+
+  # Two generators with the same line count but different line lengths: the
+  # splice is only observable when the outputs differ in byte length.
+  cat > "$work/bin/genlong" <<'GEN'
+#!/bin/sh
+i=0; while [ $i -lt 400 ]; do echo "# long-generator-line-$i-padding-padding-padding"; i=$((i+1)); done
+GEN
+  cat > "$work/bin/genshort" <<'GEN'
+#!/bin/sh
+i=0; while [ $i -lt 400 ]; do echo "# short-$i"; i=$((i+1)); done
+GEN
+  chmod +x "$work/bin/genlong" "$work/bin/genshort"
+
+  render_template "$SOURCE_ROOT/dot_zshrc.tmpl" > "$work/zshrc.rendered"
+  sed -n '/^cached_init() {/,/^}/p' "$work/zshrc.rendered" > "$work/cached_init.zsh"
+  [[ -s "$work/cached_init.zsh" ]] || fail "cached_init not found in the rendered .zshrc"
+
+  cat > "$work/probe.zsh" <<PROBE
+export PATH="$work/bin:\$PATH"
+_zsh_cache_dir="$work/cache"
+source "$work/cached_init.zsh"
+corrupt=0
+for i in {1..15}; do
+  rm -f "\$_zsh_cache_dir/probe.zsh"
+  ( cached_init probe genlong genlong >/dev/null 2>&1 ) &
+  ( cached_init probe genshort genshort >/dev/null 2>&1 ) &
+  wait
+  cache="\$_zsh_cache_dir/probe.zsh"
+  lines=\$(wc -l < "\$cache")
+  if [[ \$lines -ne 400 ]]; then
+    corrupt=\$((corrupt+1))
+    echo "round \$i: \$lines lines, expected 400"
+  elif grep -q "long-generator" "\$cache" && grep -q "# short-" "\$cache"; then
+    corrupt=\$((corrupt+1))
+    echo "round \$i: output of both generators spliced into one file"
+  fi
+done
+exit \$corrupt
+PROBE
+
+  run zsh "$work/probe.zsh"
+  assert_success
+}
+
+# ===========================================
 # opencode.json.tmpl (macOS-only plugin path guarded by .is_darwin)
 # ===========================================
 
