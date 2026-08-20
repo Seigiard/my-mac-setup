@@ -2959,7 +2959,7 @@ EOF
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json foreground-wins tab-1 "$linked/deep/path" present "$nongit")"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json agent-ignores-foreground tab-1 "$linked/deep/path" present "$nongit" | jq -c '.agent = "pi"')"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repository"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
   for pane_id in main-nested main-admin linked-admin fallback foreground-wins agent-ignores-foreground; do hts_set_process_label "$pane_id" "$pane_id"; done
   LANG=fr_FR.UTF-8 LC_ALL= hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
@@ -3018,7 +3018,7 @@ EOF
   hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repo"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 --source task-sync --token task=kept-task --seq 900
 
@@ -3062,7 +3062,7 @@ EOF
   printf 'e4f5a6b\n' > "$detached_fixture/stdout.short"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repo"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
 
   # when: a branch pane resolves
@@ -3097,7 +3097,7 @@ EOF
   printf 'not-a-sha\n' > "$(hts_git_fixture_dir "$bad_sha")/stdout.short"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repo"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   # given: prior canonical identity from a healthy branch resolve
   hts_location_pass
@@ -3130,7 +3130,7 @@ EOF
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root" | jq -c '.tokens.location_label = "legacy label"')"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$nongit" | jq -c '.tokens = {location_label:"legacy label", git_ref:"stale ref"}')"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"repo"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   hts_set_process_label pane-2 shell
   # when: one location/presentation pass runs
@@ -3380,7 +3380,7 @@ EOF
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"project"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"project"}'
   hts_set_process_label pane-1 alpha
   hts_set_process_label pane-2 beta
   hts_location_pass
@@ -3413,7 +3413,7 @@ EOF
   hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"my-mac-setup"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
@@ -3434,7 +3434,7 @@ EOF
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"my-mac-setup"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
   hts_set_process_label pane-1 alpha
   hts_set_process_label pane-2 beta
   hts_location_pass

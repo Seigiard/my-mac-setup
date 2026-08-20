@@ -1131,10 +1131,12 @@ reconcile_presentation_pass() {
     | join("\u001f")' 2>/dev/null)"
 
   # Workspace names suppress the $git_ref folder qualifier when the worktree
-  # token merely repeats the pane's workspace name.
+  # token merely repeats the pane's workspace name. Live herdr 0.8 snapshots
+  # carry the display name as `label`; `name` stays as a fallback for older
+  # snapshot shapes.
   workspace_rows="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.workspaces[]?
-    | [(.workspace_id // ""), (.name // "")]
+    | [(.workspace_id // ""), (.label // .name // "")]
     | join("\u001f")' 2>/dev/null)"
 
   # Location probes own no presentation state. Run one bounded probe per pane,
