@@ -2,6 +2,12 @@
 
 load 'helpers/common'
 
+# These tests run a real `chezmoi apply` against the shared $HOME that every
+# other test file reads deployed state from. Two of them applying at once would
+# race, so this file stays sequential even when the suite runs with --jobs.
+# It is 1.3 s of a 268 s suite, so serializing it costs nothing measurable.
+BATS_NO_PARALLELIZE_WITHIN_FILE=true
+
 # All chezmoi commands use PATH_WITHOUT_OP to prevent 1Password auth
 # prompts during testing. CHEZMOI_BIN holds the resolved chezmoi path.
 

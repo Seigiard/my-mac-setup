@@ -4155,17 +4155,20 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
 # published slug; wordier output is treated as a failed naming call instead.
 @test "herdr-task-sync normalizes a hostile engine slug (KTD8)" {
   hts_setup
-  cat > "$HTS_STUB/pi" <<'SH'
+  # The payload path is per-test: a fixed /tmp name would let one run's stale
+  # file fail every later run, and cannot be shared by parallel tests.
+  local pwn="$BATS_TEST_TMPDIR/htspwn"
+  cat > "$HTS_STUB/pi" <<SH
 #!/usr/bin/env bash
 cat >/dev/null
-printf '\n  cache $(touch /tmp/htspwn) \033[31mREVIEW\nsecond line\n'
+printf '\n  cache \$(touch $pwn) \033[31mREVIEW\nsecond line\n'
 SH
   chmod +x "$HTS_STUB/pi"
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_publish
   run bash -c "printf '%s' '$(hts_token)' | grep -Eq '^[a-z0-9-]{1,40}\$'"
   assert_success
-  assert_file_not_exists /tmp/htspwn
+  assert_file_not_exists "$pwn"
 }
 
 # KTD7: a naming call that fires the agent's own hooks must not recurse.
