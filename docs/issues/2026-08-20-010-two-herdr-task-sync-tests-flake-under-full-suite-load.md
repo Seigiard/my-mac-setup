@@ -44,6 +44,27 @@ concurrent fixture load.
   barrier, as the location tests already do with
   `HERDR_TASK_SYNC_TEST_LOCATION_BARRIER`.
 
+## CI evidence (2026-08-20)
+
+Neither test has ever failed in CI. Checked all 29 most recent `Test Dotfiles`
+runs (18 red) with `gh run view <id> --log-failed`: zero occurrences of either
+test name. The 18 red runs decompose into
+`Pi terminal theme uses only terminal palette colors` (12 runs, closed by
+`8cb70d8`), the eight-pane coordinator envelope test (11 runs, closed by
+docs/issues/2026-08-20-002-coordinator-location-test-flake.md), and one
+`herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs`
+failure on a feature branch that did not survive the merge.
+
+So this pair costs nothing in CI today. It stays open as a latent local flake
+with an identified mechanism: tests/scripts.bats:2368 uses `{ sleep 1; ... }` as
+the ordering device, and the second invocation must finish inside that fixed
+1s window. Under load it may not, which inverts the ordering the test asserts.
+The fix, if taken, is the barrier pattern the location tests already use
+(`HERDR_TASK_SYNC_TEST_LOCATION_BARRIER`), not a wider sleep.
+
+This also answers the second open decision below: the flake has not reached CI,
+so it does not justify work on CI-health grounds.
+
 ## Open decisions
 
 - Whether to fold this into
