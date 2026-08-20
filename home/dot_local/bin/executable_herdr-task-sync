@@ -57,6 +57,21 @@ ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
 ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
+# The width math (text_length's `wc -m`, text_prefix's `cut -c`) must count
+# codepoints: under a non-UTF-8 locale both count bytes, so every three-byte
+# codicon is charged three columns and a cap can cut a label mid-codepoint.
+# The daemon inherits its locale from whatever hook spawned it, so it pins its
+# own: keep an inherited UTF-8 locale, otherwise take the first UTF-8 locale
+# the system offers; only a system without any falls back to byte counting.
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+  *[Uu][Tt][Ff]8 | *[Uu][Tt][Ff]-8)
+    TEXT_LOCALE="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+    ;;
+  *)
+    TEXT_LOCALE="$(locale -a 2>/dev/null | grep -i -m1 '\.utf-*8$' || true)"
+    [ -n "$TEXT_LOCALE" ] || TEXT_LOCALE=C
+    ;;
+esac
 FIELD_SEPARATOR=$'\037'
 WORKTREE_TOKEN_MAX_LEN=18
 # A repo name qualifies a tab segment only when the tab spans several
@@ -570,12 +585,12 @@ cleanup_old_task_context() {
 }
 
 text_length() {
-  printf '%s' "$1" | wc -m | tr -d '[:space:]'
+  printf '%s' "$1" | LC_ALL="$TEXT_LOCALE" wc -m | tr -d '[:space:]'
 }
 
 text_prefix() {
   [ "$2" -gt 0 ] || return 0
-  printf '%s' "$1" | cut -c "1-$2"
+  printf '%s' "$1" | LC_ALL="$TEXT_LOCALE" cut -c "1-$2"
 }
 
 truncate_text() {

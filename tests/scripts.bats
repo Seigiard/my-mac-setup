@@ -1153,6 +1153,15 @@ if [ -d "$fixture" ]; then
   if [ -f "$fixture/block" ]; then
     while [ ! -f "$fixture/release" ]; do sleep 0.01; done
   fi
+  # block.short stalls only the second (--short=7) probe of a detached-HEAD
+  # resolve, so the first probe of the same fixture still answers in budget.
+  case "$command_args" in
+    *"--short=7"*)
+      if [ -f "$fixture/block.short" ]; then
+        while [ ! -f "$fixture/release" ]; do sleep 0.01; done
+      fi
+      ;;
+  esac
   : > "$fixture/completed"
   cat "$fixture/stderr" >&2
   out="$fixture/stdout"
@@ -3143,6 +3152,39 @@ EOF
   done
 }
 
+@test "herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  local detached="$root/detached" fixture state
+  mkdir -p "$detached" "$common" "$root/.git"
+  # given: real-git probe shape — the first call answers 3 lines in budget,
+  # and block.short stalls the second --short=7 call past LOCATION_GIT_BUDGET.
+  hts_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  fixture="$(hts_git_fixture_dir "$detached")"
+  printf 'e4f5a6b\n' > "$fixture/stdout.short"
+  : > "$fixture/block.short"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$detached")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+  # when: the very first pass for this pane — no prior location state exists
+  HERDR_TASK_SYNC_GIT_BUDGET=0.075 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  # then: the SHA probe fired, its budget failure discarded the freshly
+  # resolved root, and with nothing prior to retain the pane renders with no
+  # git location this pass — no half-built commit ref, no stale marker.
+  assert_equal "$(grep -c -- '--short=7' "$fixture/calls")" 1
+  run jq -e '.panes[0].tokens | (.repo == null and .worktree == null and .branch == null and .location_status == null and .git_ref == null)' "$state"
+  assert_success
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
+  # when: the next sweep finds a responsive SHA probe
+  : > "$fixture/release"
+  hts_location_pass
+  # then: the pane self-heals to the commit ref without manual repair
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_COMMIT e4f5a6b"
+}
+
 @test "herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3446,6 +3488,85 @@ EOF
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_BRANCH main · task"
 }
 
+@test "herdr-task-sync formatter renders a worktree whose folder equals its branch as icon plus ref in sidebar and tab" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # Scenario matrix #2 (same plan doc): linked worktree in a folder named
+  # exactly like its branch. The worktree icon alone carries the place; a
+  # folder qualifier would only repeat the ref, so neither surface shows one.
+  local root="$HTS_WORK/feature" common="$HTS_WORK/repository/.git" state
+  mkdir -p "$root" "$common"
+  hts_mark_linked_worktree "$root" "$common/worktrees/feature"
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/feature
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
+  hts_set_process_label pane-1 task
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_WORKTREE feature · task"
+}
+
+@test "herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # Plan decision 5 describes the typical main checkout, whose folder repeats
+  # the branch or the workspace name. When the folder differs from BOTH it is
+  # real location information, so the sidebar qualifier stays — the same
+  # suppression rule as every other checkout, no main-checkout special case.
+  local root="$HTS_WORK/setup-copy" state
+  mkdir -p "$root/.git"
+  hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
+  hts_set_process_label pane-1 task
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER setup-copy"
+  # The tab segment stays compact: icon + ref only, folder in the sidebar.
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_BRANCH main · task"
+}
+
+@test "herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # Older snapshot shapes carry the workspace display name as `name`; the
+  # (.label // .name // "") read must still suppress the folder qualifier when
+  # the worktree token merely repeats that name.
+  local root="$HTS_WORK/legacy-ws" state
+  mkdir -p "$root/.git"
+  hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/topic
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"legacy-ws"}'
+  hts_set_process_label pane-1 task
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+}
+
+@test "herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # The commit place deliberately wins over the worktree place: the detached
+  # short SHA locates the pane more precisely than worktree-ness does, and the
+  # folder qualifier still names the linked worktree in the sidebar.
+  local root="$HTS_WORK/wt-detached" common="$HTS_WORK/repository/.git" state
+  mkdir -p "$root" "$common"
+  hts_mark_linked_worktree "$root" "$common/worktrees/wt-detached"
+  hts_git_location_fixture "$root" "$root" "$common" HEAD a1b2c3d
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
+  hts_set_process_label pane-1 task
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d $HTS_ICON_FOLDER wt-detached"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_COMMIT a1b2c3d · task"
+}
+
 @test "herdr-task-sync formatter qualifies a divergent worktree folder in the sidebar only and hoists the shared ref once" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3500,6 +3621,30 @@ EOF
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$outside")"
   hts_location_pass
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_BRANCH dev first · second"
+}
+
+@test "herdr-task-sync formatter repo-qualifies every segment when three panes span two repositories" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # The two-pane tab has its own composer; three or more panes walk the
+  # per-segment loop instead, where first_repo/multiple_repos tracking must
+  # still notice the second repository and repo-qualify every segment —
+  # including the two that share repository a.
+  local root_a="$HTS_WORK/a" root_b="$HTS_WORK/b" state
+  mkdir -p "$root_a/.git" "$root_b/.git"
+  hts_git_location_fixture "$root_a" "$root_a" "$root_a/.git" refs/heads/dev
+  hts_git_location_fixture "$root_b" "$root_b" "$root_b/.git" refs/heads/main
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root_a")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root_a")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-3 tab-1 "$root_b")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 one
+  hts_set_process_label pane-2 two
+  hts_set_process_label pane-3 three
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" \
+    "a $HTS_ICON_BRANCH dev one · a $HTS_ICON_BRANCH dev two · b $HTS_ICON_BRANCH main three"
 }
 
 @test "herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions" {
@@ -3599,6 +3744,23 @@ EOF
     --arg two "$HTS_ICON_WORKTREE stuvwxyzabcdefghi" \
     '.tabs[0].label | capture("^" + $one + " (?<one>.+) · " + $two + " (?<two>.+)$") | (.one | length) >= 8 and (.two | length) >= 8' "$state"
   assert_success
+}
+
+@test "herdr-task-sync width math counts codepoints even when the daemon inherits a non-UTF-8 locale" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local state label expected
+  hts_two_pane_mixed_worktrees abcdefghijklmnopqr stuvwxyzabcdefghi
+  # when: the whole pass runs under LC_ALL=C, the locale a hook spawned from a
+  # non-UTF-8 environment hands the daemon
+  LC_ALL=C HERDR_TASK_SYNC_LABEL_COLUMNS=80 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  label="$(jq -r '.tabs[0].label' "$state")"
+  # then: byte-identical to the UTF-8 run — the pinned TEXT_LOCALE charged
+  # each three-byte codicon one column, so the budget still hands each pane
+  # text 18 columns instead of the shrunken byte-counted share.
+  expected="$HTS_ICON_WORKTREE abcdefghijklmnopqr first-process-nam… · $HTS_ICON_WORKTREE stuvwxyzabcdefghi second-process-na…"
+  assert_equal "$label" "$expected"
 }
 
 @test "herdr-task-sync two-pane mixed formatter caps long branch refs in tab prefixes while the sidebar keeps the full ref" {

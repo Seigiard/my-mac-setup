@@ -2,7 +2,8 @@
 title: Label-system test gaps and a hand-duplicated icon table in the bats suite
 type: follow-up
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-20
 parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
 ---
 
@@ -79,3 +80,48 @@ as `docs/issues/2026-08-20-004-tab-repo-prefix-breaks-column-budget.md`.
   it describes the typical case rather than promising "no folder ever".
 - Whether a non-UTF-8 locale is worth testing, or whether the script should
   instead pin `LC_ALL` for its own width math so the question cannot arise.
+
+## Resolution
+
+**Icon table.** Already de-duplicated by commit 9e69d0b before this issue was
+picked up: `tests/scripts.bats` derives `HTS_ICON_*` through `hts_icon()`,
+which sed-extracts each octal sequence from the engine's own `ICON_*` table
+and re-expands it. A drift in the engine table now breaks the suite; no raw
+PUA glyph appears verbatim in either file.
+
+**Tests added** (all in `tests/scripts.bats`, existing `hts_*` helpers only):
+
+- `formatter renders a worktree whose folder equals its branch as icon plus
+  ref in sidebar and tab` — scenario matrix row 2 as one combined
+  sidebar-token + tab-label assertion.
+- `formatter keeps the folder qualifier on a main checkout in a
+  differently-named folder` — locks the implemented suppression rule where it
+  diverged from the plan's original decision 5 wording.
+- `formatter reads the workspace display name from the legacy name field when
+  label is absent` — exercises the `.name` half of `(.label // .name // "")`.
+- `formatter gives a detached HEAD inside a linked worktree the commit icon`
+  — commit place wins over worktree place; folder qualifier kept.
+- `formatter repo-qualifies every segment when three panes span two
+  repositories` — the ≥3-pane per-segment loop with
+  `first_repo`/`multiple_repos`/`segment_repo` tracking.
+- `location detached sha budget failure with no prior state renders no git
+  location and self-heals` — the second `--short=7` probe exceeds
+  `LOCATION_GIT_BUDGET` on a pane with no prior state: no git tokens that
+  pass, commit ref on the next. The test git stub gained a `block.short`
+  marker (mirror of `stdout.short`) so only the SHA probe stalls.
+- `width math counts codepoints even when the daemon inherits a non-UTF-8
+  locale` — the 80-column mixed-worktree label is byte-identical under
+  `LC_ALL=C`.
+
+**Open decision 1 (plan decision 5 vs implemented rule):** kept the engine
+behavior, reworded decision 5 in the plan to describe the typical case — a
+main checkout in a differently-named folder keeps its folder qualifier, which
+is real location information. Tested as-is (second test above).
+
+**Open decision 2 (non-UTF-8 locale):** pinned the locale in the engine
+instead of leaving the question open. `executable_herdr-task-sync` now
+resolves `TEXT_LOCALE` at start (inherited UTF-8 locale kept; otherwise the
+first UTF-8 locale from `locale -a`; `C` only when the system has none) and
+`text_length`/`text_prefix` run `wc -m`/`cut -c` under it. Labels under a
+UTF-8 environment are byte-identical to before; a `C`-locale daemon no longer
+charges each codicon three columns or cuts labels mid-codepoint.
