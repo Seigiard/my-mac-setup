@@ -240,3 +240,11 @@ render_with_source() {
 
   [[ -z "$conflicts" ]] || fail "listed in .chezmoiremove but still in the source tree:"$'\n'"$conflicts"
 }
+
+@test ".chezmoiremove deletes the retired opencode forced theme" {
+  # smoke.bats asserts the live file is gone; this entry is what makes
+  # `chezmoi apply` delete it on machines that deployed the old theme.
+  run grep -qx '.config/opencode/themes/flexoki-light-forced.json' \
+    "$SOURCE_ROOT/.chezmoiremove"
+  assert_success
+}

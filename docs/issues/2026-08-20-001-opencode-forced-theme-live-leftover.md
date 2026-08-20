@@ -2,7 +2,8 @@
 title: Live leftover ~/.config/opencode/themes/flexoki-light-forced.json fails smoke deployment contract
 type: bug
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-20
 ---
 
 ## Why this exists
@@ -30,3 +31,22 @@ missing).
 
 - Whether other retired opencode theme files linger live (check
   `~/.config/opencode/themes/` against `chezmoi managed`).
+
+## Resolution
+
+Took the declarative path: added
+`.config/opencode/themes/flexoki-light-forced.json` to `home/.chezmoiremove`,
+so `chezmoi apply` deletes the leftover on every machine that deployed the old
+forced theme. Added a guard test in `tests/templates.bats`
+(".chezmoiremove deletes the retired opencode forced theme"); the existing
+".chezmoiremove entries are absent from the source tree" test confirms no
+create/delete conflict.
+
+Open decision checked: `~/.config/opencode/themes/` on the live machine
+contains only `flexoki-light-forced.json`, and `chezmoi managed` lists no
+files under that directory — no other retired theme files linger.
+
+The live file stays in place until the user syncs the chezmoi source and runs
+`chezmoi apply`; until then the smoke test
+"coding agents use terminal color palettes" remains red on this machine, which
+is expected.
