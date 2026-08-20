@@ -1303,13 +1303,19 @@ hts_socket_run() {
   env PATH="$HTS_STUB:/usr/bin:/bin" HERDR_SOCKET_PATH="$socket_path" herdr "$@"
 }
 
-hts_set_pane() {
-  local state tmp
-  state="$(hts_socket_state "$1")"
+# Upsert one object into a snapshot array, replacing any element that already
+# carries the same id. Serves panes, tabs, and workspaces alike.
+hts_upsert() {
+  local socket="$1" array="$2" id_field="$3" object="$4" state tmp
+  state="$(hts_socket_state "$socket")"
   tmp="$state.tmp"
-  jq --argjson pane "$2" \
-    '.panes = ([.panes[] | select(.pane_id != $pane.pane_id)] + [$pane])' \
+  jq --arg array "$array" --arg id "$id_field" --argjson object "$object" \
+    '.[$array] = ([.[$array][] | select(.[$id] != $object[$id])] + [$object])' \
     "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+hts_set_pane() {
+  hts_upsert "$1" panes pane_id "$2"
 }
 
 hts_remove_pane() {
@@ -1320,24 +1326,14 @@ hts_remove_pane() {
 }
 
 hts_set_tab() {
-  local state tmp
-  state="$(hts_socket_state "$1")"
-  tmp="$state.tmp"
-  jq --argjson tab "$2" \
-    '.tabs = ([.tabs[] | select(.tab_id != $tab.tab_id)] + [$tab])' \
-    "$state" > "$tmp" && mv "$tmp" "$state"
+  hts_upsert "$1" tabs tab_id "$2"
 }
 
 # Workspace names come from the snapshot's workspaces array; the formatter
 # suppresses the $git_ref folder qualifier when the worktree token equals
 # the pane's workspace name.
 hts_set_workspace() {
-  local state tmp
-  state="$(hts_socket_state "$1")"
-  tmp="$state.tmp"
-  jq --argjson workspace "$2" \
-    '.workspaces = ([.workspaces[] | select(.workspace_id != $workspace.workspace_id)] + [$workspace])' \
-    "$state" > "$tmp" && mv "$tmp" "$state"
+  hts_upsert "$1" workspaces workspace_id "$2"
 }
 
 hts_snapshot_complete() {
@@ -1442,6 +1438,26 @@ hts_process_pane_json() {
 
 hts_set_process_label() {
   hts_proc_info "$1" "$(jq -cn --arg command "$2" '{result:{process_info:{shell_pid:1,foreground_process_group_id:2,foreground_processes:[{pid:2,argv:[$command]}]}}}')"
+}
+
+# GIVEN-only fixture for the mixed two-pane tab: two linked worktrees of one
+# repository, one process pane each in the shared tab-1, both process names far
+# past the column budget. Takes the two branch names. The acting step
+# (hts_location_pass) and every assertion stay in the test.
+hts_two_pane_mixed_worktrees() {
+  local ref_one="$1" ref_two="$2"
+  local one="$HTS_WORK/wt-one" two="$HTS_WORK/wt-two"
+  local common="$HTS_WORK/repository/.git"
+  mkdir -p "$one" "$two" "$common"
+  hts_mark_linked_worktree "$one" "$common/worktrees/one"
+  hts_mark_linked_worktree "$two" "$common/worktrees/two"
+  hts_git_location_fixture "$one" "$one" "$common" "refs/heads/$ref_one"
+  hts_git_location_fixture "$two" "$two" "$common" "refs/heads/$ref_two"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
+  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
 }
 
 hts_set_pane_location() {
@@ -3562,18 +3578,8 @@ EOF
 @test "herdr-task-sync two-pane mixed formatter preserves identities and eight task columns at 80 columns" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  local one="$HTS_WORK/wt-one" two="$HTS_WORK/wt-two"
-  local common="$HTS_WORK/repository/.git" state label
-  mkdir -p "$one" "$two" "$common"
-  hts_mark_linked_worktree "$one" "$common/worktrees/one"
-  hts_mark_linked_worktree "$two" "$common/worktrees/two"
-  hts_git_location_fixture "$one" "$one" "$common" refs/heads/abcdefghijklmnopqr
-  hts_git_location_fixture "$two" "$two" "$common" refs/heads/stuvwxyzabcdefghi
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
-  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
+  local state label
+  hts_two_pane_mixed_worktrees abcdefghijklmnopqr stuvwxyzabcdefghi
   HERDR_TASK_SYNC_LABEL_COLUMNS=80 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   label="$(jq -r '.tabs[0].label' "$state")"
@@ -3589,20 +3595,10 @@ EOF
 @test "herdr-task-sync two-pane mixed formatter caps long branch refs in tab prefixes while the sidebar keeps the full ref" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  local one="$HTS_WORK/wt-one" two="$HTS_WORK/wt-two"
-  local common="$HTS_WORK/repository/.git" state label
+  local state label
   # given: a 44-character branch name — far past the 18-column prefix cap
   local long_ref="feature/very-long-branch-name-that-overflows"
-  mkdir -p "$one" "$two" "$common"
-  hts_mark_linked_worktree "$one" "$common/worktrees/one"
-  hts_mark_linked_worktree "$two" "$common/worktrees/two"
-  hts_git_location_fixture "$one" "$one" "$common" "refs/heads/$long_ref"
-  hts_git_location_fixture "$two" "$two" "$common" refs/heads/short-two
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
-  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
+  hts_two_pane_mixed_worktrees "$long_ref" short-two
   # when
   HERDR_TASK_SYNC_LABEL_COLUMNS=80 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
