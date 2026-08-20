@@ -127,7 +127,7 @@ flowchart TB
 Deferred for later:
 
 - Container isolation of the work stage — per-run worktree with setup is sufficient for now.
-- Consensus cross-check block for P1 resolution (was U8) — v1 escalates contradictions via the approval-pause path (R13); add multi-agent cross-checking once run history shows how often contradictions occur. Its legs will use the read-only ask-agent invocation path, never full-permission mode.
+- Consensus cross-check block for P1 resolution (was U8) — v1 escalates contradictions via the approval-pause path (R13); add multi-agent cross-checking once run history shows how often contradictions occur. Each leg will be a Smithers `external: true` agent block with `externalContract: { dispatchScan: true, invocation: "read-only-external-agent" }`; it must not invoke the herdr-only `ask-in-herdr` skill.
 - Learned recipes (saving successful specs as named, reviewer-tunable recipes) — a follow-up phase after the interpreter stabilizes.
 - Decommissioning the six se-* skills — revisit once the new entry has replaced them in practice.
 - External stall watchdog process — v1 relies on mandatory per-block timeouts (KTD8) plus reviewer analysis of parked runs; a standalone liveness monitor is follow-up work.
@@ -323,7 +323,7 @@ Phased with strict gates: Phase A (U1 → U2 → U3, with U9 after U2) gates Pha
 - **Files:** `home/private_dot_claude/dot_smithers/workflows/lib/block-registry.ts`, co-located test; catalog emission wired into U5's CLI.
 - **Approach:**
   1. Block definition: `{name, kind: agent | compute | subflow, inputSchema, outputSchema, gateFn, waivePolicy, external, needsWorkspace, preconditions, defaults: {retries, timeoutMs}, costProfile}`; `kind: agent` blocks additionally carry `makeAgent({worktreePath, timeoutMs, budgetUsd})` (reusing `workflows/lib/agents.ts` profiles) and `buildPrompt(input)` — the interpreter dispatches agent blocks exclusively through these two members.
-  2. `external: true` blocks declare a data-sharing contract: payload passes the KTD13 dispatch-time secret scan; invocation uses the read-only external-agent path.
+  2. `external: true` blocks declare `externalContract: { dispatchScan: true, invocation: "read-only-external-agent" }`: the payload passes the KTD13 dispatch-time secret scan and Smithers dispatches the headless read-only agent directly, without `ask-in-herdr`.
   3. Registry entries for the initial library reuse existing lib functions; se-* skills stay untouched (R3).
   4. Catalog generator converts zod schemas to JSON Schema; output is stable-ordered for diffing; documents the KTD6 JSON-Schema limitation note.
   5. Re-verify the Subflow typing cast against 0.32 (see Assumptions); adjust dispatcher typing only.

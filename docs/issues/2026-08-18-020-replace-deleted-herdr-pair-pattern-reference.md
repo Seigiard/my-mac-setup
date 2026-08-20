@@ -2,7 +2,8 @@
 title: Replace the deleted herdr-pair pattern reference
 type: follow-up
 date: 2026-08-18
-status: open
+status: done
+closed: 2026-08-18
 ---
 
 ## Why this exists
@@ -19,7 +20,13 @@ Before executing the command-palette defects plan, replace its deleted pattern r
 
 Before executing the dynamic-flow composition plan, replace its `ask-agent` requirement with the current Smithers external-agent contract. Do not route a headless Smithers leg through the herdr-only consult.
 
-## Open decisions
+## Decisions
 
-- Which surviving script is the clearest hard-dependency pattern at implementation time.
-- Whether the command-palette plan should name a commit and historical path when Git history remains the best example.
+- Do not cite another script. Specify the short `fzf` check and its required failure behavior directly in the plan.
+- Do not name a historical commit or path. Git history is unnecessary for implementing this check.
+
+## Resolution
+
+The command-palette plan now specifies the `fzf` preflight directly: call `shutil.which("fzf")`, show the required message through the existing interactive or non-interactive path when it returns `None`, and exit non-zero. It no longer cites a surviving or historical script because the required behavior is clearer and more durable than an implementation reference.
+
+The dynamic-flow composition plan now uses the implemented Smithers contract for external legs: `external: true` with `externalContract: { dispatchScan: true, invocation: "read-only-external-agent" }`. It explicitly forbids routing those headless legs through the herdr-only `ask-in-herdr` skill.

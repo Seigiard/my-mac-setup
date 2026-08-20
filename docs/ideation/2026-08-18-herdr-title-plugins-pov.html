@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Herdr titles: заменить или усилить локальное решение</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f4f1e8;
+      --ink: #171d1b;
+      --muted: #68716d;
+      --surface: #fffdf7;
+      --surface-2: #e9e5da;
+      --line: #cfc9bb;
+      --signal: #006b57;
+      --signal-soft: #d7eee7;
+      --amber: #925500;
+      --amber-soft: #f6e5c3;
+      --red: #9b302b;
+      --red-soft: #f4ddda;
+      --blue: #285b9f;
+      --blue-soft: #dce8f6;
+      --terminal: #111714;
+      --terminal-ink: #dce9e2;
+      --shadow: 0 18px 50px rgb(34 44 39 / 11%);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --serif: Iowan Old Style, Charter, Georgia, serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #101512;
+        --ink: #e9efeb;
+        --muted: #a4afa9;
+        --surface: #19201c;
+        --surface-2: #232c27;
+        --line: #3a463f;
+        --signal: #68d1b6;
+        --signal-soft: #173d32;
+        --amber: #f2b95f;
+        --amber-soft: #422f14;
+        --red: #f18b82;
+        --red-soft: #49231f;
+        --blue: #91bcf4;
+        --blue-soft: #1c3452;
+        --shadow: 0 20px 55px rgb(0 0 0 / 30%);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, transparent 49.85%, color-mix(in srgb, var(--line) 35%, transparent) 50%, transparent 50.15%),
+        var(--paper);
+      color: var(--ink);
+      font: 15px/1.58 var(--sans);
+    }
+    a { color: var(--blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface-2);
+      padding: .08rem .34rem;
+      font: .88em/1.4 var(--mono);
+    }
+    pre {
+      overflow: auto;
+      border: 1px solid #2e3b34;
+      border-radius: 10px;
+      background: var(--terminal);
+      color: var(--terminal-ink);
+      padding: 1rem;
+      font: 12px/1.65 var(--mono);
+    }
+    h1, h2, h3 { line-height: 1.12; }
+    h1 {
+      max-width: 13ch;
+      margin: .4rem 0 .9rem;
+      font: 750 clamp(2.5rem, 7vw, 5.5rem)/.96 var(--serif);
+      letter-spacing: -.04em;
+    }
+    h2 {
+      margin: 0 0 1rem;
+      font: 730 clamp(1.65rem, 3.3vw, 2.5rem)/1.08 var(--serif);
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 0 0 .55rem; font-size: 1.04rem; }
+    p { max-width: 76ch; }
+    p, li, code { overflow-wrap: anywhere; }
+    ul, ol { padding-left: 1.2rem; }
+    li { margin: .36rem 0; }
+
+    .page { width: min(1180px, calc(100% - 2rem)); min-width: 0; margin: 0 auto; }
+    .masthead {
+      min-height: 86vh;
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+      gap: clamp(2rem, 7vw, 7rem);
+      align-items: center;
+      padding: 7vh 0;
+    }
+    .kicker {
+      color: var(--signal);
+      font: 800 .72rem/1 var(--mono);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .dek { max-width: 62ch; color: var(--muted); font-size: 1.08rem; }
+    .meta { margin-top: 1.4rem; color: var(--muted); font: .76rem/1.75 var(--mono); }
+    .verdict-card {
+      position: relative;
+      border: 1px solid color-mix(in srgb, var(--signal) 50%, var(--line));
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 1.45rem;
+    }
+    .verdict-card::before {
+      content: "REJECT REPLACEMENT";
+      position: absolute;
+      top: -13px;
+      right: 18px;
+      border: 1px solid var(--signal);
+      border-radius: 999px;
+      background: var(--signal-soft);
+      color: var(--signal);
+      padding: .3rem .72rem;
+      font: 800 .68rem/1 var(--mono);
+      letter-spacing: .1em;
+    }
+    .verdict-card .score { margin: .3rem 0; font: 730 3.3rem/1 var(--serif); }
+    .verdict-card .score small { color: var(--muted); font: 500 1rem/1 var(--sans); }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      border-block: 1px solid var(--line);
+      background: color-mix(in srgb, var(--paper) 88%, transparent);
+      backdrop-filter: blur(14px);
+    }
+    .toc .page { display: flex; gap: .3rem; overflow-x: auto; padding-block: .55rem; }
+    .toc a {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      color: var(--muted);
+      padding: .36rem .68rem;
+      font: 750 .7rem/1 var(--mono);
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+    .toc a:hover { background: var(--surface-2); color: var(--ink); }
+
+    section { padding: clamp(3.8rem, 8vw, 7rem) 0; border-bottom: 1px solid var(--line); }
+    .section-grid { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: clamp(2rem, 6vw, 6rem); }
+    .section-grid > *, .card, .example { min-width: 0; }
+    .aside { color: var(--muted); font-size: .86rem; }
+    .aside strong { color: var(--ink); }
+    .callout {
+      border-left: 4px solid var(--signal);
+      background: var(--signal-soft);
+      padding: .85rem 1rem;
+    }
+    .warning { border-color: var(--amber); background: var(--amber-soft); }
+    .risk { border-color: var(--red); background: var(--red-soft); }
+
+    .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+    .fact { background: var(--surface); padding: 1rem; }
+    .fact b { display: block; margin-bottom: .4rem; color: var(--signal); font: 800 .67rem/1 var(--mono); text-transform: uppercase; }
+
+    .contract { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: 1.25rem; }
+    .contract > div { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: .9rem; }
+    .contract b { color: var(--signal); font: 800 .71rem/1 var(--mono); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: .7rem;
+      align-items: center;
+      margin: 1.6rem 0;
+    }
+    .node { min-height: 9rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 1rem; }
+    .node.primary { border: 2px solid var(--signal); background: var(--signal-soft); }
+    .arrow { color: var(--signal); font: 900 1.2rem/1 var(--mono); }
+    .node small { color: var(--muted); }
+
+    .example-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1.3rem 0; }
+    .example { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 1rem; }
+    .screen { margin-top: .8rem; border-radius: 8px; background: var(--terminal); color: var(--terminal-ink); padding: .85rem; font: 12px/1.75 var(--mono); }
+    .screen .dim { color: #819087; }
+    .screen .accent { color: #7ed7bd; }
+    .screen .branch { color: #f3bd68; }
+
+    .matrix-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; min-width: 980px; font-size: .82rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: .7rem .62rem; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font: 800 .64rem/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+    td:first-child, th:first-child { position: sticky; left: 0; background: var(--surface); }
+    tr:last-child td { border-bottom: 0; }
+    .yes { color: var(--signal); font-weight: 750; }
+    .part { color: var(--amber); font-weight: 750; }
+    .no { color: var(--red); font-weight: 750; }
+    .decision { font-weight: 750; }
+
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 1.1rem; }
+    .card.recommended { border: 2px solid var(--signal); }
+    .card .tag { color: var(--muted); font: 800 .65rem/1 var(--mono); text-transform: uppercase; }
+    .card p { color: var(--muted); font-size: .88rem; }
+    .card footer { margin-top: .8rem; color: var(--signal); font: 750 .75rem/1.5 var(--mono); }
+
+    .steps { counter-reset: step; }
+    .step { position: relative; margin-left: 1.2rem; border-left: 1px solid var(--line); padding: 0 0 1.5rem 2rem; }
+    .step:last-child { border-left-color: transparent; }
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: -1.02rem;
+      top: -.15rem;
+      width: 2rem;
+      height: 2rem;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--signal);
+      border-radius: 50%;
+      background: var(--paper);
+      color: var(--signal);
+      font: 850 .78rem/1 var(--mono);
+    }
+    .gates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+    .gate { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); padding: .8rem; }
+    .gate b { display: block; color: var(--signal); font: 800 .7rem/1.3 var(--mono); }
+
+    .sources { columns: 2; column-gap: 2rem; font-size: .82rem; }
+    .sources li { break-inside: avoid; margin: 0 0 .7rem; }
+    .sources small { display: block; color: var(--muted); }
+    .footer { padding: 2rem 0 4rem; color: var(--muted); font: .74rem/1.6 var(--mono); }
+
+    @media (max-width: 880px) {
+      .masthead, .section-grid { grid-template-columns: minmax(0, 1fr); }
+      .masthead { min-height: auto; padding: 4rem 0; }
+      .facts { grid-template-columns: repeat(2, 1fr); }
+      .flow { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); text-align: center; }
+    }
+    @media (max-width: 650px) {
+      .facts, .contract, .example-grid, .cards, .gates { grid-template-columns: 1fr; }
+      .sources { columns: 1; }
+    }
+    @media print {
+      .toc { display: none; }
+      body { background: white; color: #111; }
+      .masthead { min-height: auto; }
+      section, .card { break-inside: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page masthead">
+    <div>
+      <div class="kicker">Project-grounded POV / 18 Aug 2026</div>
+      <h1>Не менять. Усилить.</h1>
+      <p class="dek">Ни один из 18 уникальных Herdr-плагинов не заменяет локальный prompt-aware compositor для Claude Code, OpenCode и Pi. Лучший результат даст не миграция, а точечное заимствование механизмов worktree metadata, ownership и reconciliation.</p>
+      <div class="meta">intent: compare / replace / improve<br>incumbent: herdr-task-sync + three adapters + pane-label sweep<br>decision tier: 1, reversible tooling choice<br>duplicate normalized: davidolrik/herdr-titles inspected once</div>
+    </div>
+    <aside class="verdict-card">
+      <div class="kicker">Вердикт</div>
+      <div class="score">0<small> complete replacements</small></div>
+      <p><strong>Reject replacement.</strong> Сохранить локальное решение как единственного владельца pane и tab labels.</p>
+      <p><strong>Adopt patterns.</strong> Добавить worktree metadata из текущего pane CWD, latest-wins запись, manual ownership и event-driven invalidation.</p>
+      <p><strong>Do not stack writers.</strong> Не устанавливать Nerd Font tab-renamer plugin или другой tab renamer параллельно с текущим compositor.</p>
+    </aside>
+  </header>
+
+  <nav class="toc" aria-label="Навигация по отчёту">
+    <div class="page">
+      <a href="#decision">Решение</a>
+      <a href="#incumbent">Текущий контракт</a>
+      <a href="#target">Целевая схема</a>
+      <a href="#worktree">Worktree UX</a>
+      <a href="#matrix">18 плагинов</a>
+      <a href="#borrow">Что заимствовать</a>
+      <a href="#nerd">Nerd Font</a>
+      <a href="#next">Следующий шаг</a>
+      <a href="#sources">Источники</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="decision">
+      <div class="page section-grid">
+        <div class="aside"><strong>Grade: Reject.</strong><br>Не заменять локальный движок. Это не означает, что внешние плагины бесполезны. Несколько реализаций содержат более сильные механизмы конкурентного доступа и reconciliation.</div>
+        <div>
+          <h2>Решение в одном экране</h2>
+          <div class="callout">
+            <strong>Один semantic owner, несколько metadata producers.</strong> Только <code>herdr-task-sync</code> должен писать pane и tab labels. Независимые плагины допустимы только для namespaced metadata tokens, которые не перезаписывают label целиком.
+          </div>
+          <p><strong>Почему не миграция:</strong> текущий движок одновременно поддерживает prompt-aware task slugs, Claude Code, OpenCode и Pi, pane metadata, agent badges, plain-process labels и детерминированную композицию всех panes в tab. Ни один кандидат не покрывает этот набор.</p>
+          <p><strong>Почему не оставить всё без изменений:</strong> текущий код не показывает worktree. Он также защищает последовательность metadata reports, но не защищает отдельные <code>pane rename</code>, <code>tab rename</code> и state writes от позднего завершения старого worker.</p>
+          <p><strong>Рекомендуемая граница:</strong> task identity остаётся prompt-derived. Location identity становится отдельными токенами <code>repo</code>, <code>worktree</code> и <code>branch</code>. Presentation layer объединяет их только в последней точке записи.</p>
+          <div class="callout warning"><strong>Условие:</strong> если Herdr добавит first-class composable label segments или sequence-aware rename API, архитектуру нужно пересмотреть. Сейчас несколько whole-label writers не имеют общего протокола приоритета.</div>
+          <p><strong>Handoff:</strong> для migration действий нет. Optional enhancement зафиксирован отдельным follow-up; если его приоритет будет подтверждён, следующий шаг выполняется через <code>ce-brainstorm</code>, потому что display и ownership decisions ещё не закрыты.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="incumbent">
+      <div class="page section-grid">
+        <div class="aside">Project floor выполнен. Проверены engine, adapters, Herdr plugin, config, tests и исходный design decision.</div>
+        <div>
+          <h2>Текущий контракт шире, чем tab rename</h2>
+          <div class="facts">
+            <div class="fact"><b>Agents</b>Claude Code, OpenCode и Pi имеют отдельные lifecycle adapters.</div>
+            <div class="fact"><b>Semantics</b>LLM видит first, latest и previous task; naming policy требует сохранить slug для continuation.</div>
+            <div class="fact"><b>Composition</b>Tab label содержит labels всех agent, process и idle panes.</div>
+            <div class="fact"><b>Reconcile</b>Пятиисекундный sweep обновляет завершившиеся процессы и idle tabs.</div>
+          </div>
+          <div class="contract">
+            <div><b>C1 / Prompt-aware</b><br>Naming policy просит менять задачу по смыслу prompt history, а не по process name или CWD.</div>
+            <div><b>C2 / Multi-agent</b><br>Один engine принимает нормализованный input от трёх разных agent runtimes.</div>
+            <div><b>C3 / Pane metadata</b><br><code>task=&lt;slug&gt;</code> публикуется с source и monotonic sequence.</div>
+            <div><b>C4 / Agent identity</b><br>Pane labels получают короткие prefixes: <code>cc:</code>, <code>oc:</code>, <code>pi:</code>.</div>
+            <div><b>C5 / Process fallback</b><br>Обычная pane показывает leader command, а idle pane показывает <code>~</code>.</div>
+            <div><b>C6 / All-pane tab</b><br>Tab не выбирает один dominant pane. Он объединяет все panes в layout order.</div>
+            <div><b>C7 / Non-blocking</b><br>Adapters возвращаются до model call. Ошибки naming не ломают agent session.</div>
+            <div><b>C8 / Reconciliation</b><br>Sweep восстанавливает labels после process exit и daemon restart.</div>
+          </div>
+          <p>Основные touchpoints: <code>home/dot_local/bin/executable_herdr-task-sync:194-415</code>, Claude adapter <code>home/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh:33-51</code>, OpenCode adapter <code>home/private_dot_config/opencode/plugins/herdr-task-sync.ts:50-78</code>, Pi adapter <code>home/dot_pi/agent/extensions/herdr-task-sync.ts:60-90</code>.</p>
+          <div class="callout risk"><strong>Проверенный gap:</strong> sequence защищает metadata report, но не последующие pane и tab renames. Direct state writes также не имеют lock или atomic replacement. См. <code>executable_herdr-task-sync:185-192,408-415,629-637</code>.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="target">
+      <div class="page section-grid">
+        <div class="aside"><strong>Принцип:</strong><br>Task, location, runtime state и decoration являются разными данными. Они не должны конкурировать за один string до финального formatter.</div>
+        <div>
+          <h2>Целевая схема: single writer</h2>
+          <div class="flow" role="img" aria-label="Целевая архитектура task, location и presentation">
+            <div class="node"><strong>Agent adapters</strong><br><small>Claude / OpenCode / Pi</small><p>Публикуют session id и prompt context.</p></div>
+            <div class="arrow">→</div>
+            <div class="node primary"><strong>herdr-task-sync</strong><br><small>единственный label owner</small><p>Сводит task, pane process и location. Применяет latest-wins policy.</p></div>
+            <div class="arrow">→</div>
+            <div class="node"><strong>Herdr presentation</strong><br><small>pane + tab + sidebar</small><p>Получает один согласованный label и независимые metadata tokens.</p></div>
+          </div>
+          <p><strong>Event model:</strong> событие означает «данные могли измениться», а не «используй payload как истину». Writer должен получить current pane/tab snapshot перед rename. Этот подход реализован в <a href="https://github.com/davidolrik/herdr-titles/blob/e6ac6b9d8352f9c3124ff1502568cd284bcae6e6/tabs.go#L294-L309">davidolrik/herdr-titles</a>.</p>
+          <p><strong>Concurrency model:</strong> один per-session lock coalesces новые requests через rerun flag. State сохраняется atomic replacement. Перед side effect worker проверяет generation и current manual ownership. Lock-plus-rerun можно адаптировать из <a href="https://github.com/qu8n/herdr-automatic-rename/blob/f169deb1888a6032b917a4dbad06670ad65b6360/automatic-rename.sh#L215-L246">herdr-automatic-rename</a>.</p>
+          <p><strong>Fallback:</strong> сохранить периодический sweep. Herdr не публикует надёжное событие для каждого start/stop foreground process внутри уже существующей pane. Event subscription уменьшит среднюю задержку, но не заменит fallback poll.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="worktree">
+      <div class="page section-grid">
+        <div class="aside">Worktree не должен становиться частью LLM slug. Он меняется по Git state и должен вычисляться детерминированно.</div>
+        <div>
+          <h2>Как показать worktree без длинных tab names</h2>
+          <p><strong>Источник:</strong> взять current <code>foreground_cwd</code>, затем <code>cwd</code>. Выполнить Git lookup в этой директории. <code>--show-toplevel</code> даёт корень конкретного worktree, <code>--git-common-dir</code> связывает его с основным repository, <code>branch --show-current</code> даёт текущую branch.</p>
+          <pre><code>repo=my-mac-setup
+worktree=fix+palette-defects
+branch=fix/palette-defects
+task=palette-keyboard-layout</code></pre>
+          <p><strong>Publication:</strong> сообщать <code>repo</code>, <code>worktree</code> и <code>branch</code> как отдельные pane metadata tokens. При выходе из Git repository writer должен явно очищать stale tokens. <a href="https://github.com/maedana/herdr-whereami/blob/8d488cf149927e726fef42c46318fef8bf9f9a6d/src/lib.rs#L83-L133">herdr-whereami</a> подтверждает подход для отдельных <code>repo</code> и <code>branch</code> tokens; <code>worktree</code> является нашей дополнительной capability. Код нужно реализовать независимо, потому что repository не содержит license.</p>
+          <div class="example-grid">
+            <article class="example">
+              <h3>Agents sidebar</h3>
+              <p>Task остаётся главным. Worktree появляется второй, более тихой координатой.</p>
+              <div class="screen"><span class="accent">●</span> my-mac-setup<br>&nbsp;&nbsp;<span class="accent">cc:palette-keyboard-layout</span><br>&nbsp;&nbsp;<span class="dim">wt:</span><span class="branch">fix+palette-defects</span></div>
+            </article>
+            <article class="example">
+              <h3>Tab label</h3>
+              <p>Если все panes принадлежат одному worktree, prefix показывается один раз.</p>
+              <div class="screen"><span class="branch">fix+palette-defects</span> <span class="dim">|</span> <span class="accent">cc:palette-keyboard-layout</span> <span class="dim">·</span> bun test</div>
+            </article>
+            <article class="example">
+              <h3>Mixed worktrees</h3>
+              <p>Если panes принадлежат разным worktrees, location остаётся около своего pane.</p>
+              <div class="screen"><span class="accent">cc:review</span><span class="branch">@my-mac-setup</span> <span class="dim">·</span> <span class="accent">oc:fix</span><span class="branch">@auth-refresh-wt</span></div>
+            </article>
+            <article class="example">
+              <h3>Detached HEAD / no Git</h3>
+              <p>Detached worktree использует short SHA. Non-Git pane не получает location suffix.</p>
+              <div class="screen"><span class="accent">pi:release-audit</span><span class="branch">@a13c9fe</span><br><span class="dim">~ · python server.py</span></div>
+            </article>
+          </div>
+          <div class="callout"><strong>Рекомендуемый default для UX spike:</strong> branch полезна для Git, но worktree basename лучше отвечает на вопрос «где запущен агент». Сохранять оба token, показывать worktree, а branch оставлять для search, sidebar detail и detached fallback. Follow-up сохраняет окончательный формат как open decision до live-проверки длины.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="matrix">
+      <div class="page">
+        <h2>Матрица 18 уникальных плагинов</h2>
+        <p class="aside">«Prompt task» означает semantic task из agent context, а не terminal title или process output. «All panes» означает детерминированную композицию всех panes, как в локальном incumbent.</p>
+        <div class="matrix-wrap">
+          <table>
+            <thead>
+              <tr><th>Plugin</th><th>Основная роль</th><th>Prompt task</th><th>Agents</th><th>All panes</th><th>Worktree</th><th>Сильная идея</th><th>Решение</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><a href="https://github.com/danbuhler/herdr-pane-topic-sync">pane-topic-sync</a></td><td>Agent terminal title → pane/tab</td><td class="no">Нет</td><td class="part">Herdr generic</td><td class="no">Один pane</td><td class="no">Нет</td><td>Self-healing label ownership</td><td class="decision">Donor</td></tr>
+              <tr><td><a href="https://github.com/tmn73/herdr-claude-tab-title">claude-tab-title</a></td><td>Claude <code>ai-title</code> → tab</td><td class="part">Claude title</td><td class="no">Claude only</td><td class="no">Один pane</td><td class="no">Нет</td><td>Claim numeric labels, explicit reclaim</td><td class="decision">Не заменяет</td></tr>
+              <tr><td><a href="https://github.com/davidolrik/herdr-titles">titles</a></td><td>Process/agent title + window title</td><td class="no">Нет</td><td class="yes">Generic</td><td class="no">Один pane</td><td class="no">Нет</td><td>Fresh snapshot, retry, event stream</td><td class="decision">Best infra donor</td></tr>
+              <tr><td><a href="https://github.com/maedana/herdr-whereami">whereami</a></td><td>Repo/branch metadata + tab</td><td class="no">Нет</td><td class="yes">Agnostic</td><td class="no">Focus only</td><td class="no">No token; repo + branch only</td><td>Separate tokens, stale clear</td><td class="decision">Reimplement idea</td></tr>
+              <tr><td><a href="https://github.com/bcihanc/herdr-claude-session-title">claude-session-title</a></td><td>Claude title metadata</td><td class="part">Claude title</td><td class="no">Claude only</td><td class="no">Нет</td><td class="no">Нет</td><td>Nanosecond seq, 0.5s socket cap</td><td class="decision">Не заменяет</td></tr>
+              <tr><td><a href="https://github.com/ryanlewis/herdr-tab-renamer">tab-renamer</a></td><td>Agent title/CWD → tab</td><td class="no">Нет</td><td class="yes">Generic</td><td class="no">Один pane</td><td class="no">Нет</td><td>Intent-first state, late live re-read</td><td class="decision">Strong donor</td></tr>
+              <tr><td><a href="https://github.com/dev-shimada/herdr-auto-tab-name">auto-tab-name</a></td><td>CWD basename → tab</td><td class="no">Нет</td><td class="no">Нет</td><td class="no">Один pane</td><td class="part">CWD only</td><td>Directly executable TypeScript</td><td class="decision">Не нужен</td></tr>
+              <tr><td><a href="https://github.com/ndom91/herdr-ai-tab-name">ai-tab-name</a></td><td>All-pane terminal output → AI tab</td><td class="no">Нет</td><td class="part">No Pi prefix</td><td class="part">AI context</td><td class="part">Branch fingerprint</td><td>Cheap fingerprint before model call</td><td class="decision">Donor</td></tr>
+              <tr><td><a href="https://github.com/wyattjoh/herdr-plugin-renamer">plugin-renamer</a></td><td>First prompt → pane/branch/workspace</td><td class="yes">Да</td><td class="part">No OpenCode</td><td class="no">Нет tab</td><td class="yes">Linked worktree</td><td>Session claims, Git re-check</td><td class="decision">Closest donor</td></tr>
+              <tr><td><a href="https://github.com/aarsh21/herdr-tab-title">tab-title</a></td><td>Process/CWD → tab</td><td class="no">Нет</td><td class="yes">Process-generic</td><td class="no">Один pane</td><td class="no">Нет</td><td>Events + poll + stale-lock recovery</td><td class="decision">Donor</td></tr>
+              <tr><td><a href="https://github.com/iurysza/herdr-tab-smart-rename">tab-smart-rename</a></td><td>Context policy + AI tab/workspace</td><td class="part">Pi only</td><td class="part">Others via output</td><td class="part">Sibling evidence</td><td class="part">Repo name</td><td>Fresh snapshot, abstention, atomic lock</td><td class="decision">Closest design, no license</td></tr>
+              <tr><td><a href="https://github.com/lmilojevicc/herdr-tab-rename">tab-rename</a></td><td>CWD basename poller</td><td class="no">Нет</td><td class="no">Нет</td><td class="no">Один pane</td><td class="part">CWD only</td><td>Session lock for daemon startup</td><td class="decision">Не нужен</td></tr>
+              <tr><td><a href="https://github.com/ezcorp-org/herdr-git-status">git-status</a></td><td>Git severity metadata</td><td class="no">Нет</td><td class="no">Pseudo-agent</td><td class="no">Workspace sample</td><td class="yes">Family grouping</td><td>Namespaced TTL tokens</td><td class="decision">Optional metadata</td></tr>
+              <tr><td><a href="https://github.com/4Born/herdr-pane-id-labeler">pane-id-labeler</a></td><td>Pane public ID → pane label</td><td class="no">Нет</td><td class="no">Нет</td><td class="no">Нет tab composition</td><td class="no">Нет</td><td>Startup repair</td><td class="decision">Conflicts with pane labels</td></tr>
+              <tr><td><a href="https://github.com/rjyo/herdr-window-title-sync">window-title-sync</a></td><td>Focused context → outer title</td><td class="part">Claude/Codex</td><td class="part">Partial</td><td class="no">Focused only</td><td class="no">Нет</td><td>Explicit source precedence</td><td class="decision">Separate concern</td></tr>
+              <tr><td><a href="https://github.com/kakigakki/herdr-auto-namer">auto-namer</a></td><td>Output/session → agent/workspace</td><td class="part">Claude session</td><td class="part">Others via output</td><td class="part">CWD vote</td><td class="part">CWD only</td><td>Manual ownership by pane/session</td><td class="decision">Не заменяет</td></tr>
+              <tr><td><a href="https://github.com/qu8n/herdr-automatic-rename">automatic-rename</a></td><td>Process + jump index → tab/workspace</td><td class="no">Нет</td><td class="yes">Process-generic</td><td class="no">Один pane</td><td class="part">Ordering only</td><td>Lock + rerun full reconcile</td><td class="decision">Best lock donor</td></tr>
+              <tr><td><a href="https://github.com/rohankewal/herdr-nerd-font-tab-name">nerd-font-tab-name</a></td><td>Icon decoration → whole tab label</td><td class="no">Нет</td><td class="yes">Icon map</td><td class="no">Один pane + count</td><td class="no">Нет</td><td>Reversible base-label decoration</td><td class="decision">Не ставить рядом</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="aside">Все проекты новые и активные в июне-августе 2026 года. Это хороший сигнал для идей, но слабый сигнал зрелости. Несколько repositories не имеют releases, а три важных кандидата имеют license gaps.</p>
+      </div>
+    </section>
+
+    <section id="borrow">
+      <div class="page">
+        <h2>Что заимствовать, не устанавливая plugin</h2>
+        <div class="cards">
+          <article class="card recommended">
+            <span class="tag">Priority 1 / correctness</span>
+            <h3>Fresh-state reconciliation</h3>
+            <p>Event payload является invalidation signal. Перед rename writer получает current snapshot. Failed full pass остаётся pending, а dropped event вызывает full pass.</p>
+            <footer>Источник: davidolrik/herdr-titles, MIT</footer>
+          </article>
+          <article class="card recommended">
+            <span class="tag">Priority 1 / concurrency</span>
+            <h3>Coalesced single writer</h3>
+            <p>Per-session lock не отбрасывает новый request. Он ставит rerun flag. Владелец lock выполняет ещё один reconcile по свежему snapshot.</p>
+            <footer>Источник: qu8n/herdr-automatic-rename, MIT</footer>
+          </article>
+          <article class="card">
+            <span class="tag">Priority 2 / ownership</span>
+            <h3>Intent-first and late re-read</h3>
+            <p>Writer сначала сохраняет intended state, затем непосредственно перед rename перечитывает live label. Manual rename получает приоритет, а lost side effect можно восстановить.</p>
+            <footer>Источник: ryanlewis/herdr-tab-renamer, MIT</footer>
+          </article>
+          <article class="card">
+            <span class="tag">Priority 2 / identity</span>
+            <h3>Session-scoped claims</h3>
+            <p>Stable native session id отделяет reused pane от прежней session. Short-lived claim блокирует duplicate model calls. Git state перечитывается перед mutation.</p>
+            <footer>Источник: wyattjoh/herdr-plugin-renamer, MIT</footer>
+          </article>
+          <article class="card">
+            <span class="tag">Priority 2 / worktree</span>
+            <h3>Separate location tokens</h3>
+            <p>Repository и branch публикуются отдельно по проверенному external pattern. Локальная реализация добавляет worktree token. Leaving Git очищает все location tokens.</p>
+            <footer>Repo/branch pattern: maedana/herdr-whereami; worktree token: local extension</footer>
+          </article>
+          <article class="card">
+            <span class="tag">Priority 3 / cost</span>
+            <h3>Context fingerprint</h3>
+            <p>Model call выполняется только когда дешёвый fingerprint task inputs изменился. Для incumbent fingerprint должен включать session, first/latest prompt hash и previous slug.</p>
+            <footer>Источник: ndom91/herdr-ai-tab-name, MIT</footer>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="nerd">
+      <div class="page section-grid">
+        <div class="aside"><strong>Вердикт по Nerd Font:</strong><br>идея полезна как presentation option, но отдельный plugin создаёт второго tab-label writer.</div>
+        <div>
+          <h2>Nerd Font tab plugin: не ставить; icon formatter проверить позже</h2>
+          <p><a href="https://github.com/rohankewal/herdr-nerd-font-tab-name">herdr-nerd-font-tab-name</a> умеет помнить semantic base label, убирать известные glyphs и восстанавливать исходное имя при остановке. Это аккуратнее простого prefix script.</p>
+          <p><strong>Конфликт:</strong> plugin всё равно вызывает <code>tab.rename</code> для whole label. Текущий compositor тоже вызывает <code>tab.rename</code>. Между ними нет общего sequence или ownership protocol. Оба daemon могут правильно работать по отдельности и всё равно перезаписывать друг друга.</p>
+          <p><strong>Портируемость:</strong> локальный engine уже отказался от glyph badges, потому что terminals без patched font показывали пустые boxes. Kitty использует Nerd Font Mono, но это не доказывает одинаковое поведение во всех terminal clients и remote sessions.</p>
+          <p><strong>License:</strong> собственный код plugin имеет MIT license, но bundled icon map и config format исключены из grant и происходят из repository без license. Не копировать этот map.</p>
+          <div class="callout warning"><strong>Безопасный вариант:</strong> если icons действительно нужны, добавить opt-in formatter в <code>herdr-task-sync</code>, например <code>HERDR_TASK_SYNC_ICON_MODE=nerd</code>. Formatter должен выполнять одну финальную запись вместе с task, process и worktree. Маленький icon map нужно создать независимо и документировать его provenance.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="next">
+      <div class="page section-grid">
+        <div class="aside">Это не migration plan. Это минимальная последовательность, которая снижает риск до изменения UX.</div>
+        <div>
+          <h2>Рекомендуемый порядок улучшений</h2>
+          <div class="steps">
+            <div class="step"><h3>Сначала исправить latest-wins boundary</h3><p>Добавить per-pane/session claim, atomic state replacement и generation check перед pane/tab rename. Проверить два workers, которые завершаются в обратном порядке.</p></div>
+            <div class="step"><h3>Добавить location metadata без UI</h3><p>Вычислять repo/worktree/branch из current pane CWD. Публиковать source-owned tokens и очищать их после выхода из Git. Не менять существующие labels.</p></div>
+            <div class="step"><h3>Подключить sidebar presentation</h3><p>Показать worktree basename рядом с pane task. Проверить main checkout, linked worktree, detached HEAD, deleted worktree и non-Git pane.</p></div>
+            <div class="step"><h3>Обновить tab compositor</h3><p>Показывать worktree один раз для однородного tab. Для mixed-worktree tab добавлять короткий suffix к каждой pane. Ограничить общую длину.</p></div>
+            <div class="step"><h3>Заменить blind poll на hybrid reconcile</h3><p>Использовать Herdr event stream для немедленного invalidation. Сохранить sweep как fallback для foreground process transitions без события.</p></div>
+            <div class="step"><h3>Только затем решить вопрос icons</h3><p>Проверить patched fonts во всех terminal clients. Если результат стабилен, добавить opt-in formatter внутри существующего writer.</p></div>
+          </div>
+          <h3>Acceptance gates</h3>
+          <div class="gates">
+            <div class="gate"><b>G1 / Latest wins</b>Старый worker не может перезаписать новый task, pane label, tab label или state.</div>
+            <div class="gate"><b>G2 / Worktree truth</b>Sidebar показывает worktree фактического foreground CWD, а не parent launcher.</div>
+            <div class="gate"><b>G3 / Stale clear</b>После <code>cd</code> из Git старые repo/branch/worktree tokens исчезают.</div>
+            <div class="gate"><b>G4 / Manual ownership</b>Manual rename имеет документированный приоритет и не исчезает после случайного event.</div>
+            <div class="gate"><b>G5 / Mixed tab</b>Два agents из разных worktrees различимы без потери task names.</div>
+            <div class="gate"><b>G6 / Single writer</b>Ни один установленный plugin не пишет те же pane/tab labels параллельно.</div>
+          </div>
+          <p>Follow-up зафиксирован в <code>docs/issues/2026-08-18-025-harden-herdr-task-sync-and-show-worktree.md</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="page section-grid">
+        <div class="aside">External floor выполнен. Claims проверены по implementation files на pinned commits, а не только по README. Research date: 2026-08-18.</div>
+        <div>
+          <h2>Источники и provenance</h2>
+          <h3>Project evidence</h3>
+          <ul>
+            <li><code>home/dot_local/bin/executable_herdr-task-sync:31-637</code><small>Task model, state, metadata, pane/tab composition, sweep and worker lifecycle.</small></li>
+            <li><code>home/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh:24-51</code><small>Claude lifecycle and subagent filter.</small></li>
+            <li><code>home/private_dot_config/opencode/plugins/herdr-task-sync.ts:50-78</code><small>OpenCode prompt capture and child-session suppression.</small></li>
+            <li><code>home/dot_pi/agent/extensions/herdr-task-sync.ts:60-90</code><small>Pi session naming and prompt capture.</small></li>
+            <li><code>home/private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml:8-37</code><small>Sweep-daemon ownership and events.</small></li>
+            <li><code>docs/plans/2026-08-10-001-feat-herdr-task-sync-plan.md:40-49,93-98</code><small>Prior decision for custom multi-agent live naming; worktree identity was explicitly deferred.</small></li>
+            <li><code>tests/scripts.bats:1010-1424</code><small>Behavior and composition coverage.</small></li>
+          </ul>
+          <h3>External repositories</h3>
+          <ol class="sources">
+            <li><a href="https://github.com/danbuhler/herdr-pane-topic-sync/commit/bad3bef4fc6075413e2859b808ffe2f6e8f1fe45">danbuhler/herdr-pane-topic-sync @ bad3bef</a><small>MIT, release v0.2.1, 2026-08-04.</small></li>
+            <li><a href="https://github.com/tmn73/herdr-claude-tab-title/commit/2da2dd891f6d26d1757f7853a32599f6330e99c6">tmn73/herdr-claude-tab-title @ 2da2dd8</a><small>MIT, no release, 2026-08-13.</small></li>
+            <li><a href="https://github.com/davidolrik/herdr-titles/commit/e6ac6b9d8352f9c3124ff1502568cd284bcae6e6">davidolrik/herdr-titles @ e6ac6b9</a><small>MIT, release v0.14.0, 2026-08-18.</small></li>
+            <li><a href="https://github.com/maedana/herdr-whereami/commit/8d488cf149927e726fef42c46318fef8bf9f9a6d">maedana/herdr-whereami @ 8d488cf</a><small>No detected license, 2026-08-14.</small></li>
+            <li><a href="https://github.com/bcihanc/herdr-claude-session-title/commit/b718bb1daa7c575978faf29339bc7596ae103483">bcihanc/herdr-claude-session-title @ b718bb1</a><small>No detected license, 2026-07-05.</small></li>
+            <li><a href="https://github.com/ryanlewis/herdr-tab-renamer/commit/bafd4dc4d75d3d3c8bf541970365f4b057a4377f">ryanlewis/herdr-tab-renamer @ bafd4dc</a><small>MIT, 2026-08-08.</small></li>
+            <li><a href="https://github.com/dev-shimada/herdr-auto-tab-name/commit/1aa9f78d8748b75a9938cbd16114573ab198bd68">dev-shimada/herdr-auto-tab-name @ 1aa9f78</a><small>MIT, release v1.0.2, 2026-07-12.</small></li>
+            <li><a href="https://github.com/ndom91/herdr-ai-tab-name/commit/18b13ef6f62ea3466042b1eadefef7ea4b1dcf65">ndom91/herdr-ai-tab-name @ 18b13ef</a><small>MIT, 2026-08-05.</small></li>
+            <li><a href="https://github.com/wyattjoh/herdr-plugin-renamer/commit/fadec8f1cadcae8e0b4abdeaf84ceede2990b2e1">wyattjoh/herdr-plugin-renamer @ fadec8f</a><small>MIT, 2026-08-17.</small></li>
+            <li><a href="https://github.com/aarsh21/herdr-tab-title/commit/2e85b286035803fb4cd1befb94b66111dad2cf1c">aarsh21/herdr-tab-title @ 2e85b28</a><small>MIT, release v0.1.6, 2026-07-08.</small></li>
+            <li><a href="https://github.com/iurysza/herdr-tab-smart-rename/commit/a7bf8e4105732629678fcc2a3203376c07cacc95">iurysza/herdr-tab-smart-rename @ a7bf8e4</a><small>No detected license, 2026-08-18.</small></li>
+            <li><a href="https://github.com/lmilojevicc/herdr-tab-rename/commit/8a2ad73847ec7e9f3137b7502557ffed58415f31">lmilojevicc/herdr-tab-rename @ 8a2ad73</a><small>MIT, release v0.1.0, 2026-07-31.</small></li>
+            <li><a href="https://github.com/ezcorp-org/herdr-git-status/commit/f144c8dac2860e344b6b379d2bcfee229dcf10ad">ezcorp-org/herdr-git-status @ f144c8d</a><small>MIT, manifest v1.5.0, 2026-08-10.</small></li>
+            <li><a href="https://github.com/4Born/herdr-pane-id-labeler/commit/176adbfa6adcfbb03d5aba400a06aea395d9bb31">4Born/herdr-pane-id-labeler @ 176adbf</a><small>MIT, sole commit, 2026-07-26.</small></li>
+            <li><a href="https://github.com/rjyo/herdr-window-title-sync/commit/b07f1140b7308d66487b2f4be546c0c7db065569">rjyo/herdr-window-title-sync @ b07f114</a><small>MIT, 2026-06-26.</small></li>
+            <li><a href="https://github.com/kakigakki/herdr-auto-namer/commit/80084ecd5a6a984fb19e2421a3ae02153d734832">kakigakki/herdr-auto-namer @ 80084ec</a><small>MIT, 2026-07-12.</small></li>
+            <li><a href="https://github.com/qu8n/herdr-automatic-rename/commit/f169deb1888a6032b917a4dbad06670ad65b6360">qu8n/herdr-automatic-rename @ f169deb</a><small>MIT, release v0.6.1, 2026-08-14.</small></li>
+            <li><a href="https://github.com/rohankewal/herdr-nerd-font-tab-name/commit/b5cc7db85fedc085385716e27464ed32a9b2d168">rohankewal/herdr-nerd-font-tab-name @ b5cc7db</a><small>Plugin code MIT; bundled icon map excluded from grant, 2026-07-31.</small></li>
+          </ol>
+          <div class="callout warning"><strong>Provenance boundary:</strong> оценки fit и рекомендации являются выводом этого отчёта. Capability, activity и license claims опираются на указанные pinned sources. User hypothesis о необходимости worktree visibility подтверждена локальным gap, но формат display остаётся design recommendation.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page footer">Artifact: docs/ideation/2026-08-18-herdr-title-plugins-pov.html<br>Verdict contract: Reject replacement / keep incumbent / adopt selected patterns / no migration handoff.</footer>
+</body>
+</html>

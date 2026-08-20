@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pi-subagentura 3.3.0 Trial Plan</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f2ed;
+      --surface: #fffdf9;
+      --surface-soft: #eee9e1;
+      --text: #282521;
+      --muted: #67615a;
+      --border: #d8d0c5;
+      --accent: #4f6f64;
+      --accent-soft: #dfeae5;
+      --accent-text: #26483e;
+      --warn-soft: #f5e8cc;
+      --warn-text: #664b16;
+      --danger-soft: #f4dddd;
+      --danger-text: #6b2f2f;
+      --ok-soft: #dcebdc;
+      --ok-text: #28512d;
+      --code-bg: #ede8e0;
+      --shadow: 0 12px 35px rgba(50, 42, 34, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171817;
+        --surface: #202220;
+        --surface-soft: #292c29;
+        --text: #ece9e3;
+        --muted: #b7b0a6;
+        --border: #41453f;
+        --accent: #93b9aa;
+        --accent-soft: #243d35;
+        --accent-text: #c6e4d9;
+        --warn-soft: #493d24;
+        --warn-text: #f1d89f;
+        --danger-soft: #492e2e;
+        --danger-text: #f0bcbc;
+        --ok-soft: #29412c;
+        --ok-text: #bde2c1;
+        --code-bg: #2b2d2a;
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(940px, calc(100% - 32px)); margin: 32px auto 64px; }
+    header, section, footer {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    header { padding: 34px; }
+    section { padding: 28px 32px; margin-top: 18px; }
+    footer { padding: 18px 24px; margin-top: 18px; color: var(--muted); }
+    h1, h2, h3 { line-height: 1.2; margin: 0 0 14px; }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); letter-spacing: -0.045em; max-width: 16ch; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.02rem; }
+    p { max-width: 72ch; margin: 9px 0; }
+    a { color: var(--accent); }
+    code {
+      background: var(--code-bg);
+      border-radius: 6px;
+      padding: 0.12rem 0.35rem;
+      font: 0.92em ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow-x: auto;
+      padding: 16px;
+      line-height: 1.5;
+    }
+    pre code { padding: 0; background: transparent; }
+    .eyebrow { color: var(--accent); font-size: 0.74rem; font-weight: 750; letter-spacing: 0.12em; text-transform: uppercase; }
+    .metadata, .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .pill { background: var(--surface-soft); border: 1px solid var(--border); border-radius: 999px; padding: 5px 10px; color: var(--muted); font-size: 0.82rem; }
+    nav { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 8px; }
+    nav a { background: var(--accent-soft); color: var(--accent-text); border-radius: 999px; padding: 7px 11px; text-decoration: none; font-weight: 650; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .stat { padding: 14px; border-radius: 12px; background: var(--surface-soft); }
+    .stat strong { display: block; font-size: 1.3rem; color: inherit; }
+    .stat span { color: var(--muted); font-size: 0.82rem; }
+    .callout { margin-top: 14px; padding: 16px 18px; border-radius: 12px; }
+    .callout.info { background: var(--accent-soft); color: var(--accent-text); }
+    .callout.warn { background: var(--warn-soft); color: var(--warn-text); }
+    .callout.danger { background: var(--danger-soft); color: var(--danger-text); }
+    .callout.ok { background: var(--ok-soft); color: var(--ok-text); }
+    .callout .label { display: block; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 5px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    ul, ol { padding-left: 1.3rem; }
+    li { margin: 7px 0; }
+    .phase { border: 1px solid var(--border); background: var(--surface-soft); border-radius: 14px; padding: 18px; margin-top: 12px; }
+    .phase-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .phase-id { background: var(--accent-soft); color: var(--accent-text); border-radius: 999px; padding: 3px 8px; font-weight: 800; font-size: 0.78rem; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li::before { content: "□"; color: var(--accent); font-weight: 800; margin-right: 9px; }
+    .decision { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .decision > div { border-radius: 12px; padding: 16px; }
+    .go { background: var(--ok-soft); color: var(--ok-text); }
+    .stop { background: var(--danger-soft); color: var(--danger-text); }
+    .composition-signal { font-size: 0.82rem; }
+    @media (max-width: 720px) {
+      main { width: min(100% - 20px, 940px); margin-top: 10px; }
+      header, section { padding: 22px; border-radius: 14px; }
+      .stats, .decision { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Reversible capability trial</div>
+    <h1>pi-subagentura 3.3.0 Trial Plan</h1>
+    <p>Evaluate whether temporary in-process sub-agents improve Pi planning and review work without changing global Pi settings, installing a persistent package, launching tmux children, or adopting a second workflow engine.</p>
+    <div class="metadata">
+      <span class="pill">Type: operational trial</span>
+      <span class="pill">Created: <time datetime="2026-08-18">2026-08-18</time></span>
+      <span class="pill">Package: npm:pi-subagentura@3.3.0</span>
+      <span class="pill">Decision: trial only</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><strong>30 min</strong><span>maximum trial window</span></div>
+      <div class="stat"><strong>3</strong><span>sub-agent exercises</span></div>
+      <div class="stat"><strong>0</strong><span>persistent installs</span></div>
+      <div class="stat"><strong>1</strong><span>adoption decision</span></div>
+    </div>
+    <nav aria-label="Plan navigation">
+      <a href="#scope">Scope</a>
+      <a href="#preflight">Preflight</a>
+      <a href="#trial">Trial</a>
+      <a href="#evaluation">Evaluation</a>
+      <a href="#cleanup">Cleanup</a>
+      <a href="#references">References</a>
+    </nav>
+  </header>
+
+  <section id="scope">
+    <div class="eyebrow">Boundary first</div>
+    <h2>Scope</h2>
+    <div class="callout info">
+      <span class="label">Question</span>
+      Does <code>pi-subagentura@3.3.0</code> provide reliable isolated and context-aware sub-agents that the current Pi-based planning and review skills can use?
+    </div>
+    <table>
+      <thead><tr><th>In scope</th><th>Out of scope</th></tr></thead>
+      <tbody>
+        <tr><td><code>list_available_models</code></td><td><code>--orchestrator</code> system guidance</td></tr>
+        <tr><td><code>subagent_isolated</code></td><td>Saved JavaScript workflows</td></tr>
+        <tr><td><code>subagent_with_context</code></td><td><code>subagent_interactive</code>, tmux, and Zellij</td></tr>
+        <tr><td>One asynchronous isolated job and result collection</td><td>Durable workflow plans and recursive children</td></tr>
+        <tr><td>A small real planning or review task</td><td>Edits, commits, pushes, or pull requests by children</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warn">
+      <span class="label">Safety rule</span>
+      Every child receives a read-only task. The parent remains the only agent allowed to change files or Git state.
+    </div>
+  </section>
+
+  <section id="preflight">
+    <div class="eyebrow">Phase 0 · 5 minutes</div>
+    <h2>Preflight and baseline</h2>
+    <p>Run the trial from the clean <code>feat/herdr-github-plugins</code> worktree or another clean repository. Record state before Pi starts.</p>
+    <pre><code>cd /Users/andrew.b/Projects/my-mac-setup/.worktrees/feat/herdr-github-plugins
+export TRIAL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-subagentura-trial.XXXXXX")"
+chmod 700 "$TRIAL_DIR"
+shasum -a 256 "$HOME/.pi/agent/settings.json" &gt; "$TRIAL_DIR/settings.before.sha256"
+pi list &gt; "$TRIAL_DIR/pi-list.before.txt"
+git status --porcelain=v1 &gt; "$TRIAL_DIR/git.before.txt"
+printf '%s\n' "$TRIAL_DIR"</code></pre>
+    <ul class="checklist">
+      <li><code>git.before.txt</code> is empty.</li>
+      <li><code>pi list</code> does not contain <code>pi-subagentura</code>.</li>
+      <li>The trial directory path is retained for evidence and cleanup.</li>
+    </ul>
+    <div class="callout danger">
+      <span class="label">Stop condition</span>
+      Stop before testing if the worktree is dirty. A dirty baseline cannot prove that a child remained read-only.
+    </div>
+  </section>
+
+  <section id="trial">
+    <div class="eyebrow">Phases 1–3 · 20 minutes</div>
+    <h2>Trial procedure</h2>
+    <p>Start Pi with the package as an explicit temporary extension. Keep normal global extensions enabled because compatibility with the existing Compound Engineering and ask-user packages is part of the trial.</p>
+    <pre><code>pi --session-dir "$TRIAL_DIR/sessions" \
+  -e npm:pi-subagentura@3.3.0 \
+  --name pi-subagentura-trial</code></pre>
+
+    <article class="phase" id="phase-1">
+      <div class="phase-head"><span class="phase-id">Phase 1</span><h3>Capability and model resolution</h3></div>
+      <p>Prompt:</p>
+      <pre><code>Use list_available_models. Report the exact provider/model identifiers available for sub-agents. Do not start a sub-agent yet.</code></pre>
+      <ul class="checklist">
+        <li>The tool returns authenticated model identifiers without an extension error.</li>
+        <li>The result distinguishes exact provider/model identifiers.</li>
+        <li>Select one lower-cost model explicitly for all remaining exercises.</li>
+      </ul>
+    </article>
+
+    <article class="phase" id="phase-2">
+      <div class="phase-head"><span class="phase-id">Phase 2</span><h3>Isolated read-only review</h3></div>
+      <p>Use the exact lower-cost model identifier verified and selected in Phase 1.</p>
+      <pre><code>Use subagent_isolated with the exact model selected in Phase 1. Ask it to inspect README.md and return exactly: one strength, one risk, and one question. It must not edit files, run package installation, or change Git state.</code></pre>
+      <ul class="checklist">
+        <li>The child starts with a fresh context and returns only the requested bounded result.</li>
+        <li>The response identifies the requested model with no silent fallback.</li>
+        <li>The parent context receives the final result once.</li>
+      </ul>
+    </article>
+
+    <article class="phase" id="phase-3">
+      <div class="phase-head"><span class="phase-id">Phase 3</span><h3>Context-aware and asynchronous delegation</h3></div>
+      <p>First establish a small parent-only decision: “For this trial, reliability matters more than speed.” Then run both checks:</p>
+      <pre><code>Use subagent_with_context with the exact model selected in Phase 1. Ask it to critique the trial priorities and state which priority the parent established. Read-only; no edits.</code></pre>
+      <pre><code>Use subagent_isolated asynchronously with the exact model selected in Phase 1. Ask it to inspect docs/agent-setup-inventory.md and identify one Pi package-management risk. Return the job ID immediately, continue this parent turn, then collect the result with get_subagent_result.</code></pre>
+      <ul class="checklist">
+        <li>The context-aware child cites the parent-established priority.</li>
+        <li>The asynchronous call returns a job ID without blocking the parent.</li>
+        <li>Result collection terminates within five minutes.</li>
+        <li>Completion is neither lost nor injected twice.</li>
+      </ul>
+    </article>
+
+    <div class="callout danger">
+      <span class="label">Immediate abort</span>
+      Abort the trial if a child edits the repository, chooses a different model silently, runs longer than five minutes without useful progress, or produces duplicate completion delivery.
+    </div>
+  </section>
+
+  <section id="evaluation">
+    <div class="eyebrow">Phase 4 · 5 minutes</div>
+    <h2>Evidence and decision</h2>
+    <p>Exit Pi, then compare the repository and Pi settings with the baseline.</p>
+    <pre><code>shasum -a 256 "$HOME/.pi/agent/settings.json" &gt; "$TRIAL_DIR/settings.after.sha256"
+pi list &gt; "$TRIAL_DIR/pi-list.after.txt"
+git status --porcelain=v1 &gt; "$TRIAL_DIR/git.after.txt"
+cmp "$TRIAL_DIR/settings.before.sha256" "$TRIAL_DIR/settings.after.sha256"
+cmp "$TRIAL_DIR/pi-list.before.txt" "$TRIAL_DIR/pi-list.after.txt"
+cmp "$TRIAL_DIR/git.before.txt" "$TRIAL_DIR/git.after.txt"</code></pre>
+    <table>
+      <thead><tr><th>Criterion</th><th>Pass threshold</th></tr></thead>
+      <tbody>
+        <tr><td>Temporary loading</td><td>Settings hash and <code>pi list</code> are unchanged.</td></tr>
+        <tr><td>Repository safety</td><td>Git status is byte-for-byte unchanged.</td></tr>
+        <tr><td>Model control</td><td>Every child reports the explicitly selected model; no fallback occurs.</td></tr>
+        <tr><td>Isolation</td><td>The isolated child does not depend on parent conversation details.</td></tr>
+        <tr><td>Context transfer</td><td>The context-aware child correctly uses the parent-established priority.</td></tr>
+        <tr><td>Async lifecycle</td><td>Job ID, progress, result, and single completion delivery all work.</td></tr>
+        <tr><td>Operational cost</td><td>The full trial finishes within 30 minutes and three child calls.</td></tr>
+      </tbody>
+    </table>
+    <div class="decision">
+      <div class="go">
+        <h3>Proceed to a pinned adoption plan</h3>
+        <p>All criteria pass, and the tools remove a real limitation in planning or review without noticeable prompt or UI friction.</p>
+      </div>
+      <div class="stop">
+        <h3>Reject or hold</h3>
+        <p>Any settings drift, repository mutation, silent model fallback, lifecycle failure, or excessive tool clutter occurs.</p>
+      </div>
+    </div>
+    <p><strong>Decision record:</strong> capture the result as Trial passed, Trial failed, or Trial inconclusive. An inconclusive result requires one named environmental cause and one bounded retest; it does not justify installation.</p>
+  </section>
+
+  <section id="cleanup">
+    <div class="eyebrow">Closeout</div>
+    <h2>Cleanup without permanent deletion</h2>
+    <p>The explicit <code>-e</code> package source must not appear in Pi settings. Preserve trial evidence in the repository's configured trash location until the decision is recorded.</p>
+    <pre><code>mkdir -p "$HOME/.scratchpad"
+mv "$TRIAL_DIR" "$HOME/.scratchpad/pi-subagentura-trial-$(date +%s)"</code></pre>
+    <ul>
+      <li>No <code>pi remove</code> command is necessary because the package was never installed.</li>
+      <li>An npm download cache may remain. Cache presence is acceptable; Pi package settings and package lists must remain unchanged.</li>
+      <li>Do not run <code>/workflow</code>, <code>/workflow-tree</code>, or interactive sub-agent commands during this trial.</li>
+    </ul>
+  </section>
+
+  <section id="references">
+    <div class="eyebrow">Sources</div>
+    <h2>References</h2>
+    <ul>
+      <li><a href="https://github.com/lmn451/pi-subagentura/tree/v3.3.0">pi-subagentura v3.3.0 source</a> — package behavior and tool contracts.</li>
+      <li><a href="https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/packages.md">Pi package documentation</a> — temporary <code>-e</code> loading and package persistence rules.</li>
+      <li><a href="https://github.com/Seigiard/my-mac-setup/blob/main/docs/agent-setup-inventory.md">Agent setup inventory</a> — intended Pi package surface.</li>
+    </ul>
+  </section>
+
+  <footer class="composition-signal">
+    Composed <time datetime="2026-08-18T18:19:00+02:00">2026-08-18T18:19+02:00</time> by se-plan from the user request and verified <code>pi-subagentura@3.3.0</code> package documentation.
+  </footer>
+</main>
+</body>
+</html>

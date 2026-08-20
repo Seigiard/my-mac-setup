@@ -321,7 +321,7 @@ Leave the existing `tests/smoke.bats:76-197` tests alone. They assert the applie
 
 1. **Preflight, once at startup.** Resolve `fzf` and fail loudly if absent, per KTD9. The message names three things — that `fzf` is required, that it is declared in `home/private_dot_config/brewfiles/Brewfile`, and that a degraded `PATH` can hide an installed binary. That last one is not hypothetical: `fzf` lives in `/opt/homebrew/bin` and is absent from a `/usr/bin:/bin` PATH, the same fragility that decides which Python the plugin gets.
 
-   Two rendering paths, chosen by whether stdin is a TTY. **Interactive:** draw the message in the pane and block until a key is pressed, then exit non-zero — the pane is a popup, so anything that exits immediately is unreadable. **Non-interactive:** print the same text to stderr and exit non-zero with no wait, following the repo's hard-dependency idiom (`home/private_dot_claude/skills/herdr-pair/scripts/spawn-partner.sh:37`). Keep the message text in one place so the two paths cannot drift apart; the test pins that text.
+   Check `shutil.which("fzf")` directly. If it returns `None`, use one of two rendering paths, chosen by whether stdin is a TTY. **Interactive:** draw the message in the pane and block until a key is pressed, then exit non-zero — the pane is a popup, so anything that exits immediately is unreadable. **Non-interactive:** print the same text to stderr and exit non-zero with no wait. Keep the message text in one place so the two paths cannot drift apart; the test pins that text.
 2. **Add the `shortcuts` field** to `Command`, `command_from_raw`, and `validate_command_raw` per KTD8, and populate it in `commands.toml` from R10's table. Check the hand-rolled TOML parser handles a string array before assuming it does.
 3. **Replace `fuzzy_score` and `ranked`** with the two tiers from KTD2: the Python shortcut-prefix pass, then a single fzf pass over the remainder. Build TSV rows per KTD3, stripping tab/newline/carriage-return from the title. Map returned indices back to `Command` objects.
 4. **Handle exit codes per KTD4:** 0 with output is matches, 1 is no matches, anything else is a failure that surfaces rather than degrading. A timeout is not an exit code and is handled separately, per KTD7.
@@ -331,7 +331,7 @@ Leave the existing `tests/smoke.bats:76-197` tests alone. They assert the applie
 
 Grouping, rendering, and the `select`/`form` sub-pickers are untouched. `visible_choices` (`palette.py:1001-1008`) also calls `fuzzy_score` — route it through the same scorer so the two lists rank consistently.
 
-**Patterns to follow:** `spawn-partner.sh:37` for the loud-failure shape; `ask.sh:61-69` for probing a capability rather than mere presence.
+**Patterns to follow:** None for the `fzf` preflight; the required check and failure behavior are specified above.
 
 **Test scenarios:**
 - Each of `lg`, `ws`, `edit`, `zed`, `main`, `lazy` against the real `commands.toml` ranks the expected command first, per R1's table. These are the six measured queries; `lg`, `ws`, `edit` and `main` currently fail.
