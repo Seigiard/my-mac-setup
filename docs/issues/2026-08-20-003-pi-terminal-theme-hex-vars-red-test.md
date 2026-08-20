@@ -47,9 +47,22 @@ Pick one and make code and test agree:
 
 Then re-run `bats tests/scripts.bats --filter 'Pi terminal theme'`.
 
+## Preliminary decision (2026-08-20)
+
+The palette-only contract wins: `mutedText`, `dimText`, `subtleLine` and `softBg`
+go back to ANSI palette indices, and the test at `tests/scripts.bats:4657` stays
+as written. The darkening from `538db0e` is given up rather than encoded as hex.
+
+Second half of the decision, not yet designed: the repo needs a **theme tester** —
+a way to see a `home/dot_pi/agent/themes/*.json` scheme rendered before committing
+it, so picking an index is a look-at-it choice instead of a guess. Without it the
+next person who wants darker muted text has the same reason to reach for hex.
+
 ## Open decisions
 
-- Which side is authoritative: the palette-only contract in the test, or the
-  darkened muted text in `538db0e`.
+- Which ANSI indices replace the four hex values, judged against the rendering
+  `538db0e` was trying to fix.
+- What shape the theme tester takes: a script that prints every `colors` key in
+  its resolved color, a bats assertion over the schema, or both.
 - Whether any other `home/dot_pi/agent/themes/*.json` file carries the same
   mismatch (only `terminal.json` is asserted today).
