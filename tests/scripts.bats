@@ -2663,6 +2663,26 @@ SH
   assert_failure
 }
 
+@test "herdr-task-sync presentation drops a malformed-width record and keeps labeling the rest" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # A FIELD_SEPARATOR smuggled into a pane field would shift every later
+  # positional field and surface as a wrong label. The width guard must drop
+  # only that pane's record; the other pane and the tab still get labeled.
+  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"bad\u001flabel","tokens":{}}'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-2","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+  hts_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  hts_event_run
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  local state
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" btop
+  run grep '^pane rename pane-1' "$HTS_LOG"
+  assert_failure
+  assert_file_contains "$HTS_LOG" '^tab rename tab-1 btop$'
+}
+
 @test "herdr-task-sync presentation skips pre-read deletion and repairs the post-read race next pass" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
