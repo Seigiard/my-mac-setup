@@ -2456,6 +2456,24 @@ SH
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.task' "$state")" second-task
 }
 
+@test "herdr-task-sync presentation accepts pi jsonl path sessions that end with the active session id" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local state tmp task
+  hts_run --agent pi --session 01abc --set session-path-task < /dev/null
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 01abc)"
+  hts_wait_for_task_slug "$task" session-path-task
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  tmp="$state.tmp"
+  jq '.panes[0].agent_session.value = "/tmp/2026-08-20T00-00-00_01abc.jsonl" | .panes[0].label = ""' \
+    "$state" > "$tmp" && mv "$tmp" "$state"
+  hts_location_pass
+
+  assert_equal "$(jq -r '.panes[0].label' "$state")" pi:session-path-task
+}
+
 @test "herdr-task-sync presentation publishes only the newest accepted generation" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2906,8 +2924,9 @@ EOF
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json linked-admin tab-1 "$linked" present "$common/worktrees/feature/logs")"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json fallback tab-1 "$linked/deep/path" absent)"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json foreground-wins tab-1 "$linked/deep/path" present "$nongit")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json agent-ignores-foreground tab-1 "$linked/deep/path" present "$nongit" | jq -c '.agent = "pi"')"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  for pane_id in main-nested main-admin linked-admin fallback foreground-wins; do hts_set_process_label "$pane_id" "$pane_id"; done
+  for pane_id in main-nested main-admin linked-admin fallback foreground-wins agent-ignores-foreground; do hts_set_process_label "$pane_id" "$pane_id"; done
   LANG=fr_FR.UTF-8 LC_ALL= hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
@@ -2915,7 +2934,9 @@ EOF
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
-  run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null)' "$state"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.branch' "$state")" feature
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.worktree' "$state")" feature
+  run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_label == null)' "$state"
   assert_success
   assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
 }
@@ -2971,7 +2992,7 @@ EOF
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
+  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task","pane_inline":"· worker"}'
   [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
 }
 
@@ -3104,7 +3125,7 @@ EOF
   assert_success
   for i in $(seq 2 8); do
     run jq -e --arg pane "pane-$i" \
-      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null)' "$state"
+      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.location_label == null)' "$state"
     assert_success
     fixture="$(hts_git_fixture_dir "$HTS_WORK/repos/repo-$i/work")"
     assert_file_exists "$fixture/started"
@@ -3165,8 +3186,8 @@ EOF
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   run jq -e '
-    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale"})
-    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale"})
+    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",location_label:" live-token  topic-one",pane_inline:"· one"})
+    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",location_label:" live-token",pane_inline:"· two"})
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "live-token [stale] one · live-token [stale] two · three"
@@ -3189,7 +3210,7 @@ EOF
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" deleted
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$missing")"
   hts_location_pass
-  run jq -e '.panes[0].tokens.repo == null and .panes[0].tokens.worktree == null and .panes[0].tokens.branch == null and .panes[0].tokens.location_status == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  run jq -e '.panes[0].tokens.repo == null and .panes[0].tokens.worktree == null and .panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.location_label == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_success
 }
 
@@ -3209,7 +3230,9 @@ EOF
   hts_set_process_label pane-2 beta
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "project · alpha · beta"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" " main · alpha · beta"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label' "$state")" " project  main"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.location_label' "$state")" " project"
   run jq -e '.panes[] | select(.pane_id == "pane-2") | .tokens.branch == null' "$state"
   assert_success
 
@@ -3352,7 +3375,7 @@ EOF
   assert_success
 }
 
-@test "herdr-task-sync location and formatter add no icon glyphs or forbidden ownership state" {
+@test "herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/plain-worktree" common="$HTS_WORK/repository/.git"
@@ -3364,9 +3387,11 @@ EOF
   hts_location_pass
   run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
   assert_failure
-  run jq -e '[.panes[0].label,.tabs[0].label,.panes[0].tokens.worktree] | all(.[]; test("^[A-Za-z0-9._:/ ~·\\[\\]-]+$"))' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  run jq -e '[.panes[0].label,.tabs[0].label,.panes[0].tokens.worktree,.panes[0].tokens.location_label] | all(.[]; test("^[A-Za-z0-9._:/ ~·\\[\\]-]+$"))' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_success
-  assert_equal "$(jq -r '.tabs[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "plain-worktree · plain-task"
+  assert_equal "$(jq -r '.tabs[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" " plain · plain-task"
+  assert_equal "$(jq -r '.panes[0].tokens.location_label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" " plain-worktree  plain"
+  assert_equal "$(jq -r '.panes[0].tokens.pane_inline' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "· plain-task"
 }
 
 @test "herdr-task-sync plugin exposes only the approved pane and tab invalidations" {

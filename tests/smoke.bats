@@ -1031,24 +1031,31 @@ assert_herdr_sidebar_deployment_contract() {
     "$(dirname "$pi_adapter")"
   )
 
-  assert_file_contains "$config" '^sidebar_min_width = 22$'
+  assert_file_contains "$config" '^sidebar_min_width = 32$'
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
   # Herdr 0.8 collapses an empty custom-token row when the token is the row's
-  # only item. Separate rows also leave all 18 content columns to pane tasks.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace"\], \["pane"\], \["\$worktree"\], \["\$location_status"\]\]$'
+  # only item. The first row keeps workspace and task together, and the second
+  # row carries one combined Git location string.
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$location_label"\], \["\$location_status"\]\]$'
   width="$(awk '
     $0 == "[ui]" { in_ui = 1; next }
     /^\[/ { in_ui = 0 }
     in_ui && /^sidebar_min_width = [0-9]+$/ { print $3 }
   ' "$config")"
-  [ "$width" -eq 22 ]
-  [ "$((width - 4))" -ge 18 ]
+  [ "$width" -eq 32 ]
+  [ "$((width - 4))" -ge 28 ]
   [ "$((width - 4))" -ge 8 ]
 
-  run grep -hRE '^[[:space:]]*herdr pane rename ' "${writer_roots[@]}"
+  run bash -c '
+    pattern="$1"; shift
+    find "$@" -type f -exec grep -hE "$pattern" {} +
+  ' _ '^[[:space:]]*herdr pane rename ' "${writer_roots[@]}"
   assert_success
   [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
-  run grep -hRE '^[[:space:]]*herdr tab rename ' "${writer_roots[@]}"
+  run bash -c '
+    pattern="$1"; shift
+    find "$@" -type f -exec grep -hE "$pattern" {} +
+  ' _ '^[[:space:]]*herdr tab rename ' "${writer_roots[@]}"
   assert_success
   [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
 
@@ -1058,8 +1065,9 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
     "$config" "${writer_files[@]}"
   assert_success
-  assert_output $'rows = [["state_icon", "workspace"], ["pane"], ["$worktree"], ["$location_status"]]\n# in the tab label. Plain ASCII on purpose: the earlier Nerd Font glyph badges'
+  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\], \["\$location_label"\], \["\$location_status"\]\]'
   assert_file_contains "$config" '"state_icon"'
+  assert_file_contains "$engine" 'folder_icon="" branch_icon=""'
   assert_file_contains "$engine" 'LABEL_SEPARATOR=.* · '
   assert_file_contains "$engine" '…'
 
