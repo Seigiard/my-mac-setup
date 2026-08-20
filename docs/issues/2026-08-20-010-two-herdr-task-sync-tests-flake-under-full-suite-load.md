@@ -2,7 +2,8 @@
 title: Two herdr-task-sync ordering tests flake under full-suite load
 type: bug
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-20
 ---
 
 ## Why this exists
@@ -11,7 +12,7 @@ Two tests in `tests/scripts.bats` failed once during a full `bats tests/scripts.
 run and passed on every subsequent attempt:
 
 - `herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions`
-  (tests/scripts.bats:2268) -- **still uncharacterized, this issue stays open for it**
+  (tests/scripts.bats:2268) -- closed unreproduced, see Resolution
 - `herdr-task-sync orders adapter calls by inbox commit rather than invocation start`
   (tests/scripts.bats:2365) -- **fixed, see Progress below**
 
@@ -70,7 +71,7 @@ Verified the test is not vacuous after the change -- instrumented, it shows
 `slug=invoked-first-committed-second` with a strictly greater committed generation
 after it. Passes 3/3 idle and 6/6 under CPU saturation.
 
-## What is left: the socket-namespace test
+## The socket-namespace test: investigated, no mechanism found
 
 No timing assumption was found in it by inspection:
 
@@ -101,8 +102,26 @@ contention is a different profile.
 - Reproduce with the real trigger if it is worth the time: run the full suite in a
   loop rather than adding synthetic CPU load, since CPU load alone does not do it.
 
-## Open decisions
+## Resolution
 
-- Whether a flake this rare justifies chasing further. It has never reached CI,
-  and CPU-load reproduction has failed, so the next honest step is opportunistic
-  capture rather than scheduled work.
+Closed with one test fixed and one closed unreproduced.
+
+**`orders adapter calls by inbox commit rather than invocation start` -- fixed.**
+Its fixed `sleep 1` fifo release became an explicit happens-before gated on the
+second invocation having committed and gone quiescent. Same contract, no timer.
+Confirmed not vacuous by instrumentation. Passes 3/3 idle and 6/6 under CPU
+saturation. Full suite after the change: 194 pass, 3 skip, 0 failures.
+
+**`exact socket namespaces survive legacy sanitized-name collisions` -- closed
+without a found cause.** This is a deliberate call, not a claim that it was fixed.
+Nothing in it was changed. What is on record: it has never failed in CI across 29
+runs, it did not reproduce in six runs under CPU saturation, and inspection found
+no timing assumption -- no sleep, wait helpers bounded at 10 s, and the only fixed
+bound in its path is the 5 s harness engine timeout. One uncaptured local failure
+is the entire evidence base, which is too thin to fix against without guessing.
+
+**Reopen trigger.** File a new issue, or reopen this one, if the test fails again.
+Capture the bats failure block, whether the engine stub was killed, and the
+namespace `reconcile.state` plus the pane `control.state` at the time. The
+Scope section above holds the probe worth running first
+(`HTS_TIMEOUT=1`) against the engine-timeout hypothesis.
