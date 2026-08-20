@@ -2,7 +2,8 @@
 title: pane_inline token is published on every pane although the plan defers it and nothing consumes it
 type: follow-up
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-20
 parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
 ---
 
@@ -73,3 +74,36 @@ Direction B, keep it:
 - If A: whether the one-release `--clear-token pane_inline` window is worth the
   code, given that a pane's location eventually changes anyway and the token is
   invisible either way.
+
+## Resolution
+
+Direction A — removed, following the plan. Commit
+4b93f82f8d3cc302f3b09ab125eb6ebec6ab32f7.
+
+In `home/dot_local/bin/executable_herdr-task-sync`:
+
+- Deleted `pane_inline_label_for`.
+- Dropped `pane_inline` from the pane_rows jq token list and removed the
+  `pane_inline` / `current_pane_inline` / `_pane_inline` / `final_pane_inline`
+  slots from all positional `FIELD_SEPARATOR` records and every matching
+  `read -r` header; producers and consumers re-verified in lockstep
+  (pane_rows 15 fields, pane_intents 24, pane_presentations 27, final_tokens 6).
+- Deleted both pane_inline change-detection arms; the guarded block now only
+  covers the legacy `location_label` shed.
+
+On the sub-decision: kept one `--clear-token pane_inline` on both
+location-publish arms (single flag, cheap; sheds the stale token from panes
+labelled by the previous version whenever a location write fires). It can be
+dropped in a later release once no deployed version writes the token — same
+retirement path as `location_label`.
+
+Tests: the three `pane_inline` assertions in `tests/scripts.bats` now assert
+the token is absent, and the transient-identity test pre-seeds a stale
+`pane_inline` token to prove a location write clears it. Verified:
+`make lint` clean; `bats tests/scripts.bats` 187/189 (the two reds are
+pre-existing on unmodified main: the 1000ms coordinator-concurrency timing
+flake on this machine, and the Pi terminal-theme red tracked by
+`2026-08-20-003-pi-terminal-theme-hex-vars-red-test.md`);
+`bats tests/smoke.bats` 106/107 (the one red is the known
+`coding agents use terminal color palettes` leftover-file failure tracked
+separately). All published labels other than the removed token are unchanged.
