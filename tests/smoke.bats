@@ -235,6 +235,10 @@ mod.subprocess.run = fake_run
 os.environ.pop("HERDR_PLUGIN_CONTEXT_JSON", None)
 os.environ.pop("HERDR_ACTIVE_PANE_ID", None)
 os.environ.pop("HERDR_PANE_ID", None)
+# fake_run matches argv[0] == "herdr", which is open.py's default. A shell
+# inside a herdr pane exports HERDR_BIN_PATH, and the absolute path it carries
+# would miss every branch of the mock and open a second palette instead.
+os.environ.pop("HERDR_BIN_PATH", None)
 assert mod.main() == 0
 assert not any(command[:4] == ["herdr", "plugin", "pane", "open"] for command in calls)
 PY
