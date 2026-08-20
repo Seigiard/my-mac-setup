@@ -7,3 +7,7 @@
 
 # The herdr-only peer consult is deployed under its capability-specific name.
 .claude/skills/ask-agent
+
+# opencode moved to theme "system"; the retired forced theme otherwise lingers
+# live and breaks the smoke deployment contract (tests/smoke.bats).
+.config/opencode/themes/flexoki-light-forced.json
