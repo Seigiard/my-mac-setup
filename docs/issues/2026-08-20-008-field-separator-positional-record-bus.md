@@ -2,7 +2,8 @@
 title: FIELD_SEPARATOR pane records reached 29 positional fields across six read headers
 type: follow-up
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-20
 parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
 ---
 
@@ -66,3 +67,30 @@ cross-model review leg.
   a cheap guard: a single assertion that each record's field count matches the
   expected width before the loop consumes it. That is far smaller and catches the
   exact failure mode, without restructuring the pass.
+
+## Resolution
+
+Took the third (narrow) option from Scope combined with the width guard from
+Open decisions; the base64-JSON rewrite was rejected for its per-row jq cost.
+
+- The six `current_*` baseline fields no longer ride the intermediate records.
+  They live in one keyed `pane_baselines` table (`pane_id` + 6 columns) built
+  once from `pane_rows` by awk, and are looked up per pane with the new
+  `table_row_for` (multi-column sibling of `table_value_for`): in the final
+  diff loop for the token comparison, and in the git_ref loop for the
+  transient worktree fallback.
+- New record widths: `pane_rows` 16 (unchanged), `pane_intents` 25 → 19,
+  `pane_presentations` 29 → 23, `tab_rows`/`tab_intents` 4 (unchanged),
+  `pane_baselines` 7 (new).
+- New `filter_records_of_width` guard: every record stream is passed through
+  an awk width check right where it is produced (`pane_rows`, `pane_intents`,
+  `pane_presentations`, `tab_rows`, `tab_intents`). A record whose field
+  count does not match the consumers' expected width is logged to stderr and
+  dropped, so a smuggled FIELD_SEPARATOR or a producer/consumer arity slip
+  surfaces as one skipped record instead of silently shifted labels.
+- New bats test: "presentation drops a malformed-width record and keeps
+  labeling the rest" (a pane label carrying U+001F is dropped; the sibling
+  pane and the tab still get labeled).
+- All producer/consumer arities re-verified by hand after the edit:
+  16/16/16, 7/7, 19/19/19, 23/23/23, 4/4, 3/3, 7/7.
+- Commit: 33adde5

@@ -926,6 +926,34 @@ $table
 EOF
 }
 
+# Like table_value_for, but returns the whole value row: every column after
+# the key, still FIELD_SEPARATOR-joined. `read` leaves the remainder of the
+# line in its last variable, separators included.
+table_row_for() {
+  local wanted="$1" table="$2" key rest
+  while IFS="$FIELD_SEPARATOR" read -r key rest; do
+    if [ "$key" = "$wanted" ]; then
+      printf '%s' "$rest"
+      return 0
+    fi
+  done <<EOF
+$table
+EOF
+}
+
+# Positional record streams are only safe while every row carries exactly the
+# width its consumers expect. A field that smuggles in a FIELD_SEPARATOR or a
+# newline shifts every later field and surfaces as a wrong label, not as a
+# crash. Passing each stream through this filter drops such rows loudly
+# instead of letting a read header consume garbage.
+filter_records_of_width() {
+  awk -F "$FIELD_SEPARATOR" -v expected="$1" '
+    NF == 0 { next }
+    NF == expected { print; next }
+    { printf "herdr-task-sync: dropped %d-field record (expected %d)\n", NF, expected > "/dev/stderr" }
+  '
+}
+
 # One formatter for every surface:
 #   $git_ref = <place-icon> <ref> [<folder-icon> <folder>] [<stale-icon>]
 # place is "branch" (main checkout), "worktree" (linked worktree), or
@@ -1142,14 +1170,13 @@ compose_tab_intents() {
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
   local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
   local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha
-  local _current_repo _current_worktree _current_branch _current_location_status
-  local _current_git_ref _git_ref _worktree_token _segment_prefix
+  local _git_ref _worktree_token _segment_prefix
   tab_rows="$(printf '%s' "$snapshot" | jq -r '
     reduce .result.snapshot.tabs[]? as $t ({counts: {}, out: []};
       ($t.workspace_id // "") as $ws
       | .counts[$ws] = ((.counts[$ws] // 0) + 1)
       | .out += [[$t.tab_id, $ws, ($t.label // ""), (.counts[$ws] | tostring)]])
-    | .out[] | join("\u001f")' 2>/dev/null)"
+    | .out[] | join("\u001f")' 2>/dev/null | filter_records_of_width 4)"
   while IFS="$FIELD_SEPARATOR" read -r tab_id workspace current index; do
     [ -n "$tab_id" ] || continue
     parts=""
@@ -1163,7 +1190,7 @@ compose_tab_intents() {
     multiple_roots=0
     first_repo=""
     multiple_repos=0
-    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _current_repo _current_worktree _current_branch _current_location_status _current_git_ref _git_ref _worktree_token _segment_prefix; do
+    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _git_ref _worktree_token _segment_prefix; do
       [ "$pane_tab" = "$tab_id" ] || continue
       [ -n "$pane_intended" ] || continue
       pane_count=$((pane_count + 1))
@@ -1253,11 +1280,11 @@ reconcile_presentation_pass() {
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
   local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
   local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha
-  local _current_repo _current_worktree _current_branch _current_location_status _current_git_ref _worktree_token _git_ref
+  local _current_worktree _worktree_token _git_ref
   local _ref _place _folder _workspace_name _segment_prefix
   local final_payload final_label final_task final_tokens
   local final_repo final_worktree final_branch final_location_status final_git_ref
-  local segment_prefix
+  local segment_prefix pane_baselines baseline_row
   local state_file retained_pane found
   local location_pids="" location_results="" location_result_file location_pid
   local location_probe_results="" location_child_failed=0
@@ -1282,7 +1309,15 @@ reconcile_presentation_pass() {
        (.agent_session.value // ""), (.label // ""), (.tokens.task // ""),
        (.tokens.repo // ""), (.tokens.worktree // ""), (.tokens.branch // ""),
        (.tokens.location_status // ""), (.tokens.git_ref // ""), (@base64)]
-    | join("\u001f")' 2>/dev/null)"
+    | join("\u001f")' 2>/dev/null | filter_records_of_width 15)"
+
+  # The five current_* baseline tokens are consumed only where a pane's newly
+  # derived presentation is diffed against what the pane already shows: the
+  # final publish loop, plus the transient worktree fallback. Keeping them in
+  # one keyed table instead of threading them through every intermediate
+  # record keeps those records narrow.
+  pane_baselines="$(printf '%s\n' "$pane_rows" | awk -F "$FIELD_SEPARATOR" \
+    -v OFS="$FIELD_SEPARATOR" 'NF { print $1, $10, $11, $12, $13, $14 }')"
 
   # location_label is the retired predecessor of git_ref. It is deliberately
   # absent from the presentation record, so a pane whose new tokens all match
@@ -1457,15 +1492,16 @@ EOF
       [ -n "$intended" ] || intended="$IDLE_PANE_LABEL"
     fi
     pane_intents="${pane_intents}${pane_intents:+
-}${id}${FIELD_SEPARATOR}${terminal}${FIELD_SEPARATOR}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${agent_of}${FIELD_SEPARATOR}${native_session}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${intended}${FIELD_SEPARATOR}${current_task}${FIELD_SEPARATOR}${slug}${FIELD_SEPARATOR}${metadata_seq}${FIELD_SEPARATOR}${location_outcome}${FIELD_SEPARATOR}${checkout_root}${FIELD_SEPARATOR}${repository_anchor}${FIELD_SEPARATOR}${repo}${FIELD_SEPARATOR}${branch}${FIELD_SEPARATOR}${is_linked}${FIELD_SEPARATOR}${sha}${FIELD_SEPARATOR}${location_status}${FIELD_SEPARATOR}${current_repo}${FIELD_SEPARATOR}${current_worktree}${FIELD_SEPARATOR}${current_branch}${FIELD_SEPARATOR}${current_location_status}${FIELD_SEPARATOR}${current_git_ref}"
+}${id}${FIELD_SEPARATOR}${terminal}${FIELD_SEPARATOR}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${agent_of}${FIELD_SEPARATOR}${native_session}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${intended}${FIELD_SEPARATOR}${current_task}${FIELD_SEPARATOR}${slug}${FIELD_SEPARATOR}${metadata_seq}${FIELD_SEPARATOR}${location_outcome}${FIELD_SEPARATOR}${checkout_root}${FIELD_SEPARATOR}${repository_anchor}${FIELD_SEPARATOR}${repo}${FIELD_SEPARATOR}${branch}${FIELD_SEPARATOR}${is_linked}${FIELD_SEPARATOR}${sha}${FIELD_SEPARATOR}${location_status}"
   done <<EOF
 $pane_rows
 EOF
   pane="$saved_pane"
   agent="$saved_agent"
   session="$saved_session"
+  pane_intents="$(printf '%s\n' "$pane_intents" | filter_records_of_width 19)"
 
-  roots="$(while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _current_repo _current_worktree _current_branch _current_location_status _current_git_ref; do
+  roots="$(while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status; do
     [ -z "$_checkout_root" ] || printf '%s\n' "$_checkout_root"
   done <<EOF
 $pane_intents
@@ -1473,12 +1509,18 @@ EOF
 )"
   roots="$(printf '%s\n' "$roots" | sed '/^$/d' | LC_ALL=C sort -u)"
   root_tokens="$(build_worktree_tokens "$roots")"
-  while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _current_repo _current_worktree _current_branch _current_location_status _current_git_ref; do
+  while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status; do
     [ -n "$_pane_id" ] || continue
     _worktree_token=""
     if [ -n "$_checkout_root" ]; then
       _worktree_token="$(table_value_for "$_checkout_root" "$root_tokens")"
-    elif [ "$_location_outcome" = "transient" ] && [ -n "$_repo" ] && [ -n "$_current_worktree" ]; then
+    elif [ "$_location_outcome" = "transient" ] && [ -n "$_repo" ]; then
+      # Transient identity keeps the last published worktree token, looked up
+      # from the baseline table instead of being carried in the record.
+      baseline_row="$(table_row_for "$_pane_id" "$pane_baselines")"
+      IFS="$FIELD_SEPARATOR" read -r _ _current_worktree _ <<EOF
+$baseline_row
+EOF
       _worktree_token="$_current_worktree"
     fi
     # Branch is the primary ref; detached HEAD promotes the short SHA with
@@ -1511,10 +1553,11 @@ EOF
       _segment_prefix="$_git_ref"
     fi
     pane_presentations="${pane_presentations}${pane_presentations:+
-}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_current_repo}${FIELD_SEPARATOR}${_current_worktree}${FIELD_SEPARATOR}${_current_branch}${FIELD_SEPARATOR}${_current_location_status}${FIELD_SEPARATOR}${_current_git_ref}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}${FIELD_SEPARATOR}${_segment_prefix}"
+}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}${FIELD_SEPARATOR}${_segment_prefix}"
   done <<EOF
 $pane_intents
 EOF
+  pane_presentations="$(printf '%s\n' "$pane_presentations" | filter_records_of_width 22)"
 
   # A complete snapshot authoritatively deletes evidence for panes that no
   # longer exist. No label policy or applied-label copy is retained.
@@ -1531,13 +1574,19 @@ EOF
     [ "$found" -eq 1 ] || rm -f "$state_file" 2>/dev/null || true
   done
 
-  tab_intents="$(compose_tab_intents "$snapshot" "$pane_presentations")"
+  tab_intents="$(compose_tab_intents "$snapshot" "$pane_presentations" | filter_records_of_width 4)"
 
   # Herdr 0.8 has no rename compare-and-swap. A target can change after the
   # final get and briefly receive stale intent; the next pass repairs it.
   presentation_generation_valid "$pass" || return 2
-  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch is_linked sha location_status current_repo current_worktree current_branch current_location_status current_git_ref git_ref worktree_token segment_prefix; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch is_linked sha location_status git_ref worktree_token segment_prefix; do
     [ -n "$id" ] || continue
+    # The published-token baseline this pane is diffed against lives in the
+    # keyed table, not in the record.
+    baseline_row="$(table_row_for "$id" "$pane_baselines")"
+    IFS="$FIELD_SEPARATOR" read -r current_repo current_worktree current_branch current_location_status current_git_ref <<EOF
+$baseline_row
+EOF
     if [ -n "$slug" ] && [ "$current_task" != "$slug" ]; then
       presentation_generation_valid "$pass" || return 2
       final_payload="$(herdr pane get "$id" 2>/dev/null)" || continue
