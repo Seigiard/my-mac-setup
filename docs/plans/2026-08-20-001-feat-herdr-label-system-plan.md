@@ -112,7 +112,13 @@ Workspace is `my-mac-setup` unless stated. Icons shown as ⎇ (branch), ⑂ (wor
    the same icon.
 5. **Special cases** — detached HEAD → commit icon + short SHA; folder == branch →
    plain worktree case (the icon already says it); repo-root main checkout → branch
-   icon + branch, no folder ever.
+   icon + branch, with the folder qualifier suppressed in the typical case where the
+   checkout folder repeats the branch or the workspace name. A main checkout in a
+   differently-named folder keeps its folder qualifier — the same suppression rule
+   as every other checkout, no main-checkout special arm. (Reworded per
+   docs/issues/2026-08-20-007: the original "no folder ever" promised more than the
+   implemented and now-tested rule delivers, and the implemented rule is the better
+   one — a divergent folder name is real location information.)
 6. **One location policy or two** — two, deliberately. Agent panes read `pane.cwd`
    (stable during tool calls); command panes read `foreground_cwd`. Already
    implemented and tested — do not regress.
