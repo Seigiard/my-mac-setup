@@ -24,6 +24,8 @@ Icon?
 .claude/settings.local.json
 CLAUDE.local.md
 
+#pi
+.pi/loops
 # oh-my-claudecode runtime state (writes into the task repo's cwd)
 .omc/
 
@@ -32,8 +34,8 @@ CLAUDE.local.md
 .direnv/
 
 mise.toml
-.smithers/
 .ce-doc-review-tmp/
+.smithers/
 smithers.db
 smithers.db-shm
 smithers.db-wal
