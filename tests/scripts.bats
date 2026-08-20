@@ -3066,7 +3066,9 @@ EOF
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task","pane_inline":"· worker"}'
+  # pane_inline is deferred by the plan and never published; the non-Git arm
+  # clears any stale copy, so only the task token survives.
+  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
   [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
 }
 
@@ -3343,7 +3345,7 @@ EOF
   hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
   hts_git_fixture "$unavailable" unavailable 127
   pane_one="$(hts_process_pane_json pane-1 tab-1 "$missing_one")"
-  pane_one="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",branch:"topic-one"}' <<< "$pane_one")"
+  pane_one="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",branch:"topic-one",pane_inline:"· one"}' <<< "$pane_one")"
   pane_two="$(hts_process_pane_json pane-2 tab-1 "$unavailable")"
   pane_two="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",location_status:"current"}' <<< "$pane_two")"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane_one"
@@ -3365,8 +3367,8 @@ EOF
   run jq -e \
     --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
     --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" '
-    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one,pane_inline:"· one"})
-    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two,pane_inline:"· two"})
+    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one})
+    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two})
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_BRANCH topic-one $HTS_ICON_STALE one · $HTS_ICON_FOLDER live-token $HTS_ICON_STALE two · three"
@@ -3707,7 +3709,8 @@ EOF
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "$HTS_ICON_WORKTREE plain · plain-task"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain $HTS_ICON_FOLDER plain-worktree"
-  assert_equal "$(jq -r '.panes[0].tokens.pane_inline' "$state")" "· plain-task"
+  # pane_inline stays deferred per the label-system plan: no pass publishes it.
+  assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
 @test "herdr-task-sync plugin exposes only the approved pane and tab invalidations" {
