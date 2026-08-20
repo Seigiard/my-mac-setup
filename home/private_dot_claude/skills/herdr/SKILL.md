@@ -29,11 +29,6 @@ The installed binary is the authority for command syntax. `herdr pane`, `herdr a
 - Do not run bare `herdr` for discovery; it launches or attaches the TUI.
 - Do not probe a mutating command by omitting arguments. Commands such as `herdr workspace create` are valid with defaults and will execute.
 
-Two traps in `herdr pane wait-output` (verified on herdr 0.8.0), both of which broke the retired one-shot peer consult before they were pinned:
-
-- **The pane id goes first**, before the options: `herdr pane wait-output <PANE_ID> --match TEXT --timeout MS`. The `--help` usage line prints `[OPTIONS] … <PANE_ID>`, but that order is rejected with `unknown option`.
-- **A timeout exits 0.** It reports `{"error":{"code":"timeout"…}}` on stdout while the exit status stays 0, so a caller that trusts `$?` reads a timed-out wait as a match. Classify on the payload: `"type":"output_matched"` = matched, `"code":"timeout"` = timeout, anything else = the call itself broke. `herdr agent wait` does not share this quirk — it exits 1 on timeout, so `|| handoff` is sound there.
-
 ## Concepts
 
 - **workspace** — a project context (usually one repo/folder). Has one or more tabs.
@@ -89,11 +84,11 @@ herdr pane send-text <pane_id> "hello"    # text only, no Enter
 herdr pane send-keys <pane_id> enter      # press keys: enter, esc, arrows, ctrl+c, …
 ```
 
-Key names are validated before any bytes are written; use lowercase logical names (`esc`, `ctrl+c`). `esc` ends an agent's current turn immediately — never send it mid-commit or mid-deploy.
+Key names are validated before any bytes are written; use lowercase logical names (`esc`, `ctrl+c`). `esc` ends an agent's current turn immediately — never send it mid-commit or mid-deploy. `send-keys` preserves Shift in `shift+tab`, so `herdr pane send-keys <pane_id> shift+tab` cycles a Claude Code pane's permission mode — only with the user's explicit go-ahead.
 
 ## Wait for output
 
-`pane wait-output` blocks until text appears in a pane (servers, builds, tests). It searches the selected snapshot immediately, so output that already exists can match at once. Omitting `--timeout` waits indefinitely; on timeout the exit status is non-zero.
+`pane wait-output` blocks until text appears in a pane (servers, builds, tests). It searches the selected snapshot immediately, so output that already exists can match at once. Omitting `--timeout` waits indefinitely. On timeout it exits 1 and prints `{"error":{"code":"timeout"…}}` on stdout (not stderr); `agent wait` exits 1 on timeout too, so `|| handoff` is sound with both.
 
 ```bash
 herdr pane wait-output <pane_id> --match "ready on port 3000" --timeout 30000
@@ -141,6 +136,10 @@ herdr agent read "$CHILD_NAME" --source visible --lines 160
 - Reply with `herdr-child reply --to "$CHILD_NAME" --pane "$CHILD_PANE" "<decision>"`. This command delivers the reply and clears the waiting label.
 - At the start of a later turn, call `herdr-child reap "$CHILD_NAME"` to close a settled child pane. Reaping preserves focused and waiting panes.
 - `agent prompt` atomically submits text plus Enter, honoring bracketed-paste. A prompt queued while an agent is `working` runs after the current turn.
+- `agent prompt` rejects an agent already waiting at an approval or question dialog with `agent_blocked`, before sending any input. Inspect the blocked UI with `agent read` and ask the user before answering it.
+- A prompt sent from a non-working state must produce a lifecycle change within five seconds; otherwise `agent prompt` returns `agent_prompt_stalled` instead of waiting indefinitely.
+- `agent prompt … --wait` waits for the first settled `idle`, `done`, or `blocked` state. Do not repeat those defaults with `--until`.
+- Direct `agent start` (when not going through `herdr-child`) returns only after herdr detects the agent ready for input (30-second default timeout). If the agent blocks during startup, it returns `agent_not_ready` but keeps the name usable for `agent read` and `agent send-keys`.
 - `agent wait <target> --until blocked --timeout 120000` performs state-specific waits. Without `--until`, it waits for `idle`, `done`, or `blocked`.
 - If a wait fails or returns `blocked`, inspect `agent get` and `agent read` before deciding what to send.
 - `done` or `idle` is a wake-up signal, not proof of success. Read the pane and verify git status, test output, and artifacts before reporting completion.

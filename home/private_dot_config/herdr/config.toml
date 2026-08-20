@@ -8,6 +8,8 @@ panel_bg = "reset"
 
 [experimental]
 kitty_graphics = true
+pane_history = true
+allow_nested = true
 
 [keys]
 switch_workspace = "ctrl+shift+1..9"
@@ -24,6 +26,10 @@ swap_pane_left = "ctrl+shift+left"
 swap_pane_down = "ctrl+shift+down"
 swap_pane_up = "ctrl+shift+up"
 swap_pane_right = "ctrl+shift+right"
+resize_pane_left = "ctrl+alt+left"
+resize_pane_down = "ctrl+alt+down"
+resize_pane_up = "ctrl+alt+up"
+resize_pane_right = "ctrl+alt+right"
 
 [[keys.command]]
 key = "cmd+shift+p"
