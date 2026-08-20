@@ -2364,18 +2364,26 @@ PY
 
 @test "herdr-task-sync orders adapter calls by inbox commit rather than invocation start" {
   hts_setup
-  local fifo="$HTS_WORK/delayed-input" first_pid writer_pid task control first_generation
+  local fifo="$HTS_WORK/delayed-input" release="$HTS_WORK/delayed-input-release"
+  local first_pid writer_pid task control first_generation
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-order)"
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   mkfifo "$fifo"
-  { sleep 1; printf 'delayed stdin' > "$fifo"; } &
+  # Opening a fifo for reading blocks until a writer opens the other end, so the
+  # first invocation's engine does not start until this writer runs. Gate that on
+  # the second invocation having actually committed rather than on a fixed sleep:
+  # under full-suite load the second invocation can outlast any timer, which
+  # silently inverts the very ordering this test asserts.
+  { while [ ! -e "$release" ]; do sleep 0.01; done; printf 'delayed stdin' > "$fifo"; } &
   writer_pid=$!
   hts_run --agent pi --session commit-order --set invoked-first-committed-second < "$fifo" &
   first_pid=$!
 
   hts_run --agent pi --session commit-order --set invoked-second-committed-first < /dev/null
   hts_wait_for_task_slug "$task" invoked-second-committed-first
+  hts_wait_for_quiescence "$control"
   first_generation="$(hts_record_number "$control" committed_generation)"
+  : > "$release"
   wait "$writer_pid"
   wait "$first_pid"
   hts_wait_for_task_slug "$task" invoked-first-committed-second
@@ -4815,6 +4823,12 @@ se_fake_runtime() {
 @test "se blocks --json emits the composable block catalog" {
   local smithers_dir="$SOURCE_ROOT/private_dot_claude/dot_smithers"
   local se_bin="$smithers_dir/bin/executable_se"
+  # Unlike the other se tests this one drives the real binary, which only exists
+  # after `bun install` in $smithers_dir. CI always installs it and asserts it is
+  # executable in a separate workflow step, so skipping here cannot hide a broken
+  # install -- it only keeps a fresh local checkout from reporting a false failure.
+  [ -x "$smithers_dir/node_modules/.bin/smithers" ] || \
+    skip "smithers deps not installed (run bun install in $smithers_dir)"
   run env SE_SMITHERS_DIR="$smithers_dir" "$se_bin" blocks --json
   assert_success
   assert_output --partial '"secret-scan"'
