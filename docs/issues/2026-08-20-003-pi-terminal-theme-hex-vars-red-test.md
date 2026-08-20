@@ -2,7 +2,8 @@
 title: "Test \"Pi terminal theme uses only terminal palette colors\" is red on main — terminal.json .vars holds hex strings"
 type: bug
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-20
 ---
 
 ## Why this exists
@@ -66,3 +67,28 @@ next person who wants darker muted text has the same reason to reach for hex.
   its resolved color, a bats assertion over the schema, or both.
 - Whether any other `home/dot_pi/agent/themes/*.json` file carries the same
   mismatch (only `terminal.json` is asserted today).
+
+## Resolution (2026-08-20)
+
+Fixed in commit `8cb70d8` — `fix(pi): return terminal theme vars to ANSI palette
+indices`. The palette-only contract won, as per the preliminary decision.
+
+- **Indices chosen:** `mutedText`, `dimText`, `subtleLine` → `8`; `softBg` → `15`.
+  Slot 7 (Flexoki's muted gray, which the hex values were copied from) is
+  unusable: on the active Alabaster kitty palette, slot 7 is `#f7f7f7` — the
+  background color, so slot-7 text would be invisible. Slot 8 is the only
+  readable gray on both managed palettes (Alabaster `#777777`, Flexoki
+  `#b7b5ac`). `softBg` → `15` blends with the background on Alabaster (an
+  accepted degradation of that palette) but keeps box text readable, unlike the
+  pre-`538db0e` `gray`(8) background. The darkening from `538db0e` is given up.
+- **Tests:** `bats tests/scripts.bats --filter 'theme'` — 3/3 green, including
+  the previously red "Pi terminal theme uses only terminal palette colors";
+  `bats tests/smoke.bats --filter 'coding agents use terminal color palettes'`
+  green.
+- **Theme tester:** designed as a browser playground in
+  `docs/brainstorms/2026-08-20-terminal-theme-playground.md` — a separate-repo
+  static page previewing Claude Code / opencode / pi mock layouts against a
+  configurable terminal ANSI palette, with per-token slot editing and
+  copy-to-clipboard export.
+- **Other pi theme files:** `home/dot_pi/agent/themes/` contains only
+  `terminal.json`; no other file can carry the mismatch.
