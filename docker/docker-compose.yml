@@ -16,7 +16,13 @@ services:
       # Empty by default, which selects the full Brewfile render, so R5 holds
       # unless the caller opts in.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
-    stdin_open: true
+      # Declares this container's $HOME disposable, which is what lets the four
+      # idempotency tests in tests/idempotent.bats run their real
+      # `chezmoi apply`. Written literally in all three services, unlike
+      # MMS_CI_MINIMAL above, which is read from the host and is deliberately
+      # absent from test-quick. tests/idempotent.bats hard-fails when
+      # /.dockerenv exists and this is missing.
+      - MMS_DISPOSABLE_HOME=1
     tty: true
 
   # Full test with package installation
@@ -40,6 +46,8 @@ services:
       # `test-quick` deliberately has no such entry, which is what keeps
       # `make test-ubuntu` on the full render — see docs/issues/2026-08-20-014.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
+      # See the ubuntu service above for why this is written literally.
+      - MMS_DISPOSABLE_HOME=1
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -74,6 +82,10 @@ services:
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
+      # See the ubuntu service above for why this is written literally. Note
+      # that MMS_CI_MINIMAL stays absent here on purpose (docs/issues/
+      # 2026-08-20-014); only the disposable-$HOME marker is shared.
+      - MMS_DISPOSABLE_HOME=1
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
