@@ -86,6 +86,11 @@ class CorpusTests(IssueFixtures):
         self.assertEqual(99, len(module.discover_issue_paths(REPOSITORY)))
         self.assertEqual([], module.validate(REPOSITORY, compatibility=False))
 
+    def test_strict_validate_command_accepts_the_migrated_corpus(self):
+        process = subprocess.run(["python3", str(SCRIPT), "validate"], cwd=REPOSITORY, capture_output=True, text=True, check=False)
+        self.assertEqual(0, process.returncode, process.stderr)
+        self.assertEqual("", process.stdout)
+
     def test_selects_canonical_files_and_resolves_canonical_and_compact_ids(self):
         self.write_issue("2026-08-21-001-one.md", issue_text())
         self.write_issue("2026-08-21-001-two.md", issue_text())

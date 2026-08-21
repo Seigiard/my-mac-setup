@@ -63,6 +63,9 @@ jobs:
           # minimal install saves.
           fetch-depth: 0
 
+      - name: Validate repository issues
+        run: make test-issues
+
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
       # instead of waiting for the nightly run. About 4% of commits touch them,
@@ -211,6 +214,9 @@ jobs:
           # minimal install saves.
           fetch-depth: 0
 
+      - name: Validate repository issues
+        run: make test-issues
+
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
       # instead of waiting for the nightly run. About 4% of commits touch them,
@@ -316,6 +322,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate repository issues
+        run: make test-issues
 
       # See the ubuntu job: the azure mirror hangs apt when it degrades.
       - name: Drop the azure apt mirror
