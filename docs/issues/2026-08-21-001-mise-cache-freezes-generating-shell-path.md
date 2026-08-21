@@ -2,7 +2,8 @@
 title: The cached mise activate output freezes the generating shell's PATH into every later shell
 type: bug
 date: 2026-08-21
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -58,3 +59,46 @@ fork per shell start, and that trade-off is not being reopened here.
 3. **Which test proves it.** A candidate: render `dot_zshenv.tmpl`, generate the
    cache under an unusual `PATH`, start a second shell with a normal `PATH`, and
    assert the second shell's `PATH` does not contain the marker entry.
+
+## Resolution
+
+Decision 1 went to the **strip** variant, kept the cache: the regeneration in
+`home/dot_zshenv.tmpl` now pipes `mise activate zsh` through
+`sed '1{/^export PATH=/d;}'` before writing the cache, and the mv/rm branch
+keys on `$pipestatus[1]` so a failed mise still discards the temp file.
+
+Why stripping is safe was verified on the host, not assumed: `mise activate
+zsh | head` confirmed the absolute `export PATH='...'` snapshot is exactly
+line 1 (and on this machine it did carry the Claude plugin `bin` dirs the
+issue describes), and the activate script *ends with a direct `_mise_hook`
+call*, which evals `mise hook-env -s zsh` at source time. So a fresh shell —
+including a non-interactive `zsh -f -c`, where precmd never fires — gets
+mise-managed tool dirs on `PATH` the moment the cache is sourced: sourcing the
+stripped output in a `zsh -f` with a minimal `PATH` resolved `node` to
+`~/.local/share/mise/installs/node/lts/bin/node`. No relative shims prepend
+was needed. The strip is scoped to line 1 so a legitimate runtime `PATH`
+mutation elsewhere in future mise output would survive.
+
+Decision 2 (regenerate on `PATH` change) became moot: with no `PATH` line in
+the cache, the cached content is `PATH`-independent, so `PATH`-based
+regeneration would add churn and guard nothing. Not implemented.
+
+Decision 3, tests (verified red on the unfixed template by mutation, then
+green):
+
+- `tests/templates.bats`: a behavioral test renders `dot_zshenv.tmpl`, points
+  it at a fake `mise` (function shim — the rendered file prepends the
+  homebrew dirs, so a PATH-based fake would be shadowed by the real mise)
+  whose activate output mimics the real shape, generates the cache in a
+  throwaway `HOME` with a marker dir on `PATH`, then starts a second zsh with
+  a normal `PATH`: the marker must be absent and the runtime mutation line
+  must still apply. Plus a render assertion pinning the sed strip. Never
+  touches the real `~/.cache` or `$HOME`.
+- `tests/smoke.bats`: guards for the `cached_init` consumers in
+  `home/dot_zshrc.tmpl` — `starship init zsh`, `zoxide init zsh --cmd cd`,
+  `rgrc --aliases` each must emit no `export PATH=` line (skip when the tool
+  is absent), so only mise ever had this shape and it stays that way.
+
+Verified: `bats tests/templates.bats` (41/41), `bats tests/smoke.bats` (all
+green incl. the three new guards), `make lint`, `make test-templates`.
+The fix is commit-ready but not live until `chezmoi apply` deploys it.
