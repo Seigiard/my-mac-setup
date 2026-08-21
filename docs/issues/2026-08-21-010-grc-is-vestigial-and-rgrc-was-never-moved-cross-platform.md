@@ -37,6 +37,10 @@ sudo, zsh, locales, ca-certificates, build-essential, procps, file. So `grc` is 
 the sole supplier of the `python3` that `tests/palette.bats` needs. That is why the
 CI-minimal set keeps it, and the Brewfile carries a comment saying so.
 
+That last paragraph describes the state that created this issue and is no longer current:
+step 1 of Scope has landed, so the image installs its own `python3` and the Brewfile comment
+no longer credits `grc` with supplying it. `grc` is now held in the file by this issue alone.
+
 The cost is not theoretical: the timing measurement recorded in
 `docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md` puts `grc` at **21 s** of
 the Ubuntu install, against a minimal-set target of ≤ 35.6 s. A package nothing uses is
@@ -50,19 +54,39 @@ evidence of replacement: a named successor wired into the shell.
 
 ## Scope
 
-1. Put `python3` in the Docker image by an honest route — `apt-get install -y python3` in
-   `docker/Dockerfile.ubuntu`. It is a system tool, not a dotfile package. The CI runners
-   already ship `python3`, and the `test-ubuntu` job cannot reach Linuxbrew at all
-   (`docs/issues/2026-08-21-007-linuxbrew-prefix-unreachable-in-ubuntu-ci-job.md`), so this
-   is the only environment that needs the change.
+1. **Done.** `docker/Dockerfile.ubuntu` installs `python3` in its apt layer, landed by
+   `docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md` (R2/U1) rather than
+   by the Dockerfile plan named under Sequencing below. `python3` is also now a stated
+   system requirement in `README.md` with a 3.9 floor, and the bats suite asserts it instead
+   of skipping on it. Measured in the rebuilt image before any `chezmoi apply`:
+   `/usr/bin/python3` is **Python 3.12.3**, and the palette's own `--validate` exits 0 on it.
+   This step is the precondition for step 2 — do not remove `grc` from a checkout where it
+   is not present.
 2. Delete `brew "grc"` from `Brewfile.tmpl`, along with the comment explaining why it was
    kept and the `grc` assertions in `tests/templates.bats`.
 3. Decide `rgrc`'s home (below) and move it if the answer is cross-platform.
 
-**Ordering.** Step 1 must land before step 2, or `python3` disappears from the Docker image
-and 56 tests in `tests/palette.bats` start skipping silently — see
-`docs/issues/2026-08-21-009-python3-is-both-required-and-optional-in-the-test-suite.md`,
-which is the reason that failure would be confusing rather than obvious.
+**Ordering.** Step 1 must land before step 2. It now has — but verify that before removing
+`grc`, because the consequence changed rather than disappeared. The old failure mode was
+silent: `python3` vanished and 56 tests in `tests/palette.bats` skipped without saying why.
+That skip guard is gone (see
+`docs/issues/2026-08-21-009-python3-is-both-required-and-optional-in-the-test-suite.md`), so
+on a checkout without step 1 the same mistake now produces a named assertion failure naming
+`python3` and pointing at the `README.md` requirements section. Loud instead of silent, but
+still a broken image.
+
+**Which interpreter the palette ends up on.** Removing `grc` removes `python@3.14` from the
+image, so the palette drops from Homebrew's 3.14 to the apt interpreter that step 1
+installs. Measured on the current `ubuntu:24.04` base, that is **3.12.3**, which still ships
+`tomllib` in the standard library (stdlib since 3.11), so the palette keeps taking the
+`tomllib` branch at
+`home/private_dot_config/herdr/plugins/command-palette/palette.py:156-171` rather than its
+own fallback parser. An earlier reading of this — 3.10.6, taking the fallback — was measured
+against `ubuntu:22.04` and is stale: the base image moved to 24.04 in commit `f83e95d`.
+What remains true either way is that **no test observes which parser ran**. The only
+`tomllib` test forces the fallback by monkeypatching `builtins.__import__`, so an
+interpreter change here is silent, and a future base-image move to something older than 3.11
+would flip the branch with nothing reporting it.
 
 **Sequencing against the plans.** `docker/Dockerfile.ubuntu` is owned by
 `docs/plans/2026-08-20-2217-perf-docker-baked-brewfile-plan.md`, the next plan in the
@@ -80,6 +104,9 @@ change to what a host installs. Existing machines keep their installed `grc` eit
   placement is correct after all.
 - If `rgrc` does move, does it belong in the CI-minimal set? Almost certainly not — no test
   references it, and the shell init is guarded by `has rgrc`.
+- Should a test observe which TOML parser the palette actually used, rather than only that
+  the forced fallback works? Currently nothing does, so an interpreter change is invisible.
+  Tracked here because `grc`'s removal is the change that makes it matter.
 - Worth a broader inventory pass? The sweep that found this also showed several entries with
   no textual reference whose real consumer is yazi. A one-off audit could confirm each of
   those is genuinely reachable, but absence of a reference is weak evidence and the audit
