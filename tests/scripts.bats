@@ -1008,9 +1008,24 @@ if [ -f "$HTS_WORK/block-herdr" ]; then
   block_attempts=0
   release_file="${HTS_DESCRIPTOR_RELEASE_FILE:-$HTS_WORK/release-herdr}"
   : > "$HTS_WORK/herdr-blocked"
+  # Publish the blocking process itself, so a caller can prove it was still
+  # blocked rather than inferring it from an ancestor that outlives the give-up
+  # below. Only the descriptor test sets this.
+  if [ -n "${HTS_DESCRIPTOR_BLOCKED_PID_FILE:-}" ]; then
+    printf '%s\n' "$$" > "$HTS_DESCRIPTOR_BLOCKED_PID_FILE"
+  fi
   while [ ! -f "$release_file" ]; do
     block_attempts=$((block_attempts + 1))
-    [ "$block_attempts" -lt 3000 ] || exit 124
+    if [ "$block_attempts" -ge "${HTS_BLOCKED_HERDR_POLLS:-30000}" ]; then
+      # Record the give-up durably. A caller cannot detect it by polling this
+      # process for liveness -- that is a race it will usually lose -- and a
+      # give-up silently invalidates any conclusion drawn about what was holding
+      # a descriptor while it was supposed to be blocked.
+      if [ -n "${HTS_DESCRIPTOR_BLOCKED_PID_FILE:-}" ]; then
+        : > "$HTS_DESCRIPTOR_BLOCKED_PID_FILE.gave-up"
+      fi
+      exit 124
+    fi
     sleep 0.01
   done
 fi
@@ -1443,6 +1458,53 @@ HTS_WAIT_MATCH_POLLS="${HTS_WAIT_MATCH_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 40))
 # so it reads its ceiling from the environment rather than from file scope. The
 # other two are only ever read by functions in this file.
 export HTS_WAIT_POLLS
+
+# The two bounds around the nested Bats run in "bounded Bats invocation exits
+# after detached work". They are deliberately two numbers, not one, because a
+# hang guard and an assertion are different budgets: the old single 90 s budget
+# covered the whole nested run, most of which is Bats parsing all ~196 tests of
+# this 5105-line file to reach the one the filter selects. On the 3-core macOS CI
+# runner that parse alone put a green run at ~59 s against the 90 s cap, and an
+# ordinary 1.36x-slower run then went red with no regression behind it.
+#
+# The causal remedy docs/issues/2026-08-21-015 prefers is unavailable here: a
+# held pipe and a released one differ only in elapsed time, with no marker a test
+# could block on. So the split is the fallback, applied deliberately.
+#
+# PROGRESS is the hang guard. It covers the nested run up to the probe writing
+# its pid file, so it absorbs the whole load-elastic parse. It never fires in a
+# healthy run or in the guarded regression -- only a genuine hang reaches it.
+# Sized between two anchors: far above the ~59 s observed cost, and far enough
+# below the macOS job's timeout-minutes: 25 that it prints its own message
+# instead of the job being killed with none.
+HTS_INNER_BATS_PROGRESS_SECONDS="${HTS_INNER_BATS_PROGRESS_SECONDS:-600}"
+# EXIT is the assertion, and the only bound here that can fire on a healthy run.
+# It covers Bats teardown and exit alone -- not the parse -- which is what takes
+# the load sensitivity out. Sized from measurement, not intuition: the driver
+# prints its elapsed value on every run, and this is a large multiple of the
+# ~0.2 s observed under CPU saturation on a 10-core host. Must stay below
+# HTS_BLOCKED_HERDR_CEILING_SECONDS below, which is stated in the same unit so
+# the two can be compared; see that comment for the window it has to clear.
+HTS_INNER_BATS_EXIT_SECONDS="${HTS_INNER_BATS_EXIT_SECONDS:-30}"
+
+# How long the blocked herdr stub waits for its release before giving up. This
+# is a non-vacuity guard, not a budget. If the stub gives up first, the detached
+# worker exits on its own, the driver's liveness check finds it already gone, and
+# the test would have passed having proved nothing -- so the ceiling has to
+# outlast the whole window the worker must survive, which is NOT just the exit
+# bound above. The stub starts blocking inside the nested test body (it writes
+# herdr-blocked before the probe writes its pid file), so the window runs from
+# there through the tail of the progress phase, all of the exit bound, and the
+# liveness check. 300 s is 10x HTS_INNER_BATS_EXIT_SECONDS, which clears that
+# window with room for contention. Stated in seconds like its counterpart above:
+# the stub polls at 0.01 s, and under --jobs contention each iteration costs more
+# than that, so the poll count derived below is a floor on the real wall clock,
+# never a cap. Keep this strictly above HTS_INNER_BATS_EXIT_SECONDS.
+HTS_BLOCKED_HERDR_CEILING_SECONDS="${HTS_BLOCKED_HERDR_CEILING_SECONDS:-300}"
+# The stub is written from a quoted heredoc and runs as its own process, so like
+# HTS_WAIT_POLLS above it reads its ceiling from the environment.
+HTS_BLOCKED_HERDR_POLLS="${HTS_BLOCKED_HERDR_POLLS:-$((HTS_BLOCKED_HERDR_CEILING_SECONDS * 100))}" # sleep 0.01
+export HTS_BLOCKED_HERDR_POLLS
 
 
 
@@ -1890,43 +1952,210 @@ hts_wait_for_task_slug() {
   # docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md.
   local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
+  local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
   bats_bin="$(command -v bats)"
   export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
   export HTS_DESCRIPTOR_PID_FILE="$pid_file"
+  export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
   run python3 - "$bats_bin" "$BATS_TEST_FILENAME" <<'PY'
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
-command = [
-    sys.argv[1],
-    sys.argv[2],
-    "--filter",
-    "^herdr-task-sync descriptor child probe$",
+# Two bounds, not one, and they measure different things. See the
+# HTS_INNER_BATS_* comments in this file's constants block for why the single
+# budget this replaced was a latent flake.
+#
+# PROGRESS covers the nested run up to the probe writing its pid file -- the
+# load-elastic part, dominated by Bats parsing this whole file to reach one
+# filtered test. It is a hang guard and should never fire.
+#
+# EXIT covers what happens after that signal: the nested Bats must exit AND its
+# output pipes must reach end-of-file. That pair is the property under test.
+# Waiting on process exit alone would not detect the regression -- a detached
+# worker that inherited the pipes keeps them open after Bats itself is gone, so
+# EOF, not exit, is what a leaked descriptor withholds. The pipes are also why
+# the nested run must never be given temp files instead: a worker holding a file
+# descriptor blocks nothing, and the test would pass unconditionally.
+progress_budget = int(os.environ.get("HTS_INNER_BATS_PROGRESS_SECONDS", "600"))
+exit_budget = int(os.environ.get("HTS_INNER_BATS_EXIT_SECONDS", "30"))
+
+# Distinct status per failure mode, so the outer test's failure block names which
+# bound fired without reading the message. Avoid 126 and 127: the shell reserves
+# them for "not executable" and "not found", and bats reports a misleading BW01
+# warning when a `run` command exits with either.
+EXIT_HANG_GUARD = 124   # never reached its completion signal
+EXIT_REGRESSION = 125   # completed, then held its pipes open -- the guarded bug
+EXIT_EARLY = 3          # ended before completing its test
+EXIT_VACUOUS = 4        # the fixture gave up; nothing was being held
+EXIT_WORKER_STUCK = 5   # detached worker outlived its release
+
+release_file = Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"])
+pid_file = Path(os.environ["HTS_DESCRIPTOR_PID_FILE"])
+blocked_pid_file = Path(os.environ["HTS_DESCRIPTOR_BLOCKED_PID_FILE"])
+gave_up_file = Path(str(blocked_pid_file) + ".gave-up")
+
+
+def fixture_gave_up():
+    """The blocked herdr stub hit its ceiling and stopped holding its descriptor.
+    Whatever else this run observed, it did not observe the property under test."""
+    return gave_up_file.exists()
+
+
+VACUOUS = (
+    "the blocked herdr stub hit HTS_BLOCKED_HERDR_CEILING_SECONDS and gave up, so "
+    "nothing held a descriptor while the inner Bats exited -- this run proved nothing"
+)
+
+proc = subprocess.Popen(
+    [sys.argv[1], sys.argv[2], "--filter", "^herdr-task-sync descriptor child probe$"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+
+# Drain both pipes from launch in their own threads. Nothing may leave a pipe
+# unread: the nested run blocks on a full pipe buffer otherwise, and on the
+# nested-test-failure path Bats echoes the failed test's captured output, which
+# is exactly when that output is largest. An unread pipe there would stall the
+# pid file forever and report a plain test failure as a progress-phase hang.
+captured = {}
+
+
+def drain(name, stream):
+    captured[name] = stream.read()
+    stream.close()
+
+
+readers = [
+    threading.Thread(target=drain, args=("stdout", proc.stdout), daemon=True),
+    threading.Thread(target=drain, args=("stderr", proc.stderr), daemon=True),
 ]
-# This bound exists to catch a genuine hang, not to measure speed. It has to
-# clear the worst case of an inner Bats run competing with every other test in
-# a --jobs run, so it is generous rather than tight; 12s was calibrated on an
-# idle machine and timed out under parallel load.
-budget = int(os.environ.get("HTS_INNER_BATS_TIMEOUT", "90"))
+for reader in readers:
+    reader.start()
+
+
+def report(message, code):
+    """Fail without stranding a blocked worker or an unreaped process."""
+    release_file.touch()
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+    for reader in readers:
+        reader.join(timeout=5)
+    sys.stdout.write(captured.get("stdout") or "")
+    sys.stderr.write(captured.get("stderr") or "")
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def worker_pid():
+    """The probe writes this with a shell redirect, so the file exists empty
+    before its contents land -- and stays empty if the write failed."""
+    try:
+        return int(pid_file.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+# Phase 1: wait for the probe's completion signal, which it writes as its last
+# statement. Its arrival proves the nested test body finished -- in the healthy
+# case and in the regression case alike, since a leaked descriptor only shows up
+# afterwards, at exit.
+progress_deadline = time.monotonic() + progress_budget
+pid = None
+while pid is None:
+    pid = worker_pid()
+    if pid is not None:
+        break
+    if proc.poll() is not None:
+        # The nested run ended. Re-read once before calling this an early exit:
+        # the regression exits too, and only its pipes stay open, so "exited"
+        # and "signal present" are both true there, separated by teardown.
+        pid = worker_pid()
+        if pid is None:
+            # A give-up collapses the fixture too -- the coordinator's pass fails
+            # and releases its claim, so the probe records no owner pid. Name that
+            # cause rather than reporting it as an unexplained early exit.
+            if fixture_gave_up():
+                report(VACUOUS, EXIT_VACUOUS)
+            report(
+                f"inner Bats exited with status {proc.returncode} before its test "
+                "completed; it never wrote the descriptor pid file",
+                EXIT_EARLY,
+            )
+        break
+    if time.monotonic() > progress_deadline:
+        report(
+            f"inner Bats did not reach its completion signal within "
+            f"{progress_budget} seconds (hang guard)",
+            EXIT_HANG_GUARD,
+        )
+    time.sleep(0.01)
+
+# Phase 2: the property. Exit and EOF must both arrive, and quickly -- only
+# teardown remains. A timeout here is the regression this test exists to catch.
+exit_started = time.monotonic()
 try:
-    result = subprocess.run(command, capture_output=True, text=True, timeout=budget)
-except subprocess.TimeoutExpired as error:
-    Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"]).touch()
-    if error.stdout:
-        sys.stdout.write(error.stdout if isinstance(error.stdout, str) else error.stdout.decode())
-    print(f"inner Bats invocation exceeded {budget} seconds", file=sys.stderr)
-    raise SystemExit(124)
+    proc.wait(timeout=exit_budget)
+    for reader in readers:
+        remaining = exit_budget - (time.monotonic() - exit_started)
+        reader.join(timeout=max(remaining, 0))
+    if any(reader.is_alive() for reader in readers):
+        raise subprocess.TimeoutExpired(proc.args, exit_budget)
+except subprocess.TimeoutExpired:
+    report(
+        f"inner Bats did not exit and close its output pipes within "
+        f"{exit_budget} seconds of its test completing -- a detached descendant "
+        "is holding an inherited descriptor open",
+        EXIT_REGRESSION,
+    )
+exit_elapsed = time.monotonic() - exit_started
 
-sys.stdout.write(result.stdout)
-sys.stderr.write(result.stderr)
-if result.returncode != 0:
-    raise SystemExit(result.returncode)
+sys.stdout.write(captured.get("stdout") or "")
+sys.stderr.write(captured.get("stderr") or "")
+# Printed on every run, passing runs included, so the next recalibration of
+# HTS_INNER_BATS_EXIT_SECONDS reads a number out of CI instead of reconstructing
+# one from TAP print-order gaps.
+print(f"inner Bats exit phase took {exit_elapsed:.3f}s", file=sys.stderr)
 
-Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"]).touch()
-pid = int(Path(os.environ["HTS_DESCRIPTOR_PID_FILE"]).read_text())
+# Non-vacuity: the herdr stub must STILL be blocked right now. Everything above
+# only proves the nested Bats exited and closed its pipes -- which is unremarkable
+# if nothing was holding a descriptor at the time. The stub gives up on its own
+# after HTS_BLOCKED_HERDR_CEILING_SECONDS, and if it did, this run proved nothing.
+#
+# Check the stub's own pid, not the detached worker's. The worker is the stub's
+# parent and outlives its give-up, so a live worker does not imply a blocked
+# stub -- checking the worker here passes on exactly the vacuous run this guard
+# exists to catch.
+if fixture_gave_up():
+    report(VACUOUS, EXIT_VACUOUS)
+
+# Backstop for a stub that vanished without recording a give-up (killed, crashed).
+# The durable marker above is the primary signal; polling liveness is a race this
+# would usually lose on its own.
+try:
+    blocked_pid = int(blocked_pid_file.read_text().strip())
+except (FileNotFoundError, ValueError):
+    report(
+        "the blocked herdr stub never published its pid; this run cannot show "
+        "anything was holding a descriptor",
+        EXIT_VACUOUS,
+    )
+
+try:
+    os.kill(blocked_pid, 0)
+except ProcessLookupError:
+    report(
+        f"blocked herdr stub {blocked_pid} was gone before release without recording "
+        "a give-up; nothing held a descriptor while the inner Bats exited",
+        EXIT_VACUOUS,
+    )
+
+release_file.touch()
 for _ in range(500):
     try:
         os.kill(pid, 0)
@@ -1935,9 +2164,21 @@ for _ in range(500):
     time.sleep(0.01)
 else:
     print(f"detached worker {pid} did not exit after release", file=sys.stderr)
-    raise SystemExit(125)
+    raise SystemExit(EXIT_WORKER_STUCK)
+
+# Last, so a nested failure after the completion signal is still reported -- but
+# only once the worker above has been released and reaped.
+if proc.returncode != 0:
+    print(f"inner Bats exited with status {proc.returncode}", file=sys.stderr)
+    raise SystemExit(proc.returncode)
 PY
   unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
+  # `run` captures the driver's measurement into $output, which bats discards on
+  # a passing test -- so forward it to the console descriptor. The number is only
+  # useful if a green CI run carries it: it is what
+  # HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against, and reconstructing it
+  # from TAP print-order gaps is what made the previous bound guesswork.
+  printf '%s\n' "$output" | grep -F 'inner Bats exit phase took' >&3 || true
   assert_success
   assert_output --partial "ok 1 herdr-task-sync descriptor child probe"
 }
