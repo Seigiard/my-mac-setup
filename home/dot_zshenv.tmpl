@@ -45,8 +45,19 @@ if has mise; then
     # "zsh: command not found: " while sourcing them.
     # mktemp rather than "$_mise_cache.$$": zsh reports the parent shell's PID
     # in a subshell, so $$ does not separate concurrent writers.
+    #
+    # sed strips the absolute `export PATH='...'` snapshot mise emits as line
+    # 1: it captures THIS shell's PATH, and caching it froze that PATH into
+    # every later shell until the mise binary changed (a capture from a shell
+    # with an augmented PATH pinned those extra entries for weeks). The
+    # activate script ends by calling _mise_hook, which recomputes PATH via
+    # `mise hook-env` at source time, so dropping the snapshot loses nothing —
+    # each shell mutates its own PATH instead of inheriting a frozen one.
+    # Scoped to line 1 so a relative, runtime PATH mutation elsewhere in the
+    # output would survive.
     _mise_cache_tmp="$(mktemp "$_mise_cache.XXXXXX")"
-    if mise activate zsh > "$_mise_cache_tmp" 2>/dev/null; then
+    mise activate zsh 2>/dev/null | sed '1{/^export PATH=/d;}' > "$_mise_cache_tmp"
+    if [[ $pipestatus[1] -eq 0 ]]; then
       mv -f "$_mise_cache_tmp" "$_mise_cache"
     else
       rm -f "$_mise_cache_tmp"

@@ -106,18 +106,15 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Packages (`~/.pi/agent/settings.json` → `packages[]`) — `pi install <source>`
 
+Every package is enforced by `home/dot_pi/agent/modify_settings.json`; no Pi
+package is manual.
+
 | Package                      | Source                                                    | Managed |
 | ---------------------------- | --------------------------------------------------------- | ------- |
 | compound-engineering-plugin  | `git:github.com/EveryInc/compound-engineering-plugin`     | repo    |
-| pi-theme-flexoki             | `git:github.com/markacianfrani/pi-theme-flexoki`          | manual  |
 | pi-web-access                | `npm:pi-web-access`                                       | repo    |
 | pi-context-view              | `npm:pi-context-view`                                     | repo    |
 | pi-fff                       | `npm:@ff-labs/pi-fff`                                     | repo    |
-| pi-codex-conversion          | `npm:@howaboua/pi-codex-conversion`                       | manual  |
-| pi-agents                    | `npm:pi-agents`                                           | manual  |
-| pi-subagents                 | `npm:pi-subagents`                                        | manual  |
-| pi-intercom                  | `npm:pi-intercom`                                         | manual  |
-| pi-agent-browser-native      | `npm:pi-agent-browser-native`                             | manual  |
 | pi-ask-user                  | `npm:pi-ask-user`                                         | repo    |
 | pi-subagentura               | `npm:pi-subagentura`                                      | repo    |
 | pi-loop                      | `npm:@trevonistrevon/pi-loop`                             | repo    |

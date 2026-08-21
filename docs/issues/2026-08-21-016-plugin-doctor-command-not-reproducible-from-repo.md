@@ -2,7 +2,8 @@
 title: plugin-doctor command exists only on the host, not reproducible from the repo
 type: bug
 date: 2026-08-21
-status: open
+status: wontfix
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -26,3 +27,14 @@ Add a smoke test for whichever source is chosen.
 ## Open decisions
 
 - Which of the three options above; depends on whether a marketplace plugin-doctor provider exists and is trusted.
+
+## Resolution
+
+Closed as wontfix: the user confirmed the plugin-doctor capability is deliberately abandoned — option 3. The untracked host copy at `~/.claude/commands/plugin-doctor.md` was already deleted when resolution started (the directory holds only `checkpoint.md`, `end-day.md`, `start-day.md`), so no host cleanup remains; the repo state and the host now agree that the command does not exist.
+
+The other two options were ruled out on evidence, not skipped:
+
+- Option 2 (plugin provider) has no provider: none of the 8 enabled plugins in `home/private_dot_claude/private_settings.json.tmpl` (claude-md-management, compound-engineering, frontend-design, playground, playwright, plugin-dev, security-guidance, typescript-lsp) ships a plugin-doctor command, and `~/.claude/plugins/cache` contains none. Commit `d4e32f9`'s deletion message ("now provided by plugins") was factually wrong — but the deletion outcome is now the wanted one.
+- Option 1 (restore the tracked file) was built and offered as PR #30, and the user closed it unmerged as the explicit record of the not-taken alternative.
+
+If the capability is ever wanted again, the full command file remains recoverable verbatim from git history: `git show d4e32f9^:home/private_dot_claude/commands/plugin-doctor.md`.
