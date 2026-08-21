@@ -2,6 +2,18 @@
 
 Cross-platform dotfiles managed with [chezmoi](https://www.chezmoi.io/).
 
+## Requirements
+
+Check that `python3` is on your `PATH` and reports at least **3.9**. It is the
+interpreter of the herdr command palette, and `chezmoi apply` shells out to it
+while it runs — this repo does not install it, so a machine without one is
+broken rather than merely missing a convenience.
+
+- **macOS** — `/usr/bin/python3` ships behind the Xcode Command Line Tools that
+  Homebrew already requires. It is 3.9.6, the oldest interpreter any supported
+  environment provides, which is where the 3.9 floor comes from.
+- **Linux** — Ubuntu and Debian ship `python3` in the base install.
+
 ## Quick Start (new machine)
 
 ### 1. Install Homebrew
