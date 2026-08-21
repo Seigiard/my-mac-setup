@@ -1,9 +1,13 @@
 ---
-title: Remove the command palette's three sleep-based focus workarounds
-type: bug
-date: 2026-08-18
-status: open
-parent-plan: docs/plans/2026-08-18-1254-fix-command-palette-defects-plan.md
+title: "Remove the command palette's three sleep-based focus workarounds"
+short_description: "Remove the command palette's three sleep-based focus workarounds"
+type: "bug"
+category: "command-palette"
+tags: ["command-palette","bug"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-18-1254-fix-command-palette-defects-plan.md"
 ---
 
 ## Why this exists

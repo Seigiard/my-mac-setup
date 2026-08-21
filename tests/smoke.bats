@@ -13,6 +13,21 @@ load 'helpers/common'
   assert_python3_available
 }
 
+@test "repository issues CLI exposes its contract and reads checkout issues" {
+  local repository_root
+  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  [[ -f "$repository_root/scripts/issues" ]] || skip "repository checkout is not mounted"
+
+  run python3 "$repository_root/scripts/issues" --version
+  assert_success
+  assert_output "repository-issues-contract 2"
+
+  run bash -c 'cd "$1" && python3 scripts/issues list --status open --json' _ "$repository_root"
+  assert_success
+  run python3 -c 'import json, sys; value = json.loads(sys.argv[1]); assert isinstance(value["issues"], list)' "$output"
+  assert_success
+}
+
 # ===========================================
 # Chezmoi-managed files exist
 # ===========================================

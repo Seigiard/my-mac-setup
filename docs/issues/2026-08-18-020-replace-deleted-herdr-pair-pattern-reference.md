@@ -1,9 +1,13 @@
 ---
-title: Replace the deleted herdr-pair pattern reference
-type: follow-up
-date: 2026-08-18
-status: done
-closed: 2026-08-18
+title: "Replace the deleted herdr-pair pattern reference"
+short_description: "Replace the deleted herdr-pair pattern reference"
+type: "follow-up"
+category: "herdr"
+tags: ["herdr","follow-up"]
+date: "2026-08-18"
+status: "done"
+priority: "low"
+closed: "2026-08-18"
 ---
 
 ## Why this exists

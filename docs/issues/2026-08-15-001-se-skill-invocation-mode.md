@@ -1,9 +1,13 @@
 ---
-title: Decide whether se-review-and-work and se-simplify should stay model-invoked
-type: idea
-date: 2026-08-15
-status: wontfix
-closed: 2026-08-15
+title: "Decide whether se-review-and-work and se-simplify should stay model-invoked"
+short_description: "Decide whether se-review-and-work and se-simplify should stay model-invoked"
+type: "idea"
+category: "agent-platform"
+tags: ["agent-platform","idea"]
+date: "2026-08-15"
+status: "wontfix"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 ## Why this exists

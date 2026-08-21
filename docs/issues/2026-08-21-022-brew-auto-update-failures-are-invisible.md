@@ -1,8 +1,12 @@
 ---
-title: The Pi brew auto-updater never surfaces a failure, even on manual invocation
-type: follow-up
-date: 2026-08-21
-status: open
+title: "The Pi brew auto-updater never surfaces a failure, even on manual invocation"
+short_description: "The Pi brew auto-updater never surfaces a failure, even on manual invocation"
+type: "follow-up"
+category: "agent-platform"
+tags: ["agent-platform","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "medium"
 ---
 
 ## Why this exists

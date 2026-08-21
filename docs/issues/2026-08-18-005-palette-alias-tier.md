@@ -1,8 +1,12 @@
 ---
-title: Give command palette commands aliases that match by strict prefix, never fuzzy
-type: idea
-date: 2026-08-18
-status: open
+title: "Give command palette commands aliases that match by strict prefix, never fuzzy"
+short_description: "Give command palette commands aliases that match by strict prefix, never fuzzy"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 **Partly superseded.** `docs/plans/2026-08-18-1254-fix-command-palette-defects-plan.md` implements the

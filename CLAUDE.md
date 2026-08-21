@@ -27,6 +27,7 @@ Reference docs (read on demand):
 
 | Command | What it does |
 |---|---|
+| `make test-issues` | Strictly validate repository issues and run issue CLI tests |
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
 | `make test-suite` | Post-apply suite in parallel, host-safe files only (excludes `tests/idempotent.bats`, which applies to the real `$HOME`). Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
@@ -104,18 +105,11 @@ Adding a managed config, step by step:
 
 </important>
 
-<important if="you found a problem, gap, or follow-up that you are not fixing in the current task">
+## Repository issues
 
-File it as an issue in `docs/issues/` — every known problem gets a file; nothing lives only in chat.
+Use the `repository-issues` skill and `python3 scripts/issues` for `docs/issues/` lifecycle operations. Create an issue for every unresolved problem.
 
-- Filename: `YYYY-MM-DD-NNN-slug.md` (`NNN` = per-day counter).
-- Frontmatter: `title`, `type` (bug | follow-up | idea | chore), `date`, `status` (open | in-progress | done | wontfix); optional `parent-plan`, `closed` (date).
-- Body sections: `## Why this exists` (problem, with file paths), `## Scope`, `## Open decisions`; on close, add `## Resolution` (what was done, commit sha).
-- Lifecycle lives in the `status` field — never move files between directories. List open issues: `rg -l 'status: open' docs/issues`.
-- Keep the issue body self-contained — the issue, not its `parent-plan`, is what gets read first.
-- Architecture decisions that are costly to reverse (rare) go to `docs/decisions/` as a minimal ADR: Context / Considered options / Decision. This repo has no RFC process — issues and plans cover proposal work.
-
-</important>
+Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
 <important if="you are adding a new feature, script, or config that should be tested">
 

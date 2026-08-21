@@ -1,10 +1,14 @@
 ---
-title: The work block's planPath prompt got prose back, not the return-to-caller envelope
-type: bug
-date: 2026-08-15
-status: done
-closed: 2026-08-15
-parent-plan: docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md
+title: "The work block's planPath prompt got prose back, not the return-to-caller envelope"
+short_description: "The work block's planPath prompt got prose back, not the return-to-caller envelope"
+type: "bug"
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
+date: "2026-08-15"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-13-002-dynamic-flow-composition-host-verification.md"
+closed: "2026-08-15"
 ---
 
 # The work block's planPath prompt got prose back, not the return-to-caller envelope

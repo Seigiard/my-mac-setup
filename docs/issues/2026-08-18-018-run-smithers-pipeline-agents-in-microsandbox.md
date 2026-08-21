@@ -1,8 +1,12 @@
 ---
-title: Run Smithers pipeline agents in Microsandbox with Herdr visibility
-type: follow-up
-date: 2026-08-18
-status: open
+title: "Run Smithers pipeline agents in Microsandbox with Herdr visibility"
+short_description: "Run Smithers pipeline agents in Microsandbox with Herdr visibility"
+type: "follow-up"
+category: "agent-platform"
+tags: ["agent-platform","follow-up"]
+date: "2026-08-18"
+status: "open"
+priority: "medium"
 ---
 
 ## Why this exists

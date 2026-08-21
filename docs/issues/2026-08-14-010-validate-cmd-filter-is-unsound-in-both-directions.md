@@ -1,9 +1,13 @@
 ---
-title: The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-15
+title: "The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones"
+short_description: "The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones"
+type: "bug"
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # The validate-command filter is unsound in both directions

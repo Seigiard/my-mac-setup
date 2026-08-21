@@ -1,9 +1,13 @@
 ---
-title: Create a Pi startup updater for Homebrew-managed Pi and Pi packages
-type: idea
-date: 2026-08-18
-status: done
-closed: 2026-08-21
+title: "Create a Pi startup updater for Homebrew-managed Pi and Pi packages"
+short_description: "Create a Pi startup updater for Homebrew-managed Pi and Pi packages"
+type: "idea"
+category: "agent-platform"
+tags: ["agent-platform","idea"]
+date: "2026-08-18"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

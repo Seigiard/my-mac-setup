@@ -1,9 +1,13 @@
 ---
-title: The Smithers workflows package has no tsconfig, so nothing type-checks it and the editor reports phantom errors
-type: chore
-date: 2026-08-15
-status: done
-closed: 2026-08-15
+title: "The Smithers workflows package has no tsconfig, so nothing type-checks it and the editor reports phantom errors"
+short_description: "The Smithers workflows package has no tsconfig, so nothing type-checks it and the editor reports phantom errors"
+type: "chore"
+category: "se-pipeline"
+tags: ["se-pipeline","chore"]
+date: "2026-08-15"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # The workflows package has no tsconfig, so nobody type-checks it

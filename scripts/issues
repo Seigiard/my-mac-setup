@@ -1,0 +1,591 @@
+#!/usr/bin/env python3
+"""Repository-local issue parsing and validation contract."""
+
+from __future__ import annotations
+
+import argparse
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import errno
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
+from typing import Any, Dict, Iterator, List, Optional, Sequence
+
+
+ISSUE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{3})-.+\.md$")
+COMPACT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{3}$")
+TAG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+KNOWN_FIELDS = {"title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "external-id", "closed"}
+REQUIRED_FIELDS = ("title", "short_description", "type", "category", "tags", "date", "status", "priority")
+TYPES = {"bug", "follow-up", "idea", "chore"}
+STATUSES = {"open", "in-progress", "done", "wontfix"}
+CATEGORIES = {"testing-ci", "se-pipeline", "herdr", "command-palette", "agent-platform", "dotfiles", "repository-maintenance"}
+PRIORITIES = {"critical", "high", "medium", "low"}
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class IssueError(ValueError):
+    """A stable parser or identifier error."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__("%s: %s" % (code, message))
+
+
+@dataclass(frozen=True)
+class Document:
+    path: Path
+    metadata: Dict[str, Any]
+    body: bytes
+
+
+@dataclass(frozen=True, order=True)
+class Diagnostic:
+    code: str
+    detail: str = ""
+
+
+def find_worktree(start: Optional[Path] = None) -> Path:
+    """Find the checkout that contains the current directory, including linked worktrees."""
+    current = (start or Path.cwd()).resolve()
+    for candidate in (current,) + tuple(current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    raise IssueError("WORKTREE_NOT_FOUND", "no .git directory or file above %s" % current)
+
+
+def discover_issue_paths(root: Path) -> List[Path]:
+    directory = root / "docs" / "issues"
+    if not directory.is_dir():
+        return []
+    return sorted((path for path in directory.iterdir() if path.is_file() and not path.is_symlink() and ISSUE_NAME.match(path.name)), key=lambda path: path.name)
+
+
+def _has_forbidden_characters(value: str) -> bool:
+    for character in value:
+        codepoint = ord(character)
+        if codepoint <= 0x1F or 0x7F <= codepoint <= 0x9F:
+            return True
+        if codepoint in (0x2028, 0x2029) or 0x202A <= codepoint <= 0x202E or 0x2066 <= codepoint <= 0x2069:
+            return True
+    return False
+
+
+def _parse_scalar(value: str, key: str) -> Any:
+    if not value:
+        raise IssueError("INVALID_FRONTMATTER", "empty value for %s" % key)
+    if value.startswith('"'):
+        try:
+            result = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise IssueError("INVALID_FRONTMATTER", "invalid quoted value for %s" % key) from error
+        if not isinstance(result, str):
+            raise IssueError("INVALID_FRONTMATTER", "quoted value for %s must be a string" % key)
+    else:
+        if value[0] in "[{'\"|>&*!%@`" or "#" in value or ": " in value:
+            raise IssueError("UNSUPPORTED_YAML", "unsupported scalar syntax for %s" % key)
+        result = value
+    if _has_forbidden_characters(result):
+        raise IssueError("UNSAFE_CHARACTER", "unsafe character in %s" % key)
+    return result
+
+
+def _parse_tags(value: str) -> List[str]:
+    try:
+        tags = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise IssueError("UNSUPPORTED_YAML", "tags must be a JSON string array") from error
+    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+        raise IssueError("INVALID_TAGS", "tags must be a JSON string array")
+    if any(_has_forbidden_characters(tag) or not TAG.fullmatch(tag) for tag in tags):
+        raise IssueError("INVALID_TAGS", "tags must use kebab-case")
+    return tags
+
+
+def parse_document(path: Path) -> Document:
+    return parse_document_bytes(path, path.read_bytes())
+
+
+def parse_document_bytes(path: Path, contents: bytes) -> Document:
+    if not contents.startswith(b"---\n"):
+        raise IssueError("MALFORMED_FRONTMATTER", "frontmatter must start with an exact --- line")
+    boundary = contents.find(b"\n---\n", 4)
+    if boundary < 0:
+        raise IssueError("MALFORMED_FRONTMATTER", "frontmatter must end with an exact --- line")
+    frontmatter = contents[4:boundary]
+    body = contents[boundary + 5:]
+    try:
+        text = frontmatter.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise IssueError("INVALID_FRONTMATTER_UTF8", "frontmatter is not valid UTF-8") from error
+    metadata: Dict[str, Any] = {}
+    for line in text.split("\n"):
+        if not line or ": " not in line:
+            raise IssueError("INVALID_FRONTMATTER", "each frontmatter line must be one key and value")
+        key, value = line.split(": ", 1)
+        if key not in KNOWN_FIELDS:
+            raise IssueError("UNKNOWN_FIELD", key)
+        if key in metadata:
+            raise IssueError("DUPLICATE_FIELD", key)
+        metadata[key] = _parse_tags(value) if key == "tags" else _parse_scalar(value, key)
+    return Document(path=path, metadata=metadata, body=body)
+
+
+def _heading_present(body: bytes, heading: bytes, prefix: bool = False) -> bool:
+    expression = rb"(?m)^" + re.escape(heading) + (rb"[^\r\n]*$" if prefix else rb"[ \t]*$")
+    return re.search(expression, body) is not None
+
+
+def validate_document(document: Document) -> List[Diagnostic]:
+    metadata = document.metadata
+    diagnostics: List[Diagnostic] = []
+    for field in REQUIRED_FIELDS:
+        if field not in metadata:
+            diagnostics.append(Diagnostic("MISSING_FIELD", field))
+    filename = ISSUE_NAME.match(document.path.name)
+    if not filename:
+        diagnostics.append(Diagnostic("INVALID_FILENAME", document.path.name))
+    elif "date" in metadata and metadata["date"] != filename.group(1)[:10]:
+        diagnostics.append(Diagnostic("FILENAME_DATE_MISMATCH", document.path.name))
+    if "date" in metadata and not DATE.fullmatch(metadata["date"]):
+        diagnostics.append(Diagnostic("INVALID_DATE", "date"))
+    allowed = (("type", TYPES, "INVALID_TYPE"), ("category", CATEGORIES, "INVALID_CATEGORY"), ("status", STATUSES, "INVALID_STATUS"), ("priority", PRIORITIES, "INVALID_PRIORITY"))
+    for field, values, code in allowed:
+        if field in metadata and metadata[field] not in values:
+            diagnostics.append(Diagnostic(code, field))
+    for field in ("title", "short_description", "parent-plan", "external-id", "closed"):
+        if field in metadata and (not isinstance(metadata[field], str) or not metadata[field]):
+            diagnostics.append(Diagnostic("INVALID_%s" % field.upper().replace("-", "_"), field))
+    if "closed" in metadata and not DATE.fullmatch(metadata["closed"]):
+        diagnostics.append(Diagnostic("INVALID_CLOSED_DATE", "closed"))
+    if "tags" in metadata and (not isinstance(metadata["tags"], list) or len(set(metadata["tags"])) != len(metadata["tags"])):
+        diagnostics.append(Diagnostic("INVALID_TAGS", "tags"))
+    status = metadata.get("status")
+    if status in ("open", "in-progress"):
+        for heading in (b"## Why this exists", b"## Scope", b"## Open decisions"):
+            if not _heading_present(document.body, heading):
+                diagnostics.append(Diagnostic("MISSING_ACTIVE_HEADING", heading.decode("ascii")))
+        if "closed" in metadata:
+            diagnostics.append(Diagnostic("ACTIVE_ISSUE_CLOSED", "closed"))
+    elif status in ("done", "wontfix"):
+        if not _heading_present(document.body, b"## Why this exists"):
+            diagnostics.append(Diagnostic("MISSING_TERMINAL_HEADING", "## Why this exists"))
+        if not _heading_present(document.body, b"## Resolution", prefix=True):
+            diagnostics.append(Diagnostic("MISSING_TERMINAL_HEADING", "## Resolution"))
+        if "closed" not in metadata:
+            diagnostics.append(Diagnostic("MISSING_CLOSED_DATE", "closed"))
+    return sorted(diagnostics)
+
+
+def resolve_issue_id(paths: Sequence[Path], issue_id: str) -> Path:
+    exact = [path for path in paths if path.stem == issue_id]
+    if exact:
+        return exact[0]
+    if COMPACT_ID.fullmatch(issue_id):
+        matches = [path for path in paths if path.stem.startswith(issue_id + "-")]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise IssueError("AMBIGUOUS_ID", "%s -> %s" % (issue_id, ", ".join(path.stem for path in matches)))
+    raise IssueError("ISSUE_NOT_FOUND", issue_id)
+
+
+def validate(root: Path) -> List[str]:
+    output: List[str] = []
+    for path in discover_issue_paths(root):
+        try:
+            diagnostics = validate_document(parse_document(path))
+        except IssueError as error:
+            output.append("%s %s" % (path.relative_to(root), error))
+            continue
+        for diagnostic in diagnostics:
+            output.append("%s %s %s" % (path.relative_to(root), diagnostic.code, diagnostic.detail))
+    return output
+
+
+def records(root: Path) -> List[Document]:
+    result = []
+    for path in discover_issue_paths(root):
+        document = parse_document(path)
+        if validate_document(document):
+            raise IssueError("INVALID_CORPUS", path.name)
+        result.append(document)
+    return result
+
+
+def emit_json(value: Any) -> None:
+    print(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def select(records: Sequence[Document], arguments: argparse.Namespace) -> List[Document]:
+    statuses = set(arguments.status or ("open", "in-progress"))
+    priority = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    chosen = []
+    for document in records:
+        metadata = document.metadata
+        if metadata["status"] not in statuses:
+            continue
+        if arguments.category and metadata["category"] not in arguments.category:
+            continue
+        if arguments.priority and metadata["priority"] not in arguments.priority:
+            continue
+        if arguments.type and metadata["type"] not in arguments.type:
+            continue
+        if arguments.tag and not set(arguments.tag).issubset(metadata["tags"]):
+            continue
+        query = getattr(arguments, "query", None)
+        if query:
+            searchable = "\n".join((metadata["title"], metadata["short_description"], document.body.decode("utf-8", "backslashreplace")))
+            if query.casefold() not in searchable.casefold():
+                continue
+        chosen.append(document)
+    return sorted(chosen, key=lambda item: (item.metadata["category"], priority[item.metadata["priority"]], item.path.stem))
+
+
+def summary(document: Document) -> Dict[str, Any]:
+    metadata = document.metadata
+    return {"category": metadata["category"], "id": document.path.stem, "priority": metadata["priority"], "short_description": metadata["short_description"], "status": metadata["status"], "title": metadata["title"]}
+
+
+def issue_directory(root: Path, create: bool = False) -> Path:
+    root = root.resolve()
+    directory = root / "docs" / "issues"
+    if create:
+        directory.mkdir(parents=True, exist_ok=True)
+    if not directory.is_dir() or directory.is_symlink():
+        raise IssueError("ISSUE_DIRECTORY_INVALID", str(directory))
+    try:
+        directory.resolve().relative_to(root)
+    except ValueError as error:
+        raise IssueError("UNSAFE_PATH", str(directory)) from error
+    return directory
+
+
+@contextmanager
+def issue_lock(root: Path, create: bool = False, shared: bool = False) -> Iterator[Path]:
+    """Lock issue reads together and serialize all issue mutations."""
+    candidate = root.resolve() / "docs" / "issues"
+    if shared and not candidate.exists():
+        yield candidate
+        return
+    directory = issue_directory(root, create=create)
+    lock_path = directory / ".issues.lock"
+    if lock_path.exists() and lock_path.is_symlink():
+        raise IssueError("UNSAFE_PATH", str(lock_path))
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(str(lock_path), flags, 0o600)
+    except OSError as error:
+        raise IssueError("LOCK_FAILED", str(lock_path)) from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise IssueError("UNSAFE_PATH", str(lock_path))
+        fcntl.flock(descriptor, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        yield directory
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def mutation_path(directory: Path, issue_id: str) -> Path:
+    path = resolve_issue_id(discover_issue_paths(directory.parents[1]), issue_id)
+    if path.parent != directory or path.is_symlink():
+        raise IssueError("UNSAFE_PATH", str(path))
+    try:
+        mode = path.lstat().st_mode
+    except OSError as error:
+        raise IssueError("UNSAFE_PATH", str(path)) from error
+    if not stat.S_ISREG(mode):
+        raise IssueError("UNSAFE_PATH", str(path))
+    return path
+
+
+def render_document(path: Path, metadata: Dict[str, Any], body: bytes) -> bytes:
+    lines = ["---"]
+    for name in ("title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "external-id", "closed"):
+        if name not in metadata:
+            continue
+        value = json.dumps(metadata[name], ensure_ascii=False, separators=(",", ":"))
+        lines.append("%s: %s" % (name, value))
+    contents = ("\n".join(lines) + "\n---\n").encode("utf-8") + body
+    for name, value in metadata.items():
+        if name == "tags":
+            if not isinstance(value, list) or any(not isinstance(tag, str) or _has_forbidden_characters(tag) or not TAG.fullmatch(tag) for tag in value):
+                raise IssueError("INVALID_TAGS", "tags must use kebab-case")
+        elif not isinstance(value, str) or not value or _has_forbidden_characters(value):
+            raise IssueError("INVALID_MUTATION", name)
+    candidate = Document(path=path, metadata=metadata, body=body)
+    diagnostics = validate_document(candidate)
+    if diagnostics:
+        raise IssueError("INVALID_MUTATION", ", ".join(item.code for item in diagnostics))
+    return contents
+
+
+def atomic_replace(path: Path, contents: bytes, expected: Optional[bytes]) -> None:
+    if path.is_symlink() or path.parent.is_symlink():
+        raise IssueError("UNSAFE_PATH", str(path))
+    if expected is None:
+        if path.exists():
+            raise IssueError("ISSUE_ALREADY_EXISTS", path.name)
+        mode = 0o644
+    else:
+        try:
+            current = path.read_bytes()
+            mode = stat.S_IMODE(path.stat().st_mode)
+        except OSError as error:
+            raise IssueError("PREIMAGE_CHANGED", path.name) from error
+        if current != expected:
+            raise IssueError("PREIMAGE_CHANGED", path.name)
+    descriptor, temporary = tempfile.mkstemp(prefix=".issues-", dir=str(path.parent))
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if expected is None:
+            try:
+                os.link(temporary, path)
+            except OSError as error:
+                if error.errno == errno.EEXIST:
+                    raise IssueError("ISSUE_ALREADY_EXISTS", path.name) from error
+                raise
+        else:
+            if path.read_bytes() != expected:
+                raise IssueError("PREIMAGE_CHANGED", path.name)
+            os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+        directory_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+
+
+def active_document(path: Path) -> tuple[Document, bytes]:
+    contents = path.read_bytes()
+    document = parse_document_bytes(path, contents)
+    diagnostics = validate_document(document)
+    if diagnostics:
+        raise IssueError("INVALID_CORPUS", path.name)
+    if document.metadata["status"] not in ("open", "in-progress"):
+        raise IssueError("INVALID_TRANSITION", document.metadata["status"])
+    return document, contents
+
+
+def replace_document(document: Document, expected: bytes, metadata: Dict[str, Any], body: Optional[bytes] = None) -> None:
+    body = document.body if body is None else body
+    atomic_replace(document.path, render_document(document.path, metadata, body), expected)
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    if not slug:
+        raise IssueError("INVALID_TITLE", "title cannot produce an issue filename")
+    return slug
+
+
+def create_issue(root: Path, arguments: argparse.Namespace) -> Path:
+    with issue_lock(root, create=True) as directory:
+        date = datetime.now(timezone.utc).date().isoformat()
+        external_id = getattr(arguments, "external_id", None)
+        if external_id is not None:
+            for existing_path in discover_issue_paths(root):
+                try:
+                    existing = parse_document(existing_path)
+                except IssueError:
+                    continue
+                if not validate_document(existing) and existing.metadata.get("external-id") == external_id:
+                    return existing_path
+        sequences = [int(match.group(1)[11:]) for path in discover_issue_paths(root) for match in [ISSUE_NAME.match(path.name)] if match and match.group(1).startswith(date + "-")]
+        sequence = max(sequences, default=0) + 1
+        metadata: Dict[str, Any] = {"title": arguments.title, "short_description": arguments.short_description, "type": arguments.type, "category": arguments.category, "tags": arguments.tag or [], "date": date, "status": "open", "priority": arguments.priority}
+        if arguments.parent_plan:
+            metadata["parent-plan"] = arguments.parent_plan
+        if external_id is not None:
+            metadata["external-id"] = external_id
+        body = ("\n## Why this exists\n\n%s\n\n## Scope\n\n%s\n\n## Open decisions\n\n%s\n" % (arguments.why, arguments.scope, arguments.open_decisions)).encode("utf-8")
+        while sequence <= 999:
+            filename = "%s-%03d-%s.md" % (date, sequence, slugify(arguments.title))
+            path = directory / filename
+            try:
+                atomic_replace(path, render_document(path, metadata, body), None)
+            except IssueError as error:
+                if error.code != "ISSUE_ALREADY_EXISTS":
+                    raise
+                sequence += 1
+                continue
+            return path
+        raise IssueError("SEQUENCE_EXHAUSTED", date)
+
+
+def start_issue(root: Path, issue_id: str) -> Document:
+    with issue_lock(root) as directory:
+        document, expected = active_document(mutation_path(directory, issue_id))
+        if document.metadata["status"] != "open":
+            raise IssueError("INVALID_TRANSITION", "start requires open")
+        metadata = dict(document.metadata)
+        metadata["status"] = "in-progress"
+        replace_document(document, expected, metadata)
+        return Document(document.path, metadata, document.body)
+
+
+def edit_issue(root: Path, issue_id: str, arguments: argparse.Namespace) -> Document:
+    values = {"title": arguments.title, "short_description": arguments.short_description, "type": arguments.type, "category": arguments.category, "priority": arguments.priority, "parent-plan": arguments.parent_plan}
+    if arguments.tag is not None:
+        values["tags"] = arguments.tag
+    values = {name: value for name, value in values.items() if value is not None}
+    if not values:
+        raise IssueError("NO_EDIT_FIELDS", "supply an editable metadata field")
+    with issue_lock(root) as directory:
+        document, expected = active_document(mutation_path(directory, issue_id))
+        metadata = dict(document.metadata)
+        metadata.update(values)
+        replace_document(document, expected, metadata)
+        return Document(document.path, metadata, document.body)
+
+
+def finish_issue(root: Path, issue_id: str, status: str, resolution: str) -> Document:
+    if not resolution:
+        raise IssueError("INVALID_RESOLUTION", "resolution text is required")
+    with issue_lock(root) as directory:
+        document, expected = active_document(mutation_path(directory, issue_id))
+        if status == "done" and document.metadata["status"] != "in-progress":
+            raise IssueError("INVALID_TRANSITION", "close requires in-progress")
+        metadata = dict(document.metadata)
+        metadata["status"] = status
+        metadata["closed"] = datetime.now(timezone.utc).date().isoformat()
+        body = document.body + b"\n## Resolution\n\n" + resolution.encode("utf-8") + b"\n"
+        replace_document(document, expected, metadata, body)
+        return Document(document.path, metadata, body)
+
+
+def print_mutation(root: Path, document: Document) -> None:
+    print("id=%s path=%s status=%s" % (document.path.stem, document.path.relative_to(root), document.metadata["status"]))
+
+
+def add_read_filters(parser: argparse.ArgumentParser) -> None:
+    for name, choices in (("status", STATUSES), ("category", CATEGORIES), ("priority", PRIORITIES), ("type", TYPES)):
+        parser.add_argument("--" + name, action="append", choices=sorted(choices))
+    parser.add_argument("--tag", action="append")
+    parser.add_argument("--json", action="store_true")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="issues")
+    parser.add_argument("--version", action="store_true")
+    subcommands = parser.add_subparsers(dest="command")
+    subcommands.add_parser("validate")
+    listing = subcommands.add_parser("list")
+    add_read_filters(listing)
+    search = subcommands.add_parser("search")
+    search.add_argument("query")
+    add_read_filters(search)
+    show = subcommands.add_parser("show")
+    show.add_argument("issue_id")
+    show.add_argument("--json", action="store_true")
+    create = subcommands.add_parser("create")
+    create.add_argument("--title", required=True)
+    create.add_argument("--short-description", required=True)
+    create.add_argument("--type", required=True, choices=sorted(TYPES))
+    create.add_argument("--category", required=True, choices=sorted(CATEGORIES))
+    create.add_argument("--tag", action="append")
+    create.add_argument("--priority", required=True, choices=sorted(PRIORITIES))
+    create.add_argument("--parent-plan")
+    create.add_argument("--external-id")
+    create.add_argument("--why", default="Describe the problem and its impact.")
+    create.add_argument("--scope", default="Define the work that resolves this issue.")
+    create.add_argument("--open-decisions", default="None.")
+    start = subcommands.add_parser("start")
+    start.add_argument("issue_id")
+    edit = subcommands.add_parser("edit")
+    edit.add_argument("issue_id")
+    edit.add_argument("--title")
+    edit.add_argument("--short-description")
+    edit.add_argument("--type", choices=sorted(TYPES))
+    edit.add_argument("--category", choices=sorted(CATEGORIES))
+    edit.add_argument("--tag", action="append")
+    edit.add_argument("--priority", choices=sorted(PRIORITIES))
+    edit.add_argument("--parent-plan")
+    close = subcommands.add_parser("close")
+    close.add_argument("issue_id")
+    close.add_argument("--resolution", required=True)
+    wontfix = subcommands.add_parser("wontfix")
+    wontfix.add_argument("issue_id")
+    wontfix.add_argument("--rationale", required=True)
+    arguments = parser.parse_args(argv)
+    try:
+        if arguments.version:
+            if arguments.command:
+                parser.error("--version cannot be combined with a command")
+            print("repository-issues-contract 2")
+            return 0
+        root = find_worktree()
+        if arguments.command == "validate":
+            with issue_lock(root, shared=True):
+                output = validate(root)
+            for line in output:
+                print(line)
+            return 1 if output else 0
+        if arguments.command in ("list", "search"):
+            with issue_lock(root, shared=True):
+                result = select(records(root), arguments)
+            if arguments.json:
+                emit_json({"issues": [summary(item) for item in result]})
+            else:
+                category = None
+                for item in result:
+                    value = summary(item)
+                    if value["category"] != category:
+                        category = value["category"]
+                        print("[%s]" % category)
+                    print("%(id)s [%(status)s/%(priority)s] %(title)s - %(short_description)s" % value)
+            return 0
+        if arguments.command == "show":
+            with issue_lock(root, shared=True):
+                document = parse_document(resolve_issue_id(discover_issue_paths(root), arguments.issue_id))
+            if arguments.json:
+                emit_json({"body": document.body.decode("utf-8", "backslashreplace"), "id": document.path.stem, "metadata": document.metadata, "path": str(document.path.relative_to(root))})
+            else:
+                print(document.path.stem)
+                print(document.metadata["title"])
+                sys.stdout.flush()
+                sys.stdout.buffer.write(document.body)
+            return 0
+        if arguments.command == "create":
+            path = create_issue(root, arguments)
+            print(path.relative_to(root))
+            return 0
+        if arguments.command == "start":
+            print_mutation(root, start_issue(root, arguments.issue_id))
+            return 0
+        if arguments.command == "edit":
+            print_mutation(root, edit_issue(root, arguments.issue_id, arguments))
+            return 0
+        if arguments.command == "close":
+            print_mutation(root, finish_issue(root, arguments.issue_id, "done", arguments.resolution))
+            return 0
+        if arguments.command == "wontfix":
+            print_mutation(root, finish_issue(root, arguments.issue_id, "wontfix", arguments.rationale))
+            return 0
+        parser.error("a command is required")
+    except IssueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

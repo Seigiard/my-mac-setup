@@ -1,9 +1,13 @@
 ---
-title: A supervisor process that subscribes to herdr agent-status events
-type: idea
-date: 2026-08-17
-status: open
-parent-plan: docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md
+title: "A supervisor process that subscribes to herdr agent-status events"
+short_description: "A supervisor process that subscribes to herdr agent-status events"
+type: "idea"
+category: "herdr"
+tags: ["herdr","idea"]
+date: "2026-08-17"
+status: "open"
+priority: "medium"
+parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md"
 ---
 
 ## Why this exists

@@ -1,8 +1,12 @@
 ---
-title: tests/idempotent.bats runs chezmoi apply against the developer's real home directory
-type: bug
-date: 2026-08-21
-status: open
+title: "tests/idempotent.bats runs chezmoi apply against the developer's real home directory"
+short_description: "tests/idempotent.bats runs chezmoi apply against the developer's real home directory"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-21"
+status: "open"
+priority: "critical"
 ---
 
 ## Why this exists

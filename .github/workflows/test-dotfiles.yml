@@ -63,6 +63,9 @@ jobs:
           # minimal install saves.
           fetch-depth: 0
 
+      - name: Validate repository issues
+        run: make test-issues
+
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
       # instead of waiting for the nightly run. About 4% of commits touch them,
@@ -174,6 +177,10 @@ jobs:
         working-directory: home/private_dot_claude/dot_smithers
         run: bun install --frozen-lockfile
 
+      - name: Test the Smithers issue writer
+        working-directory: home/private_dot_claude/dot_smithers
+        run: bun test workflows/lib/issue-writer.test.ts
+
       # Report each gap once, here, instead of once per dependent test.
       - name: Verify both smithers directories the tests call
         run: |
@@ -210,6 +217,9 @@ jobs:
           # 691 commits, so this costs a second or two against the minutes the
           # minimal install saves.
           fetch-depth: 0
+
+      - name: Validate repository issues
+        run: make test-issues
 
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
@@ -289,6 +299,10 @@ jobs:
         working-directory: home/private_dot_claude/dot_smithers
         run: bun install --frozen-lockfile
 
+      - name: Test the Smithers issue writer
+        working-directory: home/private_dot_claude/dot_smithers
+        run: bun test workflows/lib/issue-writer.test.ts
+
       - name: Verify both smithers directories the tests call
         run: |
           test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
@@ -316,6 +330,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate repository issues
+        run: make test-issues
 
       # See the ubuntu job: the azure mirror hangs apt when it degrades.
       - name: Drop the azure apt mirror

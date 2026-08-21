@@ -1,8 +1,12 @@
 ---
-title: Add manual AgentBox sessions to Herdr without requiring a pipeline
-type: follow-up
-date: 2026-08-18
-status: open
+title: "Add manual AgentBox sessions to Herdr without requiring a pipeline"
+short_description: "Add manual AgentBox sessions to Herdr without requiring a pipeline"
+type: "follow-up"
+category: "herdr"
+tags: ["herdr","follow-up"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

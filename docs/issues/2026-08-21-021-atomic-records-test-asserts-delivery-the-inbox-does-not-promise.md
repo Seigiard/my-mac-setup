@@ -1,9 +1,13 @@
 ---
-title: The atomic-records test asserts one-shot delivery the fail-open inbox does not promise
-type: bug
-date: 2026-08-21
-status: done
-closed: 2026-08-21
+title: "The atomic-records test asserts one-shot delivery the fail-open inbox does not promise"
+short_description: "The atomic-records test asserts one-shot delivery the fail-open inbox does not promise"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-21"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

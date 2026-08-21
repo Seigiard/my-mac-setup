@@ -1,9 +1,13 @@
 ---
-title: Pi package inventory does not match current managed settings
-type: follow-up
-date: 2026-08-19
-status: done
-closed: 2026-08-21
+title: "Pi package inventory does not match current managed settings"
+short_description: "Pi package inventory does not match current managed settings"
+type: "follow-up"
+category: "agent-platform"
+tags: ["agent-platform","follow-up"]
+date: "2026-08-19"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

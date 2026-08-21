@@ -1,9 +1,13 @@
 ---
-title: The cached mise activate output freezes the generating shell's PATH into every later shell
-type: bug
-date: 2026-08-21
-status: done
-closed: 2026-08-21
+title: "The cached mise activate output freezes the generating shell's PATH into every later shell"
+short_description: "The cached mise activate output freezes the generating shell's PATH into every later shell"
+type: "bug"
+category: "dotfiles"
+tags: ["dotfiles","bug"]
+date: "2026-08-21"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

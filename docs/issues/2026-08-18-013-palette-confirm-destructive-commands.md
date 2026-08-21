@@ -1,8 +1,12 @@
 ---
-title: Confirm destructive command palette commands, with the cursor starting on No
-type: idea
-date: 2026-08-18
-status: open
+title: "Confirm destructive command palette commands, with the cursor starting on No"
+short_description: "Confirm destructive command palette commands, with the cursor starting on No"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

@@ -1,10 +1,14 @@
 ---
-title: FIELD_SEPARATOR pane records reached 29 positional fields across six read headers
-type: follow-up
-date: 2026-08-20
-status: done
-closed: 2026-08-20
-parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
+title: "FIELD_SEPARATOR pane records reached 29 positional fields across six read headers"
+short_description: "FIELD_SEPARATOR pane records reached 29 positional fields across six read headers"
+type: "follow-up"
+category: "repository-maintenance"
+tags: ["repository-maintenance","follow-up"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

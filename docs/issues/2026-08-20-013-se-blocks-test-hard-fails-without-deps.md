@@ -1,9 +1,13 @@
 ---
-title: se blocks test hard-fails on a fresh checkout instead of skipping
-type: bug
-date: 2026-08-20
-status: done
-closed: 2026-08-20
+title: "se blocks test hard-fails on a fresh checkout instead of skipping"
+short_description: "se blocks test hard-fails on a fresh checkout instead of skipping"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

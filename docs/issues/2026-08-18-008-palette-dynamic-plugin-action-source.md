@@ -1,8 +1,12 @@
 ---
-title: Surface every installed herdr plugin's actions in the command palette
-type: idea
-date: 2026-08-18
-status: open
+title: "Surface every installed herdr plugin's actions in the command palette"
+short_description: "Surface every installed herdr plugin's actions in the command palette"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
-title: The work agent is handed an absolute plan path into the main checkout and writes its changes there
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-15
+title: "The work agent is handed an absolute plan path into the main checkout and writes its changes there"
+short_description: "The work agent is handed an absolute plan path into the main checkout and writes its changes there"
+type: "bug"
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # The work agent escapes the isolated worktree

@@ -1,9 +1,13 @@
 ---
-title: readRunUsage exists twice — shared in lib/cost.ts and private in se-pipeline.tsx
-type: chore
-date: 2026-08-14
-status: done
-closed: 2026-08-14
+title: "readRunUsage exists twice — shared in lib/cost.ts and private in se-pipeline.tsx"
+short_description: "readRunUsage exists twice — shared in lib/cost.ts and private in se-pipeline.tsx"
+type: "chore"
+category: "se-pipeline"
+tags: ["se-pipeline","chore"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-14"
 ---
 
 # readRunUsage exists twice

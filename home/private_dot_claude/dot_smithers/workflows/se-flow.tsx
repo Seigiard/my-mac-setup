@@ -53,7 +53,7 @@ import {
 } from "./lib/flow-run.ts";
 import type { FlowBlock, FlowSpec } from "./lib/flow-spec.ts";
 import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, parseReviewerVerdict, type BlockOutcome, type OutcomeRecord, type ReviewerVerdict } from "./lib/reviewer.ts";
-import { redactSecretsInText, shouldWriteIssue, writeIssueFile } from "./lib/issue-writer.ts";
+import { publishIssue, redactSecretsInText, shouldWriteIssue } from "./lib/issue-writer.ts";
 import { copyArtifacts, inboundPromptNote, parseArchiveManifest, planArtifactArchive, planInboundDelivery, type BlockPayload } from "./lib/archive.ts";
 import { agentCapUsd, aggregateUsage, evaluateBudget, openUsageDb, readRunUsage } from "./lib/cost.ts";
 import { makeFlowReviewerAgent } from "./lib/agents.ts";
@@ -148,10 +148,9 @@ const { Workflow, Task, Sequence, Approval, smithers, outputs } = createSmithers
     stoppedBy: z.string().nullish(),
   }),
   reviewerVerdict: z.object({ actionableOptimization: z.boolean(), summary: z.string(), cause: z.string().nullish(), proposedFix: z.string().nullish() }),
-  // R15: `issuePath` is null on a clean success — the review lives in the
-  // outcome record and no file is written. `redactionHits` surfaces a KTD13
-  // catch, so a redacted secret is visible in the run rather than only in the file.
-  issue: z.object({ disposition: z.string(), issuePath: z.string().nullish(), redactionHits: z.array(z.string()) }),
+  // R15: `issuePath` is null on a clean success or a compatible CLI publication
+  // failure. `publicationError` preserves the latter without unsafe fallback.
+  issue: z.object({ disposition: z.string(), issuePath: z.string().nullish(), redactionHits: z.array(z.string()), publicationError: z.string().nullish() }),
   // Generic per-block output.
   blockOutput: blockOutputSchema,
   // One fixed key for every agent block's raw envelope, namespaced per node by
@@ -830,12 +829,11 @@ function renderIssueTask(ctx: unknown, ordered: FlowBlock[], repoPath: string, r
       {() => {
         const disposition = classifyDisposition(record, verdict);
         if (!shouldWriteIssue(disposition)) {
-          return { disposition, issuePath: null, redactionHits: [] };
+          return { disposition, issuePath: null, redactionHits: [], publicationError: null };
         }
-        // Written into the TARGET repo, not the staged worktree: the worktree is
-        // deleted by cleanup moments later, and KD5 puts the issue where the
-        // human triages it.
-        const written = writeIssueFile(
+        // Publication targets the repository checkout, not the staged worktree:
+        // cleanup deletes the worktree immediately after this epilog.
+        const published = publishIssue(
           repoPath,
           buildIssueFields({
             record,
@@ -846,7 +844,7 @@ function renderIssueTask(ctx: unknown, ordered: FlowBlock[], repoPath: string, r
             evidenceArtifacts: [path.join(os.tmpdir(), "se-flow", runId, "outcome.json")],
           }),
         );
-        return { disposition, issuePath: written.path, redactionHits: written.redactionHits };
+        return { disposition, issuePath: published.path, redactionHits: published.redactionHits, publicationError: published.error ?? null };
       }}
     </Task>
   );

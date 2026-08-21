@@ -1,9 +1,13 @@
 ---
-title: Two herdr-task-sync ordering tests flake under full-suite load
-type: bug
-date: 2026-08-20
-status: done
-closed: 2026-08-21
+title: "Two herdr-task-sync ordering tests flake under full-suite load"
+short_description: "Two herdr-task-sync ordering tests flake under full-suite load"
+type: "bug"
+category: "herdr"
+tags: ["herdr","bug"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

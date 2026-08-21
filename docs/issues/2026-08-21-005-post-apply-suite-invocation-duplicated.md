@@ -1,9 +1,13 @@
 ---
-title: The post-apply suite invocation is duplicated across five sites and drift degrades silently to sequential
-type: follow-up
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md
+title: "The post-apply suite invocation is duplicated across five sites and drift degrades silently to sequential"
+short_description: "The post-apply suite invocation is duplicated across five sites and drift degrades silently to sequential"
+type: "follow-up"
+category: "repository-maintenance"
+tags: ["repository-maintenance","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "medium"
+parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
 ---
 
 ## Why this exists

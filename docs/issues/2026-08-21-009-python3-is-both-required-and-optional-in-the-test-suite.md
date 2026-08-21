@@ -1,9 +1,13 @@
 ---
-title: python3 is treated as both required and optional in the same test suite, so a missing python3 hides 56 tests behind an unrelated red
-type: bug
-date: 2026-08-21
-status: done
-closed: 2026-08-21
+title: "python3 is treated as both required and optional in the same test suite, so a missing python3 hides 56 tests behind an unrelated red"
+short_description: "python3 is treated as both required and optional in the same test suite, so a missing python3 hides 56 tests behind an unrelated red"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-21"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

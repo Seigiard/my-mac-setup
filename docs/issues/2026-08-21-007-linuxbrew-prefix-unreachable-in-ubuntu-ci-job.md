@@ -1,9 +1,13 @@
 ---
-title: The test-ubuntu CI job installs 37 brew packages it can never reach, because Linuxbrew's prefix is never put on PATH
-type: bug
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md
+title: "The test-ubuntu CI job installs 37 brew packages it can never reach, because Linuxbrew's prefix is never put on PATH"
+short_description: "The test-ubuntu CI job installs 37 brew packages it can never reach, because Linuxbrew's prefix is never put on PATH"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-21"
+status: "open"
+priority: "medium"
+parent-plan: "docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md"
 ---
 
 ## Why this exists

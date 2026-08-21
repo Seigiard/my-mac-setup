@@ -1,8 +1,12 @@
 ---
-title: Support field filters in the command palette's query string
-type: idea
-date: 2026-08-18
-status: open
+title: "Support field filters in the command palette's query string"
+short_description: "Support field filters in the command palette's query string"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
-title: The CI-minimal Docker apply has no automated gate, so a base-image downgrade would break it silently
-type: follow-up
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md
+title: "The CI-minimal Docker apply has no automated gate, so a base-image downgrade would break it silently"
+short_description: "The CI-minimal Docker apply has no automated gate, so a base-image downgrade would break it silently"
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "medium"
+parent-plan: "docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md"
 ---
 
 ## Why this exists

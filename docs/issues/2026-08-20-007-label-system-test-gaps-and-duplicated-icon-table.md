@@ -1,10 +1,14 @@
 ---
-title: Label-system test gaps and a hand-duplicated icon table in the bats suite
-type: follow-up
-date: 2026-08-20
-status: done
-closed: 2026-08-20
-parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
+title: "Label-system test gaps and a hand-duplicated icon table in the bats suite"
+short_description: "Label-system test gaps and a hand-duplicated icon table in the bats suite"
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

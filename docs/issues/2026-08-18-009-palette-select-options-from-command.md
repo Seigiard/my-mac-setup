@@ -1,8 +1,12 @@
 ---
-title: Let a command palette select command generate its options from a shell command
-type: idea
-date: 2026-08-18
-status: open
+title: "Let a command palette select command generate its options from a shell command"
+short_description: "Let a command palette select command generate its options from a shell command"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

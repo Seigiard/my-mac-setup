@@ -1,9 +1,13 @@
 ---
-title: pi-subagentura adopted unpinned although the trial premise was a pinned version
-type: follow-up
-date: 2026-08-21
-status: wontfix
-closed: 2026-08-21
+title: "pi-subagentura adopted unpinned although the trial premise was a pinned version"
+short_description: "pi-subagentura adopted unpinned although the trial premise was a pinned version"
+type: "follow-up"
+category: "agent-platform"
+tags: ["agent-platform","follow-up"]
+date: "2026-08-21"
+status: "wontfix"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

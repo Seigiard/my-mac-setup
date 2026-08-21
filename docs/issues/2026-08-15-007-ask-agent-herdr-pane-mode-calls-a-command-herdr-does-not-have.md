@@ -1,9 +1,13 @@
 ---
-title: ask-agent's herdr-pane mode calls `herdr wait output`, a command herdr does not have, so every consult inside herdr fails
-type: bug
-date: 2026-08-15
-status: done
-closed: 2026-08-15
+title: "ask-agent's herdr-pane mode calls `herdr wait output`, a command herdr does not have, so every consult inside herdr fails"
+short_description: "ask-agent's herdr-pane mode calls `herdr wait output`, a command herdr does not have, so every consult inside herdr fails"
+type: "bug"
+category: "herdr"
+tags: ["herdr","bug"]
+date: "2026-08-15"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # ask-agent's herdr pane mode is dead: `herdr wait output` is not a herdr command

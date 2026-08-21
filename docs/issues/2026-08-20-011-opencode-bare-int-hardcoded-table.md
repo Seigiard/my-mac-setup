@@ -1,9 +1,13 @@
 ---
 title: "opencode resolves bare-int theme values through a hardcoded standard-16 table, not the live terminal palette"
-type: follow-up
-date: 2026-08-20
-status: done
-closed: 2026-08-21
+short_description: "opencode resolves bare-int theme values through a hardcoded standard-16 table, not the live terminal palette"
+type: "follow-up"
+category: "command-palette"
+tags: ["command-palette","follow-up"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

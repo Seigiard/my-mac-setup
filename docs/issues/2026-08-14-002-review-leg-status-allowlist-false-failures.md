@@ -1,9 +1,13 @@
 ---
-title: Review-leg status allowlist false-fails healthy legs and forces a needless approval
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-14
+title: "Review-leg status allowlist false-fails healthy legs and forces a needless approval"
+short_description: "Review-leg status allowlist false-fails healthy legs and forces a needless approval"
+type: "bug"
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-14"
 ---
 
 # Review-leg status allowlist false-fails healthy legs and forces a needless approval

@@ -1,8 +1,12 @@
 ---
-title: Show a preview of the selected pane's contents in the command palette
-type: idea
-date: 2026-08-18
-status: open
+title: "Show a preview of the selected pane's contents in the command palette"
+short_description: "Show a preview of the selected pane's contents in the command palette"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

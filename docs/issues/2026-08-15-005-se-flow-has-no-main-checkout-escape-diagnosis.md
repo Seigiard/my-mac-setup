@@ -1,8 +1,12 @@
 ---
-title: An se-flow run that writes into the main checkout reports "no content change", not the cause
-type: follow-up
-date: 2026-08-15
-status: open
+title: "An se-flow run that writes into the main checkout reports \"no content change\", not the cause"
+short_description: "An se-flow run that writes into the main checkout reports \"no content change\", not the cause"
+type: "follow-up"
+category: "se-pipeline"
+tags: ["se-pipeline","follow-up"]
+date: "2026-08-15"
+status: "open"
+priority: "low"
 ---
 
 # se-flow has no main-checkout escape diagnosis

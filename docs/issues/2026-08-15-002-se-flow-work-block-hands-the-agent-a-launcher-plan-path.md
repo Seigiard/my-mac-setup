@@ -1,9 +1,13 @@
 ---
-title: The se-flow work block embeds a plan path from outside its own staged worktree
-type: bug
-date: 2026-08-15
-status: done
-closed: 2026-08-15
+title: "The se-flow work block embeds a plan path from outside its own staged worktree"
+short_description: "The se-flow work block embeds a plan path from outside its own staged worktree"
+type: "bug"
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
+date: "2026-08-15"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 ## Why this exists

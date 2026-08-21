@@ -1,8 +1,9 @@
-.PHONY: help test-ubuntu test-local test-suite test-docker test-templates lint clean build-docker shell-ubuntu init-submodules
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates lint clean build-docker shell-ubuntu init-submodules
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
 	@echo ""
+	@echo "  make test-issues      Validate repository issues and run their Python tests"
 	@echo "  make test-ubuntu      Run tests in Ubuntu Docker container"
 	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests only (fast, no apply)"
@@ -19,13 +20,17 @@ init-submodules:
 		git submodule update --init --recursive; \
 	fi
 
+test-issues:
+	python3 scripts/issues validate
+	python3 -m unittest tests/test_issues.py
+
 build-docker: init-submodules
 	docker compose -f docker/docker-compose.yml build
 
-test-ubuntu: build-docker
+test-ubuntu: test-issues build-docker
 	docker compose -f docker/docker-compose.yml run --rm test-quick
 
-test-templates: build-docker
+test-templates: test-issues build-docker
 	docker compose -f docker/docker-compose.yml run --rm -T test-quick \
 		'set -e && (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/) && \
 		chezmoi init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
@@ -56,7 +61,7 @@ test-suite: init-submodules
 	@echo "      To test an unapplied edit, use: make test-ubuntu"
 	bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats
 
-test-docker: build-docker
+test-docker: test-issues build-docker
 	@echo "=== Running Ubuntu tests ==="
 	docker compose -f docker/docker-compose.yml run --rm test-full
 

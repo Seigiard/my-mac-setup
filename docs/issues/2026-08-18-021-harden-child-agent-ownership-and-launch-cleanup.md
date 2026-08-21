@@ -1,9 +1,13 @@
 ---
-title: Harden child-agent ownership and launch cleanup
-type: follow-up
-date: 2026-08-18
-status: open
-parent-plan: docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md
+title: "Harden child-agent ownership and launch cleanup"
+short_description: "Harden child-agent ownership and launch cleanup"
+type: "follow-up"
+category: "agent-platform"
+tags: ["agent-platform","follow-up"]
+date: "2026-08-18"
+status: "open"
+priority: "medium"
+parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md"
 ---
 
 ## Why this exists

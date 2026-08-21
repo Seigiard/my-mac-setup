@@ -1,8 +1,12 @@
 ---
-title: The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red
-type: bug
-date: 2026-08-21
-status: open
+title: "The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red"
+short_description: "The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-21"
+status: "open"
+priority: "high"
 ---
 
 ## Why this exists
