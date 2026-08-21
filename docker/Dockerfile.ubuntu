@@ -1,4 +1,9 @@
-FROM ubuntu:22.04
+# 24.04 rather than 22.04 for git: the deployed .gitconfig sets
+# merge.conflictStyle = zdiff3, which needs git 2.35 or newer. 22.04 ships
+# 2.34.1 and aborts the apply's Oh My Zsh clone with "unknown style 'zdiff3'"
+# unless a newer git comes from Homebrew — which is why `git` had to stay in the
+# CI-minimal Brewfile set. 24.04 ships 2.43.0 and accepts it.
+FROM ubuntu:24.04
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
