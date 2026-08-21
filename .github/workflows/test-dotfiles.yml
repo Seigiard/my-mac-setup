@@ -180,6 +180,19 @@ jobs:
           test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
           test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
 
+      # Within-file parallelism runs on bats' own semaphore, which hard-exits
+      # with "flock/shlock is required for parallelization within files!" when
+      # neither is present. Nothing is installed here: flock ships in Ubuntu,
+      # macOS ships /usr/bin/shlock. Asserting it gives that failure its own
+      # step instead of letting it surface mid-suite. --jobs needs bats >= 1.5;
+      # the version check guards against a runner-image pin-back.
+      - name: Assert the parallel-run prerequisites
+        run: |
+          command -v flock || command -v shlock
+          bats --version
+          bats --version | awk '{print $2}' \
+            | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'
+
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
         run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
@@ -280,6 +293,19 @@ jobs:
         run: |
           test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
           test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
+
+      # Within-file parallelism runs on bats' own semaphore, which hard-exits
+      # with "flock/shlock is required for parallelization within files!" when
+      # neither is present. Nothing is installed here: flock ships in Ubuntu,
+      # macOS ships /usr/bin/shlock. Asserting it gives that failure its own
+      # step instead of letting it surface mid-suite. --jobs needs bats >= 1.5;
+      # the version check guards against a runner-image pin-back.
+      - name: Assert the parallel-run prerequisites
+        run: |
+          command -v flock || command -v shlock
+          bats --version
+          bats --version | awk '{print $2}' \
+            | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'
 
       - name: Run post-apply tests
         run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
