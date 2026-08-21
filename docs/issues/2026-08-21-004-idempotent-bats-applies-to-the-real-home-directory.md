@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "critical"
+closed: "2026-08-21"
 ---
 
 ## Why this exists
@@ -66,3 +67,7 @@ Out of scope: the rest of the suite, which already sandboxes correctly.
 2. **Whether `make test-local` should be the documented local entry point** for
    this file, and whether `Makefile` should stop any target from reaching
    `idempotent.bats` outside Docker.
+
+## Resolution
+
+Added an exact-match MMS_DISPOSABLE_HOME=1 guard before all four chezmoi commands, with runner anti-rot and predicate coverage. GitHub Actions and all Docker services declare the marker; direct workstation runs skip and name make test-ubuntu. The guard was chosen over --destination because run scripts address $HOME directly and a fresh --config can re-fire them against the host. The Makefile exclusion remains as redundant defense, while make test-ubuntu is the documented local path for full coverage. Corrected stale issue facts: CI invokes the suite at .github/workflows/test-dotfiles.yml:205 and :325, and the real sandbox pattern uses write_test_config() with --config and --destination rather than the currently unused chezmoi_test_init(). Verified host skips and guard tests with bats tests/idempotent.bats, the host-safe suite with make test-suite, Docker coverage with make test-ubuntu and make test-docker, issue validity with make test-issues, and shell scripts with make lint.
