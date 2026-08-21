@@ -1,10 +1,14 @@
 ---
-title: Landing order across the four same-date performance plans is undecided and they collide
-type: follow-up
-date: 2026-08-21
-status: done
-closed: 2026-08-21
-parent-plan: docs/plans/2026-08-20-2217-perf-docker-baked-brewfile-plan.md
+title: "Landing order across the four same-date performance plans is undecided and they collide"
+short_description: "Landing order across the four same-date performance plans is undecided and they collide"
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
+date: "2026-08-21"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-2217-perf-docker-baked-brewfile-plan.md"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

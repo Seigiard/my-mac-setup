@@ -1,8 +1,12 @@
 ---
-title: Size the command palette popup in percentages instead of fixed cells
-type: chore
-date: 2026-08-18
-status: open
+title: "Size the command palette popup in percentages instead of fixed cells"
+short_description: "Size the command palette popup in percentages instead of fixed cells"
+type: "chore"
+category: "command-palette"
+tags: ["command-palette","chore"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

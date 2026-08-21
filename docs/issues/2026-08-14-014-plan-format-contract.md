@@ -1,9 +1,13 @@
 ---
-title: Decide what a plan owes the pipeline, and whether the pipeline should keep inferring it from prose
-type: idea
-date: 2026-08-14
-status: done
-closed: 2026-08-15
+title: "Decide what a plan owes the pipeline, and whether the pipeline should keep inferring it from prose"
+short_description: "Decide what a plan owes the pipeline, and whether the pipeline should keep inferring it from prose"
+type: "idea"
+category: "testing-ci"
+tags: ["testing-ci","idea"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # The plan format is an undeclared contract inferred from markdown

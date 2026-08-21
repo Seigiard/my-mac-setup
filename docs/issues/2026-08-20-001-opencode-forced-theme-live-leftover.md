@@ -1,9 +1,13 @@
 ---
-title: Live leftover ~/.config/opencode/themes/flexoki-light-forced.json fails smoke deployment contract
-type: bug
-date: 2026-08-20
-status: done
-closed: 2026-08-20
+title: "Live leftover ~/.config/opencode/themes/flexoki-light-forced.json fails smoke deployment contract"
+short_description: "Live leftover ~/.config/opencode/themes/flexoki-light-forced.json fails smoke deployment contract"
+type: "bug"
+category: "agent-platform"
+tags: ["agent-platform","bug"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

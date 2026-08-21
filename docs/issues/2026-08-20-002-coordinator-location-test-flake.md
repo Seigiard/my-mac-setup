@@ -1,9 +1,13 @@
 ---
-title: Coordinator eight-pane location test flakes at the 1000ms envelope boundary
-type: bug
-date: 2026-08-20
-status: done
-closed: 2026-08-20
+title: "Coordinator eight-pane location test flakes at the 1000ms envelope boundary"
+short_description: "Coordinator eight-pane location test flakes at the 1000ms envelope boundary"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

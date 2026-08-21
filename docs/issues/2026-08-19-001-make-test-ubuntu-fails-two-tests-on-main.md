@@ -1,8 +1,12 @@
 ---
-title: make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has
-type: bug
-date: 2026-08-19
-status: open
+title: "make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has"
+short_description: "make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-19"
+status: "open"
+priority: "high"
 ---
 
 ## Why this exists

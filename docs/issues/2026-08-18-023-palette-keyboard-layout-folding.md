@@ -1,8 +1,12 @@
 ---
-title: Match command palette queries typed in the wrong keyboard layout
-type: idea
-date: 2026-08-18
-status: open
+title: "Match command palette queries typed in the wrong keyboard layout"
+short_description: "Match command palette queries typed in the wrong keyboard layout"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

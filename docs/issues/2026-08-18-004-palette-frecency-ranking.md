@@ -1,8 +1,12 @@
 ---
-title: Rank the command palette's resting list by frecency
-type: idea
-date: 2026-08-18
-status: open
+title: "Rank the command palette's resting list by frecency"
+short_description: "Rank the command palette's resting list by frecency"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

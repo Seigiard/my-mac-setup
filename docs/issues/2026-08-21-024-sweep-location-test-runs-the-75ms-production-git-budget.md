@@ -1,9 +1,13 @@
 ---
-title: The sweep location-repair test ran its git probes on the 75 ms production budget
-type: bug
-date: 2026-08-21
-status: done
-closed: 2026-08-21
+title: "The sweep location-repair test ran its git probes on the 75 ms production budget"
+short_description: "The sweep location-repair test ran its git probes on the 75 ms production budget"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-21"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

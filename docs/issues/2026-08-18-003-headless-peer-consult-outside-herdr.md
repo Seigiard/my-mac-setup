@@ -1,9 +1,13 @@
 ---
-title: Consulting a peer agent from outside herdr
-type: follow-up
-date: 2026-08-18
-status: open
-parent-plan: docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md
+title: "Consulting a peer agent from outside herdr"
+short_description: "Consulting a peer agent from outside herdr"
+type: "follow-up"
+category: "herdr"
+tags: ["herdr","follow-up"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md"
 ---
 
 ## Why this exists

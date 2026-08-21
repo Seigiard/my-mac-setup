@@ -1,8 +1,12 @@
 ---
-title: Capture the idle-machine wall-clock bound as a documented pattern
-type: follow-up
-date: 2026-08-21
-status: open
+title: "Capture the idle-machine wall-clock bound as a documented pattern"
+short_description: "Capture the idle-machine wall-clock bound as a documented pattern"
+type: "follow-up"
+category: "repository-maintenance"
+tags: ["repository-maintenance","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

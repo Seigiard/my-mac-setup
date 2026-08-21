@@ -1,10 +1,14 @@
 ---
-title: Pre-external secret boundary for standalone se-* harnesses
-type: follow-up
-date: 2026-07-27
-status: done
-closed: 2026-08-14
-parent-plan: docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md
+title: "Pre-external secret boundary for standalone se-* harnesses"
+short_description: "Pre-external secret boundary for standalone se-* harnesses"
+type: "follow-up"
+category: "repository-maintenance"
+tags: ["repository-maintenance","follow-up"]
+date: "2026-07-27"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md"
+closed: "2026-08-14"
 ---
 
 # Pre-external secret boundary for standalone se-* harnesses

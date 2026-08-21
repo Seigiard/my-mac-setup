@@ -1,9 +1,13 @@
 ---
-title: se resume's hint tells the operator to use --force true, a flag se resume does not have
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-14
+title: "se resume's hint tells the operator to use --force true, a flag se resume does not have"
+short_description: "se resume's hint tells the operator to use --force true, a flag se resume does not have"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-14"
 ---
 
 # se resume's hint names a flag that does not exist

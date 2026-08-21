@@ -1,8 +1,12 @@
 ---
-title: make test-ubuntu labeling drift — runs test-quick, docs say "Full test"
-type: chore
-date: 2026-08-20
-status: open
+title: "make test-ubuntu labeling drift — runs test-quick, docs say \"Full test\""
+short_description: "make test-ubuntu labeling drift — runs test-quick, docs say \"Full test\""
+type: "chore"
+category: "testing-ci"
+tags: ["testing-ci","chore"]
+date: "2026-08-20"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

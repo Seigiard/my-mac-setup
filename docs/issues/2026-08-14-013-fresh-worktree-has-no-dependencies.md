@@ -1,9 +1,13 @@
 ---
-title: A fresh run worktree has no installed dependencies, so any JS validate-cmd fails with exit 127
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-14
+title: "A fresh run worktree has no installed dependencies, so any JS validate-cmd fails with exit 127"
+short_description: "A fresh run worktree has no installed dependencies, so any JS validate-cmd fails with exit 127"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-14"
 ---
 
 # A fresh run worktree has no dependencies, so the work gate fails on a missing binary

@@ -1,9 +1,13 @@
 ---
-title: Revisit the CI timeout-minutes downward once two weeks of minimal-install runs exist
-type: follow-up
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md
+title: "Revisit the CI timeout-minutes downward once two weeks of minimal-install runs exist"
+short_description: "Revisit the CI timeout-minutes downward once two weeks of minimal-install runs exist"
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md"
 ---
 
 ## Why this exists

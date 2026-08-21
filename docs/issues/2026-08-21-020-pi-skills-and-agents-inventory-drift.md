@@ -1,8 +1,12 @@
 ---
-title: Pi skills and agents in the inventory doc do not match disk
-type: follow-up
-date: 2026-08-21
-status: open
+title: "Pi skills and agents in the inventory doc do not match disk"
+short_description: "Pi skills and agents in the inventory doc do not match disk"
+type: "follow-up"
+category: "agent-platform"
+tags: ["agent-platform","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

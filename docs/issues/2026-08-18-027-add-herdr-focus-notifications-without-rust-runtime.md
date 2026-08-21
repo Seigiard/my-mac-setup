@@ -1,9 +1,13 @@
 ---
-title: Add clickable Herdr focus notifications without a Rust build dependency
-type: follow-up
-date: 2026-08-18
-status: done
-closed: 2026-08-21
+title: "Add clickable Herdr focus notifications without a Rust build dependency"
+short_description: "Add clickable Herdr focus notifications without a Rust build dependency"
+type: "follow-up"
+category: "herdr"
+tags: ["herdr","follow-up"]
+date: "2026-08-18"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

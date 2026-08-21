@@ -1,9 +1,13 @@
 ---
-title: The Verification Contract parser reads only tables and fenced blocks, so a bullet-list contract refuses the run at gate 0
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-14
+title: "The Verification Contract parser reads only tables and fenced blocks, so a bullet-list contract refuses the run at gate 0"
+short_description: "The Verification Contract parser reads only tables and fenced blocks, so a bullet-list contract refuses the run at gate 0"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-14"
 ---
 
 # The Verification Contract parser reads only two of the three shapes plans use

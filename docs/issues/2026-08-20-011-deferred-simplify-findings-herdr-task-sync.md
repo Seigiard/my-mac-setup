@@ -1,10 +1,14 @@
 ---
-title: Deferred se-simplify findings for herdr-task-sync (quadratic scans and micro-refactors)
-type: chore
-date: 2026-08-20
-status: done
-closed: 2026-08-20
-parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
+title: "Deferred se-simplify findings for herdr-task-sync (quadratic scans and micro-refactors)"
+short_description: "Deferred se-simplify findings for herdr-task-sync (quadratic scans and micro-refactors)"
+type: "chore"
+category: "herdr"
+tags: ["herdr","chore"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

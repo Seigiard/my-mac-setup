@@ -1,8 +1,12 @@
 ---
-title: Jump back to the previous workspace from the command palette
-type: idea
-date: 2026-08-18
-status: open
+title: "Jump back to the previous workspace from the command palette"
+short_description: "Jump back to the previous workspace from the command palette"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
-title: grc is vestigial — rgrc replaced it but was never moved cross-platform, and grc now survives only as the accidental python3 carrier
-type: chore
-date: 2026-08-21
-status: done
-closed: 2026-08-21
+title: "grc is vestigial — rgrc replaced it but was never moved cross-platform, and grc now survives only as the accidental python3 carrier"
+short_description: "grc is vestigial — rgrc replaced it but was never moved cross-platform, and grc now survives only as the accidental python3 carrier"
+type: "chore"
+category: "testing-ci"
+tags: ["testing-ci","chore"]
+date: "2026-08-21"
+status: "done"
+priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists

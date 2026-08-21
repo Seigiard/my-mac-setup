@@ -1,9 +1,13 @@
 ---
-title: Flaky bats test — herdr-task-sync resets the stored context on a new session id
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-14
+title: "Flaky bats test — herdr-task-sync resets the stored context on a new session id"
+short_description: "Flaky bats test — herdr-task-sync resets the stored context on a new session id"
+type: "bug"
+category: "herdr"
+tags: ["herdr","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-14"
 ---
 
 # Flaky bats test — herdr-task-sync resets the stored context on a new session id

@@ -1,8 +1,12 @@
 ---
-title: The open-issues index drifts out of step with the issue tree
-type: chore
-date: 2026-08-21
-status: open
+title: "The open-issues index drifts out of step with the issue tree"
+short_description: "The open-issues index drifts out of step with the issue tree"
+type: "chore"
+category: "repository-maintenance"
+tags: ["repository-maintenance","chore"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
-title: The fail-open assertions widened to 20s and no longer catch a slow fail-open
-type: bug
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md
+title: "The fail-open assertions widened to 20s and no longer catch a slow fail-open"
+short_description: "The fail-open assertions widened to 20s and no longer catch a slow fail-open"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-21"
+status: "open"
+priority: "medium"
+parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
-title: Sharding the post-apply suite across CI jobs was never evaluated against within-file parallelism
-type: idea
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md
+title: "Sharding the post-apply suite across CI jobs was never evaluated against within-file parallelism"
+short_description: "Sharding the post-apply suite across CI jobs was never evaluated against within-file parallelism"
+type: "idea"
+category: "testing-ci"
+tags: ["testing-ci","idea"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
 ---
 
 ## Why this exists

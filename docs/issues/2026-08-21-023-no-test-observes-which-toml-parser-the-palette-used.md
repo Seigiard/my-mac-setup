@@ -1,8 +1,12 @@
 ---
-title: No test observes which TOML parser the command palette actually used
-type: follow-up
-date: 2026-08-21
-status: open
+title: "No test observes which TOML parser the command palette actually used"
+short_description: "No test observes which TOML parser the command palette actually used"
+type: "follow-up"
+category: "command-palette"
+tags: ["command-palette","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

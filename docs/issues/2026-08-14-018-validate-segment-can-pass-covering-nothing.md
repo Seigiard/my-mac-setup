@@ -1,9 +1,13 @@
 ---
-title: A validate-cmd segment that matches no files exits zero, so the gate passes on a check that covered nothing
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-15
+title: "A validate-cmd segment that matches no files exits zero, so the gate passes on a check that covered nothing"
+short_description: "A validate-cmd segment that matches no files exits zero, so the gate passes on a check that covered nothing"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # A gate segment can pass while verifying nothing

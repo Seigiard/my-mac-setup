@@ -1,9 +1,13 @@
 ---
-title: The python3 version floor is stated in two places with nothing checking they agree
-type: follow-up
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md
+title: "The python3 version floor is stated in two places with nothing checking they agree"
+short_description: "The python3 version floor is stated in two places with nothing checking they agree"
+type: "follow-up"
+category: "repository-maintenance"
+tags: ["repository-maintenance","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md"
 ---
 
 ## Why this exists

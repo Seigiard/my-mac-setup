@@ -1,9 +1,13 @@
 ---
-title: The macOS post-apply suite misses the 60% wall-time gate at --jobs 8
-type: follow-up
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md
+title: "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8"
+short_description: "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8"
+type: "follow-up"
+category: "dotfiles"
+tags: ["dotfiles","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
 ---
 
 ## Why this exists

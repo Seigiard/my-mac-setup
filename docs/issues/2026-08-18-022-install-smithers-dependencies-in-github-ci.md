@@ -1,8 +1,12 @@
 ---
-title: Install Smithers dependencies before post-apply GitHub CI tests
-type: bug
-date: 2026-08-18
-status: open
+title: "Install Smithers dependencies before post-apply GitHub CI tests"
+short_description: "Install Smithers dependencies before post-apply GitHub CI tests"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-18"
+status: "open"
+priority: "critical"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
 title: "Test \"Pi terminal theme uses only terminal palette colors\" is red on main — terminal.json .vars holds hex strings"
-type: bug
-date: 2026-08-20
-status: done
-closed: 2026-08-20
+short_description: "Test \"Pi terminal theme uses only terminal palette colors\" is red on main — terminal.json .vars holds hex strings"
+type: "bug"
+category: "command-palette"
+tags: ["command-palette","bug"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

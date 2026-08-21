@@ -1,8 +1,12 @@
 ---
-title: Add a pane switcher and a tab switcher to the command palette
-type: idea
-date: 2026-08-18
-status: open
+title: "Add a pane switcher and a tab switcher to the command palette"
+short_description: "Add a pane switcher and a tab switcher to the command palette"
+type: "idea"
+category: "command-palette"
+tags: ["command-palette","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

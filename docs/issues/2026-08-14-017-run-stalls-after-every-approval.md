@@ -1,9 +1,13 @@
 ---
-title: The owner process exits after every approval and the run stalls until someone runs se resume
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-15
+title: "The owner process exits after every approval and the run stalls until someone runs se resume"
+short_description: "The owner process exits after every approval and the run stalls until someone runs se resume"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # Every approval strands the run in waiting-event

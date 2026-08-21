@@ -169,20 +169,35 @@ def _manifest_object(pairs: List[tuple[str, Any]]) -> Dict[str, Any]:
 
 def read_migration_manifest(path: Path) -> Dict[str, Any]:
     try:
-        manifest = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_manifest_object)
+        contents = path.read_bytes()
     except OSError as error:
         raise IssueError("MANIFEST_NOT_FOUND", str(path)) from error
+    return read_migration_manifest_bytes(path, contents)
+
+
+def read_migration_manifest_bytes(path: Path, contents: bytes) -> Dict[str, Any]:
+    try:
+        manifest = json.loads(contents.decode("utf-8"), object_pairs_hook=_manifest_object)
     except json.JSONDecodeError as error:
+        raise IssueError("INVALID_MANIFEST_JSON", str(path)) from error
+    except UnicodeDecodeError as error:
         raise IssueError("INVALID_MANIFEST_JSON", str(path)) from error
     if not isinstance(manifest, dict):
         raise IssueError("INVALID_MANIFEST", "top level must be an object")
     return manifest
 
 
+def migration_source_is_ancestor(root: Path, source_commit: str, current_commit: str) -> bool:
+    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        return False
+    result = subprocess.run(["git", "merge-base", "--is-ancestor", source_commit, current_commit], cwd=root, capture_output=True, text=True, check=False)
+    return result.returncode == 0
+
+
 def check_migration_manifest(root: Path, manifest: Dict[str, Any], source_commit: str) -> List[Dict[str, Any]]:
     if set(manifest) != {"entries", "source_commit", "transformation_version"}:
         raise IssueError("INVALID_MANIFEST", "unknown or missing top-level field")
-    if manifest["source_commit"] != source_commit:
+    if manifest["source_commit"] != source_commit and not migration_source_is_ancestor(root, manifest["source_commit"], source_commit):
         raise IssueError("STALE_SOURCE_COMMIT", str(manifest["source_commit"]))
     if manifest["transformation_version"] != MIGRATION_TRANSFORMATION_VERSION:
         raise IssueError("STALE_TRANSFORMATION_VERSION", str(manifest["transformation_version"]))
@@ -205,7 +220,8 @@ def check_migration_manifest(root: Path, manifest: Dict[str, Any], source_commit
             raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
         if not isinstance(entry["expected_after_sha256"], str) or not SHA256.fullmatch(entry["expected_after_sha256"]):
             raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
-        if sha256(path) != entry["before_sha256"]:
+        current_sha256 = sha256(path)
+        if current_sha256 not in (entry["before_sha256"], entry["expected_after_sha256"]):
             raise IssueError("STALE_INPUT", entry["path"])
         proposed = entry["proposed_metadata"]
         if not isinstance(proposed, dict) or set(proposed) != set(LEGACY_FIELDS):
@@ -220,6 +236,34 @@ def check_migration_manifest(root: Path, manifest: Dict[str, Any], source_commit
         if parse_document_bytes(path, after).body != document.body:
             raise IssueError("BODY_CHANGED", entry["path"])
     return entries
+
+
+def apply_migration(root: Path, manifest_path: Path, source_commit: str, approved_sha256: str) -> int:
+    if not SHA256.fullmatch(approved_sha256):
+        raise IssueError("INVALID_APPROVAL_HASH", approved_sha256)
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+    except OSError as error:
+        raise IssueError("MANIFEST_NOT_FOUND", str(manifest_path)) from error
+    if hashlib.sha256(manifest_bytes).hexdigest() != approved_sha256:
+        raise IssueError("APPROVAL_HASH_MISMATCH", str(manifest_path))
+    manifest = read_migration_manifest_bytes(manifest_path, manifest_bytes)
+    writes = []
+    with issue_lock(root):
+        entries = check_migration_manifest(root, manifest, source_commit)
+        for entry in entries:
+            path = root / entry["path"]
+            before = path.read_bytes()
+            if hashlib.sha256(before).hexdigest() == entry["expected_after_sha256"]:
+                continue
+            document = parse_document_bytes(path, before)
+            after = migration_after_bytes(document, entry["proposed_metadata"])
+            if parse_document_bytes(path, after).body != document.body:
+                raise IssueError("BODY_CHANGED", entry["path"])
+            writes.append((path, before, after))
+        for path, before, after in writes:
+            atomic_replace(path, after, before)
+    return len(writes)
 
 
 def write_migration_manifest(path: Path, manifest: Dict[str, Any]) -> None:
@@ -650,8 +694,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wontfix.add_argument("issue_id")
     wontfix.add_argument("--rationale", required=True)
     migrate = subcommands.add_parser("migrate")
-    migrate.add_argument("operation", choices=("scaffold", "check", "dry-run", "status"))
+    migrate.add_argument("operation", choices=("scaffold", "check", "dry-run", "status", "apply"))
     migrate.add_argument("--manifest", type=Path)
+    migrate.add_argument("--approved-sha256")
     arguments = parser.parse_args(argv)
     try:
         if arguments.version:
@@ -667,6 +712,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 write_migration_manifest(manifest_path, manifest)
                 print("%s" % manifest_path.relative_to(root))
                 return 0
+            if arguments.operation == "apply":
+                if not arguments.approved_sha256:
+                    raise IssueError("APPROVAL_HASH_REQUIRED", "supply --approved-sha256")
+                applied = apply_migration(root, manifest_path, migration_source_commit(root), arguments.approved_sha256)
+                print("migration applied: %d entries" % applied)
+                return 0
+            if arguments.approved_sha256:
+                raise IssueError("APPROVAL_HASH_UNEXPECTED", "--approved-sha256 is only valid with migrate apply")
             manifest = read_migration_manifest(manifest_path)
             entries = check_migration_manifest(root, manifest, migration_source_commit(root))
             digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()

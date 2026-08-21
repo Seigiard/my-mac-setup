@@ -1,9 +1,13 @@
 ---
-title: Two repositories with the same folder name defeat the multi-repo tab qualifier
-type: bug
-date: 2026-08-20
-status: open
-parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
+title: "Two repositories with the same folder name defeat the multi-repo tab qualifier"
+short_description: "Two repositories with the same folder name defeat the multi-repo tab qualifier"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-20"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md"
 ---
 
 ## Why this exists

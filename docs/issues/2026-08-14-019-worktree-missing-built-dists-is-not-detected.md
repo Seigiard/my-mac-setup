@@ -1,9 +1,13 @@
 ---
-title: A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it
-type: bug
-date: 2026-08-14
-status: done
-closed: 2026-08-15
+title: "A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it"
+short_description: "A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it"
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","bug"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+closed: "2026-08-15"
 ---
 
 # The runner is present, the built dist is not, and the gate reads it as a failing test

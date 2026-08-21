@@ -1,8 +1,12 @@
 ---
-title: Preserve each Verification Contract command's working directory in the se-work gate
-type: bug
-date: 2026-08-18
-status: open
+title: "Preserve each Verification Contract command's working directory in the se-work gate"
+short_description: "Preserve each Verification Contract command's working directory in the se-work gate"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-18"
+status: "open"
+priority: "high"
 ---
 
 ## Why this exists

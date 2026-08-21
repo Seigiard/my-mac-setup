@@ -1,9 +1,13 @@
 ---
-title: Sandbox a child agent's filesystem access
-type: idea
-date: 2026-08-18
-status: open
-parent-plan: docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md
+title: "Sandbox a child agent's filesystem access"
+short_description: "Sandbox a child agent's filesystem access"
+type: "idea"
+category: "agent-platform"
+tags: ["agent-platform","idea"]
+date: "2026-08-18"
+status: "open"
+priority: "low"
+parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md"
 ---
 
 ## Why this exists

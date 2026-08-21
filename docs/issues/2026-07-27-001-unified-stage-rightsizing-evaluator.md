@@ -1,10 +1,14 @@
 ---
-title: Unified stage right-sizing evaluator for code-review and doc-review
-type: follow-up
-date: 2026-07-27
-status: wontfix
-closed: 2026-08-15
-parent-plan: docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md
+title: "Unified stage right-sizing evaluator for code-review and doc-review"
+short_description: "Unified stage right-sizing evaluator for code-review and doc-review"
+type: "follow-up"
+category: "repository-maintenance"
+tags: ["repository-maintenance","follow-up"]
+date: "2026-07-27"
+status: "wontfix"
+priority: "low"
+parent-plan: "docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md"
+closed: "2026-08-15"
 ---
 
 # Unified stage right-sizing evaluator (code-review + doc-review)

@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -80,12 +81,10 @@ class ParserTests(IssueFixtures):
 
 
 class CorpusTests(IssueFixtures):
-    def test_real_legacy_corpus_has_99_records_and_only_expected_gaps(self):
+    def test_real_migrated_corpus_has_99_strictly_valid_records(self):
         module = self.module()
         self.assertEqual(99, len(module.discover_issue_paths(REPOSITORY)))
-        output = module.validate(REPOSITORY, compatibility=True)
-        self.assertEqual(99 * 4, len(output))
-        self.assertTrue(all(line.startswith("MISSING_LEGACY_FIELD ") for line in output))
+        self.assertEqual([], module.validate(REPOSITORY, compatibility=False))
 
     def test_selects_canonical_files_and_resolves_canonical_and_compact_ids(self):
         self.write_issue("2026-08-21-001-one.md", issue_text())
@@ -141,6 +140,30 @@ class MigrationTests(IssueFixtures):
         with self.assertRaises(module.IssueError) as context:
             module.check_migration_manifest(self.root, manifest, "fixture-source")
         self.assertEqual("STALE_INPUT", context.exception.code)
+
+    def test_apply_rejects_an_unapproved_hash_without_writing_and_preserves_body_bytes(self):
+        module = self.module()
+        path = self.write_issue("2026-08-21-001-body.md", issue_text() + b"\xff body bytes\n---\nstatus: prose\n")
+        body = module.parse_document(path).body
+        (self.issues / "_open-issues.md").write_text("# Open issues\n")
+        manifest = module.build_migration_manifest(self.root, "fixture-source")
+        manifest_path = self.root / "migration.json"
+        module.write_migration_manifest(manifest_path, manifest)
+        before = path.read_bytes()
+
+        with self.assertRaises(module.IssueError) as context:
+            module.apply_migration(self.root, manifest_path, "fixture-source", "0" * 64)
+        self.assertEqual("APPROVAL_HASH_MISMATCH", context.exception.code)
+        self.assertEqual(before, path.read_bytes())
+
+        approved_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        module.apply_migration(self.root, manifest_path, "fixture-source", approved_sha256)
+        after = path.read_bytes()
+        self.assertEqual(body, module.parse_document(path).body)
+        self.assertEqual(manifest["entries"][0]["expected_after_sha256"], hashlib.sha256(after).hexdigest())
+
+        module.apply_migration(self.root, manifest_path, "fixture-source", approved_sha256)
+        self.assertEqual(after, path.read_bytes())
 
 
 class ReadTests(IssueFixtures):

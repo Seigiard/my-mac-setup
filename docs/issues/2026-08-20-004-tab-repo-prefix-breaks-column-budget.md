@@ -1,10 +1,14 @@
 ---
-title: Uncapped repo name in a multi-repo tab prefix breaks the 80-column label budget
-type: bug
-date: 2026-08-20
-status: done
-closed: 2026-08-20
-parent-plan: docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md
+title: "Uncapped repo name in a multi-repo tab prefix breaks the 80-column label budget"
+short_description: "Uncapped repo name in a multi-repo tab prefix breaks the 80-column label budget"
+type: "bug"
+category: "repository-maintenance"
+tags: ["repository-maintenance","bug"]
+date: "2026-08-20"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

@@ -1,9 +1,13 @@
 ---
-title: Harden herdr-task-sync and show worktree identity
-type: follow-up
-date: 2026-08-18
-status: done
-closed: 2026-08-20
+title: "Harden herdr-task-sync and show worktree identity"
+short_description: "Harden herdr-task-sync and show worktree identity"
+type: "follow-up"
+category: "herdr"
+tags: ["herdr","follow-up"]
+date: "2026-08-18"
+status: "done"
+priority: "low"
+closed: "2026-08-20"
 ---
 
 ## Why this exists

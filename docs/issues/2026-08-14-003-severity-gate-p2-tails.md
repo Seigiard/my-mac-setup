@@ -1,10 +1,14 @@
 ---
-title: Severity-gate P2 tails — stripSeverityLine over-matching, raw SEVERITY in waive excerpts, untested wiring
-type: follow-up
-date: 2026-08-14
-status: done
-closed: 2026-08-14
-parent-plan: docs/plans/2026-07-24-002-feat-verify-doc-blocking-gate-plan.md
+title: "Severity-gate P2 tails — stripSeverityLine over-matching, raw SEVERITY in waive excerpts, untested wiring"
+short_description: "Severity-gate P2 tails — stripSeverityLine over-matching, raw SEVERITY in waive excerpts, untested wiring"
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-07-24-002-feat-verify-doc-blocking-gate-plan.md"
+closed: "2026-08-14"
 ---
 
 # Severity-gate P2 tails — stripSeverityLine over-matching, raw SEVERITY in waive excerpts, untested wiring

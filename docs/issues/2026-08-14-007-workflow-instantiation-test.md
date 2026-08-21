@@ -1,10 +1,14 @@
 ---
-title: No test instantiates the workflows, so schema errors are found by a failed launch
-type: follow-up
-date: 2026-08-14
-status: done
-closed: 2026-08-14
-parent-plan: docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md
+title: "No test instantiates the workflows, so schema errors are found by a failed launch"
+short_description: "No test instantiates the workflows, so schema errors are found by a failed launch"
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
+date: "2026-08-14"
+status: "done"
+priority: "low"
+parent-plan: "docs/plans/2026-08-13-001-feat-dynamic-flow-composition-plan.md"
+closed: "2026-08-14"
 ---
 
 # No test instantiates the workflows
