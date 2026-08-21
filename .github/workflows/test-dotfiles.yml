@@ -6,6 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+# A newer commit on the same ref makes the running check obsolete, so cancel it
+# and free the macOS runner slot for the verdict someone will actually read.
+# `main` is included deliberately: it carries no branch protection, so a
+# cancelled run blocks no required check. The group carries `event_name`
+# because a scheduled run executes on `refs/heads/main` too — without it, a
+# morning push would silently cancel the nightly run, which sends no failure
+# notification when cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CHEZMOI_NAME: "Test User"
   CHEZMOI_EMAIL: "test@example.com"
