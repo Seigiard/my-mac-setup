@@ -12,7 +12,11 @@ PALETTE_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/command-palette"
 REAL_COMMANDS="$SOURCE_ROOT/private_dot_config/herdr/command-palette/commands.toml"
 
 setup() {
-  command_exists python3 || skip "python3 not installed"
+  # No `command_exists python3 || skip` here. python3 is a declared requirement
+  # (README.md, Requirements), so its absence must fail rather than silence all
+  # 56 tests in this file from inside setup(). Deliberate exception to the skip
+  # convention in docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md;
+  # the first test below is what names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
   export OPEN_IN_ZED_PY="$PALETTE_DIR/open_in_zed.py"
@@ -25,6 +29,16 @@ setup() {
 
 teardown() {
   [[ -n "${PALETTE_WORK:-}" ]] && rm -rf "$PALETTE_WORK" || true
+}
+
+# ===========================================
+# python3 -- the declared interpreter
+# ===========================================
+
+# First, so a missing or too-old interpreter states its own cause instead of
+# leaving a wall of identical `python3: command not found` failures below.
+@test "python3 is present and at least 3.9, the floor README.md declares" {
+  assert_python3_available
 }
 
 # ===========================================
