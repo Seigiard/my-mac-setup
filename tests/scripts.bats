@@ -1112,7 +1112,7 @@ fixture="$root/$call"
 mkdir -p "$fixture"
 cat > "$fixture/stdin"
 : > "$fixture/started"
-for _ in $(seq 1 $HTS_WAIT_POLLS); do
+for _ in $(seq 1 "${HTS_WAIT_POLLS:-6000}"); do
   [ -e "$fixture/release" ] && break
   sleep 0.01
 done
@@ -1398,6 +1398,9 @@ HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
 # legitimately exceed them -- which surfaced as a hang that was really load.
 HTS_WAIT_POLLS="${HTS_WAIT_POLLS:-6000}"
 HTS_WAIT_SLOW_POLLS="${HTS_WAIT_SLOW_POLLS:-240}"
+# Stub scripts are written from quoted heredocs and run as their own
+# processes, so they read these from the environment, not from file scope.
+export HTS_WAIT_POLLS HTS_WAIT_SLOW_POLLS
 
 
 
