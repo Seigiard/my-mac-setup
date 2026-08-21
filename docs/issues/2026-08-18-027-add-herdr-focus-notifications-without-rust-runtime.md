@@ -2,7 +2,8 @@
 title: Add clickable Herdr focus notifications without a Rust build dependency
 type: follow-up
 date: 2026-08-18
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -51,3 +52,30 @@ that verifies notification display, click activation, pane focus, duplicate repl
   binding learned from `pane.focused` events.
 - Which upstream behaviors are required for the first version: duplicate suppression, automatic
   removal after pane focus, agent icons, timeout configuration, and debug logs.
+
+## Resolution
+
+Option 2 implemented: a local plugin, no Rust build, no `alerter`.
+
+- Plugin: `home/private_dot_config/herdr/plugins/herdr-focus-notify/` — `herdr-plugin.toml`
+  (id `seigi.focus-notify`, macOS-only) plus a single Python script `notify.py` over the
+  `terminal-notifier` formula already in `Brewfile.macos`. The event contract
+  (`pane.agent_status_changed` payload in `HERDR_PLUGIN_EVENT_JSON` with `data.pane_id`,
+  `data.agent_status`, `data.agent`, `data.display_agent`) was confirmed against the upstream
+  `yankewei/herdr-focus-notify` source, not guessed.
+- Notifies only for `blocked` and `done`. `-group herdr-<pane-id>` gives per-pane duplicate
+  replacement. Click runs `-execute "<herdr> agent focus <pane-id>"` with both halves
+  `shlex.quote`d, and `-activate` brings the terminal forward (default
+  `com.mitchellh.ghostty` — this repo's ghostty auto-launches herdr — overridable via a
+  one-line `terminal-bundle-id` file in the plugin config dir).
+- Deployment: tolerant link-and-enable script
+  `home/.chezmoiscripts/run_onchange_after_8-link-herdr-focus-notify.sh.tmpl` (mirrors the
+  caffeinate/pane-labels scripts), darwin-only ignore rules in `home/.chezmoiignore`.
+- Tests in `tests/smoke.bats`: deployment manifest entries, py_compile + no-cargo/no-alerter
+  policy, safe-quoting unit test against a fake notifier with a hostile pane id, quiet on
+  non-actionable statuses, stable group id, link-script guard checks.
+- Not implemented in v1 (per the "ambiguous focus must notify" rule, always-notify was chosen):
+  focus suppression, terminal learning from `pane.focused`, auto-removal on focus, agent
+  icons, sounds, timeout config. State directory unused. The open decision on
+  `terminal-notifier -execute` click reliability on current macOS remains a manual check —
+  posting and `-remove` were verified live; click handling needs a human.

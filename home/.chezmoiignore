@@ -22,6 +22,8 @@ Library/**
 .chezmoiscripts/darwin/**
 .config/herdr/plugins/herdr-caffeinate
 .config/herdr/plugins/herdr-caffeinate/**
+.config/herdr/plugins/herdr-focus-notify
+.config/herdr/plugins/herdr-focus-notify/**
 {{ end }}
 
 # Python bytecode caches. Running any managed .py script (the herdr
