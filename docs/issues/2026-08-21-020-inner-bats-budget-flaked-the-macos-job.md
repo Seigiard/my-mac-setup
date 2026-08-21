@@ -118,7 +118,9 @@ Three supporting changes came out of implementing it:
 - **The driver waits for exit *and* pipe EOF, never exit alone**, and the nested
   run keeps receiving pipes rather than temp files. A worker holding a file
   descriptor blocks nothing, so redirecting to files would have made the test
-  pass unconditionally.
+  pass unconditionally. In practice the leak trips the process wait first (see
+  the note under the status table), but both are checked because both are the
+  same fault.
 - **Both pipes are drained from launch by reader threads.** Leaving them unread
   through the progress phase would deadlock a chatty nested run against a full
   pipe buffer — reachable on the nested-test-failure path, where Bats echoes the
@@ -135,13 +137,27 @@ Each failure mode now exits with its own status and names itself:
 | Status | Meaning |
 |---|---|
 | 124 | never reached its completion signal (hang guard) |
-| 125 | completed, then held its pipes open — the guarded regression |
+| 125 | completed, then failed to finish — the guarded regression |
 | 3 | ended before completing its test |
 | 4 | the fixture gave up; nothing was being held |
 | 5 | detached worker outlived its release |
+| 7 | the nested test failed on its own terms |
 
 126 and 127 are deliberately avoided: the shell reserves them, and bats reports a
-misleading `BW01` warning when a `run` command exits with either.
+misleading `BW01` warning when a `run` command exits with either. The nested run's
+own status is carried in the message rather than forwarded as the driver's exit
+code, so it cannot coincide with one of these and claim a failure mode that did
+not happen.
+
+**A held descriptor stops the whole nested invocation, not just the pipes.** The
+first implementation split status 125 into "Bats never exited" and "Bats exited
+but its pipes stayed open", on the assumption that a leaked descriptor only
+affects the latter. Rehearsal disproved it: Bats' own formatter reads its pipeline
+to EOF, so a descendant holding the write end stops the top-level Bats process
+from finishing at all — the process wait times out, not the reader join. The split
+would have filed the real regression under "Bats is stuck, which is not the
+descriptor bug". The two symptoms are one condition; the message names whichever
+was observed.
 
 ### Measured margins
 
@@ -162,9 +178,8 @@ Both were run and reverted; neither is committed.
 - **Regression.** With `close_inherited_descriptors` neutered in
   `home/dot_local/bin/executable_herdr-task-sync` — the checkout copy the harness
   runs via `HTS_ENGINE`, not the deployed `~/.local/bin` copy — the test fails
-  with status 125: `inner Bats did not exit and close its output pipes within 30
-  seconds of its test completing -- a detached descendant is holding an inherited
-  descriptor open`.
+  with status 125: `the Bats process never exited within 30 seconds of its test
+  completing -- a detached descendant is holding an inherited descriptor open`.
 - **Vacuity.** With `HTS_BLOCKED_HERDR_POLLS=1` the test fails with status 4:
   `the blocked herdr stub hit HTS_BLOCKED_HERDR_CEILING_SECONDS and gave up, so
   nothing held a descriptor while the inner Bats exited -- this run proved

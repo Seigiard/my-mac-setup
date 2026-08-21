@@ -1987,11 +1987,12 @@ exit_budget = int(os.environ.get("HTS_INNER_BATS_EXIT_SECONDS", "30"))
 # bound fired without reading the message. Avoid 126 and 127: the shell reserves
 # them for "not executable" and "not found", and bats reports a misleading BW01
 # warning when a `run` command exits with either.
-EXIT_HANG_GUARD = 124   # never reached its completion signal
-EXIT_REGRESSION = 125   # completed, then held its pipes open -- the guarded bug
-EXIT_EARLY = 3          # ended before completing its test
-EXIT_VACUOUS = 4        # the fixture gave up; nothing was being held
-EXIT_WORKER_STUCK = 5   # detached worker outlived its release
+EXIT_HANG_GUARD = 124     # never reached its completion signal
+EXIT_REGRESSION = 125     # exited, then held its pipes open -- the guarded bug
+EXIT_EARLY = 3            # ended before completing its test
+EXIT_VACUOUS = 4          # the fixture gave up; nothing was being held
+EXIT_WORKER_STUCK = 5     # detached worker outlived its release
+EXIT_NESTED_FAILED = 7    # the nested test failed on its own terms
 
 release_file = Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"])
 pid_file = Path(os.environ["HTS_DESCRIPTOR_PID_FILE"])
@@ -2065,6 +2066,22 @@ def worker_pid():
 # statement. Its arrival proves the nested test body finished -- in the healthy
 # case and in the regression case alike, since a leaked descriptor only shows up
 # afterwards, at exit.
+# Back the poll off rather than holding 10 ms for the whole phase. The signal is
+# tens of seconds away -- the nested run has a whole file to parse first -- so a
+# fixed 10 ms interval spends thousands of wakeups and file reads waiting for
+# something that cannot arrive yet, and it spends them competing with the seven
+# other tests this suite runs alongside under --jobs.
+#
+# The cap is low on purpose, and it is a trade rather than a free win. Noticing
+# late inflates the exit-phase measurement below by up to one interval, because
+# the pipes may already have closed by the time we look -- and that measurement
+# is what HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against. 50 ms keeps the
+# distortion smaller than the values being measured while still cutting the
+# wakeup count roughly fivefold. Raising it trades measurement sharpness for
+# CPU that Bats' own parsing dwarfs anyway.
+poll_interval = 0.01
+poll_interval_cap = 0.05
+
 progress_deadline = time.monotonic() + progress_budget
 pid = None
 while pid is None:
@@ -2094,26 +2111,54 @@ while pid is None:
             f"{progress_budget} seconds (hang guard)",
             EXIT_HANG_GUARD,
         )
-    time.sleep(0.01)
+    time.sleep(poll_interval)
+    poll_interval = min(poll_interval * 1.5, poll_interval_cap)
 
 # Phase 2: the property. Exit and EOF must both arrive, and quickly -- only
-# teardown remains. A timeout here is the regression this test exists to catch.
+# teardown remains.
+#
+# Both are one condition, not two. A leaked descriptor does not merely keep the
+# pipes open after Bats exits: Bats' own formatter reads that pipeline to EOF, so
+# a descendant holding the write end stops the whole nested invocation from
+# finishing. Rehearsal confirms it -- with close_inherited_descriptors neutered,
+# it is the process wait that times out, not the reader join. Splitting these
+# into separate faults would file the real regression under "Bats is stuck, which
+# is not the descriptor bug" and send the next reader after the wrong thing. The
+# message names whichever symptom was observed; the cause is the same.
 exit_started = time.monotonic()
+# Enforce the budget from here -- monotonic, immune to clock skew -- but measure
+# from when the probe actually wrote its signal. The backoff above means we can
+# notice up to one poll interval late, and by then the pipes may already have
+# closed; measuring from detection would report our own latency as the exit cost
+# and quietly render the recalibration number meaningless.
+try:
+    completed_at = pid_file.stat().st_mtime
+except OSError:
+    completed_at = None
+
+symptom = None
 try:
     proc.wait(timeout=exit_budget)
+except subprocess.TimeoutExpired:
+    symptom = "the Bats process never exited"
+
+if symptom is None:
     for reader in readers:
         remaining = exit_budget - (time.monotonic() - exit_started)
         reader.join(timeout=max(remaining, 0))
     if any(reader.is_alive() for reader in readers):
-        raise subprocess.TimeoutExpired(proc.args, exit_budget)
-except subprocess.TimeoutExpired:
+        symptom = "Bats exited but its output pipes never reached EOF"
+
+if symptom is not None:
     report(
-        f"inner Bats did not exit and close its output pipes within "
-        f"{exit_budget} seconds of its test completing -- a detached descendant "
-        "is holding an inherited descriptor open",
+        f"{symptom} within {exit_budget} seconds of its test completing -- a "
+        "detached descendant is holding an inherited descriptor open",
         EXIT_REGRESSION,
     )
-exit_elapsed = time.monotonic() - exit_started
+if completed_at is None:
+    exit_elapsed = time.monotonic() - exit_started
+else:
+    exit_elapsed = max(time.time() - completed_at, 0.0)
 
 sys.stdout.write(captured.get("stdout") or "")
 sys.stderr.write(captured.get("stderr") or "")
@@ -2169,8 +2214,11 @@ else:
 # Last, so a nested failure after the completion signal is still reported -- but
 # only once the worker above has been released and reaped.
 if proc.returncode != 0:
+    # Carry the nested status in the message rather than as our own exit code:
+    # forwarding it raw could coincide with one of the codes above and claim a
+    # failure mode that did not happen.
     print(f"inner Bats exited with status {proc.returncode}", file=sys.stderr)
-    raise SystemExit(proc.returncode)
+    raise SystemExit(EXIT_NESTED_FAILED)
 PY
   unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
   # `run` captures the driver's measurement into $output, which bats discards on
