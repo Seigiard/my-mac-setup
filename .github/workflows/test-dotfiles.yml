@@ -195,7 +195,7 @@ jobs:
 
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
-        run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+        run: bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
 
   test-macos:
     runs-on: macos-latest
@@ -308,7 +308,7 @@ jobs:
             | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'
 
       - name: Run post-apply tests
-        run: bats tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+        run: bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
 
   lint:
     runs-on: ubuntu-latest

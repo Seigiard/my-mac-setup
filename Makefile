@@ -1,9 +1,10 @@
-.PHONY: help test-ubuntu test-local test-docker test-templates lint clean build-docker shell-ubuntu init-submodules
+.PHONY: help test-ubuntu test-local test-suite test-docker test-templates lint clean build-docker shell-ubuntu init-submodules
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
 	@echo ""
 	@echo "  make test-ubuntu      Run tests in Ubuntu Docker container"
+	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests only (fast, no apply)"
 	@echo "  make test-local       Run chezmoi diff on current machine (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
@@ -35,6 +36,14 @@ shell-ubuntu: build-docker
 
 test-local:
 	chezmoi diff --source=./home
+
+# The parallel post-apply suite, minus tests/idempotent.bats: those four tests
+# run a real `chezmoi apply` with no --destination, so on a workstation they
+# deploy the checkout over the developer's live dotfiles
+# (docs/issues/2026-08-21-004). The full five-file suite runs in CI and in
+# Docker, where $$HOME is disposable -- use `make test-ubuntu` for that.
+test-suite: init-submodules
+	bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats
 
 test-docker: build-docker
 	@echo "=== Running Ubuntu tests ==="

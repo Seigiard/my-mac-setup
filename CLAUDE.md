@@ -29,6 +29,7 @@ Reference docs (read on demand):
 |---|---|
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
+| `make test-suite` | Post-apply suite in parallel, host-safe files only (excludes `tests/idempotent.bats`, which applies to the real `$HOME`) |
 | `make test-templates` | Template tests only (fast, no apply) |
 | `make test-local` | `chezmoi diff` (dry-run, no changes) |
 | `make lint` | shellcheck |
@@ -119,7 +120,7 @@ File it as an issue in `docs/issues/` — every known problem gets a file; nothi
 <important if="you are adding a new feature, script, or config that should be tested">
 
 - Add a smoke test in `tests/smoke.bats` (bats-core syntax).
-- Run locally with `bats tests/smoke.bats`, or `make test-ubuntu` for the full Docker suite.
+- Run locally with `make test-suite` (parallel, host-safe files), or `make test-ubuntu` for the full Docker suite including `tests/idempotent.bats`.
 - CI runs both ubuntu and macos jobs.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.
 
