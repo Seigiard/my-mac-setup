@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The nightly full-Brewfile install. Push and PR runs install only what the
+  # tests resolve from brew, so this is the only thing that catches an upstream
+  # formula or cask that stops installing on its own — decay no diff announces.
+  #
+  # Its guarantee lapses silently: GitHub disables `schedule` triggers after 60
+  # days of repository inactivity, and a workflow that never runs produces no
+  # failure and therefore no notification. `workflow_dispatch` is the manual
+  # recovery, and also the way to verify the full-set path on demand.
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
 
 # A newer commit on the same ref makes the running check obsolete, so cancel it
 # and free the macOS runner slot for the verdict someone will actually read.
@@ -20,6 +31,11 @@ concurrency:
 env:
   CHEZMOI_NAME: "Test User"
   CHEZMOI_EMAIL: "test@example.com"
+  # Selects the CI-minimal Brewfile render. `push` and `pull_request` are
+  # enumerated positively so that any trigger added later defaults to the full,
+  # safe set rather than silently to the minimal one. A Brewfile-touching diff
+  # clears this again per-job, below.
+  MMS_CI_MINIMAL: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '1' || '' }}
   # Runners lack node's release GPG key, so mise's signature check on
   # `node@lts` fails. Skip it in CI; local installs keep verification.
   MISE_NODE_VERIFY: "false"
@@ -42,6 +58,57 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # The Brewfile-diff step below needs the event's base commit present.
+          # 691 commits, so this costs a second or two against the minutes the
+          # minimal install saves.
+          fetch-depth: 0
+
+      # A commit that edits a Brewfile is the commit that should prove it
+      # installs, so a diff touching these paths restores the full render
+      # instead of waiting for the nightly run. About 4% of commits touch them,
+      # so this costs the full install on roughly one commit in 25.
+      #
+      # It fails open: every state where the diff cannot be computed — a new
+      # branch, a force push, a base commit missing from the checkout — installs
+      # everything. A needless full install costs a few minutes; a wrong minimal
+      # install silently drops the only pre-merge proof a Brewfile edit gets.
+      - name: Install the full Brewfiles when the diff touches one
+        env:
+          # SHAs from the event payload, read through the environment rather
+          # than interpolated into the script.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          install_full() {
+            echo "MMS_CI_MINIMAL=" >> "$GITHUB_ENV"
+            echo "full Brewfile install: $1"
+          }
+
+          case "$GITHUB_EVENT_NAME" in
+            push|pull_request) ;;
+            *) echo "event $GITHUB_EVENT_NAME already selects the full set"; exit 0 ;;
+          esac
+
+          empty_sha="0000000000000000000000000000000000000000"
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "$empty_sha" ]; then
+            install_full "no base commit for this event"
+            exit 0
+          fi
+
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            install_full "base commit $BASE_SHA is not in this checkout"
+            exit 0
+          fi
+
+          if ! changed=$(git diff --name-only "${BASE_SHA}...HEAD"); then
+            install_full "could not diff against $BASE_SHA"
+            exit 0
+          fi
+
+          if printf '%s\n' "$changed" | grep -q '^home/private_dot_config/brewfiles/'; then
+            install_full "the diff touches home/private_dot_config/brewfiles/"
+          else
+            echo "no Brewfile change; the minimal install stands"
+          fi
 
       # azure.archive.ubuntu.com outages hang apt for the whole job timeout:
       # apt retries the dead mirror for every index file instead of failing
@@ -126,6 +193,57 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # The Brewfile-diff step below needs the event's base commit present.
+          # 691 commits, so this costs a second or two against the minutes the
+          # minimal install saves.
+          fetch-depth: 0
+
+      # A commit that edits a Brewfile is the commit that should prove it
+      # installs, so a diff touching these paths restores the full render
+      # instead of waiting for the nightly run. About 4% of commits touch them,
+      # so this costs the full install on roughly one commit in 25.
+      #
+      # It fails open: every state where the diff cannot be computed — a new
+      # branch, a force push, a base commit missing from the checkout — installs
+      # everything. A needless full install costs a few minutes; a wrong minimal
+      # install silently drops the only pre-merge proof a Brewfile edit gets.
+      - name: Install the full Brewfiles when the diff touches one
+        env:
+          # SHAs from the event payload, read through the environment rather
+          # than interpolated into the script.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          install_full() {
+            echo "MMS_CI_MINIMAL=" >> "$GITHUB_ENV"
+            echo "full Brewfile install: $1"
+          }
+
+          case "$GITHUB_EVENT_NAME" in
+            push|pull_request) ;;
+            *) echo "event $GITHUB_EVENT_NAME already selects the full set"; exit 0 ;;
+          esac
+
+          empty_sha="0000000000000000000000000000000000000000"
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "$empty_sha" ]; then
+            install_full "no base commit for this event"
+            exit 0
+          fi
+
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            install_full "base commit $BASE_SHA is not in this checkout"
+            exit 0
+          fi
+
+          if ! changed=$(git diff --name-only "${BASE_SHA}...HEAD"); then
+            install_full "could not diff against $BASE_SHA"
+            exit 0
+          fi
+
+          if printf '%s\n' "$changed" | grep -q '^home/private_dot_config/brewfiles/'; then
+            install_full "the diff touches home/private_dot_config/brewfiles/"
+          else
+            echo "no Brewfile change; the minimal install stands"
+          fi
 
       - name: Install chezmoi
         run: brew install chezmoi
