@@ -3,9 +3,15 @@
 # Install packages via Homebrew (cross-platform)
 #
 # Hash triggers (re-run when files change):
-# # {{ include "private_dot_config/brewfiles/Brewfile" | sha256sum }}
+#
+# These name the chezmoi *source* files, which carry a .tmpl suffix; the
+# `brew bundle` calls below name the deployed files, which do not, because
+# chezmoi strips the suffix on apply. `include` reads raw template source, so
+# the hash is the same whether the CI-minimal guard is on or off — harmless
+# here, since every environment that toggles the guard re-inits from scratch.
+# # {{ include "private_dot_config/brewfiles/Brewfile.tmpl" | sha256sum }}
 # # {{ if eq .chezmoi.os "darwin" }}
-# # {{ include "private_dot_config/brewfiles/Brewfile.macos" | sha256sum }}
+# # {{ include "private_dot_config/brewfiles/Brewfile.macos.tmpl" | sha256sum }}
 # # {{ end }}
 
 set -e

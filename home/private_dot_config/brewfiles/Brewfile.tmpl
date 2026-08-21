@@ -1,0 +1,95 @@
+{{- /* CI-minimal render guard. See docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* $full selects the whole file. It is true on every host and in every                            */ -}}
+{{- /* environment that does not set MMS_CI_MINIMAL before `chezmoi init`;                            */ -}}
+{{- /* push/PR CI sets it and gets only the entries the test suite actually                           */ -}}
+{{- /* resolves from the brew prefix. The guarded-out formulae are still                              */ -}}
+{{- /* installed by the nightly scheduled run and by any push or PR that edits                        */ -}}
+{{- /* a Brewfile.                                                                                    */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* `get . "ci_minimal"` rather than `.ci_minimal`: this key is written by                         */ -}}
+{{- /* `chezmoi init`, so a host config generated before it existed does not                          */ -}}
+{{- /* have it at all, and chezmoi's default missingkey=error would abort the                         */ -}}
+{{- /* render. `get` returns an empty string for a missing key instead, which                         */ -}}
+{{- /* selects the full set — the safe direction for a stale host.                                    */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* Every comment in this file is a template comment, so the full render is                        */ -}}
+{{- /* byte-identical to the file before the guard existed. That is what keeps                         */ -}}
+{{- /* `make test-local` clean on a host (R3).                                                        */ -}}
+{{- $full := not (get . "ci_minimal") -}}
+# Cross-platform CLI tools (Linuxbrew + Homebrew)
+# Format: brew "package" # binary_name (if different)
+
+# Taps
+tap "oven-sh/bun", trusted: true
+
+# Shell & prompt
+{{ if $full -}}
+brew "zsh"
+brew "starship"
+{{ end -}}
+{{/* grc is kept: it is the only source of python3 in the Docker image, and tests/palette.bats guards the whole file on python3 */ -}}
+brew "grc"          # generic colouriser
+
+# Git tools
+{{/* git is kept, folded back after the minimal render failed the Docker suite: the deployed .gitconfig sets merge.conflictStyle = zdiff3, which needs git >= 2.35, and Ubuntu 22.04's apt git is 2.34.1 — the apply's Oh My Zsh clone aborts on it before any test runs */ -}}
+brew "git"
+{{ if $full -}}
+brew "gh"
+brew "delta"
+brew "lazygit"
+
+# Version & package managers
+brew "mise"
+brew "ni"
+{{ end }}
+# JavaScript runtimes
+{{/* node is kept: it is the only source of sqlite3 in the Docker image, which seven tests guard on */ -}}
+brew "node"
+{{/* bun is kept: on the macOS job oven-sh/setup-bun runs after the apply, so this is the only bun on PATH when the smithers script looks for one */ -}}
+brew "oven-sh/bun/bun"  # bun
+
+# Search & text processing
+{{ if $full -}}
+brew "ripgrep"      # rg
+brew "bat"
+{{ end -}}
+brew "jq"
+
+{{ if $full -}}
+# File management
+brew "yazi"
+brew "fd"
+brew "fzf"
+brew "zoxide"
+brew "eza"
+brew "ouch"
+
+# AI coding agents & tooling
+brew "opencode"
+brew "agent-browser"
+brew "pi-coding-agent"
+brew "herdr"        # agent multiplexer
+
+# Dev tools
+brew "act"          # run GitHub Actions locally
+brew "gitleaks"     # secret scan gate in se-pipeline (KTD10)
+
+# Testing
+brew "bats-core"    # bats
+{{/* tests/scripts.bats asserts the anchored pattern ^brew "shellcheck" against this template's source, so this entry must stay at column zero */ -}}
+brew "shellcheck"
+
+# System monitoring
+brew "btop"
+brew "procs"
+brew "dust"
+brew "duf"
+
+# Yazi dependencies
+brew "ffmpeg"
+brew "sevenzip"     # 7zz
+brew "poppler"
+brew "resvg"
+brew "imagemagick"
+{{ end -}}

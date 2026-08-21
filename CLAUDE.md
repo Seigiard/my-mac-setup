@@ -70,8 +70,8 @@ Where new things go:
 
 | Adding | Destination |
 |---|---|
-| Cross-platform CLI tool | `home/private_dot_config/brewfiles/Brewfile` |
-| macOS-only cask/app | `home/private_dot_config/brewfiles/Brewfile.macos` |
+| Cross-platform CLI tool | `home/private_dot_config/brewfiles/Brewfile.tmpl` |
+| macOS-only cask/app | `home/private_dot_config/brewfiles/Brewfile.macos.tmpl` |
 | Config file from `~/` | `home/` via `chezmoi add` |
 | External repo/archive (skills, bats-libs) | `home/.chezmoiexternal.toml` |
 

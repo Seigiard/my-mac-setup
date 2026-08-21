@@ -12,6 +12,10 @@ services:
       - CHEZMOI_EMAIL=test@example.com
       - HOMEBREW_NO_AUTO_UPDATE=1
       - HOMEBREW_NO_INSTALL_CLEANUP=1
+      # The only entry here read from the host rather than written literally.
+      # Empty by default, which selects the full Brewfile render, so R5 holds
+      # unless the caller opts in.
+      - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
     stdin_open: true
     tty: true
 
@@ -28,6 +32,14 @@ services:
       - CHEZMOI_EMAIL=test@example.com
       - HOMEBREW_NO_AUTO_UPDATE=1
       - HOMEBREW_NO_INSTALL_CLEANUP=1
+      # Selects the CI-minimal Brewfile render, bound by the `chezmoi init`
+      # below. Empty by default so `make test-docker` keeps installing the full
+      # cross-platform Brewfile (R5). Set it to compare skip counts between the
+      # two renders:
+      #   MMS_CI_MINIMAL=1 docker compose -f docker/docker-compose.yml run --rm test-full
+      # `test-quick` deliberately has no such entry, which is what keeps
+      # `make test-ubuntu` on the full render — see docs/issues/2026-08-20-014.
+      - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |

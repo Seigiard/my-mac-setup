@@ -1,0 +1,73 @@
+{{- /* CI-minimal render guard. See docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* The guard covers the whole file: no test in tests/ references any cask                         */ -}}
+{{- /* here, nor elio, rgrc, terminal-notifier or linear. On push/PR CI this                          */ -}}
+{{- /* renders empty, which `brew bundle` accepts. The casks are 291 s of the                         */ -}}
+{{- /* 400 s macOS apply step, so this file is where nearly all of the saving is.                     */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* Guarding the 1password-cli cask has a second effect worth knowing: it                          */ -}}
+{{- /* removes `op` from the macOS CI PATH, which is the condition                                    */ -}}
+{{- /* PATH_WITHOUT_OP in tests/helpers/common.bash exists to construct.                              */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* See Brewfile.tmpl for why the flag is read with `get` rather than as                           */ -}}
+{{- /* `.ci_minimal`, and for why every comment here is a template comment.                           */ -}}
+{{- $full := not (get . "ci_minimal") -}}
+{{ if $full -}}
+# macOS-specific packages
+
+# Third-party taps (declare before their formulas; trusted so `brew bundle`
+# will install formulas from them on a clean machine)
+tap "lazywalker/tap", trusted: true
+tap "schpet/tap", trusted: true
+
+# CLI tools (macOS only)
+brew "elio"         # terminal file manager (theme synced under Library/)
+brew "lazywalker/tap/rgrc"
+brew "terminal-notifier"
+brew "schpet/tap/linear"
+
+# AI coding agents (macOS-only casks; cross-platform ones live in Brewfile)
+cask "claude-code"
+
+# Fonts
+cask "font-jetbrains-mono-nerd-font"
+cask "font-iosevka-term-nerd-font"
+
+# Terminal & editors
+cask "ghostty"
+cask "kitty"
+cask "zed"
+cask "obsidian"
+
+# Productivity
+cask "raycast"
+cask "marta"
+cask "ticktick"
+cask "setapp"
+cask "dropbox"
+
+# Utilities
+cask "1password-cli"
+cask "karabiner-elements"
+cask "the-unarchiver"
+cask "imageoptim"
+
+# Media
+cask "spotify"
+cask "notunes"
+cask "iina"
+cask "transmission"
+
+# Browsers
+cask "helium-browser"
+cask "zen"
+
+# Communication
+cask "telegram"
+
+# Design
+cask "figma"
+
+# Other
+cask "android-file-transfer"
+{{ end -}}

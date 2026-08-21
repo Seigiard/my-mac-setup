@@ -98,6 +98,36 @@ render_template() {
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$template_file"
 }
 
+# Write the config that `chezmoi init` would generate, using the caller's
+# environment, to $1. Some data keys bind at init time rather than render time —
+# ci_minimal, which selects the CI-minimal Brewfile render, is one — so
+# exercising both modes means producing two configs and rendering against each.
+#
+# Call it with the environment you want bound, e.g.
+#   MMS_CI_MINIMAL=1 write_test_config "$cfg"
+#
+# Deliberately not `chezmoi init --source "$SOURCE_ROOT"`: init creates a .git
+# directory inside its source tree. On a host that writes into the repo
+# checkout, and in Docker it fails outright, because home/ is mounted read-only
+# at /home/testuser/dotfiles. `execute-template --init` renders the same
+# template with no side effects and no write access required.
+write_test_config() {
+  local out="$1"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template --init \
+    --source "$SOURCE_ROOT" < "$SOURCE_ROOT/.chezmoi.yaml.tmpl" > "$out"
+}
+
+# Render a template against a specific config file. Neither render_template()
+# nor templates.bats' render_with_source() can do this — neither passes
+# --config, so both read the host's config and cannot select a render mode.
+render_with_config() {
+  local config_file="$1"
+  local template_file="$2"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" \
+    --config "$config_file" --source "$SOURCE_ROOT" \
+    execute-template < "$template_file"
+}
+
 assert_no_template_markers() {
   local file="$1"
   run grep -n '{{.*}}' "$file"

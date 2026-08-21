@@ -12,9 +12,20 @@ execution: code
 
 ## Goal Capsule
 
-- **Objective:** push/PR CI runs stop installing packages the test suite never uses, cutting the `brew bundle` portion of the `chezmoi apply` step by at least 80% on both jobs, while full-Brewfile installability stays verified on a nightly schedule and on every push or PR that edits a Brewfile. The observed whole-step times were 6 min 42 s (macOS) and 3 min 36 s (Ubuntu); the brew-only share of each is unmeasured, so the target is stated as a reduction of that share rather than as a whole-step wall clock.
+- **Objective:** push/PR CI runs stop installing packages the test suite never uses, cutting the `brew bundle` portion of the `chezmoi apply` step by at least 80% on both jobs, while full-Brewfile installability stays verified on a nightly schedule and on every push or PR that edits a Brewfile.
+
+  **Measured brew-only baseline (U0, run 32393379268, 2026-08-20T16:41:10Z, n=1).** The whole `Apply dotfiles` step and its brew-only share:
+
+  | Job | Apply step | `brew bundle` | Homebrew bootstrap | Non-brew remainder | Installs |
+  |---|---|---|---|---|---|
+  | `test-ubuntu` | 215.7 s | **177.9 s** (82.5%) | 26.4 s | 11.4 s | 37 |
+  | `test-macos` | 400.5 s | **383.8 s** (95.8%) | brew preinstalled | 16.8 s | 61 |
+
+  On macOS the brew-only share splits into 92.7 s for the cross-platform `Brewfile` and 291.1 s for `Brewfile.macos` — the casks alone are 73% of the whole apply step. The non-brew remainder is Homebrew bootstrap when absent, the Oh My Zsh clone plus four plugin clones, `mise use --global node@lts`, the fff-mcp download, and `run_onchange_after_2` through `_7`; none of it is guard-addressable.
+
+  **Brew-only target:** at least an 80% cut of the `brew bundle` figure, i.e. **≤ 35.6 s on `test-ubuntu`** (saving 142.3 s, whole step ≈ 73 s) and **≤ 76.8 s on `test-macos`** (saving 307.0 s, whole step ≈ 94 s). Check the target against the brew-only number, never against the whole step.
 - **Means:** a chezmoi template guard in the Brewfiles driven by one environment variable (KTD1), a diff-aware override that restores the full render when a Brewfile changes (KTD5), plus a `schedule` trigger in the existing workflow (KTD3).
-- **Authority:** this plan; measured step timings from CI run 32393379268 justify the targets. Those timings are whole-step, single-sample numbers — U0 converts them into a brew-only baseline before any target is treated as a gate.
+- **Authority:** this plan; the brew-only baseline above, measured per U0 from CI run 32393379268, justifies the targets. It is a single sample — brew download throughput varies run to run, so treat ±10-20% as noise and do not treat a near miss as a regression without a second sample.
 - **Stop conditions:**
   - If the minimal-render suite run (U2 verification) fails because a test needs a package this plan proposed to guard, keep that package in the minimal set rather than skipping the test.
   - If the proven minimal set no longer clears the Objective's brew-portion targets after fold-backs, stop and report rather than ship the guard — the machinery costs more than the remaining saving.
@@ -125,6 +136,25 @@ flowchart TB
   5. Produce the candidate list, starting from the KTD4 candidate: `zsh`, `git`, `jq`, `fzf`, `bats-core`, `oven-sh/bun/bun`, minus whatever step 4 subtracted per environment.
 - **Test scenarios:** none as new test files — this unit's output is the candidate list consumed by U2.
 - **Verification:** every real invocation in the audit is classified as stub-provided, run-provided, or brew-provided; every brew-provided one appears in the candidate list; and the subtraction from step 4 is recorded per environment so U2's proof covers the reduced set rather than the pre-subtraction one.
+- **Outcome (recorded 2026-08-21).** The audit contradicts KTD4's starting candidate in both directions, so the derived list — not KTD4's — is what U2 implements.
+
+  Per-environment subtraction, each with its proof:
+
+  | Environment | Needs from brew | Why |
+  |---|---|---|
+  | `test-ubuntu` CI job | **nothing** | Homebrew is not preinstalled on `ubuntu-latest`; the install script's `brew shellenv` is scoped to its own process and the workflow adds only `$HOME/.local/bin` to `$GITHUB_PATH`, so `/home/linuxbrew/.linuxbrew/bin` never reaches `PATH`. The apply log says so: `Warning: /home/linuxbrew/.linuxbrew/bin is not in your PATH.` Corroborated by the post-apply skip list, which contains no tool-missing skips at all. |
+  | `test-macos` CI job | `oven-sh/bun/bun` + its tap | `oven-sh/setup-bun@v2` runs *after* the apply, so the Brewfile's bun is the only one on `PATH` when `run_onchange_after_4-install-smithers-deps.sh.tmpl` checks for it — and the job then hard-asserts `test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"`. Guarding bun fails the job rather than skipping a test. Everything else is runner-image or a standalone `brew install` step. |
+  | Docker (`make test-ubuntu`) | `jq`, `grc`, `node` | The image ships no `jq`, `python3`, `sqlite3`, or `node`. `jq` is direct. `python3` arrives only as `grc`'s runtime dependency on `python@3.14` — and `tests/palette.bats:15` guards the whole file on it. `sqlite3` arrives only as `node`'s runtime dependency on `sqlite` (keg-only on macOS, not enforced on Linux) — seven tests guard on it. |
+
+  **Leave unguarded** (union of the three, since one template condition cannot vary by environment): `tap "oven-sh/bun"`, `jq`, `grc`, `git`, `node`, `oven-sh/bun/bun`. **Guard everything else** — 32 of the 37 cross-platform formulae, and all of `Brewfile.macos` (both taps, four formulae, 25 casks; no test references any of them).
+
+  KTD4's `zsh`, `fzf`, `bats-core` are guarded, not kept: the audit proved each is provided outside brew in all three environments (apt/system `zsh`; the upstream fzf tarball, `brew install fzf`, or the baked image; apt `bats`, `brew install bats-core`, or the baked image). KTD4 anticipates this — its candidate list is explicitly "minus whatever step 4 subtracted per environment", and the U2 parity gate is what proves the subtraction was safe.
+
+  **`git` was folded back, and the audit was wrong about it.** The first stop condition fired on the first Docker parity run: the minimal render aborted the apply in 57 seconds, before a single test ran, with `fatal: unknown style 'zdiff3' given for 'merge.conflictstyle'` followed by `Error: git clone of oh-my-zsh repo failed`. `home/dot_gitconfig.tmpl:27` sets `conflictStyle = zdiff3`, which needs git >= 2.35; the Docker image's apt git is 2.34.1, and Linuxbrew's prefix is on `PATH` there, so the Brewfile's `git` is what had been satisfying the config. The audit classified `git` as run-provided because a `git` binary exists in every environment — it did not check that the deployed config demands a newer one than apt ships. This is exactly the class of miss the parity gate exists to catch, and the reason the plan requires an empirical proof rather than an audit.
+
+  Confirmed plan claims: `herdr` is a test-created stub (`tests/scripts.bats:696-699` states in prose that CI has no herdr; the one real call site at `:715` is `command -v`-gated); `opencode` is never invoked as a binary at all; `shellcheck`'s only assertion is that the Brewfile *declares* it (`tests/scripts.bats:20-22`), with the real binary coming from apt in the lint job.
+
+  Re-run counts against `1989db6` with `grep -o -w '<tool>' tests/*.bats | wc -l`: `jq` 372, `python3` 48, `bun` 28, `fzf` 20 — matching the plan. `herdr` 448 and `opencode` 49, **not** the 502 and 62 the plan carried; use these.
 
 ### U2. Template-guard the Brewfiles and plumb the variable
 
@@ -149,6 +179,18 @@ flowchart TB
 - **Patterns to follow:** OS-conditional templating in `home/.chezmoi.yaml.tmpl` (`.is_darwin`/`.is_linux`); the existing left/right delimiter override in the run script.
 - **Test scenarios:** covered by U3 (template tests own rendering coverage).
 - **Verification:** `make test-local` shows no diff on the host (R3); `chezmoi managed` still lists both deployed Brewfile paths; `make test-ubuntu` with `MMS_CI_MINIMAL` unset still installs the full cross-platform Brewfile (R5). For R1 safety, run the full post-apply suite in Docker twice — once with `MMS_CI_MINIMAL=1` and once unset — and compare bats' skipped-test counts. **Equal skip counts is the pass condition; a passing run is not** (KTD6). Any package whose absence raises the skip count folds back into the minimal set per the stop condition.
+- **Verification outcome (2026-08-21).** Parity holds, on the second attempt.
+
+  | Render | ok | not ok | skipped |
+  |---|---|---|---|
+  | `MMS_CI_MINIMAL=1` | 367 | 1 | 15 |
+  | unset | 367 | 1 | 15 |
+
+  The skip *sets* are identical line for line, not merely equal in count — the comparison diffs the skip reasons, so a swap of one skip for another would still fail it. The single failure is the same in both renders (`Pi brew auto updater focused tests pass`, which cannot resolve `../home/dot_pi/...` because Docker mounts `tests/` and `home/` at unrelated paths). It fails identically on the unmodified full render, so it is pre-existing and unrelated — it is the harness gap already filed as `docs/issues/2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md`.
+
+  The minimal render's `brew bundle` installed four packages — `grc`, `git`, `node`, `jq` — plus the already-present `oven-sh/bun/bun` and its tap, against 37 installs for the full render. The first attempt failed and produced the `git` fold-back recorded under U1; this result is from the set after that fold-back.
+
+  Host-side gates: `chezmoi managed` still lists `.config/brewfiles/Brewfile` and `.config/brewfiles/Brewfile.macos` without the suffix, and `chezmoi diff` reports no change to either deployed Brewfile, because the full render is byte-identical to the pre-rename files. Note that plain `make test-local` fails on this host for an unrelated reason — `dot_zshenv.tmpl` calls `onepasswordRead` and `op signin` times out without an interactive session. Run it with `op` off `PATH`, the way `tests/helpers/common.bash` builds `PATH_WITHOUT_OP`, and it exits 0.
 
 ### U3. Template tests for both render modes
 
