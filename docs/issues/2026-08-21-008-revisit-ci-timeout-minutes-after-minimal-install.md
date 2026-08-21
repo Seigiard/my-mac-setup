@@ -1,6 +1,6 @@
 ---
 title: "Revisit the CI timeout-minutes downward once two weeks of minimal-install runs exist"
-short_description: "Revisit the CI timeout-minutes downward once two weeks of minimal-install runs exist"
+short_description: "After two weeks of minimal-install data, the 15-minute Ubuntu and 25-minute macOS ceilings should use observed slow-tail durations while remaining high enough for scheduled full-Brewfile runs."
 type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]

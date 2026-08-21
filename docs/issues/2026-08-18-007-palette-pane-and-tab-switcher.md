@@ -1,6 +1,6 @@
 ---
 title: "Add a pane switcher and a tab switcher to the command palette"
-short_description: "Add a pane switcher and a tab switcher to the command palette"
+short_description: "Build searchable pane and tab rows from `session.snapshot`, using the socket-only `pane.focus` method because the CLI cannot focus arbitrary non-agent panes by ID."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

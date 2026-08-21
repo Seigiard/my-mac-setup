@@ -1,6 +1,6 @@
 ---
 title: "The python3 version floor is stated in two places with nothing checking they agree"
-short_description: "The python3 version floor is stated in two places with nothing checking they agree"
+short_description: "The enforced Python 3.9 floor in `tests/helpers/common.bash` can silently diverge from `README.md`, unlike the existing `FZF_MIN_VERSION` test that reads its authoritative source."
 type: "follow-up"
 category: "repository-maintenance"
 tags: ["repository-maintenance","follow-up"]

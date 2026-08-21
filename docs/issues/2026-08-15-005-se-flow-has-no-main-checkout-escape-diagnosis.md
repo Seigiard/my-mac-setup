@@ -1,6 +1,6 @@
 ---
 title: "An se-flow run that writes into the main checkout reports \"no content change\", not the cause"
-short_description: "An se-flow run that writes into the main checkout reports \"no content change\", not the cause"
+short_description: "Because `se-flow` records no main-checkout digest, its KTD14 tree-hash failure reports \"no content change\" when escaped edits may exist in the main checkout, although the known escape doorway is now closed."
 type: "follow-up"
 category: "se-pipeline"
 tags: ["se-pipeline","follow-up"]

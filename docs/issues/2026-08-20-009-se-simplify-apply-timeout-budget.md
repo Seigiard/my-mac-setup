@@ -1,6 +1,6 @@
 ---
 title: "se-simplify apply leg dies on APPLY_TIMEOUT_MS in repos with a slow test suite"
-short_description: "se-simplify apply leg dies on APPLY_TIMEOUT_MS in repos with a slow test suite"
+short_description: "Run 85e40697-1cb3-4b25-b4f6-61e17dd2d677 spent 12.5 minutes on redundant baseline tests before the fixed 20-minute timeout killed the apply leg and reverted every edit."
 type: "bug"
 category: "se-pipeline"
 tags: ["se-pipeline","bug"]

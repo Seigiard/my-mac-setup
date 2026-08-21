@@ -1,6 +1,6 @@
 ---
 title: "Verify that a dispatched plugin action reached a terminal state"
-short_description: "Verify that a dispatched plugin action reached a terminal state"
+short_description: "Use the invoke response's `log_id` and `plugin_id` to poll `herdr plugin log list`, because a zero invoke exit code proves acceptance rather than action success."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

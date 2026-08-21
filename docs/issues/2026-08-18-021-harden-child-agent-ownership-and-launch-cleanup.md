@@ -1,6 +1,6 @@
 ---
 title: "Harden child-agent ownership and launch cleanup"
-short_description: "Harden child-agent ownership and launch cleanup"
+short_description: "Add parent-scoped launch ownership because `herdr-child` can target an unrelated live agent, while malformed successful split responses can hide the new pane ID and leave an orphan."
 type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]

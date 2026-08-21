@@ -1,6 +1,6 @@
 ---
 title: "Size the command palette popup in percentages instead of fixed cells"
-short_description: "Size the command palette popup in percentages instead of fixed cells"
+short_description: "Move the hardcoded 104×34 geometry into percentage-based manifest settings after verifying whether undocumented `popup` placement differs from the declared `overlay` behavior."
 type: "chore"
 category: "command-palette"
 tags: ["command-palette","chore"]

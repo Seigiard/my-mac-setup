@@ -1,6 +1,6 @@
 ---
 title: "Pi skills and agents in the inventory doc do not match disk"
-short_description: "Pi skills and agents in the inventory doc do not match disk"
+short_description: "Decide whether to recover nine authored Pi agents marked \"keep\" or update `docs/agent-setup-inventory.md`, because the agents directory and listed `web-research` skill no longer exist."
 type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]

@@ -1,6 +1,6 @@
 ---
 title: "The verify-doc waive path has no live coverage since it was rewritten"
-short_description: "The verify-doc waive path has no live coverage since it was rewritten"
+short_description: "A $2.72 live run verified stripped advisory delivery and payload-based review status, but only a deliberately triggered P0 can prove that the rewritten waive path persists findings without the raw `SEVERITY:` line."
 type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]

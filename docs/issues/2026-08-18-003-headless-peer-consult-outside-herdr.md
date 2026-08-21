@@ -1,6 +1,6 @@
 ---
 title: "Consulting a peer agent from outside herdr"
-short_description: "Consulting a peer agent from outside herdr"
+short_description: "Restore peer consultation outside Herdr without duplicating per-agent option mappings, preferably through Smithers while retaining the stronger headless posture that denies shell access."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","follow-up"]

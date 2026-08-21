@@ -1,6 +1,6 @@
 ---
 title: "No test observes which TOML parser the command palette actually used"
-short_description: "No test observes which TOML parser the command palette actually used"
+short_description: "Add an ambient-interpreter test that reports Python's version and fails if palette parsing silently switches from `tomllib` to the fallback parser."
 type: "follow-up"
 category: "command-palette"
 tags: ["command-palette","follow-up"]

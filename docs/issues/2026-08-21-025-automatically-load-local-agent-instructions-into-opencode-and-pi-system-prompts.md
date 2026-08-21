@@ -1,6 +1,6 @@
 ---
 title: "Automatically load local agent instructions into OpenCode and Pi system prompts"
-short_description: "Configure OpenCode and Pi to discover CLAUDE.local.md and AGENTS.local.md automatically and append them to the system prompt, without conditional instructions inside shared agent guidance."
+short_description: "Use each client's native settings, hooks, or plugin API to discover applicable `CLAUDE.local.md` and `AGENTS.local.md` files and append ordered, deduplicated instructions before request processing."
 type: "idea"
 category: "agent-platform"
 tags: ["local-instructions","system-prompt","opencode","pi"]

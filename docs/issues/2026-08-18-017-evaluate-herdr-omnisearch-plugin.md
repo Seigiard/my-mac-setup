@@ -1,6 +1,6 @@
 ---
 title: "Evaluate herdr-omnisearch as a sibling plugin for searching pane contents"
-short_description: "Evaluate herdr-omnisearch as a sibling plugin for searching pane contents"
+short_description: "Evaluate the SQLite FTS5 pane-search plugin only after reproducing its reported live-pane scrolling and deciding whether archived conversation indexing creates an acceptable privacy surface."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

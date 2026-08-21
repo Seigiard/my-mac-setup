@@ -1,6 +1,6 @@
 ---
 title: "The post-apply suite invocation is duplicated across five sites and drift degrades silently to sequential"
-short_description: "The post-apply suite invocation is duplicated across five sites and drift degrades silently to sequential"
+short_description: "Five independent bats invocations can silently lose parallel flags or new test files, while any shared definition must preserve the host-safe subset that excludes `tests/idempotent.bats`."
 type: "follow-up"
 category: "repository-maintenance"
 tags: ["repository-maintenance","follow-up"]

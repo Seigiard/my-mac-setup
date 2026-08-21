@@ -1,6 +1,6 @@
 ---
 title: "Decide what a pipeline launch should ask the operator for, and delete the rest"
-short_description: "Decide what a pipeline launch should ask the operator for, and delete the rest"
+short_description: "The pipeline schema exposes eleven inputs while operators reliably know only the plan, fails to elicit setup controls that prevent fresh-worktree failures, and advertises `--until=pr` although gate 0 always refuses it."
 type: "idea"
 category: "se-pipeline"
 tags: ["se-pipeline","idea"]

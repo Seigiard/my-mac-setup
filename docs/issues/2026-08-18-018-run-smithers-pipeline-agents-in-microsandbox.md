@@ -1,6 +1,6 @@
 ---
 title: "Run Smithers pipeline agents in Microsandbox with Herdr visibility"
-short_description: "Run Smithers pipeline agents in Microsandbox with Herdr visibility"
+short_description: "Upgrade `smithers-orchestrator@0.32.0` to pinned `smthrs@0.35.x` and prove that Microsandbox isolates worktrees and credentials while returning validated output, diffs, durable state, and Herdr events."
 type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]

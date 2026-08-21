@@ -1,6 +1,6 @@
 ---
 title: "Jump back to the previous workspace from the command palette"
-short_description: "Jump back to the previous workspace from the command palette"
+short_description: "Persist a depth-one previous-workspace ID only after real transitions, clear stale targets, and capture non-palette focus events so the record remains accurate."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

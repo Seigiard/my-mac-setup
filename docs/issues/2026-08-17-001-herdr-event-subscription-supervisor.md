@@ -1,6 +1,6 @@
 ---
 title: "A supervisor process that subscribes to herdr agent-status events"
-short_description: "A supervisor process that subscribes to herdr agent-status events"
+short_description: "Run a long-lived socket subscriber for `pane_agent_status_changed` so a parent receives terminal or blocked child status after crashes or missed callbacks, while timeout-based hang detection remains unresolved."
 type: "idea"
 category: "herdr"
 tags: ["herdr","idea"]

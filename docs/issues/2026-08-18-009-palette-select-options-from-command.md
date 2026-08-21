@@ -1,6 +1,6 @@
 ---
 title: "Let a command palette select command generate its options from a shell command"
-short_description: "Let a command palette select command generate its options from a shell command"
+short_description: "Add `choices_command` output as dynamic select options while distinguishing command failure from zero results and preserving the originating pane's working-directory context."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

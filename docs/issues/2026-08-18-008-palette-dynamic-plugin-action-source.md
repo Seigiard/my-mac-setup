@@ -1,6 +1,6 @@
 ---
 title: "Surface every installed herdr plugin's actions in the command palette"
-short_description: "Surface every installed herdr plugin's actions in the command palette"
+short_description: "Load installed actions from `herdr plugin action list`, exclude the palette itself, and label their origin so plugin capabilities no longer require manual TOML duplication."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]
