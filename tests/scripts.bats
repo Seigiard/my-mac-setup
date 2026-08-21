@@ -1625,11 +1625,17 @@ hts_crash_run() {
 }
 
 # The sweep modes carry no agent and no pane, so they run the script directly
-# rather than through hts_run.
+# rather than through hts_run. The git budget mirrors hts_location_pass: the
+# shipped 75 ms SIGKILL bound is a UI-latency budget calibrated against real
+# git on an idle machine, and a forked bash-stub probe under --jobs load loses
+# that race, degrades the pane to location_status=stale, and flakes any
+# location assertion (the pattern docs/issues/2026-08-21-015 names; this was
+# its third missed call site after 543ca9e and 7f675e1).
 hts_sweep_run() {
   env PATH="$HTS_STUB:/usr/bin:/bin" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_SWEEP_INTERVAL="${HTS_SWEEP_INTERVAL:-1}" \
+    HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" \
     bash "$HTS_ENGINE" "$@"
 }
 
@@ -4146,8 +4152,10 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_git_location_fixture "$old" "$old" "$common" refs/heads/old
   hts_set_process_label pane-1 btop
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  # hts_location_pass, not bare hts_event_run: this pass asserts a worktree
+  # token, so its git probe needs the calibrated HTS_GIT_BUDGET instead of the
+  # shipped 75 ms bound (killed probe -> tokens.worktree null under load).
+  hts_location_pass
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" old
 
