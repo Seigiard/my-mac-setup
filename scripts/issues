@@ -254,6 +254,17 @@ def summary(document: Document) -> Dict[str, Any]:
     return {"category": metadata["category"], "id": document.path.stem, "priority": metadata["priority"], "short_description": metadata["short_description"], "status": metadata["status"], "title": metadata["title"]}
 
 
+def format_issue_summary(value: Dict[str, Any], color: bool = False) -> str:
+    compact_id = value["id"][:14]
+    heading = "%s - [%s] %s" % (compact_id, value["priority"], value["title"])
+    description = value["short_description"]
+    if description == value["title"]:
+        return heading
+    if color:
+        description = "\033[2m%s\033[0m" % description
+    return "%s\n  %s" % (heading, description)
+
+
 def issue_directory(root: Path, create: bool = False) -> Path:
     root = root.resolve()
     directory = root / "docs" / "issues"
@@ -552,7 +563,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     if value["category"] != category:
                         category = value["category"]
                         print("[%s]" % category)
-                    print("%(id)s [%(status)s/%(priority)s] %(title)s - %(short_description)s" % value)
+                    print(format_issue_summary(value, color=sys.stdout.isatty()))
+                    print()
             return 0
         if arguments.command == "show":
             with issue_lock(root, shared=True):
