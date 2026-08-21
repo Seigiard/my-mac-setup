@@ -116,5 +116,15 @@ class CorpusTests(IssueFixtures):
         self.assertEqual(legacy, path.read_bytes())
 
 
+class ReadTests(IssueFixtures):
+    def test_version_and_show_unique_compact_id(self):
+        self.write_issue("2026-08-21-001-one.md", issue_text())
+        version = subprocess.run(["python3", str(SCRIPT), "--version"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual((0, "repository-issues-contract 1\n"), (version.returncode, version.stdout))
+        result = subprocess.run(["python3", str(SCRIPT), "show", "2026-08-21-001", "--json"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("2026-08-21-001-one", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

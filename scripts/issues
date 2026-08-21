@@ -205,22 +205,94 @@ def validate(root: Path, compatibility: bool) -> List[str]:
     return output
 
 
+def records(root: Path) -> List[Document]:
+    result = []
+    for path in discover_issue_paths(root):
+        document = parse_document(path)
+        if validate_document(document, False):
+            raise IssueError("INVALID_CORPUS", path.name)
+        result.append(document)
+    return result
+
+
+def emit_json(value: Any) -> None:
+    print(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def select(records: Sequence[Document], arguments: argparse.Namespace) -> List[Document]:
+    statuses = set(arguments.status or ("open", "in-progress"))
+    priority = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    chosen = []
+    for document in records:
+        metadata = document.metadata
+        if metadata["status"] not in statuses:
+            continue
+        if arguments.category and metadata["category"] not in arguments.category:
+            continue
+        if arguments.priority and metadata["priority"] not in arguments.priority:
+            continue
+        if arguments.type and metadata["type"] not in arguments.type:
+            continue
+        if arguments.tag and not set(arguments.tag).issubset(metadata["tags"]):
+            continue
+        chosen.append(document)
+    return sorted(chosen, key=lambda item: (item.metadata["category"], priority[item.metadata["priority"]], item.path.stem))
+
+
+def summary(document: Document) -> Dict[str, Any]:
+    metadata = document.metadata
+    return {"category": metadata["category"], "id": document.path.stem, "priority": metadata["priority"], "short_description": metadata["short_description"], "status": metadata["status"], "title": metadata["title"]}
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="issues")
+    parser.add_argument("--version", action="store_true")
     subcommands = parser.add_subparsers(dest="command")
     validation = subcommands.add_parser("validate")
     validation.add_argument("--compatibility", action="store_true")
+    listing = subcommands.add_parser("list")
+    for name, choices in (("status", STATUSES), ("category", CATEGORIES), ("priority", PRIORITIES), ("type", TYPES)):
+        listing.add_argument("--" + name, action="append", choices=sorted(choices))
+    listing.add_argument("--tag", action="append")
+    listing.add_argument("--json", action="store_true")
+    show = subcommands.add_parser("show")
+    show.add_argument("issue_id")
+    show.add_argument("--json", action="store_true")
     arguments = parser.parse_args(argv)
-    if arguments.command != "validate":
-        parser.error("only validate is available in the schema contract")
     try:
-        output = validate(find_worktree(), arguments.compatibility)
+        if arguments.version:
+            if arguments.command:
+                parser.error("--version cannot be combined with a command")
+            print("repository-issues-contract 1")
+            return 0
+        root = find_worktree()
+        if arguments.command == "validate":
+            output = validate(root, arguments.compatibility)
+            for line in output:
+                print(line)
+            return 1 if any(not line.startswith("MISSING_LEGACY_FIELD ") for line in output) else 0
+        if arguments.command == "list":
+            result = select(records(root), arguments)
+            if arguments.json:
+                emit_json({"issues": [summary(item) for item in result]})
+            else:
+                for item in result:
+                    value = summary(item)
+                    print("%(id)s [%(status)s/%(priority)s] %(title)s - %(short_description)s" % value)
+            return 0
+        if arguments.command == "show":
+            document = parse_document(resolve_issue_id(discover_issue_paths(root), arguments.issue_id))
+            if arguments.json:
+                emit_json({"body": document.body.decode("utf-8", "surrogateescape"), "id": document.path.stem, "metadata": document.metadata, "path": str(document.path.relative_to(root))})
+            else:
+                print(document.path.stem)
+                print(document.metadata["title"])
+                sys.stdout.buffer.write(document.body)
+            return 0
+        parser.error("a command is required")
     except IssueError as error:
         print(str(error), file=sys.stderr)
         return 2
-    for line in output:
-        print(line)
-    return 1 if any(not line.startswith("MISSING_LEGACY_FIELD ") for line in output) else 0
 
 
 if __name__ == "__main__":
