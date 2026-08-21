@@ -2,8 +2,8 @@
 title: "The work agent is handed an absolute plan path into the main checkout and writes its changes there"
 short_description: "The work agent is handed an absolute plan path into the main checkout and writes its changes there"
 type: "bug"
-category: "agent-platform"
-tags: ["agent-platform","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

@@ -2,8 +2,8 @@
 title: "The verify-doc waive path has no live coverage since it was rewritten"
 short_description: "The verify-doc waive path has no live coverage since it was rewritten"
 type: "follow-up"
-category: "repository-maintenance"
-tags: ["repository-maintenance","follow-up"]
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
 date: "2026-08-14"
 status: "open"
 priority: "low"

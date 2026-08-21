@@ -2,8 +2,8 @@
 title: "External legs read the whole snapshot tree, but only the branch range is scanned"
 short_description: "External legs read the whole snapshot tree, but only the branch range is scanned"
 type: "follow-up"
-category: "repository-maintenance"
-tags: ["repository-maintenance","follow-up"]
+category: "se-pipeline"
+tags: ["se-pipeline","follow-up"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

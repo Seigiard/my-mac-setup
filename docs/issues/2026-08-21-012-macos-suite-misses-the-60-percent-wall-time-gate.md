@@ -2,8 +2,8 @@
 title: "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8"
 short_description: "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8"
 type: "follow-up"
-category: "dotfiles"
-tags: ["dotfiles","follow-up"]
+category: "testing-ci"
+tags: ["testing-ci","follow-up"]
 date: "2026-08-21"
 status: "open"
 priority: "low"

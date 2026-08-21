@@ -5,8 +5,9 @@ type: "chore"
 category: "repository-maintenance"
 tags: ["repository-maintenance","chore"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-21"
 ---
 
 ## Why this exists
@@ -46,3 +47,9 @@ What remains is the mechanism, not the enumeration:
 - Whether to keep a hand-maintained grouped index at all, or replace it with a
   generated list plus a short hand-written "what matters now" section. The
   grouping is the part with real value; the enumeration is the part that rots.
+
+## Resolution
+
+Replaced the duplicated snapshot with concise usage guidance. `python3 scripts/issues list`
+and `python3 scripts/issues search <text>` now query the validated issue corpus directly, so
+filing or closing an issue cannot leave a second authoritative list stale.

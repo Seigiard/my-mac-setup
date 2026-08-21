@@ -2,8 +2,8 @@
 title: "Decide what a pipeline launch should ask the operator for, and delete the rest"
 short_description: "Decide what a pipeline launch should ask the operator for, and delete the rest"
 type: "idea"
-category: "testing-ci"
-tags: ["testing-ci","idea"]
+category: "se-pipeline"
+tags: ["se-pipeline","idea"]
 date: "2026-08-14"
 status: "open"
 priority: "medium"

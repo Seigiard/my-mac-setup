@@ -27,6 +27,7 @@ Reference docs (read on demand):
 
 | Command | What it does |
 |---|---|
+| `make test-issues` | Strictly validate repository issues and run issue CLI tests |
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
 | `make test-suite` | Post-apply suite in parallel, host-safe files only (excludes `tests/idempotent.bats`, which applies to the real `$HOME`). Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
@@ -107,6 +108,8 @@ Adding a managed config, step by step:
 ## Repository issues
 
 Use the `repository-issues` skill and `python3 scripts/issues` for `docs/issues/` lifecycle operations. Create an issue for every unresolved problem.
+
+Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
 <important if="you are adding a new feature, script, or config that should be tested">
 

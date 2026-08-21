@@ -2,8 +2,8 @@
 title: "Decide what a plan owes the pipeline, and whether the pipeline should keep inferring it from prose"
 short_description: "Decide what a plan owes the pipeline, and whether the pipeline should keep inferring it from prose"
 type: "idea"
-category: "testing-ci"
-tags: ["testing-ci","idea"]
+category: "se-pipeline"
+tags: ["se-pipeline","idea"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

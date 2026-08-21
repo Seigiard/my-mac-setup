@@ -2,8 +2,8 @@
 title: "A red block does not stop the se-flow run — its successors run, including pr"
 short_description: "A red block does not stop the se-flow run — its successors run, including pr"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-15"
 status: "done"
 priority: "low"

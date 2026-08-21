@@ -2,8 +2,8 @@
 title: "Unified stage right-sizing evaluator for code-review and doc-review"
 short_description: "Unified stage right-sizing evaluator for code-review and doc-review"
 type: "follow-up"
-category: "repository-maintenance"
-tags: ["repository-maintenance","follow-up"]
+category: "se-pipeline"
+tags: ["se-pipeline","follow-up"]
 date: "2026-07-27"
 status: "wontfix"
 priority: "low"

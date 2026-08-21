@@ -2,8 +2,8 @@
 title: "Verify that a dispatched plugin action reached a terminal state"
 short_description: "Verify that a dispatched plugin action reached a terminal state"
 type: "idea"
-category: "agent-platform"
-tags: ["agent-platform","idea"]
+category: "command-palette"
+tags: ["command-palette","idea"]
 date: "2026-08-18"
 status: "open"
 priority: "low"

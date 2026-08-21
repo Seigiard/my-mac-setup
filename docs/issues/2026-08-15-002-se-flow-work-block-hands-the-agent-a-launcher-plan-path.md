@@ -2,8 +2,8 @@
 title: "The se-flow work block embeds a plan path from outside its own staged worktree"
 short_description: "The se-flow work block embeds a plan path from outside its own staged worktree"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-15"
 status: "done"
 priority: "low"

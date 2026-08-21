@@ -2,8 +2,8 @@
 title: "The run log marks a failed gate with a check mark and never prints why the run parked"
 short_description: "The run log marks a failed gate with a check mark and never prints why the run parked"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

@@ -7,14 +7,13 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import errno
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import stat
-import subprocess
 import sys
 import tempfile
 from typing import Any, Dict, Iterator, List, Optional, Sequence
@@ -23,17 +22,13 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 ISSUE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{3})-.+\.md$")
 COMPACT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{3}$")
 TAG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-KNOWN_FIELDS = {"title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "closed"}
+KNOWN_FIELDS = {"title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "external-id", "closed"}
 REQUIRED_FIELDS = ("title", "short_description", "type", "category", "tags", "date", "status", "priority")
-LEGACY_FIELDS = ("category", "priority", "short_description", "tags")
 TYPES = {"bug", "follow-up", "idea", "chore"}
 STATUSES = {"open", "in-progress", "done", "wontfix"}
 CATEGORIES = {"testing-ci", "se-pipeline", "herdr", "command-palette", "agent-platform", "dotfiles", "repository-maintenance"}
 PRIORITIES = {"critical", "high", "medium", "low"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
-MIGRATION_TRANSFORMATION_VERSION = 1
-MIGRATION_MANIFEST = Path("docs/migrations/2026-08-21-issue-metadata.json")
 
 
 class IssueError(ValueError):
@@ -71,225 +66,6 @@ def discover_issue_paths(root: Path) -> List[Path]:
     if not directory.is_dir():
         return []
     return sorted((path for path in directory.iterdir() if path.is_file() and not path.is_symlink() and ISSUE_NAME.match(path.name)), key=lambda path: path.name)
-
-
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def migration_source_commit(root: Path) -> str:
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False)
-    source_commit = result.stdout.strip()
-    if result.returncode or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
-        raise IssueError("SOURCE_COMMIT_UNAVAILABLE", str(root))
-    return source_commit
-
-
-def legacy_open_priorities(root: Path) -> Dict[str, str]:
-    """Extract explicit active-issue severities from the reviewed legacy index."""
-    index = root / "docs" / "issues" / "_open-issues.md"
-    try:
-        contents = index.read_text(encoding="utf-8")
-    except OSError as error:
-        raise IssueError("OPEN_INDEX_UNAVAILABLE", str(index)) from error
-    priorities = {}
-    expression = re.compile(r"\]\(([^)]+\.md)\).*?\|\s+\*{0,2}(Critical|High|Medium|Low)\*{0,2}\s*\|", re.IGNORECASE)
-    for path, priority in expression.findall(contents):
-        priorities[path] = priority.lower()
-    return priorities
-
-
-def migration_metadata(document: Document, open_priorities: Dict[str, str]) -> tuple[Dict[str, Any], str]:
-    """Return the review proposal from stable title keywords, not corpus mutation."""
-    title = document.metadata["title"]
-    value = title.lower()
-    rules = (
-        ("herdr", ("herdr",)),
-        ("command-palette", ("command palette", "palette")),
-        ("testing-ci", ("test", "ci", "github action", "docker")),
-        ("se-pipeline", ("smithers", "se-pipeline", "workflow")),
-        ("agent-platform", ("claude", "opencode", "pi ", " pi", "agent", "skill", "plugin")),
-        ("dotfiles", ("brew", "homebrew", "mise", "zsh", "terminal", "kitty", "tmux", "macos", "dotfile")),
-    )
-    category = "repository-maintenance"
-    evidence = "No category keyword; classified as repository maintenance."
-    for candidate, keywords in rules:
-        keyword = next((item for item in keywords if item in value), None)
-        if keyword:
-            category = candidate
-            evidence = 'Title keyword "%s" selects %s.' % (keyword, category)
-            break
-    status = document.metadata["status"]
-    if status in ("open", "in-progress"):
-        priority = open_priorities.get(document.path.name, "low")
-        priority_evidence = "Legacy index severity is %s." % priority
-    else:
-        priority = "low"
-        priority_evidence = "Terminal issue; assigned low review priority."
-    short_description = title[:157].rstrip() + ("..." if len(title) > 157 else "")
-    metadata = {"category": category, "priority": priority, "tags": [category, document.metadata["type"]], "short_description": short_description}
-    return metadata, "%s %s" % (evidence, priority_evidence)
-
-
-def migration_after_bytes(document: Document, proposed: Dict[str, Any]) -> bytes:
-    metadata = dict(document.metadata)
-    metadata.update(proposed)
-    return render_document(document.path, metadata, document.body)
-
-
-def build_migration_manifest(root: Path, source_commit: str) -> Dict[str, Any]:
-    entries = []
-    open_priorities = legacy_open_priorities(root)
-    for path in discover_issue_paths(root):
-        document = parse_document(path)
-        proposed, evidence = migration_metadata(document, open_priorities)
-        entries.append({
-            "ambiguity": "resolved",
-            "before_sha256": sha256(path),
-            "evidence": evidence,
-            "expected_after_sha256": hashlib.sha256(migration_after_bytes(document, proposed)).hexdigest(),
-            "path": str(path.relative_to(root)),
-            "proposed_metadata": proposed,
-        })
-    return {"entries": entries, "source_commit": source_commit, "transformation_version": MIGRATION_TRANSFORMATION_VERSION}
-
-
-def migration_manifest_bytes(manifest: Dict[str, Any]) -> bytes:
-    return (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-
-
-def _manifest_object(pairs: List[tuple[str, Any]]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise IssueError("DUPLICATE_MANIFEST_KEY", key)
-        result[key] = value
-    return result
-
-
-def read_migration_manifest(path: Path) -> Dict[str, Any]:
-    try:
-        contents = path.read_bytes()
-    except OSError as error:
-        raise IssueError("MANIFEST_NOT_FOUND", str(path)) from error
-    return read_migration_manifest_bytes(path, contents)
-
-
-def read_migration_manifest_bytes(path: Path, contents: bytes) -> Dict[str, Any]:
-    try:
-        manifest = json.loads(contents.decode("utf-8"), object_pairs_hook=_manifest_object)
-    except json.JSONDecodeError as error:
-        raise IssueError("INVALID_MANIFEST_JSON", str(path)) from error
-    except UnicodeDecodeError as error:
-        raise IssueError("INVALID_MANIFEST_JSON", str(path)) from error
-    if not isinstance(manifest, dict):
-        raise IssueError("INVALID_MANIFEST", "top level must be an object")
-    return manifest
-
-
-def migration_source_is_ancestor(root: Path, source_commit: str, current_commit: str) -> bool:
-    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
-        return False
-    result = subprocess.run(["git", "merge-base", "--is-ancestor", source_commit, current_commit], cwd=root, capture_output=True, text=True, check=False)
-    return result.returncode == 0
-
-
-def check_migration_manifest(root: Path, manifest: Dict[str, Any], source_commit: str) -> List[Dict[str, Any]]:
-    if set(manifest) != {"entries", "source_commit", "transformation_version"}:
-        raise IssueError("INVALID_MANIFEST", "unknown or missing top-level field")
-    if manifest["source_commit"] != source_commit and not migration_source_is_ancestor(root, manifest["source_commit"], source_commit):
-        raise IssueError("STALE_SOURCE_COMMIT", str(manifest["source_commit"]))
-    if manifest["transformation_version"] != MIGRATION_TRANSFORMATION_VERSION:
-        raise IssueError("STALE_TRANSFORMATION_VERSION", str(manifest["transformation_version"]))
-    if not isinstance(manifest["entries"], list):
-        raise IssueError("INVALID_MANIFEST", "entries must be an array")
-    paths = discover_issue_paths(root)
-    expected_paths = [str(path.relative_to(root)) for path in paths]
-    entries = manifest["entries"]
-    actual_paths = [entry.get("path") for entry in entries if isinstance(entry, dict)]
-    if len(actual_paths) != len(entries) or actual_paths != expected_paths or len(set(actual_paths)) != len(actual_paths):
-        raise IssueError("MANIFEST_PATH_SET_MISMATCH", "entries must be the sorted canonical corpus")
-    for entry, path in zip(entries, paths):
-        if set(entry) != {"ambiguity", "before_sha256", "evidence", "expected_after_sha256", "path", "proposed_metadata"}:
-            raise IssueError("INVALID_MANIFEST_ENTRY", path.name)
-        if entry["ambiguity"] != "resolved":
-            raise IssueError("UNRESOLVED_AMBIGUITY", entry["path"])
-        if not isinstance(entry["evidence"], str) or not entry["evidence"]:
-            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
-        if not isinstance(entry["before_sha256"], str) or not SHA256.fullmatch(entry["before_sha256"]):
-            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
-        if not isinstance(entry["expected_after_sha256"], str) or not SHA256.fullmatch(entry["expected_after_sha256"]):
-            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
-        current_sha256 = sha256(path)
-        if current_sha256 not in (entry["before_sha256"], entry["expected_after_sha256"]):
-            raise IssueError("STALE_INPUT", entry["path"])
-        proposed = entry["proposed_metadata"]
-        if not isinstance(proposed, dict) or set(proposed) != set(LEGACY_FIELDS):
-            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
-        document = parse_document(path)
-        try:
-            after = migration_after_bytes(document, proposed)
-        except IssueError as error:
-            raise IssueError("INVALID_MANIFEST_METADATA", entry["path"]) from error
-        if hashlib.sha256(after).hexdigest() != entry["expected_after_sha256"]:
-            raise IssueError("AFTER_HASH_MISMATCH", entry["path"])
-        if parse_document_bytes(path, after).body != document.body:
-            raise IssueError("BODY_CHANGED", entry["path"])
-    return entries
-
-
-def migration_status(root: Path, entries: Sequence[Dict[str, Any]]) -> str:
-    states = [
-        "after" if sha256(root / entry["path"]) == entry["expected_after_sha256"] else "before"
-        for entry in entries
-    ]
-    if all(state == "before" for state in states):
-        return "ready-for-review"
-    if all(state == "after" for state in states):
-        return "fully-applied"
-    return "partially-applied"
-
-
-def apply_migration(root: Path, manifest_path: Path, source_commit: str, approved_sha256: str) -> int:
-    if not SHA256.fullmatch(approved_sha256):
-        raise IssueError("INVALID_APPROVAL_HASH", approved_sha256)
-    try:
-        manifest_bytes = manifest_path.read_bytes()
-    except OSError as error:
-        raise IssueError("MANIFEST_NOT_FOUND", str(manifest_path)) from error
-    if hashlib.sha256(manifest_bytes).hexdigest() != approved_sha256:
-        raise IssueError("APPROVAL_HASH_MISMATCH", str(manifest_path))
-    manifest = read_migration_manifest_bytes(manifest_path, manifest_bytes)
-    writes = []
-    with issue_lock(root):
-        entries = check_migration_manifest(root, manifest, source_commit)
-        for entry in entries:
-            path = root / entry["path"]
-            before = path.read_bytes()
-            if hashlib.sha256(before).hexdigest() == entry["expected_after_sha256"]:
-                continue
-            document = parse_document_bytes(path, before)
-            after = migration_after_bytes(document, entry["proposed_metadata"])
-            if parse_document_bytes(path, after).body != document.body:
-                raise IssueError("BODY_CHANGED", entry["path"])
-            writes.append((path, before, after))
-        for path, before, after in writes:
-            atomic_replace(path, after, before)
-    return len(writes)
-
-
-def write_migration_manifest(path: Path, manifest: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".migration-", dir=str(path.parent))
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(migration_manifest_bytes(manifest))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
 
 
 def _has_forbidden_characters(value: str) -> bool:
@@ -351,7 +127,7 @@ def parse_document_bytes(path: Path, contents: bytes) -> Document:
         raise IssueError("INVALID_FRONTMATTER_UTF8", "frontmatter is not valid UTF-8") from error
     metadata: Dict[str, Any] = {}
     for line in text.split("\n"):
-        if not line or ": " not in line or line.count(": ") != 1:
+        if not line or ": " not in line:
             raise IssueError("INVALID_FRONTMATTER", "each frontmatter line must be one key and value")
         key, value = line.split(": ", 1)
         if key not in KNOWN_FIELDS:
@@ -367,13 +143,12 @@ def _heading_present(body: bytes, heading: bytes, prefix: bool = False) -> bool:
     return re.search(expression, body) is not None
 
 
-def validate_document(document: Document, compatibility: bool) -> List[Diagnostic]:
+def validate_document(document: Document) -> List[Diagnostic]:
     metadata = document.metadata
     diagnostics: List[Diagnostic] = []
     for field in REQUIRED_FIELDS:
         if field not in metadata:
-            code = "MISSING_LEGACY_FIELD" if compatibility and field in LEGACY_FIELDS else "MISSING_FIELD"
-            diagnostics.append(Diagnostic(code, field))
+            diagnostics.append(Diagnostic("MISSING_FIELD", field))
     filename = ISSUE_NAME.match(document.path.name)
     if not filename:
         diagnostics.append(Diagnostic("INVALID_FILENAME", document.path.name))
@@ -385,7 +160,7 @@ def validate_document(document: Document, compatibility: bool) -> List[Diagnosti
     for field, values, code in allowed:
         if field in metadata and metadata[field] not in values:
             diagnostics.append(Diagnostic(code, field))
-    for field in ("title", "short_description", "parent-plan", "closed"):
+    for field in ("title", "short_description", "parent-plan", "external-id", "closed"):
         if field in metadata and (not isinstance(metadata[field], str) or not metadata[field]):
             diagnostics.append(Diagnostic("INVALID_%s" % field.upper().replace("-", "_"), field))
     if "closed" in metadata and not DATE.fullmatch(metadata["closed"]):
@@ -404,7 +179,7 @@ def validate_document(document: Document, compatibility: bool) -> List[Diagnosti
             diagnostics.append(Diagnostic("MISSING_TERMINAL_HEADING", "## Why this exists"))
         if not _heading_present(document.body, b"## Resolution", prefix=True):
             diagnostics.append(Diagnostic("MISSING_TERMINAL_HEADING", "## Resolution"))
-        if not compatibility and "closed" not in metadata:
+        if "closed" not in metadata:
             diagnostics.append(Diagnostic("MISSING_CLOSED_DATE", "closed"))
     return sorted(diagnostics)
 
@@ -422,19 +197,16 @@ def resolve_issue_id(paths: Sequence[Path], issue_id: str) -> Path:
     raise IssueError("ISSUE_NOT_FOUND", issue_id)
 
 
-def validate(root: Path, compatibility: bool) -> List[str]:
+def validate(root: Path) -> List[str]:
     output: List[str] = []
     for path in discover_issue_paths(root):
         try:
-            diagnostics = validate_document(parse_document(path), compatibility)
+            diagnostics = validate_document(parse_document(path))
         except IssueError as error:
             output.append("%s %s" % (path.relative_to(root), error))
             continue
         for diagnostic in diagnostics:
-            if compatibility and diagnostic.code == "MISSING_LEGACY_FIELD":
-                output.append("%s %s" % (diagnostic.code, diagnostic.detail))
-            else:
-                output.append("%s %s %s" % (path.relative_to(root), diagnostic.code, diagnostic.detail))
+            output.append("%s %s %s" % (path.relative_to(root), diagnostic.code, diagnostic.detail))
     return output
 
 
@@ -442,7 +214,7 @@ def records(root: Path) -> List[Document]:
     result = []
     for path in discover_issue_paths(root):
         document = parse_document(path)
-        if validate_document(document, False):
+        if validate_document(document):
             raise IssueError("INVALID_CORPUS", path.name)
         result.append(document)
     return result
@@ -468,6 +240,11 @@ def select(records: Sequence[Document], arguments: argparse.Namespace) -> List[D
             continue
         if arguments.tag and not set(arguments.tag).issubset(metadata["tags"]):
             continue
+        query = getattr(arguments, "query", None)
+        if query:
+            searchable = "\n".join((metadata["title"], metadata["short_description"], document.body.decode("utf-8", "backslashreplace")))
+            if query.casefold() not in searchable.casefold():
+                continue
         chosen.append(document)
     return sorted(chosen, key=lambda item: (item.metadata["category"], priority[item.metadata["priority"]], item.path.stem))
 
@@ -492,8 +269,12 @@ def issue_directory(root: Path, create: bool = False) -> Path:
 
 
 @contextmanager
-def issue_lock(root: Path, create: bool = False) -> Iterator[Path]:
-    """Serialize mutations so sequence allocation and replacement share one boundary."""
+def issue_lock(root: Path, create: bool = False, shared: bool = False) -> Iterator[Path]:
+    """Lock issue reads together and serialize all issue mutations."""
+    candidate = root.resolve() / "docs" / "issues"
+    if shared and not candidate.exists():
+        yield candidate
+        return
     directory = issue_directory(root, create=create)
     lock_path = directory / ".issues.lock"
     if lock_path.exists() and lock_path.is_symlink():
@@ -508,7 +289,7 @@ def issue_lock(root: Path, create: bool = False) -> Iterator[Path]:
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise IssueError("UNSAFE_PATH", str(lock_path))
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fcntl.flock(descriptor, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
         yield directory
     finally:
         try:
@@ -518,8 +299,6 @@ def issue_lock(root: Path, create: bool = False) -> Iterator[Path]:
 
 
 def mutation_path(directory: Path, issue_id: str) -> Path:
-    if not COMPACT_ID.fullmatch(issue_id):
-        raise IssueError("INVALID_ISSUE_ID", issue_id)
     path = resolve_issue_id(discover_issue_paths(directory.parents[1]), issue_id)
     if path.parent != directory or path.is_symlink():
         raise IssueError("UNSAFE_PATH", str(path))
@@ -534,7 +313,7 @@ def mutation_path(directory: Path, issue_id: str) -> Path:
 
 def render_document(path: Path, metadata: Dict[str, Any], body: bytes) -> bytes:
     lines = ["---"]
-    for name in ("title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "closed"):
+    for name in ("title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "external-id", "closed"):
         if name not in metadata:
             continue
         value = json.dumps(metadata[name], ensure_ascii=False, separators=(",", ":"))
@@ -547,7 +326,7 @@ def render_document(path: Path, metadata: Dict[str, Any], body: bytes) -> bytes:
         elif not isinstance(value, str) or not value or _has_forbidden_characters(value):
             raise IssueError("INVALID_MUTATION", name)
     candidate = Document(path=path, metadata=metadata, body=body)
-    diagnostics = validate_document(candidate, compatibility=False)
+    diagnostics = validate_document(candidate)
     if diagnostics:
         raise IssueError("INVALID_MUTATION", ", ".join(item.code for item in diagnostics))
     return contents
@@ -559,36 +338,47 @@ def atomic_replace(path: Path, contents: bytes, expected: Optional[bytes]) -> No
     if expected is None:
         if path.exists():
             raise IssueError("ISSUE_ALREADY_EXISTS", path.name)
+        mode = 0o644
     else:
         try:
             current = path.read_bytes()
+            mode = stat.S_IMODE(path.stat().st_mode)
         except OSError as error:
             raise IssueError("PREIMAGE_CHANGED", path.name) from error
         if current != expected:
             raise IssueError("PREIMAGE_CHANGED", path.name)
     descriptor, temporary = tempfile.mkstemp(prefix=".issues-", dir=str(path.parent))
     try:
+        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(contents)
             handle.flush()
             os.fsync(handle.fileno())
-        if expected is not None and path.read_bytes() != expected:
-            raise IssueError("PREIMAGE_CHANGED", path.name)
-        os.replace(temporary, path)
+        if expected is None:
+            try:
+                os.link(temporary, path)
+            except OSError as error:
+                if error.errno == errno.EEXIST:
+                    raise IssueError("ISSUE_ALREADY_EXISTS", path.name) from error
+                raise
+        else:
+            if path.read_bytes() != expected:
+                raise IssueError("PREIMAGE_CHANGED", path.name)
+            os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
         directory_descriptor = os.open(str(path.parent), os.O_RDONLY)
         try:
             os.fsync(directory_descriptor)
         finally:
             os.close(directory_descriptor)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
 
 
 def active_document(path: Path) -> tuple[Document, bytes]:
     contents = path.read_bytes()
     document = parse_document_bytes(path, contents)
-    diagnostics = validate_document(document, compatibility=False)
+    diagnostics = validate_document(document)
     if diagnostics:
         raise IssueError("INVALID_CORPUS", path.name)
     if document.metadata["status"] not in ("open", "in-progress"):
@@ -611,21 +401,38 @@ def slugify(value: str) -> str:
 def create_issue(root: Path, arguments: argparse.Namespace) -> Path:
     with issue_lock(root, create=True) as directory:
         date = datetime.now(timezone.utc).date().isoformat()
+        external_id = getattr(arguments, "external_id", None)
+        if external_id is not None:
+            for existing_path in discover_issue_paths(root):
+                try:
+                    existing = parse_document(existing_path)
+                except IssueError:
+                    continue
+                if not validate_document(existing) and existing.metadata.get("external-id") == external_id:
+                    return existing_path
         sequences = [int(match.group(1)[11:]) for path in discover_issue_paths(root) for match in [ISSUE_NAME.match(path.name)] if match and match.group(1).startswith(date + "-")]
         sequence = max(sequences, default=0) + 1
-        if sequence > 999:
-            raise IssueError("SEQUENCE_EXHAUSTED", date)
-        filename = "%s-%03d-%s.md" % (date, sequence, slugify(arguments.title))
-        path = directory / filename
         metadata: Dict[str, Any] = {"title": arguments.title, "short_description": arguments.short_description, "type": arguments.type, "category": arguments.category, "tags": arguments.tag or [], "date": date, "status": "open", "priority": arguments.priority}
         if arguments.parent_plan:
             metadata["parent-plan"] = arguments.parent_plan
+        if external_id is not None:
+            metadata["external-id"] = external_id
         body = ("\n## Why this exists\n\n%s\n\n## Scope\n\n%s\n\n## Open decisions\n\n%s\n" % (arguments.why, arguments.scope, arguments.open_decisions)).encode("utf-8")
-        atomic_replace(path, render_document(path, metadata, body), None)
-        return path
+        while sequence <= 999:
+            filename = "%s-%03d-%s.md" % (date, sequence, slugify(arguments.title))
+            path = directory / filename
+            try:
+                atomic_replace(path, render_document(path, metadata, body), None)
+            except IssueError as error:
+                if error.code != "ISSUE_ALREADY_EXISTS":
+                    raise
+                sequence += 1
+                continue
+            return path
+        raise IssueError("SEQUENCE_EXHAUSTED", date)
 
 
-def start_issue(root: Path, issue_id: str) -> None:
+def start_issue(root: Path, issue_id: str) -> Document:
     with issue_lock(root) as directory:
         document, expected = active_document(mutation_path(directory, issue_id))
         if document.metadata["status"] != "open":
@@ -633,9 +440,10 @@ def start_issue(root: Path, issue_id: str) -> None:
         metadata = dict(document.metadata)
         metadata["status"] = "in-progress"
         replace_document(document, expected, metadata)
+        return Document(document.path, metadata, document.body)
 
 
-def edit_issue(root: Path, issue_id: str, arguments: argparse.Namespace) -> None:
+def edit_issue(root: Path, issue_id: str, arguments: argparse.Namespace) -> Document:
     values = {"title": arguments.title, "short_description": arguments.short_description, "type": arguments.type, "category": arguments.category, "priority": arguments.priority, "parent-plan": arguments.parent_plan}
     if arguments.tag is not None:
         values["tags"] = arguments.tag
@@ -647,9 +455,10 @@ def edit_issue(root: Path, issue_id: str, arguments: argparse.Namespace) -> None
         metadata = dict(document.metadata)
         metadata.update(values)
         replace_document(document, expected, metadata)
+        return Document(document.path, metadata, document.body)
 
 
-def finish_issue(root: Path, issue_id: str, status: str, resolution: str) -> None:
+def finish_issue(root: Path, issue_id: str, status: str, resolution: str) -> Document:
     if not resolution:
         raise IssueError("INVALID_RESOLUTION", "resolution text is required")
     with issue_lock(root) as directory:
@@ -661,19 +470,30 @@ def finish_issue(root: Path, issue_id: str, status: str, resolution: str) -> Non
         metadata["closed"] = datetime.now(timezone.utc).date().isoformat()
         body = document.body + b"\n## Resolution\n\n" + resolution.encode("utf-8") + b"\n"
         replace_document(document, expected, metadata, body)
+        return Document(document.path, metadata, body)
+
+
+def print_mutation(root: Path, document: Document) -> None:
+    print("id=%s path=%s status=%s" % (document.path.stem, document.path.relative_to(root), document.metadata["status"]))
+
+
+def add_read_filters(parser: argparse.ArgumentParser) -> None:
+    for name, choices in (("status", STATUSES), ("category", CATEGORIES), ("priority", PRIORITIES), ("type", TYPES)):
+        parser.add_argument("--" + name, action="append", choices=sorted(choices))
+    parser.add_argument("--tag", action="append")
+    parser.add_argument("--json", action="store_true")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="issues")
     parser.add_argument("--version", action="store_true")
     subcommands = parser.add_subparsers(dest="command")
-    validation = subcommands.add_parser("validate")
-    validation.add_argument("--compatibility", action="store_true")
+    subcommands.add_parser("validate")
     listing = subcommands.add_parser("list")
-    for name, choices in (("status", STATUSES), ("category", CATEGORIES), ("priority", PRIORITIES), ("type", TYPES)):
-        listing.add_argument("--" + name, action="append", choices=sorted(choices))
-    listing.add_argument("--tag", action="append")
-    listing.add_argument("--json", action="store_true")
+    add_read_filters(listing)
+    search = subcommands.add_parser("search")
+    search.add_argument("query")
+    add_read_filters(search)
     show = subcommands.add_parser("show")
     show.add_argument("issue_id")
     show.add_argument("--json", action="store_true")
@@ -685,6 +505,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     create.add_argument("--tag", action="append")
     create.add_argument("--priority", required=True, choices=sorted(PRIORITIES))
     create.add_argument("--parent-plan")
+    create.add_argument("--external-id")
     create.add_argument("--why", default="Describe the problem and its impact.")
     create.add_argument("--scope", default="Define the work that resolves this issue.")
     create.add_argument("--open-decisions", default="None.")
@@ -705,64 +526,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wontfix = subcommands.add_parser("wontfix")
     wontfix.add_argument("issue_id")
     wontfix.add_argument("--rationale", required=True)
-    migrate = subcommands.add_parser("migrate")
-    migrate.add_argument("operation", choices=("scaffold", "check", "dry-run", "status", "apply"))
-    migrate.add_argument("--manifest", type=Path)
-    migrate.add_argument("--approved-sha256")
     arguments = parser.parse_args(argv)
     try:
         if arguments.version:
             if arguments.command:
                 parser.error("--version cannot be combined with a command")
-            print("repository-issues-contract 1")
+            print("repository-issues-contract 2")
             return 0
         root = find_worktree()
-        if arguments.command == "migrate":
-            manifest_path = (arguments.manifest or (root / MIGRATION_MANIFEST)).resolve()
-            if arguments.operation == "scaffold":
-                manifest = build_migration_manifest(root, migration_source_commit(root))
-                write_migration_manifest(manifest_path, manifest)
-                print("%s" % manifest_path.relative_to(root))
-                return 0
-            if arguments.operation == "apply":
-                if not arguments.approved_sha256:
-                    raise IssueError("APPROVAL_HASH_REQUIRED", "supply --approved-sha256")
-                applied = apply_migration(root, manifest_path, migration_source_commit(root), arguments.approved_sha256)
-                print("migration applied: %d entries" % applied)
-                return 0
-            if arguments.approved_sha256:
-                raise IssueError("APPROVAL_HASH_UNEXPECTED", "--approved-sha256 is only valid with migrate apply")
-            manifest = read_migration_manifest(manifest_path)
-            entries = check_migration_manifest(root, manifest, migration_source_commit(root))
-            digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-            if arguments.operation == "check":
-                print("migration manifest valid: %d entries" % len(entries))
-            elif arguments.operation == "dry-run":
-                print("migration dry-run valid: %d after-images" % len(entries))
-            else:
-                print("%s %d entries %s" % (migration_status(root, entries), len(entries), digest))
-            return 0
         if arguments.command == "validate":
-            output = validate(root, arguments.compatibility)
+            with issue_lock(root, shared=True):
+                output = validate(root)
             for line in output:
                 print(line)
-            return 1 if any(not line.startswith("MISSING_LEGACY_FIELD ") for line in output) else 0
-        if arguments.command == "list":
-            result = select(records(root), arguments)
+            return 1 if output else 0
+        if arguments.command in ("list", "search"):
+            with issue_lock(root, shared=True):
+                result = select(records(root), arguments)
             if arguments.json:
                 emit_json({"issues": [summary(item) for item in result]})
             else:
+                category = None
                 for item in result:
                     value = summary(item)
+                    if value["category"] != category:
+                        category = value["category"]
+                        print("[%s]" % category)
                     print("%(id)s [%(status)s/%(priority)s] %(title)s - %(short_description)s" % value)
             return 0
         if arguments.command == "show":
-            document = parse_document(resolve_issue_id(discover_issue_paths(root), arguments.issue_id))
+            with issue_lock(root, shared=True):
+                document = parse_document(resolve_issue_id(discover_issue_paths(root), arguments.issue_id))
             if arguments.json:
-                emit_json({"body": document.body.decode("utf-8", "surrogateescape"), "id": document.path.stem, "metadata": document.metadata, "path": str(document.path.relative_to(root))})
+                emit_json({"body": document.body.decode("utf-8", "backslashreplace"), "id": document.path.stem, "metadata": document.metadata, "path": str(document.path.relative_to(root))})
             else:
                 print(document.path.stem)
                 print(document.metadata["title"])
+                sys.stdout.flush()
                 sys.stdout.buffer.write(document.body)
             return 0
         if arguments.command == "create":
@@ -770,16 +570,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(path.relative_to(root))
             return 0
         if arguments.command == "start":
-            start_issue(root, arguments.issue_id)
+            print_mutation(root, start_issue(root, arguments.issue_id))
             return 0
         if arguments.command == "edit":
-            edit_issue(root, arguments.issue_id, arguments)
+            print_mutation(root, edit_issue(root, arguments.issue_id, arguments))
             return 0
         if arguments.command == "close":
-            finish_issue(root, arguments.issue_id, "done", arguments.resolution)
+            print_mutation(root, finish_issue(root, arguments.issue_id, "done", arguments.resolution))
             return 0
         if arguments.command == "wontfix":
-            finish_issue(root, arguments.issue_id, "wontfix", arguments.rationale)
+            print_mutation(root, finish_issue(root, arguments.issue_id, "wontfix", arguments.rationale))
             return 0
         parser.error("a command is required")
     except IssueError as error:

@@ -2,8 +2,8 @@
 title: "se flow has no live PR verification — the only remaining gap from the dynamic-flow plan"
 short_description: "se flow has no live PR verification — the only remaining gap from the dynamic-flow plan"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

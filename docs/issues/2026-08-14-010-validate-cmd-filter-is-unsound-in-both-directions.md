@@ -2,8 +2,8 @@
 title: "The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones"
 short_description: "The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

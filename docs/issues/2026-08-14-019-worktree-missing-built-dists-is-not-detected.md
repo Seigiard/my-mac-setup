@@ -2,8 +2,8 @@
 title: "A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it"
 short_description: "A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it"
 type: "bug"
-category: "testing-ci"
-tags: ["testing-ci","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

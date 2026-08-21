@@ -1,6 +1,6 @@
 ---
 name: repository-issues
-description: Manage repository issues in docs/issues with scripts/issues. Use when creating, searching, validating, editing, closing, or migrating a repository issue, or when an unresolved problem needs tracking.
+description: Manage repository issues in docs/issues with scripts/issues. Use for issue queries, lifecycle changes, validation, or unresolved work.
 ---
 
 # Repository Issues
@@ -40,13 +40,18 @@ Set `critical` for urgent breakage or data loss. Set `high` for important near-t
 
 ## Commands
 
-Read first:
+List active issues and apply structured filters with `list`:
 
 ```sh
-python3 scripts/issues validate --compatibility
+python3 scripts/issues validate
 python3 scripts/issues list --status open --priority high
+python3 scripts/issues search "search text" --json
 python3 scripts/issues show 2026-08-21-001 --json
 ```
+
+The default list includes `open` and `in-progress`, groups readable output by category, and orders each category by priority and canonical ID. Repeating `--status`, `--category`, `--priority`, or `--type` matches any supplied value within that field. Repeating `--tag` requires every supplied tag. Different fields combine with AND. `search` applies the same filters and searches titles, descriptions, and bodies.
+
+`list --json` returns `{"issues":[...]}`. Each item has `category`, `id`, `priority`, `short_description`, `status`, and `title`. `show ID --json` returns `body`, `id`, `metadata`, and the repository-relative `path`. JSON keys and result ordering are stable for an unchanged corpus.
 
 Create and change lifecycle state through the CLI:
 
@@ -58,13 +63,11 @@ python3 scripts/issues close 2026-08-21-001 --resolution "Implemented and verifi
 python3 scripts/issues wontfix 2026-08-21-001 --rationale "The cost exceeds the benefit."
 ```
 
-`list` accepts repeated `--status`, `--category`, `--priority`, `--type`, and `--tag` filters. Repeated statuses and priorities match any supplied value. Repeated tags must all match. Use `--json` for machine-readable `list` and `show` output.
+On success, `create` prints the repository-relative issue path. `start`, `edit`, `close`, and `wontfix` print the canonical ID, path, and resulting status. Run `validate` before treating a mutation as complete.
 
-Use `validate` without `--compatibility` after the corpus is migrated. The compatibility mode reports legacy missing fields but does not rewrite records.
+Success exits `0`. Strict validation violations exit `1`. CLI contract errors exit `2`, write `CODE: detail` to stderr, and leave issue files unchanged. Argument parser errors also exit `2` with argparse usage text.
 
-## Migration Approval
-
-Use `migrate` only after a maintainer approves the reviewed migration manifest. Before approval, provide the exact manifest path, its SHA-256, and the committed source revision. Do not apply, regenerate, or alter the manifest while awaiting approval. After approval, run the approved migration and `python3 scripts/issues validate`.
+Use `validate` to check the complete current corpus without rewriting records.
 
 ## Escalation
 

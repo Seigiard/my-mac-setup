@@ -2,8 +2,8 @@
 title: "plugin-doctor command exists only on the host, not reproducible from the repo"
 short_description: "plugin-doctor command exists only on the host, not reproducible from the repo"
 type: "bug"
-category: "testing-ci"
-tags: ["testing-ci","bug"]
+category: "agent-platform"
+tags: ["agent-platform","bug"]
 date: "2026-08-21"
 status: "wontfix"
 priority: "low"

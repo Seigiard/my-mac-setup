@@ -2,8 +2,8 @@
 title: "Review-leg status allowlist false-fails healthy legs and forces a needless approval"
 short_description: "Review-leg status allowlist false-fails healthy legs and forces a needless approval"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-14"
 status: "done"
 priority: "low"

@@ -2,8 +2,8 @@
 title: "se-simplify apply leg dies on APPLY_TIMEOUT_MS in repos with a slow test suite"
 short_description: "se-simplify apply leg dies on APPLY_TIMEOUT_MS in repos with a slow test suite"
 type: "bug"
-category: "testing-ci"
-tags: ["testing-ci","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-20"
 status: "open"
 priority: "high"

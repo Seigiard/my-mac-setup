@@ -2,8 +2,8 @@
 title: "Pre-external secret boundary for standalone se-* harnesses"
 short_description: "Pre-external secret boundary for standalone se-* harnesses"
 type: "follow-up"
-category: "repository-maintenance"
-tags: ["repository-maintenance","follow-up"]
+category: "se-pipeline"
+tags: ["se-pipeline","follow-up"]
 date: "2026-07-27"
 status: "done"
 priority: "low"

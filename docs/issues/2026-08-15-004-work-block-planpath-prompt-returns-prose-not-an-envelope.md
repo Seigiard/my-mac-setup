@@ -2,8 +2,8 @@
 title: "The work block's planPath prompt got prose back, not the return-to-caller envelope"
 short_description: "The work block's planPath prompt got prose back, not the return-to-caller envelope"
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "se-pipeline"
+tags: ["se-pipeline","bug"]
 date: "2026-08-15"
 status: "done"
 priority: "low"
