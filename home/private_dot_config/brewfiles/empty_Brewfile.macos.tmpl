@@ -2,7 +2,7 @@
 {{- /*                                                                                                */ -}}
 {{- /* The guard covers the whole file: no test in tests/ references any cask                         */ -}}
 {{- /* here, nor elio, rgrc, terminal-notifier or linear. On push/PR CI this                          */ -}}
-{{- /* renders empty, which `brew bundle` accepts. The casks are 291 s of the                         */ -}}
+{{- /* renders to zero bytes; see the note below. The casks are 291 s of the                         */ -}}
 {{- /* 400 s macOS apply step, so this file is where nearly all of the saving is.                     */ -}}
 {{- /*                                                                                                */ -}}
 {{- /* Guarding the 1password-cli cask has a second effect worth knowing: it                          */ -}}
@@ -11,6 +11,15 @@
 {{- /*                                                                                                */ -}}
 {{- /* See Brewfile.tmpl for why the flag is read with `get` rather than as                           */ -}}
 {{- /* `.ci_minimal`, and for why every comment here is a template comment.                           */ -}}
+{{- /*                                                                                                */ -}}
+{{- /* The `empty_` prefix on this file's name is load-bearing, not decoration.                       */ -}}
+{{- /* chezmoi deletes a file whose template renders to nothing unless the source                     */ -}}
+{{- /* name carries that attribute, and the minimal render here is exactly zero                       */ -}}
+{{- /* bytes. `brew bundle` is perfectly happy with an empty file — the problem                       */ -}}
+{{- /* is that without the attribute there is no file at all, so the apply dies                       */ -}}
+{{- /* on the next line of run_onchange_after_1 with "No Brewfile found".                             */ -}}
+{{- /* chezmoi strips the attribute from the target path, so the deployed name                        */ -}}
+{{- /* stays ~/.config/brewfiles/Brewfile.macos.                                                      */ -}}
 {{- $full := not (get . "ci_minimal") -}}
 {{ if $full -}}
 # macOS-specific packages
