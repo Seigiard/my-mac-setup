@@ -340,13 +340,19 @@ render_with_source() {
 BREWFILE_TMPL="private_dot_config/brewfiles/Brewfile.tmpl"
 BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/Brewfile.macos.tmpl"
 
-# The entries the audit proved the suite resolves from the brew prefix: jq
-# directly, grc for the python3 that gates all of palette.bats, node for the
-# sqlite3 that gates seven tests, and bun because the macOS job's setup-bun
-# step runs after the apply.
+# The entries the suite actually needs from the brew prefix: jq directly, grc
+# for the python3 that gates all of palette.bats, node for the sqlite3 that
+# gates seven tests, bun because the macOS job's setup-bun step runs after the
+# apply, and git because the deployed .gitconfig sets merge.conflictStyle =
+# zdiff3, which apt's git 2.34.1 rejects outright.
+#
+# Every one of these is here because removing it broke something observable.
+# Anything added without that evidence is install time the CI runs pay for
+# nothing — the point of the guard is that this list stays honest.
 assert_minimal_brewfile() {
   assert_line 'tap "oven-sh/bun", trusted: true'
   assert_line --partial 'brew "grc"'
+  assert_line 'brew "git"'
   assert_line 'brew "node"'
   assert_line --partial 'brew "oven-sh/bun/bun"'
   assert_line 'brew "jq"'

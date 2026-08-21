@@ -31,9 +31,10 @@ brew "starship"
 {{/* grc is kept: it is the only source of python3 in the Docker image, and tests/palette.bats guards the whole file on python3 */ -}}
 brew "grc"          # generic colouriser
 
-{{ if $full -}}
 # Git tools
+{{/* git is kept, folded back after the minimal render failed the Docker suite: the deployed .gitconfig sets merge.conflictStyle = zdiff3, which needs git >= 2.35, and Ubuntu 22.04's apt git is 2.34.1 — the apply's Oh My Zsh clone aborts on it before any test runs */ -}}
 brew "git"
+{{ if $full -}}
 brew "gh"
 brew "delta"
 brew "lazygit"
@@ -41,8 +42,7 @@ brew "lazygit"
 # Version & package managers
 brew "mise"
 brew "ni"
-
-{{ end -}}
+{{ end }}
 # JavaScript runtimes
 {{/* node is kept: it is the only source of sqlite3 in the Docker image, which seven tests guard on */ -}}
 brew "node"
