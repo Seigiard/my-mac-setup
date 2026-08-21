@@ -1,5 +1,6 @@
 ---
 date: 2026-06-26
+status: open
 type: feat
 origin: docs/brainstorms/2026-06-26-reproduce-agent-setup-requirements.md
 ---

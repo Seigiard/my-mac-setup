@@ -2,6 +2,7 @@
 title: Child Agent Launch Contract - Plan
 type: feat
 date: 2026-08-17
+status: done
 topic: child-agent-launch-contract
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

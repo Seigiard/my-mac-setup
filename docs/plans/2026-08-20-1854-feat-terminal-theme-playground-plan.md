@@ -2,6 +2,7 @@
 title: Terminal Theme Playground - Plan
 type: feat
 date: 2026-08-20
+status: done
 origin: docs/brainstorms/2026-08-20-terminal-theme-playground.md
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

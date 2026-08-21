@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # Chezmoi Testing Design
 
 **Date:** 2026-03-03

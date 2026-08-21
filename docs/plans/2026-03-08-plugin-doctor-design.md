@@ -1,3 +1,8 @@
+---
+status: superseded
+superseded-by: commit d4e32f9 — command dropped in favor of an external plugin (reproducibility gap filed separately)
+---
+
 # Plugin Doctor — Design
 
 ## Problem

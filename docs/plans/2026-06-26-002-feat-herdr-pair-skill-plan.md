@@ -1,6 +1,8 @@
 ---
 title: "feat: herdr-pair peer-agent skill (claude↔claude, claude↔pi)"
 date: 2026-06-26
+status: superseded
+superseded-by: docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md
 type: feat
 depth: standard
 origin: memory/herdr-skills-roadmap (Stage 3); base skill hcaiano/skills/skills/herdr-pair

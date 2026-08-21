@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # Herdr Label System — branch-first `$git_ref` grammar
 
 Design and implementation plan for Herdr tab labels, pane labels, and agent-sidebar rows.

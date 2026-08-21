@@ -1,3 +1,8 @@
+---
+status: superseded
+superseded-by: commit c05718a — curl-based skills replaced by marketplace MCP plugins
+---
+
 # Context7 Skill Auth Fix — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

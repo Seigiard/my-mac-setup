@@ -1,3 +1,8 @@
+---
+status: superseded
+superseded-by: commit c05718a — curl-based skills replaced by marketplace MCP plugins
+---
+
 # Context7 Skill Auth Fix
 
 ## Problem

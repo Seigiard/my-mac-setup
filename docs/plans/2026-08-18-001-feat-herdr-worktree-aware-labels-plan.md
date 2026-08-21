@@ -2,6 +2,7 @@
 title: Herdr Worktree-Aware Labels - Plan
 type: feat
 date: 2026-08-18
+status: done
 deepened: 2026-08-18
 topic: herdr-worktree-aware-labels
 artifact_contract: ce-unified-plan/v1

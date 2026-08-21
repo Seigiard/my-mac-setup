@@ -2,6 +2,7 @@
 title: CI Workflow Hygiene - Plan
 type: chore
 date: 2026-08-20
+status: open
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 product_contract_source: ce-plan-bootstrap

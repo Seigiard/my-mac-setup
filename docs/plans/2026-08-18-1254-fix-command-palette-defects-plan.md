@@ -1,6 +1,7 @@
 ---
 title: "fix: Six verified defects in the herdr command palette"
 date: 2026-08-18
+status: open
 type: fix
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # Chezmoi Test Isolation: Prevent Config Overwrite
 
 ## Problem
