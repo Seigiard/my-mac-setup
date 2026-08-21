@@ -130,6 +130,7 @@ class MigrationTests(IssueFixtures):
         self.assertEqual(len(paths), len(set(paths)))
         for entry in manifest["entries"]:
             self.assertEqual(module.sha256(REPOSITORY / entry["path"]), entry["before_sha256"])
+            self.assertFalse(set(entry["proposed_metadata"]["tags"]) & module.STATUSES)
 
     def test_check_rejects_an_issue_changed_after_scaffolding(self):
         module = self.module()

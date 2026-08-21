@@ -127,7 +127,7 @@ def migration_metadata(document: Document, open_priorities: Dict[str, str]) -> t
         priority = "low"
         priority_evidence = "Terminal issue; assigned low review priority."
     short_description = title[:157].rstrip() + ("..." if len(title) > 157 else "")
-    metadata = {"category": category, "priority": priority, "tags": [category, document.metadata["type"], status], "short_description": short_description}
+    metadata = {"category": category, "priority": priority, "tags": [category, document.metadata["type"]], "short_description": short_description}
     return metadata, "%s %s" % (evidence, priority_evidence)
 
 
