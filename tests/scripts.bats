@@ -57,7 +57,7 @@ render_install_packages() {
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
 
-  BATS_TEST_TMPFILE="$(mktemp /tmp/install-packages-XXXXXX.sh)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/install-packages.sh"
   render_install_packages > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
@@ -740,7 +740,7 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
 @test "herdr-integrations script renders to valid bash" {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/herdr-integrations-XXXXXX.sh)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
@@ -761,7 +761,7 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
 @test "herdr-integrations script exits 0 and skips when herdr is absent" {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/herdr-integrations-XXXXXX.sh)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
@@ -847,7 +847,7 @@ EOF
 @test "settings template registers both PreToolUse hooks with their matchers" {
   skip_if_no_chezmoi
   local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/claude-settings-XXXXXX.json)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/claude-settings.json"
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
   run python3 - "$BATS_TEST_TMPFILE" <<'PY'
 import json, sys
@@ -1112,7 +1112,7 @@ fixture="$root/$call"
 mkdir -p "$fixture"
 cat > "$fixture/stdin"
 : > "$fixture/started"
-for _ in $(seq 1 1000); do
+for _ in $(seq 1 "${HTS_WAIT_POLLS:-6000}"); do
   [ -e "$fixture/release" ] && break
   sleep 0.01
 done
@@ -1232,7 +1232,7 @@ hts_run_for_socket() {
     HERDR_PANE_ID=pane-1 \
     HERDR_SOCKET_PATH="$socket_path" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
     HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
@@ -1246,7 +1246,7 @@ hts_worker_run() {
     HERDR_PANE_ID=pane-1 \
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
@@ -1373,11 +1373,86 @@ hts_after_call_script() {
   printf '%s\n' "$3" > "$dir/after/$2.sh"
 }
 
+# Git-probe budget for every location pass, via hts_location_pass's own default.
+# It only has to be long enough for a HEALTHY probe to finish: the engine's
+# watchdog cancels its timer the moment the probe returns, so a generous value
+# costs a passing run nothing. At 0.075 it was calibrated on an idle machine and
+# SIGKILLs healthy probes as soon as the suite runs with --jobs, which reads as a
+# coordinator bug rather than as the load artifact it is.
+#
+# Three tests do pay it in full, because they point a probe at a `block` fixture
+# that spins on a `release` file they never create, and a budget only expires
+# when nothing returns. That is ~1.9 s each. A second, smaller constant for
+# those three would not be safe: each of them runs healthy probes on the same
+# pass -- the eight-pane coordinator test runs seven -- and a tighter budget
+# would SIGKILL those, which is the failure this value exists to prevent.
+HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
+
+# Bound for the "fails open promptly rather than hanging" assertions. They
+# guard against a worker that blocks or retries without end; they are not
+# performance benchmarks. Two seconds was calibrated on an idle machine and
+# goes red under --jobs contention with no regression behind it -- the same
+# trap the eight-pane coordinator test documents above its own deadline.
+HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
+
+# Watchdog for a single engine call, enforced by `kill -9` inside the engine's
+# own run_with_timeout. It is a hang guard, not a budget: every test here stubs
+# the engine, so it should never fire. The old 5 s left the R8 test -- which
+# stubs an engine that sleeps 4 s on purpose -- a one-second margin, and under
+# --jobs contention the stub loses that race and gets SIGKILLed mid-call. The
+# invocation then commits nothing and the ordering tests that wait on that
+# commit time out, which reads as a coordinator ordering bug rather than as the
+# load artifact it is. 30 s tracks ENGINE_TIMEOUT in
+# home/dot_local/bin/executable_herdr-task-sync, so the tests now run the
+# shipped watchdog instead of a tightened test-only one -- keep the two in step
+# if that default ever moves. The single test that wants the watchdog to fire
+# pins HTS_TIMEOUT=1 for itself.
+HTS_ENGINE_WATCHDOG_SECONDS="${HTS_ENGINE_WATCHDOG_SECONDS:-30}"
+
+# Ceiling for the "poll until the state settles" helpers. The helpers sleep at
+# three different intervals, so each gets its own poll count derived from the one
+# ceiling rather than a separately hand-computed literal. Every one of them
+# returns the moment its condition holds, so a high ceiling costs a healthy run
+# nothing; it only decides how long a genuinely stuck run waits before it reports
+# failure. The previous 10s and 15s ceilings were calibrated on an idle machine,
+# and a multi-step fixture under --jobs contention can legitimately exceed them
+# -- which surfaced as a hang that was really load.
+HTS_WAIT_CEILING_SECONDS="${HTS_WAIT_CEILING_SECONDS:-60}"
+HTS_WAIT_POLLS="${HTS_WAIT_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 100))}"        # sleep 0.01
+HTS_WAIT_SLOW_POLLS="${HTS_WAIT_SLOW_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 4))}"  # sleep 0.25
+HTS_WAIT_MATCH_POLLS="${HTS_WAIT_MATCH_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 40))}" # sleep 0.025
+# The model stub is written from a quoted heredoc and runs as its own process,
+# so it reads its ceiling from the environment rather than from file scope. The
+# other two are only ever read by functions in this file.
+export HTS_WAIT_POLLS
+
+
+
 hts_wait_for_file() {
   local file="$1" i
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     [[ -e "$file" ]] && return 0
     sleep 0.01
+  done
+  return 1
+}
+
+# Waits for a file to CONTAIN something, not merely to exist. The adapter's
+# stub is spawned by the plugin and writes its line after bun's hooks have all
+# returned, so on a loaded machine the log can be absent or empty at the moment
+# the test reads it. This is the same distinction hts_wait_for_publish draws for
+# the same reason (docs/issues/2026-08-14-001).
+hts_wait_for_file_match() {
+  local file="$1" pattern="$2" i
+  for i in $(seq 1 $HTS_WAIT_MATCH_POLLS); do
+    if [[ -e "$file" ]] && grep -q -- "$pattern" "$file"; then
+      # Settle briefly so a second, unwanted line would also have landed --
+      # this test asserts the log holds exactly one call, and returning the
+      # instant the first line appears would hide a duplicate.
+      sleep 0.1
+      return 0
+    fi
+    sleep 0.025
   done
   return 1
 }
@@ -1489,7 +1564,7 @@ hts_set_pane_location() {
 }
 
 hts_location_pass() {
-  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.2}" hts_event_run
+  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" hts_event_run
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
 }
 
@@ -1585,7 +1660,7 @@ hts_presentation_run() {
 # call must wait for that call and not for the first line of the log.
 hts_wait_for_call() {
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $HTS_WAIT_SLOW_POLLS); do
     grep -q -- "$1" "$HTS_LOG" && return 0
     sleep 0.25
   done
@@ -1613,7 +1688,7 @@ hts_wait_for_worker_exit() {
 # one guarantee a log-based wait cannot give while two workers overlap.
 hts_wait_for_state() {
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $HTS_WAIT_SLOW_POLLS); do
     [[ -s "$1" ]] && return 0
     sleep 0.25
   done
@@ -1705,7 +1780,7 @@ hts_record_number() {
 
 hts_wait_for_record_number() {
   local file="$1" field="$2" expected="$3" i value
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     value="$(hts_record_number "$file" "$field" 2>/dev/null || true)"
     [[ -n "$value" && "$value" -ge "$expected" ]] && return 0
     sleep 0.01
@@ -1716,7 +1791,7 @@ hts_wait_for_record_number() {
 hts_wait_for_quiescence() {
   local control="$1" i generation committed worker_claim
   worker_claim="$(dirname "$control")/worker.claim"
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     generation="$(hts_record_number "$control" generation 2>/dev/null || true)"
     committed="$(hts_record_number "$control" committed_generation 2>/dev/null || true)"
     if [[ -n "$generation" && "$generation" = "$committed" && ! -d "$worker_claim" ]]; then
@@ -1733,7 +1808,7 @@ hts_wait_for_presentation_quiescence() {
   namespace="$(hts_namespace "$1")"
   reconcile="$namespace/reconcile.state"
   claim="$namespace/presentation.claim"
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     pending="$(hts_record_number "$reconcile" pending_generation 2>/dev/null || true)"
     completed="$(hts_record_number "$reconcile" completed_generation 2>/dev/null || true)"
     if [[ -n "$pending" && "$pending" -gt 0 && "$pending" = "$completed" && ! -d "$claim" ]]; then
@@ -1756,7 +1831,7 @@ hts_write_legacy_state() {
 
 hts_wait_for_task_slug() {
   local file="$1" expected="$2" i
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     [[ "$(hts_record_text "$file" slug 2>/dev/null || true)" = "$expected" ]] && return 0
     sleep 0.01
   done
@@ -1805,13 +1880,18 @@ command = [
     "--filter",
     "^herdr-task-sync descriptor child probe$",
 ]
+# This bound exists to catch a genuine hang, not to measure speed. It has to
+# clear the worst case of an inner Bats run competing with every other test in
+# a --jobs run, so it is generous rather than tight; 12s was calibrated on an
+# idle machine and timed out under parallel load.
+budget = int(os.environ.get("HTS_INNER_BATS_TIMEOUT", "90"))
 try:
-    result = subprocess.run(command, capture_output=True, text=True, timeout=12)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=budget)
 except subprocess.TimeoutExpired as error:
     Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"]).touch()
     if error.stdout:
         sys.stdout.write(error.stdout if isinstance(error.stdout, str) else error.stdout.decode())
-    print("inner Bats invocation exceeded 12 seconds", file=sys.stderr)
+    print(f"inner Bats invocation exceeded {budget} seconds", file=sys.stderr)
     raise SystemExit(124)
 
 sys.stdout.write(result.stdout)
@@ -2312,7 +2392,7 @@ PY
     bash "$HTS_ENGINE" --agent claude --session missing <<< 'missing herdr'
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]]
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
 
   hts_setup
   pane_dir="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)"
@@ -2341,7 +2421,7 @@ PY
   run hts_worker_run
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]]
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]]
 
@@ -2356,7 +2436,7 @@ PY
   run hts_worker_run
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]]
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]]
   assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"
@@ -2504,6 +2584,7 @@ SH
     await hooks["chat.message"]({ sessionID: "child-1" }, { parts: [{ type: "text", text: "new root prompt" }] })
   '
   assert_success
+  hts_wait_for_file_match "$log" "--agent opencode --session child-1"
   run cat "$log"
   assert_output "--agent opencode --session child-1"
 }
@@ -2626,7 +2707,12 @@ SH
   local pause="$HTS_WORK/release-edge"
   HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="$pause" hts_event_run
   hts_wait_for_file "$pause.reached"
-  hts_event_run
+  # The second event only has to make an invalidation pending; letting it also
+  # start a presentation of its own races the paused pass under load, which
+  # adds a third snapshot and reads as a lost invalidation when it is not.
+  # Suppressing it keeps the recheck the only route to the second snapshot, so
+  # the exact count below still means what the test name says.
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
   : > "$pause.release"
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
   run grep -c '^api snapshot' "$HTS_LOG"
@@ -2912,7 +2998,7 @@ process_start=$(printf '%s' "$successor_start" | base64 | tr -d '\n')
 socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')
 EOF
   : > "$pause.release"
-  for _ in $(seq 1 1000); do
+  for _ in $(seq 1 $HTS_WAIT_POLLS); do
     kill -0 "$predecessor_pid" 2>/dev/null || break
     sleep 0.01
   done
@@ -3198,7 +3284,7 @@ EOF
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   # when: the very first pass for this pane — no prior location state exists
-  HERDR_TASK_SYNC_GIT_BUDGET=0.075 hts_location_pass
+  hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   # then: the SHA probe fired, its budget failure discarded the freshly
   # resolved root, and with nothing prior to retain the pane renders with no
@@ -3276,7 +3362,7 @@ EOF
 
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
-  HERDR_TASK_SYNC_GIT_BUDGET=0.075 hts_location_pass
+  hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" repaired
@@ -3332,7 +3418,7 @@ EOF
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="$HTS_WORK/location-probes-started"
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT=8
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="$HTS_WORK/location-probes-release"
-  export HERDR_TASK_SYNC_GIT_BUDGET=0.075
+  export HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET
   hts_presentation_run &
   coordinator_pid=$!
   # The barrier is what proves concurrency: every probe publishes its marker and then
@@ -4135,16 +4221,47 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   assert_output --partial "Current name: (none)"
 }
 
+# The tests run the engine's two timing budgets at load-tolerant values, because
+# the shipped ones are too tight to survive --jobs contention on a busy machine.
+# That is deliberate, and it costs the coverage this test buys back: nothing else
+# in the suite would notice if a shipped default moved or disappeared, so a
+# production change from 75 ms to seconds -- or to no budget at all -- would go
+# out green.
+#
+# Asserted statically against the source rather than by timing a probe. A timing
+# assertion at 75 ms is exactly the idle-machine calibration that made these
+# tests flaky under load in the first place; reading the shipped default has no
+# such failure mode.
+@test "herdr-task-sync ships the timing defaults the tests deliberately override" {
+  run grep -c 'LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"' "$HTS_ENGINE"
+  assert_output "1"
+  run grep -c 'ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"' "$HTS_ENGINE"
+  assert_output "1"
+  # The watchdog default above is the value HTS_ENGINE_WATCHDOG_SECONDS tracks,
+  # so a change to either side without the other turns this red.
+  assert_equal "$HTS_ENGINE_WATCHDOG_SECONDS" 30
+}
+
 # R8: the adapter's call must not wait on the model.
+#
+# The property is causal, not temporal, so assert it causally. The controlled
+# engine blocks until its release marker exists, so an entry point that waited
+# on the model could not return at all -- the regression turns this test red by
+# hanging, not by exceeding a number. The previous form timed the entry point
+# against a wall-clock bound while the stub slept a fixed 4 s, which only
+# discriminates while the bound stays under 4 s; once the bound moved to the
+# suite's load-tolerant ceiling a synchronous wait passed it comfortably.
 @test "herdr-task-sync returns before the naming engine finishes (R8)" {
   hts_setup
-  hts_stub_engine pi late-slug 0 4
-  local start end
-  start="$(date +%s)"
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 late-slug
   run hts_run --agent claude --session s1 <<< 'a slow substantive prompt'
-  end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]] || fail "entry point blocked for $((end - start))s"
+  # Not vacuous: the engine really was invoked, and it really had not finished
+  # when the entry point returned.
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  assert_file_not_exists "$HTS_WORK/models/pi/1/completed"
+  hts_release_model pi 1
   hts_wait_for_publish
   assert_equal "$(hts_token)" "late-slug"
 }
@@ -4155,17 +4272,25 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
 # published slug; wordier output is treated as a failed naming call instead.
 @test "herdr-task-sync normalizes a hostile engine slug (KTD8)" {
   hts_setup
-  cat > "$HTS_STUB/pi" <<'SH'
+  # Unique per test so concurrent tests cannot collide, and deliberately a
+  # single slug word: the payload normalizes to cache-touch-tmp-htspwnN-review,
+  # exactly SLUG_MAX_WORDS. A longer path (a $BATS_TEST_TMPDIR one, say) adds
+  # words, the engine reads the answer as prose and publishes nothing, and this
+  # test then fails waiting for a publish rather than on what it asserts.
+  # rm -f clears any file a previous run's payload managed to create.
+  local pwn="/tmp/htspwn$BATS_TEST_NUMBER"
+  rm -f "$pwn"
+  cat > "$HTS_STUB/pi" <<SH
 #!/usr/bin/env bash
 cat >/dev/null
-printf '\n  cache $(touch /tmp/htspwn) \033[31mREVIEW\nsecond line\n'
+printf '\n  cache \$(touch $pwn) \033[31mREVIEW\nsecond line\n'
 SH
   chmod +x "$HTS_STUB/pi"
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_publish
   run bash -c "printf '%s' '$(hts_token)' | grep -Eq '^[a-z0-9-]{1,40}\$'"
   assert_success
-  assert_file_not_exists /tmp/htspwn
+  assert_file_not_exists "$pwn"
 }
 
 # KTD7: a naming call that fires the agent's own hooks must not recurse.
@@ -4476,7 +4601,7 @@ SH
   : > "$dir/fail-snapshot"
   HTS_SWEEP_INTERVAL=0.01 hts_sweep_run --sweep-daemon &
   daemon_pid=$!
-  for i in $(seq 1 200); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     kill -0 "$daemon_pid" 2>/dev/null || break
     sleep 0.01
   done
@@ -4598,10 +4723,9 @@ EOF
 @test "se pipeline --setup-cmd lands in the workflow input JSON" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local plan
-  plan="$(mktemp /tmp/se-dryrun-plan-XXXXXX.md)"
+  plan="$BATS_TEST_TMPDIR/se-dryrun-plan.md"
   printf -- '---\nartifact_contract: ce-unified-plan/v1\n---\n# t\n' > "$plan"
   run env SE_DRY_RUN=1 "$se_bin" pipeline "$plan" --setup-cmd 'bun install && bunx turbo run build --filter=@x/y'
-  rm -f "$plan"
   assert_success
   assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
 }
@@ -4609,16 +4733,15 @@ EOF
 @test "se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --budget 12 --setup-cmd 'make setup' --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial 'workflows/se-flow.tsx'
   assert_output --partial '"budgetUsd":12'
   assert_output --partial '"setupCmd":"make setup"'
   assert_output --partial '"specPath":"'
-  assert_output --partial 'se-flow-spec-'
+  assert_output --partial 'se-flow-spec.json'
 }
 
 @test "se flow --validate-cmd lands the operator's command in the workflow input JSON" {
@@ -4627,10 +4750,9 @@ EOF
   # and run-validate can only ever record exitCode null.
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --validate-cmd 'bun test' --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial '"validateCmd":"bun test"'
 }
@@ -4638,10 +4760,9 @@ EOF
 @test "se flow without --validate-cmd sends an empty command, not a missing key" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial '"validateCmd":""'
 }
@@ -4651,14 +4772,13 @@ EOF
   # starts. A bare command line does not carry that.
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   cat > "$spec" <<'JSON'
 {"task":{"description":"printout fixture"},"repo":"/tmp/r","blocks":[
  {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
  {"id":"scan","block":"secret-scan","input":{},"retries":0,"timeoutMs":120000,"after":["implement"],"bindTo":["implement"]}]}
 JSON
   run env "$se_bin" flow "$spec" --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial 'flow: printout fixture'
   assert_output --partial '2 blocks, estimated ~$'
@@ -4671,14 +4791,13 @@ JSON
   # interpreter's gate-0 after a run has already been created.
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   cat > "$spec" <<'JSON'
 {"task":{"description":"unscanned publish"},"repo":"/tmp/r","blocks":[
  {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
  {"id":"ship","block":"pr","input":{"title":"t"},"retries":0,"timeoutMs":300000,"after":["implement"],"bindTo":["implement"]}]}
 JSON
   run env "$se_bin" flow "$spec" --dry-run
-  rm -f "$spec"
   assert_failure
   assert_output --partial 'scan-before-external'
 }
@@ -4686,10 +4805,9 @@ JSON
 @test "se flow rejects a non-numeric budget" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{}' > "$spec"
   run env "$se_bin" flow "$spec" --budget abc --dry-run
-  rm -f "$spec"
   assert_failure
 }
 

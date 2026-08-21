@@ -44,3 +44,25 @@ Give the invocation one definition and have every site call it. Options worth we
   already routes local test entry points through the `Makefile`.
 - Should the guard test be added regardless of which approach wins, as defence against a
   future sixth site?
+
+## Update 2026-08-21: the fifth site now exists
+
+`docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md` landed, so this is
+no longer a prediction. The invocation is now written out five times, and four of
+them carry behaviour rather than just a file list:
+
+- `.github/workflows/test-dotfiles.yml`, `test-ubuntu` -- `bats --jobs 8 --no-parallelize-across-files <5 files>`
+- `.github/workflows/test-dotfiles.yml`, `test-macos` -- same
+- `docker/docker-compose.yml`, `test-full` -- same
+- `docker/docker-compose.yml`, `test-quick` -- same
+- `Makefile`, `test-suite` -- same flags over **four** files, not five
+
+That last one is a deliberate difference, not drift: the local target omits
+`tests/idempotent.bats` because it runs `chezmoi apply` with no `--destination`
+and would deploy the checkout over the developer's live dotfiles
+(`docs/issues/2026-08-21-004`). Any single-definition fix has to keep the
+host-safe subset expressible, so a plain shared constant is not sufficient on its
+own -- it needs the file list and the host-safe file list as two names.
+
+The drift risk named above is now concrete: dropping `--jobs 8` from any one site
+silently returns that runtime to sequential execution, and nothing goes red.

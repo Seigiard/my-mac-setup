@@ -90,7 +90,7 @@ Bats ≥ 1.5 supports `--jobs N`; the repo runs Bats 1.14 locally, apt bats 1.10
 
 - KTD1. **`--jobs N --no-parallelize-across-files`: parallel within a file, files sequential.** (session-settled: user-approved — chosen over full cross-file parallelism: `tests/idempotent.bats` mutates the shared `$HOME` via real `chezmoi apply` while other files read deployed files from it; cross-file interleaving is unsafe without a bigger refactor.) `tests/scripts.bats` holds 194 of the 330 tests and its tests are stub-isolated in per-test temp dirs, so the dominant file parallelizes well. The measured split confirms this is where the decision pays: that one file is 85% of the Ubuntu baseline (Problem Frame).
 - KTD2. **Per-file serialization via `BATS_NO_PARALLELIZE_WITHIN_FILE=true`, set at file scope in unsafe files.** Bats honors this variable per file; it keeps the opt-out next to the code that needs it instead of in the runner invocation. `tests/idempotent.bats` gets it unconditionally (R3); U1's audit decides the rest.
-- KTD3. **Job count is set by measurement, not by core count.** Bats' dispatcher polls on a one-second sleep (Problem Frame), so within-file throughput is bounded near `--jobs` tests per second and oversubscribing past core count costs little. Sizing to cores optimizes the wrong axis: on a 4-core runner at `--jobs 4`, short tests can show no speedup at all. U0 measures Ubuntu wall time at 4, 8, and 12 jobs and the plan adopts the best value as a fixed literal in CI, Docker, and the local `make` target. A fixed literal is still preferred over a dynamic `nproc` expression — `nproc` is coreutils-only and coreutils is not in the Brewfile, so the dynamic form would not work on a freshly provisioned macOS host.
+- KTD3. **Job count is set by measurement, not by core count.** Bats' dispatcher polls on a one-second sleep (Problem Frame), so within-file throughput is bounded near `--jobs` tests per second and oversubscribing past core count costs little. Sizing to cores optimizes the wrong axis: on a 4-core runner at `--jobs 4`, short tests can show no speedup at all. U0 measures Ubuntu wall time at 4, 8, and 12 jobs and the plan adopts the best value as a fixed literal in CI, Docker, and the local `make` target. **Measured, and settled at `--jobs 8`** — see *U0 Results* below. 12 is 2.5% faster than 8 on Ubuntu but both slower and materially less stable on the 3-core macOS runner, so 8 is the single literal. A fixed literal is still preferred over a dynamic `nproc` expression — `nproc` is coreutils-only and coreutils is not in the Brewfile, so the dynamic form would not work on a freshly provisioned macOS host.
 - KTD4. **The runtime dependency is `flock` / `shlock`, not GNU parallel — nothing needs installing.** Bats shells out to `parallel` only on the cross-file branch, guarded by `[[ -z "$bats_no_parallelize_across_files" ]]` in `libexec/bats-core/bats-exec-suite`. KTD1's `--no-parallelize-across-files` takes the other branch, so `parallel` is never invoked. Within-file parallelism runs on bats' own semaphore, which requires `flock` or `shlock` and hard-exits with `ERROR: flock/shlock is required for parallelization within files!` when neither is present. Verified empirically: on a macOS host with no `parallel` installed, `bats --jobs 4 --no-parallelize-across-files` runs clean while the same command without the flag dies with `parallel: command not found`. `flock` ships in ubuntu:22.04 (the Docker base) and ubuntu-24.04; macOS has no `flock` but ships `/usr/bin/shlock`. So no package is needed on any target — U2 asserts presence instead of installing. (Ubuntu's apt `bats` also already lists `parallel` under Recommends, making the apt step redundant twice over.)
 - KTD5. **CI step wall time is the only enforced speed gate.** Docker and local runs prove stability, not speed. `make test-ubuntu` runs the compose `test-quick` service end to end — source copy, `chezmoi init`, `tests/templates.bats`, a full `chezmoi apply` including `brew bundle`, then the suite — so container wall time is dominated by the apply, and nothing in `docker/docker-compose.yml` times the bats call separately. There is no comparable number to measure against the CI step baselines, so the plan does not pretend to gate on one.
 
@@ -99,6 +99,121 @@ Bats ≥ 1.5 supports `--jobs N`; the repo runs Bats 1.14 locally, apt bats 1.10
 - The known flake surface holds under higher load. Issue `2026-08-20-010` documented two tests flaking under full-suite load; one was fixed, the other closed unreproduced with nothing changed (Goal Capsule — Authority). Within-file parallelism raises exactly the contention profile 010 named. U4's repetitions are the check; a recurrence is a test bug to fix and a reason to reopen 010, not a reason to abandon parallelism (the stop conditions govern the exceptions).
 - `mktemp`-based temp paths in `tests/scripts.bats` and `BATS_TEST_TMPDIR` usage elsewhere provide sufficient per-test isolation. Partly verified already: no `setup_file` / `teardown_file` / `$BATS_SUITE_TMPDIR` usage exists anywhere in `tests/*.bats`; `tests/scripts.bats` has zero `$HOME` references and builds all state under `mktemp -d`; the lock at `tests/scripts.bats:1095` already lives under a per-test `mktemp -d`; and `CHEZMOI_TEST_CONFIG` in `tests/helpers/common.bash` is referenced only by `chezmoi_test_init()`, which no `.bats` file calls. U1's audit surface is therefore smaller than earlier drafts of this plan assumed.
 - `BATS_NO_PARALLELIZE_WITHIN_FILE=true` at file scope is honored. Verified: bats sources a file's free code in `bats_run_setup_file` before `bats_run_tests` reads the variable, and an empirical run showed four one-second tests taking 4.3 s with the flag versus 1.4 s without, on both bats 1.10.0 and 1.14.0.
+
+---
+
+## U0 Results (measured 2026-08-21)
+
+All figures are the `Run post-apply tests` step, CI run `32435170556`, throwaway
+branch `perf-measure-jobcount`. Each job measured its own sequential control, so
+the comparisons below are same-machine and carry no runner-to-runner variance.
+
+### Baselines, from a green control in the same job
+
+| Job | Sequential control | 60% gate |
+|---|---:|---:|
+| Ubuntu (4 cores) | **272 s** | 163 s |
+| macOS (3 cores) | **379 s** | 227 s |
+
+The macOS baseline replaces the 416 s figure earlier drafts used, which timed an
+**aborted** suite (run `32393379268` failed on the post-apply step itself). The
+Ubuntu control of 272 s is consistent with the plan's stated 268 s baseline.
+
+Run-to-run variance is real and worth recording: three consecutive green runs on
+`main` measured the Ubuntu step at 199 s, 236 s and 271 s, and macOS at 340 s,
+367 s and 447 s. That is why the gate is judged against a control measured in
+the same job rather than against a figure from another run.
+
+### Job-count curve, three repetitions each
+
+| Config | Ubuntu | macOS |
+|---|---|---|
+| sequential control | 272 s | 379 s |
+| `--jobs 8` | 159 / 159 / 159 s | 204 / 201 / 209 s |
+| `--jobs 12` | 155 / 155 / 157 s | 216 / 238 / 240 s |
+
+**Chosen: `--jobs 8`.** On Ubuntu it lands at 159 s (58% of control, inside the
+163 s gate) and 12 buys only 2.5% more. On macOS 8 lands at ~204 s (54% of
+control, inside the 227 s gate) while 12 is *slower* — 3 cores oversubscribed
+12 ways — and carried three times the failures. A single literal has to serve
+both jobs, and 8 is better on the runner that has the least headroom.
+
+A CPU-limited container (`--cpus 4`) agreed on the shape: 171 s sequential,
+123 s at 4 jobs, 80 s at 8, 77 s at 12.
+
+### What U0 changed about U1's scope
+
+U0's step 3 offered to narrow U1 to `tests/scripts.bats` alone. That is **not**
+what happened: the audit showed `tests/smoke.bats`, `tests/palette.bats` and
+`tests/platform.bats` only *read* the deployed `$HOME`, so all four files
+parallelize safely and the all-files configuration is both faster and no less
+stable. Only `tests/idempotent.bats` is serialized (R3).
+
+## U4 Results (measured 2026-08-21) — the delivered result
+
+CI run `32441162981`, throwaway branch `perf-measure-jobcount`, rebuilt from the
+delivery branch. Each job ran its own sequential control plus three `--jobs 8`
+repetitions, so every ratio below is same-machine.
+
+**Eight suite runs, zero failures.** R4 is met on both CI jobs.
+
+| Job | Sequential control | `--jobs 8` repetitions | Median | Ratio | 60% gate |
+|---|---:|---|---:|---:|---|
+| `test-ubuntu` (4 cores) | 288 s | 167 / 166 / 165 s | 166 s | **57.6%** | met |
+| `test-macos` (3 cores) | 423 s | 285 / 277 / 283 s | 283 s | **66.9%** | missed |
+
+Ubuntu gains 1.73x, macOS 1.50x. Absolute saving per run: 122 s on Ubuntu, 140 s
+on macOS.
+
+**macOS invokes the *stable but slow* stop condition.** Every repetition was
+green and the suite lands above 60% of its control, so this does not block; the
+residual is filed as
+`docs/issues/2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md`.
+
+These numbers supersede the U0 curve above for judging the ratio. Note the
+macOS `--jobs 8` figure moved from ~204 s in U0 to ~283 s here while the control
+moved 379 s → 423 s. The post-apply suite is 330 tests in both trees, so the
+change is not test growth.
+
+The raised `HERDR_TASK_SYNC_GIT_BUDGET` was the obvious suspect and it does not
+account for the gap. A review of every call site settles the size: the budget's
+watchdog cancels its timer the moment a healthy probe returns, so the ~50 normal
+`hts_location_pass` sites pay nothing for the raise. Only three tests build a
+fixture that never returns and therefore always spend the full budget
+(`tests/scripts.bats:3276`, `:3354`, `:3410`), at ~1.9 s each — **about 5.8 s in
+total**, which cannot explain a 79 s difference.
+
+That leaves macOS runner-to-runner variance, which U0 already recorded at a
+340–447 s spread on sequential runs of `main`. **Not proven, just the only
+remaining candidate that is large enough.** Issue 012 carries it.
+
+### Container repetitions
+
+`docker run --cpus 4` with `--jobs 8` — a two-times CPU oversubscription, harsher
+than either runner. Ten repetitions found one failure, in the repetition that took
+161 s against a ~82 s median: `herdr-task-sync orders adapter calls by inbox
+commit rather than invocation start`, timing out on a slug that was never
+committed.
+
+**After the fix, twelve repetitions of the same profile were clean** — zero
+unexpected failures, 81–86 s each. The spread matters as much as the count: the
+pre-fix run carried a 161 s outlier against an 82 s median, and that outlier was
+the failing repetition. A SIGKILLed engine forces every wait behind it to run to
+its ceiling, so removing the kill removed the outlier as well as the failure.
+
+That was a test bug, not a parallelism defect, and it is fixed:
+`HERDR_TASK_SYNC_TIMEOUT` defaulted to 5 s in the harness while the engine
+`kill -9`s on expiry, and `herdr-task-sync returns before the naming engine
+finishes (R8)` ran a stub that sleeps 4 s against it — a one-second margin. The
+harness now defaults to the 30 s the engine itself ships in production. Root
+cause and evidence are in
+`docs/issues/2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md`.
+
+Every container repetition also reports one constant failure,
+`Pi brew auto updater focused tests pass`. It fails identically on `main` — the
+Docker mount layout does not resolve the test's `../home/...` import — and is
+tracked as `docs/issues/2026-08-21-011-pi-brew-test-unresolvable-path-in-docker.md`.
+It is not a flake and not caused by this work.
 
 ---
 
