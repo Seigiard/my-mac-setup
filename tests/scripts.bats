@@ -40,13 +40,25 @@ teardown() {
 # install-packages script
 # ===========================================
 
+# --source is load-bearing here, not decoration. This script's `include`
+# directives resolve against the chezmoi source directory, so without it the
+# script is read from the checkout under test while its includes are read from
+# whatever tree the host's chezmoi config points at. Those are the same
+# directory in CI and in Docker, which is why this passed for so long; they are
+# different in a git worktree, and the mismatch surfaced the moment the
+# Brewfiles were renamed in one tree and not the other.
+render_install_packages() {
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template \
+    < "$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+}
+
 @test "install-packages script renders as valid bash" {
   skip_if_no_chezmoi
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
 
   BATS_TEST_TMPFILE="$(mktemp /tmp/install-packages-XXXXXX.sh)"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$script" > "$BATS_TEST_TMPFILE"
+  render_install_packages > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
 }
@@ -55,7 +67,7 @@ teardown() {
   skip_if_no_chezmoi
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" execute-template < "$script"
+  run render_install_packages
   assert_success
 }
 
