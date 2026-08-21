@@ -400,6 +400,18 @@ PY
   assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
 }
 
+# plugin-doctor was deleted from the source tree in d4e32f9 on the false
+# premise that a plugin provides it (none of the enabled plugins does), which
+# left the command existing only as an untracked host file — and later not even
+# that (docs/issues/2026-08-21-016). Both copies are asserted: the source
+# assertion catches the file being dropped from management again; the deployed
+# assertion is red on a host that has not run `chezmoi apply` since the
+# restore, and green in Docker CI, which applies the checkout first.
+@test "plugin-doctor command is tracked in the source tree and deployed" {
+  assert_file_exists "$SOURCE_ROOT/private_dot_claude/commands/plugin-doctor.md"
+  assert_file_exists "$HOME/.claude/commands/plugin-doctor.md"
+}
+
 @test "every skill description survives YAML parsing" {
   # An unquoted YAML scalar ends at " #" (comment) and cannot contain ": ".
   # Both truncate or invalidate the description, which is how the agent finds
