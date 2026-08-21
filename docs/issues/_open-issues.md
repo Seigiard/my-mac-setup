@@ -1,12 +1,14 @@
 # Open issues — grouped summary
 
 Partial index, last touched 2026-08-21. It is **not** a current snapshot: the
-grouped tables below list 39 issues, while
-`rg -l 'status: open|status: in-progress' docs/issues` matches 51 issue files.
-The ~12 missing rows are tracked in
+grouped tables below list 40 issues, while
+`rg -l 'status: open|status: in-progress' docs/issues` matches 54 issue files.
+The 14 missing rows are tracked in
 [2026-08-21-013](2026-08-21-013-open-issues-index-is-not-a-full-snapshot.md);
 query the tree directly when completeness matters. Regenerate this file after
 closing or filing issues; it is a derived index, not a source of truth.
+
+Addendum 2026-08-21: two issues filed by the docs/plans audit — [2026-08-21-016](2026-08-21-016-plugin-doctor-command-not-reproducible-from-repo.md) (plugin-doctor exists only on the host, a clean rebuild loses it — Medium) and [2026-08-21-017](2026-08-21-017-pi-subagentura-adopted-unpinned-against-trial-premise.md) (pi-subagentura adopted unpinned against the trial's pinned premise — Low).
 
 Severity scale:
 
@@ -24,12 +26,13 @@ Until these are fixed, neither CI nor a local pre-push run is a trustworthy gree
 | [2026-08-18-022](2026-08-18-022-install-smithers-dependencies-in-github-ci.md) | GitHub CI red on main: tests invoke `se flow` without bun and without source-tree smithers `node_modules` | **Critical** |
 | [2026-08-19-001](2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md) | `make test-ubuntu` fails two tests on main: the Docker harness lacks two setup steps GitHub CI has, so the local suite is not a faithful CI stand-in | **High** |
 | [2026-08-20-002](2026-08-20-002-coordinator-location-test-flake.md) | Coordinator eight-pane location test flakes at the 1000 ms envelope boundary under load | Medium |
-| [2026-08-20-010](2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md) | Two herdr-task-sync ordering tests flake under full-suite load; root cause found 2026-08-21 (a 5 s `kill -9` engine watchdog calibrated on an idle machine) and fixed, the remaining ask is a failure-path state dump | Low |
 | [2026-08-21-011](2026-08-21-011-pi-brew-test-unresolvable-path-in-docker.md) | The Pi brew auto-updater test imports `../home/...`, which does not resolve under the Docker mount layout, so `make test-ubuntu` is red on main | **High** |
 | [2026-08-21-012](2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md) | The parallel post-apply suite lands at 67% of baseline on the macOS CI job against a 60% target; stable, so this is the deferred residual, not a regression | Low |
-| [2026-08-21-013](2026-08-21-013-open-issues-index-is-not-a-full-snapshot.md) | This index lists 39 of 51 open issues, so "is it already filed?" gets a wrong answer from it | Low |
+| [2026-08-21-013](2026-08-21-013-open-issues-index-is-not-a-full-snapshot.md) | This index lists 40 of 54 open issues, so "is it already filed?" gets a wrong answer from it | Low |
 | [2026-08-21-014](2026-08-21-014-fail-open-assertions-no-longer-catch-a-slow-fail-open.md) | Three "fails open promptly" assertions widened 2s -> 20s to survive --jobs load; they still catch a hang but no longer catch a 3-18s slow fail-open | Medium |
 | [2026-08-21-015](2026-08-21-015-capture-the-idle-machine-wall-clock-pattern.md) | The same idle-machine wall-clock defect has been diagnosed from scratch four times; capture it in docs/solutions | Low |
+| [2026-08-21-018](2026-08-21-018-ci-minimal-docker-apply-has-no-automated-gate.md) | Nothing automated runs the CI-minimal Docker apply, so a base-image downgrade would break it while every check stays green; `make test-ubuntu` cannot substitute | Medium |
+| [2026-08-21-019](2026-08-21-019-python3-floor-is-stated-in-two-places-with-no-cross-check.md) | The python3 3.9 floor is stated in `tests/helpers/common.bash` and again in `README.md`, with nothing checking the two agree | Low |
 
 ## 2. se-pipeline / Smithers — money and lost runs
 
