@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Repository-local issue parsing and validation contract."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import json
+from pathlib import Path
+import re
+import sys
+from typing import Any, Dict, List, Optional, Sequence
+
+
+ISSUE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{3})-.+\.md$")
+COMPACT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{3}$")
+TAG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+KNOWN_FIELDS = {"title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "closed"}
+REQUIRED_FIELDS = ("title", "short_description", "type", "category", "tags", "date", "status", "priority")
+LEGACY_FIELDS = ("category", "priority", "short_description", "tags")
+TYPES = {"bug", "follow-up", "idea", "chore"}
+STATUSES = {"open", "in-progress", "done", "wontfix"}
+CATEGORIES = {"testing-ci", "se-pipeline", "herdr", "command-palette", "agent-platform", "dotfiles", "repository-maintenance"}
+PRIORITIES = {"critical", "high", "medium", "low"}
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class IssueError(ValueError):
+    """A stable parser or identifier error."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__("%s: %s" % (code, message))
+
+
+@dataclass(frozen=True)
+class Document:
+    path: Path
+    metadata: Dict[str, Any]
+    body: bytes
+
+
+@dataclass(frozen=True, order=True)
+class Diagnostic:
+    code: str
+    detail: str = ""
+
+
+def find_worktree(start: Optional[Path] = None) -> Path:
+    """Find the checkout that contains the current directory, including linked worktrees."""
+    current = (start or Path.cwd()).resolve()
+    for candidate in (current,) + tuple(current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    raise IssueError("WORKTREE_NOT_FOUND", "no .git directory or file above %s" % current)
+
+
+def discover_issue_paths(root: Path) -> List[Path]:
+    directory = root / "docs" / "issues"
+    if not directory.is_dir():
+        return []
+    return sorted((path for path in directory.iterdir() if path.is_file() and ISSUE_NAME.match(path.name)), key=lambda path: path.name)
+
+
+def _has_forbidden_characters(value: str) -> bool:
+    for character in value:
+        codepoint = ord(character)
+        if codepoint <= 0x1F or 0x7F <= codepoint <= 0x9F:
+            return True
+        if codepoint in (0x2028, 0x2029) or 0x202A <= codepoint <= 0x202E or 0x2066 <= codepoint <= 0x2069:
+            return True
+    return False
+
+
+def _parse_scalar(value: str, key: str) -> Any:
+    if not value:
+        raise IssueError("INVALID_FRONTMATTER", "empty value for %s" % key)
+    if value.startswith('"'):
+        try:
+            result = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise IssueError("INVALID_FRONTMATTER", "invalid quoted value for %s" % key) from error
+        if not isinstance(result, str):
+            raise IssueError("INVALID_FRONTMATTER", "quoted value for %s must be a string" % key)
+    else:
+        if value[0] in "[{'\"|>&*!%@`" or "#" in value or ": " in value:
+            raise IssueError("UNSUPPORTED_YAML", "unsupported scalar syntax for %s" % key)
+        result = value
+    if _has_forbidden_characters(result):
+        raise IssueError("UNSAFE_CHARACTER", "unsafe character in %s" % key)
+    return result
+
+
+def _parse_tags(value: str) -> List[str]:
+    try:
+        tags = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise IssueError("UNSUPPORTED_YAML", "tags must be a JSON string array") from error
+    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+        raise IssueError("INVALID_TAGS", "tags must be a JSON string array")
+    if any(_has_forbidden_characters(tag) or not TAG.fullmatch(tag) for tag in tags):
+        raise IssueError("INVALID_TAGS", "tags must use kebab-case")
+    return tags
+
+
+def parse_document(path: Path) -> Document:
+    contents = path.read_bytes()
+    if not contents.startswith(b"---\n"):
+        raise IssueError("MALFORMED_FRONTMATTER", "frontmatter must start with an exact --- line")
+    boundary = contents.find(b"\n---\n", 4)
+    if boundary < 0:
+        raise IssueError("MALFORMED_FRONTMATTER", "frontmatter must end with an exact --- line")
+    frontmatter = contents[4:boundary]
+    body = contents[boundary + 5:]
+    try:
+        text = frontmatter.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise IssueError("INVALID_FRONTMATTER_UTF8", "frontmatter is not valid UTF-8") from error
+    metadata: Dict[str, Any] = {}
+    for line in text.split("\n"):
+        if not line or ": " not in line or line.count(": ") != 1:
+            raise IssueError("INVALID_FRONTMATTER", "each frontmatter line must be one key and value")
+        key, value = line.split(": ", 1)
+        if key not in KNOWN_FIELDS:
+            raise IssueError("UNKNOWN_FIELD", key)
+        if key in metadata:
+            raise IssueError("DUPLICATE_FIELD", key)
+        metadata[key] = _parse_tags(value) if key == "tags" else _parse_scalar(value, key)
+    return Document(path=path, metadata=metadata, body=body)
+
+
+def _heading_present(body: bytes, heading: bytes, prefix: bool = False) -> bool:
+    expression = rb"(?m)^" + re.escape(heading) + (rb"[^\r\n]*$" if prefix else rb"[ \t]*$")
+    return re.search(expression, body) is not None
+
+
+def validate_document(document: Document, compatibility: bool) -> List[Diagnostic]:
+    metadata = document.metadata
+    diagnostics: List[Diagnostic] = []
+    for field in REQUIRED_FIELDS:
+        if field not in metadata:
+            code = "MISSING_LEGACY_FIELD" if compatibility and field in LEGACY_FIELDS else "MISSING_FIELD"
+            diagnostics.append(Diagnostic(code, field))
+    filename = ISSUE_NAME.match(document.path.name)
+    if not filename:
+        diagnostics.append(Diagnostic("INVALID_FILENAME", document.path.name))
+    elif "date" in metadata and metadata["date"] != filename.group(1)[:10]:
+        diagnostics.append(Diagnostic("FILENAME_DATE_MISMATCH", document.path.name))
+    if "date" in metadata and not DATE.fullmatch(metadata["date"]):
+        diagnostics.append(Diagnostic("INVALID_DATE", "date"))
+    allowed = (("type", TYPES, "INVALID_TYPE"), ("category", CATEGORIES, "INVALID_CATEGORY"), ("status", STATUSES, "INVALID_STATUS"), ("priority", PRIORITIES, "INVALID_PRIORITY"))
+    for field, values, code in allowed:
+        if field in metadata and metadata[field] not in values:
+            diagnostics.append(Diagnostic(code, field))
+    for field in ("title", "short_description", "parent-plan", "closed"):
+        if field in metadata and (not isinstance(metadata[field], str) or not metadata[field]):
+            diagnostics.append(Diagnostic("INVALID_%s" % field.upper().replace("-", "_"), field))
+    if "closed" in metadata and not DATE.fullmatch(metadata["closed"]):
+        diagnostics.append(Diagnostic("INVALID_CLOSED_DATE", "closed"))
+    if "tags" in metadata and (not isinstance(metadata["tags"], list) or len(set(metadata["tags"])) != len(metadata["tags"])):
+        diagnostics.append(Diagnostic("INVALID_TAGS", "tags"))
+    status = metadata.get("status")
+    if status in ("open", "in-progress"):
+        for heading in (b"## Why this exists", b"## Scope", b"## Open decisions"):
+            if not _heading_present(document.body, heading):
+                diagnostics.append(Diagnostic("MISSING_ACTIVE_HEADING", heading.decode("ascii")))
+        if "closed" in metadata:
+            diagnostics.append(Diagnostic("ACTIVE_ISSUE_CLOSED", "closed"))
+    elif status in ("done", "wontfix"):
+        if not _heading_present(document.body, b"## Why this exists"):
+            diagnostics.append(Diagnostic("MISSING_TERMINAL_HEADING", "## Why this exists"))
+        if not _heading_present(document.body, b"## Resolution", prefix=True):
+            diagnostics.append(Diagnostic("MISSING_TERMINAL_HEADING", "## Resolution"))
+        if not compatibility and "closed" not in metadata:
+            diagnostics.append(Diagnostic("MISSING_CLOSED_DATE", "closed"))
+    return sorted(diagnostics)
+
+
+def resolve_issue_id(paths: Sequence[Path], issue_id: str) -> Path:
+    exact = [path for path in paths if path.stem == issue_id]
+    if exact:
+        return exact[0]
+    if COMPACT_ID.fullmatch(issue_id):
+        matches = [path for path in paths if path.stem.startswith(issue_id + "-")]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise IssueError("AMBIGUOUS_ID", "%s -> %s" % (issue_id, ", ".join(path.stem for path in matches)))
+    raise IssueError("ISSUE_NOT_FOUND", issue_id)
+
+
+def validate(root: Path, compatibility: bool) -> List[str]:
+    output: List[str] = []
+    for path in discover_issue_paths(root):
+        try:
+            diagnostics = validate_document(parse_document(path), compatibility)
+        except IssueError as error:
+            output.append("%s %s" % (path.relative_to(root), error))
+            continue
+        for diagnostic in diagnostics:
+            if compatibility and diagnostic.code == "MISSING_LEGACY_FIELD":
+                output.append("%s %s" % (diagnostic.code, diagnostic.detail))
+            else:
+                output.append("%s %s %s" % (path.relative_to(root), diagnostic.code, diagnostic.detail))
+    return output
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="issues")
+    subcommands = parser.add_subparsers(dest="command")
+    validation = subcommands.add_parser("validate")
+    validation.add_argument("--compatibility", action="store_true")
+    arguments = parser.parse_args(argv)
+    if arguments.command != "validate":
+        parser.error("only validate is available in the schema contract")
+    try:
+        output = validate(find_worktree(), arguments.compatibility)
+    except IssueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    for line in output:
+        print(line)
+    return 1 if any(not line.startswith("MISSING_LEGACY_FIELD ") for line in output) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
