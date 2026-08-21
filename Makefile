@@ -42,11 +42,11 @@ shell-ubuntu: build-docker
 test-local:
 	chezmoi diff --source=./home
 
-# The parallel post-apply suite, minus tests/idempotent.bats: those four tests
-# run a real `chezmoi apply` with no --destination, so on a workstation they
-# deploy the checkout over the developer's live dotfiles
-# (docs/issues/2026-08-21-004). The full five-file suite runs in CI and in
-# Docker, where $$HOME is disposable -- use `make test-ubuntu` for that.
+# The parallel post-apply suite keeps tests/idempotent.bats excluded as
+# redundant defense behind that file's MMS_DISPOSABLE_HOME guard. The guard
+# makes direct host runs inert, but the exclusion keeps this host-safe target
+# from reaching the real apply commands at all. Use `make test-ubuntu` to run
+# the full five-file suite against a disposable $$HOME.
 #
 # Second, sharper limit: these four files assert against the deployed $$HOME,
 # and this target deliberately applies nothing. So it reports on whatever was
@@ -56,6 +56,8 @@ test-local:
 # answer for an unapplied edit. The echo below repeats this at the point of
 # use, because a caveat that lives only in this comment reaches nobody.
 test-suite: init-submodules
+	@echo "NOTE: tests/idempotent.bats remains excluded behind its disposable-home guard."
+	@echo "      Use make test-ubuntu to run those real apply tests safely."
 	@echo "NOTE: asserts against the ALREADY-APPLIED ~/ , not this checkout."
 	@echo "      An edit under home/ is not covered until it is applied."
 	@echo "      To test an unapplied edit, use: make test-ubuntu"
