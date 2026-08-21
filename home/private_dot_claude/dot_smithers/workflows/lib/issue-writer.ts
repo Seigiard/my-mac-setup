@@ -6,6 +6,7 @@
 // publication-time secret redaction before it is written (KTD13(b)), so a secret
 // captured in a log excerpt is never copied into a durable store.
 import * as fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 
 import { slugify } from "./staging.ts";
@@ -33,6 +34,13 @@ export interface RedactionResult {
 export interface WrittenIssue {
   path: string;
   redactionHits: string[];
+}
+
+export interface PublishedIssue {
+  mode: "legacy" | "cli" | "cli-failed";
+  path: string | null;
+  redactionHits: string[];
+  error?: string;
 }
 
 // R15: an issue file is written for a failure or an actionable optimization; a
@@ -145,4 +153,89 @@ export function writeIssueFile(repoRoot: string, fields: IssueFields): WrittenIs
   const filePath = path.join(dir, name);
   fs.writeFileSync(filePath, redacted);
   return { path: filePath, redactionHits: hits };
+}
+
+const ISSUE_CLI_CONTRACT = "repository-issues-contract 1\n";
+
+function redactedFields(fields: IssueFields): { fields: IssueFields; hits: string[] } {
+  const hits: string[] = [];
+  const redact = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    const result = redactSecretsInText(value);
+    hits.push(...result.hits);
+    return result.redacted;
+  };
+  return {
+    fields: {
+      ...fields,
+      title: redact(fields.title)!,
+      runId: redact(fields.runId)!,
+      parentPlan: redact(fields.parentPlan),
+      failedBlock: redact(fields.failedBlock),
+      cause: redact(fields.cause)!,
+      evidenceArtifacts: fields.evidenceArtifacts.map((artifact) => redact(artifact)!),
+      logExcerpts: redact(fields.logExcerpts)!,
+      proposedFix: redact(fields.proposedFix)!,
+    },
+    hits,
+  };
+}
+
+function shortDescription(fields: IssueFields): string {
+  const prefix = fields.disposition === "failure" ? "Pipeline failure: " : "Pipeline optimization: ";
+  return `${prefix}${fields.title}`.slice(0, 240);
+}
+
+// The target checkout owns issue creation when it advertises the pinned contract.
+// Once that compatible CLI fails, do not bypass its validation and locking with a
+// legacy direct write.
+export function publishIssue(repoRoot: string, fields: IssueFields): PublishedIssue {
+  const cliPath = path.join(repoRoot, "scripts", "issues");
+  const probe = spawnSync(cliPath, ["--version"], { cwd: repoRoot, encoding: "utf8" });
+  if (probe.error || probe.status !== 0 || probe.stdout !== ISSUE_CLI_CONTRACT) {
+    const written = writeIssueFile(repoRoot, fields);
+    return { mode: "legacy", path: written.path, redactionHits: written.redactionHits };
+  }
+
+  const redacted = redactedFields(fields);
+  const args = [
+    "create",
+    "--title",
+    redacted.fields.title,
+    "--short-description",
+    shortDescription(redacted.fields),
+    "--type",
+    "follow-up",
+    "--category",
+    "se-pipeline",
+    "--tag",
+    "smithers",
+    "--priority",
+    redacted.fields.disposition === "failure" ? "high" : "medium",
+    "--why",
+    redacted.fields.cause,
+    "--scope",
+    `${redacted.fields.proposedFix}\n\nEvidence artifacts:\n${redacted.fields.evidenceArtifacts.map((artifact) => `- ${artifact}`).join("\n")}\n\nLog excerpts:\n${redacted.fields.logExcerpts}`,
+    "--open-decisions",
+    "None.",
+  ];
+  if (redacted.fields.parentPlan) args.push("--parent-plan", redacted.fields.parentPlan);
+
+  const published = spawnSync(cliPath, args, { cwd: repoRoot, encoding: "utf8" });
+  if (published.error || published.status !== 0) {
+    const failure = redactSecretsInText(`${published.stderr ?? ""}${published.error ? String(published.error) : ""}`.trim() || `scripts/issues create exited ${published.status ?? "without a status"}`);
+    return {
+      mode: "cli-failed",
+      path: null,
+      redactionHits: [...redacted.hits, ...failure.hits],
+      error: failure.redacted,
+    };
+  }
+
+  const relativePath = String(published.stdout ?? "").trim();
+  return {
+    mode: "cli",
+    path: relativePath ? path.resolve(repoRoot, relativePath) : null,
+    redactionHits: redacted.hits,
+  };
 }

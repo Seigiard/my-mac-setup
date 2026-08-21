@@ -7,6 +7,7 @@ import {
   type IssueFields,
   issueFileName,
   nextIssueSequence,
+  publishIssue,
   redactSecretsInText,
   renderIssueMarkdown,
   shouldWriteIssue,
@@ -104,6 +105,107 @@ describe("writeIssueFile", () => {
     const contents = fs.readFileSync(written.path, "utf8");
     expect(contents).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
     expect(contents).toContain("[REDACTED]");
+  });
+});
+
+describe("publishIssue", () => {
+  test("delegates a redacted issue to a compatible target CLI without directly writing files", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+    const scripts = path.join(repo, "scripts");
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(
+      path.join(scripts, "issues"),
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'repository-issues-contract 1\\n'
+  exit 0
+fi
+printf '%s\\n' "$@" > "$PWD/received-arguments"
+printf 'docs/issues/2026-08-13-001-reviewer-leg-died-mid-stream.md\\n'
+`,
+      { mode: 0o755 },
+    );
+
+    const result = publishIssue(repo, fields({ logExcerpts: "leaked sk-abcdefghijklmnopqrstuvwxyz012345" }));
+
+    expect(result.mode).toBe("cli");
+    expect(result.path).toBe(path.join(repo, "docs/issues/2026-08-13-001-reviewer-leg-died-mid-stream.md"));
+    expect(result.redactionHits).toContain("openai-key");
+    expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
+    const received = fs.readFileSync(path.join(repo, "received-arguments"), "utf8");
+    expect(received).toContain("--category\nse-pipeline\n--tag\nsmithers\n--priority\nhigh\n");
+    expect(received).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
+  });
+
+  test("uses the legacy writer when the target CLI contract does not match", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+    const scripts = path.join(repo, "scripts");
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nprintf 'repository-issues-contract 2\\n'\n", { mode: 0o755 });
+
+    const result = publishIssue(repo, fields({ logExcerpts: "leaked sk-abcdefghijklmnopqrstuvwxyz012345" }));
+
+    expect(result.mode).toBe("legacy");
+    expect(result.redactionHits).toContain("openai-key");
+    expect(fs.readFileSync(result.path, "utf8")).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
+  });
+
+  test("uses the legacy writer when the target CLI version probe exits nonzero", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+    const scripts = path.join(repo, "scripts");
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+
+    const result = publishIssue(repo, fields());
+
+    expect(result.mode).toBe("legacy");
+    expect(fs.existsSync(result.path)).toBe(true);
+  });
+
+  test("records a compatible CLI publication failure without a legacy direct-write fallback", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+    const scripts = path.join(repo, "scripts");
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(
+      path.join(scripts, "issues"),
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'repository-issues-contract 1\\n'
+  exit 0
+fi
+printf 'creation refused\\n' >&2
+exit 2
+`,
+      { mode: 0o755 },
+    );
+
+    const result = publishIssue(repo, fields());
+
+    expect(result.mode).toBe("cli-failed");
+    expect(result.path).toBeNull();
+    expect(result.error).toContain("creation refused");
+    expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
+  });
+
+  test("uses medium priority for actionable optimizations", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+    const scripts = path.join(repo, "scripts");
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(
+      path.join(scripts, "issues"),
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'repository-issues-contract 1\\n'
+  exit 0
+fi
+printf '%s\\n' "$@" > "$PWD/received-arguments"
+`,
+      { mode: 0o755 },
+    );
+
+    publishIssue(repo, fields({ disposition: "actionable-optimization" }));
+
+    expect(fs.readFileSync(path.join(repo, "received-arguments"), "utf8")).toContain("--priority\nmedium\n");
   });
 });
 
