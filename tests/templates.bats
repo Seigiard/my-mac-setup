@@ -108,6 +108,77 @@ teardown() {
   refute_output --partial 'mise activate zsh > "$_mise_cache"'
 }
 
+@test "zshenv strips the absolute PATH export when generating the mise cache" {
+  # Line 1 of `mise activate zsh` is an `export PATH='...'` snapshot of the
+  # generating shell. Cached, it froze that one shell's PATH into every later
+  # shell until the mise binary changed (docs/issues/2026-08-21-001). The
+  # activate script ends with a direct `_mise_hook` call that recomputes PATH
+  # via `mise hook-env` at source time, so the snapshot line is redundant.
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_success
+  assert_output --partial "sed '1{/^export PATH=/d;}'"
+}
+
+@test "zshenv mise cache does not freeze the generating shell's PATH into later shells" {
+  command_exists zsh || skip "zsh not installed"
+
+  local work="$BATS_TEST_TMPDIR/mise-freeze"
+  mkdir -p "$work/bin" "$work/home" "$work/marker" "$work/toolbin"
+
+  # A fake mise shaped like the real activate output: line 1 is an absolute
+  # snapshot of the generating shell's PATH; the second line mutates PATH at
+  # source time, standing in for the trailing `_mise_hook` call that real
+  # activate output performs via `mise hook-env`.
+  cat > "$work/bin/mise" <<MISE
+#!/bin/sh
+if [ "\$1" = "activate" ]; then
+  printf "export PATH='%s'\n" "\$PATH"
+  printf 'export PATH="%s/toolbin:\$PATH"\n' "$work"
+fi
+MISE
+  chmod +x "$work/bin/mise"
+
+  render_template "$SOURCE_ROOT/dot_zshenv.tmpl" > "$work/zshenv.rendered"
+
+  # The shim is a function, not a PATH entry, because the rendered zshenv
+  # prepends the homebrew dirs before the mise block: on a host with a real
+  # mise install, any PATH-based fake would be shadowed by it. zsh's
+  # `command -v` resolves functions, so `has mise` and the activate call both
+  # hit the fake, and the `-ot` regeneration probe against the nonexistent
+  # path "mise" is simply false.
+  # Shell 1 generates the cache while a marker directory is on its PATH.
+  cat > "$work/gen.zsh" <<GEN
+mise() { "$work/bin/mise" "\$@" }
+export HOME="$work/home"
+export PATH="$work/marker:/usr/bin:/bin"
+source "$work/zshenv.rendered"
+GEN
+  run zsh -f "$work/gen.zsh"
+  assert_success
+  assert_file_exists "$work/home/.cache/zsh/mise-activate.zsh"
+
+  # The generating shell's PATH (with the marker) must not be in the cache;
+  # the runtime PATH-mutation line must survive the strip.
+  run grep -F "$work/marker" "$work/home/.cache/zsh/mise-activate.zsh"
+  assert_failure
+  run grep -F "$work/toolbin" "$work/home/.cache/zsh/mise-activate.zsh"
+  assert_success
+
+  # Shell 2 starts with a normal PATH against the same cache: the marker must
+  # not leak in, while the runtime hook line must still mutate PATH.
+  cat > "$work/probe.zsh" <<PROBE
+mise() { "$work/bin/mise" "\$@" }
+export HOME="$work/home"
+export PATH="/usr/bin:/bin"
+source "$work/zshenv.rendered"
+print -r -- "\$PATH"
+PROBE
+  run zsh -f "$work/probe.zsh"
+  assert_success
+  refute_output --partial "$work/marker"
+  assert_output --partial "$work/toolbin"
+}
+
 @test "zshrc cached_init generates the cache through a temp file rename" {
   run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
   assert_success

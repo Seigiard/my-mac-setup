@@ -1032,3 +1032,34 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$relink" 'herdr plugin link'
   assert_file_contains "$relink" 'herdr plugin enable seigi.pane-labels'
 }
+
+# ===========================================
+# zsh cached_init consumers (docs/issues/2026-08-21-001)
+#
+# ~/.zshrc caches the output of these tools via cached_init and sources the
+# cache in every later shell. An absolute `export PATH=...` line in any of
+# them would freeze the generating shell PATH into every shell that sources
+# the cache -- the exact bug mise activate had. As of 2026-08-21 none of them
+# emits one; these guards keep it that way across tool upgrades.
+# ===========================================
+
+@test "starship init output embeds no absolute PATH export" {
+  command_exists starship || skip "starship not installed"
+  run starship init zsh
+  assert_success
+  refute_line --regexp '^export PATH='
+}
+
+@test "zoxide init output embeds no absolute PATH export" {
+  command_exists zoxide || skip "zoxide not installed"
+  run zoxide init zsh --cmd cd
+  assert_success
+  refute_line --regexp '^export PATH='
+}
+
+@test "rgrc aliases output embeds no absolute PATH export" {
+  command_exists rgrc || skip "rgrc not installed"
+  run rgrc --aliases
+  assert_success
+  refute_line --regexp '^export PATH='
+}
