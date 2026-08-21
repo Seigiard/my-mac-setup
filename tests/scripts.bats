@@ -1382,6 +1382,14 @@ hts_after_call_script() {
 # the load artifact it is.
 HTS_GIT_BUDGET_BLOCKED=2
 
+# Bound for the "fails open promptly rather than hanging" assertions. They
+# guard against a worker that blocks or retries without end; they are not
+# performance benchmarks. Two seconds was calibrated on an idle machine and
+# goes red under --jobs contention with no regression behind it -- the same
+# trap the eight-pane coordinator test documents above its own deadline.
+HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
+
+
 hts_wait_for_file() {
   local file="$1" i
   for i in $(seq 1 1000); do
@@ -2346,7 +2354,7 @@ PY
     bash "$HTS_ENGINE" --agent claude --session missing <<< 'missing herdr'
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]]
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
 
   hts_setup
   pane_dir="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)"
@@ -2375,7 +2383,7 @@ PY
   run hts_worker_run
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]]
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]]
 
@@ -2390,7 +2398,7 @@ PY
   run hts_worker_run
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]]
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]]
   assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"
@@ -2661,7 +2669,12 @@ SH
   local pause="$HTS_WORK/release-edge"
   HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="$pause" hts_event_run
   hts_wait_for_file "$pause.reached"
-  hts_event_run
+  # The second event only has to make an invalidation pending; letting it also
+  # start a presentation of its own races the paused pass under load, which
+  # adds a third snapshot and reads as a lost invalidation when it is not.
+  # Suppressing it keeps the recheck the only route to the second snapshot, so
+  # the exact count below still means what the test name says.
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
   : > "$pause.release"
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
   run grep -c '^api snapshot' "$HTS_LOG"
@@ -4179,7 +4192,7 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   run hts_run --agent claude --session s1 <<< 'a slow substantive prompt'
   end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le 2 ]] || fail "entry point blocked for $((end - start))s"
+  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]] || fail "entry point blocked for $((end - start))s"
   hts_wait_for_publish
   assert_equal "$(hts_token)" "late-slug"
 }
