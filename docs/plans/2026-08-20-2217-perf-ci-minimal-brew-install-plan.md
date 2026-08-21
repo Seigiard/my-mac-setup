@@ -179,6 +179,18 @@ flowchart TB
 - **Patterns to follow:** OS-conditional templating in `home/.chezmoi.yaml.tmpl` (`.is_darwin`/`.is_linux`); the existing left/right delimiter override in the run script.
 - **Test scenarios:** covered by U3 (template tests own rendering coverage).
 - **Verification:** `make test-local` shows no diff on the host (R3); `chezmoi managed` still lists both deployed Brewfile paths; `make test-ubuntu` with `MMS_CI_MINIMAL` unset still installs the full cross-platform Brewfile (R5). For R1 safety, run the full post-apply suite in Docker twice — once with `MMS_CI_MINIMAL=1` and once unset — and compare bats' skipped-test counts. **Equal skip counts is the pass condition; a passing run is not** (KTD6). Any package whose absence raises the skip count folds back into the minimal set per the stop condition.
+- **Verification outcome (2026-08-21).** Parity holds, on the second attempt.
+
+  | Render | ok | not ok | skipped |
+  |---|---|---|---|
+  | `MMS_CI_MINIMAL=1` | 367 | 1 | 15 |
+  | unset | 367 | 1 | 15 |
+
+  The skip *sets* are identical line for line, not merely equal in count — the comparison diffs the skip reasons, so a swap of one skip for another would still fail it. The single failure is the same in both renders (`Pi brew auto updater focused tests pass`, which cannot resolve `../home/dot_pi/...` because Docker mounts `tests/` and `home/` at unrelated paths). It fails identically on the unmodified full render, so it is pre-existing and unrelated — it is the harness gap already filed as `docs/issues/2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md`.
+
+  The minimal render's `brew bundle` installed four packages — `grc`, `git`, `node`, `jq` — plus the already-present `oven-sh/bun/bun` and its tap, against 37 installs for the full render. The first attempt failed and produced the `git` fold-back recorded under U1; this result is from the set after that fold-back.
+
+  Host-side gates: `chezmoi managed` still lists `.config/brewfiles/Brewfile` and `.config/brewfiles/Brewfile.macos` without the suffix, and `chezmoi diff` reports no change to either deployed Brewfile, because the full render is byte-identical to the pre-rename files. Note that plain `make test-local` fails on this host for an unrelated reason — `dot_zshenv.tmpl` calls `onepasswordRead` and `op signin` times out without an interactive session. Run it with `op` off `PATH`, the way `tests/helpers/common.bash` builds `PATH_WITHOUT_OP`, and it exits 0.
 
 ### U3. Template tests for both render modes
 
