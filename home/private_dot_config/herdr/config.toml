@@ -62,6 +62,9 @@ sidebar_min_width = 32
 [ui.sidebar.agents]
 rows = [["state_icon", "workspace", "pane"], ["$git_ref"]]
 
+# Native agent-status toasts are off: the herdr-focus-notify plugin sends its
+# own clickable notification (with `herdr agent focus` on click), and the two
+# would otherwise stack for every status change.
 [ui.toast]
-delivery = "system"   # off | herdr | terminal | system
+delivery = "off"   # off | herdr | terminal | system
 delay_seconds = 1
