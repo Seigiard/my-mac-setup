@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -124,6 +125,104 @@ class ReadTests(IssueFixtures):
         result = subprocess.run(["python3", str(SCRIPT), "show", "2026-08-21-001", "--json"], cwd=self.root, capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("2026-08-21-001-one", result.stdout)
+
+
+class WriteTests(IssueFixtures):
+    def run_issues(self, *arguments):
+        return subprocess.run(["python3", str(SCRIPT)] + list(arguments), cwd=self.root, capture_output=True, text=True, check=False)
+
+    def test_create_assigns_the_next_utc_date_sequence_and_active_body(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        self.write_issue("%s-001-existing.md" % today, issue_text(date=today))
+        result = self.run_issues("create", "--title", "New issue title", "--short-description", "A useful description.", "--type", "chore", "--category", "testing-ci", "--tag", "new-work", "--priority", "medium")
+        self.assertEqual(0, result.returncode, result.stderr)
+        path = self.issues / ("%s-002-new-issue-title.md" % today)
+        document = self.module().parse_document(path)
+        self.assertEqual("open", document.metadata["status"])
+        self.assertEqual(["new-work"], document.metadata["tags"])
+        self.assertEqual([], self.module().validate_document(document, compatibility=False))
+
+    def test_start_close_and_wontfix_enforce_lifecycle_rules(self):
+        open_path = self.write_issue("2026-08-21-001-open.md", issue_text())
+        start = self.run_issues("start", "2026-08-21-001")
+        self.assertEqual(0, start.returncode, start.stderr)
+        self.assertEqual("in-progress", self.module().parse_document(open_path).metadata["status"])
+        before = open_path.read_bytes()
+        self.assertEqual(2, self.run_issues("start", "2026-08-21-001").returncode)
+        self.assertEqual(before, open_path.read_bytes())
+        close = self.run_issues("close", "2026-08-21-001", "--resolution", "Implemented and verified.")
+        self.assertEqual(0, close.returncode, close.stderr)
+        closed = self.module().parse_document(open_path)
+        self.assertEqual("done", closed.metadata["status"])
+        self.assertRegex(closed.metadata["closed"], r"^\d{4}-\d{2}-\d{2}$")
+        self.assertEqual(1, closed.body.count(b"## Resolution"))
+
+        before = open_path.read_bytes()
+        self.assertEqual(2, self.run_issues("start", "2026-08-21-001").returncode)
+        self.assertEqual(before, open_path.read_bytes())
+
+        wontfix_path = self.write_issue("2026-08-21-002-wontfix.md", issue_text())
+        wontfix = self.run_issues("wontfix", "2026-08-21-002", "--rationale", "The cost exceeds the benefit.")
+        self.assertEqual(0, wontfix.returncode, wontfix.stderr)
+        wontfix_document = self.module().parse_document(wontfix_path)
+        self.assertEqual("wontfix", wontfix_document.metadata["status"])
+        self.assertIn(b"The cost exceeds the benefit.", wontfix_document.body)
+
+        in_progress_path = self.write_issue("2026-08-21-003-in-progress.md", issue_text(status="in-progress"))
+        self.assertEqual(0, self.run_issues("wontfix", "2026-08-21-003", "--rationale", "Superseded.").returncode)
+        self.assertEqual("wontfix", self.module().parse_document(in_progress_path).metadata["status"])
+
+        original = wontfix_path.read_bytes()
+        repeated = self.run_issues("wontfix", "2026-08-21-002", "--rationale", "No second resolution.")
+        self.assertEqual(2, repeated.returncode)
+        self.assertEqual(original, wontfix_path.read_bytes())
+
+        done_path = self.write_issue("2026-08-21-004-done.md", issue_text(status="done", closed="2026-08-21") + b"\n## Why this exists\n\nReason.\n\n## Resolution\n\nDone.\n")
+        before = done_path.read_bytes()
+        self.assertEqual(2, self.run_issues("close", "2026-08-21-004", "--resolution", "Again.").returncode)
+        self.assertEqual(before, done_path.read_bytes())
+
+    def test_invalid_transitions_and_protected_edits_preserve_bytes(self):
+        path = self.write_issue("2026-08-21-001-open.md", issue_text())
+        cases = [
+            ("close", "2026-08-21-001", "--resolution", "Not started."),
+            ("wontfix", "2026-08-21-001", "--rationale", ""),
+            ("edit", "2026-08-21-001", "--status", "done"),
+            ("edit", "2026-08-21-001", "--date", "2026-08-22"),
+            ("edit", "2026-08-21-001", "--closed", "2026-08-22"),
+            ("edit", "2026-08-21-001-open", "--title", "Renamed file input"),
+            ("start", "../2026-08-21-001"),
+        ]
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                before = path.read_bytes()
+                result = self.run_issues(*arguments)
+                self.assertEqual(2, result.returncode)
+                self.assertEqual(before, path.read_bytes())
+
+    def test_atomic_replacement_rejects_a_changed_preimage(self):
+        path = self.write_issue("2026-08-21-001-preimage.md", issue_text())
+        before = path.read_bytes()
+        path.write_bytes(before + b"Changed outside the lock.\n")
+        with self.assertRaises(self.module().IssueError) as context:
+            self.module().atomic_replace(path, b"replacement", before)
+        self.assertEqual("PREIMAGE_CHANGED", context.exception.code)
+        self.assertEqual(before + b"Changed outside the lock.\n", path.read_bytes())
+
+    def test_edit_changes_only_allowed_metadata_and_rejects_terminal_issues(self):
+        path = self.write_issue("2026-08-21-001-edit.md", issue_text())
+        result = self.run_issues("edit", "2026-08-21-001", "--title", "Edited title", "--tag", "one", "--tag", "two", "--parent-plan", "docs/plans/example.md")
+        self.assertEqual(0, result.returncode, result.stderr)
+        document = self.module().parse_document(path)
+        self.assertEqual("Edited title", document.metadata["title"])
+        self.assertEqual(["one", "two"], document.metadata["tags"])
+        self.assertEqual("docs/plans/example.md", document.metadata["parent-plan"])
+
+        terminal = self.write_issue("2026-08-21-002-done.md", issue_text(status="done", closed="2026-08-21") + b"\n## Why this exists\n\nReason.\n\n## Resolution\n\nDone.\n")
+        before = terminal.read_bytes()
+        rejected = self.run_issues("edit", "2026-08-21-002", "--title", "No change")
+        self.assertEqual(2, rejected.returncode)
+        self.assertEqual(before, terminal.read_bytes())
 
 
 if __name__ == "__main__":

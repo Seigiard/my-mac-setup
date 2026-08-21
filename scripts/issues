@@ -4,12 +4,18 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import fcntl
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import sys
-from typing import Any, Dict, List, Optional, Sequence
+import tempfile
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 
 ISSUE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{3})-.+\.md$")
@@ -59,7 +65,7 @@ def discover_issue_paths(root: Path) -> List[Path]:
     directory = root / "docs" / "issues"
     if not directory.is_dir():
         return []
-    return sorted((path for path in directory.iterdir() if path.is_file() and ISSUE_NAME.match(path.name)), key=lambda path: path.name)
+    return sorted((path for path in directory.iterdir() if path.is_file() and not path.is_symlink() and ISSUE_NAME.match(path.name)), key=lambda path: path.name)
 
 
 def _has_forbidden_characters(value: str) -> bool:
@@ -104,7 +110,10 @@ def _parse_tags(value: str) -> List[str]:
 
 
 def parse_document(path: Path) -> Document:
-    contents = path.read_bytes()
+    return parse_document_bytes(path, path.read_bytes())
+
+
+def parse_document_bytes(path: Path, contents: bytes) -> Document:
     if not contents.startswith(b"---\n"):
         raise IssueError("MALFORMED_FRONTMATTER", "frontmatter must start with an exact --- line")
     boundary = contents.find(b"\n---\n", 4)
@@ -244,6 +253,192 @@ def summary(document: Document) -> Dict[str, Any]:
     return {"category": metadata["category"], "id": document.path.stem, "priority": metadata["priority"], "short_description": metadata["short_description"], "status": metadata["status"], "title": metadata["title"]}
 
 
+def issue_directory(root: Path, create: bool = False) -> Path:
+    root = root.resolve()
+    directory = root / "docs" / "issues"
+    if create:
+        directory.mkdir(parents=True, exist_ok=True)
+    if not directory.is_dir() or directory.is_symlink():
+        raise IssueError("ISSUE_DIRECTORY_INVALID", str(directory))
+    try:
+        directory.resolve().relative_to(root)
+    except ValueError as error:
+        raise IssueError("UNSAFE_PATH", str(directory)) from error
+    return directory
+
+
+@contextmanager
+def issue_lock(root: Path, create: bool = False) -> Iterator[Path]:
+    """Serialize mutations so sequence allocation and replacement share one boundary."""
+    directory = issue_directory(root, create=create)
+    lock_path = directory / ".issues.lock"
+    if lock_path.exists() and lock_path.is_symlink():
+        raise IssueError("UNSAFE_PATH", str(lock_path))
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(str(lock_path), flags, 0o600)
+    except OSError as error:
+        raise IssueError("LOCK_FAILED", str(lock_path)) from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise IssueError("UNSAFE_PATH", str(lock_path))
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield directory
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def mutation_path(directory: Path, issue_id: str) -> Path:
+    if not COMPACT_ID.fullmatch(issue_id):
+        raise IssueError("INVALID_ISSUE_ID", issue_id)
+    path = resolve_issue_id(discover_issue_paths(directory.parents[1]), issue_id)
+    if path.parent != directory or path.is_symlink():
+        raise IssueError("UNSAFE_PATH", str(path))
+    try:
+        mode = path.lstat().st_mode
+    except OSError as error:
+        raise IssueError("UNSAFE_PATH", str(path)) from error
+    if not stat.S_ISREG(mode):
+        raise IssueError("UNSAFE_PATH", str(path))
+    return path
+
+
+def render_document(path: Path, metadata: Dict[str, Any], body: bytes) -> bytes:
+    lines = ["---"]
+    for name in ("title", "short_description", "type", "category", "tags", "date", "status", "priority", "parent-plan", "closed"):
+        if name not in metadata:
+            continue
+        value = json.dumps(metadata[name], ensure_ascii=False, separators=(",", ":"))
+        lines.append("%s: %s" % (name, value))
+    contents = ("\n".join(lines) + "\n---\n").encode("utf-8") + body
+    for name, value in metadata.items():
+        if name == "tags":
+            if not isinstance(value, list) or any(not isinstance(tag, str) or _has_forbidden_characters(tag) or not TAG.fullmatch(tag) for tag in value):
+                raise IssueError("INVALID_TAGS", "tags must use kebab-case")
+        elif not isinstance(value, str) or not value or _has_forbidden_characters(value):
+            raise IssueError("INVALID_MUTATION", name)
+    candidate = Document(path=path, metadata=metadata, body=body)
+    diagnostics = validate_document(candidate, compatibility=False)
+    if diagnostics:
+        raise IssueError("INVALID_MUTATION", ", ".join(item.code for item in diagnostics))
+    return contents
+
+
+def atomic_replace(path: Path, contents: bytes, expected: Optional[bytes]) -> None:
+    if path.is_symlink() or path.parent.is_symlink():
+        raise IssueError("UNSAFE_PATH", str(path))
+    if expected is None:
+        if path.exists():
+            raise IssueError("ISSUE_ALREADY_EXISTS", path.name)
+    else:
+        try:
+            current = path.read_bytes()
+        except OSError as error:
+            raise IssueError("PREIMAGE_CHANGED", path.name) from error
+        if current != expected:
+            raise IssueError("PREIMAGE_CHANGED", path.name)
+    descriptor, temporary = tempfile.mkstemp(prefix=".issues-", dir=str(path.parent))
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if expected is not None and path.read_bytes() != expected:
+            raise IssueError("PREIMAGE_CHANGED", path.name)
+        os.replace(temporary, path)
+        directory_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def active_document(path: Path) -> tuple[Document, bytes]:
+    contents = path.read_bytes()
+    document = parse_document_bytes(path, contents)
+    diagnostics = validate_document(document, compatibility=False)
+    if diagnostics:
+        raise IssueError("INVALID_CORPUS", path.name)
+    if document.metadata["status"] not in ("open", "in-progress"):
+        raise IssueError("INVALID_TRANSITION", document.metadata["status"])
+    return document, contents
+
+
+def replace_document(document: Document, expected: bytes, metadata: Dict[str, Any], body: Optional[bytes] = None) -> None:
+    body = document.body if body is None else body
+    atomic_replace(document.path, render_document(document.path, metadata, body), expected)
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    if not slug:
+        raise IssueError("INVALID_TITLE", "title cannot produce an issue filename")
+    return slug
+
+
+def create_issue(root: Path, arguments: argparse.Namespace) -> Path:
+    with issue_lock(root, create=True) as directory:
+        date = datetime.now(timezone.utc).date().isoformat()
+        sequences = [int(match.group(1)[11:]) for path in discover_issue_paths(root) for match in [ISSUE_NAME.match(path.name)] if match and match.group(1).startswith(date + "-")]
+        sequence = max(sequences, default=0) + 1
+        if sequence > 999:
+            raise IssueError("SEQUENCE_EXHAUSTED", date)
+        filename = "%s-%03d-%s.md" % (date, sequence, slugify(arguments.title))
+        path = directory / filename
+        metadata: Dict[str, Any] = {"title": arguments.title, "short_description": arguments.short_description, "type": arguments.type, "category": arguments.category, "tags": arguments.tag or [], "date": date, "status": "open", "priority": arguments.priority}
+        if arguments.parent_plan:
+            metadata["parent-plan"] = arguments.parent_plan
+        body = ("\n## Why this exists\n\n%s\n\n## Scope\n\n%s\n\n## Open decisions\n\n%s\n" % (arguments.why, arguments.scope, arguments.open_decisions)).encode("utf-8")
+        atomic_replace(path, render_document(path, metadata, body), None)
+        return path
+
+
+def start_issue(root: Path, issue_id: str) -> None:
+    with issue_lock(root) as directory:
+        document, expected = active_document(mutation_path(directory, issue_id))
+        if document.metadata["status"] != "open":
+            raise IssueError("INVALID_TRANSITION", "start requires open")
+        metadata = dict(document.metadata)
+        metadata["status"] = "in-progress"
+        replace_document(document, expected, metadata)
+
+
+def edit_issue(root: Path, issue_id: str, arguments: argparse.Namespace) -> None:
+    values = {"title": arguments.title, "short_description": arguments.short_description, "type": arguments.type, "category": arguments.category, "priority": arguments.priority, "parent-plan": arguments.parent_plan}
+    if arguments.tag is not None:
+        values["tags"] = arguments.tag
+    values = {name: value for name, value in values.items() if value is not None}
+    if not values:
+        raise IssueError("NO_EDIT_FIELDS", "supply an editable metadata field")
+    with issue_lock(root) as directory:
+        document, expected = active_document(mutation_path(directory, issue_id))
+        metadata = dict(document.metadata)
+        metadata.update(values)
+        replace_document(document, expected, metadata)
+
+
+def finish_issue(root: Path, issue_id: str, status: str, resolution: str) -> None:
+    if not resolution:
+        raise IssueError("INVALID_RESOLUTION", "resolution text is required")
+    with issue_lock(root) as directory:
+        document, expected = active_document(mutation_path(directory, issue_id))
+        if status == "done" and document.metadata["status"] != "in-progress":
+            raise IssueError("INVALID_TRANSITION", "close requires in-progress")
+        metadata = dict(document.metadata)
+        metadata["status"] = status
+        metadata["closed"] = datetime.now(timezone.utc).date().isoformat()
+        body = document.body + b"\n## Resolution\n\n" + resolution.encode("utf-8") + b"\n"
+        replace_document(document, expected, metadata, body)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="issues")
     parser.add_argument("--version", action="store_true")
@@ -258,6 +453,34 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     show = subcommands.add_parser("show")
     show.add_argument("issue_id")
     show.add_argument("--json", action="store_true")
+    create = subcommands.add_parser("create")
+    create.add_argument("--title", required=True)
+    create.add_argument("--short-description", required=True)
+    create.add_argument("--type", required=True, choices=sorted(TYPES))
+    create.add_argument("--category", required=True, choices=sorted(CATEGORIES))
+    create.add_argument("--tag", action="append")
+    create.add_argument("--priority", required=True, choices=sorted(PRIORITIES))
+    create.add_argument("--parent-plan")
+    create.add_argument("--why", default="Describe the problem and its impact.")
+    create.add_argument("--scope", default="Define the work that resolves this issue.")
+    create.add_argument("--open-decisions", default="None.")
+    start = subcommands.add_parser("start")
+    start.add_argument("issue_id")
+    edit = subcommands.add_parser("edit")
+    edit.add_argument("issue_id")
+    edit.add_argument("--title")
+    edit.add_argument("--short-description")
+    edit.add_argument("--type", choices=sorted(TYPES))
+    edit.add_argument("--category", choices=sorted(CATEGORIES))
+    edit.add_argument("--tag", action="append")
+    edit.add_argument("--priority", choices=sorted(PRIORITIES))
+    edit.add_argument("--parent-plan")
+    close = subcommands.add_parser("close")
+    close.add_argument("issue_id")
+    close.add_argument("--resolution", required=True)
+    wontfix = subcommands.add_parser("wontfix")
+    wontfix.add_argument("issue_id")
+    wontfix.add_argument("--rationale", required=True)
     arguments = parser.parse_args(argv)
     try:
         if arguments.version:
@@ -288,6 +511,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(document.path.stem)
                 print(document.metadata["title"])
                 sys.stdout.buffer.write(document.body)
+            return 0
+        if arguments.command == "create":
+            path = create_issue(root, arguments)
+            print(path.relative_to(root))
+            return 0
+        if arguments.command == "start":
+            start_issue(root, arguments.issue_id)
+            return 0
+        if arguments.command == "edit":
+            edit_issue(root, arguments.issue_id, arguments)
+            return 0
+        if arguments.command == "close":
+            finish_issue(root, arguments.issue_id, "done", arguments.resolution)
+            return 0
+        if arguments.command == "wontfix":
+            finish_issue(root, arguments.issue_id, "wontfix", arguments.rationale)
             return 0
         parser.error("a command is required")
     except IssueError as error:
