@@ -32,9 +32,8 @@ brew "starship"
 brew "grc"          # generic colouriser
 
 # Git tools
-{{/* git is kept, folded back after the minimal render failed the Docker suite: the deployed .gitconfig sets merge.conflictStyle = zdiff3, which needs git >= 2.35, and Ubuntu 22.04's apt git is 2.34.1 — the apply's Oh My Zsh clone aborts on it before any test runs */ -}}
-brew "git"
 {{ if $full -}}
+brew "git"
 brew "gh"
 brew "delta"
 brew "lazygit"

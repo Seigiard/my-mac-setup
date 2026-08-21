@@ -341,9 +341,15 @@ BREWFILE_TMPL="private_dot_config/brewfiles/Brewfile.tmpl"
 BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/empty_Brewfile.macos.tmpl"
 
 # The entries the suite actually needs from the brew prefix: jq directly, node
-# for the sqlite3 that gates seven tests, bun because the macOS job's setup-bun
-# step runs after the apply, and git because the deployed .gitconfig sets
-# merge.conflictStyle = zdiff3, which apt's git 2.34.1 rejects outright.
+# for the sqlite3 that gates seven tests, and bun because the macOS job's
+# setup-bun step runs after the apply.
+#
+# git was on that list and is not any more. The deployed .gitconfig sets
+# merge.conflictStyle = zdiff3, which needs git >= 2.35, and Ubuntu 22.04's apt
+# git was 2.34.1 — so Homebrew's git was the only one that could read the config
+# inside the image. docker/Dockerfile.ubuntu now builds on 24.04, whose apt git
+# is 2.43.0, so the claim no longer holds. It is refuted below rather than left
+# unasserted, or a later fold-back passes silently.
 #
 # grc is the exception, asserted below only to pin the entry until
 # docs/issues/2026-08-21-010 removes it. It supplied the image's python3 until
@@ -356,11 +362,11 @@ BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/empty_Brewfile.macos.tmpl"
 assert_minimal_brewfile() {
   assert_line 'tap "oven-sh/bun", trusted: true'
   assert_line --partial 'brew "grc"'
-  assert_line 'brew "git"'
   assert_line 'brew "node"'
   assert_line --partial 'brew "oven-sh/bun/bun"'
   assert_line 'brew "jq"'
 
+  refute_line 'brew "git"'
   refute_line 'brew "ffmpeg"'
   refute_line 'brew "poppler"'
   refute_line 'brew "imagemagick"'
