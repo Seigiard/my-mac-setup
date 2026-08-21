@@ -185,9 +185,9 @@ class ReadTests(IssueFixtures):
 
     def test_formats_terminal_priority_id_title_and_description_styles(self):
         value = {"id": "2026-08-21-002-high", "priority": "high", "short_description": "High desc", "title": "High"}
-        self.assertEqual("\x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh desc\x1b[0m", self.module().format_issue_summary(value, color=True))
+        self.assertEqual(" \x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh desc\x1b[0m", self.module().format_issue_summary(value, color=True))
         value["short_description"] = "High"
-        self.assertEqual("\x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh\x1b[0m", self.module().format_issue_summary(value, color=True))
+        self.assertEqual(" \x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh\x1b[0m", self.module().format_issue_summary(value, color=True))
 
     def test_searches_title_description_and_arbitrary_body_in_stable_order(self):
         self.write_issue("2026-08-21-002-body.md", issue_text(title="Other", short_description="Nothing") + b"\xffNeedle in body.\xfe\n")
