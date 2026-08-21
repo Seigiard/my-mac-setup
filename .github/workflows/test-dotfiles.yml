@@ -177,6 +177,10 @@ jobs:
         working-directory: home/private_dot_claude/dot_smithers
         run: bun install --frozen-lockfile
 
+      - name: Test the Smithers issue writer
+        working-directory: home/private_dot_claude/dot_smithers
+        run: bun test workflows/lib/issue-writer.test.ts
+
       # Report each gap once, here, instead of once per dependent test.
       - name: Verify both smithers directories the tests call
         run: |
@@ -294,6 +298,10 @@ jobs:
       - name: Install smithers dependencies in the source tree
         working-directory: home/private_dot_claude/dot_smithers
         run: bun install --frozen-lockfile
+
+      - name: Test the Smithers issue writer
+        working-directory: home/private_dot_claude/dot_smithers
+        run: bun test workflows/lib/issue-writer.test.ts
 
       - name: Verify both smithers directories the tests call
         run: |
