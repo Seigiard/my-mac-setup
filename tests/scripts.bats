@@ -14,6 +14,16 @@ teardown() {
 }
 
 # ===========================================
+# python3 -- the declared interpreter
+# ===========================================
+
+# First, so a missing or too-old interpreter states its own cause instead of
+# leaving the bare `python3` call sites below to fail without naming it.
+@test "python3 is present and at least 3.9, the floor README.md declares" {
+  assert_python3_available
+}
+
+# ===========================================
 # Repository linting
 # ===========================================
 
@@ -1861,7 +1871,9 @@ hts_wait_for_task_slug() {
 }
 
 @test "herdr-task-sync bounded Bats invocation exits after detached work" {
-  command -v python3 >/dev/null || skip "python3 not available"
+  # No python3 skip guard: it is a declared requirement (README.md,
+  # Requirements), a deliberate exception to the skip convention in
+  # docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md.
   local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
   bats_bin="$(command -v bats)"

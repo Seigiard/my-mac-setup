@@ -12,7 +12,11 @@ PALETTE_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/command-palette"
 REAL_COMMANDS="$SOURCE_ROOT/private_dot_config/herdr/command-palette/commands.toml"
 
 setup() {
-  command_exists python3 || skip "python3 not installed"
+  # No `command_exists python3 || skip` here. python3 is a declared requirement
+  # (README.md, Requirements), so its absence must fail rather than silence all
+  # 56 tests in this file from inside setup(). Deliberate exception to the skip
+  # convention in docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md;
+  # the first test below is what names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
   export OPEN_IN_ZED_PY="$PALETTE_DIR/open_in_zed.py"
@@ -25,6 +29,52 @@ setup() {
 
 teardown() {
   [[ -n "${PALETTE_WORK:-}" ]] && rm -rf "$PALETTE_WORK" || true
+}
+
+# ===========================================
+# python3 -- the declared interpreter
+# ===========================================
+
+# First, so a missing or too-old interpreter states its own cause instead of
+# leaving a wall of identical `python3: command not found` failures below.
+@test "python3 is present and at least 3.9, the floor README.md declares" {
+  assert_python3_available
+}
+
+# The gate has to reject, not fall through. Before the shape check in
+# assert_python3_available, a stub printing "3.8.1" made the minor component
+# "8.1", which is an arithmetic syntax error -- (( )) returned non-zero, the
+# too-old branch was skipped, and a Python 3.8 stub passed the 3.9 floor.
+# Stubbed on PATH the same way the missing-fzf test further down this file does.
+@test "a python3 below the floor, or one answering with junk, is rejected" {
+  local stub="$PALETTE_WORK/badpy" saved="$PATH"
+  mkdir -p "$stub"
+
+  # Well-formed but too old: the ordinary floor rejection.
+  printf '#!/bin/sh\necho "3.8"\nexit 0\n' > "$stub/python3"
+  chmod +x "$stub/python3"
+  PATH="$stub:$saved"
+  run assert_python3_available
+  PATH="$saved"
+  assert_failure
+  assert_output --partial "3.8"
+  assert_output --partial "3.9"
+
+  # Three components: the shape that used to pass.
+  printf '#!/bin/sh\necho "3.8.1"\nexit 0\n' > "$stub/python3"
+  PATH="$stub:$saved"
+  run assert_python3_available
+  PATH="$saved"
+  assert_failure
+  assert_output --partial "3.8.1"
+
+  # Not a version at all.
+  printf '#!/bin/sh\necho "Python 3.9.6 (stub)"\nexit 0\n' > "$stub/python3"
+  PATH="$stub:$saved"
+  run assert_python3_available
+  PATH="$saved"
+  assert_failure
+  assert_output --partial "python3"
 }
 
 # ===========================================

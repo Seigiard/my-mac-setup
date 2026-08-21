@@ -3,6 +3,17 @@
 load 'helpers/common'
 
 # ===========================================
+# python3 -- the declared interpreter
+# ===========================================
+
+# This file loses no skip guard, but it holds eight of the nine bare `run
+# python3` call sites, so a contributor running it alone still needs the cause
+# named rather than inferred from the failures.
+@test "python3 is present and at least 3.9, the floor README.md declares" {
+  assert_python3_available
+}
+
+# ===========================================
 # Chezmoi-managed files exist
 # ===========================================
 
