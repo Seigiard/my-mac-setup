@@ -2,7 +2,8 @@
 title: "opencode resolves bare-int theme values through a hardcoded standard-16 table, not the live terminal palette"
 type: follow-up
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -47,3 +48,35 @@ Decide how my-mac-setup adopts opencode theming, given the divergence:
 - Which option; A is the cheapest and matches the contract's intent.
 - Whether the bats suite should assert anything about opencode theme files
   (today my-mac-setup ships none).
+
+## Resolution
+
+**Option A.** my-mac-setup relies on opencode's built-in `system` theme and
+ships no custom opencode theme. Rationale: `system` is the only theme that
+queries the live terminal palette (`renderer.getPalette({size: 16})`), so it
+is palette-following by construction — exactly the contract's intent — while
+a custom slot-referencing theme would render the fixed xterm-16 table. Cheap
+to reverse if opencode ever makes bare ints palette-aware (option C remains
+open upstream).
+
+Checked on close (2026-08-21) — the repo already implements A in full, so no
+config or test change was needed:
+
+- `home/private_dot_config/opencode/tui.json` pins `"theme": "system"`.
+  Key location verified against opencode's themes docs (opencode.ai/docs/themes):
+  the TUI theme lives in `tui.json` under `theme`; `system` is built-in and
+  "automatically adapts to your terminal's color scheme". The explicit pin
+  matters because opencode's default theme is `opencode`, not `system`.
+- No file under `home/private_dot_config/opencode/themes/` — no custom theme
+  ships; `home/.chezmoiremove` retires the old forced theme
+  (`.config/opencode/themes/flexoki-light-forced.json`) on machines that
+  deployed it.
+- Bats already asserts the decision (second open decision answered "yes,
+  and it does"): `tests/smoke.bats` "coding agents use terminal color
+  palettes" checks `.theme == "system"` in the deployed
+  `~/.config/opencode/tui.json` and that the retired theme file is absent;
+  `tests/templates.bats` ".chezmoiremove deletes the retired opencode forced
+  theme" guards the removal entry in the source tree.
+- Upstream behavior reference: sst/opencode @
+  `ad192a59b5517fb432bc5f4d27f131d605a22beb` (the commit examined in
+  "Why this exists").
