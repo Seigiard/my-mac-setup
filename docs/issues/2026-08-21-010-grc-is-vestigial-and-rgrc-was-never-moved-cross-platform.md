@@ -2,7 +2,8 @@
 title: grc is vestigial — rgrc replaced it but was never moved cross-platform, and grc now survives only as the accidental python3 carrier
 type: chore
 date: 2026-08-21
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -111,3 +112,41 @@ change to what a host installs. Existing machines keep their installed `grc` eit
   no textual reference whose real consumer is yazi. A one-off audit could confirm each of
   those is genuinely reachable, but absence of a reference is weak evidence and the audit
   would mostly re-derive what the `# Yazi dependencies` heading already says.
+
+## Resolution
+
+Closed 2026-08-21. All three scope steps are done.
+
+**Precondition verified before removal.** In this checkout, `docker/Dockerfile.ubuntu`
+installs `python3` in its apt layer (line 30 of the `apt-get install` list), and
+`README.md` states the `python3 >= 3.9` system requirement with the Linux note that
+minimal images must `apt-get install -y python3`. Both checks passed before `grc` was
+touched.
+
+**Deleted.** `brew "grc"` and its keep-until-this-issue template comment left
+`home/private_dot_config/brewfiles/Brewfile.tmpl`; the `assert_line --partial 'brew "grc"'`
+pin and its explanatory comment left `assert_minimal_brewfile` in `tests/templates.bats`.
+The stale Dockerfile comment crediting grc as the old python3 carrier was rewritten. A
+word-boundary grep for `grc` (excluding `rgrc`) across `home/`, `tests/`, `docker/`,
+`Makefile` and `.github` now returns nothing. Existing machines keep their installed grc —
+`brew bundle` does not uninstall what leaves the file.
+
+**rgrc moved cross-platform.** The open decision resolved in favour of the move:
+`lazywalker/homebrew-tap/Formula/rgrc.rb` carries explicit `on_linux` blocks with prebuilt
+binaries for both architectures (`rgrc-x86_64-unknown-linux-gnu.tar.gz`,
+`rgrc-aarch64-unknown-linux-musl.tar.gz`), and both v0.6.20 release assets answer HTTP 200
+on github.com — no compile, no dependency chain. `brew "lazywalker/tap/rgrc"` and its tap
+moved from `empty_Brewfile.macos.tmpl` into `Brewfile.tmpl`, inside the `$full` guard: it
+stays out of the CI-minimal set because no test references it and the shell init at
+`home/dot_zshrc.tmpl:108` is guarded by `has rgrc`. `tests/templates.bats` now refutes rgrc
+in the minimal render and pins it in the full render, mirroring the `brew "git"` pattern.
+
+**Remaining open decisions.** The TOML-parser observability test is filed as
+`docs/issues/2026-08-21-023-no-test-observes-which-toml-parser-the-palette-used.md` — grc's
+removal is exactly the interpreter switch that made the gap real. The broader Brewfile
+inventory audit is not filed: as this issue itself concluded, absence of a reference is
+weak evidence and the audit would mostly re-derive what the `# Yazi dependencies` heading
+already says.
+
+Verified with `make test-templates` (39/39 pass, including all CI-minimal render-guard
+tests) and `make lint` (clean).

@@ -422,22 +422,19 @@ BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/empty_Brewfile.macos.tmpl"
 # is 2.43.0, so the claim no longer holds. It is refuted below rather than left
 # unasserted, or a later fold-back passes silently.
 #
-# grc is the exception, asserted below only to pin the entry until
-# docs/issues/2026-08-21-010 removes it. It supplied the image's python3 until
-# docker/Dockerfile.ubuntu started installing python3 itself; nothing calls grc,
-# and no test needs it now.
-#
 # Every other entry is here because removing it broke something observable.
 # Anything added without that evidence is install time the CI runs pay for
 # nothing — the point of the guard is that this list stays honest.
 assert_minimal_brewfile() {
   assert_line 'tap "oven-sh/bun", trusted: true'
-  assert_line --partial 'brew "grc"'
   assert_line 'brew "node"'
   assert_line --partial 'brew "oven-sh/bun/bun"'
   assert_line 'brew "jq"'
 
   refute_line 'brew "git"'
+  # rgrc stays out of the minimal set: no test references it, and the shell
+  # init in dot_zshrc.tmpl is guarded by `has rgrc`.
+  refute_line 'brew "lazywalker/tap/rgrc"'
   refute_line 'brew "ffmpeg"'
   refute_line 'brew "poppler"'
   refute_line 'brew "imagemagick"'
@@ -462,8 +459,8 @@ assert_minimal_brewfile() {
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
-  # No test in tests/ references any cask, or elio/rgrc/terminal-notifier/
-  # linear, so the guard covers the whole file. `brew bundle` accepts empty.
+  # No test in tests/ references any cask, or elio/terminal-notifier/linear,
+  # so the guard covers the whole file. `brew bundle` accepts empty.
   refute_output --partial 'cask "'
   refute_output --partial 'brew "'
   refute_output --partial 'tap "'
@@ -479,10 +476,11 @@ assert_minimal_brewfile() {
   assert_line 'brew "ffmpeg"'
   assert_line 'brew "shellcheck"'
   assert_line 'brew "jq"'
-  # git is refuted in the minimal render, so it needs pinning here too, or
-  # deleting it from the template outright would satisfy every assertion in
-  # this file while real hosts silently stop getting it.
+  # git and rgrc are refuted in the minimal render, so they need pinning here
+  # too, or deleting either from the template outright would satisfy every
+  # assertion in this file while real hosts silently stop getting it.
   assert_line 'brew "git"'
+  assert_line --partial 'brew "lazywalker/tap/rgrc"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success

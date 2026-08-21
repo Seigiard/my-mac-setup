@@ -14,9 +14,8 @@ ENV TZ=UTC
 
 # Install base dependencies for Linuxbrew, plus python3. python3 is not a
 # Linuxbrew dependency: it is the herdr command palette's interpreter, and the
-# apply itself shells out to it. The image would otherwise get an interpreter
-# only as a transitive dependency of `brew "grc"`, a package nothing calls and
-# docs/issues/2026-08-21-010 removes.
+# apply itself shells out to it. Nothing in the Brewfiles supplies an
+# interpreter, so this apt entry is the image's only python3.
 RUN apt-get update && apt-get install -y \
     curl \
     git \
