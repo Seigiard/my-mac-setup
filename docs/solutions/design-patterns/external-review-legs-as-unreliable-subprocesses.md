@@ -1,6 +1,7 @@
 ---
 title: External review legs as unreliable subprocesses
 date: 2026-08-14
+last_updated: 2026-08-21
 category: design-patterns
 module: se-pipeline
 problem_type: design_pattern
@@ -55,7 +56,7 @@ The dangerous default is counting a dead leg as "no findings" — a green report
 
   Containment cuts both ways, so negation is checked in both directions too (`review-schema.ts:44,48`): "not completed" is a failure that plain containment would pass, and "no errors" is health that plain containment would fail. Separators are normalised to spaces first, because underscores are word characters — `\bwaiting\b` does not match `waiting_for_reviewers`, the exact status this vocabulary exists to catch.
 
-The same family, one layer up (session history): a schema-valid severity summary saying `maxSeverity: "P0"` with `p0Count: 0` originally passed the gate green — the gate read only the count. The fix is cross-field validation in `home/private_dot_claude/dot_smithers/workflows/lib/severity-summary.ts`: a contradictory summary is malformed and degrades to advisory. Layering principle: leg **availability** stays fail-closed; the severity layer degrades to advisory, never to silent green.
+The same family, one layer up (session history): a schema-valid severity summary saying `maxSeverity: "P0"` with `p0Count: 0` originally passed the gate green — the gate read only the count. The fix is cross-field validation in `home/private_dot_claude/dot_smithers/workflows/lib/severity-summary.ts`: a contradictory summary is malformed and degrades to advisory. Layering principle: leg **availability** stays fail-closed; the severity layer degrades to advisory, never to silent green. That layering — and the protected-slot rule governing how the severity line is extracted from the envelope at all — is developed in full in `protected-slot-signal-extraction.md`.
 
 **2. The harness is part of the dispatch contract — pin its execution-mode env vars.**
 `agents.ts:142`:
@@ -113,6 +114,7 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
 
 - `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` — the false-fail bug: measured cost of fail-closed on free text, the three candidate directions, and why payload-based health won (status: done, commit `186b6a8`).
 - `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` — the original stall/unwrap fix (status: done).
-- `docs/se-pipeline.md:427-471` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status) plus the payload-over-adjective status rule; thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `docs/se-pipeline.md:590-656` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status) plus the payload-over-adjective status rule; thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `docs/solutions/design-patterns/protected-slot-signal-extraction.md` — the full development of the severity-layer paragraph above: protected-slot extraction (decoys inert by position), cross-field consistency, and why the additive layer may fail open to advisory while leg availability stays fail-closed.
 - `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).

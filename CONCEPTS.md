@@ -46,10 +46,19 @@ A repeat of the secret scan triggered when new commits appear after the last sca
 ### Gate
 The check that closes a stage and decides whether the run may go on. A gate is a pure predicate over what the stage produced and over independently measured evidence — never over the stage's own self-report. Gates are the pipeline's decisions; the engine that executes them only knows whether the check ran.
 
+### Right-sizing gate
+A pre-stage decision of whether a stage should run at all, made from cheap evidence about the size and kind of the work — distinct from a Gate, which closes a stage after it ran. Its tie-breaking bias follows the guarded stage's blast radius: before a mutating or money-spending stage it skips when unsure; before a read-only stage it runs when unsure. A skip always carries a stated reason, never a silent pass.
+
+### Protected slot
+The single designated position in an agent's free-text envelope — the line immediately before the terminal marker — where a machine-readable signal may live. Everything outside the slot is prose: a quoted or decoy copy of the signal elsewhere in the text is inert. Reading the signal and stripping it out of the envelope anchor to the same slot, so neither operation can act on prose.
+
 ### Proof of work
 The evidence a gate uses to decide that an agent stage produced something, taken from the repository's content rather than from the agent's report: the staged worktree's tree is compared against the base commit's, and identical trees mean the stage produced nothing whatever the agent claimed.
 
 It is content-based on purpose, so it is independent of how or when commits were arranged, and it holds only while nothing else writes into the worktree — which is why run-local files a run stages for itself live outside it.
+
+### Provenance bind
+A declared dependency of a task on the proven content of an earlier result row, checked by the engine when it schedules the task. A bind guards scheduling, not history: it is re-verified only before a task dispatches, so a tampered authority row parks not-yet-started bound tasks, while work that already finished is never re-verified. Protecting against edits made during a pause is Rescan's job, not the bind's.
 
 ### Verdict
 A gate's decision — green, failed, or degraded — together with the reasons that produced it. A verdict is distinct from a node having finished: a gate that decides against the run still completes normally, so a runner's completion signal says nothing about which way the gate went. Every non-green verdict parks the run and must be shown to the operator, with its reasons, wherever they act on it.
@@ -59,6 +68,8 @@ A gate outcome meaning the stage cannot vouch for its result — a finding, a to
 
 ### Approval pause
 The stop a non-green verdict creates, where the run waits for an operator. What the operator's approval *does* is gate-specific, not universal — it may waive the finding and continue, buy one more paid attempt of the same stage, or stop the run with a report — so each pause states the effect of every available response rather than relying on the word "approve".
+
+A pause is also a human-editable window: any evidence gathered before it (scans, validation results) attests to a state that may no longer exist once the operator can edit, so the checks that follow a pause treat earlier verdicts as history, not as standing facts — see Rescan.
 
 ### Waive
 An operator's explicit approval that lets a run continue past a degraded gate, recorded with the finding it accepts. Waiving accepts a specific known result; it never disables the check for future runs.
@@ -71,6 +82,11 @@ A reusable unit of pipeline work (a scan, an agent run, a subflow) registered in
 
 ### Zero-in-flight rule
 The delivery rule that workflow code — the interpreter, blocks, and shared libraries — is edited only when no run is live or parked. A durable engine ties each run's identity to that code, so editing it under an in-flight run breaks the run's resume; runs are drained or explicitly written off first.
+
+## herdr
+
+### Child-agent contract
+The agreement between a parent agent and the child agents it launches into sibling panes: the parent's verbs are all fire-and-return (launch, answer, reap) and it never waits; the child calls back by injecting a marked message into the parent's pane when it needs a decision, which starts a new parent turn. While waiting, the child publishes a time-limited waiting label as passive state, since a waiting child runs no loop and cannot refresh its own signal. Interactive asks that would stall an unwatched child are removed at launch time rather than detected at runtime.
 
 ## Theming
 

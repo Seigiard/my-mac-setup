@@ -1,6 +1,7 @@
 ---
 title: Pre-external secret boundary for coding-agent pipelines
 date: 2026-08-14
+last_updated: 2026-08-21
 category: architecture-patterns
 module: se-pipeline
 problem_type: architecture_pattern
@@ -86,7 +87,7 @@ The scan is also a reusable compute block (`secret-scan`) in the dynamic-flow bl
 
 ## Guidance
 
-Five transferable rules for any pipeline that sends repo content to an external service:
+Six transferable rules for any pipeline that sends repo content to an external service:
 
 1. **Scan before anything crosses the external boundary — at every path that crosses it.** The scan belongs immediately upstream of the dispatch, and every dispatch path needs one: the initial external legs (`se-pipeline.tsx:761`), content added by the pipeline itself (simplify commit → `:845`), and content added by a human mid-run (approval-pause commits → `:1000`). A single scan at the start is not a boundary if commits can appear after it.
 
@@ -94,9 +95,13 @@ Five transferable rules for any pipeline that sends repo content to an external 
 
 3. **Redact scanner output before persisting it — the report must not become the leak.** The pipeline stores scan details in durable run summaries and report files, so it runs gitleaks with `--redact` (`envelopes.ts:92-95`). A secret boundary that copies the detected secret verbatim into its own logs has just moved the leak, not stopped it.
 
-4. **Scope the scan to the run's own commits (`baseSha..HEAD`).** The `--log-opts=<baseSha>..HEAD` range means pre-existing tracked secrets that were already in the repo — and are not part of what this run produced — don't false-block every run. Trade-off, named: this deliberately does NOT protect content that predates the run. If the external leg reads the whole worktree (it does), tracked secrets from before `baseSha` still ship; the diff scan only guarantees the run added no new ones. Full-tree exposure needs its own control (see the open gap below).
+4. **Scope the scan to the run's own commits (`baseSha..HEAD`).** The `--log-opts=<baseSha>..HEAD` range means pre-existing tracked secrets that were already in the repo — and are not part of what this run produced — don't false-block every run. Trade-off, named: this deliberately does NOT protect content that predates the run. If the external leg reads the whole worktree (it does), tracked secrets from before `baseSha` still ship; the diff scan only guarantees the run added no new ones. Full-tree exposure got its own control on 2026-08-15: a two-tier boundary in `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` — tier 1 `preExternalRepoGate` (range scan) plus tier 2 `preExternalTreeGate` (`git archive` + gitleaks over the whole tree at the snapshot commit, `pre-external-gate.ts:103`) — wired into se-code-review, se-simplify, and the pipeline's secret-scan stage (`docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md`, done).
 
 5. **Never let untrusted input choose the scan scope, and fail an empty scan closed.** The scan base comes from the trusted staged worktree, never from flow-spec data — the spec-controlled base was a P0 precisely because it let a composer neutralize the scan (session history; fix in commit `46d3a46` "Fix three P0 findings in the compute-effect bodies", empty-range-fails-closed covered by tests in `block-effects.test.ts`).
+
+6. **A pause invalidates every earlier check — not just the secret scan.** Any window where a human (or the pipeline itself) can edit state converts every prior verdict into a statement about a tree that may no longer exist: the secret scan AND the validate-cmd both attested to a specific head. The mechanism: each check stamps the head it attested (`scannedHead` written into the scan's report JSON, `se-pipeline.tsx:755`, `:765`); after the pause, a rescan compute re-derives `currentHead` and sets `moved = scannedHead === undefined || currentHead !== scannedHead` — an absent stamp is treated as moved, never as a pass (`se-pipeline.tsx:988-997`). The pure verdict function `rescanGate` (`home/private_dot_claude/dot_smithers/workflows/lib/gates.ts:406-436`) fails closed at every branch: no report → failed; moved with a leak or scanner crash → degraded; moved with validate-cmd missing or red → failed; unmoved head → deterministic no-op green. Approve on a red rescan means **one fresh attempt, not a waive** (`waiveOnApprove: false`, `se-pipeline.tsx:1021`): the operator's natural response to red is "commit the fix and approve", and that fix-commit must itself be scanned — a waive shape can never close that recursion.
+
+   Corollary, and the reason the rescan cannot be replaced by provenance machinery: **provenance binds guard scheduling, not history.** The pipeline's ProofBinding chain (`ctx.prove` at `se-pipeline.tsx:309`, `bind=` on every expensive leg) re-verifies only at render and immediately before dispatch — a memoized, finished task never re-verifies its bind (`docs/se-pipeline.md:682-690`). Binds park not-yet-dispatched tasks as `BOUND_STALE` when an authority row is tampered; only an explicit state-comparison rescan protects against edits made during a pause. Each guard has a precise blind spot: row tamper → bind; plan-file edit → the work gate's re-hash; pause edit → rescan.
 
 ## Why This Matters
 
@@ -118,11 +123,14 @@ Five transferable rules for any pipeline that sends repo content to an external 
 
 **Known operational hole (session history).** Because secret-scan is nested inside the work stage's green branch, a run parked at the work gate never scans; merging a branch from such a run means the diff was never scanned. The observed compensation was a manual grep pass over the diff (api key/token/`sk-`/`ghp_`/`AKIA`/private-key headers/`op://` patterns) before merging.
 
-**Open gap (standalone harnesses) — status: OPEN**, tracked in `docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md`. When `se-code-review` or `se-simplify` run standalone (outside the pipeline), they snapshot the repo via `git stash create` into `/tmp/...` and ship it to external legs with no scan at all. `stash create` excludes untracked files, but tracked secret-bearing files still go out — and this repo tracks exactly such files (`home/dot_zshenv.tmpl` with its `op://` references). The issue's design direction is a shared pre-external gate reusing `secretScanDiff` before the standalone `Parallel` legs dispatch, with refuse-vs-filter on a hit still an open decision. Until that lands, the standalone paths are outside the boundary this learning describes.
+**Former gap (standalone harnesses) — CLOSED 2026-08-14** (`docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md`, done). Standalone `se-code-review` / `se-simplify` used to snapshot the repo via `git stash create` and ship it to external legs with no scan. The shared pre-external gate shipped in `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` (`enforcePreExternalGate`, `pre-external-gate.ts:197`; callers hold a `preScanned` flag and skip the gate on the already-scanned pipeline path, so it is not double-scanned) and both standalone harnesses now pass through it before their `Parallel` legs dispatch (tests: `pre-external-gate.test.ts`, `standalone-secret-gate.test.ts`). The follow-up tree-tier (`preExternalTreeGate`) closed the pre-`baseSha` exposure on 2026-08-15 (`docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md`, done).
 
 ## Related
 
-- `docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md` — the open standalone-harness gap.
-- `docs/se-pipeline.md` — runbook: secret-scan required before every external block (se flow catalog), fail-closed post-approval rescan semantics.
+- `docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md` — the standalone-harness gap (done, closed 2026-08-14).
+- `docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md` — the tree-tier scope decision (done, closed 2026-08-15).
+- `docs/plans/2026-07-16-001-feat-se-pipeline-provenance-rescan-plan.md` — the plan (status: done) behind rule 6: `scannedHead` threading, `rescanGate`, provenance binds; its KTD-C (`waiveOnApprove: true`) is superseded on that one point by the shipped `waiveOnApprove: false`.
+- `docs/se-pipeline.md` — runbook: secret-scan required before every external block (se flow catalog), "Провенанс и пост-approval рескан" (`:657-713`) with the `BOUND_STALE` recovery notes and acceptance recipes.
 - `docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md` — the plan (status: done) that fixed the boundary ordering and deferred the standalone case.
-- `home/private_dot_claude/dot_smithers/workflows/lib/envelopes.ts` — `secretScanDiff` implementation.
+- `home/private_dot_claude/dot_smithers/workflows/lib/envelopes.ts` — `secretScanDiff` implementation; `home/private_dot_claude/dot_smithers/workflows/lib/gates.ts` — `rescanGate` (`:406-436`); `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` — the two-tier standalone gate.
+- `../design-patterns/gate-bias-follows-blast-radius.md` — the fail-closed bias family this boundary's gates inherit; also covers why only applied simplify edits trigger the commit+rescan machinery.
