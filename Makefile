@@ -22,6 +22,7 @@ init-submodules:
 
 test-issues:
 	python3 scripts/issues validate
+	python3 scripts/issues migrate check
 	python3 -m unittest tests/test_issues.py
 
 build-docker: init-submodules

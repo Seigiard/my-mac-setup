@@ -238,6 +238,18 @@ def check_migration_manifest(root: Path, manifest: Dict[str, Any], source_commit
     return entries
 
 
+def migration_status(root: Path, entries: Sequence[Dict[str, Any]]) -> str:
+    states = [
+        "after" if sha256(root / entry["path"]) == entry["expected_after_sha256"] else "before"
+        for entry in entries
+    ]
+    if all(state == "before" for state in states):
+        return "ready-for-review"
+    if all(state == "after" for state in states):
+        return "fully-applied"
+    return "partially-applied"
+
+
 def apply_migration(root: Path, manifest_path: Path, source_commit: str, approved_sha256: str) -> int:
     if not SHA256.fullmatch(approved_sha256):
         raise IssueError("INVALID_APPROVAL_HASH", approved_sha256)
@@ -728,7 +740,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             elif arguments.operation == "dry-run":
                 print("migration dry-run valid: %d after-images" % len(entries))
             else:
-                print("ready-for-review %d entries %s" % (len(entries), digest))
+                print("%s %d entries %s" % (migration_status(root, entries), len(entries), digest))
             return 0
         if arguments.command == "validate":
             output = validate(root, arguments.compatibility)

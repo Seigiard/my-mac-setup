@@ -123,6 +123,31 @@ class CorpusTests(IssueFixtures):
 
 
 class MigrationTests(IssueFixtures):
+    def test_status_distinguishes_ready_and_fully_applied_entries(self):
+        module = self.module()
+        path = self.write_issue("2026-08-21-001-status.md", issue_text())
+        (self.issues / "_open-issues.md").write_text("# Open issues\n")
+        manifest = module.build_migration_manifest(self.root, "fixture-source")
+
+        self.assertEqual("ready-for-review", module.migration_status(self.root, manifest["entries"]))
+
+        document = module.parse_document(path)
+        path.write_bytes(module.migration_after_bytes(document, manifest["entries"][0]["proposed_metadata"]))
+
+        self.assertEqual("fully-applied", module.migration_status(self.root, manifest["entries"]))
+
+    def test_status_command_reports_the_committed_manifest_as_fully_applied(self):
+        process = subprocess.run(["python3", str(SCRIPT), "migrate", "status"], cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+        self.assertEqual(0, process.returncode, process.stderr)
+        self.assertRegex(process.stdout, r"^fully-applied 99 entries [0-9a-f]{64}\n$")
+
+    def test_check_command_accepts_the_committed_manifest(self):
+        process = subprocess.run(["python3", str(SCRIPT), "migrate", "check"], cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+        self.assertEqual(0, process.returncode, process.stderr)
+        self.assertEqual("migration manifest valid: 99 entries\n", process.stdout)
+
     def test_scaffold_covers_the_sorted_real_corpus_with_preimage_hashes(self):
         module = self.module()
         manifest = module.build_migration_manifest(REPOSITORY, "17e741fcc3908ef3ca57a80f4063752f7fe6c4e6")
