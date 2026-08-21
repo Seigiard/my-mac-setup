@@ -57,7 +57,7 @@ render_install_packages() {
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
   [[ -f "$script" ]] || skip "install-packages script not found at $script"
 
-  BATS_TEST_TMPFILE="$(mktemp /tmp/install-packages-XXXXXX.sh)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/install-packages.sh"
   render_install_packages > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
@@ -740,7 +740,7 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
 @test "herdr-integrations script renders to valid bash" {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/herdr-integrations-XXXXXX.sh)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
@@ -761,7 +761,7 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
 @test "herdr-integrations script exits 0 and skips when herdr is absent" {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/herdr-integrations-XXXXXX.sh)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
@@ -847,7 +847,7 @@ EOF
 @test "settings template registers both PreToolUse hooks with their matchers" {
   skip_if_no_chezmoi
   local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
-  BATS_TEST_TMPFILE="$(mktemp /tmp/claude-settings-XXXXXX.json)"
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/claude-settings.json"
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
   run python3 - "$BATS_TEST_TMPFILE" <<'PY'
 import json, sys
@@ -1373,11 +1373,40 @@ hts_after_call_script() {
   printf '%s\n' "$3" > "$dir/after/$2.sh"
 }
 
+# Git-probe budget for the tests that deliberately force a budget failure. The
+# probe that fails is always one that blocks indefinitely -- a `block` fixture
+# spinning on a `release` file the test never creates -- so this value only has
+# to be long enough for the HEALTHY probes in the same pass to finish. At 0.075
+# it was calibrated on an idle machine and SIGKILLs healthy probes as soon as
+# the suite runs with --jobs, which reads as a coordinator bug rather than as
+# the load artifact it is.
+HTS_GIT_BUDGET_BLOCKED=2
+
 hts_wait_for_file() {
   local file="$1" i
   for i in $(seq 1 1000); do
     [[ -e "$file" ]] && return 0
     sleep 0.01
+  done
+  return 1
+}
+
+# Waits for a file to CONTAIN something, not merely to exist. The adapter's
+# stub is spawned by the plugin and writes its line after bun's hooks have all
+# returned, so on a loaded machine the log can be absent or empty at the moment
+# the test reads it. This is the same distinction hts_wait_for_publish draws for
+# the same reason (docs/issues/2026-08-14-001).
+hts_wait_for_file_match() {
+  local file="$1" pattern="$2" i
+  for i in $(seq 1 400); do
+    if [[ -e "$file" ]] && grep -q -- "$pattern" "$file"; then
+      # Settle briefly so a second, unwanted line would also have landed --
+      # this test asserts the log holds exactly one call, and returning the
+      # instant the first line appears would hide a duplicate.
+      sleep 0.1
+      return 0
+    fi
+    sleep 0.025
   done
   return 1
 }
@@ -1489,7 +1518,7 @@ hts_set_pane_location() {
 }
 
 hts_location_pass() {
-  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.2}" hts_event_run
+  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET_BLOCKED}" hts_event_run
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
 }
 
@@ -1805,13 +1834,18 @@ command = [
     "--filter",
     "^herdr-task-sync descriptor child probe$",
 ]
+# This bound exists to catch a genuine hang, not to measure speed. It has to
+# clear the worst case of an inner Bats run competing with every other test in
+# a --jobs run, so it is generous rather than tight; 12s was calibrated on an
+# idle machine and timed out under parallel load.
+budget = int(os.environ.get("HTS_INNER_BATS_TIMEOUT", "90"))
 try:
-    result = subprocess.run(command, capture_output=True, text=True, timeout=12)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=budget)
 except subprocess.TimeoutExpired as error:
     Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"]).touch()
     if error.stdout:
         sys.stdout.write(error.stdout if isinstance(error.stdout, str) else error.stdout.decode())
-    print("inner Bats invocation exceeded 12 seconds", file=sys.stderr)
+    print(f"inner Bats invocation exceeded {budget} seconds", file=sys.stderr)
     raise SystemExit(124)
 
 sys.stdout.write(result.stdout)
@@ -2504,6 +2538,7 @@ SH
     await hooks["chat.message"]({ sessionID: "child-1" }, { parts: [{ type: "text", text: "new root prompt" }] })
   '
   assert_success
+  hts_wait_for_file_match "$log" "--agent opencode --session child-1"
   run cat "$log"
   assert_output "--agent opencode --session child-1"
 }
@@ -3198,7 +3233,7 @@ EOF
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   # when: the very first pass for this pane — no prior location state exists
-  HERDR_TASK_SYNC_GIT_BUDGET=0.075 hts_location_pass
+  HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET_BLOCKED hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   # then: the SHA probe fired, its budget failure discarded the freshly
   # resolved root, and with nothing prior to retain the pane renders with no
@@ -3276,7 +3311,7 @@ EOF
 
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
-  HERDR_TASK_SYNC_GIT_BUDGET=0.075 hts_location_pass
+  HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET_BLOCKED hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" repaired
@@ -3332,7 +3367,7 @@ EOF
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="$HTS_WORK/location-probes-started"
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT=8
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="$HTS_WORK/location-probes-release"
-  export HERDR_TASK_SYNC_GIT_BUDGET=0.075
+  export HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET_BLOCKED
   hts_presentation_run &
   coordinator_pid=$!
   # The barrier is what proves concurrency: every probe publishes its marker and then
@@ -4155,9 +4190,14 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
 # published slug; wordier output is treated as a failed naming call instead.
 @test "herdr-task-sync normalizes a hostile engine slug (KTD8)" {
   hts_setup
-  # The payload path is per-test: a fixed /tmp name would let one run's stale
-  # file fail every later run, and cannot be shared by parallel tests.
-  local pwn="$BATS_TEST_TMPDIR/htspwn"
+  # Unique per test so concurrent tests cannot collide, and deliberately a
+  # single slug word: the payload normalizes to cache-touch-tmp-htspwnN-review,
+  # exactly SLUG_MAX_WORDS. A longer path (a $BATS_TEST_TMPDIR one, say) adds
+  # words, the engine reads the answer as prose and publishes nothing, and this
+  # test then fails waiting for a publish rather than on what it asserts.
+  # rm -f clears any file a previous run's payload managed to create.
+  local pwn="/tmp/htspwn$BATS_TEST_NUMBER"
+  rm -f "$pwn"
   cat > "$HTS_STUB/pi" <<SH
 #!/usr/bin/env bash
 cat >/dev/null
@@ -4601,7 +4641,7 @@ EOF
 @test "se pipeline --setup-cmd lands in the workflow input JSON" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local plan
-  plan="$(mktemp /tmp/se-dryrun-plan-XXXXXX.md)"
+  plan="$BATS_TEST_TMPDIR/se-dryrun-plan.md"
   printf -- '---\nartifact_contract: ce-unified-plan/v1\n---\n# t\n' > "$plan"
   run env SE_DRY_RUN=1 "$se_bin" pipeline "$plan" --setup-cmd 'bun install && bunx turbo run build --filter=@x/y'
   rm -f "$plan"
@@ -4612,7 +4652,7 @@ EOF
 @test "se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --budget 12 --setup-cmd 'make setup' --dry-run
   rm -f "$spec"
@@ -4621,7 +4661,7 @@ EOF
   assert_output --partial '"budgetUsd":12'
   assert_output --partial '"setupCmd":"make setup"'
   assert_output --partial '"specPath":"'
-  assert_output --partial 'se-flow-spec-'
+  assert_output --partial 'se-flow-spec.json'
 }
 
 @test "se flow --validate-cmd lands the operator's command in the workflow input JSON" {
@@ -4630,7 +4670,7 @@ EOF
   # and run-validate can only ever record exitCode null.
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --validate-cmd 'bun test' --dry-run
   rm -f "$spec"
@@ -4641,7 +4681,7 @@ EOF
 @test "se flow without --validate-cmd sends an empty command, not a missing key" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --dry-run
   rm -f "$spec"
@@ -4654,7 +4694,7 @@ EOF
   # starts. A bare command line does not carry that.
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   cat > "$spec" <<'JSON'
 {"task":{"description":"printout fixture"},"repo":"/tmp/r","blocks":[
  {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
@@ -4674,7 +4714,7 @@ JSON
   # interpreter's gate-0 after a run has already been created.
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   cat > "$spec" <<'JSON'
 {"task":{"description":"unscanned publish"},"repo":"/tmp/r","blocks":[
  {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
@@ -4689,7 +4729,7 @@ JSON
 @test "se flow rejects a non-numeric budget" {
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
-  spec="$(mktemp /tmp/se-flow-spec-XXXXXX.json)"
+  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{}' > "$spec"
   run env "$se_bin" flow "$spec" --budget abc --dry-run
   rm -f "$spec"
