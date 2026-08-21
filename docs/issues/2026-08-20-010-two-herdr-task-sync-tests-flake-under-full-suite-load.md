@@ -225,3 +225,12 @@ the parallel-suite work, after `HERDR_TASK_SYNC_GIT_BUDGET` (0.075 s, SIGKILL)
 and the 2 s fail-open assertions. The pattern is worth naming: a `kill -9`
 watchdog calibrated against a stub's own sleep is a latent flake, and parallelism
 only made the existing gap visible.
+
+**Confirmed.** Twelve repetitions of the same `docker run --cpus 4` /
+`--jobs 8` profile after the fix: zero failures, 81–86 s each. The pre-fix run's
+161 s outlier is gone with it, which is consistent with the mechanism — a
+SIGKILLed engine forces every wait behind it to run to its ceiling.
+
+The remaining ask in this issue is unchanged and unmet: a failure-path dump of
+the namespace `reconcile.state` and the pane `control.state`, so the next
+recurrence carries its own evidence instead of needing this reconstruction.

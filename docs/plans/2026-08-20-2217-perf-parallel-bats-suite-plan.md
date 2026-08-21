@@ -188,6 +188,12 @@ than either runner. Ten repetitions found one failure, in the repetition that to
 commit rather than invocation start`, timing out on a slug that was never
 committed.
 
+**After the fix, twelve repetitions of the same profile were clean** — zero
+unexpected failures, 81–86 s each. The spread matters as much as the count: the
+pre-fix run carried a 161 s outlier against an 82 s median, and that outlier was
+the failing repetition. A SIGKILLed engine forces every wait behind it to run to
+its ceiling, so removing the kill removed the outlier as well as the failure.
+
 That was a test bug, not a parallelism defect, and it is fixed:
 `HERDR_TASK_SYNC_TIMEOUT` defaulted to 5 s in the harness while the engine
 `kill -9`s on expiry, and `herdr-task-sync returns before the naming engine
