@@ -2,7 +2,7 @@
 title: python3 as a Declared Dependency, and git Out of the CI-Minimal Set - Plan
 type: fix
 date: 2026-08-21
-status: open
+status: done
 topic: python3-declared-dependency
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

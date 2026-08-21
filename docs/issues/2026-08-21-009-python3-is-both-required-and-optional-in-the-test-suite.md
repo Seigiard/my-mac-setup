@@ -2,7 +2,8 @@
 title: python3 is treated as both required and optional in the same test suite, so a missing python3 hides 56 tests behind an unrelated red
 type: bug
 date: 2026-08-21
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -65,3 +66,40 @@ real three-way choice, not a policy inconsistency.
   removes the package that currently supplies `python3` inside the Docker image. Whichever
   policy wins here, that issue's fix has to put `python3` in the image by another route
   first, or this becomes a live failure instead of a latent one.
+
+## Resolution
+
+**Required** won, applied at every site. Landed in `d4f571d` (pull request #28), planned in
+`docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md`.
+
+Both optional guards are gone — the `setup()` skip in `tests/palette.bats` and the in-test
+skip in `tests/scripts.bats`. In their place, `tests/helpers/common.bash` gained
+`assert_python3_available()`, called from a named first test in `tests/palette.bats`,
+`tests/scripts.bats` and `tests/smoke.bats`. The third file lost no guard but holds eight of
+the nine bare call sites, so a contributor running it alone still gets the cause named
+rather than inferred. Each removal site carries a comment recording the deliberate exception
+to the skip convention in
+`docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md`.
+
+The failure message names the interpreter, the version found, and the `README.md`
+requirements section that now states the dependency with a 3.9 floor — measured, not
+assumed: that is what macOS ships at `/usr/bin/python3`.
+
+The ordering constraint this issue raised against
+`docs/issues/2026-08-21-010-grc-is-vestigial-and-rgrc-was-never-moved-cross-platform.md` is
+satisfied. `docker/Dockerfile.ubuntu` installs `python3` in its apt layer, so the image no
+longer depends on `brew "grc"` for an interpreter. Measured in the rebuilt image before any
+apply: `/usr/bin/python3` is 3.12.3, and the palette's own `--validate` exits 0 on it.
+
+Counts after the change, with zero `python3` skips anywhere: `tests/palette.bats` 58,
+`tests/scripts.bats` 195, `tests/smoke.bats` 71. The deliberate `internal descriptor probe`
+skip at `tests/scripts.bats:1767` still reports, and the `jq`/`python3`/`node` fallback in
+`tests/templates.bats` is untouched as this issue's Scope required.
+
+Two open decisions were **not** taken here. The suite-wide strict switch is still unbuilt:
+roughly ninety-eight guards for `jq`, `bun`, `sqlite3` and `zsh` keep their skips, because
+the discriminator is not "declared" — those tools are declared too — but that this
+repository does not install `python3` and a shipped feature invokes it during `chezmoi
+apply` itself. Two follow-ups were filed from the code review of this work:
+`docs/issues/2026-08-21-018-ci-minimal-docker-apply-has-no-automated-gate.md` and
+`docs/issues/2026-08-21-019-python3-floor-is-stated-in-two-places-with-no-cross-check.md`.
