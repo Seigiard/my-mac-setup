@@ -1373,14 +1373,20 @@ hts_after_call_script() {
   printf '%s\n' "$3" > "$dir/after/$2.sh"
 }
 
-# Git-probe budget for the tests that deliberately force a budget failure. The
-# probe that fails is always one that blocks indefinitely -- a `block` fixture
-# spinning on a `release` file the test never creates -- so this value only has
-# to be long enough for the HEALTHY probes in the same pass to finish. At 0.075
-# it was calibrated on an idle machine and SIGKILLs healthy probes as soon as
-# the suite runs with --jobs, which reads as a coordinator bug rather than as
-# the load artifact it is.
-HTS_GIT_BUDGET_BLOCKED=2
+# Git-probe budget for every location pass, via hts_location_pass's own default.
+# It only has to be long enough for a HEALTHY probe to finish: the engine's
+# watchdog cancels its timer the moment the probe returns, so a generous value
+# costs a passing run nothing. At 0.075 it was calibrated on an idle machine and
+# SIGKILLs healthy probes as soon as the suite runs with --jobs, which reads as a
+# coordinator bug rather than as the load artifact it is.
+#
+# Three tests do pay it in full, because they point a probe at a `block` fixture
+# that spins on a `release` file they never create, and a budget only expires
+# when nothing returns. That is ~1.9 s each. A second, smaller constant for
+# those three would not be safe: each of them runs healthy probes on the same
+# pass -- the eight-pane coordinator test runs seven -- and a tighter budget
+# would SIGKILL those, which is the failure this value exists to prevent.
+HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
 
 # Bound for the "fails open promptly rather than hanging" assertions. They
 # guard against a worker that blocks or retries without end; they are not
@@ -1389,13 +1395,6 @@ HTS_GIT_BUDGET_BLOCKED=2
 # trap the eight-pane coordinator test documents above its own deadline.
 HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
 
-# Ceilings for the "poll until the state settles" helpers. The fast helpers
-# sleep 10ms per turn, the slow ones 250ms, so these are 60s either way. Every
-# one of them returns the moment its condition holds, so a high ceiling costs a
-# healthy run nothing; it only decides how long a genuinely stuck run waits
-# before it reports failure. The previous 10s and 15s ceilings were calibrated
-# on an idle machine, and a multi-step fixture under --jobs contention can
-# legitimately exceed them -- which surfaced as a hang that was really load.
 # Watchdog for a single engine call, enforced by `kill -9` inside the engine's
 # own run_with_timeout. It is a hang guard, not a budget: every test here stubs
 # the engine, so it should never fire. The old 5 s left the R8 test -- which
@@ -1403,17 +1402,29 @@ HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
 # --jobs contention the stub loses that race and gets SIGKILLed mid-call. The
 # invocation then commits nothing and the ordering tests that wait on that
 # commit time out, which reads as a coordinator ordering bug rather than as the
-# load artifact it is. 30 s is what the engine itself defaults to in production
-# (home/dot_local/bin/executable_herdr-task-sync), so the tests now run the
-# shipped watchdog instead of a tightened test-only one. The single test that
-# wants the watchdog to fire pins HTS_TIMEOUT=1 for itself.
+# load artifact it is. 30 s tracks ENGINE_TIMEOUT in
+# home/dot_local/bin/executable_herdr-task-sync, so the tests now run the
+# shipped watchdog instead of a tightened test-only one -- keep the two in step
+# if that default ever moves. The single test that wants the watchdog to fire
+# pins HTS_TIMEOUT=1 for itself.
 HTS_ENGINE_WATCHDOG_SECONDS="${HTS_ENGINE_WATCHDOG_SECONDS:-30}"
 
-HTS_WAIT_POLLS="${HTS_WAIT_POLLS:-6000}"
-HTS_WAIT_SLOW_POLLS="${HTS_WAIT_SLOW_POLLS:-240}"
-# Stub scripts are written from quoted heredocs and run as their own
-# processes, so they read these from the environment, not from file scope.
-export HTS_WAIT_POLLS HTS_WAIT_SLOW_POLLS
+# Ceiling for the "poll until the state settles" helpers. The helpers sleep at
+# three different intervals, so each gets its own poll count derived from the one
+# ceiling rather than a separately hand-computed literal. Every one of them
+# returns the moment its condition holds, so a high ceiling costs a healthy run
+# nothing; it only decides how long a genuinely stuck run waits before it reports
+# failure. The previous 10s and 15s ceilings were calibrated on an idle machine,
+# and a multi-step fixture under --jobs contention can legitimately exceed them
+# -- which surfaced as a hang that was really load.
+HTS_WAIT_CEILING_SECONDS="${HTS_WAIT_CEILING_SECONDS:-60}"
+HTS_WAIT_POLLS="${HTS_WAIT_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 100))}"        # sleep 0.01
+HTS_WAIT_SLOW_POLLS="${HTS_WAIT_SLOW_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 4))}"  # sleep 0.25
+HTS_WAIT_MATCH_POLLS="${HTS_WAIT_MATCH_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 40))}" # sleep 0.025
+# The model stub is written from a quoted heredoc and runs as its own process,
+# so it reads its ceiling from the environment rather than from file scope. The
+# other two are only ever read by functions in this file.
+export HTS_WAIT_POLLS
 
 
 
@@ -1433,7 +1444,7 @@ hts_wait_for_file() {
 # the same reason (docs/issues/2026-08-14-001).
 hts_wait_for_file_match() {
   local file="$1" pattern="$2" i
-  for i in $(seq 1 400); do
+  for i in $(seq 1 $HTS_WAIT_MATCH_POLLS); do
     if [[ -e "$file" ]] && grep -q -- "$pattern" "$file"; then
       # Settle briefly so a second, unwanted line would also have landed --
       # this test asserts the log holds exactly one call, and returning the
@@ -1553,7 +1564,7 @@ hts_set_pane_location() {
 }
 
 hts_location_pass() {
-  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET_BLOCKED}" hts_event_run
+  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" hts_event_run
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
 }
 
@@ -3273,7 +3284,7 @@ EOF
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   # when: the very first pass for this pane — no prior location state exists
-  HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET_BLOCKED hts_location_pass
+  hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   # then: the SHA probe fired, its budget failure discarded the freshly
   # resolved root, and with nothing prior to retain the pane renders with no
@@ -3351,7 +3362,7 @@ EOF
 
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
-  HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET_BLOCKED hts_location_pass
+  hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" repaired
@@ -3407,7 +3418,7 @@ EOF
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="$HTS_WORK/location-probes-started"
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT=8
   export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="$HTS_WORK/location-probes-release"
-  export HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET_BLOCKED
+  export HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET
   hts_presentation_run &
   coordinator_pid=$!
   # The barrier is what proves concurrency: every probe publishes its marker and then
@@ -4210,16 +4221,47 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   assert_output --partial "Current name: (none)"
 }
 
+# The tests run the engine's two timing budgets at load-tolerant values, because
+# the shipped ones are too tight to survive --jobs contention on a busy machine.
+# That is deliberate, and it costs the coverage this test buys back: nothing else
+# in the suite would notice if a shipped default moved or disappeared, so a
+# production change from 75 ms to seconds -- or to no budget at all -- would go
+# out green.
+#
+# Asserted statically against the source rather than by timing a probe. A timing
+# assertion at 75 ms is exactly the idle-machine calibration that made these
+# tests flaky under load in the first place; reading the shipped default has no
+# such failure mode.
+@test "herdr-task-sync ships the timing defaults the tests deliberately override" {
+  run grep -c 'LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"' "$HTS_ENGINE"
+  assert_output "1"
+  run grep -c 'ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"' "$HTS_ENGINE"
+  assert_output "1"
+  # The watchdog default above is the value HTS_ENGINE_WATCHDOG_SECONDS tracks,
+  # so a change to either side without the other turns this red.
+  assert_equal "$HTS_ENGINE_WATCHDOG_SECONDS" 30
+}
+
 # R8: the adapter's call must not wait on the model.
+#
+# The property is causal, not temporal, so assert it causally. The controlled
+# engine blocks until its release marker exists, so an entry point that waited
+# on the model could not return at all -- the regression turns this test red by
+# hanging, not by exceeding a number. The previous form timed the entry point
+# against a wall-clock bound while the stub slept a fixed 4 s, which only
+# discriminates while the bound stays under 4 s; once the bound moved to the
+# suite's load-tolerant ceiling a synchronous wait passed it comfortably.
 @test "herdr-task-sync returns before the naming engine finishes (R8)" {
   hts_setup
-  hts_stub_engine pi late-slug 0 4
-  local start end
-  start="$(date +%s)"
+  hts_stub_controlled_engine pi
+  hts_model_fixture pi 1 late-slug
   run hts_run --agent claude --session s1 <<< 'a slow substantive prompt'
-  end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]] || fail "entry point blocked for $((end - start))s"
+  # Not vacuous: the engine really was invoked, and it really had not finished
+  # when the entry point returned.
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
+  assert_file_not_exists "$HTS_WORK/models/pi/1/completed"
+  hts_release_model pi 1
   hts_wait_for_publish
   assert_equal "$(hts_token)" "late-slug"
 }
@@ -4559,7 +4601,7 @@ SH
   : > "$dir/fail-snapshot"
   HTS_SWEEP_INTERVAL=0.01 hts_sweep_run --sweep-daemon &
   daemon_pid=$!
-  for i in $(seq 1 200); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     kill -0 "$daemon_pid" 2>/dev/null || break
     sleep 0.01
   done
@@ -4684,7 +4726,6 @@ EOF
   plan="$BATS_TEST_TMPDIR/se-dryrun-plan.md"
   printf -- '---\nartifact_contract: ce-unified-plan/v1\n---\n# t\n' > "$plan"
   run env SE_DRY_RUN=1 "$se_bin" pipeline "$plan" --setup-cmd 'bun install && bunx turbo run build --filter=@x/y'
-  rm -f "$plan"
   assert_success
   assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
 }
@@ -4695,7 +4736,6 @@ EOF
   spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --budget 12 --setup-cmd 'make setup' --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial 'workflows/se-flow.tsx'
   assert_output --partial '"budgetUsd":12'
@@ -4713,7 +4753,6 @@ EOF
   spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --validate-cmd 'bun test' --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial '"validateCmd":"bun test"'
 }
@@ -4724,7 +4763,6 @@ EOF
   spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
   run env "$se_bin" flow "$spec" --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial '"validateCmd":""'
 }
@@ -4741,7 +4779,6 @@ EOF
  {"id":"scan","block":"secret-scan","input":{},"retries":0,"timeoutMs":120000,"after":["implement"],"bindTo":["implement"]}]}
 JSON
   run env "$se_bin" flow "$spec" --dry-run
-  rm -f "$spec"
   assert_success
   assert_output --partial 'flow: printout fixture'
   assert_output --partial '2 blocks, estimated ~$'
@@ -4761,7 +4798,6 @@ JSON
  {"id":"ship","block":"pr","input":{"title":"t"},"retries":0,"timeoutMs":300000,"after":["implement"],"bindTo":["implement"]}]}
 JSON
   run env "$se_bin" flow "$spec" --dry-run
-  rm -f "$spec"
   assert_failure
   assert_output --partial 'scan-before-external'
 }
@@ -4772,7 +4808,6 @@ JSON
   spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
   printf '{}' > "$spec"
   run env "$se_bin" flow "$spec" --budget abc --dry-run
-  rm -f "$spec"
   assert_failure
 }
 

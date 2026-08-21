@@ -3,7 +3,6 @@ title: Two herdr-task-sync ordering tests flake under full-suite load
 type: bug
 date: 2026-08-20
 status: open
-reopened: 2026-08-21
 ---
 
 ## Why this exists

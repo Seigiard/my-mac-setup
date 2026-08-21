@@ -173,12 +173,19 @@ residual is filed as
 These numbers supersede the U0 curve above for judging the ratio. Note the
 macOS `--jobs 8` figure moved from ~204 s in U0 to ~283 s here while the control
 moved 379 s → 423 s. The post-apply suite is 330 tests in both trees, so the
-change is not test growth. Two contributors are visible but neither is measured
-apart: macOS runner-to-runner variance, which U0 already recorded at a 340–447 s
-spread on sequential runs of `main`, and U1's raised `HERDR_TASK_SYNC_GIT_BUDGET`
-(0.075 s → 2 s), which adds real wall time at the sites that deliberately wait
-for that budget to expire and lands it on one worker's critical path. **This
-split is unverified.** Issue 012 carries it.
+change is not test growth.
+
+The raised `HERDR_TASK_SYNC_GIT_BUDGET` was the obvious suspect and it does not
+account for the gap. A review of every call site settles the size: the budget's
+watchdog cancels its timer the moment a healthy probe returns, so the ~50 normal
+`hts_location_pass` sites pay nothing for the raise. Only three tests build a
+fixture that never returns and therefore always spend the full budget
+(`tests/scripts.bats:3276`, `:3354`, `:3410`), at ~1.9 s each — **about 5.8 s in
+total**, which cannot explain a 79 s difference.
+
+That leaves macOS runner-to-runner variance, which U0 already recorded at a
+340–447 s spread on sequential runs of `main`. **Not proven, just the only
+remaining candidate that is large enough.** Issue 012 carries it.
 
 ### Container repetitions
 

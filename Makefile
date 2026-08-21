@@ -42,7 +42,18 @@ test-local:
 # deploy the checkout over the developer's live dotfiles
 # (docs/issues/2026-08-21-004). The full five-file suite runs in CI and in
 # Docker, where $$HOME is disposable -- use `make test-ubuntu` for that.
+#
+# Second, sharper limit: these four files assert against the deployed $$HOME,
+# and this target deliberately applies nothing. So it reports on whatever was
+# last applied to this machine, NOT on the working checkout -- an edit under
+# home/ that has not been applied is invisible here, and the run still goes
+# green. `make test-ubuntu` applies the checkout first, which is why it is the
+# answer for an unapplied edit. The echo below repeats this at the point of
+# use, because a caveat that lives only in this comment reaches nobody.
 test-suite: init-submodules
+	@echo "NOTE: asserts against the ALREADY-APPLIED ~/ , not this checkout."
+	@echo "      An edit under home/ is not covered until it is applied."
+	@echo "      To test an unapplied edit, use: make test-ubuntu"
 	bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats
 
 test-docker: build-docker

@@ -31,7 +31,40 @@ so nothing about the shipped configuration is in question.
 
 ## Why macOS gains less
 
-Two candidate causes, neither measured yet:
+**The leading candidate is the locking primitive, not the core count.** bats
+picks its semaphore implementation by what the host has, and the two paths are
+not equivalent (`libexec/bats-core/semaphore.bash`):
+
+```sh
+bats_run_under_flock() {
+  flock "$BATS_SEMAPHORE_DIR" "$@"
+}
+
+bats_run_under_shlock() {
+      local lockfile="$BATS_SEMAPHORE_DIR/shlock.lock"
+      while ! shlock -p $$ -f "$lockfile"; do
+        sleep 1
+      done
+      ...
+}
+```
+
+`flock` blocks in the kernel and wakes the instant the lock frees. `shlock` has
+no blocking mode, so bats busy-polls it and **every contended acquisition costs a
+full second**. Linux has `flock`; macOS does not and falls back to `shlock`
+(KTD4 in the parent plan established exactly this split). The cost therefore
+scales with how often slots change hands -- 330 short tests across 8 slots is a
+lot of handoffs -- rather than with core count, and it lands only on macOS.
+
+macOS pays a second `sleep 1` besides: the plan's Problem Frame records that
+`bats_semaphore_acquire_slot` polls for a free slot on its own one-second sleep.
+That one is cross-platform; the `shlock` poll above is not.
+
+This is a mechanism read from the shipped source, not a measurement. What would
+settle it: count `shlock` retries, or total time slept in that loop, during one
+`--jobs 8` run on the macOS runner.
+
+Two weaker candidates, neither measured:
 
 1. **Fewer cores.** The macOS runner has 3, the Ubuntu runner 4. Eight jobs is a
    2.7x oversubscription there against 2x on Ubuntu. The job count was chosen by
@@ -48,6 +81,11 @@ sum to something near 283 s, the tail is the floor and more jobs will not help.
 
 ## Scope
 
+- Instrument the `shlock` busy-poll on the macOS runner first -- it is the only
+  candidate here with a mechanism read from source, and it is the cheapest to
+  confirm or eliminate. If it dominates, the job count is the wrong dial: fewer
+  jobs would mean fewer handoffs and could make macOS *faster*, which would also
+  explain why 12 jobs measured slower than 8 there.
 - Measure a `--jobs` curve on the macOS runner specifically (4, 8, 12), rather
   than reusing the container curve. A separate literal per platform is possible
   but costs the single shared invocation that
