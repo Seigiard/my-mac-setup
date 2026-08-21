@@ -13,23 +13,26 @@
 {{- /* render. `get` returns an empty string for a missing key instead, which                         */ -}}
 {{- /* selects the full set — the safe direction for a stale host.                                    */ -}}
 {{- /*                                                                                                */ -}}
-{{- /* Every comment in this file is a template comment, so the full render is                        */ -}}
-{{- /* byte-identical to the file before the guard existed. That is what keeps                         */ -}}
-{{- /* `make test-local` clean on a host (R3).                                                        */ -}}
+{{- /* Every comment in this file is a template comment, so the guard itself                          */ -}}
+{{- /* adds nothing to the full render — only real entry changes (like grc's                          */ -}}
+{{- /* removal and rgrc's arrival) show up in `chezmoi diff` on a host.                               */ -}}
 {{- $full := not (get . "ci_minimal") -}}
 # Cross-platform CLI tools (Linuxbrew + Homebrew)
 # Format: brew "package" # binary_name (if different)
 
 # Taps
 tap "oven-sh/bun", trusted: true
+{{ if $full -}}
+tap "lazywalker/tap", trusted: true
+{{ end -}}
 
 # Shell & prompt
 {{ if $full -}}
 brew "zsh"
 brew "starship"
+{{/* .zshrc initialises rgrc behind `has rgrc`, so CI-minimal safely skips it */ -}}
+brew "lazywalker/tap/rgrc"  # rgrc, generic colouriser
 {{ end -}}
-{{/* grc is kept only until docs/issues/2026-08-21-010 removes it. It used to be the Docker image's only source of python3; docker/Dockerfile.ubuntu installs python3 itself now, and nothing in the repo calls grc */ -}}
-brew "grc"          # generic colouriser
 
 # Git tools
 {{ if $full -}}
