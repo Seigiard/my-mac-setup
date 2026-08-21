@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]
 date: "2026-08-18"
-status: "open"
+status: "done"
 priority: "critical"
+closed: "2026-08-21"
 ---
 
 ## Why this exists
@@ -42,3 +43,11 @@ Local `make test-ubuntu` passes when the source-tree Smithers directory has `nod
 - Should GitHub CI install source-tree Smithers dependencies directly, or should tests point `SE_SMITHERS_DIR` at the deployed runtime directory?
 - Should the workflow cache Bun packages or `node_modules`, and which lockfile hash should key that cache?
 - Should tests that only validate command composition use a stub validator so they do not require the full Smithers install?
+
+## Resolution
+
+Commit `399d8e0105ef698a2c090fb858ae6a509bf99b51` fixed the GitHub Actions dependency gap by installing Bun before apply, installing the locked Smithers dependencies directly in the source tree with `bun install --frozen-lockfile`, and adding a preflight for both source-tree and deployed-runtime Smithers binaries.
+
+Default-branch `Test Dotfiles` run `32504078129` (https://github.com/Seigiard/my-mac-setup/actions/runs/32504078129) passed at the current `main` tip, `db9cb20ed1d867f3bda4ebbfbc53522a1ae43508`. Ubuntu job `96840269094` and macOS job `96840269336` both passed `Install bun`, `Install smithers dependencies in the source tree`, `Test the Smithers issue writer`, `Verify both smithers directories the tests call`, and `Run post-apply tests`. The run therefore proves that neither `bun: command not found` nor the missing source-tree Smithers binary still reproduces.
+
+The original decisions are settled as follows: continuous integration installs source-tree Smithers dependencies directly; dependency caching remains unnecessary for correctness; and a stub validator remains outside this closure because the real Smithers dependency path now passes on both operating systems.
