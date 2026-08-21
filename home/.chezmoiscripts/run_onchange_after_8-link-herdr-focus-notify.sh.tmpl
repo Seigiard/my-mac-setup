@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Link and enable the local Herdr focus-notify plugin after the managed files change.
+#
+# Hash triggers:
+# # {{ if eq .chezmoi.os "darwin" }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-focus-notify/notify.py" | sha256sum }}
+# # {{ end }}
+
+# Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
+set -u
+
+plugin_dir="$HOME/.config/herdr/plugins/herdr-focus-notify"
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  exit 0
+fi
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping focus-notify plugin link"
+  exit 0
+fi
+
+if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
+  echo "Herdr focus-notify plugin manifest not found at $plugin_dir; skipping"
+  exit 0
+fi
+
+if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
+  echo "Linked Herdr focus-notify plugin"
+  if herdr plugin enable seigi.focus-notify >/dev/null 2>&1; then
+    echo "Enabled seigi.focus-notify"
+  else
+    echo "Warning: linked but failed to enable; run manually: herdr plugin enable seigi.focus-notify" >&2
+  fi
+  if herdr server reload-config >/dev/null 2>&1; then
+    echo "Reloaded Herdr config"
+  else
+    echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+  fi
+else
+  echo "Warning: failed to link Herdr focus-notify plugin. Run manually: herdr plugin link $plugin_dir" >&2
+fi

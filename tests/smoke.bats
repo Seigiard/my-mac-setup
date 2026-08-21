@@ -53,6 +53,8 @@ load 'helpers/common'
       .config/herdr/plugins/herdr-caffeinate/lib.sh
       .config/herdr/plugins/herdr-caffeinate/actions.sh
       .config/herdr/plugins/herdr-caffeinate/config.example.sh
+      .config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml
+      .config/herdr/plugins/herdr-focus-notify/notify.py
     )
   fi
 
@@ -514,6 +516,104 @@ PY
     run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
     [ "$status" -eq 0 ]
   done
+}
+
+# ===========================================
+# herdr focus-notify plugin (source tree)
+# ===========================================
+
+FOCUS_NOTIFY_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-focus-notify"
+
+# Runs notify.py against a fake notifier that records its argv one line per
+# argument, so tests can assert the exact command terminal-notifier would get.
+# $1: event JSON. Extra env for the run comes via focus_notify_env array.
+run_focus_notify() {
+  local event_json="$1"
+  local fake_bin="$BATS_TEST_TMPDIR/fake-notifier"
+  FOCUS_NOTIFY_ARGV="$BATS_TEST_TMPDIR/notifier.argv"
+  cat > "$fake_bin" <<SH
+#!/bin/sh
+printf '%s\n' "\$@" > "$FOCUS_NOTIFY_ARGV"
+SH
+  chmod +x "$fake_bin"
+  HERDR_PLUGIN_EVENT_JSON="$event_json" \
+    HERDR_FOCUS_NOTIFY_NOTIFIER_BIN="$fake_bin" \
+    HERDR_BIN_PATH="$BATS_TEST_TMPDIR/dir with space/herdr" \
+    run python3 "$FOCUS_NOTIFY_DIR/notify.py"
+}
+
+@test "focus-notify plugin compiles and declares no build step or extra backend" {
+  run python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
+  assert_success
+
+  # The whole point of this local plugin: no compile-at-install step and no
+  # notifier backend beyond the terminal-notifier formula the repo installs.
+  run grep -Ei 'cargo|alerter|\[\[build\]\]' \
+    "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" "$FOCUS_NOTIFY_DIR/notify.py"
+  assert_failure
+
+  # The manifest wires the status event and the interpreter as argv arrays.
+  assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
+    '^on = "pane.agent_status_changed"$'
+  assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
+    '^command = \["python3", "notify.py"\]$'
+}
+
+@test "focus-notify builds a safely quoted click command" {
+  # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
+  run_focus_notify '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
+  assert_success
+  assert_file_exists "$FOCUS_NOTIFY_ARGV"
+
+  run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
+import shlex, sys
+argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
+execute = argv[argv.index("-execute") + 1]
+# shlex.split proves the string survives sh word-splitting as exactly the
+# intended four tokens -- binary, agent, focus, pane id -- nothing executed.
+assert shlex.split(execute) == [sys.argv[2], "agent", "focus", "w1:p3; $(boom) &"], execute
+assert argv[argv.index("-group") + 1] == "herdr-w1-p3-boom-", argv
+assert argv[argv.index("-title") + 1] == "Codex needs your input", argv
+assert "-activate" in argv, argv
+PY
+  assert_success
+}
+
+@test "focus-notify stays quiet for non-actionable statuses and missing pane id" {
+  run_focus_notify '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
+  assert_success
+  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+
+  run_focus_notify '{"data":{"agent_status":"blocked","agent":"codex"}}'
+  assert_success
+  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+}
+
+@test "focus-notify uses one notification group per pane for duplicate replacement" {
+  run_focus_notify '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
+  assert_success
+
+  run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
+import sys
+argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
+assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
+assert argv[argv.index("-title") + 1] == "claude finished", argv
+PY
+  assert_success
+}
+
+@test "focus-notify plugin is linked by a tolerant darwin-guarded script" {
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_8-link-herdr-focus-notify.sh.tmpl"
+
+  assert_file_exists "$script"
+  assert_file_contains "$script" 'herdr plugin link "\$plugin_dir"'
+  assert_file_contains "$script" 'herdr plugin enable seigi.focus-notify'
+
+  run grep -Fq '[[ "$(uname -s)" != "Darwin" ]]' "$script"
+  assert_success
+
+  run bash -n "$script"
+  assert_success
 }
 
 # ===========================================

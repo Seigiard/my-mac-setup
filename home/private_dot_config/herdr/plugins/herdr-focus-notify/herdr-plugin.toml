@@ -1,0 +1,21 @@
+id = "seigi.focus-notify"
+name = "Focus Notify"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Clickable macOS notification when an agent goes blocked or done; click focuses the pane."
+platforms = ["macos"]
+
+# Local reimplementation of the useful core of yankewei/herdr-focus-notify.
+# The upstream plugin compiles a Rust binary during install and needs an extra
+# notification backend from a third-party tap; this one is a single Python
+# script over the terminal-notifier formula this repo already installs.
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "notify.py"]
+
+[[actions]]
+id = "test"
+title = "Focus notify: send test notification"
+contexts = ["workspace"]
+command = ["python3", "notify.py", "--test"]
