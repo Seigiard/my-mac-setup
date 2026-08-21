@@ -142,7 +142,7 @@ stays out of the CI-minimal set because no test references it and the shell init
 in the minimal render and pins it in the full render, mirroring the `brew "git"` pattern.
 
 **Remaining open decisions.** The TOML-parser observability test is filed as
-`docs/issues/2026-08-21-020-no-test-observes-which-toml-parser-the-palette-used.md` — grc's
+`docs/issues/2026-08-21-023-no-test-observes-which-toml-parser-the-palette-used.md` — grc's
 removal is exactly the interpreter switch that made the gap real. The broader Brewfile
 inventory audit is not filed: as this issue itself concluded, absence of a reference is
 weak evidence and the audit would mostly re-derive what the `# Yazi dependencies` heading
