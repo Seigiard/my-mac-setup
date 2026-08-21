@@ -326,7 +326,7 @@ render_with_source() {
 # ===========================================
 # CI-minimal Brewfile render guard
 # private_dot_config/brewfiles/Brewfile.tmpl
-# private_dot_config/brewfiles/Brewfile.macos.tmpl
+# private_dot_config/brewfiles/empty_Brewfile.macos.tmpl
 #
 # The guard is driven by the chezmoi data key `ci_minimal`, which
 # .chezmoi.yaml.tmpl reads from the MMS_CI_MINIMAL environment variable. It
@@ -338,7 +338,7 @@ render_with_source() {
 # ===========================================
 
 BREWFILE_TMPL="private_dot_config/brewfiles/Brewfile.tmpl"
-BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/Brewfile.macos.tmpl"
+BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/empty_Brewfile.macos.tmpl"
 
 # The entries the suite actually needs from the brew prefix: jq directly, grc
 # for the python3 that gates all of palette.bats, node for the sqlite3 that
@@ -500,7 +500,7 @@ assert_minimal_brewfile() {
 
   run grep -F 'include "private_dot_config/brewfiles/Brewfile.tmpl"' "$script"
   assert_success
-  run grep -F 'include "private_dot_config/brewfiles/Brewfile.macos.tmpl"' "$script"
+  run grep -F 'include "private_dot_config/brewfiles/empty_Brewfile.macos.tmpl"' "$script"
   assert_success
 
   # The deployed paths in the same file must NOT gain the suffix.
@@ -528,4 +528,37 @@ assert_minimal_brewfile() {
     assert_success
     assert_output --regexp '^[0-9a-f]{64}$'
   done <<< "$paths"
+}
+
+@test "the minimal render deploys Brewfile.macos empty rather than not at all" {
+  # This is the gap that let a green suite ship a broken apply. Every other test
+  # in this section checks what `chezmoi execute-template` prints, and for the
+  # minimal macOS render that is correctly nothing. What rendering cannot show is
+  # that chezmoi *deletes* a file whose template renders to zero bytes, unless the
+  # source name carries the `empty_` attribute. Without it the deployed
+  # ~/.config/brewfiles/Brewfile.macos never appeared, and the apply died on the
+  # next line of run_onchange_after_1 with "No Brewfile found" — on macOS only,
+  # because Brewfile.macos is brew-bundled solely under darwin.
+  #
+  # So this one applies for real. It is safe and stays within the repo's rule
+  # against applying on a host: the apply is scoped to .config/brewfiles, which
+  # contains no run_ scripts, and --destination points at a throwaway directory,
+  # so $HOME is never a target.
+  local cfg="$BATS_TEST_TMPDIR/deploy.yaml"
+  local dest="$BATS_TEST_TMPDIR/dest"
+  MMS_CI_MINIMAL=1 write_test_config "$cfg"
+  # chezmoi does not create ancestor directories for a scoped apply.
+  mkdir -p "$dest/.config"
+
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" apply \
+    --source "$SOURCE_ROOT" --destination "$dest" --config "$cfg" \
+    "$dest/.config/brewfiles"
+  assert_success
+
+  assert_file_exists "$dest/.config/brewfiles/Brewfile"
+  assert_file_exists "$dest/.config/brewfiles/Brewfile.macos"
+  # Empty is the intended state — the entries are guarded out, the file remains.
+  [[ ! -s "$dest/.config/brewfiles/Brewfile.macos" ]] \
+    || fail "Brewfile.macos should be empty in minimal mode"
+  assert_file_contains "$dest/.config/brewfiles/Brewfile" '^brew "jq"'
 }
