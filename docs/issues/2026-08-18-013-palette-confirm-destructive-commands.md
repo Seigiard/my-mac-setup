@@ -1,6 +1,6 @@
 ---
 title: "Confirm destructive command palette commands, with the cursor starting on No"
-short_description: "Confirm destructive command palette commands, with the cursor starting on No"
+short_description: "Require destructive commands to confirm their resolved target with the cursor on No, while preventing key repeat from dismissing the prompt immediately."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

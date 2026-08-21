@@ -1,6 +1,6 @@
 ---
 title: "The fail-open assertions widened to 20s and no longer catch a slow fail-open"
-short_description: "The fail-open assertions widened to 20s and no longer catch a slow fail-open"
+short_description: "Three assertions now allow 20 seconds to tolerate scheduler contention, so regressions that delay normally sub-second fail-open paths by 3–18 seconds remain green."
 type: "bug"
 category: "repository-maintenance"
 tags: ["repository-maintenance","bug"]

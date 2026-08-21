@@ -1,6 +1,6 @@
 ---
 title: "Remove the command palette's three sleep-based focus workarounds"
-short_description: "Remove the command palette's three sleep-based focus workarounds"
+short_description: "Replace three 0.2–0.4 second focus delays only after user-run `chezmoi apply` trials establish whether popup teardown races on a loaded Herdr 0.8.0 session."
 type: "bug"
 category: "command-palette"
 tags: ["command-palette","bug"]

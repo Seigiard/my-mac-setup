@@ -1,6 +1,6 @@
 ---
 title: "Let a command palette command ship with its own scripts as a bundle"
-short_description: "Let a command palette command ship with its own scripts as a bundle"
+short_description: "Let each command directory carry TOML and colocated scripts referenced through a relocatable command-directory variable, so project workflows travel and delete as one unit."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

@@ -1,6 +1,6 @@
 ---
 title: "Sandbox a child agent's filesystem access"
-short_description: "Sandbox a child agent's filesystem access"
+short_description: "Contain child processes because OpenCode's shared `permission.external_directory` value of `\"*\": \"allow\"` exposes credential-bearing host paths to every session, while isolated children must retain their parent return channel."
 type: "idea"
 category: "agent-platform"
 tags: ["agent-platform","idea"]

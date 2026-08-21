@@ -1,6 +1,6 @@
 ---
 title: "The test-ubuntu CI job installs 37 brew packages it can never reach, because Linuxbrew's prefix is never put on PATH"
-short_description: "The test-ubuntu CI job installs 37 brew packages it can never reach, because Linuxbrew's prefix is never put on PATH"
+short_description: "The Ubuntu job spends 177.9 seconds installing 37 Homebrew formulae but never exports `/home/linuxbrew/.linuxbrew/bin`, leaving every installed binary unreachable to tests."
 type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]

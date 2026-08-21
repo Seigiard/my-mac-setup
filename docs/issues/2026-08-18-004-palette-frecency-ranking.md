@@ -1,6 +1,6 @@
 ---
 title: "Rank the command palette's resting list by frecency"
-short_description: "Rank the command palette's resting list by frecency"
+short_description: "Persist an atomically written selection history and apply zoxide-style frecency only to empty-query results, so learned ordering never competes with fuzzy search."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

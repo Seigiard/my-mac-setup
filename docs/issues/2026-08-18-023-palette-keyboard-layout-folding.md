@@ -1,6 +1,6 @@
 ---
 title: "Match command palette queries typed in the wrong keyboard layout"
-short_description: "Match command palette queries typed in the wrong keyboard layout"
+short_description: "Apply a ЙЦУКЕН-to-QWERTY positional mapping as a Cyrillic-query search pass, eliminating per-command Cyrillic shortcuts without changing normal Latin matching."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

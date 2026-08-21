@@ -1,6 +1,6 @@
 ---
 title: "The CI-minimal Docker apply has no automated gate, so a base-image downgrade would break it silently"
-short_description: "The CI-minimal Docker apply has no automated gate, so a base-image downgrade would break it silently"
+short_description: "Only a manual `MMS_CI_MINIMAL=1 docker compose -f docker/docker-compose.yml run --rm test-full` verifies that Ubuntu supplies Git 2.35 or newer for `merge.conflictStyle = zdiff3` and still includes Python 3."
 type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]

@@ -154,21 +154,21 @@ class ReadTests(IssueFixtures):
         lines = result.stdout.splitlines()
         self.assertEqual([
             "[herdr]",
-            "2026-08-21-002 - [high] High",
-            "  High desc",
+            "[high] 2026-08-21-002 - High",
+            "High desc",
             "",
-            "2026-08-21-005 - [high] Later high",
-            "  Later high desc",
+            "[high] 2026-08-21-005 - Later high",
+            "Later high desc",
             "",
-            "2026-08-21-003 - [low] Low",
-            "  Low desc",
+            "[low] 2026-08-21-003 - Low",
+            "Low desc",
             "",
             "[testing-ci]",
-            "2026-08-21-004 - [critical] Critical",
-            "  Critical desc",
+            "[crit] 2026-08-21-004 - Critical",
+            "Critical desc",
             "",
-            "2026-08-21-006 - [medium] Medium",
-            "  Medium desc",
+            "[med] 2026-08-21-006 - Medium",
+            "Medium desc",
             "",
         ], lines)
         self.assertNotIn("\x1b[", result.stdout)
@@ -181,13 +181,13 @@ class ReadTests(IssueFixtures):
         result = self.run_issues("list", "--tag", "missing", "--json")
         self.assertEqual({"issues": []}, json.loads(result.stdout))
         result = self.run_issues("list", "--category", "herdr", "--priority", "high", "--type", "bug", "--tag", "focus")
-        self.assertIn("2026-08-21-002 - [high] High", result.stdout)
+        self.assertIn("[high] 2026-08-21-002 - High", result.stdout)
 
-    def test_formats_description_as_muted_text_for_a_terminal(self):
+    def test_formats_terminal_priority_id_title_and_description_styles(self):
         value = {"id": "2026-08-21-002-high", "priority": "high", "short_description": "High desc", "title": "High"}
-        self.assertEqual("2026-08-21-002 - [high] High\n  \x1b[2mHigh desc\x1b[0m", self.module().format_issue_summary(value, color=True))
+        self.assertEqual("\x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh desc\x1b[0m", self.module().format_issue_summary(value, color=True))
         value["short_description"] = "High"
-        self.assertEqual("2026-08-21-002 - [high] High", self.module().format_issue_summary(value, color=True))
+        self.assertEqual("\x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh\x1b[0m", self.module().format_issue_summary(value, color=True))
 
     def test_searches_title_description_and_arbitrary_body_in_stable_order(self):
         self.write_issue("2026-08-21-002-body.md", issue_text(title="Other", short_description="Nothing") + b"\xffNeedle in body.\xfe\n")
@@ -195,7 +195,9 @@ class ReadTests(IssueFixtures):
         self.write_issue("2026-08-21-003-description.md", issue_text(title="Other", short_description="Needle summary"))
         text = self.run_issues("search", "needle")
         self.assertEqual(0, text.returncode, text.stderr)
-        self.assertEqual(["[testing-ci]", "2026-08-21-001", "2026-08-21-002", "2026-08-21-003"], [line.split()[0] for line in text.stdout.splitlines() if line and not line.startswith("  ")])
+        lines = text.stdout.splitlines()
+        self.assertEqual("[testing-ci]", lines[0])
+        self.assertEqual(["2026-08-21-001", "2026-08-21-002", "2026-08-21-003"], [line.split()[1] for line in lines if line.startswith(("[low] ", "[med] ", "[high] ", "[crit] "))])
         payload = json.loads(self.run_issues("search", "NEEDLE", "--json").stdout)
         self.assertEqual(["2026-08-21-001-title", "2026-08-21-002-body", "2026-08-21-003-description"], [item["id"] for item in payload["issues"]])
 

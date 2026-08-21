@@ -1,6 +1,6 @@
 ---
 title: "The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red"
-short_description: "The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red"
+short_description: "Docker mounts `tests/` at `/home/testuser/tests` and `home/` at `/home/testuser/dotfiles`, so the test's `../home/...` import failed identically in sequential, parallel, and ten stability runs."
 type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]

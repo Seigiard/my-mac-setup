@@ -13,8 +13,8 @@ Each issue is `docs/issues/YYYY-MM-DD-NNN-slug.md`. Its frontmatter has these re
 
 | Field | Values or format |
 |---|---|
-| `title` | Non-empty text |
-| `short_description` | Non-empty text |
+| `title` | Concise, stable label for the issue |
+| `short_description` | One self-contained sentence that explains the issue beyond the title |
 | `type` | `bug`, `follow-up`, `idea`, or `chore` |
 | `category` | A category in the table below |
 | `tags` | JSON array of unique kebab-case tags |
@@ -23,6 +23,27 @@ Each issue is `docs/issues/YYYY-MM-DD-NNN-slug.md`. Its frontmatter has these re
 | `priority` | `critical`, `high`, `medium`, or `low` |
 
 `parent-plan` is optional. Terminal issues also require `closed` and a `## Resolution` section. Active issues require `## Why this exists`, `## Scope`, and `## Open decisions`.
+
+### Writing titles and short descriptions
+
+Keep `title` concise and stable so lists remain scannable. Use `short_description` for the current, information-dense summary of the issue.
+
+A good `short_description`:
+
+- is one self-contained sentence;
+- adds concrete mechanism, impact, evidence, constraint, or intended outcome beyond the title;
+- keeps useful commands, paths, measurements, and known blockers when they explain why the issue matters;
+- describes the current understanding, not only the state when the issue was created;
+- does not repeat or lightly paraphrase the title.
+
+When investigation changes the diagnosis, impact, scope, blocker, or intended outcome, update `short_description` in the same lifecycle operation. Before finishing `start`, `edit`, `close`, or `wontfix` work, compare the description with the current issue body and revise stale wording through `scripts/issues edit`.
+
+Example:
+
+```yaml
+title: "macOS suite misses wall-time gate"
+short_description: "The parallel post-apply suite reaches 67% of the serial baseline against a 60% target; stable runs show a deferred optimization gap rather than a regression."
+```
 
 ## Classification
 

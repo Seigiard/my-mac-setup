@@ -1,6 +1,6 @@
 ---
 title: "Sharding the post-apply suite across CI jobs was never evaluated against within-file parallelism"
-short_description: "Sharding the post-apply suite across CI jobs was never evaluated against within-file parallelism"
+short_description: "Runner-level sharding would isolate each `$HOME` but repeat the dominant `chezmoi apply`, while `tests/scripts.bats` holds 85% of the Ubuntu baseline and must be split before a file matrix can reduce wall time materially."
 type: "idea"
 category: "testing-ci"
 tags: ["testing-ci","idea"]

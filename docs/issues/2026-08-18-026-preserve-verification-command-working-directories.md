@@ -1,6 +1,6 @@
 ---
 title: "Preserve each Verification Contract command's working directory in the se-work gate"
-short_description: "Preserve each Verification Contract command's working directory in the se-work gate"
+short_description: "The fallback parser drops package working directories, causing run-1787064382632 to fail after a paid work leg even though all six verification rows passed from their declared directories."
 type: "bug"
 category: "se-pipeline"
 tags: ["se-pipeline","bug"]

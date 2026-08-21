@@ -1,6 +1,6 @@
 ---
 title: "Set a child agent's permission mode at launch instead of inheriting bypassPermissions"
-short_description: "Set a child agent's permission mode at launch instead of inheriting bypassPermissions"
+short_description: "A read-only Claude child inherits `bypassPermissions` and can write through its shell, so launch-time controls must restrict tools while preserving the mandatory `herdr agent prompt` return channel."
 type: "idea"
 category: "agent-platform"
 tags: ["agent-platform","idea"]

@@ -1,6 +1,6 @@
 ---
 title: "make test-ubuntu labeling drift — runs test-quick, docs say \"Full test\""
-short_description: "make test-ubuntu labeling drift — runs test-quick, docs say \"Full test\""
+short_description: "The `test-quick` and `test-full` services both perform a full `chezmoi apply` plus the suite, so the current names and documentation conceal that neither path skips package installation."
 type: "chore"
 category: "testing-ci"
 tags: ["testing-ci","chore"]

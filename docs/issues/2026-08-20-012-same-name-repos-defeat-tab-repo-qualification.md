@@ -1,6 +1,6 @@
 ---
 title: "Two repositories with the same folder name defeat the multi-repo tab qualifier"
-short_description: "Two repositories with the same folder name defeat the multi-repo tab qualifier"
+short_description: "Repository identity currently uses folder basenames and 12-character display tokens, so same-named or shared-prefix repositories produce missing or identical tab qualifiers."
 type: "bug"
 category: "repository-maintenance"
 tags: ["repository-maintenance","bug"]

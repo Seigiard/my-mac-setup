@@ -1,6 +1,6 @@
 ---
 title: "make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has"
-short_description: "make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has"
+short_description: "Docker mounts `tests/` and `home/` apart and read-only, breaking the Pi updater import and preventing Smithers dependency installation, while GitHub CI keeps the trees resolvable and runs `bun install`."
 type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]

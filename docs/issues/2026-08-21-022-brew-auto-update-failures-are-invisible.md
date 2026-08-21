@@ -1,6 +1,6 @@
 ---
 title: "The Pi brew auto-updater never surfaces a failure, even on manual invocation"
-short_description: "The Pi brew auto-updater never surfaces a failure, even on manual invocation"
+short_description: "Both Pi updater entry points discard `{ status: \"failed\", message }`, so Homebrew or extension-update failures remain invisible even after an explicit `/brew-auto-update-now` invocation."
 type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]

@@ -1,6 +1,6 @@
 ---
 title: "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8"
-short_description: "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8"
+short_description: "At `--jobs 8`, macOS reached 283 seconds or 66.9% of its 423-second baseline, with bats-core's one-second `shlock` polling as the leading unmeasured cause of the 29-second target gap."
 type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]

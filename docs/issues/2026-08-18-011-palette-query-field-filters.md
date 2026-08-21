@@ -1,6 +1,6 @@
 ---
 title: "Support field filters in the command palette's query string"
-short_description: "Support field filters in the command palette's query string"
+short_description: "Parse filters such as `group:git` and `origin:project` before fuzzy scoring, with quoted values, negation, and fail-closed diagnostics for unknown fields."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

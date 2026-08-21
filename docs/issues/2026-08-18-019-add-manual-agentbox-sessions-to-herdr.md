@@ -1,6 +1,6 @@
 ---
 title: "Add manual AgentBox sessions to Herdr without requiring a pipeline"
-short_description: "Add manual AgentBox sessions to Herdr without requiring a pipeline"
+short_description: "Manage AgentBox and its Herdr plugin through chezmoi so interactive isolated sessions expose lifecycle state and inspectable branches without installer-driven config drift or undocumented host credentials."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","follow-up"]

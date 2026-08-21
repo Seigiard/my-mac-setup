@@ -28,6 +28,8 @@ TYPES = {"bug", "follow-up", "idea", "chore"}
 STATUSES = {"open", "in-progress", "done", "wontfix"}
 CATEGORIES = {"testing-ci", "se-pipeline", "herdr", "command-palette", "agent-platform", "dotfiles", "repository-maintenance"}
 PRIORITIES = {"critical", "high", "medium", "low"}
+PRIORITY_LABELS = {"critical": "crit", "high": "high", "medium": "med", "low": "low"}
+PRIORITY_COLORS = {"critical": "\033[1;31m", "high": "\033[31m", "medium": "\033[33m", "low": "\033[34m"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -255,14 +257,19 @@ def summary(document: Document) -> Dict[str, Any]:
 
 
 def format_issue_summary(value: Dict[str, Any], color: bool = False) -> str:
+    priority = value["priority"]
+    label = PRIORITY_LABELS[priority]
     compact_id = value["id"][:14]
-    heading = "%s - [%s] %s" % (compact_id, value["priority"], value["title"])
+    title = value["title"]
     description = value["short_description"]
-    if description == value["title"]:
-        return heading
     if color:
+        label = "%s[%s]\033[0m" % (PRIORITY_COLORS[priority], label)
+        compact_id = "\033[36m%s\033[0m" % compact_id
+        title = "\033[1m%s\033[0m" % title
         description = "\033[2m%s\033[0m" % description
-    return "%s\n  %s" % (heading, description)
+    else:
+        label = "[%s]" % label
+    return "%s %s - %s\n%s" % (label, compact_id, title, description)
 
 
 def issue_directory(root: Path, create: bool = False) -> Path:

@@ -1,6 +1,6 @@
 ---
 title: "Capture the idle-machine wall-clock bound as a documented pattern"
-short_description: "Capture the idle-machine wall-clock bound as a documented pattern"
+short_description: "Four load-sensitive failures were independently misdiagnosed because idle-machine deadlines conflated hang guards with performance assertions, so the causal-testing pattern needs a durable `docs/solutions` entry."
 type: "follow-up"
 category: "repository-maintenance"
 tags: ["repository-maintenance","follow-up"]

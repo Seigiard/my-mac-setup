@@ -1,6 +1,6 @@
 ---
 title: "Show a preview of the selected pane's contents in the command palette"
-short_description: "Show a preview of the selected pane's contents in the command palette"
+short_description: "Render selected pane contents through `herdr pane read --format ansi`, with a 70 ms debounce and 1.5 s cache to keep terminal input responsive."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

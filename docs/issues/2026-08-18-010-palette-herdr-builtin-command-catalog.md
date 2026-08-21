@@ -1,6 +1,6 @@
 ---
 title: "Ship a catalog of herdr's built-in operations in the command palette"
-short_description: "Ship a catalog of herdr's built-in operations in the command palette"
+short_description: "Import a verified catalog of roughly 30 Herdr operations with exact argv and compatibility checks, after destructive entries gain confirmation and list growth gains ranking controls."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]

@@ -1,6 +1,6 @@
 ---
 title: "Give command palette commands aliases that match by strict prefix, never fuzzy"
-short_description: "Give command palette commands aliases that match by strict prefix, never fuzzy"
+short_description: "Define how case-insensitive prefix shortcuts collide across global and project commands, because the implemented group-order tie-break lets projects silently shadow familiar shortcuts."
 type: "idea"
 category: "command-palette"
 tags: ["command-palette","idea"]
