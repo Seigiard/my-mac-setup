@@ -2,7 +2,8 @@
 title: Two herdr-task-sync ordering tests flake under full-suite load
 type: bug
 date: 2026-08-20
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -233,3 +234,28 @@ SIGKILLed engine forces every wait behind it to run to its ceiling.
 The remaining ask in this issue is unchanged and unmet: a failure-path dump of
 the namespace `reconcile.state` and the pane `control.state`, so the next
 recurrence carries its own evidence instead of needing this reconstruction.
+
+## Resolution
+
+Closed 2026-08-21 in `543ca9e` (PR #29). Both tests this issue names are fixed,
+and the second one is fixed against a found root cause rather than closed
+unreproduced: the harness capped each engine call at 5 s while the shipped script
+defaults to 30 s, and the engine enforces that cap with `kill -9`. Under `--jobs`
+contention the stubbed engine lost that race, the invocation committed nothing,
+and the ordering tests waiting on that commit timed out. The harness now runs the
+shipped 30 s watchdog.
+
+Confirmed by twelve repetitions of the full suite at `--jobs 8` inside
+`docker run --cpus 4` with zero failures, against one failure in ten repetitions
+of the same profile before the fix. The pre-fix run's 161 s outlier disappeared
+with the failure, which matches the mechanism — a SIGKILLed engine forces every
+wait behind it to run to its ceiling.
+
+**The failure-path state dump this issue asked for was not built, deliberately.**
+It existed to diagnose an unknown cause. The cause is now known and a regression
+test guards it: `herdr-task-sync ships the timing defaults the tests deliberately
+override` reads both shipped values out of the script, so a production change to
+either goes red instead of silently un-testing the budget. If a new
+load-sensitive flake appears in this file, file it fresh — the general pattern is
+tracked in
+`docs/issues/2026-08-21-015-capture-the-idle-machine-wall-clock-pattern.md`.

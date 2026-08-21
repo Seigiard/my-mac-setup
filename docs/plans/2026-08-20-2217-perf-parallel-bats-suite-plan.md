@@ -2,6 +2,7 @@
 title: Parallel Bats Suite - Plan
 type: perf
 date: 2026-08-20
+status: done
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 product_contract_source: ce-plan-bootstrap
@@ -9,6 +10,14 @@ execution: code
 ---
 
 # Parallel Bats Suite - Plan
+
+> **Shipped 2026-08-21** in `543ca9e` (PR #29). Delivered: the post-apply suite
+> runs `bats --jobs 8 --no-parallelize-across-files` in both CI jobs, both Docker
+> compose services, and `make test-suite`. On the merged tree CI measures 160 s
+> on Ubuntu and 275 s on macOS. Ubuntu meets the 60%-of-baseline gate; macOS
+> lands at 65% and invoked the plan's *stable but slow* stop condition, filed as
+> `docs/issues/2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md`.
+> Residuals from the review are filed as issues 013, 014 and 015 of the same day.
 
 ## Goal Capsule
 
