@@ -2,8 +2,8 @@
 title: Two herdr-task-sync ordering tests flake under full-suite load
 type: bug
 date: 2026-08-20
-status: done
-closed: 2026-08-20
+status: open
+reopened: 2026-08-21
 ---
 
 ## Why this exists
@@ -125,3 +125,53 @@ Capture the bats failure block, whether the engine stub was killed, and the
 namespace `reconcile.state` plus the pane `control.state` at the time. The
 Scope section above holds the probe worth running first
 (`HTS_TIMEOUT=1`) against the engine-timeout hypothesis.
+
+## Reopened 2026-08-21: the socket-namespace test reproduced under within-file parallelism
+
+`herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions`
+-- the half of this pair closed **unreproduced, with nothing changed** -- failed in
+CI on 2026-08-21. That closure rested on the test never being reproducible; it now
+has been, so this issue is open again.
+
+**Where.** CI run `32435170556`, job `test-macos` (macos-latest, 3 cores), running
+the post-apply suite as `bats --jobs 12 --no-parallelize-across-files`. It failed
+in the first of three `--jobs 12` repetitions and did not fail in any of the three
+`--jobs 8` repetitions in the same job, nor in that job's sequential control.
+
+**Why this profile and not CPU saturation.** This issue already recorded that ten
+busy loops on a ten-core machine did not reproduce it, because "the full suite's
+process and file-descriptor contention is a different profile". Within-file
+parallelism is that profile: 12 concurrent bats tests on 3 cores, each forking
+fixture processes. Deliberate CPU starvation does not reproduce it; concurrent
+forking does.
+
+**Capture protocol.** The run's other failures in the same repetition were
+`herdr-task-sync bounded Bats invocation exits after detached work` and
+`herdr-task-sync returns before the naming engine finishes (R8)`. The engine stub
+was not reported killed for this test (no `Killed: 9` line accompanied it, unlike
+the eight-pane coordinator failures seen earlier in the same investigation). The
+namespace `reconcile.state` and pane `control.state` were not captured -- the CI
+harness printed 20 lines of context per failure and neither state file is dumped
+on failure. **Capturing them needs a teardown hook that dumps both on a failed
+test; without it a CI recurrence cannot supply what this issue asks for.**
+
+**Not a blocker for the parallel suite.** `docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md`
+ships `--jobs 8`, where this test did not fail across three CI repetitions per job
+and ten container repetitions. The failure is specific to oversubscribing a 3-core
+runner 12 ways. It is recorded here because the test is genuinely load-sensitive,
+not because it gates that work.
+
+## Scope
+
+- `tests/scripts.bats` -- the `exact socket namespaces survive legacy sanitized-name collisions`
+  test. Find the ordering or locking assumption that 12-way concurrency on 3 cores
+  breaks, the way the inbox-commit test's fixed 1 s fifo window was found by
+  inspection.
+- A failure-path dump of the namespace `reconcile.state` and pane `control.state`,
+  so the next recurrence carries the evidence this issue asks for.
+
+## Open decisions
+
+- Whether to reproduce locally by running the suite at `--jobs 12` under a CPU
+  limit that mimics 3 cores (`docker run --cpus 3`), rather than on a 10-core host
+  where 12 jobs is only mild oversubscription.

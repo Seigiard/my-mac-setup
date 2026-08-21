@@ -1,6 +1,6 @@
 # Open issues — grouped summary
 
-Snapshot generated 2026-08-20 from `rg -l 'status: open|status: in-progress' docs/issues`.
+Snapshot generated 2026-08-21 from `rg -l 'status: open|status: in-progress' docs/issues`.
 37 issues open. Regenerate this file after closing or filing issues; it is a derived index, not a source of truth.
 
 Severity scale:
@@ -20,6 +20,7 @@ Until these are fixed, neither CI nor a local pre-push run is a trustworthy gree
 | [2026-08-19-001](2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md) | `make test-ubuntu` fails two tests on main: the Docker harness lacks two setup steps GitHub CI has, so the local suite is not a faithful CI stand-in | **High** |
 | [2026-08-20-002](2026-08-20-002-coordinator-location-test-flake.md) | Coordinator eight-pane location test flakes at the 1000 ms envelope boundary under load | Medium |
 | [2026-08-20-010](2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md) | Two herdr-task-sync ordering tests flake under full-suite load; possibly shares a root cause with 2026-08-20-002 | Medium |
+| [2026-08-21-011](2026-08-21-011-pi-brew-test-unresolvable-path-in-docker.md) | The Pi brew auto-updater test imports `../home/...`, which does not resolve under the Docker mount layout, so `make test-ubuntu` is red on main | **High** |
 
 ## 2. se-pipeline / Smithers — money and lost runs
 
