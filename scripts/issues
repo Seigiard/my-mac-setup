@@ -8,11 +8,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 from typing import Any, Dict, Iterator, List, Optional, Sequence
@@ -29,6 +31,9 @@ STATUSES = {"open", "in-progress", "done", "wontfix"}
 CATEGORIES = {"testing-ci", "se-pipeline", "herdr", "command-palette", "agent-platform", "dotfiles", "repository-maintenance"}
 PRIORITIES = {"critical", "high", "medium", "low"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+MIGRATION_TRANSFORMATION_VERSION = 1
+MIGRATION_MANIFEST = Path("docs/migrations/2026-08-21-issue-metadata.json")
 
 
 class IssueError(ValueError):
@@ -66,6 +71,169 @@ def discover_issue_paths(root: Path) -> List[Path]:
     if not directory.is_dir():
         return []
     return sorted((path for path in directory.iterdir() if path.is_file() and not path.is_symlink() and ISSUE_NAME.match(path.name)), key=lambda path: path.name)
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def migration_source_commit(root: Path) -> str:
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False)
+    source_commit = result.stdout.strip()
+    if result.returncode or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise IssueError("SOURCE_COMMIT_UNAVAILABLE", str(root))
+    return source_commit
+
+
+def legacy_open_priorities(root: Path) -> Dict[str, str]:
+    """Extract explicit active-issue severities from the reviewed legacy index."""
+    index = root / "docs" / "issues" / "_open-issues.md"
+    try:
+        contents = index.read_text(encoding="utf-8")
+    except OSError as error:
+        raise IssueError("OPEN_INDEX_UNAVAILABLE", str(index)) from error
+    priorities = {}
+    expression = re.compile(r"\]\(([^)]+\.md)\).*?\|\s+\*{0,2}(Critical|High|Medium|Low)\*{0,2}\s*\|", re.IGNORECASE)
+    for path, priority in expression.findall(contents):
+        priorities[path] = priority.lower()
+    return priorities
+
+
+def migration_metadata(document: Document, open_priorities: Dict[str, str]) -> tuple[Dict[str, Any], str]:
+    """Return the review proposal from stable title keywords, not corpus mutation."""
+    title = document.metadata["title"]
+    value = title.lower()
+    rules = (
+        ("herdr", ("herdr",)),
+        ("command-palette", ("command palette", "palette")),
+        ("testing-ci", ("test", "ci", "github action", "docker")),
+        ("se-pipeline", ("smithers", "se-pipeline", "workflow")),
+        ("agent-platform", ("claude", "opencode", "pi ", " pi", "agent", "skill", "plugin")),
+        ("dotfiles", ("brew", "homebrew", "mise", "zsh", "terminal", "kitty", "tmux", "macos", "dotfile")),
+    )
+    category = "repository-maintenance"
+    evidence = "No category keyword; classified as repository maintenance."
+    for candidate, keywords in rules:
+        keyword = next((item for item in keywords if item in value), None)
+        if keyword:
+            category = candidate
+            evidence = 'Title keyword "%s" selects %s.' % (keyword, category)
+            break
+    status = document.metadata["status"]
+    if status in ("open", "in-progress"):
+        priority = open_priorities.get(document.path.name, "low")
+        priority_evidence = "Legacy index severity is %s." % priority
+    else:
+        priority = "low"
+        priority_evidence = "Terminal issue; assigned low review priority."
+    short_description = title[:157].rstrip() + ("..." if len(title) > 157 else "")
+    metadata = {"category": category, "priority": priority, "tags": [category, document.metadata["type"], status], "short_description": short_description}
+    return metadata, "%s %s" % (evidence, priority_evidence)
+
+
+def migration_after_bytes(document: Document, proposed: Dict[str, Any]) -> bytes:
+    metadata = dict(document.metadata)
+    metadata.update(proposed)
+    return render_document(document.path, metadata, document.body)
+
+
+def build_migration_manifest(root: Path, source_commit: str) -> Dict[str, Any]:
+    entries = []
+    open_priorities = legacy_open_priorities(root)
+    for path in discover_issue_paths(root):
+        document = parse_document(path)
+        proposed, evidence = migration_metadata(document, open_priorities)
+        entries.append({
+            "ambiguity": "resolved",
+            "before_sha256": sha256(path),
+            "evidence": evidence,
+            "expected_after_sha256": hashlib.sha256(migration_after_bytes(document, proposed)).hexdigest(),
+            "path": str(path.relative_to(root)),
+            "proposed_metadata": proposed,
+        })
+    return {"entries": entries, "source_commit": source_commit, "transformation_version": MIGRATION_TRANSFORMATION_VERSION}
+
+
+def migration_manifest_bytes(manifest: Dict[str, Any]) -> bytes:
+    return (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _manifest_object(pairs: List[tuple[str, Any]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise IssueError("DUPLICATE_MANIFEST_KEY", key)
+        result[key] = value
+    return result
+
+
+def read_migration_manifest(path: Path) -> Dict[str, Any]:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_manifest_object)
+    except OSError as error:
+        raise IssueError("MANIFEST_NOT_FOUND", str(path)) from error
+    except json.JSONDecodeError as error:
+        raise IssueError("INVALID_MANIFEST_JSON", str(path)) from error
+    if not isinstance(manifest, dict):
+        raise IssueError("INVALID_MANIFEST", "top level must be an object")
+    return manifest
+
+
+def check_migration_manifest(root: Path, manifest: Dict[str, Any], source_commit: str) -> List[Dict[str, Any]]:
+    if set(manifest) != {"entries", "source_commit", "transformation_version"}:
+        raise IssueError("INVALID_MANIFEST", "unknown or missing top-level field")
+    if manifest["source_commit"] != source_commit:
+        raise IssueError("STALE_SOURCE_COMMIT", str(manifest["source_commit"]))
+    if manifest["transformation_version"] != MIGRATION_TRANSFORMATION_VERSION:
+        raise IssueError("STALE_TRANSFORMATION_VERSION", str(manifest["transformation_version"]))
+    if not isinstance(manifest["entries"], list):
+        raise IssueError("INVALID_MANIFEST", "entries must be an array")
+    paths = discover_issue_paths(root)
+    expected_paths = [str(path.relative_to(root)) for path in paths]
+    entries = manifest["entries"]
+    actual_paths = [entry.get("path") for entry in entries if isinstance(entry, dict)]
+    if len(actual_paths) != len(entries) or actual_paths != expected_paths or len(set(actual_paths)) != len(actual_paths):
+        raise IssueError("MANIFEST_PATH_SET_MISMATCH", "entries must be the sorted canonical corpus")
+    for entry, path in zip(entries, paths):
+        if set(entry) != {"ambiguity", "before_sha256", "evidence", "expected_after_sha256", "path", "proposed_metadata"}:
+            raise IssueError("INVALID_MANIFEST_ENTRY", path.name)
+        if entry["ambiguity"] != "resolved":
+            raise IssueError("UNRESOLVED_AMBIGUITY", entry["path"])
+        if not isinstance(entry["evidence"], str) or not entry["evidence"]:
+            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
+        if not isinstance(entry["before_sha256"], str) or not SHA256.fullmatch(entry["before_sha256"]):
+            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
+        if not isinstance(entry["expected_after_sha256"], str) or not SHA256.fullmatch(entry["expected_after_sha256"]):
+            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
+        if sha256(path) != entry["before_sha256"]:
+            raise IssueError("STALE_INPUT", entry["path"])
+        proposed = entry["proposed_metadata"]
+        if not isinstance(proposed, dict) or set(proposed) != set(LEGACY_FIELDS):
+            raise IssueError("INVALID_MANIFEST_ENTRY", entry["path"])
+        document = parse_document(path)
+        try:
+            after = migration_after_bytes(document, proposed)
+        except IssueError as error:
+            raise IssueError("INVALID_MANIFEST_METADATA", entry["path"]) from error
+        if hashlib.sha256(after).hexdigest() != entry["expected_after_sha256"]:
+            raise IssueError("AFTER_HASH_MISMATCH", entry["path"])
+        if parse_document_bytes(path, after).body != document.body:
+            raise IssueError("BODY_CHANGED", entry["path"])
+    return entries
+
+
+def write_migration_manifest(path: Path, manifest: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".migration-", dir=str(path.parent))
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(migration_manifest_bytes(manifest))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _has_forbidden_characters(value: str) -> bool:
@@ -481,6 +649,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wontfix = subcommands.add_parser("wontfix")
     wontfix.add_argument("issue_id")
     wontfix.add_argument("--rationale", required=True)
+    migrate = subcommands.add_parser("migrate")
+    migrate.add_argument("operation", choices=("scaffold", "check", "dry-run", "status"))
+    migrate.add_argument("--manifest", type=Path)
     arguments = parser.parse_args(argv)
     try:
         if arguments.version:
@@ -489,6 +660,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("repository-issues-contract 1")
             return 0
         root = find_worktree()
+        if arguments.command == "migrate":
+            manifest_path = (arguments.manifest or (root / MIGRATION_MANIFEST)).resolve()
+            if arguments.operation == "scaffold":
+                manifest = build_migration_manifest(root, migration_source_commit(root))
+                write_migration_manifest(manifest_path, manifest)
+                print("%s" % manifest_path.relative_to(root))
+                return 0
+            manifest = read_migration_manifest(manifest_path)
+            entries = check_migration_manifest(root, manifest, migration_source_commit(root))
+            digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            if arguments.operation == "check":
+                print("migration manifest valid: %d entries" % len(entries))
+            elif arguments.operation == "dry-run":
+                print("migration dry-run valid: %d after-images" % len(entries))
+            else:
+                print("ready-for-review %d entries %s" % (len(entries), digest))
+            return 0
         if arguments.command == "validate":
             output = validate(root, arguments.compatibility)
             for line in output:

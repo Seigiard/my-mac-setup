@@ -1,0 +1,1689 @@
+{
+  "entries": [
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "a237415420fd31c185a962c65ab54e3894eac0714bc786e419216e24db0fa9ef",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "238e473ddbbb867e05236a6a58fc23bc1768e0711d5fd08dbbf37742137efb0f",
+      "path": "docs/issues/2026-07-27-001-unified-stage-rightsizing-evaluator.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Unified stage right-sizing evaluator for code-review and doc-review",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "wontfix"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "8559633232dff0dbad2c7c5db2aa2e706b42cac647beacc79d5b56c46087aa78",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "9adf613bd538f9101bab04e9ac45712c01c1e4377e68622042c22dca14d5104f",
+      "path": "docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Pre-external secret boundary for standalone se-* harnesses",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "251cef588ac7cf1e6e2ed0ef7663b5d76afc80a158c109f57385f4e4ee73164a",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "aafaa15b29eb1f19adb847b67c96b953f588f285246e47ca790bc94c0498a096",
+      "path": "docs/issues/2026-08-14-001-flaky-herdr-task-sync-session-reset-test.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Flaky bats test — herdr-task-sync resets the stored context on a new session id",
+        "tags": [
+          "herdr",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "611604b6ea204373b51cd193d221efa2f20bc5d1523389943833de40a5349389",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "983f9a25655555fc97e20981ac5aed4ebb7026c2d1f4a2947c4a25850590d24a",
+      "path": "docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Review-leg status allowlist false-fails healthy legs and forces a needless approval",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "dec904117f7361886a117ca1b935195dc7acf72a981c59601e29156b6945f028",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "2ce5fcc772dcb5c4eaf7c1eaffad633bd2e50ae752a6c4f8d0d5499903be82a0",
+      "path": "docs/issues/2026-08-14-003-severity-gate-p2-tails.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Severity-gate P2 tails — stripSeverityLine over-matching, raw SEVERITY in waive excerpts, untested wiring",
+        "tags": [
+          "testing-ci",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "b69c6d9b041d0286f1caff026260663db7b98ed93bc9658db7153a51dcc96044",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "8fd3f51214f457679a7a4b1554af3e720f641f37b3986f03ea2450f77449009e",
+      "path": "docs/issues/2026-08-14-004-se-flow-stalls-after-staging-and-epilog-gaps.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "se flow has no live PR verification — the only remaining gap from the dynamic-flow plan",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "67c37c97bc75e4818dc2e414917749dbe156be5520706d1e1f16bed53ab776f5",
+      "evidence": "Title keyword \"se-pipeline\" selects se-pipeline. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "5981d13c04beb6cac5b24258cc7908ac579f036b00b3258a0bd60fec9db37c81",
+      "path": "docs/issues/2026-08-14-005-duplicate-run-usage-reader.md",
+      "proposed_metadata": {
+        "category": "se-pipeline",
+        "priority": "low",
+        "short_description": "readRunUsage exists twice — shared in lib/cost.ts and private in se-pipeline.tsx",
+        "tags": [
+          "se-pipeline",
+          "chore",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "77be55d040c3350ec16535f7ca255c0ccf1e1ab7971d1216459c21f31a0dcc46",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "afa694a9802d0c2dcab84423422414763514b917f77b071c80f1e2e5362f3754",
+      "path": "docs/issues/2026-08-14-006-se-resume-hint-names-a-flag-that-does-not-exist.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "se resume's hint tells the operator to use --force true, a flag se resume does not have",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "59241fa9266c21c7e0cfbe4ef1144470c8b40b7829d0ef93f02ec5a412ac3496",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "ca4adf3b839106e4a5929ddffe520bd7238b7bd1767eccff8083254849373ea1",
+      "path": "docs/issues/2026-08-14-007-workflow-instantiation-test.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "No test instantiates the workflows, so schema errors are found by a failed launch",
+        "tags": [
+          "testing-ci",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "9b859671f2112ac757ac3107248be6653fa36f404b76880361276e15042a4b9e",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is low.",
+      "expected_after_sha256": "6113a762a31f5300e61642144bfae3d333bd538dabdee236d161dc2350780f95",
+      "path": "docs/issues/2026-08-14-008-doc-review-path-has-no-live-coverage.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The verify-doc waive path has no live coverage since it was rewritten",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "36cd53af7e1251b51b83634f2662c2a7b76970a9ad5eb6f22cb8b0b22b4890f9",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "400b5faaff3480f87e1ab5c4342aea451c037104dddc39510a13dafa4336e749",
+      "path": "docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "External legs read the whole snapshot tree, but only the branch range is scanned",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "43106d0fe672859dbcb0ba2b915cb92cd7329bf13950d73c660fc2c7e64a2020",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "7471d3522ec607d2062b7bef26ecec000e0e7e3e04db0de5ac36d054799a9f16",
+      "path": "docs/issues/2026-08-14-010-validate-cmd-filter-is-unsound-in-both-directions.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The validate-command filter judges commands by substring, so it drops real gates and admits mutating ones",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "ccee1d8e2dd0fda41d4a10d4fdadd31980010939bc85fc06803c14710ce85cfd",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "c27fed6068e520bf65623b6b1d3ca633d51f49a8d785d92a757c4c0ac7b67ab7",
+      "path": "docs/issues/2026-08-14-011-verification-contract-parser-ignores-bullet-lists.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The Verification Contract parser reads only tables and fenced blocks, so a bullet-list contract refuses the run at gate 0",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "f701f132d1c07158216ea56a2a11a1d1ad97073a1901f8281cc76ce9f2a6e81e",
+      "evidence": "Title keyword \"agent\" selects agent-platform. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "01153bd6a7cae363782a5c0b56122938ee8da3fd89e625c20d29ef1685fdc2e6",
+      "path": "docs/issues/2026-08-14-012-work-agent-escapes-the-isolated-worktree.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "The work agent is handed an absolute plan path into the main checkout and writes its changes there",
+        "tags": [
+          "agent-platform",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "5d2298f1358879691b930a71a3d7be05ff2e2626cd63dd515f1c53c6372b416a",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "0ffd74f0cba3ab87e21bd353d8236d272067c04957c8788b5d44016b7cde9246",
+      "path": "docs/issues/2026-08-14-013-fresh-worktree-has-no-dependencies.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "A fresh run worktree has no installed dependencies, so any JS validate-cmd fails with exit 127",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "1ffb69acaf88e6a99db8124b13b8a34954bf1c61bac18deeb9879171be2639b8",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "2e31244c768bcefbfa6e1ef0966f65ceb33b6cd921ecd0ade13747a7999d75ff",
+      "path": "docs/issues/2026-08-14-014-plan-format-contract.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Decide what a plan owes the pipeline, and whether the pipeline should keep inferring it from prose",
+        "tags": [
+          "testing-ci",
+          "idea",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "3463bc234935a8cf42244e50b99fcbb7cfadcca64b97e4ce29d9fe49cc6c6170",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Legacy index severity is medium.",
+      "expected_after_sha256": "cffb675f6af88b72edf5091ae325f345acf3707b7b1c26717d7dce3166d8c00a",
+      "path": "docs/issues/2026-08-14-015-run-budgets.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "medium",
+        "short_description": "Decide what a run budget is for, and give se pipeline one",
+        "tags": [
+          "testing-ci",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "30b8ab96c65eb3b52ddbb79ff6418987f40361404da4acef4afb381c7446a632",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "2577e86dee1e917a61613f00ccd2ddda2ab99575d2ea60d9894e24c16cfa8f9c",
+      "path": "docs/issues/2026-08-14-016-run-log-marks-a-failed-gate-as-passed.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The run log marks a failed gate with a check mark and never prints why the run parked",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "2f355fd79114438175da7a52e3d37b3449946b52f319c8a33d97a40141672e28",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "bf81775492c942d1dbbb38645bbf41b227341d638112495c258b24321a425ca7",
+      "path": "docs/issues/2026-08-14-017-run-stalls-after-every-approval.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The owner process exits after every approval and the run stalls until someone runs se resume",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "fb308a35afca4b040bb489c7e4ba35151d6dd7e0899e73ed52c9a67946e0f4e6",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "09ccfe9581abff99a5c86fbba737e0914cd54fc3afbb4d6010b534f00a82274d",
+      "path": "docs/issues/2026-08-14-018-validate-segment-can-pass-covering-nothing.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "A validate-cmd segment that matches no files exits zero, so the gate passes on a check that covered nothing",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "c7b75730daa675b54ed215f935d7b0062ec10ced04f041a7786d13a769624da6",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "f3834fc04edc96074e0aa92bf2bae1a1134b3c3ad5f2429444b929c1ba70319b",
+      "path": "docs/issues/2026-08-14-019-worktree-missing-built-dists-is-not-detected.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "A worktree missing built workspace dists fails the work gate as a test failure, and no preflight catches it",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "efb005af3a4d0c28270b00ee677f31ccda36f063c9c8bf0cee78c68d71560933",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Legacy index severity is medium.",
+      "expected_after_sha256": "a57f7622b5ea3fde352eae6ec7ad31000072ebd36cfa0ba8adf522a0005e1f2b",
+      "path": "docs/issues/2026-08-14-020-pipeline-launch-surface.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "medium",
+        "short_description": "Decide what a pipeline launch should ask the operator for, and delete the rest",
+        "tags": [
+          "testing-ci",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "89becb63f5f1e155e44287ab4b0e72c5ada275bd622b1d1004d9eddc486c06ea",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "b2866658fb1cf5e65e9d68c85709d57d3df2c5c04e536a8f217f7ab94d8b11e6",
+      "path": "docs/issues/2026-08-15-001-se-skill-invocation-mode.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Decide whether se-review-and-work and se-simplify should stay model-invoked",
+        "tags": [
+          "testing-ci",
+          "idea",
+          "wontfix"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "49ab8378d9bfb2db3e0593f2cf6b14712ebdcd2f7c68f46ec49fbf5ac7eeb306",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "982046ccbf44bdde8e4e2abf62701dc277d55bc4ed034e198d946e18f898302e",
+      "path": "docs/issues/2026-08-15-002-se-flow-work-block-hands-the-agent-a-launcher-plan-path.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The se-flow work block embeds a plan path from outside its own staged worktree",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "5372c3a819179b9f746237a0afc19d1dcab482ea8c0e71dad8c006951349514c",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "6295729df11d5b136747dafd1099ec7e52ab310590ba4331ce5d4756895ff318",
+      "path": "docs/issues/2026-08-15-003-a-red-block-does-not-stop-the-se-flow-run.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "A red block does not stop the se-flow run — its successors run, including pr",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "18db7761efa269ce05383859dec7949a0ddcb644341a82010aa628b4cc03f892",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "e88c93cbdccbe773282643e80538574b7df6844b2e47706b7626860061635c4f",
+      "path": "docs/issues/2026-08-15-004-work-block-planpath-prompt-returns-prose-not-an-envelope.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The work block's planPath prompt got prose back, not the return-to-caller envelope",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "7222841c8b35015d216a74db93305e18b75cffdc819c789c485919c7e43abefa",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is low.",
+      "expected_after_sha256": "ba35496845724babfa4db0fccdb9c1f84dfe4593cb8cda4a9843717d9ca0de8b",
+      "path": "docs/issues/2026-08-15-005-se-flow-has-no-main-checkout-escape-diagnosis.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "An se-flow run that writes into the main checkout reports \"no content change\", not the cause",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "dc6fc5685ac479575f6547e7c525dbf856679be5cc89289a89e9ac2be03426ff",
+      "evidence": "Title keyword \"smithers\" selects se-pipeline. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "c3daa46fff77201477c1ad60f4c713f6d4a9821e121062be154243d47a4dd864",
+      "path": "docs/issues/2026-08-15-006-smithers-workflows-have-no-typecheck.md",
+      "proposed_metadata": {
+        "category": "se-pipeline",
+        "priority": "low",
+        "short_description": "The Smithers workflows package has no tsconfig, so nothing type-checks it and the editor reports phantom errors",
+        "tags": [
+          "se-pipeline",
+          "chore",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "bf4276f3e78982c4f2d40ef4577e5004bb14018bc6cbedc7847e5246b7a78f81",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "1d08a86d37a8115a977b585d7c181d51ebd2ee69d501875b240f38f49fc51082",
+      "path": "docs/issues/2026-08-15-007-ask-agent-herdr-pane-mode-calls-a-command-herdr-does-not-have.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "ask-agent's herdr-pane mode calls `herdr wait output`, a command herdr does not have, so every consult inside herdr fails",
+        "tags": [
+          "herdr",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "464cc128711192a014f407c14ce6b87c076e469edb3a57040adfdc7b42d00d9b",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is medium.",
+      "expected_after_sha256": "bc44e49633a41f4d3338f497f7b213165e5591f461c3c7ebeb5d31962bb933b8",
+      "path": "docs/issues/2026-08-17-001-herdr-event-subscription-supervisor.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "medium",
+        "short_description": "A supervisor process that subscribes to herdr agent-status events",
+        "tags": [
+          "herdr",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "d365109e2648af27734c606fbb5430a429e07358ea6044b67f5722a30d886a84",
+      "evidence": "Title keyword \"agent\" selects agent-platform. Legacy index severity is high.",
+      "expected_after_sha256": "19beefbb82aab5d299fab6046fd8baa3d78a768280ee8fb3c1aaf225daa54812",
+      "path": "docs/issues/2026-08-18-001-launch-time-permission-mode-for-child-agents.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "high",
+        "short_description": "Set a child agent's permission mode at launch instead of inheriting bypassPermissions",
+        "tags": [
+          "agent-platform",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "7d3ca52556a5a76e722210e8504ed413af414363f460308fbbb6c779b7513634",
+      "evidence": "Title keyword \"agent\" selects agent-platform. Legacy index severity is low.",
+      "expected_after_sha256": "804fb477c43c0f79d93b55545decb372763e888ca1e8ffdda892ccfa22685469",
+      "path": "docs/issues/2026-08-18-002-sandbox-a-child-agents-filesystem-access.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "Sandbox a child agent's filesystem access",
+        "tags": [
+          "agent-platform",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "3c60df3e8ddce22baed401c1a8b645cb51ba8275ae1883f9af0d4eb10bec9fb3",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is low.",
+      "expected_after_sha256": "88365b0c48e272c4597eb5bc83d5b6948ca62cc1fd46f720fb856b065c10e642",
+      "path": "docs/issues/2026-08-18-003-headless-peer-consult-outside-herdr.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Consulting a peer agent from outside herdr",
+        "tags": [
+          "herdr",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "fc2e5be6e4430e65ed547e6bd5eee39dac72cdc5db7b9d8313ace0dac136056d",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "1cd0457797a619e226047c1f188f18aefe4f25ad39bf1afa2a66d3415c7439c0",
+      "path": "docs/issues/2026-08-18-004-palette-frecency-ranking.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Rank the command palette's resting list by frecency",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "26b330e1a6dc45a460e859ad2a66ca67f7a26a4debe20fb73c3a3be3ff763328",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "ccd87ad5bf53ec970a7ee87e1276c4b67ac7316cc4ad6f07018bb265e96c6147",
+      "path": "docs/issues/2026-08-18-005-palette-alias-tier.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Give command palette commands aliases that match by strict prefix, never fuzzy",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "0a721141f40a30f2f828d9221228af536d5a8663ca663609bc8b6e99312c39b2",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "209f2e151c1f66c2c5c301874415121889cba8ac3f72e6c9bf139674f66fc268",
+      "path": "docs/issues/2026-08-18-006-palette-preview-pane.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Show a preview of the selected pane's contents in the command palette",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "bc6c934370c93443e94a050b6c4c64829239203bd5269eb6da00f0ff58f0a045",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "5d317d04affeec6e241608608569d83fce905aa89f5f38d187844075f149d305",
+      "path": "docs/issues/2026-08-18-007-palette-pane-and-tab-switcher.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Add a pane switcher and a tab switcher to the command palette",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "178fa8fded0aab748f5a9ea9c565eda018b542eecf183d8aeef581c440cc62e8",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is low.",
+      "expected_after_sha256": "624aeda10f1d3805e7a5926316d29c5d5d247981464298e5deb0b4d4ef8a0167",
+      "path": "docs/issues/2026-08-18-008-palette-dynamic-plugin-action-source.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Surface every installed herdr plugin's actions in the command palette",
+        "tags": [
+          "herdr",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "1c01f7b17357a9e57facb6f33bab04db22a2a0d1ca45e9d8dc3bfee5e3492055",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "82d04941d184b9db6d1f5f8307013b25300bc7d3c5dc0fe1257f64eebc259295",
+      "path": "docs/issues/2026-08-18-009-palette-select-options-from-command.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Let a command palette select command generate its options from a shell command",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "036102fff7100412bc60e7a448a14ea19ef6afc6028dc5d243d7298290723f90",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is low.",
+      "expected_after_sha256": "993700bd8a597f3e5a52b1fc03594178afa55c7680115b797ba7eaf6af42ccc6",
+      "path": "docs/issues/2026-08-18-010-palette-herdr-builtin-command-catalog.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Ship a catalog of herdr's built-in operations in the command palette",
+        "tags": [
+          "herdr",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "7a9efa99838e796e757d5f332949ca54ceef396a59d3754d5e3c41e4e21a24f5",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "3f36e5b95540692bbab9c5973c14cddd08967c6baac8959cf932dc8d991a3682",
+      "path": "docs/issues/2026-08-18-011-palette-query-field-filters.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Support field filters in the command palette's query string",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "4eec57ccff253e187c6db7c3c365dfa32c0fe8b03db3e8d1493e71dbf057dc24",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "7d43aa62092bfef89aa086b21fb2c1a2c77ae21561e287f1ba21958a995b6229",
+      "path": "docs/issues/2026-08-18-012-palette-jump-back-workspace.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Jump back to the previous workspace from the command palette",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "355aaf6dba207f3b71eca496743536dcc8b1ad987dade26423835adcebbdcf57",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "24efa22f7297bf5e6ebfddb73e75e832b185767f25a1b916d3a0511334fa8b82",
+      "path": "docs/issues/2026-08-18-013-palette-confirm-destructive-commands.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Confirm destructive command palette commands, with the cursor starting on No",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "68ead1ca9ed41d907d959b39d088227c7ccc16d62e1f99a7862d46790a2b6b5d",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "0b3799f10cfcaa60c89b6443ed58a2462f12d430594f875f61d34adbb1335ddb",
+      "path": "docs/issues/2026-08-18-014-palette-percentage-popup-sizing.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Size the command palette popup in percentages instead of fixed cells",
+        "tags": [
+          "command-palette",
+          "chore",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "e83248ad178aca176c44b0a73b9f9c176f446f26f5ac2ae658c8c92576d24216",
+      "evidence": "Title keyword \"plugin\" selects agent-platform. Legacy index severity is low.",
+      "expected_after_sha256": "368493b6b486d1ed865ad0164ef40f99f14ef0350a35a95beea35e3c484a5420",
+      "path": "docs/issues/2026-08-18-015-palette-verify-dispatched-plugin-action.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "Verify that a dispatched plugin action reached a terminal state",
+        "tags": [
+          "agent-platform",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "0694d3fb5925bae5d5ce819129973f0c8fc0065ce6cb54d2e9f902e7099cdb15",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "e41c18453fc6a601984fa233428364a37af9c04d52edcba250ce281cddf70c39",
+      "path": "docs/issues/2026-08-18-016-palette-command-bundles.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Let a command palette command ship with its own scripts as a bundle",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "21393e9332baffd31d0349982e26396a7246d5cf13364e8c88ab3915a574a133",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is low.",
+      "expected_after_sha256": "33ae5bdf4828342f4b78d10d6ec1349333f46f869b4537838bcf19278e49da82",
+      "path": "docs/issues/2026-08-18-017-evaluate-herdr-omnisearch-plugin.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Evaluate herdr-omnisearch as a sibling plugin for searching pane contents",
+        "tags": [
+          "herdr",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "0392897e1a34767710d683ad80b182a9dd4161a325e36bdaf9e0017a1264b70f",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is medium.",
+      "expected_after_sha256": "31de7d41c636fce18ff14649badf0f4c04e283abb54730b9559a932e637129ff",
+      "path": "docs/issues/2026-08-18-018-run-smithers-pipeline-agents-in-microsandbox.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "medium",
+        "short_description": "Run Smithers pipeline agents in Microsandbox with Herdr visibility",
+        "tags": [
+          "herdr",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "e470d89abad31fedba4414fe29f09135af766038bb1ab0ae6924d98f5a2874f1",
+      "evidence": "Title keyword \"herdr\" selects herdr. Legacy index severity is low.",
+      "expected_after_sha256": "cc4b313bf7b20734a5ee8f0cd259163c6785c850fec620d2189d52a0331d8109",
+      "path": "docs/issues/2026-08-18-019-add-manual-agentbox-sessions-to-herdr.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Add manual AgentBox sessions to Herdr without requiring a pipeline",
+        "tags": [
+          "herdr",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "7bf8b61dbe4704785ad1376ad1a0444e4acb87b4e26c156fb76ea89ed2db5325",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "e780d6d3f0590a2202aa16f11cc81aef80678ea99859bc2571f856fb2053afc7",
+      "path": "docs/issues/2026-08-18-020-replace-deleted-herdr-pair-pattern-reference.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Replace the deleted herdr-pair pattern reference",
+        "tags": [
+          "herdr",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "c281b09d13f2113669c895a98380903c81d55982491012215913276131499080",
+      "evidence": "Title keyword \"agent\" selects agent-platform. Legacy index severity is medium.",
+      "expected_after_sha256": "7c77ec1bcd7daa46824732329f421426cf211b0ea02e0295fe2b841b2b085333",
+      "path": "docs/issues/2026-08-18-021-harden-child-agent-ownership-and-launch-cleanup.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "medium",
+        "short_description": "Harden child-agent ownership and launch cleanup",
+        "tags": [
+          "agent-platform",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "850a2f8429b23dd4477c09f4f4687f9b846c6d62e8066efbd274ea132e952203",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is critical.",
+      "expected_after_sha256": "740775466549180868a48d51bb97655fa932b265594462770304ad0f2677cc72",
+      "path": "docs/issues/2026-08-18-022-install-smithers-dependencies-in-github-ci.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "critical",
+        "short_description": "Install Smithers dependencies before post-apply GitHub CI tests",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "18feda935f0fcdb2f64ca43f35bbee1a41bc33e30af30e6774d8af559b991406",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "956abec8766c60d2fe901034f37eb62e6be7448cb1403fbb1e6905d6440832fd",
+      "path": "docs/issues/2026-08-18-023-palette-keyboard-layout-folding.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Match command palette queries typed in the wrong keyboard layout",
+        "tags": [
+          "command-palette",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "6f87c358dfc039f387451a1ffdd4b63df439acb9dd8e82c5d6a59015c4097622",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "ec6d41eadbdf2e98e4cdef321731a89d1f80c604da4147a3651519a8e8783988",
+      "path": "docs/issues/2026-08-18-024-palette-focus-sleeps-live-trial.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Remove the command palette's three sleep-based focus workarounds",
+        "tags": [
+          "command-palette",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "823bdcb6c221aa706ea8498961c394aa61c79c422e41776a8d2462856d2b8680",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "c770d2d4f40b3b78a84c5f1040da48607f90632d7ea11e76fdbb2af141639a95",
+      "path": "docs/issues/2026-08-18-025-harden-herdr-task-sync-and-show-worktree.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Harden herdr-task-sync and show worktree identity",
+        "tags": [
+          "herdr",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "4227d801bd295d24b3e26a8d78313ca75b591851421d657fee004587b932801d",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is high.",
+      "expected_after_sha256": "9c6613ff5ffad57426d93e581a74a5b18d8449512f6cdc2a43b51f4f1b1d2bb6",
+      "path": "docs/issues/2026-08-18-026-preserve-verification-command-working-directories.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "high",
+        "short_description": "Preserve each Verification Contract command's working directory in the se-work gate",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "932f112fdb0ed0810cd27dbd2d74f3d5b3406f41d270aa384394ab8cafcbf245",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "51b306aa7efa75c7509289254e48832f3df25705faaa9de88742be0d790f132a",
+      "path": "docs/issues/2026-08-18-027-add-herdr-focus-notifications-without-rust-runtime.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Add clickable Herdr focus notifications without a Rust build dependency",
+        "tags": [
+          "herdr",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "4aa8c6774d0b0163b80e97b6dd732c270fea91d1f8cf05dea268b32394a38e01",
+      "evidence": "Title keyword \"pi \" selects agent-platform. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "08024dbf0f124e61935f3edd0b012466e03b7e6b72a82c16434d5683b4fe8760",
+      "path": "docs/issues/2026-08-18-028-create-pi-brew-and-extension-startup-updater.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "Create a Pi startup updater for Homebrew-managed Pi and Pi packages",
+        "tags": [
+          "agent-platform",
+          "idea",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "92ef2bdfb985e3c3550bdb4205e8d94e2ef1ab3b764174e2cfca2db556abf6b7",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is high.",
+      "expected_after_sha256": "3246b98e28012e9ef9c414c202e273ad0465b862a70ef7069e049f21b633e226",
+      "path": "docs/issues/2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "high",
+        "short_description": "make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "e2ac97729edd3cbe1d4302c979dd0fa578279428237f0fae28a43b63d806b42b",
+      "evidence": "Title keyword \"pi \" selects agent-platform. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "4cf7124af3e898194c538173b449d3359b06a6bfde683ffa10310c70e4936d3f",
+      "path": "docs/issues/2026-08-19-001-pi-package-inventory-drift.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "Pi package inventory does not match current managed settings",
+        "tags": [
+          "agent-platform",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "48f49c3511102356f446ccfb041827ce070400df639e4cf273688551d86ff3d4",
+      "evidence": "Title keyword \"opencode\" selects agent-platform. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "9754589fe50f88b2f15a3f485b2f2cb3bab19f5b5cc5cfe372445ad31bf7028b",
+      "path": "docs/issues/2026-08-20-001-opencode-forced-theme-live-leftover.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "Live leftover ~/.config/opencode/themes/flexoki-light-forced.json fails smoke deployment contract",
+        "tags": [
+          "agent-platform",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "c2f885c150c47ed2a181080f3d714ce7cca413aed41da43dce81674fa819378f",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "df03ae2a8574a86970c51b20f247c9a1bcb4f32da5e91db27428e8517a3058fb",
+      "path": "docs/issues/2026-08-20-002-coordinator-location-test-flake.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Coordinator eight-pane location test flakes at the 1000ms envelope boundary",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "a262ffb27b5808fc0e4017d4a5f9ea8be9da631e197ad0c26eace353e4dce737",
+      "evidence": "Title keyword \"palette\" selects command-palette. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "84617530048696e646fd67ed8a4855c96b36382ce9ab00be8fd9bdc720851d85",
+      "path": "docs/issues/2026-08-20-003-pi-terminal-theme-hex-vars-red-test.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "Test \"Pi terminal theme uses only terminal palette colors\" is red on main — terminal.json .vars holds hex strings",
+        "tags": [
+          "command-palette",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "b650b909e9f0b7b68a8263e669457f5a36b4ef510c7c65a8813a606da52dd278",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "9f5f819cf70e06d02edc4b8e5e912028709a7ed377913c1666a2381bc3648ca1",
+      "path": "docs/issues/2026-08-20-004-tab-repo-prefix-breaks-column-budget.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Uncapped repo name in a multi-repo tab prefix breaks the 80-column label budget",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "b971625361659e725011ea635f2d63c5f5a6d2c2dbe4f10113065834943c5a7d",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "e6ad3ab4ff13169a040d9846634da777aabdb8d5cce3aca7e8324661a4779aef",
+      "path": "docs/issues/2026-08-20-005-pane-inline-token-shipped-though-plan-defers-it.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "pane_inline token is published on every pane although the plan defers it and nothing consumes it",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "8c3e6164c2dbaac100ff95e58f17210031a154f418bba62718d1cf48478b9b3e",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "0949e8dddcc6cf95feeedd5a697d4611e808e1e10b06745e0a5ea524715241a9",
+      "path": "docs/issues/2026-08-20-006-retired-location-label-survives-when-tokens-match.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Retired location_label survives on a pane whenever every compared token already matches",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "ab94a7219112f3c4223cc2419657d3efef69406e2f7c5ae624e16d6d17848c98",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "6dd2e739e94e6780bc99df2b5b11959cce2c721ad3f3d154365a34ded132129f",
+      "path": "docs/issues/2026-08-20-007-label-system-test-gaps-and-duplicated-icon-table.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Label-system test gaps and a hand-duplicated icon table in the bats suite",
+        "tags": [
+          "testing-ci",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "2d10bd1be62f1cc89a75d3c774695125b6ca300e054958b4d3259dddeb7ce728",
+      "evidence": "No category keyword; classified as repository maintenance. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "03df0485fa8a07bbbc6f0c7d1b0f4c3746922166fa3cd9c0026936fdde41aad8",
+      "path": "docs/issues/2026-08-20-008-field-separator-positional-record-bus.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "FIELD_SEPARATOR pane records reached 29 positional fields across six read headers",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "d1035fe2ebef92828df5edbf9faa4669e4ca6ffd801952f4ab2fb1ba8a5be251",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is high.",
+      "expected_after_sha256": "210eb44d485716b7ab3da4309942af1181a6a2564b1e7ae5f74377f45c07b89e",
+      "path": "docs/issues/2026-08-20-009-se-simplify-apply-timeout-budget.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "high",
+        "short_description": "se-simplify apply leg dies on APPLY_TIMEOUT_MS in repos with a slow test suite",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "6c8e5a8b1f2015a6bba4866e373fb9c46ed9b85f46e24d1955a2017c25bc21cf",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "bafc61b18f6460d1dc0944357f319215353a45dbe1c58905852f93a38915f0e1",
+      "path": "docs/issues/2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Two herdr-task-sync ordering tests flake under full-suite load",
+        "tags": [
+          "herdr",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "49e89c380c7eb4ce868965c672e31af389ff381936b6e269d5a9ad460b04fd98",
+      "evidence": "Title keyword \"herdr\" selects herdr. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "8daedf7dd99da94397bce6d27f9dc880d53f51642ed77e2e0cf668354041ec1d",
+      "path": "docs/issues/2026-08-20-011-deferred-simplify-findings-herdr-task-sync.md",
+      "proposed_metadata": {
+        "category": "herdr",
+        "priority": "low",
+        "short_description": "Deferred se-simplify findings for herdr-task-sync (quadratic scans and micro-refactors)",
+        "tags": [
+          "herdr",
+          "chore",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "3d99b867ed3e807dda4d3e43dc64b22c7b7611e27784d97c1b786af9c91088db",
+      "evidence": "Title keyword \"palette\" selects command-palette. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "dda8efcd24a635d04422296b5ef83fc77b13b651a25a73f0516c34a32e27da52",
+      "path": "docs/issues/2026-08-20-011-opencode-bare-int-hardcoded-table.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "opencode resolves bare-int theme values through a hardcoded standard-16 table, not the live terminal palette",
+        "tags": [
+          "command-palette",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "2596a7fed964477d94aba2599438f0aed9b8708baed882e82cfe130d71310a58",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is low.",
+      "expected_after_sha256": "50b2fa95fa1873aa10c6b82920a40e4bb521b814397b4a825ac6018c9bec9799",
+      "path": "docs/issues/2026-08-20-012-same-name-repos-defeat-tab-repo-qualification.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Two repositories with the same folder name defeat the multi-repo tab qualifier",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "8d8449562c6af69869a509a4bfb55ad9fa93f2b94b96f2680e9d4f272f72dfcb",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "712a99a47b08a4e0cc14e1a7cc6871be68df61459aa9ea85a7c400f7ab0eed51",
+      "path": "docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "se blocks test hard-fails on a fresh checkout instead of skipping",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "555e385dcc03308a779c3da7a5439d3800b9fe7c5c75a81b400c83b42ce42ec5",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is low.",
+      "expected_after_sha256": "d5191a45c50efae1a8f1d3778f48f75172e15724a351cc3a8991c5084ad94318",
+      "path": "docs/issues/2026-08-20-014-make-test-ubuntu-labeling-drift.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "make test-ubuntu labeling drift — runs test-quick, docs say \"Full test\"",
+        "tags": [
+          "testing-ci",
+          "chore",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "a3fb41ff9e210d8c3db4728dd3e95a1967c8e62c9f8a73e7ad9aeae911750210",
+      "evidence": "Title keyword \"mise\" selects dotfiles. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "13f2999b225cf5062e3f11c1844edd548540dc7a72d99c9bdda99ad65fafd551",
+      "path": "docs/issues/2026-08-21-001-mise-cache-freezes-generating-shell-path.md",
+      "proposed_metadata": {
+        "category": "dotfiles",
+        "priority": "low",
+        "short_description": "The cached mise activate output freezes the generating shell's PATH into every later shell",
+        "tags": [
+          "dotfiles",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "1f84036336cef4186daaa902ff12374605ae0aaa76d8a23046f2160bf4bf2f1f",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "05d0b8697f053f16d4a571fc7f00f451a44127c028f984b37cef41a401f99b37",
+      "path": "docs/issues/2026-08-21-002-perf-plan-landing-order-undecided.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Landing order across the four same-date performance plans is undecided and they collide",
+        "tags": [
+          "testing-ci",
+          "follow-up",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "088509ad8fcd8dfb6d8d49c921b26168f03c8a7fc0b55b654c07745ba25faa0f",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "86b720bc4c962fa13ad8b8debf1fe12fe389e90ebfdbce458cb346e8f5eb8188",
+      "path": "docs/issues/2026-08-21-003-ci-minimal-plan-actions-billing-premise-void.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "The CI-minimal-brew-install plan justifies itself with Actions billing that a public repo does not pay",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "14673ead26559c327e08980a7f47559be6b889819b472730125512a691095001",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is critical.",
+      "expected_after_sha256": "e6687fba36fb2270602234a476d0fd3b69ab0a76ecf5765564ed45669dadb53a",
+      "path": "docs/issues/2026-08-21-004-idempotent-bats-applies-to-the-real-home-directory.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "critical",
+        "short_description": "tests/idempotent.bats runs chezmoi apply against the developer's real home directory",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "5523e3fdd07ff1f362f07112de68216dbb747f132a30455f5a09ec55dbed0c0a",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is medium.",
+      "expected_after_sha256": "04d7b9ec148661ae9d6cb2f5aa05542e5b44823bdcbd0758a1c01a174cb1a5ed",
+      "path": "docs/issues/2026-08-21-005-post-apply-suite-invocation-duplicated.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "medium",
+        "short_description": "The post-apply suite invocation is duplicated across five sites and drift degrades silently to sequential",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "071d2f86a7f5be8b359ec745a4172f587312f5e9dc3a29f77b3bd49b89cd56e4",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Legacy index severity is low.",
+      "expected_after_sha256": "e4d2700adb72a08ce9ed0bb15d60cde71e1285b0093432bfecd2d10733f21ebd",
+      "path": "docs/issues/2026-08-21-006-ci-sharding-not-evaluated-against-within-file-parallelism.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Sharding the post-apply suite across CI jobs was never evaluated against within-file parallelism",
+        "tags": [
+          "testing-ci",
+          "idea",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "1a8361ffccb3fed72797c3298fbf7fb8b4d55d7c67317f375a801569db456f6c",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is medium.",
+      "expected_after_sha256": "72e9eba8ae24405246810f0bc651c02cad0572df67daad61df7022e83871b288",
+      "path": "docs/issues/2026-08-21-007-linuxbrew-prefix-unreachable-in-ubuntu-ci-job.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "medium",
+        "short_description": "The test-ubuntu CI job installs 37 brew packages it can never reach, because Linuxbrew's prefix is never put on PATH",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "5006f4b665fd6556750a461ccefee415cc81ad67439b1a708078155cc8c79bce",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Legacy index severity is low.",
+      "expected_after_sha256": "e67c5bdb4cdfee7d79b829341f704d4aaf4dabb6b7d3bba4a714b937abcc9425",
+      "path": "docs/issues/2026-08-21-008-revisit-ci-timeout-minutes-after-minimal-install.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "Revisit the CI timeout-minutes downward once two weeks of minimal-install runs exist",
+        "tags": [
+          "testing-ci",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "0db16f34be322ea3574f17c7b7ab2836ca4e11f210647cb5546805954cc92ca9",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "d76ef355e4c31a0048b960e9d96c685491567666da200c814b9cbf35e8f5fe93",
+      "path": "docs/issues/2026-08-21-009-python3-is-both-required-and-optional-in-the-test-suite.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "python3 is treated as both required and optional in the same test suite, so a missing python3 hides 56 tests behind an unrelated red",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "df5a30026d9919c0207774c77ffe0714294c9dbfdf17b60f8b68a29cc3498fb6",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "ff6adcc1aabb82f575a827235ade04cfdfa5dd04b4bf752036b56e4645cb30bb",
+      "path": "docs/issues/2026-08-21-010-grc-is-vestigial-and-rgrc-was-never-moved-cross-platform.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "grc is vestigial — rgrc replaced it but was never moved cross-platform, and grc now survives only as the accidental python3 carrier",
+        "tags": [
+          "testing-ci",
+          "chore",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "b4dd057cdec621850fe3d59618df60ae1293e5ff56409f163448619fc4004a66",
+      "evidence": "Title keyword \"test\" selects testing-ci. Legacy index severity is high.",
+      "expected_after_sha256": "02c759156bde3f8f4a135226a1ce9028358460b745200c4ae6cf04b3eb6e85d1",
+      "path": "docs/issues/2026-08-21-011-pi-brew-test-unresolvable-path-in-docker.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "high",
+        "short_description": "The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "193aa5296039ac8cf4967a5de19f99b9fcafe2a011b86a8c457d451e29b28361",
+      "evidence": "Title keyword \"macos\" selects dotfiles. Legacy index severity is low.",
+      "expected_after_sha256": "0f8b3f3af96bf0d2d886e8306ec8e7a893681d72d2d6495ffc1c5d0f6b6b7caa",
+      "path": "docs/issues/2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md",
+      "proposed_metadata": {
+        "category": "dotfiles",
+        "priority": "low",
+        "short_description": "The macOS post-apply suite misses the 60% wall-time gate at --jobs 8",
+        "tags": [
+          "dotfiles",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "6db4855bd629de2547478cbf8f9e278198da89b274250612f4b3c27e16e830d7",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is low.",
+      "expected_after_sha256": "a49bc803591b19cb82fd1e72f8799c26d1e6754554974e5430646f39864a2a90",
+      "path": "docs/issues/2026-08-21-013-open-issues-index-is-not-a-full-snapshot.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The open-issues index drifts out of step with the issue tree",
+        "tags": [
+          "repository-maintenance",
+          "chore",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "43ae69189a4d4c0885813b3ab7e7667fe8093d7d0d69a7569618a40a14871d39",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is medium.",
+      "expected_after_sha256": "ea5142e26319193cd63df851f2a51b5c66a3238a311be1600ac2e1b8a363ef9a",
+      "path": "docs/issues/2026-08-21-014-fail-open-assertions-no-longer-catch-a-slow-fail-open.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "medium",
+        "short_description": "The fail-open assertions widened to 20s and no longer catch a slow fail-open",
+        "tags": [
+          "repository-maintenance",
+          "bug",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "515fb2c69203db86a8fc64beefaa0676f4270f9437ad04dae90be5765de2eebd",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is low.",
+      "expected_after_sha256": "99d72ae189075bfcbe81dc2a55d1ff5e77128c0023a8a3fa2275536da8ee8b7f",
+      "path": "docs/issues/2026-08-21-015-capture-the-idle-machine-wall-clock-pattern.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "Capture the idle-machine wall-clock bound as a documented pattern",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "d2b4359307c16874f8eb304e7ba467f34e119186eb9f29a902fe846047b87188",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "8dc2ba058a70db072177dfd7f4124406052354cbc64bb67534b298198bc706a0",
+      "path": "docs/issues/2026-08-21-016-plugin-doctor-command-not-reproducible-from-repo.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "plugin-doctor command exists only on the host, not reproducible from the repo",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "wontfix"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "0e3f8613d5d17d31c0f1e0157673267565fad296fc3f10e3c20c57f6ef314c8f",
+      "evidence": "Title keyword \" pi\" selects agent-platform. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "d896531f38c5e29a425421a3ccb24a52ddeb80ee888dca7efdf9027b3051ad99",
+      "path": "docs/issues/2026-08-21-017-pi-subagentura-adopted-unpinned-against-trial-premise.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "pi-subagentura adopted unpinned although the trial premise was a pinned version",
+        "tags": [
+          "agent-platform",
+          "follow-up",
+          "wontfix"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "31c53efda20ecce45148d7d201b67eafca3d895e55b7b1dde7e4b07b6e812f8f",
+      "evidence": "Title keyword \"ci\" selects testing-ci. Legacy index severity is medium.",
+      "expected_after_sha256": "739f499328d6eea96c2920f027263b3eac7087f5eed9ffa71a5af8c660383e5e",
+      "path": "docs/issues/2026-08-21-018-ci-minimal-docker-apply-has-no-automated-gate.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "medium",
+        "short_description": "The CI-minimal Docker apply has no automated gate, so a base-image downgrade would break it silently",
+        "tags": [
+          "testing-ci",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "651afc743bd3d7e4716533e0ea419c6e3add494228369e649fdb678114310caf",
+      "evidence": "No category keyword; classified as repository maintenance. Legacy index severity is low.",
+      "expected_after_sha256": "ee16a5cddc761780fac83bbc5060bb50a73cb18654454bfadd8d7800de7e2988",
+      "path": "docs/issues/2026-08-21-019-python3-floor-is-stated-in-two-places-with-no-cross-check.md",
+      "proposed_metadata": {
+        "category": "repository-maintenance",
+        "priority": "low",
+        "short_description": "The python3 version floor is stated in two places with nothing checking they agree",
+        "tags": [
+          "repository-maintenance",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "5cf4b5a8fb15f58cff69156ef93ab3ee3179dc2ff7eb5b5d5fb068b538356005",
+      "evidence": "Title keyword \"pi \" selects agent-platform. Legacy index severity is low.",
+      "expected_after_sha256": "2e4dff5ecdc3cdacc768b40b822deb88728f349c28969b3732a52b3651244e47",
+      "path": "docs/issues/2026-08-21-020-pi-skills-and-agents-inventory-drift.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "low",
+        "short_description": "Pi skills and agents in the inventory doc do not match disk",
+        "tags": [
+          "agent-platform",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "7a49a64cf465f42a2ff9cfb117920bb7e918650c0aadb82126a341ca8c510c58",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "45580dfe9d72d8e68d92386602ab4398e7c71970b5e4969b6510e4914111e235",
+      "path": "docs/issues/2026-08-21-021-atomic-records-test-asserts-delivery-the-inbox-does-not-promise.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "The atomic-records test asserts one-shot delivery the fail-open inbox does not promise",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "da378d16a4f5da623b8d66b1e7f0bb962d78c768eca265c7769b4166c24497a3",
+      "evidence": "Title keyword \"pi \" selects agent-platform. Legacy index severity is medium.",
+      "expected_after_sha256": "d2f0d9192cece07f7ee4259e1482c6bcb9a5ee0d250a76de5ae1b0061f470298",
+      "path": "docs/issues/2026-08-21-022-brew-auto-update-failures-are-invisible.md",
+      "proposed_metadata": {
+        "category": "agent-platform",
+        "priority": "medium",
+        "short_description": "The Pi brew auto-updater never surfaces a failure, even on manual invocation",
+        "tags": [
+          "agent-platform",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "20bae0c52dd8f831b4edc96cc59edde7fa8e8870606e354d819e646837b6c022",
+      "evidence": "Title keyword \"command palette\" selects command-palette. Legacy index severity is low.",
+      "expected_after_sha256": "bd18572de48fe73ff00d9fe0f364a1446fc76a970c5f30c59b1a0c232bfc9834",
+      "path": "docs/issues/2026-08-21-023-no-test-observes-which-toml-parser-the-palette-used.md",
+      "proposed_metadata": {
+        "category": "command-palette",
+        "priority": "low",
+        "short_description": "No test observes which TOML parser the command palette actually used",
+        "tags": [
+          "command-palette",
+          "follow-up",
+          "open"
+        ]
+      }
+    },
+    {
+      "ambiguity": "resolved",
+      "before_sha256": "3510709d7a6ba326c48ef9e894a3ad25e0660b567509d3789d908b880d040c31",
+      "evidence": "Title keyword \"test\" selects testing-ci. Terminal issue; assigned low review priority.",
+      "expected_after_sha256": "35b7fccfa89ffa03c233a07dd06d2ce5af75bb4d0b745c6eaf969a2abc89a0d1",
+      "path": "docs/issues/2026-08-21-024-sweep-location-test-runs-the-75ms-production-git-budget.md",
+      "proposed_metadata": {
+        "category": "testing-ci",
+        "priority": "low",
+        "short_description": "The sweep location-repair test ran its git probes on the 75 ms production budget",
+        "tags": [
+          "testing-ci",
+          "bug",
+          "done"
+        ]
+      }
+    }
+  ],
+  "source_commit": "17e741fcc3908ef3ca57a80f4063752f7fe6c4e6",
+  "transformation_version": 1
+}

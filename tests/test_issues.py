@@ -118,6 +118,30 @@ class CorpusTests(IssueFixtures):
         self.assertEqual(legacy, path.read_bytes())
 
 
+class MigrationTests(IssueFixtures):
+    def test_scaffold_covers_the_sorted_real_corpus_with_preimage_hashes(self):
+        module = self.module()
+        manifest = module.build_migration_manifest(REPOSITORY, "17e741fcc3908ef3ca57a80f4063752f7fe6c4e6")
+        paths = [entry["path"] for entry in manifest["entries"]]
+        expected_paths = [str(path.relative_to(REPOSITORY)) for path in module.discover_issue_paths(REPOSITORY)]
+        self.assertEqual(99, len(paths))
+        self.assertEqual(expected_paths, paths)
+        self.assertEqual(paths, sorted(paths))
+        self.assertEqual(len(paths), len(set(paths)))
+        for entry in manifest["entries"]:
+            self.assertEqual(module.sha256(REPOSITORY / entry["path"]), entry["before_sha256"])
+
+    def test_check_rejects_an_issue_changed_after_scaffolding(self):
+        module = self.module()
+        path = self.write_issue("2026-08-21-001-stale.md", issue_text())
+        (self.issues / "_open-issues.md").write_text("# Open issues\n")
+        manifest = module.build_migration_manifest(self.root, "fixture-source")
+        path.write_bytes(path.read_bytes() + b"Changed after scaffold.\n")
+        with self.assertRaises(module.IssueError) as context:
+            module.check_migration_manifest(self.root, manifest, "fixture-source")
+        self.assertEqual("STALE_INPUT", context.exception.code)
+
+
 class ReadTests(IssueFixtures):
     def test_version_and_show_unique_compact_id(self):
         self.write_issue("2026-08-21-001-one.md", issue_text())
