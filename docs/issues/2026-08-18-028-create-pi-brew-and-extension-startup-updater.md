@@ -145,7 +145,7 @@ Known gaps, tracked separately:
   and failure results are discarded at both call sites, so a failing updater —
   including an explicit `/brew-auto-update-now` run — is invisible to the user.
   The issue asked for failures to be reported. Filed as
-  `docs/issues/2026-08-21-020-brew-auto-update-failures-are-invisible.md`.
+  `docs/issues/2026-08-21-022-brew-auto-update-failures-are-invisible.md`.
 
 Minor gap not filed: the "manual macOS trial with two Pi processes started
 concurrently" has no recorded evidence in the repo. The lock-contention and
