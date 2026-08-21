@@ -8,6 +8,14 @@ setup() {
 }
 
 teardown() {
+  # Reap a background reader a failed test left running BEFORE deleting its
+  # HTS_WORK: the loop only stops via a file inside HTS_WORK, so once that
+  # directory is gone the orphan spins forever and its ENOENT stderr lands on
+  # top of the real failure output.
+  if [[ -n "${HTS_READER_PID:-}" ]]; then
+    kill "$HTS_READER_PID" 2>/dev/null || true
+    wait "$HTS_READER_PID" 2>/dev/null || true
+  fi
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${HTS_WORK:-}" ]] && rm -rf "$HTS_WORK" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
@@ -2227,7 +2235,7 @@ PY
 
 @test "herdr-task-sync atomic records never expose truncation or mixed fields" {
   hts_setup
-  local task control reconcile stop="$HTS_WORK/stop-reader" bad="$HTS_WORK/bad-reader" reader i
+  local task control reconcile stop="$HTS_WORK/stop-reader" bad="$HTS_WORK/bad-reader" reader i poll
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 atomic-s)"
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
@@ -2256,12 +2264,34 @@ PY
     done
   ) &
   reader=$!
+  # Teardown owns the reader from here: a failed assertion below would skip the
+  # stop/wait pair, and the orphaned loop then races teardown's rm -rf of
+  # HTS_WORK forever (its stop file can no longer be created), spraying
+  # misleading ENOENT noise over the real failure.
+  HTS_READER_PID=$reader
   for i in $(seq 1 40); do
     hts_run --agent pi --session atomic-s --set "atomic-$i" < /dev/null
+  done
+  # The engine's inbox is fail-open by design: an enqueue or a worker commit
+  # that loses its bounded control.lock window (INBOX_LOCK_ATTEMPTS) drops the
+  # request silently rather than stall the callback. The 40-set burst above is
+  # exactly the load that provokes those drops, so delivery of the final set is
+  # not guaranteed in one shot — under CI --jobs contention the sentinel
+  # vanished and this wait ran to its ceiling. Re-enqueue the sentinel until it
+  # commits; every re-enqueue spawns a fresh worker, which also drains a
+  # pending generation whose own worker aborted. The atomicity assertions the
+  # reader collects stay as strict as before.
+  for i in $(seq 1 10); do
+    for poll in $(seq 1 200); do
+      [[ "$(hts_record_text "$task" slug 2>/dev/null || true)" = atomic-40 ]] && break 2
+      sleep 0.01
+    done
+    hts_run --agent pi --session atomic-s --set atomic-40 < /dev/null
   done
   hts_wait_for_task_slug "$task" atomic-40
   : > "$stop"
   wait "$reader"
+  unset HTS_READER_PID
   assert_file_not_exists "$bad"
 }
 
