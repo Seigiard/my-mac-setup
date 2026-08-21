@@ -30,7 +30,7 @@ Reference docs (read on demand):
 | `make test-issues` | Strictly validate repository issues and run issue CLI tests |
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
-| `make test-suite` | Post-apply suite in parallel, host-safe files only (excludes `tests/idempotent.bats`, which applies to the real `$HOME`). Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
+| `make test-suite` | Post-apply suite in parallel, host-safe files only. It keeps `tests/idempotent.bats` excluded as redundant defense behind that file's `MMS_DISPOSABLE_HOME` guard. Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
 | `make test-templates` | Template tests only (fast, no apply) |
 | `make test-local` | `chezmoi diff` (dry-run, no changes) |
 | `make lint` | shellcheck |
@@ -115,6 +115,7 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 
 - Add a smoke test in `tests/smoke.bats` (bats-core syntax).
 - Run locally with `make test-suite` (parallel, host-safe files), or `make test-ubuntu` for the full Docker suite including `tests/idempotent.bats`.
+- `tests/idempotent.bats` guards every real chezmoi command with `MMS_DISPOSABLE_HOME=1`. Direct workstation runs skip those commands; `make test-ubuntu` declares a disposable `$HOME` and runs them.
 - `make test-suite` reads the deployed `~/` and applies nothing, so it cannot see an edit under `home/` that has not been applied yet. For a change to a managed file, `make test-ubuntu` is the one that proves it — it applies the checkout first.
 - CI runs both ubuntu and macos jobs.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.

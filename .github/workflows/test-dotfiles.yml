@@ -36,6 +36,14 @@ env:
   # safe set rather than silently to the minimal one. A Brewfile-touching diff
   # clears this again per-job, below.
   MMS_CI_MINIMAL: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '1' || '' }}
+  # Declares this runner's $HOME disposable, which is the only thing that lets
+  # the four idempotency tests in tests/idempotent.bats run their real
+  # `chezmoi apply`. Unconditional on purpose: it must NOT copy the
+  # trigger-conditional shape of MMS_CI_MINIMAL above, or the nightly
+  # `schedule` and the manual `workflow_dispatch` runs would silently lose that
+  # coverage. tests/idempotent.bats hard-fails when GITHUB_ACTIONS is set and
+  # this is absent, so a deletion here turns the suite red rather than green.
+  MMS_DISPOSABLE_HOME: "1"
   # Runners lack node's release GPG key, so mise's signature check on
   # `node@lts` fails. Skip it in CI; local installs keep verification.
   MISE_NODE_VERIFY: "false"

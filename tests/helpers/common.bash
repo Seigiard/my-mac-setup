@@ -11,6 +11,12 @@ load "${HELPERS_DIR}/bats-libs/bats-support/load"
 load "${HELPERS_DIR}/bats-libs/bats-assert/load"
 load "${HELPERS_DIR}/bats-libs/bats-file/load"
 
+# Sourced rather than `load`ed: this file must stay usable outside bats so its
+# truth table can be exercised from a plain `bash -c` -- see the `guard:` tests
+# in tests/idempotent.bats.
+# shellcheck source=./disposable-home.bash
+source "${HELPERS_DIR}/disposable-home.bash"
+
 # Build a PATH without 1Password CLI for chezmoi commands that render
 # all templates (apply, verify). op triggers auth prompts in tests.
 # Individual tools remain available via full path.
@@ -135,6 +141,33 @@ skip_if_no_chezmoi() {
   if ! command_exists chezmoi; then
     skip "chezmoi not installed"
   fi
+}
+
+# Gate for any test that runs a chezmoi command which writes. chezmoi's
+# --source selects where templates are read from, never where they are written:
+# without --destination, the destination is $HOME. So such a test deploys onto
+# whatever machine runs it.
+#
+# The misconfigured verdict asserts instead of skipping -- a deliberate
+# exception to the skip convention in
+# docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md, in the
+# same shape as assert_python3_available() above. A missing developer tool is a
+# reason to skip. A runner whose $HOME is disposable but which carries no
+# marker is a repository misconfiguration that silently removes coverage, and
+# bats exits 0 on skip, so a skip there would be green and untested at once.
+require_disposable_home() {
+  case "$(mms_disposable_home_verdict)" in
+    run)
+      return 0
+      ;;
+    misconfigured)
+      fail "MMS_DISPOSABLE_HOME is not 1, but this environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists). Declare the marker at the site that launched this suite, or these tests lose their coverage silently: .github/workflows/test-dotfiles.yml (top-level env: block), and docker/docker-compose.yml (services ubuntu, test-quick, test-full)."
+      return 1
+      ;;
+    *)
+      skip "would run a real chezmoi apply against this \$HOME, not a sandbox, so on a workstation it overwrites your live dotfiles and runs the install scripts -- use 'make test-ubuntu' for this coverage, or set MMS_DISPOSABLE_HOME=1 to declare this \$HOME disposable (that opt-in applies --source=\$CHEZMOI_SOURCE, the separate chezmoi clone, not this checkout)"
+      ;;
+  esac
 }
 
 render_template() {
