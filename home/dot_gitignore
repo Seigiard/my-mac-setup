@@ -26,6 +26,7 @@ CLAUDE.local.md
 
 #pi
 .pi/loops
+.pi/tasks
 # oh-my-claudecode runtime state (writes into the task repo's cwd)
 .omc/
 
