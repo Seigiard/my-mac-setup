@@ -936,7 +936,7 @@ TOML
   assert_output --partial "PATH"
   # Both Brewfile paths: the repo one says where to edit the declaration, the
   # deployed one is what the install command can actually be run against.
-  assert_output --partial "home/private_dot_config/brewfiles/Brewfile"
+  assert_output --partial "home/private_dot_config/brewfiles/Brewfile.tmpl"
   assert_output --partial "brew bundle --file=~/.config/brewfiles/Brewfile"
 }
 

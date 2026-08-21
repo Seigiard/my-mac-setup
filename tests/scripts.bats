@@ -18,7 +18,7 @@ teardown() {
 # ===========================================
 
 @test "shellcheck is managed by the cross-platform Brewfile" {
-  assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile" '^brew "shellcheck"'
+  assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile.tmpl" '^brew "shellcheck"'
 }
 
 # Docker mounts only home/ and tests/, so the repo-root Makefile is absent there.

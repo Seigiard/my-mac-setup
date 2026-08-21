@@ -22,3 +22,8 @@ data:
   ostype: {{ .chezmoi.os | quote }}
   is_darwin: {{ eq .chezmoi.os "darwin" }}
   is_linux: {{ eq .chezmoi.os "linux" }}
+{{- /* Selects the CI-minimal Brewfile render. Non-empty picks the minimal set, */}}
+{{- /* empty or unset picks the full one. This file runs at `chezmoi init`, not */}}
+{{- /* at apply, so the value is bound once per init: a checkout initialised    */}}
+{{- /* with MMS_CI_MINIMAL set keeps rendering minimal until it is re-inited.   */}}
+  ci_minimal: {{ env "MMS_CI_MINIMAL" | quote }}

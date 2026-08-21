@@ -116,7 +116,7 @@ selects "Open in Zed" because its group is "Editor".
 2. **Titles**, ranked by `fzf --filter`.
 
 `fzf` is a hard dependency, declared in
-`home/private_dot_config/brewfiles/Brewfile`. The palette refuses to start
+`home/private_dot_config/brewfiles/Brewfile.tmpl`. The palette refuses to start
 without it rather than falling back to a second, untested matcher that would
 hide a broken deployment.
 
