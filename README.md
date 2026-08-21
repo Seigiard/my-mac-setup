@@ -12,7 +12,9 @@ broken rather than merely missing a convenience.
 - **macOS** — `/usr/bin/python3` ships behind the Xcode Command Line Tools that
   Homebrew already requires. It is 3.9.6, the oldest interpreter any supported
   environment provides, which is where the 3.9 floor comes from.
-- **Linux** — Ubuntu and Debian ship `python3` in the base install.
+- **Linux** — Ubuntu and Debian ship `python3` in a normal install. Minimal
+  container images often do not: this repo's own `docker/Dockerfile.ubuntu`
+  has to `apt-get install -y python3` for exactly that reason.
 
 ## Quick Start (new machine)
 

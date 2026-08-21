@@ -408,6 +408,10 @@ assert_minimal_brewfile() {
   assert_line 'brew "ffmpeg"'
   assert_line 'brew "shellcheck"'
   assert_line 'brew "jq"'
+  # git is refuted in the minimal render, so it needs pinning here too, or
+  # deleting it from the template outright would satisfy every assertion in
+  # this file while real hosts silently stop getting it.
+  assert_line 'brew "git"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
@@ -425,6 +429,7 @@ assert_minimal_brewfile() {
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
   assert_success
   assert_line 'brew "ffmpeg"'
+  assert_line 'brew "git"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success

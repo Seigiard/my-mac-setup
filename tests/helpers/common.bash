@@ -94,8 +94,12 @@ assert_python3_available() {
 
   bin="$(command -v python3)"
   found="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)" || found=""
-  if [[ -z "$found" ]]; then
-    fail "python3 at $bin did not report a version, so it cannot be checked against the $PYTHON3_MIN_VERSION floor stated in $readme."
+  # Validate the shape before any arithmetic. Anything else -- a wrapper that
+  # prints "3.8.1", a banner, whitespace, nothing at all -- would reach (( ))
+  # as a non-numeric token, and a (( )) syntax error returns non-zero, which
+  # reads as "not below the floor" and lets a bad interpreter through.
+  if [[ ! "$found" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    fail "python3 at $bin answered the version probe with '$found' instead of a major.minor number, so it cannot be checked against the $PYTHON3_MIN_VERSION floor stated in $readme. A wrapper or stub shadowing the real interpreter on PATH looks like this."
     return 1
   fi
 
@@ -103,7 +107,9 @@ assert_python3_available() {
   minor="${found#*.}"
   min_major="${PYTHON3_MIN_VERSION%%.*}"
   min_minor="${PYTHON3_MIN_VERSION#*.}"
-  if (( major < min_major || (major == min_major && minor < min_minor) )); then
+  # 10# forces base 10: the pattern above admits a leading zero, which bash
+  # would otherwise read as an invalid octal literal and error on.
+  if (( 10#$major < 10#$min_major || (10#$major == 10#$min_major && 10#$minor < 10#$min_minor) )); then
     fail "python3 at $bin is $found, older than the $PYTHON3_MIN_VERSION this repository requires -- see $readme. The palette's sources are kept compiling on $PYTHON3_MIN_VERSION because that is what macOS ships at /usr/bin/python3."
     return 1
   fi

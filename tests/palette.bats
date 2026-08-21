@@ -41,6 +41,42 @@ teardown() {
   assert_python3_available
 }
 
+# The gate has to reject, not fall through. Before the shape check in
+# assert_python3_available, a stub printing "3.8.1" made the minor component
+# "8.1", which is an arithmetic syntax error -- (( )) returned non-zero, the
+# too-old branch was skipped, and a Python 3.8 stub passed the 3.9 floor.
+# Stubbed on PATH the same way the missing-fzf test further down this file does.
+@test "a python3 below the floor, or one answering with junk, is rejected" {
+  local stub="$PALETTE_WORK/badpy" saved="$PATH"
+  mkdir -p "$stub"
+
+  # Well-formed but too old: the ordinary floor rejection.
+  printf '#!/bin/sh\necho "3.8"\nexit 0\n' > "$stub/python3"
+  chmod +x "$stub/python3"
+  PATH="$stub:$saved"
+  run assert_python3_available
+  PATH="$saved"
+  assert_failure
+  assert_output --partial "3.8"
+  assert_output --partial "3.9"
+
+  # Three components: the shape that used to pass.
+  printf '#!/bin/sh\necho "3.8.1"\nexit 0\n' > "$stub/python3"
+  PATH="$stub:$saved"
+  run assert_python3_available
+  PATH="$saved"
+  assert_failure
+  assert_output --partial "3.8.1"
+
+  # Not a version at all.
+  printf '#!/bin/sh\necho "Python 3.9.6 (stub)"\nexit 0\n' > "$stub/python3"
+  PATH="$stub:$saved"
+  run assert_python3_available
+  PATH="$saved"
+  assert_failure
+  assert_output --partial "python3"
+}
+
 # ===========================================
 # U1 -- the source-tree seam itself
 # ===========================================
