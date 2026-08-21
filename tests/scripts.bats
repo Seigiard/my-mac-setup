@@ -1112,7 +1112,7 @@ fixture="$root/$call"
 mkdir -p "$fixture"
 cat > "$fixture/stdin"
 : > "$fixture/started"
-for _ in $(seq 1 1000); do
+for _ in $(seq 1 $HTS_WAIT_POLLS); do
   [ -e "$fixture/release" ] && break
   sleep 0.01
 done
@@ -1389,10 +1389,21 @@ HTS_GIT_BUDGET_BLOCKED=2
 # trap the eight-pane coordinator test documents above its own deadline.
 HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
 
+# Ceilings for the "poll until the state settles" helpers. The fast helpers
+# sleep 10ms per turn, the slow ones 250ms, so these are 60s either way. Every
+# one of them returns the moment its condition holds, so a high ceiling costs a
+# healthy run nothing; it only decides how long a genuinely stuck run waits
+# before it reports failure. The previous 10s and 15s ceilings were calibrated
+# on an idle machine, and a multi-step fixture under --jobs contention can
+# legitimately exceed them -- which surfaced as a hang that was really load.
+HTS_WAIT_POLLS="${HTS_WAIT_POLLS:-6000}"
+HTS_WAIT_SLOW_POLLS="${HTS_WAIT_SLOW_POLLS:-240}"
+
+
 
 hts_wait_for_file() {
   local file="$1" i
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     [[ -e "$file" ]] && return 0
     sleep 0.01
   done
@@ -1622,7 +1633,7 @@ hts_presentation_run() {
 # call must wait for that call and not for the first line of the log.
 hts_wait_for_call() {
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $HTS_WAIT_SLOW_POLLS); do
     grep -q -- "$1" "$HTS_LOG" && return 0
     sleep 0.25
   done
@@ -1650,7 +1661,7 @@ hts_wait_for_worker_exit() {
 # one guarantee a log-based wait cannot give while two workers overlap.
 hts_wait_for_state() {
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $HTS_WAIT_SLOW_POLLS); do
     [[ -s "$1" ]] && return 0
     sleep 0.25
   done
@@ -1742,7 +1753,7 @@ hts_record_number() {
 
 hts_wait_for_record_number() {
   local file="$1" field="$2" expected="$3" i value
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     value="$(hts_record_number "$file" "$field" 2>/dev/null || true)"
     [[ -n "$value" && "$value" -ge "$expected" ]] && return 0
     sleep 0.01
@@ -1753,7 +1764,7 @@ hts_wait_for_record_number() {
 hts_wait_for_quiescence() {
   local control="$1" i generation committed worker_claim
   worker_claim="$(dirname "$control")/worker.claim"
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     generation="$(hts_record_number "$control" generation 2>/dev/null || true)"
     committed="$(hts_record_number "$control" committed_generation 2>/dev/null || true)"
     if [[ -n "$generation" && "$generation" = "$committed" && ! -d "$worker_claim" ]]; then
@@ -1770,7 +1781,7 @@ hts_wait_for_presentation_quiescence() {
   namespace="$(hts_namespace "$1")"
   reconcile="$namespace/reconcile.state"
   claim="$namespace/presentation.claim"
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     pending="$(hts_record_number "$reconcile" pending_generation 2>/dev/null || true)"
     completed="$(hts_record_number "$reconcile" completed_generation 2>/dev/null || true)"
     if [[ -n "$pending" && "$pending" -gt 0 && "$pending" = "$completed" && ! -d "$claim" ]]; then
@@ -1793,7 +1804,7 @@ hts_write_legacy_state() {
 
 hts_wait_for_task_slug() {
   local file="$1" expected="$2" i
-  for i in $(seq 1 1000); do
+  for i in $(seq 1 $HTS_WAIT_POLLS); do
     [[ "$(hts_record_text "$file" slug 2>/dev/null || true)" = "$expected" ]] && return 0
     sleep 0.01
   done
@@ -2960,7 +2971,7 @@ process_start=$(printf '%s' "$successor_start" | base64 | tr -d '\n')
 socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')
 EOF
   : > "$pause.release"
-  for _ in $(seq 1 1000); do
+  for _ in $(seq 1 $HTS_WAIT_POLLS); do
     kill -0 "$predecessor_pid" 2>/dev/null || break
     sleep 0.01
   done
