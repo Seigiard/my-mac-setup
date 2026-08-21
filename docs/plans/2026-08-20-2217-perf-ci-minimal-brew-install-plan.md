@@ -12,9 +12,20 @@ execution: code
 
 ## Goal Capsule
 
-- **Objective:** push/PR CI runs stop installing packages the test suite never uses, cutting the `brew bundle` portion of the `chezmoi apply` step by at least 80% on both jobs, while full-Brewfile installability stays verified on a nightly schedule and on every push or PR that edits a Brewfile. The observed whole-step times were 6 min 42 s (macOS) and 3 min 36 s (Ubuntu); the brew-only share of each is unmeasured, so the target is stated as a reduction of that share rather than as a whole-step wall clock.
+- **Objective:** push/PR CI runs stop installing packages the test suite never uses, cutting the `brew bundle` portion of the `chezmoi apply` step by at least 80% on both jobs, while full-Brewfile installability stays verified on a nightly schedule and on every push or PR that edits a Brewfile.
+
+  **Measured brew-only baseline (U0, run 32393379268, 2026-08-20T16:41:10Z, n=1).** The whole `Apply dotfiles` step and its brew-only share:
+
+  | Job | Apply step | `brew bundle` | Homebrew bootstrap | Non-brew remainder | Installs |
+  |---|---|---|---|---|---|
+  | `test-ubuntu` | 215.7 s | **177.9 s** (82.5%) | 26.4 s | 11.4 s | 37 |
+  | `test-macos` | 400.5 s | **383.8 s** (95.8%) | brew preinstalled | 16.8 s | 61 |
+
+  On macOS the brew-only share splits into 92.7 s for the cross-platform `Brewfile` and 291.1 s for `Brewfile.macos` — the casks alone are 73% of the whole apply step. The non-brew remainder is Homebrew bootstrap when absent, the Oh My Zsh clone plus four plugin clones, `mise use --global node@lts`, the fff-mcp download, and `run_onchange_after_2` through `_7`; none of it is guard-addressable.
+
+  **Brew-only target:** at least an 80% cut of the `brew bundle` figure, i.e. **≤ 35.6 s on `test-ubuntu`** (saving 142.3 s, whole step ≈ 73 s) and **≤ 76.8 s on `test-macos`** (saving 307.0 s, whole step ≈ 94 s). Check the target against the brew-only number, never against the whole step.
 - **Means:** a chezmoi template guard in the Brewfiles driven by one environment variable (KTD1), a diff-aware override that restores the full render when a Brewfile changes (KTD5), plus a `schedule` trigger in the existing workflow (KTD3).
-- **Authority:** this plan; measured step timings from CI run 32393379268 justify the targets. Those timings are whole-step, single-sample numbers — U0 converts them into a brew-only baseline before any target is treated as a gate.
+- **Authority:** this plan; the brew-only baseline above, measured per U0 from CI run 32393379268, justifies the targets. It is a single sample — brew download throughput varies run to run, so treat ±10-20% as noise and do not treat a near miss as a regression without a second sample.
 - **Stop conditions:**
   - If the minimal-render suite run (U2 verification) fails because a test needs a package this plan proposed to guard, keep that package in the minimal set rather than skipping the test.
   - If the proven minimal set no longer clears the Objective's brew-portion targets after fold-backs, stop and report rather than ship the guard — the machinery costs more than the remaining saving.
@@ -125,6 +136,23 @@ flowchart TB
   5. Produce the candidate list, starting from the KTD4 candidate: `zsh`, `git`, `jq`, `fzf`, `bats-core`, `oven-sh/bun/bun`, minus whatever step 4 subtracted per environment.
 - **Test scenarios:** none as new test files — this unit's output is the candidate list consumed by U2.
 - **Verification:** every real invocation in the audit is classified as stub-provided, run-provided, or brew-provided; every brew-provided one appears in the candidate list; and the subtraction from step 4 is recorded per environment so U2's proof covers the reduced set rather than the pre-subtraction one.
+- **Outcome (recorded 2026-08-21).** The audit contradicts KTD4's starting candidate in both directions, so the derived list — not KTD4's — is what U2 implements.
+
+  Per-environment subtraction, each with its proof:
+
+  | Environment | Needs from brew | Why |
+  |---|---|---|
+  | `test-ubuntu` CI job | **nothing** | Homebrew is not preinstalled on `ubuntu-latest`; the install script's `brew shellenv` is scoped to its own process and the workflow adds only `$HOME/.local/bin` to `$GITHUB_PATH`, so `/home/linuxbrew/.linuxbrew/bin` never reaches `PATH`. The apply log says so: `Warning: /home/linuxbrew/.linuxbrew/bin is not in your PATH.` Corroborated by the post-apply skip list, which contains no tool-missing skips at all. |
+  | `test-macos` CI job | `oven-sh/bun/bun` + its tap | `oven-sh/setup-bun@v2` runs *after* the apply, so the Brewfile's bun is the only one on `PATH` when `run_onchange_after_4-install-smithers-deps.sh.tmpl` checks for it — and the job then hard-asserts `test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"`. Guarding bun fails the job rather than skipping a test. Everything else is runner-image or a standalone `brew install` step. |
+  | Docker (`make test-ubuntu`) | `jq`, `grc`, `node` | The image ships no `jq`, `python3`, `sqlite3`, or `node`. `jq` is direct. `python3` arrives only as `grc`'s runtime dependency on `python@3.14` — and `tests/palette.bats:15` guards the whole file on it. `sqlite3` arrives only as `node`'s runtime dependency on `sqlite` (keg-only on macOS, not enforced on Linux) — seven tests guard on it. |
+
+  **Leave unguarded** (union of the three, since one template condition cannot vary by environment): `tap "oven-sh/bun"`, `jq`, `grc`, `node`, `oven-sh/bun/bun`. **Guard everything else** — 33 of the 37 cross-platform formulae, and all of `Brewfile.macos` (both taps, four formulae, 25 casks; no test references any of them).
+
+  KTD4's `zsh`, `git`, `fzf`, `bats-core` are guarded, not kept: the audit proved each is provided outside brew in all three environments (apt/system `zsh` and `git`; the upstream fzf tarball, `brew install fzf`, or the baked image; apt `bats`, `brew install bats-core`, or the baked image). KTD4 anticipates this — its candidate list is explicitly "minus whatever step 4 subtracted per environment", and the skip-count parity gate in U2 is what proves the subtraction was safe. Fold any of them back if the skip count moves.
+
+  Confirmed plan claims: `herdr` is a test-created stub (`tests/scripts.bats:696-699` states in prose that CI has no herdr; the one real call site at `:715` is `command -v`-gated); `opencode` is never invoked as a binary at all; `shellcheck`'s only assertion is that the Brewfile *declares* it (`tests/scripts.bats:20-22`), with the real binary coming from apt in the lint job.
+
+  Re-run counts against `1989db6` with `grep -o -w '<tool>' tests/*.bats | wc -l`: `jq` 372, `python3` 48, `bun` 28, `fzf` 20 — matching the plan. `herdr` 448 and `opencode` 49, **not** the 502 and 62 the plan carried; use these.
 
 ### U2. Template-guard the Brewfiles and plumb the variable
 
