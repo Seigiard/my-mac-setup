@@ -322,3 +322,204 @@ render_with_source() {
     "$SOURCE_ROOT/.chezmoiremove"
   assert_success
 }
+
+# ===========================================
+# CI-minimal Brewfile render guard
+# private_dot_config/brewfiles/Brewfile.tmpl
+# private_dot_config/brewfiles/Brewfile.macos.tmpl
+#
+# The guard is driven by the chezmoi data key `ci_minimal`, which
+# .chezmoi.yaml.tmpl reads from the MMS_CI_MINIMAL environment variable. It
+# binds at `chezmoi init`, not at apply, so each mode needs its own config —
+# hence write_test_config()/render_with_config() rather than render_template().
+#
+# These are the fast gate: a broken guard must fail here, before any package
+# installs, rather than during the apply step minutes later.
+# ===========================================
+
+BREWFILE_TMPL="private_dot_config/brewfiles/Brewfile.tmpl"
+BREWFILE_MACOS_TMPL="private_dot_config/brewfiles/Brewfile.macos.tmpl"
+
+# The entries the audit proved the suite resolves from the brew prefix: jq
+# directly, grc for the python3 that gates all of palette.bats, node for the
+# sqlite3 that gates seven tests, and bun because the macOS job's setup-bun
+# step runs after the apply.
+assert_minimal_brewfile() {
+  assert_line 'tap "oven-sh/bun", trusted: true'
+  assert_line --partial 'brew "grc"'
+  assert_line 'brew "node"'
+  assert_line --partial 'brew "oven-sh/bun/bun"'
+  assert_line 'brew "jq"'
+
+  refute_line 'brew "ffmpeg"'
+  refute_line 'brew "poppler"'
+  refute_line 'brew "imagemagick"'
+  refute_line 'brew "shellcheck"'
+  refute_line 'brew "herdr"'
+  refute_line 'brew "fzf"'
+  refute_line 'brew "bats-core"'
+}
+
+@test "MMS_CI_MINIMAL=1 renders only the entries the test suite resolves from brew" {
+  local cfg="$BATS_TEST_TMPDIR/minimal.yaml"
+  MMS_CI_MINIMAL=1 write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
+  assert_success
+  assert_minimal_brewfile
+}
+
+@test "MMS_CI_MINIMAL=1 renders Brewfile.macos with no cask and no formula" {
+  local cfg="$BATS_TEST_TMPDIR/minimal.yaml"
+  MMS_CI_MINIMAL=1 write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
+  assert_success
+  # No test in tests/ references any cask, or elio/rgrc/terminal-notifier/
+  # linear, so the guard covers the whole file. `brew bundle` accepts empty.
+  refute_output --partial 'cask "'
+  refute_output --partial 'brew "'
+  refute_output --partial 'tap "'
+}
+
+@test "an unset MMS_CI_MINIMAL renders the full Brewfiles" {
+  local cfg="$BATS_TEST_TMPDIR/full-unset.yaml"
+  unset MMS_CI_MINIMAL
+  write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
+  assert_success
+  assert_line 'brew "ffmpeg"'
+  assert_line 'brew "shellcheck"'
+  assert_line 'brew "jq"'
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
+  assert_success
+  assert_line 'cask "spotify"'
+  assert_line --partial 'brew "elio"'
+}
+
+@test "an empty MMS_CI_MINIMAL renders the full Brewfiles" {
+  # This is the state the scheduled and workflow_dispatch runs produce: the
+  # workflow-level expression yields '' for every event that is not push or
+  # pull_request, so empty must mean full, not minimal.
+  local cfg="$BATS_TEST_TMPDIR/full-empty.yaml"
+  MMS_CI_MINIMAL="" write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
+  assert_success
+  assert_line 'brew "ffmpeg"'
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
+  assert_success
+  assert_line 'cask "spotify"'
+}
+
+@test "MMS_CI_MINIMAL=0 selects the minimal render, because 0 is non-empty" {
+  # The flag is emptiness-tested, not parsed. Reading '0' as "off" is wrong,
+  # and this pins which reading the implementation actually has.
+  local cfg="$BATS_TEST_TMPDIR/zero.yaml"
+  MMS_CI_MINIMAL=0 write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
+  assert_success
+  assert_minimal_brewfile
+}
+
+@test "a config with no ci_minimal key at all renders the full Brewfiles" {
+  # A host whose config was generated before this key existed. chezmoi's
+  # default missingkey=error would abort on a bare .ci_minimal reference, so
+  # the templates use `get`, which yields "" for a missing key.
+  local cfg="$BATS_TEST_TMPDIR/legacy.yaml"
+  unset MMS_CI_MINIMAL
+  write_test_config "$cfg"
+  sed -i.bak '/ci_minimal/d' "$cfg"
+  run grep -c 'ci_minimal' "$cfg"
+  assert_output "0"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
+  assert_success
+  assert_line 'brew "ffmpeg"'
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
+  assert_success
+  assert_line 'cask "spotify"'
+}
+
+@test "a config initialised with MMS_CI_MINIMAL=1 keeps rendering minimal without it" {
+  # The binding is init-time, so a checkout initialised in CI-minimal mode stays
+  # minimal on every later apply, even with the variable gone from the
+  # environment. Intended, but surprising enough to pin: this is what a
+  # contributor hits after reproducing the CI path locally. The recovery is
+  # re-running `chezmoi init` without the variable.
+  local cfg="$BATS_TEST_TMPDIR/sticky.yaml"
+  MMS_CI_MINIMAL=1 write_test_config "$cfg"
+
+  unset MMS_CI_MINIMAL
+  run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_TMPL"
+  assert_success
+  assert_minimal_brewfile
+}
+
+@test "no rendered brew, cask or tap entry is indented in either mode" {
+  # Go template `{{ if }}` blocks do not indent their body, but a hand-indented
+  # entry would still render indented, and `brew bundle` would keep working — so
+  # without this nothing goes red.
+  #
+  # This covers the rendered file only, and that is deliberately half the job.
+  # An entry sitting directly after a `-}}` trim marker renders at column zero
+  # however it is indented in the source, because the marker eats the leading
+  # whitespace. The other half is tests/scripts.bats, which asserts the anchored
+  # pattern ^brew "shellcheck" against the template *source*. Verified by
+  # mutation: indenting `brew "ffmpeg"` reddens this test, indenting
+  # `brew "shellcheck"` reddens that one. Neither test alone catches both.
+  local mode cfg tmpl out
+  for mode in 1 ""; do
+    cfg="$BATS_TEST_TMPDIR/indent-$mode.yaml"
+    MMS_CI_MINIMAL="$mode" write_test_config "$cfg"
+    for tmpl in "$BREWFILE_TMPL" "$BREWFILE_MACOS_TMPL"; do
+      out="$(render_with_config "$cfg" "$SOURCE_ROOT/$tmpl")"
+      run grep -n '^[[:space:]][[:space:]]*\(brew\|cask\|tap\) ' <<< "$out"
+      assert_failure
+    done
+  done
+}
+
+@test "the install script's hash triggers name the renamed .tmpl sources" {
+  # `include` reads the chezmoi source path, which keeps the .tmpl suffix; the
+  # `brew bundle` calls in the same script read the deployed path, which does
+  # not. A stale include here is the documented gotcha: it either breaks the
+  # apply or silently stops the script re-running when a Brewfile changes.
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+
+  run grep -F 'include "private_dot_config/brewfiles/Brewfile.tmpl"' "$script"
+  assert_success
+  run grep -F 'include "private_dot_config/brewfiles/Brewfile.macos.tmpl"' "$script"
+  assert_success
+
+  # The deployed paths in the same file must NOT gain the suffix.
+  run grep -F 'brew bundle --file="$BREWFILES_DIR/Brewfile"' "$script"
+  assert_success
+  run grep -F 'brew bundle --file="$BREWFILES_DIR/Brewfile.macos"' "$script"
+  assert_success
+}
+
+@test "every hash-trigger include in the install script resolves to a real file" {
+  # Derived from the script rather than hardcoded, so it cannot drift from it.
+  # `include` errors on a missing path, so a successful render with a real
+  # digest is the proof. Checked for both files on every OS: the macOS include
+  # sits behind an `eq .chezmoi.os "darwin"` guard, so rendering the script
+  # itself on Linux would skip it and miss a stale path there.
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+  local probe="$BATS_TEST_TMPDIR/include-probe.tmpl"
+  local paths path
+  paths="$(grep -o 'include "[^"]*"' "$script" | sed 's/^include "//; s/"$//')"
+  [[ -n "$paths" ]] || fail "no include directives found in $script"
+
+  while IFS= read -r path; do
+    printf '{{ include "%s" | sha256sum }}' "$path" > "$probe"
+    run render_with_source "$probe"
+    assert_success
+    assert_output --regexp '^[0-9a-f]{64}$'
+  done <<< "$paths"
+}
