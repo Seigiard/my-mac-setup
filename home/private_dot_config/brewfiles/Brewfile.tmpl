@@ -28,7 +28,7 @@ tap "oven-sh/bun", trusted: true
 brew "zsh"
 brew "starship"
 {{ end -}}
-{{/* grc is kept: it is the only source of python3 in the Docker image, and tests/palette.bats guards the whole file on python3 */ -}}
+{{/* grc is kept only until docs/issues/2026-08-21-010 removes it. It used to be the Docker image's only source of python3; docker/Dockerfile.ubuntu installs python3 itself now, and nothing in the repo calls grc */ -}}
 brew "grc"          # generic colouriser
 
 # Git tools
