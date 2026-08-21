@@ -104,18 +104,9 @@ Adding a managed config, step by step:
 
 </important>
 
-<important if="you found a problem, gap, or follow-up that you are not fixing in the current task">
+## Repository issues
 
-File it as an issue in `docs/issues/` — every known problem gets a file; nothing lives only in chat.
-
-- Filename: `YYYY-MM-DD-NNN-slug.md` (`NNN` = per-day counter).
-- Frontmatter: `title`, `type` (bug | follow-up | idea | chore), `date`, `status` (open | in-progress | done | wontfix); optional `parent-plan`, `closed` (date).
-- Body sections: `## Why this exists` (problem, with file paths), `## Scope`, `## Open decisions`; on close, add `## Resolution` (what was done, commit sha).
-- Lifecycle lives in the `status` field — never move files between directories. List open issues: `rg -l 'status: open' docs/issues`.
-- Keep the issue body self-contained — the issue, not its `parent-plan`, is what gets read first.
-- Architecture decisions that are costly to reverse (rare) go to `docs/decisions/` as a minimal ADR: Context / Considered options / Decision. This repo has no RFC process — issues and plans cover proposal work.
-
-</important>
+Use the `repository-issues` skill and `python3 scripts/issues` for `docs/issues/` lifecycle operations. Create an issue for every unresolved problem.
 
 <important if="you are adding a new feature, script, or config that should be tested">
 

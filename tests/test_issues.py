@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -223,6 +224,48 @@ class WriteTests(IssueFixtures):
         rejected = self.run_issues("edit", "2026-08-21-002", "--title", "No change")
         self.assertEqual(2, rejected.returncode)
         self.assertEqual(before, terminal.read_bytes())
+
+
+class ClientDiscoveryTests(unittest.TestCase):
+    def test_clients_share_the_canonical_repository_issues_skill(self):
+        skill = REPOSITORY / ".claude" / "skills" / "repository-issues" / "SKILL.md"
+        self.assertTrue(skill.is_file())
+        contents = skill.read_text()
+        self.assertIn("name: repository-issues", contents)
+        self.assertIn("short_description", contents)
+        self.assertIn("testing-ci", contents)
+        self.assertIn("repository-maintenance", contents)
+        self.assertIn("critical", contents)
+        self.assertIn("low", contents)
+        for command in ("list", "show", "search", "create", "start", "edit", "close", "wontfix", "validate", "migrate"):
+            self.assertIn(command, contents)
+        self.assertIn("--compatibility", contents)
+        self.assertIn("approval", contents.lower())
+        self.assertIn("unresolved", contents.lower())
+
+        opencode_skill = REPOSITORY / ".opencode" / "skills" / "repository-issues"
+        self.assertTrue(opencode_skill.is_symlink())
+        self.assertFalse(Path(opencode_skill.readlink()).is_absolute())
+        self.assertEqual(skill, opencode_skill.resolve() / "SKILL.md")
+
+        pi_settings = REPOSITORY / ".pi" / "settings.json"
+        self.assertEqual({"skills": ["../.claude/skills"]}, json.loads(pi_settings.read_text()))
+
+        agents = REPOSITORY / "AGENTS.md"
+        self.assertTrue(agents.is_symlink())
+        self.assertEqual(Path("CLAUDE.md"), agents.readlink())
+        self.assertEqual((REPOSITORY / "CLAUDE.md").resolve(), agents.resolve())
+
+        policy = (REPOSITORY / "CLAUDE.md").read_text()
+        self.assertIn("repository-issues", policy)
+        self.assertIn("scripts/issues", policy)
+        self.assertIn("docs/issues", policy)
+
+        ignored = (REPOSITORY / ".gitignore").read_text().splitlines()
+        self.assertIn("docs/issues/.issues.lock", ignored)
+        self.assertNotIn(".claude", ignored)
+        self.assertNotIn(".opencode", ignored)
+        self.assertNotIn(".pi", ignored)
 
 
 if __name__ == "__main__":

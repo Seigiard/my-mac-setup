@@ -3,3 +3,4 @@ __pycache__
 config/fish/fish_variables
 .idea
 .worktrees
+docs/issues/.issues.lock
