@@ -2,7 +2,8 @@
 title: pi-subagentura adopted unpinned although the trial premise was a pinned version
 type: follow-up
 date: 2026-08-21
-status: open
+status: done
+closed: 2026-08-21
 ---
 
 ## Why this exists
@@ -22,3 +23,14 @@ Found during the 2026-08-21 audit of `docs/plans/`. Related: [2026-08-19-001](20
 ## Open decisions
 
 - Pin to `3.3.0` (the trialed version) or re-trial the current latest and pin that.
+
+## Resolution
+
+Pinned to `npm:pi-subagentura@3.3.0` — the trialed version is also the version the host actually runs, so no re-trial was needed. Evidence: `~/.pi/agent/npm/node_modules/pi-subagentura/package.json` reports `"version": "3.3.0"`, and `pi list` shows the package installed from that path.
+
+What was done:
+
+- `home/dot_pi/agent/modify_settings.json` — the required entry is now `npm:pi-subagentura@3.3.0`, and the modifier replaces a stale unpinned (or differently pinned) `npm:pi-subagentura` entry instead of accumulating a duplicate alongside it.
+- `tests/scripts.bats` — the modifier test now feeds a stale unpinned entry and asserts it is replaced by the pinned one; the idempotence test uses the pinned entry.
+- `tests/smoke.bats` — asserts the applied `~/.pi/agent/settings.json` carries the pinned entry and not the unpinned one. This test stays red on the host until the next `chezmoi apply`; CI applies the checkout first and passes.
+- `docs/plans/2026-08-18-1819-pi-subagentura-trial-plan.html` — Phase 4 decision record added: "Trial passed — adopted at npm:pi-subagentura@3.3.0".

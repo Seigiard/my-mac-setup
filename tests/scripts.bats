@@ -4985,7 +4985,9 @@ se_fake_runtime() {
 
 @test "Pi settings modifier selects the terminal theme and preserves runtime settings" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"]}'
+  # The unpinned npm:pi-subagentura simulates pre-pin settings: the modifier must
+  # replace it with the pinned entry, not keep both.
+  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:pi-subagentura"]}'
 
   run bash "$modifier" <<< "$input"
 
@@ -4995,7 +4997,8 @@ se_fake_runtime() {
     .lastChangelogVersion == "0.84.2" and
     (.packages | index("git:github.com/EveryInc/compound-engineering-plugin") != null) and
     (.packages | index("npm:pi-ask-user") != null) and
-    (.packages | index("npm:pi-subagentura") != null) and
+    (.packages | index("npm:pi-subagentura@3.3.0") != null) and
+    (.packages | index("npm:pi-subagentura") == null) and
     (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
     (.packages | index("npm:pi-web-access") != null) and
     (.packages | index("npm:pi-context-view") != null) and
@@ -5006,14 +5009,14 @@ se_fake_runtime() {
 
 @test "Pi settings modifier is idempotent" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:pi-subagentura","npm:@trevonistrevon/pi-loop","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"]}'
+  local input='{"packages":["npm:pi-subagentura@3.3.0","npm:@trevonistrevon/pi-loop","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"]}'
 
   run bash "$modifier" <<< "$input"
 
   assert_success
   run jq -e '
     [
-      "npm:pi-subagentura",
+      "npm:pi-subagentura@3.3.0",
       "npm:@trevonistrevon/pi-loop",
       "npm:pi-web-access",
       "npm:pi-context-view",

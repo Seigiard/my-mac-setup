@@ -22,13 +22,27 @@ fi
   const required = [
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
-    "npm:pi-subagentura",
+    "npm:pi-subagentura@3.3.0",
     "npm:@trevonistrevon/pi-loop",
     "npm:pi-web-access",
     "npm:pi-context-view",
     "npm:@ff-labs/pi-fff",
   ];
-  const packages = Array.isArray(settings.packages) ? settings.packages : [];
+  // pi-subagentura is pinned: its trial gated adoption on an exact version, and
+  // an unpinned entry would let any pi refresh move the machine to an untried one.
+  // baseOf strips a version pin so a re-pin replaces the stale entry instead of
+  // accumulating a duplicate. The last "@" is a version only when it comes after
+  // the package name — "npm:@ff-labs/pi-fff" carries a scope, not a pin.
+  const baseOf = (source) => {
+    const at = source.lastIndexOf("@");
+    return at > source.lastIndexOf("/") && at > source.indexOf(":") + 1
+      ? source.slice(0, at)
+      : source;
+  };
+  const requiredSources = new Set(required);
+  const requiredBases = new Set(required.map(baseOf));
+  const packages = (Array.isArray(settings.packages) ? settings.packages : [])
+    .filter((source) => requiredSources.has(source) || !requiredBases.has(baseOf(source)));
 
   for (const packageSource of required) {
     if (!packages.includes(packageSource)) packages.push(packageSource);
