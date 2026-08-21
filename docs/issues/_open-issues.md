@@ -19,8 +19,9 @@ Until these are fixed, neither CI nor a local pre-push run is a trustworthy gree
 | [2026-08-18-022](2026-08-18-022-install-smithers-dependencies-in-github-ci.md) | GitHub CI red on main: tests invoke `se flow` without bun and without source-tree smithers `node_modules` | **Critical** |
 | [2026-08-19-001](2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md) | `make test-ubuntu` fails two tests on main: the Docker harness lacks two setup steps GitHub CI has, so the local suite is not a faithful CI stand-in | **High** |
 | [2026-08-20-002](2026-08-20-002-coordinator-location-test-flake.md) | Coordinator eight-pane location test flakes at the 1000 ms envelope boundary under load | Medium |
-| [2026-08-20-010](2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md) | Two herdr-task-sync ordering tests flake under full-suite load; possibly shares a root cause with 2026-08-20-002 | Medium |
+| [2026-08-20-010](2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md) | Two herdr-task-sync ordering tests flake under full-suite load; root cause found 2026-08-21 (a 5 s `kill -9` engine watchdog calibrated on an idle machine) and fixed, the remaining ask is a failure-path state dump | Low |
 | [2026-08-21-011](2026-08-21-011-pi-brew-test-unresolvable-path-in-docker.md) | The Pi brew auto-updater test imports `../home/...`, which does not resolve under the Docker mount layout, so `make test-ubuntu` is red on main | **High** |
+| [2026-08-21-012](2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md) | The parallel post-apply suite lands at 67% of baseline on the macOS CI job against a 60% target; stable, so this is the deferred residual, not a regression | Low |
 
 ## 2. se-pipeline / Smithers — money and lost runs
 

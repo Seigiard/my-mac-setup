@@ -1232,7 +1232,7 @@ hts_run_for_socket() {
     HERDR_PANE_ID=pane-1 \
     HERDR_SOCKET_PATH="$socket_path" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
     HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
@@ -1246,7 +1246,7 @@ hts_worker_run() {
     HERDR_PANE_ID=pane-1 \
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}" \
+    HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
@@ -1396,6 +1396,19 @@ HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
 # before it reports failure. The previous 10s and 15s ceilings were calibrated
 # on an idle machine, and a multi-step fixture under --jobs contention can
 # legitimately exceed them -- which surfaced as a hang that was really load.
+# Watchdog for a single engine call, enforced by `kill -9` inside the engine's
+# own run_with_timeout. It is a hang guard, not a budget: every test here stubs
+# the engine, so it should never fire. The old 5 s left the R8 test -- which
+# stubs an engine that sleeps 4 s on purpose -- a one-second margin, and under
+# --jobs contention the stub loses that race and gets SIGKILLed mid-call. The
+# invocation then commits nothing and the ordering tests that wait on that
+# commit time out, which reads as a coordinator ordering bug rather than as the
+# load artifact it is. 30 s is what the engine itself defaults to in production
+# (home/dot_local/bin/executable_herdr-task-sync), so the tests now run the
+# shipped watchdog instead of a tightened test-only one. The single test that
+# wants the watchdog to fire pins HTS_TIMEOUT=1 for itself.
+HTS_ENGINE_WATCHDOG_SECONDS="${HTS_ENGINE_WATCHDOG_SECONDS:-30}"
+
 HTS_WAIT_POLLS="${HTS_WAIT_POLLS:-6000}"
 HTS_WAIT_SLOW_POLLS="${HTS_WAIT_SLOW_POLLS:-240}"
 # Stub scripts are written from quoted heredocs and run as their own

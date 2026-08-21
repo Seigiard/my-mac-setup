@@ -149,6 +149,59 @@ what happened: the audit showed `tests/smoke.bats`, `tests/palette.bats` and
 parallelize safely and the all-files configuration is both faster and no less
 stable. Only `tests/idempotent.bats` is serialized (R3).
 
+## U4 Results (measured 2026-08-21) — the delivered result
+
+CI run `32441162981`, throwaway branch `perf-measure-jobcount`, rebuilt from the
+delivery branch. Each job ran its own sequential control plus three `--jobs 8`
+repetitions, so every ratio below is same-machine.
+
+**Eight suite runs, zero failures.** R4 is met on both CI jobs.
+
+| Job | Sequential control | `--jobs 8` repetitions | Median | Ratio | 60% gate |
+|---|---:|---|---:|---:|---|
+| `test-ubuntu` (4 cores) | 288 s | 167 / 166 / 165 s | 166 s | **57.6%** | met |
+| `test-macos` (3 cores) | 423 s | 285 / 277 / 283 s | 283 s | **66.9%** | missed |
+
+Ubuntu gains 1.73x, macOS 1.50x. Absolute saving per run: 122 s on Ubuntu, 140 s
+on macOS.
+
+**macOS invokes the *stable but slow* stop condition.** Every repetition was
+green and the suite lands above 60% of its control, so this does not block; the
+residual is filed as
+`docs/issues/2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md`.
+
+These numbers supersede the U0 curve above for judging the ratio. Note the
+macOS `--jobs 8` figure moved from ~204 s in U0 to ~283 s here while the control
+moved 379 s → 423 s. The post-apply suite is 330 tests in both trees, so the
+change is not test growth. Two contributors are visible but neither is measured
+apart: macOS runner-to-runner variance, which U0 already recorded at a 340–447 s
+spread on sequential runs of `main`, and U1's raised `HERDR_TASK_SYNC_GIT_BUDGET`
+(0.075 s → 2 s), which adds real wall time at the sites that deliberately wait
+for that budget to expire and lands it on one worker's critical path. **This
+split is unverified.** Issue 012 carries it.
+
+### Container repetitions
+
+`docker run --cpus 4` with `--jobs 8` — a two-times CPU oversubscription, harsher
+than either runner. Ten repetitions found one failure, in the repetition that took
+161 s against a ~82 s median: `herdr-task-sync orders adapter calls by inbox
+commit rather than invocation start`, timing out on a slug that was never
+committed.
+
+That was a test bug, not a parallelism defect, and it is fixed:
+`HERDR_TASK_SYNC_TIMEOUT` defaulted to 5 s in the harness while the engine
+`kill -9`s on expiry, and `herdr-task-sync returns before the naming engine
+finishes (R8)` ran a stub that sleeps 4 s against it — a one-second margin. The
+harness now defaults to the 30 s the engine itself ships in production. Root
+cause and evidence are in
+`docs/issues/2026-08-20-010-two-herdr-task-sync-tests-flake-under-full-suite-load.md`.
+
+Every container repetition also reports one constant failure,
+`Pi brew auto updater focused tests pass`. It fails identically on `main` — the
+Docker mount layout does not resolve the test's `../home/...` import — and is
+tracked as `docs/issues/2026-08-21-011-pi-brew-test-unresolvable-path-in-docker.md`.
+It is not a flake and not caused by this work.
+
 ---
 
 ## Implementation Units

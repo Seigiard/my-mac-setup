@@ -175,3 +175,53 @@ not because it gates that work.
 - Whether to reproduce locally by running the suite at `--jobs 12` under a CPU
   limit that mimics 3 cores (`docker run --cpus 3`), rather than on a 10-core host
   where 12 jobs is only mild oversubscription.
+
+## Root cause found 2026-08-21: the 5 s harness engine watchdog
+
+The engine-timeout hypothesis this issue recorded under "The socket-namespace
+test: investigated, no mechanism found" was right, and it is now backed by a
+reproduction rather than by inspection alone.
+
+**The reproduction.** A ten-repetition run of the full post-apply suite as
+`bats --jobs 8 --no-parallelize-across-files` inside `docker run --cpus 4` --
+two-times CPU oversubscription -- failed once, in repetition 4, on
+`herdr-task-sync orders adapter calls by inbox commit rather than invocation start`.
+That repetition took 161 s against a ~82 s median for the other nine, so the
+container was heavily contended when it failed. The failure is at
+`tests/scripts.bats:2457`, the `hts_wait_for_task_slug "$task" invoked-first-committed-second`
+that follows the fifo release -- the first invocation exited without ever
+committing its slug, and the wait then ran to its ceiling.
+
+**The mechanism.** Every test invocation ran the engine under
+`HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-5}"`, and the engine enforces that with
+a watchdog subshell that `kill -9`s the engine on expiry
+(`run_with_timeout`, home/dot_local/bin/executable_herdr-task-sync:340). Five
+seconds was calibrated on an idle machine. Under contention a stubbed engine call
+loses that race, gets SIGKILLed mid-call, and the invocation commits nothing --
+which is exactly the "slug never written, `hts_wait_for_task_slug` then fails at
+its own bound" signature this issue predicted.
+
+Honest limit on the evidence: the failure block shows the missing commit, not the
+`kill -9` itself. The signature matches the predicted one; the kill was not
+captured directly.
+
+**The same bound was one second from firing by design.** `herdr-task-sync returns
+before the naming engine finishes (R8)` (tests/scripts.bats:4201) stubs an engine
+that sleeps 4 s on purpose and ran it against the 5 s watchdog. A one-second
+margin on an idle machine is not a margin at all under `--jobs`, and R8 is one of
+the two tests that accompanied the socket-namespace failure in the CI repetition
+recorded above.
+
+**The fix.** `HTS_ENGINE_WATCHDOG_SECONDS` now defaults the test watchdog to 30 s
+-- the value `executable_herdr-task-sync:32` itself ships in production -- so the
+tests run the shipped hang guard instead of a tightened test-only one. It is a
+hang guard, not a budget: every test here stubs the engine, so it should never
+fire. The one test that wants it to fire,
+`publishes nothing when both engines time out (KTD1)` (tests/scripts.bats:4263),
+pins `HTS_TIMEOUT=1` for itself and is unaffected.
+
+This is the third wall-clock-on-an-idle-machine bound found in this file during
+the parallel-suite work, after `HERDR_TASK_SYNC_GIT_BUDGET` (0.075 s, SIGKILL)
+and the 2 s fail-open assertions. The pattern is worth naming: a `kill -9`
+watchdog calibrated against a stub's own sleep is a latent flake, and parallelism
+only made the existing gap visible.
