@@ -1730,8 +1730,13 @@ PY
   namespace_two="$(hts_namespace "$socket_two")"
   [[ "$namespace_one" != "$namespace_two" ]]
 
-  hts_run_for_socket "$socket_one" --agent pi --session same --set socket-one < /dev/null
-  hts_run_for_socket "$socket_two" --agent pi --session same --set socket-two < /dev/null
+  # This test owns task namespace isolation only. A successful task commit normally
+  # starts a detached presentation pass, and that pass legitimately advances the
+  # location high-water before this task-only assertion can read it under load.
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 \
+    hts_run_for_socket "$socket_one" --agent pi --session same --set socket-one < /dev/null
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 \
+    hts_run_for_socket "$socket_two" --agent pi --session same --set socket-two < /dev/null
   task_one="$(hts_task_file "$socket_one" pi pane-1 same)"
   task_two="$(hts_task_file "$socket_two" pi pane-1 same)"
   hts_wait_for_task_slug "$task_one" socket-one
@@ -1744,6 +1749,8 @@ PY
   assert_equal "$(hts_record_text "$namespace_two/socket.state" socket_path)" "$socket_two"
   [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]]
   assert_equal "$(hts_record_number "$namespace_one/reconcile.state" location_metadata_high_water)" 0
+  [[ "$(hts_record_number "$namespace_two/reconcile.state" task_metadata_high_water)" -gt 0 ]]
+  assert_equal "$(hts_record_number "$namespace_two/reconcile.state" location_metadata_high_water)" 0
   grep -q '^checkout_root=' "$namespace_one/reconcile.state"
   grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
 }
