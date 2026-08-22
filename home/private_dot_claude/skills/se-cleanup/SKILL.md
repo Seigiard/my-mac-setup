@@ -49,13 +49,14 @@ Resolve the GitHub repository from the primary checkout. Query all pull requests
 ```sh
 repo="$(cd "$primary_checkout" && gh repo view --json nameWithOwner --jq .nameWithOwner)"
 gh pr list --repo "$repo" --state all --head "$feature_branch" \
-  --json number,state,mergedAt,headRefName,headRepository,url
+  --json number,state,mergedAt,headRefName,headRefOid,headRepository,url
 ```
 
 Continue only if the result contains exactly one pull request and all these facts agree:
 
 - `state` is `MERGED` and `mergedAt` is present.
 - `headRefName` exactly equals the captured feature branch.
+- `headRefOid` exactly equals the local feature branch tip.
 - `headRepository.nameWithOwner` exactly equals the repository resolved from `origin`.
 
 If a GitHub command fails, treat its result as missing. If the state is not `MERGED`, the result is missing or ambiguous, or either head identity differs, do not clean up. Preserve the local and remote feature branches and stop. Report the observed pull-request result and the failed check.
@@ -64,22 +65,46 @@ If a GitHub command fails, treat its result as missing. If the state is not `MER
 
 Run this section only after every merged pull-request check succeeds.
 
-If `linked_worktree` is set, remove it without forcing:
+If `linked_worktree` is set, first prove that its superproject and every initialized submodule are clean:
+
+```sh
+git -C "$linked_worktree" status --porcelain
+git -C "$linked_worktree" submodule foreach --quiet --recursive \
+  'test -z "$(git status --porcelain)"'
+```
+
+If either check reports work or fails, preserve the worktree and both branches. Report the dirty path and stop.
+
+Try ordinary removal first:
 
 ```sh
 git -C "$primary_checkout" worktree remove "$linked_worktree"
 ```
 
-If removal fails, preserve both feature branches and stop. Do not discard dirty work.
+A clean worktree with initialized submodules can still fail with `working trees containing submodules cannot be moved or removed`. Only for that exact error, deinitialize its clean submodules and retry with `--force`:
 
-Delete the local branch without forcing. Delete the remote branch only after local deletion succeeds:
+```sh
+git -C "$linked_worktree" submodule deinit --all
+git -C "$primary_checkout" worktree remove --force "$linked_worktree"
+```
+
+Here `--force` bypasses Git's structural submodule restriction. The preceding clean checks prevent it from discarding work. For any other removal failure, preserve both branches and stop.
+
+Delete the local branch without forcing first:
 
 ```sh
 git -C "$primary_checkout" branch -d "$feature_branch"
+```
+
+A squash-merged pull request does not make the feature tip an ancestor of `main`, so `-d` can reject a safely merged branch. Only if the merged pull-request gate succeeded and its `headRefOid` still exactly equals the local branch tip, retry with `git -C "$primary_checkout" branch -D "$feature_branch"`.
+
+Delete the remote branch only after local deletion succeeds:
+
+```sh
 git -C "$primary_checkout" push origin --delete "$feature_branch"
 ```
 
-If a command fails, stop. Report the completed operations and the item that remains. Do not retry with a force option.
+If a command fails outside the two bounded force cases above, stop. Report the completed operations and the item that remains.
 
 ## 5. Report the observed result
 
