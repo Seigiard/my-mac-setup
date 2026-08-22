@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-22"
 ---
 
 ## Why this exists
@@ -39,3 +40,7 @@ state (`smithers` skill; no agents directory).
 - Are the nine authored Pi agents still wanted, and does a copy survive
   anywhere recoverable?
 - Is the `smithers` skill worth listing (and managing) in the inventory?
+
+## Resolution
+
+Updated docs/agent-setup-inventory.md to state that Pi keeps no Pi-only live skills and reads shared Claude skills from ~/.claude/skills through settings.json. The document already states that no live Pi agents are kept. The obsolete live-only ~/.pi/agent/skills/web-research directory was moved to ~/.scratchpad, and its Tavily/Jina/DeepWiki fallback routing was folded into the managed markdown-new skill.

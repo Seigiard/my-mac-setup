@@ -113,7 +113,8 @@ is manual, and this inventory intentionally does not duplicate the package list.
 
 ### Skills (`~/.pi/agent/skills/`)
 
-`web-research`
+No Pi-only live skills are kept. Pi reads shared Claude skills from
+`~/.claude/skills` through `~/.pi/agent/settings.json` `skills[]`.
 
 ### Agents (`~/.pi/agent/agents/`)
 
