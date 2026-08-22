@@ -1,12 +1,13 @@
 ---
 title: "The Pi brew auto-updater test cannot resolve its import inside Docker, so make test-ubuntu is red"
-short_description: "Docker mounts `tests/` at `/home/testuser/tests` and `home/` at `/home/testuser/dotfiles`, so the test's `../home/...` import failed identically in sequential, parallel, and ten stability runs."
+short_description: "The focused Pi updater test now imports its subject through the cross-environment SOURCE_ROOT, so case 72 passes in Docker and direct checkout runs."
 type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-22"
 ---
 
 ## Why this exists
@@ -70,3 +71,7 @@ resolution. The comment above that helper is worth reading first.
 - **Whether the Docker services should fail loudly on this today.** They already
   do -- the suite exits non-zero -- but nothing distinguishes this known failure
   from a new one, so in practice it is ignored rather than acted on.
+
+## Resolution
+
+Changed the runtime module load to resolve through SOURCE_ROOT with a direct-checkout fallback. Verified 13 focused Bun tests and the filtered Docker Bats case; the full Docker suite reaches and passes this case but remains red on the separately tracked focus-notify py_compile failure.
