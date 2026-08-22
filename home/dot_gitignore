@@ -16,6 +16,7 @@ Icon?
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
 
 # Agent trash directory (see ~/.claude/CLAUDE.md, Environment section)
 .scratchpad/
@@ -26,6 +27,7 @@ CLAUDE.local.md
 
 #pi
 .pi/loops
+.pi/subagentura-state.json
 .pi/tasks
 # oh-my-claudecode runtime state (writes into the task repo's cwd)
 .omc/
