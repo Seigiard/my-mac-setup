@@ -1,12 +1,13 @@
 ---
 title: "The nested Bats run parses all 196 tests to execute one"
-short_description: "The descriptor test spawns a nested Bats invocation of its own 5105-line file to run one filtered test, so roughly half that run is parsing tests it will never execute -- which is why the bound around it had to be large at all."
+short_description: "The descriptor probe now lives in tests/herdr_task_sync_descriptor_probe.bats, a one-test Bats file, while the shared hts harness lives in tests/helpers/herdr_task_sync.bash and tests/scripts.bats keeps the outer guard."
 type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","herdr","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-22"
 ---
 
 ## Why this exists
@@ -64,12 +65,14 @@ that the inference stops mattering.
 - Re-measure the nested run afterwards and resize
   `HTS_INNER_BATS_PROGRESS_SECONDS` against the new cost.
 
-## Open decisions
+## Closed decisions
 
-- Whether to extract the whole `hts_*` harness or only the subset the probe needs.
-  Extracting only a subset risks the two copies drifting; extracting the whole
-  harness is a large, mostly mechanical move across a 5105-line file that many
-  other tests depend on.
-- Whether the extraction is worth doing on its own, or only as part of a broader
-  split of `tests/scripts.bats` — the file's size is the underlying condition, and
-  this test is one symptom of it.
+- Extracted the whole `hts_*` harness rather than only the descriptor-probe
+  subset, so the main tests and the nested probe keep one shared harness.
+- Landed the extraction as its own follow-up because it removes the cost that
+  kept `docs/issues/2026-08-21-020-inner-bats-budget-flaked-the-macos-job.md`
+  open after the budget split.
+
+## Resolution
+
+Extracted the herdr-task-sync harness into tests/helpers/herdr_task_sync.bash, moved the descriptor child probe into tests/herdr_task_sync_descriptor_probe.bats, and changed the bounded nested driver to target that one-test file. Verified the dedicated file count is 1, the bounded descriptor test passes, the vacuity guard still fails when it should, and bats tests/scripts.bats passes with 197 tests.

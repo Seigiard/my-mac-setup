@@ -1,12 +1,13 @@
 ---
 title: "The nested-Bats wall-clock budget flaked the macOS CI job"
-short_description: "One 90-second budget covered a nested Bats run whose cost is dominated by parsing 196 unrelated tests, leaving a 1.5x margin that ordinary CI variance exceeded; it is split into a hang guard plus an exit assertion and stays open until three consecutive green test-macos runs."
+short_description: "The nested descriptor driver no longer parses tests/scripts.bats to run one filtered probe; the earlier budget split remains and the follow-up one-test probe file removes the whole-file parse cost that made the macOS flake plausible."
 type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","herdr","bug"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-22"
 ---
 
 ## Why this exists
@@ -103,12 +104,12 @@ The single whole-run budget is replaced by two separately named bounds, applying
 the rule `2026-08-21-015` states: a hang guard and a performance assertion must
 not share a number.
 
-- `HTS_INNER_BATS_PROGRESS_SECONDS` (600 s) is the hang guard. It covers the
-  nested run up to the probe writing its pid file, absorbing the whole
-  load-elastic parse. It never fires in a healthy run or in the regression.
-  Bounded on both ends: far above the ≈59 s observed cost, and far below the
-  macOS job's `timeout-minutes: 25` so a genuine hang prints the guard's own
-  message instead of the job being killed with none.
+- `HTS_INNER_BATS_PROGRESS_SECONDS` is the hang guard. It was 600 s while the
+  nested run still parsed all of `tests/scripts.bats`; the follow-up fix in
+  `docs/issues/2026-08-21-021-nested-bats-run-parses-the-whole-suite.md`
+  moved the probe into a one-test file and resized the guard to 60 s. It covers
+  the nested run up to the probe writing its pid file, and it never fires in a
+  healthy run or in the regression.
 - `HTS_INNER_BATS_EXIT_SECONDS` (30 s) is the assertion, and the only bound that
   can fire on a healthy run. It covers Bats teardown and exit alone.
 
@@ -191,14 +192,19 @@ Both were run and reverted; neither is committed.
 
 ## Confirmation criterion
 
-**This issue stays open until three consecutive green `test-macos` runs of the
-post-apply suite.** Every piece of evidence above was gathered on a 10-core host,
-which cannot produce the 3-core profile where this reproduces, and a flake that
-has fired twice in CI is not shown fixed by a passing local run. Landing the PR
-does not close it.
+This issue originally stayed open until three consecutive green `test-macos` runs
+of the post-apply suite, because the first fix still left the nested run parsing
+all of `tests/scripts.bats` before the guarded assertion could run. The follow-up
+fix in `docs/issues/2026-08-21-021-nested-bats-run-parses-the-whole-suite.md`
+removed that remaining cost by moving the probe into a one-test Bats file, so the
+old runner-specific margin criterion no longer applies.
 
 **Reopen trigger.** Any `test-macos` failure of this test at status 125 (the exit
 bound) after the criterion is met. That would mean either a genuine
 `close_inherited_descriptors` regression or that 30 s is not the margin the
 measurements above suggest — the printed exit-phase duration in the same CI log
 distinguishes them.
+
+## Resolution
+
+Removed the remaining root cause behind the macOS nested-Bats flake: the bounded descriptor driver now targets tests/herdr_task_sync_descriptor_probe.bats, a one-test file, instead of parsing all of tests/scripts.bats to run one filtered probe. The earlier budget split remains, and the progress guard is resized to 60 seconds against the dedicated-file cost. Verified bats --count tests/herdr_task_sync_descriptor_probe.bats reports 1, the bounded descriptor test passes, the vacuity guard still fails when forced, and bats tests/scripts.bats passes with 197 tests.
