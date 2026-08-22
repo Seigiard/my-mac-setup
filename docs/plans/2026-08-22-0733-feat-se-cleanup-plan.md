@@ -16,7 +16,7 @@ execution: code
 - **Objective:** An agent can finish merged branch or worktree work by returning the repository to an updated `main` checkout and removing the completed work context.
 - **Means:** Add an instruction-first `/se-cleanup` skill without a Bash helper in the first version (KTD1).
 - **Product authority:** The Product Contract in this plan governs scope. It narrows the broader automation proposed in `docs/issues/2026-08-22-002-add-se-cleanup-post-merge-skill.md`.
-- **Execution profile:** One small skill contract plus source and deployment tests.
+- **Execution profile:** One small skill contract plus metadata and deployment checks.
 - **Stop conditions:** Stop destructive cleanup when the pull request is not merged or its merged state cannot be verified.
 - **Tail ownership:** The implementing agent verifies the skill contract and the deployed chezmoi output. The user applies the committed chezmoi change on the host later.
 
@@ -115,7 +115,7 @@ flowchart TB
 - KTD1. **Ship an instruction-only first version.** (session-settled: user-approved — chosen over adding a Bash helper now: the command sequence is small and the agent must retain context-dependent judgment.) The skill contains the complete algorithm and invokes standard Git and GitHub CLI operations directly. Governs R1-R9.
 - KTD2. **Resolve context from Git worktree metadata.** The skill uses Git's worktree inventory to distinguish the primary checkout from a linked worktree instead of inferring from directory names. Governs R1-R3.
 - KTD3. **Use GitHub as the merge authority.** The skill verifies merged pull-request state and feature-head identity before any branch deletion. A missing or ambiguous result fails closed. Governs R5-R7.
-- KTD4. **Test the instruction contract as ordered behavior.** Source tests assert that the skill contains both entry paths and places the merged-pull-request gate before destructive branch operations. Deployment smoke coverage proves chezmoi installs the skill. Governs R1-R9.
+- KTD4. **Test packaging, not prose implementation.** Generic metadata validation and deployment smoke coverage prove the skill is valid and installed. Tests do not pin command strings or Markdown wording. Governs R8-R9.
 
 ### High-Level Technical Design
 
@@ -148,9 +148,9 @@ sequenceDiagram
 
 ### Sequencing
 
-1. Define the skill contract and source-level contract tests together.
+1. Define the instruction-first skill contract.
 2. Add the skill to deployment smoke coverage.
-3. Run source tests, then Docker verification against the managed checkout.
+3. Run template and Docker verification against the managed checkout.
 
 ---
 
@@ -159,11 +159,10 @@ sequenceDiagram
 ### U1. Add the post-merge cleanup contract
 
 - **Goal:** Add the `/se-cleanup` skill with an explicit worktree-or-branch flow and a fail-closed merge gate.
-- **Requirements:** R1-R9, F1, AE1-AE3; KTD1-KTD4.
+- **Requirements:** R1-R9, F1, AE1-AE3; KTD1-KTD3.
 - **Dependencies:** None.
 - **Files:**
   - Create `home/private_dot_claude/skills/se-cleanup/SKILL.md`.
-  - Modify `tests/scripts.bats`.
 - **Approach:**
   1. Add skill metadata that makes `/se-cleanup` discoverable for post-merge work.
   2. Instruct the agent to capture the feature branch before switching context.
@@ -171,7 +170,6 @@ sequenceDiagram
   4. Return the primary checkout to its upstream `main` with fast-forward-only update semantics.
   5. Apply KTD3 before any local or remote branch deletion.
   6. Remove the linked worktree when present, delete the local branch, delete the remote branch, and report the observed result.
-  7. Add source-level Bats assertions for required phases, both entry paths, and safety-gate ordering per KTD4.
 - **Patterns to follow:** Use the concise instruction style in `home/private_dot_claude/skills/eli5/SKILL.md`. Follow the primary-checkout worktree removal pattern in `home/private_dot_claude/skills/pf-build/SKILL.md`.
 - **Test scenarios:**
   - Covers F1 / AE1. A skill-contract fixture with a linked-worktree entry path reaches primary-checkout update, merged-state verification, worktree removal, and both branch deletions in that order.
@@ -179,7 +177,7 @@ sequenceDiagram
   - Covers AE3. The contract places the merged-state refusal before every branch deletion instruction and preserves branches when verification fails.
   - An ambiguous GitHub result follows the same refusal path as an unmerged pull request.
   - The skill contains no invocation of a new Bash helper or workflow engine.
-- **Verification:** The source contract exposes one readable decision tree, names the safety gate once, and contains no destructive path that bypasses it.
+- **Verification:** Manual review confirms one readable decision tree, one safety gate, and no destructive path that bypasses it.
 
 ### U2. Prove chezmoi deploys the skill
 
@@ -201,7 +199,6 @@ sequenceDiagram
 
 | Gate | Command | Proves | Units |
 |---|---|---|---|
-| Source contract | `bats tests/scripts.bats` | The decision flow and merge-gate ordering remain present. | U1 |
 | Template safety | `make test-templates` | The chezmoi source remains renderable. | U1, U2 |
 | Full disposable apply | `make test-ubuntu` | Chezmoi deploys the skill and the complete smoke suite passes without touching the host configuration. | U1, U2 |
 | Static shell quality | `make lint` | Existing shell and Bats changes satisfy repository lint rules. | U1, U2 |
@@ -216,7 +213,7 @@ A host `make test-suite` run is not sufficient for this change because it reads 
 - Both entry contexts satisfy AE1 and AE2 without duplicating the destructive safety rule.
 - Pull-request state that is unmerged, missing, or ambiguous satisfies AE3 and preserves both branches.
 - Local and remote branch deletion occur only after the merged-state gate succeeds.
-- Source contract tests and managed deployment smoke coverage pass.
+- Generic skill metadata validation and managed deployment smoke coverage pass.
 - `make test-templates`, `make lint`, and `make test-ubuntu` pass.
 - The Product Contract remains unchanged and all R/F/AE links remain valid.
 - No Bash helper, general Git recovery framework, or abandoned experimental cleanup code remains in the diff.
