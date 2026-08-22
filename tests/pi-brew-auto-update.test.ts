@@ -3,12 +3,17 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import registerBrewAutoUpdater, {
+import type {
+  BrewAutoUpdateDependencies,
+  UpdateUi,
+} from "../home/dot_pi/agent/extensions/brew-auto-update/index.ts";
+
+const sourceRoot = process.env.SOURCE_ROOT ?? join(import.meta.dir, "../home");
+const {
+  default: registerBrewAutoUpdater,
   captureExtensionSnapshot,
   runBrewAutoUpdate,
-  type BrewAutoUpdateDependencies,
-  type UpdateUi,
-} from "../home/dot_pi/agent/extensions/brew-auto-update/index.ts";
+} = await import(join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts"));
 
 const cleanupPaths: string[] = [];
 
