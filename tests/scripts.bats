@@ -1014,9 +1014,11 @@ if [ -f "$HTS_WORK/block-herdr" ]; then
   if [ -n "${HTS_DESCRIPTOR_BLOCKED_PID_FILE:-}" ]; then
     printf '%s\n' "$$" > "$HTS_DESCRIPTOR_BLOCKED_PID_FILE"
   fi
+  # The 3000-poll default (~30 s) is what every other user of this stub gets.
+  # Only the descriptor test raises it, and it exports the raised value itself.
   while [ ! -f "$release_file" ]; do
     block_attempts=$((block_attempts + 1))
-    if [ "$block_attempts" -ge "${HTS_BLOCKED_HERDR_POLLS:-30000}" ]; then
+    if [ "$block_attempts" -ge "${HTS_BLOCKED_HERDR_POLLS:-3000}" ]; then
       # Record the give-up durably. A caller cannot detect it by polling this
       # process for liveness -- that is a race it will usually lose -- and a
       # give-up silently invalidates any conclusion drawn about what was holding
@@ -1486,25 +1488,37 @@ HTS_INNER_BATS_PROGRESS_SECONDS="${HTS_INNER_BATS_PROGRESS_SECONDS:-600}"
 # HTS_BLOCKED_HERDR_CEILING_SECONDS below, which is stated in the same unit so
 # the two can be compared; see that comment for the window it has to clear.
 HTS_INNER_BATS_EXIT_SECONDS="${HTS_INNER_BATS_EXIT_SECONDS:-30}"
+# The driver runs as its own process, so both bounds have to be exported to
+# reach it -- like HTS_WAIT_POLLS above. Without this the driver silently falls
+# back to its own literals and editing the values here changes nothing, which is
+# the same two-sources-of-truth failure this whole change is about.
+export HTS_INNER_BATS_PROGRESS_SECONDS HTS_INNER_BATS_EXIT_SECONDS
 
 # How long the blocked herdr stub waits for its release before giving up. This
 # is a non-vacuity guard, not a budget. If the stub gives up first, the detached
-# worker exits on its own, the driver's liveness check finds it already gone, and
-# the test would have passed having proved nothing -- so the ceiling has to
-# outlast the whole window the worker must survive, which is NOT just the exit
-# bound above. The stub starts blocking inside the nested test body (it writes
-# herdr-blocked before the probe writes its pid file), so the window runs from
-# there through the tail of the progress phase, all of the exit bound, and the
-# liveness check. 300 s is 10x HTS_INNER_BATS_EXIT_SECONDS, which clears that
-# window with room for contention. Stated in seconds like its counterpart above:
-# the stub polls at 0.01 s, and under --jobs contention each iteration costs more
-# than that, so the poll count derived below is a floor on the real wall clock,
-# never a cap. Keep this strictly above HTS_INNER_BATS_EXIT_SECONDS.
-HTS_BLOCKED_HERDR_CEILING_SECONDS="${HTS_BLOCKED_HERDR_CEILING_SECONDS:-300}"
-# The stub is written from a quoted heredoc and runs as its own process, so like
-# HTS_WAIT_POLLS above it reads its ceiling from the environment.
+# worker exits on its own, nothing is holding a descriptor when the driver looks,
+# and the test would have passed having proved nothing.
+#
+# So the ceiling has to outlast the entire window the stub must stay blocked for,
+# which is NOT just the exit bound. The stub starts blocking inside the nested
+# test body -- it writes herdr-blocked before the probe writes its pid file -- so
+# the window runs from there through the rest of the progress phase, all of the
+# exit bound, and the liveness check. Derived rather than hardcoded so that
+# relation holds by construction: a hand-picked number silently inverts the first
+# time either bound above moves, and the failure it produces is a misdiagnosis
+# (the run reports "the fixture gave up" when what actually happened is the hang
+# guard's case).
+#
+# Stated in seconds like its counterparts: the stub polls at 0.01 s, and under
+# --jobs contention each iteration costs more than that, so the poll count
+# derived below is a floor on the real wall clock, never a cap.
+HTS_BLOCKED_HERDR_CEILING_SECONDS="${HTS_BLOCKED_HERDR_CEILING_SECONDS:-$((HTS_INNER_BATS_PROGRESS_SECONDS + HTS_INNER_BATS_EXIT_SECONDS + 60))}"
 HTS_BLOCKED_HERDR_POLLS="${HTS_BLOCKED_HERDR_POLLS:-$((HTS_BLOCKED_HERDR_CEILING_SECONDS * 100))}" # sleep 0.01
-export HTS_BLOCKED_HERDR_POLLS
+# Deliberately NOT exported at file scope. Two other tests use the same blocking
+# stub (search block-herdr) and release it promptly; handing them a ceiling two
+# orders of magnitude larger only slows down their failure paths, where the stub
+# would otherwise give up quickly inside an already-deleted work dir. The one
+# test that needs the raised ceiling exports it for itself.
 
 
 
@@ -1957,9 +1971,13 @@ hts_wait_for_task_slug() {
   export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
   export HTS_DESCRIPTOR_PID_FILE="$pid_file"
   export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
+  # This is the only test whose stub must stay blocked across a whole nested Bats
+  # run, so it is the only one that gets the raised ceiling.
+  export HTS_BLOCKED_HERDR_POLLS
   run python3 - "$bats_bin" "$BATS_TEST_FILENAME" <<'PY'
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import threading
@@ -2199,6 +2217,11 @@ except ProcessLookupError:
         "a give-up; nothing held a descriptor while the inner Bats exited",
         EXIT_VACUOUS,
     )
+except PermissionError:
+    # Alive, just not ours to signal. Treated as alive on purpose: raising here
+    # would abort with a traceback whose status matches no EXIT_* code, so the
+    # failure block could not say which bound fired.
+    pass
 
 release_file.touch()
 for _ in range(500):
@@ -2208,6 +2231,13 @@ for _ in range(500):
         break
     time.sleep(0.01)
 else:
+    # Kill it before reporting. This is the one path that names a still-running
+    # process, and leaving it behind would strand a detached worker past the end
+    # of the test -- the same thing every other failure path here cleans up.
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
     print(f"detached worker {pid} did not exit after release", file=sys.stderr)
     raise SystemExit(EXIT_WORKER_STUCK)
 
@@ -2229,6 +2259,36 @@ PY
   printf '%s\n' "$output" | grep -F 'inner Bats exit phase took' >&3 || true
   assert_success
   assert_output --partial "ok 1 herdr-task-sync descriptor child probe"
+}
+
+# Guards the guard. The test above can only prove anything while the herdr stub
+# is still blocked -- if the stub gives up first, nothing holds a descriptor and
+# a green run means nothing. That was not a hypothetical: the first version of
+# the non-vacuity check watched the stub's parent, which outlives the give-up, so
+# it passed on exactly the vacuous run it was written to catch.
+#
+# Pinning the stub to give up immediately must therefore turn the test red. This
+# costs one extra nested Bats run, which is the expensive thing in this file
+# (docs/issues/2026-08-21-021), and it buys the one property no other test here
+# can assert: that the guard above still fails when it should.
+@test "herdr-task-sync bounded Bats invocation refuses a vacuous run" {
+  local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
+  local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
+  local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
+  bats_bin="$(command -v bats)"
+  export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
+  export HTS_DESCRIPTOR_PID_FILE="$pid_file"
+  export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
+  # One poll: the stub records its give-up before the driver ever looks.
+  export HTS_BLOCKED_HERDR_POLLS=1
+
+  run bats "$BATS_TEST_FILENAME" \
+    --filter '^herdr-task-sync bounded Bats invocation exits after detached work$'
+
+  unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
+  unset HTS_DESCRIPTOR_BLOCKED_PID_FILE HTS_BLOCKED_HERDR_POLLS
+  assert_failure
+  assert_output --partial "this run proved nothing"
 }
 
 @test "herdr-task-sync harness fresh reads follow pane and tab mutations" {
