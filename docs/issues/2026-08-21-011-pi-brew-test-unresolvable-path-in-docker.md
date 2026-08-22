@@ -49,6 +49,32 @@ The consequence is that `make test-ubuntu` and `make test-docker` are red on
 relative import have disagreed. Anyone reading a red Docker run has one failure
 to mentally excuse, which is exactly how a second, real failure gets missed.
 
+### Reconfirmed 2026-08-22 on `5f171c9`, and the predicted second failure is here
+
+Reproduced independently while recording the Docker baseline for
+`docs/plans/2026-08-20-2217-perf-docker-baked-brewfile-plan.md`. Two consecutive
+`make test-ubuntu` runs from a warm image failed identically, at test position
+72 both times, with the same unresolved-module error quoted above. So the defect
+survived the 21 commits between `9f539b5` and `5f171c9` untouched.
+
+The paragraph above turned out to be exactly right. That baseline also caught a
+**second** failure in both runs:
+
+```
+not ok 32 focus-notify plugin compiles and declares no build step or extra backend
+not ok 72 Pi brew auto updater focused tests pass
+```
+
+It is tracked separately in
+`docs/issues/2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md`. Naming
+it here anyway, because the failure this issue describes is the camouflage: a
+reader who has learned to excuse one red line excuses two without noticing the
+count changed.
+
+Practical consequence for anyone measuring or gating on Docker runs today: a
+green `make test-ubuntu` is not reachable, so the usable gate is **exactly these
+two failures and no others** — assert the count, not the colour.
+
 ## Scope
 
 - `tests/pi-brew-auto-update.test.ts` -- the relative import.
