@@ -61,7 +61,7 @@ function isWithinProject(projectRealPath: string, targetRealPath: string): boole
 
 async function inspectCandidate(
   cwd: string,
-  cwdRealPath: string | undefined,
+  getCwdRealPath: () => Promise<string | undefined>,
   name: LocalInstructionFileName,
 ): Promise<{ diagnostic: LocalInstructionDiagnostic; warning?: string }> {
   const path = join(cwd, name);
@@ -90,10 +90,15 @@ async function inspectCandidate(
   }
 
   const isSymlink = linkStat.isSymbolicLink();
-  let targetStat;
-  let targetRealPath;
+  let targetStat: Awaited<ReturnType<typeof stat>>;
+  let targetRealPath: string;
   try {
-    [targetStat, targetRealPath] = await Promise.all([stat(path), realpath(path)]);
+    if (isSymlink) {
+      [targetStat, targetRealPath] = await Promise.all([stat(path), realpath(path)]);
+    } else {
+      targetStat = linkStat;
+      targetRealPath = await realpath(path);
+    }
   } catch (error) {
     const status = isSymlink && isMissing(error) ? "skipped-broken-symlink" : "skipped-unreadable";
     const warning =
@@ -121,6 +126,7 @@ async function inspectCandidate(
     };
   }
 
+  const cwdRealPath = await getCwdRealPath();
   if (cwdRealPath && !isWithinProject(cwdRealPath, targetRealPath)) {
     const warning = `${path} resolves outside the project to ${targetRealPath}; skipping local instructions from ${name}.`;
     return {
@@ -160,10 +166,6 @@ async function inspectCandidate(
   };
 }
 
-function selectPreferredCandidate(candidates: LocalInstructionCandidate[]): LocalInstructionCandidate | undefined {
-  return candidates.find((candidate) => candidate.name === "AGENTS.local.md") ?? candidates[0];
-}
-
 function markSelection(
   diagnostics: LocalInstructionDiagnostic[],
   selected?: LocalInstructionCandidate,
@@ -182,22 +184,21 @@ function markSelection(
 }
 
 export async function inspectLocalInstructions(cwd: string): Promise<LocalInstructionSelection> {
-  let cwdRealPath: string | undefined;
-  try {
-    cwdRealPath = await realpath(cwd);
-  } catch {
-    cwdRealPath = undefined;
-  }
+  let cwdRealPathPromise: Promise<string | undefined> | undefined;
+  const getCwdRealPath = (): Promise<string | undefined> => {
+    cwdRealPathPromise ??= realpath(cwd).catch(() => undefined);
+    return cwdRealPathPromise;
+  };
 
   const inspected = await Promise.all(
-    LOCAL_INSTRUCTION_FILE_NAMES.map((name) => inspectCandidate(cwd, cwdRealPath, name)),
+    LOCAL_INSTRUCTION_FILE_NAMES.map((name) => inspectCandidate(cwd, getCwdRealPath, name)),
   );
   const diagnostics = inspected.map(({ diagnostic }) => diagnostic);
   const warnings = inspected.flatMap(({ warning }) => (warning ? [warning] : []));
   const candidates = diagnostics.filter(
     (diagnostic): diagnostic is LocalInstructionCandidate => diagnostic.status === "candidate",
   );
-  const selected = selectPreferredCandidate(candidates);
+  const selected = candidates[0];
 
   return {
     selected,
