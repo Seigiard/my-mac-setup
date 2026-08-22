@@ -4340,7 +4340,7 @@ se_fake_runtime() {
 
 @test "Pi settings modifier selects the terminal theme and preserves runtime settings" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"]}'
+  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"],"skills":["~/custom/skills"]}'
 
   run bash "$modifier" <<< "$input"
 
@@ -4354,14 +4354,16 @@ se_fake_runtime() {
     (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
     (.packages | index("npm:pi-web-access") != null) and
     (.packages | index("npm:pi-context-view") != null) and
-    (.packages | index("npm:@ff-labs/pi-fff") != null)
+    (.packages | index("npm:@ff-labs/pi-fff") != null) and
+    (.skills | index("~/.claude/skills") != null) and
+    (.skills | index("~/custom/skills") != null)
   ' <<< "$output"
   assert_success
 }
 
 @test "Pi settings modifier is idempotent" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:pi-subagentura","npm:@trevonistrevon/pi-loop","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"]}'
+  local input='{"packages":["npm:pi-subagentura","npm:@trevonistrevon/pi-loop","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"],"skills":["~/.claude/skills"]}'
 
   run bash "$modifier" <<< "$input"
 
@@ -4376,7 +4378,8 @@ se_fake_runtime() {
     ] as $required |
     (.theme == "terminal") and
     (.packages as $packages |
-      all($required[]; . as $package | [$packages[] | select(. == $package)] | length == 1))
+      all($required[]; . as $package | [$packages[] | select(. == $package)] | length == 1)) and
+    ([.skills[] | select(. == "~/.claude/skills")] | length == 1)
   ' <<< "$output"
   assert_success
 }
