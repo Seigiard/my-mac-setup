@@ -55,6 +55,62 @@ teardown() {
 }
 
 # ===========================================
+# se-cleanup skill contract
+# ===========================================
+
+SE_CLEANUP_SKILL="$SOURCE_ROOT/private_dot_claude/skills/se-cleanup/SKILL.md"
+
+@test "se-cleanup skill is discoverable and resolves both entry contexts from worktree metadata" {
+  assert_file_exists "$SE_CLEANUP_SKILL"
+  assert_file_contains "$SE_CLEANUP_SKILL" '^name: se-cleanup$'
+  assert_file_contains "$SE_CLEANUP_SKILL" '^description: .*post-merge'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'git worktree list --porcelain'
+  assert_file_contains "$SE_CLEANUP_SKILL" '^### Linked worktree$'
+  assert_file_contains "$SE_CLEANUP_SKILL" '^### Primary checkout feature branch$'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'Capture the feature branch before'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'Leave `linked_worktree` unset'
+}
+
+@test "se-cleanup linked-worktree path updates main then removes the worktree and both branches" {
+  assert_file_contains "$SE_CLEANUP_SKILL" 'git -C "\$primary_checkout" switch main'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'git -C "\$primary_checkout" pull --ff-only'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'git -C "\$primary_checkout" worktree remove "\$linked_worktree"'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'git -C "\$primary_checkout" branch -d "\$feature_branch"'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'git -C "\$primary_checkout" push origin --delete "\$feature_branch"'
+}
+
+@test "se-cleanup merge gate precedes every destructive cleanup operation" {
+  run python3 - "$SE_CLEANUP_SKILL" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+markers = [
+    "## 2. Update the primary checkout",
+    "## 3. Verify the merged pull request",
+    'git -C "$primary_checkout" worktree remove "$linked_worktree"',
+    'git -C "$primary_checkout" branch -d "$feature_branch"',
+    'git -C "$primary_checkout" push origin --delete "$feature_branch"',
+]
+positions = [text.index(marker) for marker in markers]
+assert positions == sorted(positions), positions
+assert text.count("## 3. Verify the merged pull request") == 1
+PY
+  assert_success
+}
+
+@test "se-cleanup fails closed on missing unmerged or ambiguous pull-request results without a helper" {
+  assert_file_contains "$SE_CLEANUP_SKILL" 'state is not `MERGED`'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'result is missing or ambiguous'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'Preserve the local and remote feature branches and stop'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'headRefName'
+  assert_file_contains "$SE_CLEANUP_SKILL" 'headRepository'
+  [[ ! -d "${SE_CLEANUP_SKILL%/SKILL.md}/scripts" ]]
+  run grep -E '(bash|python3)[[:space:]]+.*se-cleanup|smithers|se-flow|workflow engine' "$SE_CLEANUP_SKILL"
+  assert_failure
+}
+
+# ===========================================
 # install-packages script
 # ===========================================
 
