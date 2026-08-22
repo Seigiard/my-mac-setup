@@ -1,8 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_STALE_LOCK_MS = 20 * 60_000;
@@ -37,6 +38,7 @@ export interface BrewAutoUpdateDependencies {
   token: string;
   timeoutMs: number;
   staleLockMs: number;
+  snapshotExtensions(): Promise<Map<string, string> | undefined>;
 }
 
 interface LockOwner {
@@ -63,14 +65,15 @@ export interface UpdateResult {
 
 type InstalledUpdate = "pi" | "extensions";
 
+type UpdateDetection =
+  | { kind: "pi"; pattern: RegExp }
+  | { kind: "extensions" };
+
 interface UpdateStep {
   command: string;
   args: string[];
   label: string;
-  installedUpdate?: {
-    kind: InstalledUpdate;
-    pattern: RegExp;
-  };
+  installedUpdate?: UpdateDetection;
 }
 
 const UPDATE_STEPS: UpdateStep[] = [
@@ -94,7 +97,6 @@ const UPDATE_STEPS: UpdateStep[] = [
     label: "Pi package update",
     installedUpdate: {
       kind: "extensions",
-      pattern: /^Updating .+\.\.\.$/m,
     },
   },
 ];
@@ -115,8 +117,10 @@ function defaultProcessAlive(pid: number): boolean {
 }
 
 function createDefaultDependencies(pi: ExtensionAPI): BrewAutoUpdateDependencies {
+  const exec = (command: string, args: string[], options: ExecOptions) =>
+    pi.exec(command, args, options);
   return {
-    exec: (command, args, options) => pi.exec(command, args, options),
+    exec,
     env: process.env,
     lockPath: defaultLockPath(process.env),
     now: () => Date.now(),
@@ -125,6 +129,7 @@ function createDefaultDependencies(pi: ExtensionAPI): BrewAutoUpdateDependencies
     token: randomUUID(),
     timeoutMs: DEFAULT_TIMEOUT_MS,
     staleLockMs: DEFAULT_STALE_LOCK_MS,
+    snapshotExtensions: () => captureExtensionSnapshot(exec, DEFAULT_TIMEOUT_MS),
   };
 }
 
@@ -238,6 +243,101 @@ function reportFailure(message: string): UpdateResult {
   return { status: "failed", message };
 }
 
+interface InstalledPackage {
+  source: string;
+  path: string;
+}
+
+function parseInstalledPackages(output: string): InstalledPackage[] {
+  const lines = stripVTControlCharacters(output).split(/\r?\n/);
+  const packages: InstalledPackage[] = [];
+
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    const source = /^  ((?:git|npm):.+)$/.exec(lines[index])?.[1];
+    const path = /^    (.+)$/.exec(lines[index + 1])?.[1];
+    if (source && path) packages.push({ source, path });
+  }
+
+  return packages;
+}
+
+function contentDigest(content: string | Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function npmInstallRoot(packagePath: string): string | undefined {
+  let current = packagePath;
+  while (dirname(current) !== current) {
+    if (basename(current) === "node_modules") return dirname(current);
+    current = dirname(current);
+  }
+  return undefined;
+}
+
+export async function captureExtensionSnapshot(
+  exec: BrewAutoUpdateDependencies["exec"],
+  timeoutMs: number,
+): Promise<Map<string, string> | undefined> {
+  try {
+    const list = await exec("pi", ["list"], { timeout: timeoutMs });
+    if (list.killed || list.code !== 0) return undefined;
+
+    const snapshot = new Map<string, string>();
+    const npmRoots = new Set<string>();
+    for (const installedPackage of parseInstalledPackages(list.stdout)) {
+      const key = `${installedPackage.source}\0${installedPackage.path}`;
+      if (installedPackage.source.startsWith("git:")) {
+        const revision = await exec(
+          "git",
+          ["-C", installedPackage.path, "rev-parse", "HEAD"],
+          { timeout: timeoutMs },
+        );
+        if (revision.killed) return undefined;
+        snapshot.set(key, revision.code === 0 ? revision.stdout.trim() : "missing");
+        continue;
+      }
+
+      try {
+        snapshot.set(key, contentDigest(await readFile(join(installedPackage.path, "package.json"))));
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") return undefined;
+        snapshot.set(key, "missing");
+      }
+      const root = npmInstallRoot(installedPackage.path);
+      if (root) npmRoots.add(root);
+    }
+
+    const lockPaths = [
+      "package-lock.json",
+      join("node_modules", ".package-lock.json"),
+      "pnpm-lock.yaml",
+      "bun.lock",
+      "bun.lockb",
+    ];
+    for (const root of npmRoots) {
+      for (const lockPath of lockPaths) {
+        const path = join(root, lockPath);
+        try {
+          snapshot.set(`lock\0${path}`, contentDigest(await readFile(path)));
+        } catch (error) {
+          if (errorCode(error) !== "ENOENT") return undefined;
+        }
+      }
+    }
+    return snapshot;
+  } catch {
+    return undefined;
+  }
+}
+
+function snapshotsChanged(before: Map<string, string>, after: Map<string, string>): boolean {
+  if (before.size !== after.size) return true;
+  for (const [key, revision] of before) {
+    if (after.get(key) !== revision) return true;
+  }
+  return false;
+}
+
 function installedUpdateMessage(updates: Set<InstalledUpdate>): string | undefined {
   if (updates.has("pi") && updates.has("extensions")) {
     return "Pi and its extensions updated. Restart Pi to use them.";
@@ -271,7 +371,12 @@ export async function runBrewAutoUpdate(
     lock = candidate;
 
     const installedUpdates = new Set<InstalledUpdate>();
+    let extensionChangeUnknown = false;
     for (const step of UPDATE_STEPS) {
+      const detectsExtensionUpdate = step.installedUpdate?.kind === "extensions";
+      const extensionBefore = detectsExtensionUpdate
+        ? await deps.snapshotExtensions()
+        : undefined;
       let result: ExecResult;
       try {
         result = await deps.exec(step.command, [...step.args], { timeout: deps.timeoutMs });
@@ -288,14 +393,29 @@ export async function runBrewAutoUpdate(
       if (result.code !== 0) {
         return reportFailure(`${step.label} failed: ${failureDetail(result)}`);
       }
-      if (step.installedUpdate?.pattern.test(`${result.stdout}\n${result.stderr}`)) {
-        installedUpdates.add(step.installedUpdate.kind);
+      const output = `${result.stdout}\n${result.stderr}`;
+      if (detectsExtensionUpdate) {
+        const extensionAfter = await deps.snapshotExtensions();
+        if (extensionBefore && extensionAfter) {
+          if (snapshotsChanged(extensionBefore, extensionAfter)) {
+            installedUpdates.add("extensions");
+          }
+        } else {
+          extensionChangeUnknown = true;
+        }
+      } else if (step.installedUpdate?.kind === "pi" && step.installedUpdate.pattern.test(output)) {
+        installedUpdates.add("pi");
       }
     }
 
     const updateMessage = installedUpdateMessage(installedUpdates);
     if (updateMessage) notify(ui, updateMessage, "info");
-    return { status: "complete", message: updateMessage ?? "Pi is up to date." };
+    const message =
+      updateMessage ??
+      (extensionChangeUnknown
+        ? "Pi package update completed; extension changes could not be verified."
+        : "Pi is up to date.");
+    return { status: "complete", message };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return reportFailure(`Pi update failed without blocking startup: ${detail}`);

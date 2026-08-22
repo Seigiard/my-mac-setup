@@ -9,9 +9,11 @@ import type {
 } from "../home/dot_pi/agent/extensions/brew-auto-update/index.ts";
 
 const sourceRoot = process.env.SOURCE_ROOT ?? join(import.meta.dir, "../home");
-const { default: registerBrewAutoUpdater, runBrewAutoUpdate } = await import(
-  join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts"),
-);
+const {
+  default: registerBrewAutoUpdater,
+  captureExtensionSnapshot,
+  runBrewAutoUpdate,
+} = await import(join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts"));
 
 const cleanupPaths: string[] = [];
 
@@ -54,10 +56,41 @@ async function dependencies(
     token: "test-owner",
     timeoutMs: 300_000,
     staleLockMs: 1_200_000,
+    snapshotExtensions: async () => new Map(),
     ...overrides,
   };
   return { deps, calls };
 }
+
+test("extension snapshots include npm package and lock-file content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-extension-snapshot-test-"));
+  cleanupPaths.push(root);
+  const packagePath = join(root, "node_modules", "example-extension");
+  await mkdir(packagePath, { recursive: true });
+  await writeFile(
+    join(packagePath, "package.json"),
+    JSON.stringify({ name: "example-extension", version: "1.0.0" }),
+  );
+  const lockPath = join(root, "package-lock.json");
+  await writeFile(lockPath, "old lock\n");
+  const exec: BrewAutoUpdateDependencies["exec"] = async (command) => ({
+    code: 0,
+    stdout:
+      command === "pi"
+        ? `User packages:\n  npm:example-extension\n    ${packagePath}\n`
+        : "",
+    stderr: "",
+    killed: false,
+  });
+
+  const before = await captureExtensionSnapshot(exec, 300_000);
+  await writeFile(lockPath, "new lock\n");
+  const after = await captureExtensionSnapshot(exec, 300_000);
+
+  expect(before).toBeDefined();
+  expect(after).toBeDefined();
+  expect(after).not.toEqual(before);
+});
 
 describe("brew auto update sequence", () => {
   test("does not notify when successful commands install no updates", async () => {
@@ -89,6 +122,46 @@ describe("brew auto update sequence", () => {
     expect(notifications).toEqual([]);
   });
 
+  test("does not notify when a git extension remains on the same revision", async () => {
+    const unchanged = new Map([["git:compound-engineering", "unchanged-commit"]]);
+    const { deps } = await dependencies({
+      snapshotExtensions: async () => new Map(unchanged),
+      exec: async (command) => ({
+        code: 0,
+        stdout:
+          command === "pi"
+            ? "Updating git:github.com/EveryInc/compound-engineering-plugin...\nUpdated packages\n"
+            : "",
+        stderr: "",
+        killed: false,
+      }),
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result).toEqual({ status: "complete", message: "Pi is up to date." });
+    expect(notifications).toEqual([]);
+  });
+
+  test("notifies when a git extension advances to a new revision", async () => {
+    let snapshots = 0;
+    const { deps } = await dependencies({
+      snapshotExtensions: async () => {
+        snapshots += 1;
+        return new Map([
+          ["git:compound-engineering", snapshots === 1 ? "old-commit" : "new-commit"],
+        ]);
+      },
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.message).toBe("Pi extensions updated. Restart Pi to use them.");
+    expect(notifications).toEqual([{ message: result.message, level: "info" }]);
+  });
+
   test.each([
     {
       label: "Pi",
@@ -105,7 +178,13 @@ describe("brew auto update sequence", () => {
       message: "Pi extensions updated. Restart Pi to use them.",
     },
   ])("shows one specific notification when $label changed", async (updated) => {
+    let snapshots = 0;
     const { deps, calls } = await dependencies({
+      snapshotExtensions: async () => {
+        snapshots += 1;
+        const revision = updated.label === "extensions" && snapshots === 2 ? "new" : "old";
+        return new Map([["extension", revision]]);
+      },
       exec: async (command, args) => {
         calls.push([command, args]);
         return {
@@ -127,7 +206,12 @@ describe("brew auto update sequence", () => {
   });
 
   test("combines Pi and extension updates into one notification", async () => {
+    let snapshots = 0;
     const { deps } = await dependencies({
+      snapshotExtensions: async () => {
+        snapshots += 1;
+        return new Map([["extension", snapshots === 1 ? "old" : "new"]]);
+      },
       exec: async (command, args) => ({
         code: 0,
         stdout:
@@ -151,6 +235,21 @@ describe("brew auto update sequence", () => {
         level: "info",
       },
     ]);
+  });
+
+  test("reports an unknown extension state without a false update notification", async () => {
+    const { deps } = await dependencies({
+      snapshotExtensions: async () => undefined,
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result).toEqual({
+      status: "complete",
+      message: "Pi package update completed; extension changes could not be verified.",
+    });
+    expect(notifications).toEqual([]);
   });
 
   test("skips all network work when PI_OFFLINE is set", async () => {
