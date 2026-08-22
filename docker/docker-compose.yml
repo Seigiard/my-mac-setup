@@ -52,8 +52,15 @@ services:
     command:
       - |
         set -e
+        echo "=== Staging writable test worktree ==="
+        mkdir -p /home/testuser/worktree
+        cp -r /home/testuser/dotfiles /home/testuser/worktree/home
+        cp -r /home/testuser/tests /home/testuser/worktree/tests
+        rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
+        cd /home/testuser/worktree
+
         echo "=== Copying dotfiles to chezmoi source ==="
-        (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/)
+        (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
 
         echo "=== Initializing chezmoi ==="
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
@@ -65,6 +72,9 @@ services:
 
         echo "=== Applying dotfiles (with package installation) ==="
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
+
+        echo "=== Installing smithers dependencies in the source tree ==="
+        bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
 
         echo "=== Running post-apply tests ==="
         bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
@@ -90,10 +100,16 @@ services:
     command:
       - |
         set -e
-        (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/)
+        mkdir -p /home/testuser/worktree
+        cp -r /home/testuser/dotfiles /home/testuser/worktree/home
+        cp -r /home/testuser/tests /home/testuser/worktree/tests
+        rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
+        cd /home/testuser/worktree
+        (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
         bats tests/templates.bats
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
+        bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
         bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
