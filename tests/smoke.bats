@@ -390,6 +390,7 @@ PY
     skills/ask-in-herdr/scripts/ask.sh
     shared/child-agent-contract.md
     skills/se-flow/SKILL.md
+    skills/se-cleanup/SKILL.md
     skills/eli5/SKILL.md
     skills/open-questions/SKILL.md
     skills/writing-for-agents/SKILL.md
