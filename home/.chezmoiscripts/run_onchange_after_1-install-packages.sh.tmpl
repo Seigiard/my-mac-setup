@@ -18,6 +18,9 @@ set -e
 
 BREWFILES_DIR="$HOME/.config/brewfiles"
 
+# Linux push and pull-request CI already provisions every required test tool
+# outside Linuxbrew. Full Linux runs and every macOS run still verify Brewfiles.
+# # {{ if not (and (get . "is_linux") (get . "ci_minimal")) }}
 # Check if Homebrew is installed
 if ! command -v brew &> /dev/null; then
     echo "Installing Homebrew..."
@@ -43,6 +46,7 @@ brew bundle --file="$BREWFILES_DIR/Brewfile.macos"
 # # {{ end }}
 
 echo "=== Package installation complete! ==="
+# # {{ end }}
 
 # Install Oh My Zsh if not present
 if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
