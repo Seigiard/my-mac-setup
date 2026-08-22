@@ -1,12 +1,13 @@
 ---
 title: "make test-ubuntu fails two tests on main because the Docker harness lacks two setup steps GitHub CI has"
-short_description: "Docker mounts `tests/` and `home/` apart and read-only, breaking the Pi updater import and preventing Smithers dependency installation, while GitHub CI keeps the trees resolvable and runs `bun install`."
+short_description: "Docker now stages writable sibling home/tests copies and installs Smithers in a clean source copy, matching CI without depending on ignored host artifacts."
 type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","bug"]
 date: "2026-08-19"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-22"
 ---
 
 ## Why this exists
@@ -93,3 +94,7 @@ regression.
   the smithers dependencies must be installed into the chezmoi source copy instead.
 - Whether `make test-ubuntu` should be gated in CI too, so this drift is caught automatically rather
   than by a developer running it locally.
+
+## Resolution
+
+Updated both Docker test services to copy the read-only home and tests mounts into a writable checkout-shaped worktree, remove copied Smithers node_modules, and run bun install --frozen-lockfile in that source tree before post-apply tests. This restores the sibling path required by the Pi TypeScript import, permits Python bytecode compilation, and prevents ignored host dependencies from masking missing Docker setup. The original Smithers failure had since gained a local-checkout skip, but the Docker harness still lacked CI source dependency provisioning. Verified all 356 Docker tests with the CI-minimal package render; two exact full-package retries were blocked before tests by transient ghcr.io Homebrew download failures.
