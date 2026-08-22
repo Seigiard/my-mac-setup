@@ -5,9 +5,10 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["ci","homebrew","cache","verification"]
 date: "2026-08-22"
-status: "open"
+status: "done"
 priority: "medium"
 parent-plan: "docs/plans/2026-08-22-0840-chore-homebrew-download-cache-plan.md"
+closed: "2026-08-22"
 ---
 
 ## Why this exists
@@ -39,3 +40,7 @@ Also decide whether a workflow-side cache-size guard is needed, or whether the P
 
 - Should `schedule` and `workflow_dispatch` skip Homebrew download restore, use a separate namespace, or keep the shared namespace from KTD4?
 - Should the workflow enforce a size guard before cache save, or should the repository rely on GitHub cache eviction plus the U2 measurement gate?
+
+## Resolution
+
+Changed .github/workflows/test-dotfiles.yml so push and pull_request runs restore the Homebrew downloads cache, while schedule and workflow_dispatch full-Brewfile runs skip restore and save fresh downloads only after the job succeeds. Added tests/test_ci_workflow.py to keep full-Brewfile verification from restoring stale downloads, and included it in make test-issues via unittest discovery. Checked the current GitHub Actions Homebrew cache entries from PR #57: Linux and macOS total 216,808,319 bytes, which is below the 5 GB budget gate, so no workflow-side size guard was added.

@@ -73,7 +73,10 @@ jobs:
 
       # The primary key rotates so every successful run saves the downloads it
       # fetched, while the restore keys still find the newest compatible entry.
+      # Full verification events skip restore so they prove current upstream
+      # archives still fetch, not only that old archives exist in Actions cache.
       - name: Restore Homebrew downloads cache
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
         uses: actions/cache@v4
         with:
           path: ~/.cache/Homebrew/downloads
@@ -223,6 +226,15 @@ jobs:
       - name: Run post-apply tests
         run: bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
 
+      # Save-only keeps scheduled and manual full-Brewfile runs useful as cache
+      # seeders without letting a restored archive mask upstream fetch decay.
+      - name: Save Homebrew downloads cache
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-${{ github.run_id }}
+
   test-macos:
     runs-on: macos-latest
     # A normal run takes ~10 min; brew install times vary, so keep headroom.
@@ -239,7 +251,10 @@ jobs:
 
       # The primary key rotates so every successful run saves the downloads it
       # fetched, while the restore keys still find the newest compatible entry.
+      # Full verification events skip restore so they prove current upstream
+      # archives still fetch, not only that old archives exist in Actions cache.
       - name: Restore Homebrew downloads cache
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/Homebrew/downloads
@@ -353,6 +368,15 @@ jobs:
 
       - name: Run post-apply tests
         run: bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+
+      # Save-only keeps scheduled and manual full-Brewfile runs useful as cache
+      # seeders without letting a restored archive mask upstream fetch decay.
+      - name: Save Homebrew downloads cache
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-${{ github.run_id }}
 
   lint:
     runs-on: ubuntu-latest
