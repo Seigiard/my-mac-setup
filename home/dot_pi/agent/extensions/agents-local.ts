@@ -166,6 +166,10 @@ async function inspectCandidate(
   };
 }
 
+function selectPreferredCandidate(candidates: LocalInstructionCandidate[]): LocalInstructionCandidate | undefined {
+  return candidates.find((candidate) => candidate.name === "AGENTS.local.md") ?? candidates[0];
+}
+
 function markSelection(
   diagnostics: LocalInstructionDiagnostic[],
   selected?: LocalInstructionCandidate,
@@ -198,7 +202,7 @@ export async function inspectLocalInstructions(cwd: string): Promise<LocalInstru
   const candidates = diagnostics.filter(
     (diagnostic): diagnostic is LocalInstructionCandidate => diagnostic.status === "candidate",
   );
-  const selected = candidates[0];
+  const selected = selectPreferredCandidate(candidates);
 
   return {
     selected,
