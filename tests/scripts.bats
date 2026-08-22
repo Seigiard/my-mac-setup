@@ -59,8 +59,51 @@ teardown() {
 # different in a git worktree, and the mismatch surfaced the moment the
 # Brewfiles were renamed in one tree and not the other.
 render_install_packages() {
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template \
+  local config_args=()
+  if [[ -n "${1:-}" ]]; then
+    config_args=(--config "$1")
+  fi
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" "${config_args[@]}" \
+    --source "$SOURCE_ROOT" execute-template \
     < "$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
+}
+
+@test "CI-minimal Linux render skips Homebrew but keeps the remaining setup" {
+  skip_if_no_chezmoi
+  local cfg="$BATS_TEST_TMPDIR/minimal-linux.yaml"
+  MMS_CI_MINIMAL=1 write_test_config "$cfg"
+  sed -i.bak 's/^  is_linux: .*/  is_linux: true/' "$cfg"
+
+  run render_install_packages "$cfg"
+  assert_success
+  refute_output --partial 'Installing Homebrew'
+  refute_output --partial 'brew bundle --file='
+  assert_output --partial 'Installing Oh My Zsh'
+  assert_output --partial 'Installing fff-mcp'
+}
+
+@test "full Linux render keeps Homebrew package installation" {
+  skip_if_no_chezmoi
+  local cfg="$BATS_TEST_TMPDIR/full-linux.yaml"
+  MMS_CI_MINIMAL="" write_test_config "$cfg"
+  sed -i.bak 's/^  is_linux: .*/  is_linux: true/' "$cfg"
+
+  run render_install_packages "$cfg"
+  assert_success
+  assert_output --partial 'Installing Homebrew'
+  assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
+}
+
+@test "CI-minimal non-Linux render keeps Homebrew package installation" {
+  skip_if_no_chezmoi
+  local cfg="$BATS_TEST_TMPDIR/minimal-non-linux.yaml"
+  MMS_CI_MINIMAL=1 write_test_config "$cfg"
+  sed -i.bak 's/^  is_linux: .*/  is_linux: false/' "$cfg"
+
+  run render_install_packages "$cfg"
+  assert_success
+  assert_output --partial 'Installing Homebrew'
+  assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
 @test "install-packages script renders as valid bash" {
