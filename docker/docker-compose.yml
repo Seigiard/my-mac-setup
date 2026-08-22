@@ -2,8 +2,8 @@ services:
   # Interactive shell for debugging
   ubuntu:
     build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
+      context: ..
+      dockerfile: docker/Dockerfile.ubuntu
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -28,8 +28,8 @@ services:
   # Full test with package installation
   test-full:
     build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
+      context: ..
+      dockerfile: docker/Dockerfile.ubuntu
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -84,14 +84,16 @@ services:
   # Quick test (no package installation, just config files)
   test-quick:
     build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
+      context: ..
+      dockerfile: docker/Dockerfile.ubuntu
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
+      - HOMEBREW_NO_AUTO_UPDATE=1
+      - HOMEBREW_NO_INSTALL_CLEANUP=1
       # See the ubuntu service above for why this is written literally. Note
       # that MMS_CI_MINIMAL stays absent here on purpose (docs/issues/
       # 2026-08-20-014); only the disposable-$HOME marker is shared.

@@ -1,0 +1,5 @@
+# Keep the build context limited to Docker inputs. Do not unignore all of home:
+# it can contain untracked dependencies and encrypted chezmoi source files.
+*
+!docker
+!home/private_dot_config/brewfiles
