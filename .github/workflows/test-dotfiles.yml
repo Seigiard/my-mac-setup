@@ -71,6 +71,17 @@ jobs:
           # minimal install saves.
           fetch-depth: 0
 
+      # The primary key rotates so every successful run saves the downloads it
+      # fetched, while the restore keys still find the newest compatible entry.
+      - name: Restore Homebrew downloads cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-${{ github.run_id }}
+          restore-keys: |
+            brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
+            brew-${{ runner.os }}-
+
       - name: Validate repository issues
         run: make test-issues
 
@@ -225,6 +236,17 @@ jobs:
           # 691 commits, so this costs a second or two against the minutes the
           # minimal install saves.
           fetch-depth: 0
+
+      # The primary key rotates so every successful run saves the downloads it
+      # fetched, while the restore keys still find the newest compatible entry.
+      - name: Restore Homebrew downloads cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-${{ github.run_id }}
+          restore-keys: |
+            brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
+            brew-${{ runner.os }}-
 
       - name: Validate repository issues
         run: make test-issues
