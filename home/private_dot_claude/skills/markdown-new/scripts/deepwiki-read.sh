@@ -21,5 +21,5 @@ case "$target" in
     ;;
 esac
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 "$script_dir/jina-read.sh" "$url"

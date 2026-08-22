@@ -47,6 +47,7 @@ load 'helpers/common'
     .config/yazi
     .claude
     .claude/CLAUDE.md
+    .pi/agent/extensions/agents-local.ts
     .config/herdr/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
@@ -950,6 +951,12 @@ PY
   assert_file_contains "$ext" 'before_agent_start'
   assert_file_contains "$ext" 'session_start'
   assert_file_contains "$ext" 'getSessionName'
+}
+
+@test "Pi local private instructions focused tests pass" {
+  run env PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
+    bun test "$BATS_TEST_DIRNAME/pi-agents-local-extension.test.ts"
+  assert_success
 }
 
 @test "Pi brew auto updater is deployed with startup and manual entry points" {
