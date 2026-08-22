@@ -1,8 +1,12 @@
 ---
-title: The nested-Bats wall-clock budget flaked the macOS CI job
-type: bug
-date: 2026-08-21
-status: open
+title: "The nested-Bats wall-clock budget flaked the macOS CI job"
+short_description: "One 90-second budget covered a nested Bats run whose cost is dominated by parsing 196 unrelated tests, leaving a 1.5x margin that ordinary CI variance exceeded; it is split into a hang guard plus an exit assertion and stays open until three consecutive green test-macos runs."
+type: "bug"
+category: "testing-ci"
+tags: ["testing-ci","herdr","bug"]
+date: "2026-08-21"
+status: "open"
+priority: "high"
 ---
 
 ## Why this exists

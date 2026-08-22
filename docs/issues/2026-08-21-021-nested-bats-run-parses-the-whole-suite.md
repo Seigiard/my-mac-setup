@@ -1,9 +1,12 @@
 ---
-title: The nested Bats run parses all 196 tests to execute one
-type: follow-up
-date: 2026-08-21
-status: open
-parent-plan: docs/plans/2026-08-21-0901-fix-inner-bats-wallclock-flake-plan.md
+title: "The nested Bats run parses all 196 tests to execute one"
+short_description: "The descriptor test spawns a nested Bats invocation of its own 5105-line file to run one filtered test, so roughly half that run is parsing tests it will never execute -- which is why the bound around it had to be large at all."
+type: "follow-up"
+category: "testing-ci"
+tags: ["testing-ci","herdr","follow-up"]
+date: "2026-08-21"
+status: "open"
+priority: "low"
 ---
 
 ## Why this exists

@@ -557,3 +557,32 @@ harness constants block, and the issue records.
   both.
 - **Not part of this plan's done, but its closing condition:** `020` flips to `done` after three
   consecutive green `test-macos` runs. Landing the PR does not close it.
+
+---
+
+## Post-implementation corrections
+
+Three things this plan asserts turned out to be wrong. They are recorded here rather than edited in
+place, because the reasoning that produced them is the useful part — each was caught by running the
+thing, not by reading it.
+
+**KTD4's stated mechanism was wrong; its decision was not.** The plan says the liveness check reads
+"the right process" because the recorded PID is the presentation claim's owner, which is the blocked
+stub's parent. That is true and irrelevant: the parent *outlives* the stub's give-up, so checking it
+passes on exactly the vacuous run the check exists to catch. The vacuity rehearsal proved it by
+passing when it should have failed. The shipped form has the stub record a durable give-up marker,
+which is a fact rather than a race. KTD4's decision — assert non-vacuity rather than assume it —
+stands unchanged; only the mechanism moved.
+
+**KTD3 understates what a leaked descriptor does.** The plan frames the property as "pipes reach EOF"
+on the theory that Bats itself exits normally and only the pipes stay open. Rehearsal shows the
+opposite: Bats' own formatter reads its pipeline to EOF, so a descendant holding the write end stops
+the top-level Bats process from finishing at all. A later attempt to split those into two separately
+reported faults was reverted for this reason — it would have filed the real regression under "Bats is
+stuck, which is not the descriptor bug". Both symptoms are checked; both report as one condition.
+
+**U3's index step no longer applies.** `docs/issues/_open-issues.md` was a hand-maintained index when
+this plan was written. `main` has since replaced it with guidance that explicitly says not to keep a
+second snapshot there — issues are listed through `python3 scripts/issues list`, and a validator
+(`make test-issues`) now enforces a richer frontmatter schema. The rebase dropped the index rows this
+plan asked for, and issues `020` and `021` were written to the new schema instead.
