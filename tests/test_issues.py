@@ -514,7 +514,7 @@ class ClientDiscoveryTests(unittest.TestCase):
         self.assertEqual(skill, opencode_skill.resolve() / "SKILL.md")
 
         pi_settings = REPOSITORY / ".pi" / "settings.json"
-        self.assertEqual({"skills": ["../.claude/skills"]}, json.loads(pi_settings.read_text()))
+        self.assertEqual({"skills": ["~/.claude/skills", "../.claude/skills"]}, json.loads(pi_settings.read_text()))
 
         agents = REPOSITORY / "AGENTS.md"
         self.assertTrue(agents.is_symlink())
