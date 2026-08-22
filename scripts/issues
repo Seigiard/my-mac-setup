@@ -30,7 +30,6 @@ CATEGORIES = {"testing-ci", "se-pipeline", "herdr", "command-palette", "agent-pl
 PRIORITIES = {"critical", "high", "medium", "low"}
 PRIORITY_LABELS = {"critical": "crit", "high": "high", "medium": "med", "low": "low"}
 PRIORITY_COLORS = {"critical": "\033[1;31m", "high": "\033[31m", "medium": "\033[33m", "low": "\033[34m"}
-PRIORITY_ICONS = {"critical": "", "high": "", "medium": "", "low": ""}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -264,7 +263,7 @@ def format_issue_summary(value: Dict[str, Any], color: bool = False) -> str:
     title = value["title"]
     description = value["short_description"]
     if color:
-        label = "%s %s[%s]\033[0m" % (PRIORITY_ICONS[priority], PRIORITY_COLORS[priority], label)
+        label = "%s[%s]\033[0m" % (PRIORITY_COLORS[priority], label)
         compact_id = "\033[36m%s\033[0m" % compact_id
         title = "\033[1m%s\033[0m" % title
         description = "\033[2m%s\033[0m" % description
