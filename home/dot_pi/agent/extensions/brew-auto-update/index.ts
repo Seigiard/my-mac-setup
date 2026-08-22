@@ -8,6 +8,13 @@ import { stripVTControlCharacters } from "node:util";
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_STALE_LOCK_MS = 20 * 60_000;
 const OWNER_FILE = "owner.json";
+const PACKAGE_LOCK_PATHS = [
+  "package-lock.json",
+  join("node_modules", ".package-lock.json"),
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+];
 
 type Trigger = "startup" | "manual";
 type NotificationLevel = "info" | "warning" | "error";
@@ -307,15 +314,8 @@ export async function captureExtensionSnapshot(
       if (root) npmRoots.add(root);
     }
 
-    const lockPaths = [
-      "package-lock.json",
-      join("node_modules", ".package-lock.json"),
-      "pnpm-lock.yaml",
-      "bun.lock",
-      "bun.lockb",
-    ];
     for (const root of npmRoots) {
-      for (const lockPath of lockPaths) {
+      for (const lockPath of PACKAGE_LOCK_PATHS) {
         const path = join(root, lockPath);
         try {
           snapshot.set(`lock\0${path}`, contentDigest(await readFile(path)));
@@ -393,17 +393,17 @@ export async function runBrewAutoUpdate(
       if (result.code !== 0) {
         return reportFailure(`${step.label} failed: ${failureDetail(result)}`);
       }
-      const output = `${result.stdout}\n${result.stderr}`;
       if (detectsExtensionUpdate) {
         const extensionAfter = await deps.snapshotExtensions();
-        if (extensionBefore && extensionAfter) {
-          if (snapshotsChanged(extensionBefore, extensionAfter)) {
-            installedUpdates.add("extensions");
-          }
-        } else {
+        if (!extensionBefore || !extensionAfter) {
           extensionChangeUnknown = true;
+        } else if (snapshotsChanged(extensionBefore, extensionAfter)) {
+          installedUpdates.add("extensions");
         }
-      } else if (step.installedUpdate?.kind === "pi" && step.installedUpdate.pattern.test(output)) {
+      } else if (
+        step.installedUpdate?.kind === "pi" &&
+        step.installedUpdate.pattern.test(`${result.stdout}\n${result.stderr}`)
+      ) {
         installedUpdates.add("pi");
       }
     }
