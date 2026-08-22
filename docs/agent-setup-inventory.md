@@ -106,28 +106,19 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Packages (`~/.pi/agent/settings.json` → `packages[]`) — `pi install <source>`
 
-Every package is enforced by `home/dot_pi/agent/modify_settings.json`; no Pi
-package is manual.
-
-| Package                      | Source                                                    | Managed |
-| ---------------------------- | --------------------------------------------------------- | ------- |
-| compound-engineering-plugin  | `git:github.com/EveryInc/compound-engineering-plugin`     | repo    |
-| pi-web-access                | `npm:pi-web-access`                                       | repo    |
-| pi-context-view              | `npm:pi-context-view`                                     | repo    |
-| pi-fff                       | `npm:@ff-labs/pi-fff`                                     | repo    |
-| pi-ask-user                  | `npm:pi-ask-user`                                         | repo    |
-| pi-subagentura               | `npm:pi-subagentura`                                      | repo    |
-| pi-loop                      | `npm:@trevonistrevon/pi-loop`                             | repo    |
+`home/dot_pi/agent/modify_settings.json` is the source of truth for Pi package
+extensions. Its `extensions` array is an exact desired list: `chezmoi apply`
+writes it to `~/.pi/agent/settings.json` `packages[]`. No Pi package extension
+is manual, and this inventory intentionally does not duplicate the package list.
 
 ### Skills (`~/.pi/agent/skills/`)
 
 `web-research`
 
-### Agents (`~/.pi/agent/agents/` — authored, keep)
+### Agents (`~/.pi/agent/agents/`)
 
-`ask-claude` · `ask-external` · `ask-opencode` · `ask-pi` ·
-`brainstorm-doc-reviewer` · `reviewer` · `se-plan-review` · `se-report-writer` ·
-`synthes-agent`
+No live Pi agents are kept. Add any future agent to `home/dot_pi/agent/agents/`
+before using it, so `chezmoi apply` can reproduce it.
 
 ---
 

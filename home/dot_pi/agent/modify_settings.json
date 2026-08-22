@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keep the terminal theme and required packages while preserving Pi runtime fields.
+# Keep the terminal theme and exact extension package set while preserving Pi runtime fields.
 
 set -euo pipefail
 
@@ -19,28 +19,26 @@ fi
   for await (const chunk of process.stdin) input += chunk;
 
   const settings = input.trim() === "" ? {} : JSON.parse(input);
-  const required = [
+  const extensions = [
+    "npm:@ff-labs/pi-fff",
+    "npm:@howaboua/pi-codex-conversion",
+    "npm:pi-subagents",
+    "npm:pi-agent-browser-native",
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
-    "npm:pi-subagentura",
     "npm:@trevonistrevon/pi-loop",
     "npm:pi-web-access",
     "npm:pi-context-view",
-    "npm:@ff-labs/pi-fff",
   ];
-  const packages = Array.isArray(settings.packages) ? settings.packages : [];
   const requiredSkills = ["~/.claude/skills"];
   const skills = Array.isArray(settings.skills) ? settings.skills : [];
 
-  for (const packageSource of required) {
-    if (!packages.includes(packageSource)) packages.push(packageSource);
-  }
   for (const skillSource of requiredSkills) {
     if (!skills.includes(skillSource)) skills.push(skillSource);
   }
 
   settings.theme = "terminal";
-  settings.packages = packages;
+  settings.packages = extensions;
   settings.skills = skills;
   process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
 })().catch((error) => {

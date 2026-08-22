@@ -4345,23 +4345,28 @@ se_fake_runtime() {
 # Pi settings modifier
 # ===========================================
 
-@test "Pi settings modifier selects the terminal theme and preserves runtime settings" {
+@test "Pi settings modifier selects the terminal theme and exact extension packages" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user"],"skills":["~/custom/skills"]}'
+  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:obsolete-extension","npm:unexpected-extension"],"skills":["~/custom/skills"]}'
 
   run bash "$modifier" <<< "$input"
 
   assert_success
   run jq -e '
+    [
+      "npm:@ff-labs/pi-fff",
+      "npm:@howaboua/pi-codex-conversion",
+      "npm:pi-subagents",
+      "npm:pi-agent-browser-native",
+      "git:github.com/EveryInc/compound-engineering-plugin",
+      "npm:pi-ask-user",
+      "npm:@trevonistrevon/pi-loop",
+      "npm:pi-web-access",
+      "npm:pi-context-view"
+    ] as $extensions |
     .theme == "terminal" and
     .lastChangelogVersion == "0.84.2" and
-    (.packages | index("git:github.com/EveryInc/compound-engineering-plugin") != null) and
-    (.packages | index("npm:pi-ask-user") != null) and
-    (.packages | index("npm:pi-subagentura") != null) and
-    (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
-    (.packages | index("npm:pi-web-access") != null) and
-    (.packages | index("npm:pi-context-view") != null) and
-    (.packages | index("npm:@ff-labs/pi-fff") != null) and
+    (.packages == $extensions) and
     (.skills | index("~/.claude/skills") != null) and
     (.skills | index("~/custom/skills") != null)
   ' <<< "$output"
@@ -4370,22 +4375,25 @@ se_fake_runtime() {
 
 @test "Pi settings modifier is idempotent" {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:pi-subagentura","npm:@trevonistrevon/pi-loop","npm:pi-ask-user","npm:pi-web-access","npm:pi-context-view","npm:@ff-labs/pi-fff"],"skills":["~/.claude/skills"]}'
+  local input='{"packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/.claude/skills"]}'
 
   run bash "$modifier" <<< "$input"
 
   assert_success
   run jq -e '
     [
-      "npm:pi-subagentura",
+      "npm:@ff-labs/pi-fff",
+      "npm:@howaboua/pi-codex-conversion",
+      "npm:pi-subagents",
+      "npm:pi-agent-browser-native",
+      "git:github.com/EveryInc/compound-engineering-plugin",
+      "npm:pi-ask-user",
       "npm:@trevonistrevon/pi-loop",
       "npm:pi-web-access",
-      "npm:pi-context-view",
-      "npm:@ff-labs/pi-fff"
-    ] as $required |
+      "npm:pi-context-view"
+    ] as $extensions |
     (.theme == "terminal") and
-    (.packages as $packages |
-      all($required[]; . as $package | [$packages[] | select(. == $package)] | length == 1)) and
+    (.packages == $extensions) and
     ([.skills[] | select(. == "~/.claude/skills")] | length == 1)
   ' <<< "$output"
   assert_success

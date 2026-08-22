@@ -346,7 +346,9 @@ PY
   local settings="$HOME/.pi/agent/settings.json"
   assert_file_exists "$settings"
   run jq -e '
-    (.packages | index("npm:pi-subagentura") != null) and
+    (.packages | index("npm:pi-subagents") != null) and
+    (.packages | index("npm:pi-agent-browser-native") != null) and
+    (.packages | index("npm:@howaboua/pi-codex-conversion") != null) and
     (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
     (.packages | index("npm:pi-web-access") != null) and
     (.packages | index("npm:pi-context-view") != null) and
