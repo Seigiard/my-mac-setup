@@ -4,3 +4,4 @@ config/fish/fish_variables
 .idea
 .worktrees
 docs/issues/.issues.lock
+home/private_dot_config/private_karabiner/automatic_backups/

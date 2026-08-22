@@ -13,6 +13,16 @@ teardown() {
 }
 
 # ===========================================
+# python3 -- the declared interpreter
+# ===========================================
+
+# First, so JSON validation below fails with the repository-level requirement
+# message rather than a bare `python3: command not found`.
+@test "python3 is present and at least 3.9, the floor README.md declares" {
+  assert_python3_available
+}
+
+# ===========================================
 # .chezmoi.yaml.tmpl (validated via chezmoi data — init-only template
 # uses promptStringOnce which is unavailable in execute-template)
 # ===========================================
@@ -242,15 +252,7 @@ PROBE
 @test "opencode.json.tmpl renders valid JSON" {
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
-  if command_exists jq; then
-    run jq empty "$BATS_TEST_TMPFILE"
-  elif command_exists python3; then
-    run python3 -m json.tool "$BATS_TEST_TMPFILE"
-  elif command_exists node; then
-    run node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$BATS_TEST_TMPFILE"
-  else
-    skip "no JSON parser available (jq/python3/node)"
-  fi
+  run python3 -m json.tool "$BATS_TEST_TMPFILE"
   assert_success
 }
 
@@ -332,15 +334,7 @@ render_with_source() {
 @test "private_settings.json.tmpl renders valid JSON" {
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-  if command_exists jq; then
-    run jq empty "$BATS_TEST_TMPFILE"
-  elif command_exists python3; then
-    run python3 -m json.tool "$BATS_TEST_TMPFILE"
-  elif command_exists node; then
-    run node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$BATS_TEST_TMPFILE"
-  else
-    skip "no JSON parser available (jq/python3/node)"
-  fi
+  run python3 -m json.tool "$BATS_TEST_TMPFILE"
   assert_success
 }
 

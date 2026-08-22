@@ -11,3 +11,7 @@
 # opencode moved to theme "system"; the retired forced theme otherwise lingers
 # live and breaks the smoke deployment contract (tests/smoke.bats).
 .config/opencode/themes/flexoki-light-forced.json
+
+# Marta now reads configuration from Application Support/org.yanex.marta.
+# Remove the legacy config directory that earlier applies left behind.
+Library/marta
