@@ -22,7 +22,7 @@ init-submodules:
 
 test-issues:
 	python3 scripts/issues validate
-	python3 -m unittest tests/test_issues.py
+	python3 -m unittest discover -s tests -p 'test_*.py'
 
 build-docker: init-submodules
 	docker compose -f docker/docker-compose.yml build
