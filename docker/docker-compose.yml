@@ -7,6 +7,7 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
@@ -33,6 +34,7 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
@@ -56,6 +58,7 @@ services:
         mkdir -p /home/testuser/worktree
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
+        cp /home/testuser/README.md /home/testuser/worktree/README.md
         rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
 
@@ -89,6 +92,7 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
@@ -105,6 +109,7 @@ services:
         mkdir -p /home/testuser/worktree
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
+        cp /home/testuser/README.md /home/testuser/worktree/README.md
         rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
         (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
