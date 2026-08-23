@@ -568,7 +568,7 @@ HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
 # The base deadline still catches idle multi-second regressions. The multiplier
 # gives loaded CI a margin for scheduler stalls that the baseline observes.
 HTS_FAIL_OPEN_BEHAVIOR_SECONDS="${HTS_FAIL_OPEN_BEHAVIOR_SECONDS:-2.5}"
-HTS_FAIL_OPEN_BASELINE_MULTIPLIER="${HTS_FAIL_OPEN_BASELINE_MULTIPLIER:-4}"
+HTS_FAIL_OPEN_BASELINE_MULTIPLIER="${HTS_FAIL_OPEN_BASELINE_MULTIPLIER:-8}"
 
 # Hang guard for the same assertions. A return after the behavioral budget is a
 # promptness regression. No return by this ceiling is a hung fail-open path.

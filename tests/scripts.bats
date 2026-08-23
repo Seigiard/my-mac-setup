@@ -1768,6 +1768,7 @@ PY
 @test "herdr-task-sync fail-open deadline rejects late success before the hang guard" {
   hts_setup
   local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=1
+  local HTS_FAIL_OPEN_BASELINE_MULTIPLIER=1
   local HTS_FAIL_OPEN_MAX_SECONDS=5
 
   run hts_run_fail_open_guard sleep 2

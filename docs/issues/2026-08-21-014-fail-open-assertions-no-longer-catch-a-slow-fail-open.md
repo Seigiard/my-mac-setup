@@ -77,4 +77,4 @@ before returning on an idle runner.
 
 ## Resolution
 
-Added a two-budget fail-open guard in tests/helpers/herdr_task_sync.bash, updated the three promptness assertions in tests/scripts.bats to use it, and added a regression test proving a late success fails before the hang guard. The guard scales its same-run baseline so full-suite scheduler contention does not fail a healthy path.
+Added a two-budget fail-open guard in tests/helpers/herdr_task_sync.bash, updated the three promptness assertions in tests/scripts.bats to use it, and added a regression test proving a late success fails before the hang guard. The guard scales its same-run baseline so full-suite scheduler contention does not fail a healthy path; the regression test pins a strict multiplier to keep the late-success proof deterministic.
