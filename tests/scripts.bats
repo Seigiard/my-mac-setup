@@ -47,6 +47,16 @@ teardown() {
   assert_failure
 }
 
+@test "Docker image fails at build time when apt git is too old for zdiff3" {
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  local dockerfile="$repo_root/docker/Dockerfile.ubuntu"
+  [[ -f "$dockerfile" ]] || skip "repo-root Dockerfile is not available in this environment"
+
+  assert_file_contains "$dockerfile" '^      if ! dpkg --compare-versions "\$found" ge "\$required"; then \\$'
+  assert_file_contains "$dockerfile" '^    assert_git_version_at_least 2 35; \\$'
+  assert_file_contains "$dockerfile" '^    command -v python3 >/dev/null'
+}
+
 # ===========================================
 # install-packages script
 # ===========================================
