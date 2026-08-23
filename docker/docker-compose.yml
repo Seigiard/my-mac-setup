@@ -20,7 +20,7 @@ services:
       # idempotency tests in tests/idempotent.bats run their real
       # `chezmoi apply`. Written literally in all three services, unlike
       # MMS_CI_MINIMAL above, which is read from the host and is deliberately
-      # absent from test-quick. tests/idempotent.bats hard-fails when
+      # absent from the test-ubuntu service. tests/idempotent.bats hard-fails when
       # /.dockerenv exists and this is missing.
       - MMS_DISPOSABLE_HOME=1
     tty: true
@@ -43,7 +43,7 @@ services:
       # cross-platform Brewfile (R5). Set it to compare skip counts between the
       # two renders:
       #   MMS_CI_MINIMAL=1 docker compose -f docker/docker-compose.yml run --rm test-full
-      # `test-quick` deliberately has no such entry, which is what keeps
+      # The `test-ubuntu` service deliberately has no such entry, which keeps
       # `make test-ubuntu` on the full render — see docs/issues/2026-08-20-014.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
       # See the ubuntu service above for why this is written literally.
@@ -81,8 +81,8 @@ services:
 
         echo "=== All done! ==="
 
-  # Quick test (no package installation, just config files)
-  test-quick:
+  # Full Ubuntu test without the optional CI-minimal Brewfile render
+  test-ubuntu:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ubuntu

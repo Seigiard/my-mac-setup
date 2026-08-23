@@ -21,7 +21,7 @@ load 'helpers/common'
 # race, so this file stays sequential even when the suite runs with --jobs,
 # and all five invocation sites keep --no-parallelize-across-files: Makefile
 # `test-suite`, the two `Run post-apply tests` steps in
-# .github/workflows/test-dotfiles.yml, and the test-full and test-quick
+# .github/workflows/test-dotfiles.yml, and the test-full and test-ubuntu
 # services in docker/docker-compose.yml. It is 1.3 s of a 268 s suite, so
 # serializing it costs nothing measurable.
 BATS_NO_PARALLELIZE_WITHIN_FILE=true
@@ -142,7 +142,7 @@ predicate_verdict() {
   fi
 
   [[ "${MMS_DISPOSABLE_HOME:-}" == "1" ]] || \
-    fail "This environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists), but MMS_DISPOSABLE_HOME is '${MMS_DISPOSABLE_HOME:-<unset>}' instead of 1. The four idempotency tests in this file would skip here, removing that coverage without turning anything red. Declare the marker at the site that launched this suite: .github/workflows/test-dotfiles.yml (top-level env: block), or docker/docker-compose.yml (services ubuntu, test-quick, test-full)."
+    fail "This environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists), but MMS_DISPOSABLE_HOME is '${MMS_DISPOSABLE_HOME:-<unset>}' instead of 1. The four idempotency tests in this file would skip here, removing that coverage without turning anything red. Declare the marker at the site that launched this suite: .github/workflows/test-dotfiles.yml (top-level env: block), or docker/docker-compose.yml (services ubuntu, test-ubuntu, test-full)."
 }
 
 @test "guard: the marker's claim covers chezmoi's real destination" {

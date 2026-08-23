@@ -1,12 +1,13 @@
 ---
 title: "make test-ubuntu labeling drift — runs test-quick, docs say \"Full test\""
-short_description: "The `test-quick` and `test-full` services both perform a full `chezmoi apply` plus the suite, so the current names and documentation conceal that neither path skips package installation."
+short_description: "The full Ubuntu Docker service now uses the `test-ubuntu` name, so Make targets, Compose services, and disposable-home guard messages agree that the path runs the full apply suite."
 type: "chore"
 category: "testing-ci"
 tags: ["testing-ci","chore"]
 date: "2026-08-20"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -26,3 +27,7 @@ In practice `test-quick` and `test-full` run the same apply-plus-suite flow; the
 ## Open decisions
 
 - Merge `test-quick` into `test-full` vs. make `test-quick` genuinely quick. The parallel-bats plan's U4 measures via `make test-ubuntu`, so whichever service it maps to should match CI's apply-then-suite path.
+
+## Resolution
+
+Renamed the full Ubuntu Docker compose service from test-quick to test-ubuntu, updated Make targets and guard messages to use the clear service name, and added a regression test that prevents make test-ubuntu from routing through a misleading service name.

@@ -161,7 +161,7 @@ require_disposable_home() {
       return 0
       ;;
     misconfigured)
-      fail "MMS_DISPOSABLE_HOME is not 1, but this environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists). Declare the marker at the site that launched this suite, or these tests lose their coverage silently: .github/workflows/test-dotfiles.yml (top-level env: block), and docker/docker-compose.yml (services ubuntu, test-quick, test-full)."
+      fail "MMS_DISPOSABLE_HOME is not 1, but this environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists). Declare the marker at the site that launched this suite, or these tests lose their coverage silently: .github/workflows/test-dotfiles.yml (top-level env: block), and docker/docker-compose.yml (services ubuntu, test-ubuntu, test-full)."
       return 1
       ;;
     *)

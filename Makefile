@@ -29,10 +29,10 @@ build-docker: init-submodules
 	docker compose -f docker/docker-compose.yml build
 
 test-ubuntu: test-issues build-docker
-	docker compose -f docker/docker-compose.yml run --rm test-quick
+	docker compose -f docker/docker-compose.yml run --rm test-ubuntu
 
 test-templates: test-issues build-docker
-	docker compose -f docker/docker-compose.yml run --rm -T test-quick \
+	docker compose -f docker/docker-compose.yml run --rm -T test-ubuntu \
 		'set -e && (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/) && \
 		chezmoi init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
 		bats tests/templates.bats'
