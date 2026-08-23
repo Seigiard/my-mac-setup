@@ -11,11 +11,16 @@ priority: "low"
 
 ## Why this exists
 
-Describe the problem and its impact.
+`docs/agent-setup-inventory.md` says that OpenCode installs no plugins through
+`plugin[]`, while `home/private_dot_config/opencode/opencode.json.tmpl` installs
+the Compound Engineering plugin there. The contradiction makes the manual
+reinstall inventory unreliable.
 
 ## Scope
 
-Define the work that resolves this issue.
+Update the OpenCode plugin inventory to match the managed `plugin[]` value and
+state that chezmoi owns the configuration. Keep the inventory's bundle-level
+listing rule instead of enumerating the plugin's internal skills and agents.
 
 ## Open decisions
 

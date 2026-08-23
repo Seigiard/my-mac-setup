@@ -22,8 +22,8 @@ assertions block unrelated template changes from getting a green baseline.
 
 Update the source-render and deployed-file assertions for the Claude output
 style, Pi `APPEND_SYSTEM`, and shared agent writing-style file to check a stable
-heading from the current canonical template. Keep all three adapters covered
-without changing the writing-style content as part of this fix.
+substantive rule from the current canonical template. Keep all three adapters
+covered without changing the writing-style content as part of this fix.
 
 ## Open decisions
 
