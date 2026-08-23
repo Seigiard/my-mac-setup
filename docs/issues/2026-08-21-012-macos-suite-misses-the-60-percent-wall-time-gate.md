@@ -115,9 +115,12 @@ sum to something near 283 s, the tail is the floor and more jobs will not help.
 
 ## Open decisions
 
-- Whether 67% of baseline on macOS is worth further work at all. The job already
-  runs inside its 25-minute timeout with room to spare, and the absolute saving is
-  already 140 s per run.
+- This branch chooses the lowest-cost experiment: add a Bats-only `flock` wrapper
+  to the macOS CI `PATH` and map Bats' simple `flock <directory> <command...>`
+  call to macOS `lockf -k <directory>/.bats-lockf.lock <command...>`. The
+  remaining decision is data-dependent: keep the wrapper if the suite wall-time
+  improves without new flakes; otherwise install Homebrew `flock`, measure a
+  macOS-specific `--jobs` curve, or close this issue as not worth further work.
 - If further work resumes, whether CI billed minutes matter. If wall time is the
   only constraint, repeating `chezmoi apply` across runner-level shards may be
   acceptable; if billed minutes matter too, sharding starts at a disadvantage.

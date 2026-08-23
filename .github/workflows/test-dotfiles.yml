@@ -353,15 +353,24 @@ jobs:
           test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
           test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
 
-      # Within-file parallelism runs on bats' own semaphore, which hard-exits
-      # with "flock/shlock is required for parallelization within files!" when
-      # neither is present. Nothing is installed here: flock ships in Ubuntu,
-      # macOS ships /usr/bin/shlock. Asserting it gives that failure its own
-      # step instead of letting it surface mid-suite. --jobs needs bats >= 1.5;
-      # the version check guards against a runner-image pin-back.
+      # Bats prefers flock over shlock for its within-file semaphore. macOS
+      # ships lockf and shlock, but bats-core polls the shlock backend with a
+      # one-second sleep under contention. This PATH entry gives Bats a narrow
+      # flock-compatible command that maps only Bats' simple lock form to
+      # lockf, without adding a Homebrew package to the timed CI setup.
+      - name: Select the Bats flock wrapper
+        run: echo "$GITHUB_WORKSPACE/scripts/ci/macos-bats-flock-bin" >> "$GITHUB_PATH"
+
+      # Within-file parallelism runs on bats' own semaphore. The macOS job
+      # requires the local wrapper here rather than accepting shlock, because
+      # bats-core polls the shlock backend with a one-second sleep under
+      # contention. Asserting the chosen backend gives a PATH mistake its own
+      # step instead of silently measuring the old path. --jobs needs bats >=
+      # 1.5; the version check guards against a runner-image pin-back.
       - name: Assert the parallel-run prerequisites
         run: |
-          command -v flock || command -v shlock
+          test "$(command -v flock)" = "$GITHUB_WORKSPACE/scripts/ci/macos-bats-flock-bin/flock"
+          command -v lockf
           bats --version
           bats --version | awk '{print $2}' \
             | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'

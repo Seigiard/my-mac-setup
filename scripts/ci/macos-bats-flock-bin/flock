@@ -1,0 +1,31 @@
+#!/bin/sh
+# Bats-only flock compatibility wrapper for macOS CI.
+#
+# Bats-core calls only: flock "$BATS_SEMAPHORE_DIR" command [args...]
+# macOS has lockf, not flock. This wrapper maps Bats' directory target to a
+# stable file inside that directory and rejects unsupported flock forms.
+
+set -eu
+
+if [ "$#" -lt 2 ]; then
+  echo "usage: flock LOCK_TARGET COMMAND [ARG...]" >&2
+  exit 64
+fi
+
+case "$1" in
+  -*)
+    echo "unsupported flock option for Bats-only wrapper: $1" >&2
+    exit 64
+    ;;
+esac
+
+lock_target=$1
+shift
+
+if [ -d "$lock_target" ]; then
+  lock_file="$lock_target/.bats-lockf.lock"
+else
+  lock_file="$lock_target"
+fi
+
+exec lockf -k "$lock_file" "$@"
