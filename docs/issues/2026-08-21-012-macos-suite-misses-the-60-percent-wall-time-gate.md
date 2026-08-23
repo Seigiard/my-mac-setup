@@ -97,6 +97,16 @@ sum to something near 283 s, the tail is the floor and more jobs will not help.
   tracks as duplicated across five sites -- weigh that before splitting it.
 - Measure the per-test wall-time distribution of `tests/scripts.bats` to find out
   whether a serial tail sets the floor.
+- Runner-level matrix sharding is the CI-only variant of cross-file
+  parallelism. It avoids the shared-`$HOME` hazard because each GitHub Actions
+  runner gets a separate home directory, but it repeats the dominant
+  `chezmoi apply` setup on every shard, does not help local or Docker runs, and
+  has little wall-time upside while `tests/scripts.bats` remains 85% of the
+  Ubuntu baseline. Treat it as lower priority than measuring `shlock`, the
+  macOS job-count curve, and the per-test distribution inside `tests/scripts.bats`.
+  This records the option from
+  `docs/issues/2026-08-21-006-ci-sharding-not-evaluated-against-within-file-parallelism.md`
+  in the active residual issue.
 - Cross-file parallelism is the deferred lever. It was ruled out by decision, not
   by measurement: `tests/idempotent.bats` mutates the shared `$HOME` through a
   real `chezmoi apply` while other files read deployed state from it. Making the
@@ -108,3 +118,9 @@ sum to something near 283 s, the tail is the floor and more jobs will not help.
 - Whether 67% of baseline on macOS is worth further work at all. The job already
   runs inside its 25-minute timeout with room to spare, and the absolute saving is
   already 140 s per run.
+- If further work resumes, whether CI billed minutes matter. If wall time is the
+  only constraint, repeating `chezmoi apply` across runner-level shards may be
+  acceptable; if billed minutes matter too, sharding starts at a disadvantage.
+- Whether splitting `tests/scripts.bats` into topic files is worth doing on its
+  own merits. That split would help both runner-level sharding and same-runner
+  cross-file parallelism.

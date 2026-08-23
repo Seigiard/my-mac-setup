@@ -5,9 +5,10 @@ type: "idea"
 category: "testing-ci"
 tags: ["testing-ci","idea"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
 parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -50,3 +51,13 @@ the suite is green but stays above 60% of baseline. At that point compare three 
   matters? The answer decides whether sharding is viable at all.
 - Splitting `tests/scripts.bats` into topic files would help sharding *and* cross-file
   parallelism. Is that refactor worth doing on its own merits, independent of speed?
+
+## Resolution
+
+Carried the runner-level matrix sharding comparison into
+`docs/issues/2026-08-21-012-macos-suite-misses-the-60-percent-wall-time-gate.md`,
+the active stable-but-slow residual issue. The residual now records why sharding
+avoids shared-home interleaving but remains lower priority: every shard repeats
+the dominant `chezmoi apply` setup, local and Docker runs do not improve, and
+`tests/scripts.bats` must be split before a file matrix can reduce wall time
+materially.
