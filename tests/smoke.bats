@@ -57,6 +57,7 @@ load 'helpers/common'
     .config/yazi
     .claude
     .claude/CLAUDE.md
+    .local/lib/herdr-aliases.sh
     .pi/agent/extensions/agents-local.ts
     .config/herdr/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
