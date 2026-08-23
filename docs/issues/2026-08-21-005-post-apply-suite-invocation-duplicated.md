@@ -5,9 +5,10 @@ type: "follow-up"
 category: "repository-maintenance"
 tags: ["repository-maintenance","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "medium"
 parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -20,7 +21,7 @@ parallel-bats plan adds a fifth:
   `test-ubuntu` job
 - `.github/workflows/test-dotfiles.yml` — the same step in the `test-macos` job
 - `docker/docker-compose.yml` — the `test-full` service `command`
-- `docker/docker-compose.yml` — the `test-quick` service `command`
+- `docker/docker-compose.yml` — the `test-ubuntu` service `command`
 - `Makefile` — the `test-suite` target the parallel-bats plan's U3 adds
 
 The failure mode is that a missed site does not fail. Drop `--jobs` from one of them and
@@ -58,7 +59,7 @@ them carry behaviour rather than just a file list:
 - `.github/workflows/test-dotfiles.yml`, `test-ubuntu` -- `bats --jobs 8 --no-parallelize-across-files <5 files>`
 - `.github/workflows/test-dotfiles.yml`, `test-macos` -- same
 - `docker/docker-compose.yml`, `test-full` -- same
-- `docker/docker-compose.yml`, `test-quick` -- same
+- `docker/docker-compose.yml`, `test-ubuntu` -- same
 - `Makefile`, `test-suite` -- same flags over **four** files, not five
 
 That last one is a deliberate difference, not drift: the local target omits
@@ -70,3 +71,7 @@ own -- it needs the file list and the host-safe file list as two names.
 
 The drift risk named above is now concrete: dropping `--jobs 8` from any one site
 silently returns that runtime to sequential execution, and nothing goes red.
+
+## Resolution
+
+Added tests/run-post-apply.sh with full and host-safe modes, routed the GitHub Actions jobs, Docker services, and make test-suite through it, and added tests/test_post_apply_suite_contract.py so future flag or file-list drift fails in the Python contract suite.

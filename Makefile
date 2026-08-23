@@ -65,7 +65,7 @@ test-suite: init-submodules
 	@echo "NOTE: asserts against the ALREADY-APPLIED ~/ , not this checkout."
 	@echo "      An edit under home/ is not covered until it is applied."
 	@echo "      To test an unapplied edit, use: make test-ubuntu"
-	bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats
+	tests/run-post-apply.sh host-safe
 
 test-docker: test-issues build-docker
 	@echo "=== Running Ubuntu tests ==="
