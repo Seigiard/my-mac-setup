@@ -1,17 +1,18 @@
 ---
 title: "Capture the idle-machine wall-clock bound as a documented pattern"
-short_description: "Four load-sensitive failures were independently misdiagnosed because idle-machine deadlines conflated hang guards with performance assertions, so the causal-testing pattern needs a durable `docs/solutions` entry."
+short_description: "Five load-sensitive failures showed that idle-machine deadlines can conflate hang guards with behavioral assertions; the durable causal-testing pattern is now documented in docs/solutions."
 type: "follow-up"
 category: "repository-maintenance"
 tags: ["repository-maintenance","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
 
-The same defect has now been found four times in this repository, three of them
+The same defect has now been found five times in this repository, three of them
 in a single file, and it is written down nowhere durable. Each instance was
 diagnosed from scratch.
 
@@ -86,10 +87,13 @@ Two things that instance adds to this document's eventual write-up:
   against a deliberately-pinned-low ceiling. The working form records the give-up
   as a durable marker rather than racing a liveness poll.
 
-## Open decisions
+## Decisions
 
-- Whether the shared-`/tmp`-path lesson belongs in the same document or its own.
-  It is a different mechanism (collision, not timing) that happened to surface in
-  the same work.
-- Whether the write-up should carry the two additions from instance five above as
-  their own rules, or fold them into the existing two.
+- The shared-`/tmp`-path lesson is excluded. It is a different mechanism
+  (collision, not timing) that happened to surface in the same work.
+- The two additions from instance five are folded into the causal-first guidance
+  as the explicit fallback and its required non-vacuity proof.
+
+## Resolution
+
+Documented the five recurring failures and their causal-first remedy in docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md. The article covers split guard/assertion budgets, production-value alignment, realistic contention, distinct failure signatures, and mutation and non-vacuity checks; it excludes the separate shared-/tmp collision mechanism and cross-references the external-subprocess timing pattern.

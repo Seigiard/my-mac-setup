@@ -5,9 +5,10 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
 parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -127,3 +128,7 @@ sum to something near 283 s, the tail is the floor and more jobs will not help.
 - Whether splitting `tests/scripts.bats` into topic files is worth doing on its
   own merits. That split would help both runner-level sharding and same-runner
   cross-file parallelism.
+
+## Resolution
+
+Resolved by PR #66, commit a6dc72e4377cf771889f6b188f9311d40bf25c05. The macOS GitHub Actions job selected the repository's Bats flock wrapper, verified /usr/bin/lockf, and ran the post-apply suite with bats --jobs 8 --no-parallelize-across-files. In run 32619890143, the post-apply tests started at 2026-08-23T05:17:23.945399Z and the last test completed at 2026-08-23T05:21:32.798725Z, about 249 seconds. Against the recorded 423-second macOS sequential baseline, that is about 58.8%, which meets the 60% wall-time gate.

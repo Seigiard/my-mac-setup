@@ -1,7 +1,7 @@
 ---
 title: External review legs as unreliable subprocesses
 date: 2026-08-14
-last_updated: 2026-08-21
+last_updated: 2026-08-23
 category: design-patterns
 module: se-pipeline
 problem_type: design_pattern
@@ -117,4 +117,5 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
 - `docs/se-pipeline.md:590-656` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status) plus the payload-over-adjective status rule; thresholds and env pins live there, this doc carries the transferable pattern and its history.
 - `docs/solutions/design-patterns/protected-slot-signal-extraction.md` — the full development of the severity-layer paragraph above: protected-slot extraction (decoys inert by position), cross-field consistency, and why the additive layer may fail open to advisory while leg availability stays fail-closed.
 - `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
+- `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` — sibling test-harness pattern: prefer causal assertions, or separate a generous hang guard from the narrow behavioral assertion when elapsed time is unavoidable.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).
