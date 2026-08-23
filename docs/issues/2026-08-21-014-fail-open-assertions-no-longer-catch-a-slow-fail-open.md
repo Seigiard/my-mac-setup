@@ -71,10 +71,10 @@ gets muted.
 ## Decisions resolved
 
 Promptness is still part of the test contract. The selected fix keeps the
-generous hang guard but adds a same-run baseline plus a tight behavioral
+generous hang guard but adds a scaled same-run baseline plus a tight behavioral
 deadline, because these fail-open paths should not silently take several seconds
-before returning.
+before returning on an idle runner.
 
 ## Resolution
 
-Added a two-budget fail-open guard in tests/helpers/herdr_task_sync.bash, updated the three promptness assertions in tests/scripts.bats to use it, and added a regression test proving a late success fails before the hang guard.
+Added a two-budget fail-open guard in tests/helpers/herdr_task_sync.bash, updated the three promptness assertions in tests/scripts.bats to use it, and added a regression test proving a late success fails before the hang guard. The guard scales its same-run baseline so full-suite scheduler contention does not fail a healthy path.

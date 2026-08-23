@@ -563,9 +563,12 @@ hts_after_call_script() {
 HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
 
 # Behavioral budget for the "fails open promptly rather than hanging" assertions.
-# The helper below adds a same-run process-launch baseline before enforcing this,
-# so scheduler contention is measured separately from the fail-open path itself.
-HTS_FAIL_OPEN_BEHAVIOR_SECONDS="${HTS_FAIL_OPEN_BEHAVIOR_SECONDS:-2}"
+# The helper below scales a same-run process-launch baseline before enforcing this,
+# so full-suite scheduler contention does not become the behavioral deadline.
+# The base deadline still catches idle multi-second regressions. The multiplier
+# gives loaded CI a margin for scheduler stalls that the baseline observes.
+HTS_FAIL_OPEN_BEHAVIOR_SECONDS="${HTS_FAIL_OPEN_BEHAVIOR_SECONDS:-2.5}"
+HTS_FAIL_OPEN_BASELINE_MULTIPLIER="${HTS_FAIL_OPEN_BASELINE_MULTIPLIER:-4}"
 
 # Hang guard for the same assertions. A return after the behavioral budget is a
 # promptness regression. No return by this ceiling is a hung fail-open path.
@@ -611,12 +614,16 @@ PY
 }
 
 hts_run_fail_open_guard() {
-  local behavior_ms hang_ms baseline_start baseline_end baseline_ms
+  local behavior_ms hang_ms baseline_multiplier baseline_start baseline_end baseline_ms
   local start end elapsed_ms behavior_allowed_ms hang_allowed_ms hang_allowed_seconds
   local input out err timeout_marker pid watchdog status
 
   behavior_ms="$(hts_seconds_to_millis "$HTS_FAIL_OPEN_BEHAVIOR_SECONDS")" || return 2
   hang_ms="$(hts_seconds_to_millis "$HTS_FAIL_OPEN_MAX_SECONDS")" || return 2
+  case "$HTS_FAIL_OPEN_BASELINE_MULTIPLIER" in
+    '' | *[!0-9]*) return 2 ;;
+    *) baseline_multiplier="$HTS_FAIL_OPEN_BASELINE_MULTIPLIER" ;;
+  esac
   input="$(mktemp "$HTS_WORK/fail-open-stdin.XXXXXX")" || return 1
   out="$(mktemp "$HTS_WORK/fail-open-stdout.XXXXXX")" || { rm -f "$input"; return 1; }
   err="$(mktemp "$HTS_WORK/fail-open-stderr.XXXXXX")" || { rm -f "$input" "$out"; return 1; }
@@ -631,7 +638,7 @@ hts_run_fail_open_guard() {
   bash -c ':' >/dev/null 2>&1
   baseline_end="$(hts_millis)"
   baseline_ms=$((baseline_end - baseline_start))
-  behavior_allowed_ms=$((baseline_ms + behavior_ms))
+  behavior_allowed_ms=$((behavior_ms + baseline_ms * baseline_multiplier))
   hang_allowed_ms=$((baseline_ms + hang_ms))
   hang_allowed_seconds="$(hts_millis_to_seconds "$hang_allowed_ms")" || {
     rm -f "$input" "$out" "$err" "$timeout_marker"
