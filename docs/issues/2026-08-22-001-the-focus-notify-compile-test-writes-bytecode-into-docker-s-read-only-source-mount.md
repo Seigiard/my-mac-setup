@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["testing-ci","docker"]
 date: "2026-08-22"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -40,3 +41,7 @@ earlier case 32 keeps the suite exit status red.
 
 - Choose whether `py_compile` should use its explicit output-path API or whether
   the test should use a syntax check that does not write beside the source.
+
+## Resolution
+
+Updated tests/smoke.bats so the focus-notify py_compile assertion writes bytecode under BATS_TEST_TMPDIR via PYTHONPYCACHEPREFIX. Verified the focused Docker smoke test and make test-ubuntu.
