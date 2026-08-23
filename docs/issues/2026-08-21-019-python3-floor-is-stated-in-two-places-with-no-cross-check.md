@@ -5,9 +5,10 @@ type: "follow-up"
 category: "repository-maintenance"
 tags: ["repository-maintenance","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "low"
 parent-plan: "docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -60,3 +61,7 @@ Raised by the testing reviewer during the code review of the plan named in `pare
   measured). If macOS ever ships newer, the floor could rise — but the decision of when to
   raise it belongs with whoever checks that all four command-palette sources still compile
   under the new floor, not with a drift check.
+
+## Resolution
+
+Added a Bats regression test in tests/palette.bats that reads README.md's Requirements section and compares the documented python3 floor with PYTHON3_MIN_VERSION from tests/helpers/common.bash. Mutation verification changed README.md to 3.10 and confirmed the new test fails before restoration; the normal palette suite passes.

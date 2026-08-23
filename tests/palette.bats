@@ -41,6 +41,41 @@ teardown() {
   assert_python3_available
 }
 
+@test "README.md declares the same python3 floor the test helper enforces" {
+  local repository_root
+  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  [[ -f "$repository_root/README.md" ]] || skip "repository checkout is not mounted"
+
+  run python3 - "$repository_root/README.md" "$PYTHON3_MIN_VERSION" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+readme = Path(sys.argv[1])
+expected = sys.argv[2]
+text = readme.read_text()
+match = re.search(r"(?ms)^## Requirements\n(?P<section>.*?)(?:^## |\Z)", text)
+assert match, "README.md has no Requirements section"
+
+section = match.group("section")
+patterns = [
+    r"python3` is on your `PATH` and reports at least \*\*([0-9]+\.[0-9]+)\*\*",
+    r"where the ([0-9]+\.[0-9]+) floor comes from",
+]
+found = []
+for pattern in patterns:
+    found.extend(re.findall(pattern, section))
+
+assert found, "README.md Requirements section states no python3 floor"
+wrong = [version for version in found if version != expected]
+assert not wrong, (
+    f"README.md states python3 floor(s) {', '.join(found)}, "
+    f"but tests/helpers/common.bash enforces {expected}"
+)
+PY
+  assert_success
+}
+
 # The gate has to reject, not fall through. Before the shape check in
 # assert_python3_available, a stub printing "3.8.1" made the minor component
 # "8.1", which is an arithmetic syntax error -- (( )) returned non-zero, the
