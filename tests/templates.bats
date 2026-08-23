@@ -282,6 +282,16 @@ PROBE
   refute_output --partial "/opt/homebrew"
 }
 
+@test "opencode skill symlinks target canonical claude skills" {
+  local skill
+
+  for skill in ask-in-herdr markdown-new vector-prime work-summary; do
+    run render_template "$SOURCE_ROOT/private_dot_config/opencode/skills/symlink_${skill}.tmpl"
+    assert_success
+    assert_output "$HOME/.claude/skills/$skill"
+  done
+}
+
 # ===========================================
 # Shared writing-style template (.chezmoitemplates/writing-style.md)
 # rendered into each agent's native style mechanism

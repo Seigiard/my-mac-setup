@@ -390,6 +390,17 @@ PY
   assert_success
 }
 
+@test "opencode exposes curated claude skills through canonical symlinks" {
+  local skill
+
+  for skill in ask-in-herdr markdown-new vector-prime work-summary; do
+    run readlink "$HOME/.config/opencode/skills/$skill"
+    assert_success
+    assert_output "$HOME/.claude/skills/$skill"
+    assert_file_exists "$HOME/.config/opencode/skills/$skill/SKILL.md"
+  done
+}
+
 @test "CLAUDE.md no longer duplicates the Writing style section" {
   run grep '^## Writing style' "$HOME/.claude/CLAUDE.md"
   assert_failure
