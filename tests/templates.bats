@@ -309,20 +309,20 @@ render_with_source() {
   run render_with_source "$SOURCE_ROOT/private_dot_claude/output-styles/writing-style.md.tmpl"
   assert_success
   assert_output --partial 'keep-coding-instructions: true'
-  assert_output --partial 'Answer first: the conclusion is line one.'
+  assert_output --partial 'Start with the useful thing. End when the response has done its job. State each point once.'
 }
 
 @test "pi APPEND_SYSTEM renders the shared writing-style rules" {
   run render_with_source "$SOURCE_ROOT/dot_pi/agent/APPEND_SYSTEM.md.tmpl"
   assert_success
   assert_output --partial '# Writing style'
-  assert_output --partial 'Answer first: the conclusion is line one.'
+  assert_output --partial 'Start with the useful thing. End when the response has done its job. State each point once.'
 }
 
 @test "shared agents/writing-style.md renders the shared rules" {
   run render_with_source "$SOURCE_ROOT/private_dot_config/agents/writing-style.md.tmpl"
   assert_success
-  assert_output --partial 'Answer first: the conclusion is line one.'
+  assert_output --partial 'Start with the useful thing. End when the response has done its job. State each point once.'
 }
 
 @test "opencode instructions point at the shared writing-style file" {

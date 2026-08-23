@@ -1,0 +1,1 @@
+Walk every open decision one at a time, in prose — zero context, plain words, each option with its pros and cons and a recommendation.
