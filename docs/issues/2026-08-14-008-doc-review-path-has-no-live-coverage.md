@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]
 date: "2026-08-14"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-23"
 ---
 
 # The verify-doc advisory and waive path has no live coverage
@@ -73,3 +74,7 @@ This is the remaining scope of this issue, and it is why the issue stays open. T
 ## Reference
 
 Unrelated but often confused with this: `docs/issues/2026-08-14-004-se-flow-stalls-after-staging-and-epilog-gaps.md` also waits on a live run. That one is about `se flow` opening a real pull request, needs a throwaway repository and an explicit operator go-ahead, and covers different code.
+
+## Resolution
+
+Operator chose to close this low-priority follow-up after review. The remaining waived-P0 live coverage gap is accepted as an untracked risk; unit coverage for docReviewWaiveNote remains in place, but no live run has exercised that path.
