@@ -19,11 +19,9 @@ load 'helpers/common'
 # Where the marker is set, the four still mutate the shared $HOME that every
 # other test file reads deployed state from. Two of them applying at once would
 # race, so this file stays sequential even when the suite runs with --jobs,
-# and all five invocation sites keep --no-parallelize-across-files: Makefile
-# `test-suite`, the two `Run post-apply tests` steps in
-# .github/workflows/test-dotfiles.yml, and the test-full and test-ubuntu
-# services in docker/docker-compose.yml. It is 1.3 s of a 268 s suite, so
-# serializing it costs nothing measurable.
+# and the shared tests/run-post-apply.sh wrapper keeps
+# --no-parallelize-across-files in both modes. It is 1.3 s of a 268 s suite,
+# so serializing it costs nothing measurable.
 BATS_NO_PARALLELIZE_WITHIN_FILE=true
 
 # All chezmoi commands use PATH_WITHOUT_OP to prevent 1Password auth

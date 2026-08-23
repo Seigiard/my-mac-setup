@@ -224,7 +224,7 @@ jobs:
 
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
-        run: bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+        run: tests/run-post-apply.sh full
 
       # Save-only keeps scheduled and manual full-Brewfile runs useful as cache
       # seeders without letting a restored archive mask upstream fetch decay.
@@ -376,7 +376,7 @@ jobs:
             | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'
 
       - name: Run post-apply tests
-        run: bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+        run: tests/run-post-apply.sh full
 
       # Save-only keeps scheduled and manual full-Brewfile runs useful as cache
       # seeders without letting a restored archive mask upstream fetch decay.

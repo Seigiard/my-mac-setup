@@ -80,7 +80,7 @@ services:
         bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
 
         echo "=== Running post-apply tests ==="
-        bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+        tests/run-post-apply.sh full
 
         echo "=== All done! ==="
 
@@ -119,4 +119,4 @@ services:
         bats tests/templates.bats
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
         bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
-        bats --jobs 8 --no-parallelize-across-files tests/smoke.bats tests/scripts.bats tests/palette.bats tests/platform.bats tests/idempotent.bats
+        tests/run-post-apply.sh full
