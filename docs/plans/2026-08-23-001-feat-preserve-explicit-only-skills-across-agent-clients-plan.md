@@ -62,41 +62,11 @@ Copying workflow instructions into OpenCode commands would preserve invocation b
 - R6. OpenCode must receive each workflow as a manually invoked command and must not receive a corresponding native skill adapter.
 - R7. The existing OpenCode startup environment that disables automatic Claude Code and external skill discovery must remain part of the explicit-only packaging contract.
 
-```mermaid
-flowchart TB
-  S[Shared description and body] --> C[Claude Code skill adapter]
-  C --> CS[Claude Code skill]
-  CS --> P[Pi skill invocation]
-  S --> O[OpenCode command adapter]
-  O --> OC[OpenCode manual command]
-  F[Existing external-skill disable flags] --> D[Claude skill import disabled in OpenCode]
-```
-
 **Migration, guidance, and verification**
 
 - R8. `eli5` and `open-questions` must migrate without changing their workflow instructions, Claude Code invocation, or Pi invocation; OpenCode gains the new manual commands.
 - R9. `AGENTS.md` and `docs/agent-setup-inventory.md` must explain ownership, client packaging, and the update procedure for explicit-only workflows.
 - R10. One focused Bats contract case must verify the OpenCode manual commands, reject corresponding OpenCode native skill adapters, preserve `disable-model-invocation: true` in the Claude Code skills, and retain the existing external-skill disable flags; existing tests continue to own general Claude Code deployment and Pi shared-skill configuration.
-
-### Key Flows
-
-- F1. Add or update an explicit-only workflow.
-  - **Trigger:** A contributor changes an existing explicit-only workflow or adds another one.
-  - **Steps:** The contributor changes the canonical description and body, adds or updates the client adapters, and keeps the workflow out of OpenCode's native skill paths.
-  - **Outcome:** Every supported client receives the same workflow content with its required invocation semantics.
-  - **Covers:** R1-R9.
-- F2. Invoke an explicit-only workflow.
-  - **Trigger:** The user explicitly selects the workflow in an agent client.
-  - **Steps:** Claude Code or Pi loads the skill, while OpenCode expands the manual command.
-  - **Outcome:** The workflow runs only after the user's request and receives the canonical instruction body.
-  - **Covers:** R4-R7.
-
-### Acceptance Examples
-
-- AE1. **Covers R1, R2, R8.** Given `eli5` is packaged for Claude Code and OpenCode, when its canonical body changes, then both rendered client files receive that change without editing two instruction bodies or unintentionally expanding literal command syntax.
-- AE2. **Covers R4-R7.** Given OpenCode inherits the managed startup environment, when each client discovers available workflows, then Claude Code and Pi retain explicit-only skill behavior while OpenCode exposes a manual command without exposing a native `eli5` or `open-questions` skill.
-- AE3. **Covers R3, R9.** Given a future explicit-only workflow, when an agent follows the repository guidance, then the workflow uses the same shared-template and client-adapter convention without introducing a generator.
-- AE4. **Covers R10.** Given the repository test suite, when an invocation guard, OpenCode command, OpenCode skill boundary, or external-skill disable flag regresses, then the focused contract case fails.
 
 ### Scope Boundaries
 
@@ -167,12 +137,6 @@ OpenCode isolation has two independent parts. `home/dot_zshenv.tmpl` prevents au
 - Do not add `permission.skill` entries to `home/private_dot_config/opencode/opencode.json.tmpl`.
 - Do not resolve the unrelated OpenCode plugin inventory drift in this work; it is tracked by `docs/issues/2026-08-23-003-correct-opencode-plugin-inventory-drift.md`.
 
-### Sequencing
-
-1. Complete U1 so chezmoi has canonical content and both client adapters.
-2. Complete U2 against U1's deployed paths and metadata.
-3. Complete U3 after the final adapter and test conventions are stable.
-
 ### Research
 
 - Existing raw shared rendering uses named templates in `home/.chezmoitemplates/writing-style.md` and thin adapters in `home/private_dot_config/agents/writing-style.md.tmpl`, `home/private_dot_claude/output-styles/writing-style.md.tmpl`, and `home/dot_pi/agent/APPEND_SYSTEM.md.tmpl`.
@@ -190,7 +154,7 @@ OpenCode isolation has two independent parts. `home/dot_zshenv.tmpl` prevents au
 ### U1. Canonical explicit-only content and client adapters
 
 - **Goal:** Move `eli5` and `open-questions` to literal shared content with thin Claude Code and OpenCode adapters.
-- **Requirements:** R1-R8; F1, F2; AE1-AE3; KTD1-KTD3.
+- **Requirements:** R1-R8; KTD1-KTD3.
 - **Dependencies:** None.
 - **Files:**
   - Add `home/.chezmoitemplates/explicit-only-eli5-description.txt`.
@@ -212,7 +176,7 @@ OpenCode isolation has two independent parts. `home/dot_zshenv.tmpl` prevents au
 ### U2. Deployed explicit-only invocation contract
 
 - **Goal:** Add one focused regression case that proves the invocation boundaries after chezmoi applies the checkout.
-- **Requirements:** R4-R7, R10; AE2, AE4; KTD3, KTD4.
+- **Requirements:** R4-R7, R10; KTD3, KTD4.
 - **Dependencies:** U1.
 - **Files:** Modify `tests/smoke.bats`.
 - **Approach:** Add one `explicit-only` Bats case that loops over `eli5` and `open-questions`. For each name, assert the deployed Claude skill retains `disable-model-invocation: true`, the deployed OpenCode command exists, and no corresponding OpenCode native skill path exists. In the same case, assert the deployed `.zshenv` contains both OpenCode discovery-disable exports. Treat process inheritance and cache refresh as operational preconditions rather than claims made by this test.
@@ -227,7 +191,7 @@ OpenCode isolation has two independent parts. `home/dot_zshenv.tmpl` prevents au
 ### U3. Explicit-only contributor guidance
 
 - **Goal:** Make the reusable packaging and update procedure discoverable to future agents and operators.
-- **Requirements:** R3, R9; F1; AE3; KTD1-KTD3.
+- **Requirements:** R3, R9; KTD1-KTD3.
 - **Dependencies:** U1, U2.
 - **Files:** Modify `AGENTS.md` and `docs/agent-setup-inventory.md`.
 - **Approach:** Add an active instruction for explicit-only workflows near the existing managed-config guidance. Document canonical content ownership, raw includes, reserved OpenCode command tokens, thin client adapters, Pi's shared-skill path, OpenCode's manual command path, the prohibition on native OpenCode skill adapters, the fail-open discovery flags, the restart requirement, and the focused contract test. Require maintainers who observe an OpenCode or Pi version change from the documented baseline to rerun the manual discovery and invocation checks before updating the baseline. Add an OpenCode Commands inventory section without resolving unrelated inventory drift tracked in `docs/issues/2026-08-23-003-correct-opencode-plugin-inventory-drift.md`.
@@ -241,20 +205,13 @@ OpenCode isolation has two independent parts. `home/dot_zshenv.tmpl` prevents au
 
 ## Verification Contract
 
-| Command | Applies to | Required result |
-|---|---|---|
-| `make test-issues` | U3 and repository issue integrity | Issue validation and issue CLI tests pass. |
-| `make test-local` | U1 | Chezmoi reports the intended dry-run changes without applying them to the host. |
-| `make test-templates` | U1 | Templates render successfully from the checkout source in Docker. |
-| `make test-ubuntu` | U1-U3 | The checkout applies in a disposable home and the complete Ubuntu suite passes, including the focused explicit-only contract case. |
-
-`make test-suite` is not evidence for U1 or U2 because it reads the already-applied host home and cannot observe unapplied files under `home/`.
+Run `make test-issues`, `make test-local`, `make test-templates`, and `make test-ubuntu`. Do not use `make test-suite` as managed-file evidence because it reads the already-applied host home.
 
 ---
 
 ## Definition of Done
 
-- The Product Contract remains satisfied without changing R1-R10, F1-F2, or AE1-AE4 semantics.
+- The Product Contract remains satisfied without changing R1-R10 semantics.
 - U1 renders both workflows from one canonical description and body per workflow into Claude Code skills and OpenCode commands.
 - U2 fails on each load-bearing invocation-boundary regression and passes through `make test-ubuntu`.
 - U3 gives future agents a complete update procedure in active instructions and the setup inventory.
