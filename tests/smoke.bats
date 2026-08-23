@@ -562,7 +562,8 @@ SH
 }
 
 @test "focus-notify plugin compiles and declares no build step or extra backend" {
-  run python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
+  run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
+    python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
   assert_success
 
   # The whole point of this local plugin: no compile-at-install step and no
