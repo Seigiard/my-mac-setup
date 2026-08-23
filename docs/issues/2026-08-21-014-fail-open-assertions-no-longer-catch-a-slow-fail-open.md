@@ -5,9 +5,10 @@ type: "bug"
 category: "repository-maintenance"
 tags: ["repository-maintenance","bug"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "medium"
 parent-plan: "docs/plans/2026-08-20-2217-perf-parallel-bats-suite-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -67,11 +68,13 @@ Do **not** simply lower the constant back toward 2 seconds. That reintroduces th
 exact flake this work removed, and a flaky assertion protects nothing because it
 gets muted.
 
-## Open decisions
+## Decisions resolved
 
-- Whether option 1 is reachable for all three sites, or only some. That needs a
-  read of each fail-open path for an observable signal; nobody has done it yet.
-- Whether a slow fail-open is worth catching at all. These are error paths whose
-  contract is "do not hang". If three seconds is acceptable there in production,
-  the 20-second guard is the right assertion and this issue closes as wontfix.
-  That is a real possibility and should be decided deliberately, not by default.
+Promptness is still part of the test contract. The selected fix keeps the
+generous hang guard but adds a same-run baseline plus a tight behavioral
+deadline, because these fail-open paths should not silently take several seconds
+before returning.
+
+## Resolution
+
+Added a two-budget fail-open guard in tests/helpers/herdr_task_sync.bash, updated the three promptness assertions in tests/scripts.bats to use it, and added a regression test proving a late success fails before the hang guard.

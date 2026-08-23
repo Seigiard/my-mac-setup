@@ -1765,16 +1765,24 @@ PY
   grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
 }
 
+@test "herdr-task-sync fail-open deadline rejects late success before the hang guard" {
+  hts_setup
+  local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=1
+  local HTS_FAIL_OPEN_MAX_SECONDS=5
+
+  run hts_run_fail_open_guard sleep 2
+
+  assert_failure 124
+  assert_output --partial "exceeded fail-open behavioral deadline"
+}
+
 @test "herdr-task-sync fails open for missing tools contention write failure and malformed input" {
   hts_setup
-  local start end pane_dir
-  start="$(date +%s)"
-  run env PATH="/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
+  local pane_dir
+  run hts_run_fail_open_guard env PATH="/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     bash "$HTS_ENGINE" --agent claude --session missing <<< 'missing herdr'
-  end="$(date +%s)"
   assert_success
-  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
 
   hts_setup
   pane_dir="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)"
@@ -1799,11 +1807,8 @@ PY
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   rmdir "$namespace/tasks"
   printf 'not-a-directory\n' > "$namespace/tasks"
-  start="$(date +%s)"
-  run hts_worker_run
-  end="$(date +%s)"
+  run hts_run_fail_open_guard hts_worker_run
   assert_success
-  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]]
 
@@ -1814,11 +1819,8 @@ PY
   local task_file
   task_file="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-write-failure)"
   mkdir "$task_file"
-  start="$(date +%s)"
-  run hts_worker_run
-  end="$(date +%s)"
+  run hts_run_fail_open_guard hts_worker_run
   assert_success
-  [[ $((end - start)) -le $HTS_FAIL_OPEN_MAX_SECONDS ]]
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]]
   assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"

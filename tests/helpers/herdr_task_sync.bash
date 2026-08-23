@@ -39,11 +39,14 @@ hts_teardown() {
   if [[ -n "${HTS_READER_PID:-}" ]]; then
     kill "$HTS_READER_PID" 2>/dev/null || true
     wait "$HTS_READER_PID" 2>/dev/null || true
+    unset HTS_READER_PID
   fi
   [[ -n "${HTS_WORK:-}" ]] && rm -rf "$HTS_WORK" || true
+  unset HTS_WORK HTS_STUB HTS_STATE HTS_LOG HTS_DEFAULT_SOCKET HTS_SOCKET_ROOT
 }
 
 hts_setup() {
+  [[ -z "${HTS_WORK:-}" ]] || hts_teardown
   HTS_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hts.XXXXXX")"
   HTS_STUB="$HTS_WORK/stub"
   HTS_STATE="$HTS_WORK/state"
@@ -559,12 +562,116 @@ hts_after_call_script() {
 # would SIGKILL those, which is the failure this value exists to prevent.
 HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
 
-# Bound for the "fails open promptly rather than hanging" assertions. They
-# guard against a worker that blocks or retries without end; they are not
-# performance benchmarks. Two seconds was calibrated on an idle machine and
-# goes red under --jobs contention with no regression behind it -- the same
-# trap the eight-pane coordinator test documents above its own deadline.
+# Behavioral budget for the "fails open promptly rather than hanging" assertions.
+# The helper below adds a same-run process-launch baseline before enforcing this,
+# so scheduler contention is measured separately from the fail-open path itself.
+HTS_FAIL_OPEN_BEHAVIOR_SECONDS="${HTS_FAIL_OPEN_BEHAVIOR_SECONDS:-2}"
+
+# Hang guard for the same assertions. A return after the behavioral budget is a
+# promptness regression. No return by this ceiling is a hung fail-open path.
+# Twenty seconds is intentionally generous because this guard must tolerate
+# --jobs contention; it must not become the behavioral deadline.
 HTS_FAIL_OPEN_MAX_SECONDS="${HTS_FAIL_OPEN_MAX_SECONDS:-20}"
+
+hts_millis() {
+  python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+}
+
+hts_seconds_to_millis() {
+  python3 - "$1" <<'PY'
+import decimal
+import sys
+
+try:
+    seconds = decimal.Decimal(sys.argv[1])
+except decimal.InvalidOperation:
+    raise SystemExit(2)
+if seconds < 0:
+    raise SystemExit(2)
+print(int(seconds * 1000))
+PY
+}
+
+hts_millis_to_seconds() {
+  python3 - "$1" <<'PY'
+import decimal
+import sys
+
+try:
+    millis = decimal.Decimal(sys.argv[1])
+except decimal.InvalidOperation:
+    raise SystemExit(2)
+if millis < 0:
+    raise SystemExit(2)
+print(millis / decimal.Decimal(1000))
+PY
+}
+
+hts_run_fail_open_guard() {
+  local behavior_ms hang_ms baseline_start baseline_end baseline_ms
+  local start end elapsed_ms behavior_allowed_ms hang_allowed_ms hang_allowed_seconds
+  local input out err timeout_marker pid watchdog status
+
+  behavior_ms="$(hts_seconds_to_millis "$HTS_FAIL_OPEN_BEHAVIOR_SECONDS")" || return 2
+  hang_ms="$(hts_seconds_to_millis "$HTS_FAIL_OPEN_MAX_SECONDS")" || return 2
+  input="$(mktemp "$HTS_WORK/fail-open-stdin.XXXXXX")" || return 1
+  out="$(mktemp "$HTS_WORK/fail-open-stdout.XXXXXX")" || { rm -f "$input"; return 1; }
+  err="$(mktemp "$HTS_WORK/fail-open-stderr.XXXXXX")" || { rm -f "$input" "$out"; return 1; }
+  timeout_marker="$(mktemp "$HTS_WORK/fail-open-timeout.XXXXXX")" || {
+    rm -f "$input" "$out" "$err"
+    return 1
+  }
+  rm -f "$timeout_marker"
+  cat > "$input"
+
+  baseline_start="$(hts_millis)"
+  bash -c ':' >/dev/null 2>&1
+  baseline_end="$(hts_millis)"
+  baseline_ms=$((baseline_end - baseline_start))
+  behavior_allowed_ms=$((baseline_ms + behavior_ms))
+  hang_allowed_ms=$((baseline_ms + hang_ms))
+  hang_allowed_seconds="$(hts_millis_to_seconds "$hang_allowed_ms")" || {
+    rm -f "$input" "$out" "$err" "$timeout_marker"
+    return 2
+  }
+
+  start="$(hts_millis)"
+  "$@" < "$input" > "$out" 2> "$err" &
+  pid=$!
+  (
+    sleep "$hang_allowed_seconds"
+    if kill -0 "$pid" 2>/dev/null; then
+      : > "$timeout_marker"
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  ) >/dev/null 2>&1 &
+  watchdog=$!
+  wait "$pid"
+  status=$?
+  end="$(hts_millis)"
+  kill "$watchdog" >/dev/null 2>&1 || true
+  wait "$watchdog" 2>/dev/null || true
+  cat "$out" 2>/dev/null || true
+  cat "$err" >&2 2>/dev/null || true
+
+  elapsed_ms=$((end - start))
+  if [ -f "$timeout_marker" ]; then
+    rm -f "$input" "$out" "$err" "$timeout_marker"
+    printf 'fail-open command exceeded hang guard: elapsed_ms=%s allowed_ms=%s baseline_ms=%s\n' \
+      "$elapsed_ms" "$hang_allowed_ms" "$baseline_ms"
+    return 124
+  fi
+  rm -f "$input" "$out" "$err" "$timeout_marker"
+  if [ "$elapsed_ms" -gt "$behavior_allowed_ms" ]; then
+    printf 'fail-open command exceeded fail-open behavioral deadline: elapsed_ms=%s allowed_ms=%s baseline_ms=%s\n' \
+      "$elapsed_ms" "$behavior_allowed_ms" "$baseline_ms"
+    return 124
+  fi
+  return "$status"
+}
 
 # Watchdog for a single engine call, enforced by `kill -9` inside the engine's
 # own run_with_timeout. It is a hang guard, not a budget: every test here stubs
