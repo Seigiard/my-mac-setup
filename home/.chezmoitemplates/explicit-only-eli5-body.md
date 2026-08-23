@@ -1,9 +1,3 @@
----
-name: eli5
-description: Re-explain the last message from zero context — plain words, no session labels, one question at a time.
-disable-model-invocation: true
----
-
 Stop. Your last message did not land. Re-explain it for a reader with zero context: they know nothing about this session, this repo, or any label you invented along the way.
 
 - Plain words, short sentences. Keep the exact technical terms, but explain each one at first use.

@@ -89,6 +89,21 @@ Adding a managed config, step by step:
 
 </important>
 
+<important if="you are adding or changing an explicit-only workflow">
+
+An explicit-only workflow interrupts the current task and must run only after a direct user request. Keep one canonical description and body in `home/.chezmoitemplates/explicit-only-<name>-description.txt` and `home/.chezmoitemplates/explicit-only-<name>-body.md`.
+
+Package the canonical content through two thin adapters:
+
+- Claude Code: `home/private_dot_claude/skills/<name>/SKILL.md.tmpl`, with `disable-model-invocation: true`. Pi reads this deployed skill through its existing `~/.claude/skills` source and needs no separate adapter.
+- OpenCode: `home/private_dot_config/opencode/commands/<name>.md.tmpl`, which exposes a manual command. Never add the workflow under `home/private_dot_config/opencode/skills/`.
+
+Use raw `include` with the explicit `.chezmoitemplates/<file>` path so literal Markdown and Go-template syntax remain data. Do not use `includeTemplate`, which executes the included content. Treat `$ARGUMENTS`, `$<digits>`, and unquoted `@path` as reserved OpenCode command syntax; a workflow that must preserve these sequences literally needs client-specific content instead.
+
+Keep both OpenCode discovery-disable exports in `home/dot_zshenv.tmpl`. After deployment, restart each client from the managed zsh environment before checking discovery. Add the workflow name to the `explicit-only workflows keep manual invocation boundaries` case in `tests/smoke.bats`, then run `make test-templates` and `make test-ubuntu`.
+
+</important>
+
 <important if="you are working with templates, secrets, or 1Password integration">
 
 - **Never** hardcode secrets — use `onepasswordRead` in templates.

@@ -95,6 +95,13 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 - `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
 - Own: `lfg`.
 
+### Commands (`~/.config/opencode/commands/`)
+
+| Command        | Source | Managed | Invocation |
+| -------------- | ------ | ------- | ---------- |
+| eli5           | `repo` | repo    | manual     |
+| open-questions | `repo` | repo    | manual     |
+
 ### Agents (`~/.config/opencode/agent/` — ~51)
 
 - `bundle:compound-engineering` — the `ce-*` reviewer/researcher set (~48). Not enumerated.
@@ -115,6 +122,8 @@ is manual, and this inventory intentionally does not duplicate the package list.
 
 No Pi-only live skills are kept. Pi reads shared Claude skills from
 `~/.claude/skills` through `~/.pi/agent/settings.json` `skills[]`.
+This includes the explicit-only `eli5` and `open-questions` skills, invoked as
+`/skill:eli5` and `/skill:open-questions`.
 
 ### Agents (`~/.pi/agent/agents/`)
 
@@ -134,6 +143,25 @@ Ignored on purpose; not reproduced by this repo.
 | Skill | Claude | OpenCode | Pi   | Source |
 | ----- | ------ | -------- | ---- | ------ |
 | herdr | ✓      | want     | want | `repo` |
+
+## Explicit-only workflows
+
+`eli5` and `open-questions` share canonical descriptions and bodies from
+`home/.chezmoitemplates/explicit-only-<name>-*`. Claude Code adapters keep
+`disable-model-invocation: true`; Pi consumes those Claude skills; OpenCode
+receives manual command adapters and no native skill adapters.
+
+When adding or updating one of these workflows:
+
+1. Change its canonical description and body under `home/.chezmoitemplates/`.
+2. Add or update the Claude `SKILL.md.tmpl` and OpenCode command `.md.tmpl` thin adapters.
+3. Keep `$ARGUMENTS`, `$<digits>`, and unquoted `@path` out of canonical bodies unless OpenCode expansion is intentional.
+4. Keep both `OPENCODE_DISABLE_EXTERNAL_SKILLS=1` and `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl`.
+5. Extend the focused explicit-only case in `tests/smoke.bats`, run the Docker verification, apply through the normal chezmoi source-clone workflow, and restart each client from managed zsh.
+
+Verified behavior baselines are OpenCode `1.18.20` and Pi `0.84.2`. If an
+observed client version differs, rerun the manual discovery and invocation
+checks before updating these baseline versions.
 
 ---
 

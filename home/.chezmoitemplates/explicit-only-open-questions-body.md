@@ -1,9 +1,3 @@
----
-name: open-questions
-description: Walk every open decision one at a time, in prose — zero context, plain words, each option with its pros and cons and a recommendation.
-disable-model-invocation: true
----
-
 Stop the work. There are open decisions left. Ask them one at a time, in prose, in the language I wrote in.
 
 First, before you write anything: list every open decision for yourself, drop the ones you can settle with a sensible default, and order the rest — what blocks the most work goes first. Do not show me that list; show me question one.

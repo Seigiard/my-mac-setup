@@ -341,7 +341,7 @@ PY
   assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
   run grep -q 'keep-coding-instructions: true' "$HOME/.claude/output-styles/writing-style.md"
   assert_success
-  run grep -q 'Answer first: the conclusion is line one.' "$HOME/.claude/output-styles/writing-style.md"
+  run grep -q 'Start with the useful thing. End when the response has done its job. State each point once.' "$HOME/.claude/output-styles/writing-style.md"
   assert_success
   run grep -q '"outputStyle": "writing-style"' "$HOME/.claude/settings.json"
   assert_success
@@ -349,7 +349,7 @@ PY
 
 @test "pi APPEND_SYSTEM.md carries the full writing-style rules" {
   assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
-  run grep -q 'Answer first: the conclusion is line one.' "$HOME/.pi/agent/APPEND_SYSTEM.md"
+  run grep -q 'Start with the useful thing. End when the response has done its job. State each point once.' "$HOME/.pi/agent/APPEND_SYSTEM.md"
   assert_success
 }
 
@@ -384,7 +384,7 @@ PY
 
 @test "opencode reads the shared writing-style file via instructions" {
   assert_file_exists "$HOME/.config/agents/writing-style.md"
-  run grep -q 'Answer first: the conclusion is line one.' "$HOME/.config/agents/writing-style.md"
+  run grep -q 'Start with the useful thing. End when the response has done its job. State each point once.' "$HOME/.config/agents/writing-style.md"
   assert_success
   run grep -q '"~/.config/agents/writing-style.md"' "$HOME/.config/opencode/opencode.json"
   assert_success
@@ -399,6 +399,43 @@ PY
     assert_output "$HOME/.claude/skills/$skill"
     assert_file_exists "$HOME/.config/opencode/skills/$skill/SKILL.md"
   done
+}
+
+@test "explicit-only workflows keep manual invocation boundaries" {
+  local workflow claude_skill opencode_command opencode_skill
+
+  for workflow in eli5 open-questions; do
+    claude_skill="$HOME/.claude/skills/$workflow/SKILL.md"
+    opencode_command="$HOME/.config/opencode/commands/$workflow.md"
+    opencode_skill="$HOME/.config/opencode/skills/$workflow"
+
+    assert_file_exists "$claude_skill"
+    run awk '
+      NR == 1 { if ($0 != "---") exit 1; frontmatter = 1; next }
+      frontmatter && $0 == "---" { frontmatter = 0; closed = 1; next }
+      frontmatter && /^disable-model-invocation:/ { keys++ }
+      frontmatter && $0 == "disable-model-invocation: true" { valid++ }
+      END { exit !(closed && keys == 1 && valid == 1) }
+    ' "$claude_skill"
+    assert_success
+
+    assert_file_exists "$opencode_command"
+    run awk '
+      NR == 1 { if ($0 != "---") exit 1; frontmatter = 1; next }
+      frontmatter && $0 == "---" { frontmatter = 0; closed = 1; next }
+      frontmatter && /^description: ".+"$/ { description = 1 }
+      closed && NF { body = 1 }
+      END { exit !(closed && description && body) }
+    ' "$opencode_command"
+    assert_success
+
+    if [[ -e "$opencode_skill" || -L "$opencode_skill" ]]; then
+      fail "explicit-only workflow exposed as native OpenCode skill: $opencode_skill"
+    fi
+  done
+
+  run zsh -dfc 'unset OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_DISABLE_CLAUDE_CODE_SKILLS; source "$1"; zsh -dfc "$2"' _ "$HOME/.zshenv" '[[ "$OPENCODE_DISABLE_EXTERNAL_SKILLS" == 1 && "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" == 1 ]]'
+  assert_success
 }
 
 @test "CLAUDE.md no longer duplicates the Writing style section" {

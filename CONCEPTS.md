@@ -95,3 +95,8 @@ A Herdr intervention that attaches the operator to an agent inside its existing 
 
 ### Palette-only contract
 The rule that TUI theme files managed by this repo (Claude Code, opencode, pi) reference the terminal's ANSI palette slots — indices 0–15, `ansi:` names, or "terminal default" — never baked hex, so every tool follows the terminal scheme automatically. Enforced syntactically by bats tests in `tests/scripts.bats`; the terminal-theme-playground project is its visual counterpart ("eyes", not enforcement).
+
+## Agent platform
+
+### Explicit-only workflow
+A workflow that interrupts the current task and must run only after a direct user request. Its shared description and instructions are packaged as a Claude Code skill with model invocation disabled, consumed by Pi through the shared Claude skill path, and exposed to OpenCode as a manual command rather than a native skill.
