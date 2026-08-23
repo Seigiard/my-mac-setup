@@ -29,6 +29,24 @@ RUN apt-get update && apt-get install -y \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Fail at image build time if the apt layer no longer supplies the tools that a
+# CI-minimal apply depends on before Homebrew can install anything. The git floor
+# is not arbitrary: home/dot_gitconfig.tmpl deploys merge.conflictStyle=zdiff3,
+# and git older than 2.35 rejects that value during the Oh My Zsh clone.
+RUN set -eu; \
+    assert_git_version_at_least() { \
+      required="$1.$2"; \
+      found="$(git --version | awk '{print $3}')"; \
+      if ! dpkg --compare-versions "$found" ge "$required"; then \
+        echo "apt git $found is older than $required; merge.conflictStyle=zdiff3 requires git 2.35 or newer" >&2; \
+        exit 1; \
+      fi; \
+    }; \
+    assert_git_version_at_least 2 35; \
+    command -v python3 >/dev/null || { echo "python3 is required before chezmoi apply" >&2; exit 1; }; \
+    git --version; \
+    python3 --version
+
 # Set up locale
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8

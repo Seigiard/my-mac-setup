@@ -5,9 +5,10 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "medium"
 parent-plan: "docs/plans/2026-08-21-0337-fix-python3-declared-dependency-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -63,12 +64,21 @@ during the code review of the plan named in `parent-plan`.
    2026-08-21. Any future comparison must be taken against a post-change baseline, because
    removing the `python3` skip guards removed up to 56 potential skips.
 
-## Open decisions
+## Resolved decisions
 
-- Is a Docker-building CI job worth its runtime, given that the thing it protects — the
-  minimal render — only runs on push and pull_request events where the runner already
-  supplies its own git? The failure this guards against is a developer running the Docker
-  suite locally, not a CI break.
-- Should the build-time git assertion live in the Dockerfile or in a bats test that runs
-  inside the image? The Dockerfile catches it earlier; a bats test keeps the assertion
-  beside the other tool-presence checks.
+- Do not add a scheduled or `workflow_dispatch` Docker job here. The guarded failure is a
+  developer-local Docker image downgrade, while push and pull_request runs use GitHub
+  runner git and already select the CI-minimal render directly.
+- Put the executable git and python3 assertions in `docker/Dockerfile.ubuntu`, then pin
+  those assertions with a focused Bats source test. The Dockerfile catches the failure
+  during `make build-docker`; the Bats test prevents the gate from disappearing silently.
+
+## Resolution
+
+Added a Dockerfile build-time gate that asserts apt git is at least 2.35 and python3
+is present before any CI-minimal apply can run. Added a focused Bats regression test
+that fails if the Dockerfile loses the executable git-version comparison or python3
+assertion. Chose not to add a scheduled or manual Docker CI job because this issue
+protects the local Docker image path, while GitHub push and pull_request runs use runner
+git directly. Verified with the focused Bats test, make test-issues, make lint, and
+make build-docker.
