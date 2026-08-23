@@ -876,26 +876,6 @@ hts_set_process_label() {
   hts_proc_info "$1" "$(jq -cn --arg command "$2" '{result:{process_info:{shell_pid:1,foreground_process_group_id:2,foreground_processes:[{pid:2,argv:[$command]}]}}}')"
 }
 
-# GIVEN-only fixture for the mixed two-pane tab: two linked worktrees of one
-# repository, one process pane each in the shared tab-1, both process names far
-# past the column budget. Takes the two branch names. The acting step
-# (hts_location_pass) and every assertion stay in the test.
-hts_two_pane_mixed_worktrees() {
-  local ref_one="$1" ref_two="$2"
-  local one="$HTS_WORK/wt-one" two="$HTS_WORK/wt-two"
-  local common="$HTS_WORK/repository/.git"
-  mkdir -p "$one" "$two" "$common"
-  hts_mark_linked_worktree "$one" "$common/worktrees/one"
-  hts_mark_linked_worktree "$two" "$common/worktrees/two"
-  hts_git_location_fixture "$one" "$one" "$common" "refs/heads/$ref_one"
-  hts_git_location_fixture "$two" "$two" "$common" "refs/heads/$ref_two"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 first-process-name-that-is-far-too-long
-  hts_set_process_label pane-2 second-process-name-that-is-far-too-long
-}
-
 hts_set_pane_location() {
   local state tmp foreground="$4"
   state="$(hts_socket_state "$1")"
@@ -974,7 +954,6 @@ hts_event_run() {
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
-    HERDR_TASK_SYNC_LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}" \
     HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}" \
     HERDR_TASK_SYNC_TEST_NO_DAEMON="${HERDR_TASK_SYNC_TEST_NO_DAEMON-1}" \
     bash "$HTS_ENGINE" --event
@@ -998,7 +977,6 @@ hts_presentation_run() {
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
-    HERDR_TASK_SYNC_LABEL_COLUMNS="${HERDR_TASK_SYNC_LABEL_COLUMNS:-80}" \
     HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}" \
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER:-}" \
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT:-}" \

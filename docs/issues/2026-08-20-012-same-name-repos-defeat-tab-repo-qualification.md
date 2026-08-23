@@ -1,13 +1,14 @@
 ---
 title: "Two repositories with the same folder name defeat the multi-repo tab qualifier"
-short_description: "Repository identity currently uses folder basenames and 12-character display tokens, so same-named or shared-prefix repositories produce missing or identical tab qualifiers."
+short_description: "Names-only Herdr tab labels removed repository qualifiers, so same-name and truncation collisions can no longer affect tab identity."
 type: "bug"
-category: "repository-maintenance"
-tags: ["repository-maintenance","bug"]
+category: "herdr"
+tags: ["herdr","tab-labels"]
 date: "2026-08-20"
-status: "open"
+status: "done"
 priority: "low"
 parent-plan: "docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md"
+closed: "2026-08-23"
 ---
 
 ## Why this exists
@@ -68,3 +69,7 @@ there as a decision rather than a mechanical fix.
   on collision.
 - Whether mode 2 alone (truncation collision with genuinely different names)
   is worth fixing, or only mode 1 (qualifier skipped entirely).
+
+## Resolution
+
+Superseded by names-only Herdr tab labels: repository qualifiers and Git prefixes were removed from tab composition; Git identity remains in the sidebar metadata.
