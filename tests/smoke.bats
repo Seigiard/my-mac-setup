@@ -28,6 +28,16 @@ load 'helpers/common'
   assert_success
 }
 
+@test "post-apply suite wrapper rejects an unknown mode with usage" {
+  local repository_root
+  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  [[ -x "$repository_root/tests/run-post-apply.sh" ]] || skip "repository checkout is not mounted"
+
+  run "$repository_root/tests/run-post-apply.sh" unknown
+  [ "$status" -eq 2 ]
+  assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
+}
+
 # ===========================================
 # Chezmoi-managed files exist
 # ===========================================
