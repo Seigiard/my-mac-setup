@@ -44,7 +44,10 @@ teardown() {
 @test "README.md declares the same python3 floor the test helper enforces" {
   local repository_root
   repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-  [[ -f "$repository_root/README.md" ]] || skip "repository checkout is not mounted"
+  if [[ ! -f "$repository_root/README.md" ]]; then
+    fail "README.md is missing, so the python3 floor cannot be checked against the documented requirement"
+    return 1
+  fi
 
   run python3 - "$repository_root/README.md" "$PYTHON3_MIN_VERSION" <<'PY'
 import re
@@ -58,22 +61,33 @@ match = re.search(r"(?ms)^## Requirements\n(?P<section>.*?)(?:^## |\Z)", text)
 assert match, "README.md has no Requirements section"
 
 section = match.group("section")
-patterns = [
-    r"python3` is on your `PATH` and reports at least \*\*([0-9]+\.[0-9]+)\*\*",
-    r"where the ([0-9]+\.[0-9]+) floor comes from",
-]
-found = []
-for pattern in patterns:
-    found.extend(re.findall(pattern, section))
+patterns = {
+    "setup requirement": r"python3` is on your `PATH` and reports at least \*\*([0-9]+\.[0-9]+)\*\*",
+    "floor rationale": r"where the ([0-9]+\.[0-9]+) floor comes from",
+}
 
-assert found, "README.md Requirements section states no python3 floor"
-wrong = [version for version in found if version != expected]
-assert not wrong, (
-    f"README.md states python3 floor(s) {', '.join(found)}, "
-    f"but tests/helpers/common.bash enforces {expected}"
-)
+for label, pattern in patterns.items():
+    matches = re.findall(pattern, section)
+    assert matches, f"README.md Requirements section is missing the python3 {label} floor"
+    assert len(matches) == 1, f"README.md Requirements section has multiple python3 {label} floors: {', '.join(matches)}"
+    assert matches[0] == expected, (
+        f"README.md {label} states python3 floor {matches[0]}, "
+        f"but tests/helpers/common.bash enforces {expected}"
+    )
 PY
   assert_success
+}
+
+@test "a missing python3 is rejected" {
+  local stub="$PALETTE_WORK/nopython" saved="$PATH"
+  mkdir -p "$stub"
+
+  PATH="$stub"
+  run assert_python3_available
+  PATH="$saved"
+
+  assert_failure
+  assert_output --partial "python3 is not on PATH"
 }
 
 # The gate has to reject, not fall through. Before the shape check in

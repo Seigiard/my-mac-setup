@@ -51,12 +51,13 @@ Raised by the testing reviewer during the code review of the plan named in `pare
    stubbing difficulty. It is currently proven only by an ad-hoc harness run, not by
    anything in the repo.
 
-## Open decisions
+## Resolved decisions
 
-- Is `README.md` the right home for a machine-readable constant at all? It is the file a
-  human reads, which is why the assertion points there. A grep-based test couples the test
-  suite to prose formatting, which is its own fragility — a heading rename or a reworded
-  sentence would break it for no real reason.
+- `README.md` stays the checked document. It is the file the failure message names and the
+  file a human reads during setup, so the drift test intentionally couples to the two
+  current Requirements-section sentences that carry the floor. The test now fails if
+  either sentence disappears, which keeps a prose edit from silently removing the setup
+  requirement while preserving the rationale sentence.
 - The floor is 3.9 because that is what macOS ships at `/usr/bin/python3` (3.9.6,
   measured). If macOS ever ships newer, the floor could rise — but the decision of when to
   raise it belongs with whoever checks that all four command-palette sources still compile
@@ -64,4 +65,4 @@ Raised by the testing reviewer during the code review of the plan named in `pare
 
 ## Resolution
 
-Added a Bats regression test in tests/palette.bats that reads README.md's Requirements section and compares the documented python3 floor with PYTHON3_MIN_VERSION from tests/helpers/common.bash. Mutation verification changed README.md to 3.10 and confirmed the new test fails before restoration; the normal palette suite passes.
+Added Bats regression tests in tests/palette.bats that read README.md's Requirements section, require both python3 floor sentences, and compare each documented floor with PYTHON3_MIN_VERSION from tests/helpers/common.bash. The same test now fails instead of skipping when README.md is absent, and docker/docker-compose.yml copies README.md into the Docker test worktree so make test-ubuntu exercises the check. The absent-python3 branch is also covered by a committed PATH-stub test. Mutation verification changed README.md to 3.10 and confirmed the drift test fails before restoration; the normal palette suite passes.
