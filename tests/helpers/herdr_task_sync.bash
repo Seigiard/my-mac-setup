@@ -543,6 +543,9 @@ HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
 # gives loaded CI a margin for scheduler stalls that the baseline observes.
 HTS_FAIL_OPEN_BEHAVIOR_SECONDS="${HTS_FAIL_OPEN_BEHAVIOR_SECONDS:-2.5}"
 HTS_FAIL_OPEN_BASELINE_MULTIPLIER="${HTS_FAIL_OPEN_BASELINE_MULTIPLIER:-8}"
+# Process-heavy commands can provide a same-run healthy-path duration. The guard
+# uses it only when it exceeds the scaled one-process launch baseline.
+HTS_FAIL_OPEN_REFERENCE_MILLIS="${HTS_FAIL_OPEN_REFERENCE_MILLIS:-}"
 
 # Hang guard for the same assertions. A return after the behavioral budget is a
 # promptness regression. No return by this ceiling is a hung fail-open path.
@@ -588,7 +591,8 @@ PY
 }
 
 hts_run_fail_open_guard() {
-  local behavior_ms hang_ms baseline_multiplier baseline_start baseline_end baseline_ms
+  local behavior_ms hang_ms baseline_multiplier reference_ms
+  local baseline_start baseline_end baseline_ms behavior_baseline_ms
   local start end elapsed_ms behavior_allowed_ms hang_allowed_ms hang_allowed_seconds
   local input out err timeout_marker pid watchdog status
 
@@ -598,6 +602,11 @@ hts_run_fail_open_guard() {
     '' | *[!0-9]*) return 2 ;;
     *) baseline_multiplier="$HTS_FAIL_OPEN_BASELINE_MULTIPLIER" ;;
   esac
+  case "$HTS_FAIL_OPEN_REFERENCE_MILLIS" in
+    '' ) reference_ms=0 ;;
+    *[!0-9]*) return 2 ;;
+    *) reference_ms="$HTS_FAIL_OPEN_REFERENCE_MILLIS" ;;
+  esac
   input="$(mktemp "$HTS_WORK/fail-open-stdin.XXXXXX")" || return 1
   out="$(mktemp "$HTS_WORK/fail-open-stdout.XXXXXX")" || { rm -f "$input"; return 1; }
   err="$(mktemp "$HTS_WORK/fail-open-stderr.XXXXXX")" || { rm -f "$input" "$out"; return 1; }
@@ -606,13 +615,20 @@ hts_run_fail_open_guard() {
     return 1
   }
   rm -f "$timeout_marker"
-  cat > "$input"
+  # A test with no redirected input must not consume the runner's terminal.
+  if [[ ! -t 0 ]]; then
+    cat > "$input"
+  fi
 
   baseline_start="$(hts_millis)"
   bash -c ':' >/dev/null 2>&1
   baseline_end="$(hts_millis)"
   baseline_ms=$((baseline_end - baseline_start))
-  behavior_allowed_ms=$((behavior_ms + baseline_ms * baseline_multiplier))
+  behavior_baseline_ms=$((baseline_ms * baseline_multiplier))
+  if [ "$reference_ms" -gt "$behavior_baseline_ms" ]; then
+    behavior_baseline_ms="$reference_ms"
+  fi
+  behavior_allowed_ms=$((behavior_ms + behavior_baseline_ms))
   hang_allowed_ms=$((baseline_ms + hang_ms))
   hang_allowed_seconds="$(hts_millis_to_seconds "$hang_allowed_ms")" || {
     rm -f "$input" "$out" "$err" "$timeout_marker"
@@ -648,7 +664,7 @@ hts_run_fail_open_guard() {
   rm -f "$input" "$out" "$err" "$timeout_marker"
   if [ "$elapsed_ms" -gt "$behavior_allowed_ms" ]; then
     printf 'fail-open command exceeded fail-open behavioral deadline: elapsed_ms=%s allowed_ms=%s baseline_ms=%s\n' \
-      "$elapsed_ms" "$behavior_allowed_ms" "$baseline_ms"
+      "$elapsed_ms" "$behavior_allowed_ms" "$behavior_baseline_ms"
     return 124
   fi
   return "$status"
