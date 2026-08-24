@@ -74,6 +74,24 @@ class TestDotfilesWorkflow(unittest.TestCase):
             "the macOS flock experiment must not add Homebrew install time",
         )
 
+    def test_ubuntu_provisions_gitleaks_outside_skipped_linuxbrew(self):
+        text = self.workflow_text()
+        job = self.job_block(text, "test-ubuntu")
+        install = self.named_step_block(job, "Install gitleaks")
+
+        self.assertIn("gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz", install)
+        self.assertIn('$HOME/.local/bin', install)
+        self.assertIn("gitleaks version", install)
+        self.assertNotIn(
+            "brew install",
+            install,
+            "ordinary Ubuntu CI skips Linuxbrew, so the required scanner needs an independent install",
+        )
+        self.assertLess(
+            job.index("      - name: Install gitleaks"),
+            job.index("      - name: Run the Smithers test gate"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -151,6 +151,18 @@ jobs:
       - name: Add chezmoi to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
+      # CI-minimal Linux applies skip Homebrew entirely. Full applies install
+      # gitleaks into Linuxbrew, but that script-local shellenv does not reach
+      # later workflow steps. Keep the required Smithers scanner on the
+      # runner-facing PATH in both modes.
+      - name: Install gitleaks
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" gitleaks
+          gitleaks version
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+
       - name: Install bats
         run: |
           sudo apt-get update
