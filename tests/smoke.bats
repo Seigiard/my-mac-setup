@@ -1077,12 +1077,10 @@ assert_herdr_sidebar_deployment_contract() {
 
   assert_file_contains "$config" '^sidebar_min_width = 32$'
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
-  # Herdr 0.8 collapses an empty custom-token row when the token is the row's
-  # only item. The first row keeps workspace and pane together, and the second
-  # row carries the one combined $git_ref token — stale state rides on it as
-  # a suffix icon, so there is no third row and no $location_status token.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]$'
-  run grep -E '\$location_label|\$location_status' "$config"
+  # Pane and tab identity stay stable when Git state changes. Location metadata
+  # remains available to integrations, but the sidebar renders identity only.
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\]\]$'
+  run grep -E '\$git_ref|\$location_label|\$location_status' "$config"
   assert_failure
   width="$(awk '
     $0 == "[ui]" { in_ui = 1; next }
@@ -1112,7 +1110,7 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
     "$config" "${writer_files[@]}"
   assert_success
-  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]'
+  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\]\]'
   assert_file_contains "$config" '"state_icon"'
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
