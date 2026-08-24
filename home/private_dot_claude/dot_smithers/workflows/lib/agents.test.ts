@@ -79,12 +79,6 @@ describe("simplify apply model", () => {
 });
 
 describe("factories", () => {
-  test("claude review factory builds for all three profiles", () => {
-    expect(makeClaudeReviewAgent({ cwd: "/tmp", profile: "codeReview" })).toBeDefined();
-    expect(makeClaudeReviewAgent({ cwd: "/tmp", profile: "simplifyReview" })).toBeDefined();
-    expect(makeClaudeReviewAgent({ cwd: "/tmp", profile: "docReview", jsonField: "envelope" })).toBeDefined();
-  });
-
   test("codeReview + simplifyReview emit the raw-object json-schema; docReview keeps the envelope wrapper", () => {
     const jsonSchemaOf = (agent: ReturnType<typeof makeClaudeReviewAgent>): Record<string, unknown> =>
       JSON.parse((agent as unknown as { opts: { jsonSchema: string } }).opts.jsonSchema);
@@ -126,10 +120,5 @@ describe("factories", () => {
     expect(opencode.idleTimeoutMs).toBe(AGENT_PROFILES.opencodeReview.idleTimeoutMs);
     const work = makeWorkAgent({ cwd: "/tmp", timeoutMs: 60_000, maxBudgetUsd: 1, jsonField: "report" });
     expect(work.idleTimeoutMs).toBeUndefined();
-  });
-
-  test("opencode and work factories build", () => {
-    expect(makeOpencodeReviewAgent({ cwd: "/tmp" })).toBeDefined();
-    expect(makeWorkAgent({ cwd: "/tmp", timeoutMs: 60_000, maxBudgetUsd: 1, jsonField: "report" })).toBeDefined();
   });
 });

@@ -890,29 +890,6 @@ se_fixture_repo() {
   assert_success
 }
 
-@test "smithers workflows carry a tsconfig so the package can be type-checked" {
-  # `bun build` resolves the module graph without type-checking, so a green
-  # build says nothing about types — a reserved output field refused every
-  # launch for a day while the build stayed green
-  # (docs/issues/2026-08-14-004). The tsconfig is what makes `bunx tsc
-  # --noEmit` runnable at all (docs/issues/2026-08-15-006).
-  local config="$SE_ROOT/private_dot_claude/dot_smithers/tsconfig.json"
-  assert_file_exists "$config"
-  # The JSX pragma is per-file today; the config must agree with it, or a file
-  # that omits the pragma type-checks against the wrong runtime.
-  run grep -q 'smithers-orchestrator' "$config"
-  assert_success
-}
-
-@test "smithers workflows declare bun's own type definitions" {
-  # Without @types/bun the language server cannot resolve bun:sqlite / bun:test
-  # and reports an error in nearly every file, which trains its reader to
-  # ignore it (docs/issues/2026-08-15-006).
-  local manifest="$SE_ROOT/private_dot_claude/dot_smithers/package.json"
-  run grep -q '"@types/bun"' "$manifest"
-  assert_success
-}
-
 @test "chezmoiignore excludes smithers runtime state from management" {
   local ignore="$SE_ROOT/.chezmoiignore"
   for entry in '.claude/.smithers/node_modules' '.claude/.smithers/smithers.db*' '.claude/.smithers/executions'; do

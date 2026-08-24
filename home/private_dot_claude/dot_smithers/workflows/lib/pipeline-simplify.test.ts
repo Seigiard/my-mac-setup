@@ -2,17 +2,14 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import sePipeline from "../se-pipeline.tsx";
-import seSimplify from "../se-simplify.tsx";
-
 // The pipeline's simplify wiring is orchestration inside a smithers render, not
 // a pure function — the repo tests pure decisions in lib/ (see stage-gate.test:
 // shouldRunSimplify + simplifyCommitDecision) and transpile-checks workflows by
 // importing them. These cases pin the STRUCTURAL contract the render must hold:
 // verify-doc is conditional, simplify sits after secret-scan and before
 // verify-code, its commit + rescan land before verify-code, and the subflow
-// targets the run worktree. Deterministic source assertions + a load check —
-// the live render is exercised by the pipeline smoke run (Verification Contract).
+// targets the run worktree. workflow-construction.test.ts owns the shared load
+// checks; the live render is exercised by the pipeline smoke run (Verification Contract).
 const pipelineSrc = fs.readFileSync(path.join(import.meta.dir, "..", "se-pipeline.tsx"), "utf8");
 
 const idxOf = (needle: string): number => {
@@ -20,13 +17,6 @@ const idxOf = (needle: string): number => {
   expect(i, `expected to find ${needle} in se-pipeline.tsx`).toBeGreaterThanOrEqual(0);
   return i;
 };
-
-describe("se-pipeline transpiles / loads", () => {
-  test("both workflows import and expose a workflow definition", () => {
-    expect(sePipeline).toBeDefined();
-    expect(seSimplify).toBeDefined();
-  });
-});
 
 describe("docReview gating (R7)", () => {
   test("inputSchema declares docReview defaulting to false", () => {

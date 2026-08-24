@@ -57,6 +57,8 @@ brew "ripgrep"      # rg
 brew "bat"
 {{ end -}}
 brew "jq"
+{{/* gitleaks is kept: the required Smithers gate runs real secret-scanner tests */ -}}
+brew "gitleaks"
 
 {{ if $full -}}
 # File management
@@ -75,7 +77,6 @@ brew "herdr"        # agent multiplexer
 
 # Dev tools
 brew "act"          # run GitHub Actions locally
-brew "gitleaks"     # secret scan gate in se-pipeline (KTD10)
 
 # Testing
 brew "bats-core"    # bats
