@@ -42,7 +42,7 @@ Read-only means no file-writing tools. It is not an enforced write boundary beca
 
 ## Outcome contract
 
-The answer or partial answer is on stdout. The last stderr line is always one of these status lines:
+The answer or partial answer is on stdout only after two `herdr-child verify` calls show that the returned alias and pane resolve to the same terminal before and after capture. The wrapper never reads the agent registry directly. If either validation fails, captured output is discarded. The last stderr line is always one of these status lines:
 
 | Status line | Exit | Meaning |
 |---|---:|---|
@@ -52,7 +52,7 @@ The answer or partial answer is on stdout. The last stderr line is always one of
 | `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. |
 | `ask.sh: status=refused` | 2 | Arguments or the requested posture are invalid. |
 
-The script prints a close hint on stderr before the status line. Keep the pane for follow-up, or close it with the reported `herdr pane close <pane-id>` command.
+The script prints a pair-addressed close hint on stderr before the status line. Keep the pane for follow-up, or use the reported `herdr-child reap --to <alias> --pane <pane-id>` command.
 
 ## Examples
 

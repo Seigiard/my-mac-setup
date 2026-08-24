@@ -348,14 +348,14 @@ render_with_source() {
   assert_success
 }
 
-@test "private_settings.json.tmpl renders the task-sync hook on all three events" {
+@test "private_settings.json.tmpl omits task-sync hooks and keeps native Herdr state" {
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-  assert_file_contains "$BATS_TEST_TMPFILE" '"UserPromptSubmit"'
-  assert_file_contains "$BATS_TEST_TMPFILE" '"PreCompact"'
-  run grep -c "herdr-task-sync-hook.sh" "$BATS_TEST_TMPFILE"
+  run grep "herdr-task-sync-hook.sh" "$BATS_TEST_TMPFILE"
+  assert_failure
+  run grep -c "herdr-agent-state.sh" "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output "3"
+  assert_output "1"
 }
 
 @test "private_settings.json.tmpl has no unresolved template markers" {

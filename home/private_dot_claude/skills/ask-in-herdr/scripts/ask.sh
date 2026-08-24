@@ -59,37 +59,19 @@ fi
 
 posture=ro
 [ "$RW" -eq 0 ] || posture=rw
-base="consult-$AGENT-$$"
-base="${base:0:32}"
-name="$base"
-list_json="$(herdr agent list 2>/dev/null || printf '{"result":{"agents":[]}}')"
-name_live() {
-  printf '%s' "$list_json" | python3 -c 'import json,sys
-name=sys.argv[1]
-agents=json.load(sys.stdin).get("result",{}).get("agents",[])
-raise SystemExit(0 if any(a.get("name")==name for a in agents) else 1)' "$1"
-}
-if name_live "$name"; then
-  suffix=2
-  while [ "$suffix" -le 99 ]; do
-    tail="-$suffix"
-    name="${base:0:$((32 - ${#tail}))}$tail"
-    name_live "$name" || break
-    suffix=$((suffix + 1))
-  done
-  if name_live "$name"; then
-    printf 'ask.sh: could not derive a unique child name\n' >&2
-    status_exit refused 2
-  fi
-fi
 
 question_file="$(mktemp)"
 start_out="$(mktemp)"
 start_err="$(mktemp)"
-trap 'rm -f "$question_file" "$start_out" "$start_err"' EXIT
+read_out="$(mktemp)"
+read_err="$(mktemp)"
+pane_out="$(mktemp)"
+agent_out="$(mktemp)"
+agent_err="$(mktemp)"
+trap 'rm -f "$question_file" "$start_out" "$start_err" "$read_out" "$read_err" "$pane_out" "$agent_out" "$agent_err"' EXIT
 printf '%s' "$QUESTION" > "$question_file"
 
-args=(start --kind "$AGENT" --name "$name" --posture "$posture" --cwd "$CWD" \
+args=(start --kind "$AGENT" --posture "$posture" --cwd "$CWD" \
   --prompt-file "$question_file" --wait --timeout 1800000)
 [ -z "$MODEL" ] || args+=(--model "$MODEL")
 [ -z "$EFFORT" ] || args+=(--effort "$EFFORT")
@@ -122,33 +104,56 @@ if [ -z "$pane" ] || [ -z "$started_name" ]; then
   status_exit undelivered 1
 fi
 
+captured_terminal="$(herdr-child verify --to "$started_name" --pane "$pane" 2>/dev/null)" || {
+  printf 'ask.sh: returned child alias and pane are not one live agent\n' >&2
+  status_exit undelivered 1
+}
+
 source=recent-unwrapped
 [ "$AGENT" != claude ] || source=visible
 set +e
-herdr agent read "$started_name" --source "$source" --lines 200
+herdr agent read "$started_name" --source "$source" --lines 200 >"$read_out" 2>"$read_err"
 read_status=$?
+herdr pane get "$pane" >"$pane_out" 2>/dev/null
+pane_status=$?
+herdr agent get "$started_name" >"$agent_out" 2>"$agent_err"
+agent_get_status=$?
 set -e
-if [ "$read_status" -ne 0 ]; then
+
+fresh_terminal="$(herdr-child verify --to "$started_name" --pane "$pane" 2>/dev/null)" || true
+if [ "$fresh_terminal" != "$captured_terminal" ]; then
+  printf 'ask.sh: child alias, pane, or terminal changed while output was captured; output discarded\n' >&2
   status_exit undelivered 1
 fi
-printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr-child reap %s)\n' "$pane" "$started_name" >&2
+
+if [ "$read_status" -ne 0 ]; then
+  cat "$read_err" >&2
+  status_exit undelivered 1
+fi
+cat "$read_out"
+printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr-child reap --to %s --pane %s)\n' "$pane" "$started_name" "$pane" >&2
 
 if [ "$start_status" -eq 124 ]; then
   cat "$start_err" >&2
   status_exit working 124
 fi
 
-pane_json="$(herdr pane get "$pane" 2>/dev/null || true)"
-waiting_label="$(printf '%s' "$pane_json" | python3 -c 'import json,sys
+waiting_label=""
+if [ "$pane_status" -eq 0 ]; then
+  waiting_label="$(python3 -c 'import json,sys
 pane=json.load(sys.stdin).get("result",{}).get("pane",{})
 labels=pane.get("state_labels") or {}
-raise SystemExit(0 if any(str(v)=="waiting for parent" for v in labels.values()) else 1)' 2>/dev/null && printf yes || true)"
+raise SystemExit(0 if any(str(v)=="waiting for parent" for v in labels.values()) else 1)' < "$pane_out" 2>/dev/null && printf yes || true)"
+fi
 if [ "$waiting_label" = yes ]; then
   status_exit blocked 1
 fi
 
-agent_json="$(herdr agent get "$started_name" 2>/dev/null || true)"
-agent_status="$(printf '%s' "$agent_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["agent"]["agent_status"])' 2>/dev/null || true)"
+if [ "$agent_get_status" -ne 0 ]; then
+  cat "$agent_err" >&2
+  status_exit undelivered 1
+fi
+agent_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["agent"]["agent_status"])' < "$agent_out" 2>/dev/null || true)"
 case "$agent_status" in
   idle|done) status_exit answered 0 ;;
   blocked) status_exit blocked 1 ;;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
 load 'helpers/common'
-load 'helpers/herdr_task_sync'
+load 'helpers/herdr_pane_labels'
 
 setup() {
   unset HERDR_CHILD_NAME
@@ -9,7 +9,7 @@ setup() {
 }
 
 teardown() {
-  hts_teardown
+  hpl_teardown
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
 }
@@ -331,29 +331,46 @@ ask_live_stub() {
   cat > "$CHILD_STUB/herdr-child" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/child.log"; printf '\n' >> "$CHILD_STUB/child.log"
-name=""
-while [ $# -gt 0 ]; do
-  case "$1" in --name) name="$2"; shift 2 ;; *) shift ;; esac
-done
-printf '{"agent":"%s","pane":"wT:p9"}\n' "$name"
-[ "${STUB_CHILD_STATUS:-0}" -eq 0 ] || { printf 'child-start-error\n' >&2; exit "$STUB_CHILD_STATUS"; }
+printf 'child ' >> "$CHILD_STUB/order.log"; printf '%q ' "$@" >> "$CHILD_STUB/order.log"; printf '\n' >> "$CHILD_STUB/order.log"
+case "${1:-}" in
+  start)
+    printf '{"agent":"red-wolf","pane":"wT:p9"}\n'
+    [ "${STUB_CHILD_STATUS:-0}" -eq 0 ] || { printf 'child-start-error\n' >&2; exit "$STUB_CHILD_STATUS"; }
+    ;;
+  verify)
+    count=0; [ ! -f "$CHILD_STUB/verify-count" ] || read -r count < "$CHILD_STUB/verify-count"
+    count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/verify-count"
+    [ "${STUB_PAIR_FAIL_AT:-0}" -ne "$count" ] || exit 1
+    if [ "${STUB_PAIR_TERMINAL_CHANGE_AT:-0}" -eq "$count" ]; then
+      printf 'term-replaced\n'
+    else
+      printf 'term-child\n'
+    fi
+    ;;
+  *) exit 2 ;;
+esac
 SH
   cat > "$CHILD_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/herdr.log"; printf '\n' >> "$CHILD_STUB/herdr.log"
+printf 'herdr ' >> "$CHILD_STUB/order.log"; printf '%q ' "$@" >> "$CHILD_STUB/order.log"; printf '\n' >> "$CHILD_STUB/order.log"
 case "$1 $2" in
   "agent list")
-    if [ "${STUB_NAME_COLLISION:-0}" = 1 ]; then
-      parent="$PPID"
-      grandparent="$(ps -o ppid= -p "$parent" | tr -d ' ')"
-      printf '{"result":{"agents":[{"name":"consult-claude-%s","pane_id":"wT:p8"},{"name":"consult-claude-%s","pane_id":"wT:p7"}]}}\n' "$parent" "$grandparent"
-    else printf '{"result":{"agents":[]}}\n'; fi ;;
+    count=0; [ ! -f "$CHILD_STUB/list-count" ] || read -r count < "$CHILD_STUB/list-count"
+    count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/list-count"
+    if [ "${STUB_PAIR_FAIL_AT:-0}" -eq "$count" ]; then
+      printf '{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p8","agent":"claude","terminal_id":"term-other","revision":2,"state_change_seq":2}]}}\n'
+    elif [ "${STUB_PAIR_TERMINAL_CHANGE_AT:-0}" -eq "$count" ]; then
+      printf '{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-replaced","revision":2,"state_change_seq":2}]}}\n'
+    else
+      printf '{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":1,"state_change_seq":1}]}}\n'
+    fi ;;
   "agent read") [ "${STUB_READ_FAIL:-0}" = 1 ] && { printf 'read failed\n' >&2; exit 1; }; printf 'ANSWER from child\n' ;;
-  "agent get") printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
+  "agent get") printf '{"result":{"agent":{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":1,"state_change_seq":1,"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
   "pane get")
     if [ "${STUB_WAITING_LABEL:-0}" = 1 ]; then
-      printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
-    else printf '{"result":{"pane":{}}}\n'; fi ;;
+      printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","state_labels":{"blocked":"waiting for parent"}}}}\n'
+    else printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'; fi ;;
   *) exit 2 ;;
 esac
 SH
@@ -413,13 +430,13 @@ SH
     bash "$ASK_HERDR_DIR/ask.sh" claude "hi there"
   assert_success
   assert_output --partial "ANSWER from child"
-  assert_output --partial "close with: herdr-child reap consult-claude-"
+  assert_output --partial "close with: herdr-child reap --to red-wolf --pane wT:p9"
   assert_output --partial "ask.sh: status=answered"
-  run grep -E -- '^start --kind claude --name consult-claude-[0-9]+ --posture ro ' "$CHILD_STUB/child.log"
+  run grep -E -- '^start --kind claude --posture ro ' "$CHILD_STUB/child.log"
   assert_success
   run grep -E -- '--prompt-file .* --wait --timeout 1800000' "$CHILD_STUB/child.log"
   assert_success
-  run grep -E -- '^agent read consult-claude-[0-9]+ --source visible --lines 200' "$CHILD_STUB/herdr.log"
+  run grep -E -- '^agent read red-wolf --source visible --lines 200' "$CHILD_STUB/herdr.log"
   assert_success
 }
 
@@ -442,13 +459,40 @@ SH
   assert_failure
 }
 
-@test "ask.sh retries a colliding derived name with a valid suffix" {
+@test "ask.sh performs no agent-list preflight or query and verifies the returned pair twice" {
   ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_NAME_COLLISION=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_DIR/ask.sh" claude question
   assert_success
-  run grep -E -- '--name consult-claude-[0-9]+-2' "$CHILD_STUB/child.log"
+  refute_output --partial "consult-claude"
+  run grep -q -- '--name' "$CHILD_STUB/child.log"
+  assert_failure
+  run sed -n '1p' "$CHILD_STUB/order.log"
+  assert_output --partial "child start"
+  run grep -c '^herdr agent list' "$CHILD_STUB/herdr.log"
+  assert_failure
+  assert_output 0
+  run grep -c '^verify --to red-wolf --pane wT:p9 ' "$CHILD_STUB/child.log"
   assert_success
+  assert_output 2
+  run grep -q 'herdr agent list' "$ASK_HERDR_DIR/ask.sh"
+  assert_failure
+}
+
+@test "ask.sh discards buffered output when either pair validation fails" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_FAIL_AT=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 1
+  refute_output --partial "ANSWER from child"
+  assert_output --partial "status=undelivered"
+
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_TERMINAL_CHANGE_AT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_failure 1
+  refute_output --partial "ANSWER from child"
+  assert_output --partial "output discarded"
 }
 
 @test "ask.sh reports blocked children after printing their answer" {
@@ -539,18 +583,34 @@ printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
 printf '\n' >> "$CHILD_STUB/calls.log"
 case "${1:-} ${2:-}" in
   "agent list")
-    if [ -n "${STUB_AGENTS_JSON_FIRST:-}" ] && [ ! -f "$CHILD_STUB/list-once" ]; then
+    if [ -n "${STUB_AGENTS_JSON_FILE_FIRST:-}" ] && [ ! -f "$CHILD_STUB/list-once" ]; then
+      : > "$CHILD_STUB/list-once"
+      cat "$STUB_AGENTS_JSON_FILE_FIRST"
+    elif [ -n "${STUB_AGENTS_JSON_FIRST:-}" ] && [ ! -f "$CHILD_STUB/list-once" ]; then
       : > "$CHILD_STUB/list-once"
       printf '%s\n' "$STUB_AGENTS_JSON_FIRST"
+    elif [ -n "${STUB_AGENTS_JSON_FILE_SECOND:-}" ]; then
+      cat "$STUB_AGENTS_JSON_FILE_SECOND"
     elif [ -n "${STUB_AGENTS_JSON_SECOND:-}" ]; then
       printf '%s\n' "$STUB_AGENTS_JSON_SECOND"
+    elif [ -n "${STUB_AGENTS_JSON_FILE:-}" ]; then cat "$STUB_AGENTS_JSON_FILE"
     elif [ -n "${STUB_AGENTS_JSON:-}" ]; then printf '%s\n' "$STUB_AGENTS_JSON"
+    elif [ -f "$CHILD_STUB/collision-record" ]; then
+      IFS=$'\t' read -r name pane terminal < "$CHILD_STUB/collision-record"
+      printf '{"result":{"agents":[{"name":"%s","pane_id":"%s","agent":"claude","terminal_id":"%s","revision":1,"state_change_seq":1,"agent_status":"working","focused":false}]}}\n' "$name" "$pane" "$terminal"
+    elif [ -f "$CHILD_STUB/registered-record" ]; then
+      IFS=$'\t' read -r name pane terminal kind < "$CHILD_STUB/registered-record"
+      printf '{"result":{"agents":[{"name":"%s","pane_id":"%s","agent":"%s","terminal_id":"%s","revision":1,"state_change_seq":1,"agent_status":"idle","focused":false}]}}\n' "$name" "$pane" "$kind" "$terminal"
     else printf '{"result":{"agents":[]}}\n'
     fi ;;
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
-    printf '{"result":{"pane":{"pane_id":"wT:p9"}}}\n' ;;
+    count=0; [ ! -f "$CHILD_STUB/split-count" ] || read -r count < "$CHILD_STUB/split-count"
+    count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/split-count"
+    pane="wT:p$((count + 8))"; terminal="term-child-$count"
+    printf '%s\t%s\n' "$pane" "$terminal" >> "$CHILD_STUB/panes"
+    printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s"}}}\n' "$pane" "$terminal" ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -569,6 +629,33 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
       exit 1
     fi
+    name="$3"; pane=""; kind=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --pane) pane="$2"; shift 2 ;;
+        --kind) kind="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    terminal="$(awk -F '\t' -v pane="$pane" '$1==pane {print $2; exit}' "$CHILD_STUB/panes")"
+    if [ "${STUB_START_MODE:-ok}" = collision-once ] && [ ! -f "$CHILD_STUB/collision-once" ]; then
+      : > "$CHILD_STUB/collision-once"
+      printf '%s\t%s\t%s\n' "$name" wT:p8 term-other > "$CHILD_STUB/collision-record"
+      printf '{"error":{"code":"agent_name_taken","message":"name is already live"}}\n' >&2
+      exit 1
+    fi
+    if [ "${STUB_START_MODE:-ok}" = collision ]; then
+      printf '%s\t%s\t%s\n' "$name" wT:p8 term-other > "$CHILD_STUB/collision-record"
+      printf '{"error":{"code":"agent_name_taken","message":"name is already live"}}\n' >&2
+      exit 1
+    fi
+    if [ "${STUB_START_MODE:-ok}" = error-with-occupation ]; then
+      printf '%s\t%s\t%s\n' "$name" wT:p8 term-other > "$CHILD_STUB/collision-record"
+      printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
+      exit 1
+    fi
+    rm -f "$CHILD_STUB/collision-record"
+    printf '%s\t%s\t%s\t%s\n' "$name" "$pane" "$terminal" "$kind" > "$CHILD_STUB/registered-record"
     printf '{"result":{"agent":{"interactive_ready":true}}}\n' ;;
   "agent prompt")
     [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
@@ -576,12 +663,19 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
   "pane report-metadata") [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1; printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
   "pane get")
+    pane="$3"
+    terminal="${STUB_PANE_TERMINAL:-term-child}"
+    if [ -f "$CHILD_STUB/panes" ]; then
+      found="$(awk -F '\t' -v pane="$pane" '$1==pane {print $2; exit}' "$CHILD_STUB/panes")"
+      [ -z "$found" ] || terminal="$found"
+    fi
+    [ "${STUB_TERMINAL_CHANGED:-0}" = 0 ] || terminal=term-replaced
     if [ "${STUB_PANE_GET_MALFORMED:-0}" = 1 ]; then
       printf 'not json\n'
     elif [ "${STUB_LABEL:-0}" = 1 ]; then
-      printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
+      printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s","state_labels":{"blocked":"waiting for parent"}}}}\n' "$pane" "$terminal"
     else
-      printf '{"result":{"pane":{}}}\n'
+      printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s"}}}\n' "$pane" "$terminal"
     fi ;;
   "pane close") exit "${STUB_CLOSE_STATUS:-0}" ;;
   *) exit 2 ;;
@@ -591,8 +685,33 @@ SH
 }
 
 child_start() {
-  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed \
     bash "$HERDR_CHILD" start "$@" --prompt "test task"
+}
+
+child_first_alias() {
+  HERDR_ALIAS_TEST_SEED=u3-child-seed bash -c 'source "$1"; herdr_alias_candidates ignored' _ "$HERDR_ALIASES" | sed -n '1p'
+}
+
+complete_agent_record() {
+  local name="$1" pane="$2" terminal="$3" status="${4:-idle}" focused="${5:-false}" kind="${6:-claude}"
+  printf '{"result":{"agents":[{"name":"%s","pane_id":"%s","agent":"%s","terminal_id":"%s","revision":1,"state_change_seq":1,"agent_status":"%s","focused":%s}]}}' \
+    "$name" "$pane" "$kind" "$terminal" "$status" "$focused"
+}
+
+write_pool_records() {
+  local output="$1" skip_alias="${2:-}" alias first=1 index=0
+  printf '{"result":{"agents":[' > "$output"
+  while IFS= read -r alias; do
+    [ "$alias" = "$skip_alias" ] && continue
+    [ "$first" -eq 1 ] || printf ',' >> "$output"
+    first=0
+    printf '{"name":"%s","pane_id":"pool:p%s","agent":"claude","terminal_id":"term-pool-%s","revision":1,"state_change_seq":1,"agent_status":"idle","focused":false}' \
+      "$alias" "$index" "$index" >> "$output"
+    index=$((index + 1))
+  done < <(HERDR_ALIAS_TEST_SEED=u3-child-seed bash -c 'source "$1"; herdr_alias_candidates ignored' _ "$HERDR_ALIASES")
+  printf ']}}\n' >> "$output"
 }
 
 @test "herdr-child requires a subcommand and herdr environment" {
@@ -602,42 +721,81 @@ child_start() {
 
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" start --kind claude --name child-a --prompt task
+    bash "$HERDR_CHILD" start --kind claude --prompt task
   assert_failure
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
 @test "herdr-child refuses pi read-only before splitting a pane" {
   child_stub_herdr
-  run child_start --kind pi --name child-pi --posture ro
+  run child_start --kind pi --posture ro
   assert_failure 2
   assert_output --partial "return channel requires bash"
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
-@test "herdr-child rejects invalid and live names before splitting" {
+@test "herdr-child help exposes verify and start options reject the removed --name flag" {
   child_stub_herdr
-  run child_start --kind claude --name Invalid
-  assert_failure 2
-  [ ! -f "$CHILD_STUB/calls.log" ]
+  run bash "$HERDR_CHILD" --help
+  assert_success
+  refute_output --partial "--name"
+  assert_output --partial "herdr-child verify --to <alias> --pane <pane-id>"
 
-  STUB_AGENTS_JSON='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p8"}]}}' \
-    run child_start --kind claude --name child-a
+  run child_start --kind claude --name legacy-name
   assert_failure 2
-  assert_output --partial "already live"
+  assert_output --partial "unknown start option: --name"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child verify accepts only one complete matching alias-pane pair" {
+  child_stub_herdr
+  local agents; agents="$(complete_agent_record child-a wT:p9 term-child)"
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" verify --to child-a --pane wT:p9
+  assert_success
+  assert_output term-child
+
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" verify --to child-a --pane wT:p8
+  assert_failure
+  assert_output --partial "alias and pane do not identify the same live agent"
+
+  child_stub_herdr
+  local incomplete='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$incomplete" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" verify --to child-a --pane wT:p9
+  assert_failure
+  assert_output --partial "live agent records are incomplete"
+
+  child_stub_herdr
+  local duplicate_names='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9","agent":"claude","terminal_id":"term-1","revision":1,"state_change_seq":1},{"name":"child-a","pane_id":"wT:p10","agent":"opencode","terminal_id":"term-2","revision":1,"state_change_seq":1}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$duplicate_names" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" verify --to child-a --pane wT:p9
+  assert_failure
+  assert_output --partial "live agent records are incomplete"
+}
+
+@test "herdr-child rejects incomplete live records before splitting" {
+  child_stub_herdr
+  STUB_AGENTS_JSON='{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p8"}]}}' \
+    run child_start --kind claude
+  assert_failure
+  assert_output --partial "live agent records are incomplete"
   run grep -q '^pane split' "$CHILD_STUB/calls.log"
   assert_failure
 }
 
 @test "herdr-child maps claude postures and skill directories" {
   child_stub_herdr
-  run child_start --kind claude --name child-ro --skills A --skills B
+  local alias; alias="$(child_first_alias)"
+  run child_start --kind claude --skills A --skills B
   assert_success
-  assert_output '{"agent":"child-ro","pane":"wT:p9"}'
+  assert_output "{\"agent\":\"$alias\",\"pane\":\"wT:p9\"}"
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--add-dir A --add-dir B.*--disallowed-tools Edit Write NotebookEdit AskUserQuestion'
 
   : > "$CHILD_STUB/calls.log"
-  run child_start --kind claude --name child-rw --posture rw
+  run child_start --kind claude --posture rw
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--disallowed-tools AskUserQuestion'
   run grep -q 'disallowed-tools Edit' "$CHILD_STUB/calls.log"
@@ -646,13 +804,13 @@ child_start() {
 
 @test "herdr-child maps opencode permissions, model, and configured agent" {
   child_stub_herdr
-  run child_start --kind opencode --name child-open --agent reviewer
+  run child_start --kind opencode --agent reviewer
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model openai/gpt-5.5 --agent reviewer'
 
   : > "$CHILD_STUB/calls.log"
-  run child_start --kind opencode --name child-open-rw --posture rw
+  run child_start --kind opencode --posture rw
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny'
   run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
@@ -661,25 +819,39 @@ child_start() {
 
 @test "herdr-child maps pi model, effort, skills, and question exclusion" {
   child_stub_herdr
-  run child_start --kind pi --name child-pi --posture rw --skills A --skills B
+  run child_start --kind pi --posture rw --skills A --skills B
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model openai-codex/gpt-5.5 --thinking medium --skill A --skill B'
 
   : > "$CHILD_STUB/calls.log"
-  run child_start --kind pi --name child-pi-high --posture rw --model custom/model --effort high
+  run child_start --kind pi --posture rw --model custom/model --effort high
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --thinking high'
 }
 
+@test "herdr-child returns a pool alias for every supported child kind" {
+  local kind posture alias
+  alias="$(child_first_alias)"
+  for kind in claude opencode pi; do
+    child_stub_herdr
+    posture=ro
+    [ "$kind" != pi ] || posture=rw
+    run child_start --kind "$kind" --posture "$posture"
+    assert_success
+    assert_output "{\"agent\":\"$alias\",\"pane\":\"wT:p9\"}"
+    assert_file_contains "$CHILD_STUB/calls.log" "HERDR_CHILD_NAME=$alias"
+  done
+}
+
 @test "herdr-child rejects native options that the selected kind cannot map" {
   child_stub_herdr
-  run child_start --kind claude --name child-a --effort high
+  run child_start --kind claude --effort high
   assert_failure 2
   assert_output --partial "--effort is not supported for claude"
-  run child_start --kind pi --name child-b --posture rw --agent reviewer
+  run child_start --kind pi --posture rw --agent reviewer
   assert_failure 2
   assert_output --partial "--agent is not supported for pi"
-  run child_start --kind opencode --name child-c --skills A
+  run child_start --kind opencode --skills A
   assert_failure 2
   assert_output --partial "--skills is not supported for opencode"
   [ ! -f "$CHILD_STUB/calls.log" ]
@@ -687,39 +859,42 @@ child_start() {
 
 @test "herdr-child splits, starts, and prompts in order with both coordinates" {
   child_stub_herdr
-  STUB_REQUIRE_SPLIT=1 run child_start --kind claude --name child-a --wait --timeout 5000
+  local alias; alias="$(child_first_alias)"
+  STUB_REQUIRE_SPLIT=1 run child_start --kind claude --wait --timeout 5000
   assert_success
-  local call1 call2 call3 call4
+  local call1 call2 call3 call4 call5
   call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == agent\ list* ]]
-  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
+  [[ "$call2" == pane\ split*HERDR_CHILD_NAME="$alias"*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
   [[ "$call3" == agent\ start* ]]
-  [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
+  [[ "$call4" == agent\ list* ]]
+  [[ "$call5" == agent\ prompt\ wT:p9*"$alias"*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
 }
 
 @test "herdr-child caps startup timeout while preserving a long prompt wait" {
   child_stub_herdr
-  run child_start --kind claude --name child-a --wait --timeout 1800000
+  run child_start --kind claude --wait --timeout 1800000
   assert_success
   local start_call prompt_call
   start_call="$(sed -n '3p' "$CHILD_STUB/calls.log")"
-  prompt_call="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  prompt_call="$(sed -n '5p' "$CHILD_STUB/calls.log")"
   [[ "$start_call" == *--timeout\ 300000* ]]
   [[ "$prompt_call" == *--timeout\ 1800000* ]]
 }
 
 @test "herdr-child retries only the pane-readiness start failure" {
   child_stub_herdr
-  STUB_START_MODE=busy-once run child_start --kind claude --name child-a
+  STUB_START_MODE=busy-once run child_start --kind claude
   assert_success
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
   assert_output 2
 
   child_stub_herdr
-  STUB_START_MODE=error run child_start --kind claude --name child-b
+  STUB_START_MODE=error run child_start --kind claude
   assert_failure
   assert_output --partial "agent start failed"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
@@ -727,9 +902,86 @@ child_start() {
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
+@test "herdr-child retries an exact name collision with the next bounded candidate" {
+  child_stub_herdr
+  local first second
+  first="$(child_first_alias)"
+  second="$(HERDR_ALIAS_TEST_SEED=u3-child-seed bash -c 'source "$1"; herdr_alias_candidates ignored' _ "$HERDR_ALIASES" | sed -n '2p')"
+  STUB_START_MODE=collision-once run child_start --kind claude
+  assert_success
+  assert_output "{\"agent\":\"$second\",\"pane\":\"wT:p10\"}"
+  assert_file_contains "$CHILD_STUB/calls.log" "^agent start $first "
+  assert_file_contains "$CHILD_STUB/calls.log" "^agent start $second "
+  run grep -c '^pane split' "$CHILD_STUB/calls.log"
+  assert_output 2
+  run grep -c '^pane close wT:p9' "$CHILD_STUB/calls.log"
+  assert_output 1
+}
+
+@test "herdr-child exhausts the initial pool without creating a pane" {
+  child_stub_herdr
+  local occupied="$BATS_TEST_TMPDIR/u3-all-occupied.json"
+  write_pool_records "$occupied"
+  STUB_AGENTS_JSON_FILE="$occupied" run child_start --kind claude
+  assert_failure
+  assert_output --partial "alias pool is exhausted"
+  run grep -q '^pane split' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child closes one last-free collision pane and does not split again" {
+  child_stub_herdr
+  local first initial occupied
+  first="$(child_first_alias)"
+  initial="$BATS_TEST_TMPDIR/u3-last-free-initial.json"
+  occupied="$BATS_TEST_TMPDIR/u3-last-free-occupied.json"
+  write_pool_records "$initial" "$first"
+  write_pool_records "$occupied"
+  STUB_AGENTS_JSON_FILE_FIRST="$initial" STUB_AGENTS_JSON_FILE_SECOND="$occupied" \
+    STUB_START_MODE=collision run child_start --kind claude
+  assert_failure
+  assert_output --partial "pool became exhausted"
+  run grep -c '^pane split' "$CHILD_STUB/calls.log"
+  assert_output 1
+  run grep -c '^pane close wT:p9' "$CHILD_STUB/calls.log"
+  assert_output 1
+}
+
+@test "herdr-child preserves an ambiguous collision pane" {
+  child_stub_herdr
+  STUB_START_MODE=collision STUB_TERMINAL_CHANGED=1 run child_start --kind claude
+  assert_failure
+  assert_output --partial "preserving collision pane wT:p9"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+
+  child_stub_herdr
+  local alias initial fresh
+  alias="$(child_first_alias)"
+  initial='{"result":{"agents":[]}}'
+  fresh="{\"result\":{\"agents\":[{\"name\":\"$alias\",\"pane_id\":\"wT:p8\",\"agent\":\"claude\",\"terminal_id\":\"term-other\",\"revision\":1,\"state_change_seq\":1},{\"name\":\"blue-wolf\",\"pane_id\":\"wT:p9\",\"agent\":\"opencode\",\"terminal_id\":\"term-child-1\",\"revision\":1,\"state_change_seq\":1} ]}}"
+  STUB_AGENTS_JSON_FIRST="$initial" STUB_AGENTS_JSON_SECOND="$fresh" STUB_START_MODE=collision \
+    run child_start --kind claude
+  assert_failure
+  assert_output --partial "preserving collision pane wT:p9"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child never turns a generic failure into a collision retry" {
+  child_stub_herdr
+  STUB_START_MODE=error-with-occupation run child_start --kind claude
+  assert_failure
+  assert_output --partial "agent start failed"
+  run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_output 1
+  run grep -c '^pane split' "$CHILD_STUB/calls.log"
+  assert_output 1
+}
+
 @test "herdr-child closes its pane after three readiness failures" {
   child_stub_herdr
-  STUB_START_MODE=busy run child_start --kind claude --name child-a
+  STUB_START_MODE=busy run child_start --kind claude
   assert_failure
   assert_output --partial "three agent start attempts"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
@@ -739,17 +991,40 @@ child_start() {
 
 @test "herdr-child distinguishes a stalled initial prompt" {
   child_stub_herdr
-  STUB_PROMPT_FAIL=1 run child_start --kind claude --name child-a --wait
+  STUB_PROMPT_FAIL=1 run child_start --kind claude --wait
   assert_failure
   assert_output --partial "initial prompt stalled"
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
+@test "herdr-child preserves a post-registration failure when terminal proof changed" {
+  child_stub_herdr
+  STUB_PROMPT_FAIL=1 STUB_TERMINAL_CHANGED=1 run child_start --kind claude --wait
+  assert_failure
+  assert_output --partial "accepted alias no longer has the captured terminal"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child verifies the accepted pair before dispatching the initial prompt" {
+  child_stub_herdr
+  local alias initial fresh
+  alias="$(child_first_alias)"
+  initial='{"result":{"agents":[]}}'
+  fresh="$(complete_agent_record "$alias" wT:p9 term-replaced)"
+  STUB_AGENTS_JSON_FIRST="$initial" STUB_AGENTS_JSON_SECOND="$fresh" run child_start --kind claude
+  assert_failure
+  assert_output --partial "alias, pane, or terminal changed before the initial prompt"
+  run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 @test "herdr-child preserves a working pane when the wait times out" {
   child_stub_herdr
-  STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --name child-a --wait
+  local alias; alias="$(child_first_alias)"
+  STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --wait
   assert_failure 124
-  assert_output --partial '{"agent":"child-a","pane":"wT:p9"}'
+  assert_output --partial "{\"agent\":\"$alias\",\"pane\":\"wT:p9\"}"
   assert_output --partial "wait timed out"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
@@ -766,9 +1041,9 @@ child_start() {
 
 @test "herdr-child ask publishes before delivery and uses the versioned marker" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  local agents='{"result":{"agents":[{"name":"red-bear","pane_id":"wT:p0","agent":"opencode","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"blue-otter","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":2,"state_change_seq":2}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
-    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=launch-alias HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask "Which path?"
   assert_success
   local call1 call2 call3
@@ -777,7 +1052,7 @@ child_start() {
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == pane\ report-metadata*wT:p9*--source\ child-agent*--state-label*--ttl-ms\ 3600000* ]]
   [[ "$call2" == agent\ list* ]]
-  [[ "$call3" == agent\ prompt*wT:p0*child-ask*agent=child-a*pane=wT:p9* ]]
+  [[ "$call3" == agent\ prompt*wT:p0*child-ask*agent=blue-otter*pane=wT:p9* ]]
   [[ "$call3" != *--wait* ]]
 }
 
@@ -792,7 +1067,7 @@ child_start() {
   assert_failure
 
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  local agents='{"result":{"agents":[{"name":"red-bear","pane_id":"wT:p0","agent":"opencode","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"blue-otter","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":2,"state_change_seq":2}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question
@@ -802,15 +1077,15 @@ child_start() {
 
 @test "herdr-child reply validates the live pair, delivers, then clears" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  local agents; agents="$(complete_agent_record child-a wT:p9 term-child)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 "Use path A"
   assert_success
-  local call2 call3
-  call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
+  local call3 call4
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
-  [[ "$call2" == agent\ prompt*parent-reply*pane=wT:p0* ]]
-  [[ "$call3" == pane\ report-metadata*wT:p9*--clear-state-labels* ]]
+  call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  [[ "$call3" == agent\ prompt\ wT:p9*parent-reply*pane=wT:p0* ]]
+  [[ "$call4" == pane\ report-metadata*wT:p9*--clear-state-labels* ]]
 
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_REPORT_FAIL=1 \
@@ -830,11 +1105,11 @@ child_start() {
 
 @test "herdr-child ask and reply publish strictly increasing label sequences" {
   child_stub_herdr
-  local parent_agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  local parent_agents='{"result":{"agents":[{"name":"red-bear","pane_id":"wT:p0","agent":"opencode","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"blue-otter","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":2,"state_change_seq":2}]}}'
   env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$parent_agents" HERDR_ENV=1 \
     HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question >/dev/null
-  local child_agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  local child_agents; child_agents="$(complete_agent_record child-a wT:p9 term-child)"
   env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$child_agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision >/dev/null
   local first_seq second_seq
@@ -846,7 +1121,7 @@ child_start() {
 
 @test "herdr-child reply keeps the label when delivery fails and refuses child callers" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
+  local agents; agents="$(complete_agent_record child-a wT:p9 term-child)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision
   assert_failure
@@ -859,27 +1134,44 @@ child_start() {
   assert_output --partial "parent-side"
 }
 
-@test "herdr-child reap closes only settled, unfocused, non-waiting panes" {
+@test "herdr-child reply rejects a changed terminal immediately before prompt" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"done-a","pane_id":"wT:p1","agent_status":"done","focused":false},{"name":"work-a","pane_id":"wT:p2","agent_status":"working","focused":false},{"name":"focus-a","pane_id":"wT:p3","agent_status":"idle","focused":true}]}}'
+  local initial fresh
+  initial="$(complete_agent_record child-a wT:p9 term-child idle false)"
+  fresh="$(complete_agent_record child-a wT:p9 term-replaced idle false)"
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON_FIRST="$initial" STUB_AGENTS_JSON_SECOND="$fresh" \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision
+  assert_failure
+  assert_output --partial "alias, pane, or terminal changed before reply"
+  run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child reap is single-target and keeps unsettled or focused panes" {
+  child_stub_herdr
+  local agents; agents="$(complete_agent_record work-a wT:p2 term-child working false)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" reap done-a missing-a work-a focus-a
+    bash "$HERDR_CHILD" reap --to work-a --pane wT:p2
   assert_success
-  assert_output --partial "done-a: closed pane wT:p1"
-  assert_output --partial "missing-a: skipped"
   assert_output --partial "work-a: kept; status is working"
-  assert_output --partial "focus-a: kept"
-  run grep -c '^agent list' "$CHILD_STUB/calls.log"
-  assert_output 2
-  run grep -c '^pane close' "$CHILD_STUB/calls.log"
-  assert_output 1
+
+  child_stub_herdr
+  agents="$(complete_agent_record focus-a wT:p3 term-child idle true)"
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap --to focus-a --pane wT:p3
+  assert_success
+  assert_output --partial "focus-a: kept; pane wT:p3 is focused"
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap --to focus-a --pane wT:p3 extra
+  assert_failure 2
 }
 
 @test "herdr-child reap closes an unfocused idle pane" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  local agents; agents="$(complete_agent_record idle-a wT:p1 term-child idle false)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" reap idle-a
+    bash "$HERDR_CHILD" reap --to idle-a --pane wT:p1
   assert_success
   assert_output --partial "idle-a: closed pane wT:p1"
   run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
@@ -888,12 +1180,13 @@ child_start() {
 
 @test "herdr-child reap preserves a pane when fresh state no longer matches" {
   child_stub_herdr
-  local initial='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p1","agent_status":"done","focused":false}]}}'
-  local fresh='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p2","agent_status":"done","focused":false}]}}'
+  local initial fresh
+  initial="$(complete_agent_record stale-a wT:p1 term-child done false)"
+  fresh="$(complete_agent_record stale-a wT:p2 term-other done false)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON_FIRST="$initial" STUB_AGENTS_JSON_SECOND="$fresh" \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap stale-a
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to stale-a --pane wT:p1
   assert_success
-  assert_output --partial "stale-a: kept; child name and pane no longer identify the same live agent"
+  assert_output --partial "stale-a: kept; child alias, pane, or terminal changed"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -901,19 +1194,32 @@ child_start() {
 @test "herdr-child reap refuses outside herdr and from a child pane" {
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" reap child-a
+    bash "$HERDR_CHILD" reap --to child-a --pane wT:p1
   assert_failure
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" reap child-a
+    HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" reap --to child-a --pane wT:p1
   assert_failure
   assert_output --partial "parent-side"
 }
 
+@test "herdr-child reap does not close a same-pane replacement" {
+  child_stub_herdr
+  local initial fresh
+  initial="$(complete_agent_record stale-a wT:p1 term-child done false)"
+  fresh="$(complete_agent_record stale-a wT:p1 term-replaced done false)"
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON_FIRST="$initial" STUB_AGENTS_JSON_SECOND="$fresh" \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to stale-a --pane wT:p1
+  assert_success
+  assert_output --partial "alias, pane, or terminal changed"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 @test "herdr-child reap preserves a settled pane with a waiting label" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"wait-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  local agents; agents="$(complete_agent_record wait-a wT:p1 term-child idle false)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_LABEL=1 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap wait-a
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to wait-a --pane wT:p1
   assert_success
   assert_output --partial "has a waiting state label"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
@@ -922,9 +1228,9 @@ child_start() {
 
 @test "herdr-child reap preserves a settled pane when pane metadata is malformed" {
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"bad-meta-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  local agents; agents="$(complete_agent_record bad-meta-a wT:p1 term-child idle false)"
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_GET_MALFORMED=1 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap bad-meta-a
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to bad-meta-a --pane wT:p1
   assert_success
   assert_output --partial "bad-meta-a: kept; pane metadata could not be read"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
@@ -938,7 +1244,7 @@ child_start() {
 # scripts and the shared launch executable, where the surviving herdr calls are concentrated.
 @test "skill scripts call only herdr commands that exist" {
   local groups='agent|api|channel|completion|config|integration|notification|pane|plugin|session|tab|workspace|worktree|status|update|server'
-  local calls bad="" grp cmd
+  local calls bad="" grp cmd child_calls child_cmd
   # Comment lines out, then command position only: line start, or after a pipe, `;`,
   # `&&`, `(`, backtick or `$(` — prose about herdr must not read as a call.
   calls="$({ grep -rh --include='*.sh' -E 'herdr' "$SOURCE_ROOT/private_dot_claude/skills"; \
@@ -955,6 +1261,18 @@ child_start() {
       herdr "$grp" "$cmd" --help >/dev/null 2>&1 || bad="$bad herdr:$grp:$cmd"
     fi
   done <<< "$calls"
+  child_calls="$(grep -rh --include='*.sh' -E 'herdr-child' "$SOURCE_ROOT/private_dot_claude/skills" \
+    | grep -vE '^[[:space:]]*#' \
+    | grep -oE '(^|[|;&(`]|\$\()[[:space:]]*herdr-child [a-z][a-z-]*' \
+    | sed 's/.*herdr-child //' | sort -u)"
+  while read -r child_cmd; do
+    [ -n "$child_cmd" ] || continue
+    case "$child_cmd" in
+      start | ask | verify | reply | reap) ;;
+      *) bad="$bad herdr-child:$child_cmd" ;;
+    esac
+  done <<< "$child_calls"
+  printf '%s\n' "$child_calls" | grep -qx verify || bad="$bad herdr-child:missing-verify-contract"
   [ -z "$bad" ] || fail "skill scripts call herdr commands that do not exist:$bad"
 }
 
@@ -1089,32 +1407,32 @@ PY
 }
 
 # ===========================================
-# herdr-task-sync engine
+# herdr-pane-labels engine
 # ===========================================
 
-@test "herdr-task-sync descriptor probe lives in a one-test Bats file" {
-  local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_task_sync_descriptor_probe.bats"
+@test "herdr-pane-labels descriptor probe lives in a one-test Bats file" {
+  local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_pane_labels_descriptor_probe.bats"
   assert_file_exists "$descriptor_probe_file"
   run bats --count "$descriptor_probe_file"
   assert_success
   assert_output "1"
 }
 
-@test "herdr-task-sync bounded Bats invocation exits after detached work" {
+@test "herdr-pane-labels bounded Bats invocation exits after detached work" {
   # No python3 skip guard: it is a declared requirement (README.md,
   # Requirements), a deliberate exception to the skip convention in
   # docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md.
   local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
   local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
-  local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_task_sync_descriptor_probe.bats"
+  local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_pane_labels_descriptor_probe.bats"
   bats_bin="$(command -v bats)"
-  export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
-  export HTS_DESCRIPTOR_PID_FILE="$pid_file"
-  export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
+  export HPL_DESCRIPTOR_RELEASE_FILE="$release_file"
+  export HPL_DESCRIPTOR_PID_FILE="$pid_file"
+  export HPL_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
   # This is the only test whose stub must stay blocked across a whole nested Bats
   # run, so it is the only one that gets the raised ceiling.
-  export HTS_BLOCKED_HERDR_POLLS
+  export HPL_BLOCKED_HERDR_POLLS
   run python3 - "$bats_bin" "$descriptor_probe_file" <<'PY'
 import os
 from pathlib import Path
@@ -1125,7 +1443,7 @@ import threading
 import time
 
 # Two bounds, not one, and they measure different things. See the
-# HTS_INNER_BATS_* comments in this file's constants block for why the single
+# HPL_INNER_BATS_* comments in this file's constants block for why the single
 # budget this replaced was a latent flake.
 #
 # PROGRESS covers the nested run up to the probe writing its pid file. That run
@@ -1139,8 +1457,8 @@ import time
 # EOF, not exit, is what a leaked descriptor withholds. The pipes are also why
 # the nested run must never be given temp files instead: a worker holding a file
 # descriptor blocks nothing, and the test would pass unconditionally.
-progress_budget = int(os.environ.get("HTS_INNER_BATS_PROGRESS_SECONDS", "60"))
-exit_budget = int(os.environ.get("HTS_INNER_BATS_EXIT_SECONDS", "30"))
+progress_budget = int(os.environ.get("HPL_INNER_BATS_PROGRESS_SECONDS", "60"))
+exit_budget = int(os.environ.get("HPL_INNER_BATS_EXIT_SECONDS", "30"))
 
 # Distinct status per failure mode, so the outer test's failure block names which
 # bound fired without reading the message. Avoid 126 and 127: the shell reserves
@@ -1153,9 +1471,9 @@ EXIT_VACUOUS = 4          # the fixture gave up; nothing was being held
 EXIT_WORKER_STUCK = 5     # detached worker outlived its release
 EXIT_NESTED_FAILED = 7    # the nested test failed on its own terms
 
-release_file = Path(os.environ["HTS_DESCRIPTOR_RELEASE_FILE"])
-pid_file = Path(os.environ["HTS_DESCRIPTOR_PID_FILE"])
-blocked_pid_file = Path(os.environ["HTS_DESCRIPTOR_BLOCKED_PID_FILE"])
+release_file = Path(os.environ["HPL_DESCRIPTOR_RELEASE_FILE"])
+pid_file = Path(os.environ["HPL_DESCRIPTOR_PID_FILE"])
+blocked_pid_file = Path(os.environ["HPL_DESCRIPTOR_BLOCKED_PID_FILE"])
 gave_up_file = Path(str(blocked_pid_file) + ".gave-up")
 
 
@@ -1166,12 +1484,12 @@ def fixture_gave_up():
 
 
 VACUOUS = (
-    "the blocked herdr stub hit HTS_BLOCKED_HERDR_CEILING_SECONDS and gave up, so "
+    "the blocked herdr stub hit HPL_BLOCKED_HERDR_CEILING_SECONDS and gave up, so "
     "nothing held a descriptor while the inner Bats exited -- this run proved nothing"
 )
 
 proc = subprocess.Popen(
-    [sys.argv[1], sys.argv[2], "--filter", "^herdr-task-sync descriptor child probe$"],
+    [sys.argv[1], sys.argv[2], "--filter", "^herdr-pane-labels descriptor child probe$"],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
@@ -1234,7 +1552,7 @@ def worker_pid():
 # The cap is low on purpose, and it is a trade rather than a free win. Noticing
 # late inflates the exit-phase measurement below by up to one interval, because
 # the pipes may already have closed by the time we look -- and that measurement
-# is what HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against. 50 ms keeps the
+# is what HPL_INNER_BATS_EXIT_SECONDS gets recalibrated against. 50 ms keeps the
 # distortion smaller than the values being measured while still cutting the
 # wakeup count roughly fivefold. Raising it trades measurement sharpness for
 # CPU that Bats' own parsing dwarfs anyway.
@@ -1322,14 +1640,14 @@ else:
 sys.stdout.write(captured.get("stdout") or "")
 sys.stderr.write(captured.get("stderr") or "")
 # Printed on every run, passing runs included, so the next recalibration of
-# HTS_INNER_BATS_EXIT_SECONDS reads a number out of CI instead of reconstructing
+# HPL_INNER_BATS_EXIT_SECONDS reads a number out of CI instead of reconstructing
 # one from TAP print-order gaps.
 print(f"inner Bats exit phase took {exit_elapsed:.3f}s", file=sys.stderr)
 
 # Non-vacuity: the herdr stub must STILL be blocked right now. Everything above
 # only proves the nested Bats exited and closed its pipes -- which is unremarkable
 # if nothing was holding a descriptor at the time. The stub gives up on its own
-# after HTS_BLOCKED_HERDR_CEILING_SECONDS, and if it did, this run proved nothing.
+# after HPL_BLOCKED_HERDR_CEILING_SECONDS, and if it did, this run proved nothing.
 #
 # Check the stub's own pid, not the detached worker's. The worker is the stub's
 # parent and outlives its give-up, so a live worker does not imply a blocked
@@ -1391,15 +1709,15 @@ if proc.returncode != 0:
     print(f"inner Bats exited with status {proc.returncode}", file=sys.stderr)
     raise SystemExit(EXIT_NESTED_FAILED)
 PY
-  unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
+  unset HPL_DESCRIPTOR_RELEASE_FILE HPL_DESCRIPTOR_PID_FILE
   # `run` captures the driver's measurement into $output, which bats discards on
   # a passing test -- so forward it to the console descriptor. The number is only
   # useful if a green CI run carries it: it is what
-  # HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against, and reconstructing it
+  # HPL_INNER_BATS_EXIT_SECONDS gets recalibrated against, and reconstructing it
   # from TAP print-order gaps is what made the previous bound guesswork.
   printf '%s\n' "$output" | grep -F 'inner Bats exit phase took' >&3 || true
   assert_success
-  assert_output --partial "ok 1 herdr-task-sync descriptor child probe"
+  assert_output --partial "ok 1 herdr-pane-labels descriptor child probe"
 }
 
 # Guards the guard. The test above can only prove anything while the herdr stub
@@ -1412,176 +1730,152 @@ PY
 # costs one extra nested Bats run, which is the expensive thing in this file
 # (docs/issues/2026-08-21-021), and it buys the one property no other test here
 # can assert: that the guard above still fails when it should.
-@test "herdr-task-sync bounded Bats invocation refuses a vacuous run" {
+@test "herdr-pane-labels bounded Bats invocation refuses a vacuous run" {
   local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
   local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
   bats_bin="$(command -v bats)"
-  export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
-  export HTS_DESCRIPTOR_PID_FILE="$pid_file"
-  export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
+  export HPL_DESCRIPTOR_RELEASE_FILE="$release_file"
+  export HPL_DESCRIPTOR_PID_FILE="$pid_file"
+  export HPL_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
   # One poll: the stub records its give-up before the driver ever looks.
-  export HTS_BLOCKED_HERDR_POLLS=1
+  export HPL_BLOCKED_HERDR_POLLS=1
 
   run bats "$BATS_TEST_FILENAME" \
-    --filter '^herdr-task-sync bounded Bats invocation exits after detached work$'
+    --filter '^herdr-pane-labels bounded Bats invocation exits after detached work$'
 
-  unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
-  unset HTS_DESCRIPTOR_BLOCKED_PID_FILE HTS_BLOCKED_HERDR_POLLS
+  unset HPL_DESCRIPTOR_RELEASE_FILE HPL_DESCRIPTOR_PID_FILE
+  unset HPL_DESCRIPTOR_BLOCKED_PID_FILE HPL_BLOCKED_HERDR_POLLS
   assert_failure
   assert_output --partial "this run proved nothing"
 }
 
-@test "herdr-task-sync harness fresh reads follow pane and tab mutations" {
+@test "herdr-pane-labels harness fresh reads follow pane and tab mutations" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" \
     '{"pane_id":"pane-1","tab_id":"tab-1","terminal_id":"term-1","cwd":"/repo/one","label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" \
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" \
     '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
 
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 new
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 new
   assert_success
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" tab rename tab-1 new-tab
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" tab rename tab-1 new-tab
   assert_success
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_success
   assert_output --partial '"label":"new"'
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" tab get tab-1
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" tab get tab-1
   assert_success
   assert_output --partial '"label":"new-tab"'
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" api snapshot
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" api snapshot
   assert_success
   assert_output --partial '"tabs":[{"tab_id":"tab-1"'
 
-  hts_snapshot_complete "$HTS_DEFAULT_SOCKET" false
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" api snapshot
+  hpl_snapshot_complete "$HPL_DEFAULT_SOCKET" false
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" api snapshot
   assert_success
   refute_output --partial '"tabs"'
 }
 
-@test "herdr-task-sync harness controls reverse model completion by generation" {
-  hts_setup
-  hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 older
-  hts_model_fixture pi 2 newer
-
-  printf '%s\n' first | "$HTS_STUB/pi" > "$HTS_WORK/model-1.out" &
-  local first_pid=$!
-  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
-  printf '%s\n' second | "$HTS_STUB/pi" > "$HTS_WORK/model-2.out" &
-  local second_pid=$!
-  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
-
-  hts_release_model pi 2
-  hts_wait_for_file "$HTS_WORK/models/pi/2/completed"
-  wait "$second_pid"
-  assert_file_not_exists "$HTS_WORK/models/pi/1/completed"
-  hts_release_model pi 1
-  hts_wait_for_file "$HTS_WORK/models/pi/1/completed"
-  wait "$first_pid"
-  assert_equal "$(cat "$HTS_WORK/model-1.out")" older
-  assert_equal "$(cat "$HTS_WORK/model-2.out")" newer
-}
-
-@test "herdr-task-sync harness isolates colliding sanitized socket names" {
+@test "herdr-pane-labels harness isolates colliding sanitized socket names" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local socket_one="$HTS_WORK/a-b.sock" socket_two="$HTS_WORK/a_b.sock"
+  hpl_setup
+  local socket_one="$HPL_WORK/a-b.sock" socket_two="$HPL_WORK/a_b.sock"
   local dir_one dir_two sanitized_one sanitized_two
   sanitized_one="$(printf '%s' "$socket_one" | sed 's/[^[:alnum:]]/_/g')"
   sanitized_two="$(printf '%s' "$socket_two" | sed 's/[^[:alnum:]]/_/g')"
   assert_equal "$sanitized_one" "$sanitized_two"
-  dir_one="$(hts_socket_dir "$socket_one")"
-  dir_two="$(hts_socket_dir "$socket_two")"
+  dir_one="$(hpl_socket_dir "$socket_one")"
+  dir_two="$(hpl_socket_dir "$socket_two")"
   [[ "$dir_one" != "$dir_two" ]]
-  hts_set_pane "$socket_one" '{"pane_id":"pane-1","label":"one","tokens":{}}'
-  hts_set_pane "$socket_two" '{"pane_id":"pane-1","label":"two","tokens":{}}'
+  hpl_set_pane "$socket_one" '{"pane_id":"pane-1","label":"one","tokens":{}}'
+  hpl_set_pane "$socket_two" '{"pane_id":"pane-1","label":"two","tokens":{}}'
 
-  run hts_socket_run "$socket_one" api snapshot
+  run hpl_socket_run "$socket_one" api snapshot
   assert_success
   assert_output --partial '"label":"one"'
-  run hts_socket_run "$socket_two" api snapshot
+  run hpl_socket_run "$socket_two" api snapshot
   assert_success
   assert_output --partial '"label":"two"'
-  hts_wait_for_socket_call "$dir_one" 1
-  hts_wait_for_socket_completion "$dir_one" 1
-  hts_wait_for_socket_call "$dir_two" 1
-  hts_wait_for_socket_completion "$dir_two" 1
+  hpl_wait_for_socket_call "$dir_one" 1
+  hpl_wait_for_socket_completion "$dir_one" 1
+  hpl_wait_for_socket_call "$dir_two" 1
+  hpl_wait_for_socket_completion "$dir_two" 1
   mkdir "$dir_one/locks/held" "$dir_two/locks/held"
   assert_dir_exists "$dir_one/locks/held"
   assert_dir_exists "$dir_two/locks/held"
   assert_dir_exists "$dir_one/locks"
   assert_dir_exists "$dir_two/locks"
-  assert_equal "$(wc -l < "$(hts_socket_log "$socket_one")" | tr -d ' ')" 1
-  assert_equal "$(wc -l < "$(hts_socket_log "$socket_two")" | tr -d ' ')" 1
+  assert_equal "$(wc -l < "$(hpl_socket_log "$socket_one")" | tr -d ' ')" 1
+  assert_equal "$(wc -l < "$(hpl_socket_log "$socket_two")" | tr -d ' ')" 1
 }
 
-@test "herdr-task-sync harness applies source metadata sequence and clear rules" {
+@test "herdr-pane-labels harness applies source metadata sequence and clear rules" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","label":"agent","tokens":{}}'
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","label":"agent","tokens":{}}'
 
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 2 --token repo=alpha
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source task pane-1 --seq 1 --token task=review
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 1 --clear-token repo
-  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 2 --token repo=alpha
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source foreign pane-1 --seq 1 --token foreign=review
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 1 --clear-token repo
+  local state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo' "$state")" alpha
-  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" review
+  assert_equal "$(jq -r '.panes[0].tokens.foreign' "$state")" review
 
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 3 --clear-token repo
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 3 --clear-token repo
   assert_equal "$(jq -r '.metadata["pane-1"].location.seq' "$state")" 3
   assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo // "cleared"' "$state")" cleared
   assert_equal "$(jq -r '.panes[0].tokens.repo // "cleared"' "$state")" cleared
-  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" review
+  assert_equal "$(jq -r '.panes[0].tokens.foreign' "$state")" review
 }
 
-@test "herdr-task-sync harness models target loss move reuse and final-read change" {
+@test "herdr-pane-labels harness models target loss move reuse and final-read change" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" \
     '{"pane_id":"pane-1","tab_id":"tab-1","terminal_id":"term-1","cwd":"/repo/one","label":"one","tokens":{}}'
-  hts_remove_pane "$HTS_DEFAULT_SOCKET" pane-1
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  hpl_remove_pane "$HPL_DEFAULT_SOCKET" pane-1
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_failure
-  run grep -q '^pane rename' "$HTS_LOG"
+  run grep -q '^pane rename' "$HPL_LOG"
   assert_failure
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" \
     '{"pane_id":"pane-1","tab_id":"tab-2","terminal_id":"term-2","cwd":"/repo/two","label":"two","tokens":{}}'
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_success
   assert_output --partial '"tab_id":"tab-2"'
   assert_output --partial '"terminal_id":"term-2"'
 
   local state next_state
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   next_state="$(jq -c '.panes[0].terminal_id = "term-3" | .panes[0].cwd = "/repo/three" | .panes[0].label = "three"' "$state")"
-  hts_after_next_call_state "$HTS_DEFAULT_SOCKET" "$next_state"
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  hpl_after_next_call_state "$HPL_DEFAULT_SOCKET" "$next_state"
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_success
   assert_output --partial '"terminal_id":"term-2"'
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 stale-write
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 stale-write
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_output --partial '"terminal_id":"term-3"'
   assert_output --partial '"label":"stale-write"'
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 converged
-  run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 converged
+  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_output --partial '"label":"converged"'
 }
 
-@test "herdr-task-sync harness restarts from every durable crash boundary" {
+@test "herdr-pane-labels harness restarts from every durable crash boundary" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   local boundary state
   for boundary in enqueue state presentation; do
-    state="$HTS_WORK/crash-$boundary.json"
-    run hts_crash_run "$state" "$boundary"
+    state="$HPL_WORK/crash-$boundary.json"
+    run hpl_crash_run "$state" "$boundary"
     assert_failure 97
     assert_equal "$(jq -r '.complete' "$state")" false
     assert_file_exists "$state.markers/$boundary"
 
-    run hts_crash_run "$state"
+    run hpl_crash_run "$state"
     assert_success
     assert_equal "$(jq -r '.complete' "$state")" true
     assert_equal "$(jq -r '.completed | length' "$state")" 3
@@ -1589,1251 +1883,862 @@ PY
   done
 }
 
-@test "herdr-task-sync harness gives eight panes independent 75 ms Git budgets" {
-  hts_setup
+@test "herdr-pane-labels harness gives eight panes independent 75 ms Git budgets" {
+  hpl_setup
   local i pids= pid
   for i in 1 2 3 4 5 6 7; do
-    hts_git_fixture "/repo/$i" "/repo/$i"
+    hpl_git_fixture "/repo/$i" "/repo/$i"
   done
-  hts_git_fixture /repo/8 /repo/8 0 block
+  hpl_git_fixture /repo/8 /repo/8 0 block
 
   for i in 1 2 3 4 5 6 7 8; do
-    hts_git_probe "pane-$i" "/repo/$i" &
+    hpl_git_probe "pane-$i" "/repo/$i" &
     pids="$pids $!"
   done
   for pid in $pids; do wait "$pid"; done
 
   for i in 1 2 3 4 5 6 7; do
-    assert_equal "$(cat "$HTS_WORK/git-results/pane-$i")" "fresh:/repo/$i"
+    assert_equal "$(cat "$HPL_WORK/git-results/pane-$i")" "fresh:/repo/$i"
   done
-  assert_equal "$(cat "$HTS_WORK/git-results/pane-8")" stale
+  assert_equal "$(cat "$HPL_WORK/git-results/pane-8")" stale
 }
 
-@test "herdr-task-sync latest committed request survives stale completion and a third request" {
-  hts_setup
-  hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 stale-first
-  hts_model_fixture pi 2 newest-third
-
-  hts_run --agent claude --session s1 <<< 'first request'
-  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
-  hts_run --agent claude --session s1 <<< 'second request'
-  hts_run --agent claude --session s1 <<< 'third request'
-
-  hts_release_model pi 1
-  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
-  hts_release_model pi 2
-
-  local control task
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  hts_wait_for_quiescence "$control"
-  hts_wait_for_task_slug "$task" newest-third
-  assert_equal "$(hts_record_text "$task" latest_prompt)" "third request"
-  assert_equal "$(hts_record_text "$task" first_prompt)" "first request"
-  assert_equal "$(hts_record_number "$control" generation)" \
-    "$(hts_record_number "$control" committed_generation)"
-  local reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
-  assert_equal "$(hts_record_number "$control" presentation_generation)" \
-    "$(hts_record_number "$reconcile" pending_generation)"
-  assert_equal "$(hts_record_number "$control" task_metadata_high_water)" \
-    "$(hts_record_number "$reconcile" task_metadata_high_water)"
-  assert_file_not_exists "$HTS_WORK/models/pi/3/started"
-  hts_wait_for_publish
-  run grep -c -- '--token task=' "$HTS_LOG"
-  assert_output "1"
-}
-
-@test "herdr-task-sync active native session fences reused pane and session identifiers" {
-  hts_setup
-  hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 stale-old-session
-
-  hts_run --agent claude --session reused <<< 'old native session prompt'
-  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
-  hts_run --agent pi --session reused --set 'fresh native session' < /dev/null
-  hts_release_model pi 1
-
-  local control fresh stale
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  fresh="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 reused)"
-  stale="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 reused)"
-  hts_wait_for_quiescence "$control"
-  hts_wait_for_task_slug "$fresh" fresh-native-session
-  assert_file_not_exists "$stale"
-  assert_equal "$(hts_record_text "$control" active_agent)" pi
-  assert_equal "$(hts_record_text "$control" active_session)" reused
-  hts_wait_for_publish
-  run grep -c -- '--token task=' "$HTS_LOG"
-  assert_output "1"
-}
-
-@test "herdr-task-sync prompt transcript and direct set share one committed-generation contract" {
+@test "herdr-pane-labels assigns distinct aliases and renders known and fallback runtime prefixes" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_stub_engine pi model-task 0 0
-  local transcript="$HTS_WORK/transcript.jsonl"
-  printf '%s\n' \
-    '{"type":"user","message":{"role":"user","content":"transcript first"}}' \
-    '{"type":"user","message":{"role":"user","content":"transcript latest"}}' > "$transcript"
+  source "$HERDR_ALIASES"
+  hpl_setup
+  export HERDR_ALIAS_TEST_SEED=u2-prefixes
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude review-auth
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 opencode CORE-42
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-3 tab-1 ws-1 term-3 pi consult-pi
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-4 tab-1 ws-1 term-4 codex manual-name
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-5 tab-1 ws-1 term-5 gemini tracker-name
 
-  hts_run --pane pane-prompt --agent claude --session prompt-s <<< 'prompt request'
-  hts_wait_for_task_slug \
-    "$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-prompt prompt-s)" model-task
-  hts_run --pane pane-transcript --agent claude --session transcript-s \
-    --transcript "$transcript" < /dev/null
-  hts_wait_for_task_slug \
-    "$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)" model-task
-  hts_run --pane pane-direct --agent pi --session direct-s --set 'Direct Task' < /dev/null
-  hts_wait_for_task_slug \
-    "$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-direct direct-s)" direct-task
+  hpl_request_only
+  hpl_presentation_run
 
-  local mode pane control task
-  for mode in prompt transcript direct; do
-    pane="pane-$mode"
-    control="$(hts_control_file "$HTS_DEFAULT_SOCKET" "$pane")"
-    hts_wait_for_quiescence "$control"
-    assert_equal "$(hts_record_number "$control" generation)" \
-      "$(hts_record_number "$control" committed_generation)"
-    [[ "$(hts_record_number "$control" presentation_generation)" -gt 0 ]]
-  done
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)"
-  assert_equal "$(hts_record_text "$task" first_prompt)" "transcript first"
-  assert_equal "$(hts_record_text "$task" latest_prompt)" "transcript latest"
+  local state names aliases alias
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  names="$(jq -r '.agents[].name' "$state")"
+  aliases=0
+  while IFS= read -r alias; do
+    herdr_alias_in_pool "$alias"
+    aliases=$((aliases + 1))
+  done <<EOF
+$names
+EOF
+  assert_equal "$aliases" 5
+  assert_equal "$(printf '%s\n' "$names" | sort -u | wc -l | tr -d ' ')" 5
+  assert_equal "$(jq -r '[.panes[].label] | join("|")' "$state")" \
+    "cc:$(jq -r '.agents[] | select(.pane_id == "pane-1").name' "$state")|oc:$(jq -r '.agents[] | select(.pane_id == "pane-2").name' "$state")|pi:$(jq -r '.agents[] | select(.pane_id == "pane-3").name' "$state")|cx:$(jq -r '.agents[] | select(.pane_id == "pane-4").name' "$state")|g:$(jq -r '.agents[] | select(.pane_id == "pane-5").name' "$state")"
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" "$(jq -r '[.panes[].label] | join(" · ")' "$state")"
+  unset HERDR_ALIAS_TEST_SEED
 }
 
-@test "herdr-task-sync failed latest model retains newest context and prior slug" {
-  hts_setup
-  hts_run --agent claude --session s1 --set baseline-task < /dev/null
-  local control task before failed_generation
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  hts_wait_for_task_slug "$task" baseline-task
-  before="$(hts_record_number "$control" generation)"
+@test "herdr-pane-labels preserves a unique pool alias across events and sweeps" {
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_sweep_run --sweep
+  assert_equal "$(jq -r '.agents[0].name' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" red-wolf
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" cc:red-wolf
 
-  hts_run --agent claude --session s1 <<< 'failed model context'
-  hts_wait_for_record_number "$control" generation $((before + 1))
-  hts_wait_for_quiescence "$control"
-  failed_generation="$(hts_record_number "$control" generation)"
-  assert_equal "$(hts_record_text "$task" slug)" baseline-task
-  assert_equal "$(hts_record_text "$task" first_prompt)" "failed model context"
-  assert_equal "$(hts_record_text "$task" latest_prompt)" "failed model context"
-
-  hts_stub_engine pi recovered-task 0 0
-  hts_run --agent claude --session s1 <<< 'request after failure'
-  hts_wait_for_record_number "$control" generation $((failed_generation + 1))
-  hts_wait_for_task_slug "$task" recovered-task
-  run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "Current name: baseline-task"
-  assert_output --partial "failed model context"
-  assert_output --partial "request after failure"
+  : > "$HPL_LOG"
+  hpl_sweep_run --sweep
+  run grep -E '^(agent|pane|tab) rename' "$HPL_LOG"
+  assert_failure
 }
 
-@test "herdr-task-sync atomic records never expose truncation or mixed fields" {
-  hts_setup
-  local task control reconcile stop="$HTS_WORK/stop-reader" bad="$HTS_WORK/bad-reader" reader i poll
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 atomic-s)"
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
-  (
-    while [[ ! -e "$stop" ]]; do
-      if [[ -f "$task" ]]; then
-        [[ "$(grep -c '^generation=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^slug=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^first_prompt=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^latest_prompt=' "$task" 2>/dev/null)" = 1 ]] || : > "$bad"
-        hts_record_text "$task" slug >/dev/null 2>&1 || : > "$bad"
-        hts_record_number "$task" generation | grep -Eq '^[0-9]+$' || : > "$bad"
-      fi
-      if [[ -f "$control" ]]; then
-        [[ "$(grep -c '^generation=' "$control" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^committed_generation=' "$control" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^active_agent=' "$control" 2>/dev/null)" = 1 ]] || : > "$bad"
-        hts_record_text "$control" active_agent >/dev/null 2>&1 || : > "$bad"
-      fi
-      if [[ -f "$reconcile" ]]; then
-        [[ "$(grep -c '^pending_generation=' "$reconcile" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^task_metadata_high_water=' "$reconcile" 2>/dev/null)" = 1 ]] || : > "$bad"
-        [[ "$(grep -c '^repository_anchor=' "$reconcile" 2>/dev/null)" = 1 ]] || : > "$bad"
-      fi
-      sleep 0.005
-    done
-  ) &
-  reader=$!
-  # Teardown owns the reader from here: a failed assertion below would skip the
-  # stop/wait pair, and the orphaned loop then races teardown's rm -rf of
-  # HTS_WORK forever (its stop file can no longer be created), spraying
-  # misleading ENOENT noise over the real failure.
-  HTS_READER_PID=$reader
-  for i in $(seq 1 40); do
-    hts_run --agent pi --session atomic-s --set "atomic-$i" < /dev/null
-  done
-  # The engine's inbox is fail-open by design: an enqueue or a worker commit
-  # that loses its bounded control.lock window (INBOX_LOCK_ATTEMPTS) drops the
-  # request silently rather than stall the callback. The 40-set burst above is
-  # exactly the load that provokes those drops, so delivery of the final set is
-  # not guaranteed in one shot — under CI --jobs contention the sentinel
-  # vanished and this wait ran to its ceiling. Re-enqueue the sentinel until it
-  # commits; every re-enqueue spawns a fresh worker, which also drains a
-  # pending generation whose own worker aborted. The atomicity assertions the
-  # reader collects stay as strict as before.
-  for i in $(seq 1 10); do
-    for poll in $(seq 1 200); do
-      [[ "$(hts_record_text "$task" slug 2>/dev/null || true)" = atomic-40 ]] && break 2
-      sleep 0.01
-    done
-    hts_run --agent pi --session atomic-s --set atomic-40 < /dev/null
-  done
-  hts_wait_for_task_slug "$task" atomic-40
-  : > "$stop"
-  wait "$reader"
-  unset HTS_READER_PID
-  assert_file_not_exists "$bad"
+@test "herdr-pane-labels accepts independent pane and agent revisions in a complete join" {
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_transform_state "$HPL_DEFAULT_SOCKET" '.panes[0].revision = 7 | .agents[0].revision = 42'
+
+  hpl_sweep_run --sweep
+
+  local state
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].revision' "$state")" 7
+  assert_equal "$(jq -r '.agents[0].revision' "$state")" 42
+  assert_equal "$(jq -r '.panes[0].label' "$state")" cc:red-wolf
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:red-wolf
+  run grep '^agent rename' "$HPL_LOG"
+  assert_failure
 }
 
-@test "herdr-task-sync one-way legacy import is atomic idempotent and ignores late legacy writes" {
-  hts_setup
-  local legacy task marker task_two marker_two malformed task_three marker_three
-  legacy="$(hts_legacy_state_file claude-pane-1-s1)"
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  marker="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  hts_write_legacy_state "$legacy" legacy-task 'legacy first' 'legacy latest'
-
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s1 <<< 'new request'
-  assert_equal "$(hts_record_text "$task" slug)" legacy-task
-  assert_file_exists "$marker"
-  hts_write_legacy_state "$legacy" late-old-worker changed changed
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s1 <<< 'later request'
-  assert_equal "$(hts_record_text "$task" slug)" legacy-task
-
-  task_two="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s2)"
-  marker_two="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 s2)"
-  mkdir -p "$(dirname "$task_two")"
-  hts_write_legacy_state "$task_two" canonical-before-marker 'canonical first' 'canonical latest'
-  hts_write_legacy_state "$(hts_legacy_state_file claude-pane-1-s2)" should-not-replace old old
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s2 <<< 'resume after crash'
-  assert_equal "$(hts_record_text "$task_two" slug)" canonical-before-marker
-  assert_file_exists "$marker_two"
-
-  malformed="$(hts_legacy_state_file claude-pane-1-s3)"
-  task_three="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s3)"
-  marker_three="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 s3)"
-  printf 'slug=%%%s\n' broken > "$malformed"
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s3 <<< 'malformed import'
-  assert_file_exists "$marker_three"
-  assert_file_not_exists "$task_three"
-  hts_write_legacy_state "$malformed" too-late late late
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session s3 <<< 'second start'
-  assert_file_not_exists "$task_three"
-}
-
-@test "herdr-task-sync restart recovers accepted and interrupted worker generations" {
-  hts_setup
-  hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 abandoned-result
-  hts_model_fixture pi 2 recovered-result
-  local control task first_worker first_owner second_worker worker_claim
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 restart-s)"
-
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session restart-s <<< 'restart request'
-  [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
-  hts_worker_run &
-  first_worker=$!
-  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
-  worker_claim="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim/owner"
-  first_owner="$(hts_record_number "$worker_claim" pid)"
-  kill "$first_owner" 2>/dev/null || true
-  wait "$first_worker" 2>/dev/null || true
-
-  hts_worker_run &
-  second_worker=$!
-  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
-  hts_release_model pi 2
-  wait "$second_worker"
-  hts_wait_for_task_slug "$task" recovered-result
-  hts_wait_for_quiescence "$control"
-  hts_release_model pi 1
-  assert_equal "$(hts_record_text "$task" slug)" recovered-result
-}
-
-@test "herdr-task-sync clock rollback and restart cannot lower generation or task high-water" {
-  hts_setup
-  local control task first_generation first_high_water first_task_metadata first_presentation
-  local second_generation second_high_water second_task_metadata second_presentation
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 clock-s)"
-
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=9000 HERDR_TASK_SYNC_TEST_NO_WORKER=1 \
-    hts_run --agent pi --session clock-s --set first-clock < /dev/null
-  first_generation="$(hts_record_number "$control" generation)"
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=9000 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_worker_run
-  assert_equal "$(hts_record_number "$control" committed_generation)" "$first_generation"
-  assert_equal "$(hts_record_number "$task" generation)" "$first_generation"
-  first_high_water="$(hts_record_number "$control" task_metadata_high_water)"
-  first_task_metadata="$(hts_record_number "$task" metadata_seq)"
-  first_presentation="$(hts_record_number "$control" presentation_generation)"
-
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_WORKER=1 \
-    hts_run --agent pi --session clock-s --set second-clock < /dev/null
-  second_generation="$(hts_record_number "$control" generation)"
-  [[ "$second_generation" -gt "$first_generation" ]]
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_worker_run
-  assert_equal "$(hts_record_number "$control" committed_generation)" "$second_generation"
-  assert_equal "$(hts_record_number "$task" generation)" "$second_generation"
-
-  second_high_water="$(hts_record_number "$control" task_metadata_high_water)"
-  second_task_metadata="$(hts_record_number "$task" metadata_seq)"
-  second_presentation="$(hts_record_number "$control" presentation_generation)"
-  [[ "$second_high_water" -gt "$first_high_water" ]] || \
-    fail "task metadata high-water did not advance: first=$first_high_water second=$second_high_water generation=$second_generation"
-  [[ "$second_task_metadata" -gt "$first_task_metadata" ]] || \
-    fail "task metadata sequence did not advance: first=$first_task_metadata second=$second_task_metadata generation=$second_generation"
-  [[ "$second_presentation" -gt "$first_presentation" ]] || \
-    fail "presentation generation did not advance: first=$first_presentation second=$second_presentation generation=$second_generation"
-  [[ "$second_high_water" -ge "$second_generation" ]]
-}
-
-@test "herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions" {
-  hts_setup
-  local socket_one="$HTS_WORK/a-b.sock" socket_two="$HTS_WORK/a_b.sock"
-  local task_one task_two namespace_one namespace_two
-  namespace_one="$(hts_namespace "$socket_one")"
-  namespace_two="$(hts_namespace "$socket_two")"
-  [[ "$namespace_one" != "$namespace_two" ]]
-
-  # This test owns task namespace isolation only. A successful task commit normally
-  # starts a detached presentation pass, and that pass legitimately advances the
-  # location high-water before this task-only assertion can read it under load.
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 \
-    hts_run_for_socket "$socket_one" --agent pi --session same --set socket-one < /dev/null
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 \
-    hts_run_for_socket "$socket_two" --agent pi --session same --set socket-two < /dev/null
-  task_one="$(hts_task_file "$socket_one" pi pane-1 same)"
-  task_two="$(hts_task_file "$socket_two" pi pane-1 same)"
-  hts_wait_for_task_slug "$task_one" socket-one
-  hts_wait_for_task_slug "$task_two" socket-two
-  hts_wait_for_quiescence "$(hts_control_file "$socket_one" pane-1)"
-  hts_wait_for_quiescence "$(hts_control_file "$socket_two" pane-1)"
-  assert_equal "$(hts_record_text "$task_one" slug)" socket-one
-  assert_equal "$(hts_record_text "$task_two" slug)" socket-two
-  assert_equal "$(hts_record_text "$namespace_one/socket.state" socket_path)" "$socket_one"
-  assert_equal "$(hts_record_text "$namespace_two/socket.state" socket_path)" "$socket_two"
-  [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]]
-  assert_equal "$(hts_record_number "$namespace_one/reconcile.state" location_metadata_high_water)" 0
-  [[ "$(hts_record_number "$namespace_two/reconcile.state" task_metadata_high_water)" -gt 0 ]]
-  assert_equal "$(hts_record_number "$namespace_two/reconcile.state" location_metadata_high_water)" 0
-  grep -q '^checkout_root=' "$namespace_one/reconcile.state"
-  grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
-}
-
-@test "herdr-task-sync fail-open deadline rejects late success before the hang guard" {
-  hts_setup
-  local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=1
-  local HTS_FAIL_OPEN_BASELINE_MULTIPLIER=1
-  local HTS_FAIL_OPEN_MAX_SECONDS=5
-
-  run hts_run_fail_open_guard sleep 2
-
-  assert_failure 124
-  assert_output --partial "exceeded fail-open behavioral deadline"
-}
-
-@test "herdr-task-sync fails open for missing tools contention write failure and malformed input" {
-  hts_setup
-  local pane_dir
-  run hts_run_fail_open_guard env PATH="/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
-    HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    bash "$HTS_ENGINE" --agent claude --session missing <<< 'missing herdr'
-  assert_success
-
-  hts_setup
-  pane_dir="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)"
-  mkdir -p "$pane_dir/control.lock"
-  HERDR_TASK_SYNC_LOCK_ATTEMPTS=1
-  run hts_run --agent claude --session locked <<< 'contention'
-  unset HERDR_TASK_SYNC_LOCK_ATTEMPTS
-  assert_success
-  assert_file_not_exists "$pane_dir/control.state"
-  assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
-
-  hts_setup
-  printf 'not-a-directory\n' > "$HTS_STATE/sockets"
-  run hts_run --agent claude --session write-failure <<< 'state write failure'
-  assert_success
-
-  hts_setup
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
-    --agent pi --session worker-write-failure --set pending-task < /dev/null
-  local namespace control
-  namespace="$(hts_namespace "$HTS_DEFAULT_SOCKET")"
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  rmdir "$namespace/tasks"
-  printf 'not-a-directory\n' > "$namespace/tasks"
-  run hts_run_fail_open_guard hts_worker_run
-  assert_success
-  [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
-
-  hts_setup
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
-    --agent pi --session commit-write-failure --set pending-task < /dev/null
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  local task_file
-  task_file="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-write-failure)"
-  mkdir "$task_file"
-  run hts_run_fail_open_guard hts_worker_run
-  assert_success
-  [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
-  assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"
-
-  hts_setup
-  run hts_run --agent '' --session malformed <<< 'bad agent'
-  assert_success
-  run hts_run --agent claude --session '' --transcript "$HTS_WORK/missing.jsonl" < /dev/null
-  assert_success
-  hts_run --agent pi --session malformed-set --set '!!!' < /dev/null
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  hts_wait_for_quiescence "$control"
-  assert_equal "$(hts_record_number \
-    "$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state" pending_generation)" 0
-  assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
-}
-
-@test "herdr-task-sync orders adapter calls by inbox commit rather than invocation start" {
-  hts_setup
-  local fifo="$HTS_WORK/delayed-input" release="$HTS_WORK/delayed-input-release"
-  local first_pid writer_pid task control first_generation
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-order)"
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  mkfifo "$fifo"
-  # Opening a fifo for reading blocks until a writer opens the other end, so the
-  # first invocation's engine does not start until this writer runs. Gate that on
-  # the second invocation having actually committed rather than on a fixed sleep:
-  # under full-suite load the second invocation can outlast any timer, which
-  # silently inverts the very ordering this test asserts.
-  { while [ ! -e "$release" ]; do sleep 0.01; done; printf 'delayed stdin' > "$fifo"; } &
-  writer_pid=$!
-  hts_run --agent pi --session commit-order --set invoked-first-committed-second < "$fifo" &
-  first_pid=$!
-
-  hts_run --agent pi --session commit-order --set invoked-second-committed-first < /dev/null
-  hts_wait_for_task_slug "$task" invoked-second-committed-first
-  hts_wait_for_quiescence "$control"
-  first_generation="$(hts_record_number "$control" committed_generation)"
-  : > "$release"
-  wait "$writer_pid"
-  wait "$first_pid"
-  hts_wait_for_task_slug "$task" invoked-first-committed-second
-  hts_wait_for_quiescence "$control"
-  [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]]
-}
-
-@test "herdr-task-sync agent adapters await only the engine enqueue boundary" {
-  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
-  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
-  local claude_adapter="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh"
-  run grep -c 'await callEngine' "$pi_adapter"
-  assert_output "2"
-  run grep -c 'await callEngine' "$opencode_adapter"
-  assert_output "1"
-  run bash -c "! grep -q 'detached: true' '$pi_adapter' '$opencode_adapter'"
-  assert_success
-  run grep -c "bounded atomic inbox commit" "$claude_adapter"
-  assert_output "1"
-}
-
-@test "herdr-task-sync adapters bound and clean up direct engine processes" {
-  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
-  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
-  local adapter
-  for adapter in "$pi_adapter" "$opencode_adapter"; do
-    run grep -Fq 'child.stdin?.destroy()' "$adapter"
-    assert_success
-    run grep -Fq 'child.kill("SIGTERM")' "$adapter"
-    assert_success
-    run grep -Fq 'child.once("error", finish)' "$adapter"
-    assert_success
-    run grep -Fq 'child.once("close", finish)' "$adapter"
-    assert_success
-    run grep -Fq 'timer.unref?.()' "$adapter"
-    assert_success
-    run grep -Fq 'removeListener("error"' "$adapter"
+@test "herdr-pane-labels rejects unsafe snapshot strings before every write" {
+  command -v jq >/dev/null || skip "jq not available"
+  local mutation namespace pending completed
+  for mutation in \
+    '.panes[0].pane_id = "bad\npane" | .agents[0].pane_id = "bad\npane"' \
+    '.panes[0].terminal_id = "bad\u001fterminal" | .agents[0].terminal_id = "bad\u001fterminal"' \
+    '.panes[0].tab_id = "bad\ntab" | .agents[0].tab_id = "bad\ntab" | .tabs[0].tab_id = "bad\ntab"' \
+    '.panes[0].workspace_id = "bad\u001fworkspace" | .agents[0].workspace_id = "bad\u001fworkspace" | .tabs[0].workspace_id = "bad\u001fworkspace" | .workspaces[0].workspace_id = "bad\u001fworkspace"' \
+    '.panes[0].agent = "bad\nruntime" | .agents[0].agent = "bad\nruntime"' \
+    '.panes[0].label = "bad\u001flabel"' \
+    '.panes[0].tokens = {repo:"bad\nrepo",worktree:"bad\u001fworktree",branch:"bad\nbranch",location_status:"bad\u001fstatus",git_ref:"bad\nref",location_label:"bad\u001flocation"}' \
+    '.tabs[0].label = "bad\nlabel"' \
+    '.workspaces[0].label = "bad\u001flabel"' \
+    '.agents[0].name = "bad\nalias"' \
+    '({source:"bad\u001fsource",agent:"claude",kind:"id",value:"session"}) as $session | .panes[0].agent_session = $session | .agents[0].agent_session = $session'; do
+    hpl_setup
+    hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+    hpl_transform_state "$HPL_DEFAULT_SOCKET" "$mutation"
+    run hpl_sweep_run --sweep
     assert_failure
+
+    run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+    assert_failure
+    namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
+    pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
+    completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
+    [[ "$pending" -gt "$completed" ]]
+    run find "$namespace/panes" -name location.state -print
+    assert_output ""
+    hpl_teardown
   done
 }
 
-@test "herdr-task-sync adapters return when a direct engine hangs" {
-  command -v bun >/dev/null || skip "bun not available"
-  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
-  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
-  local home="$BATS_TEST_TMPDIR/adapter-timeout-home"
-  mkdir -p "$home/.local/bin"
-  cat > "$home/.local/bin/herdr-task-sync" <<'SH'
-#!/bin/sh
-cat >/dev/null
-trap 'exit 0' TERM
-while :; do sleep 0.05; done
-SH
-  chmod +x "$home/.local/bin/herdr-task-sync"
+@test "herdr-pane-labels sources the alias library relative to its deployed path" {
+  local deployed="$BATS_TEST_TMPDIR/deployed-herdr-pane-labels"
+  mkdir -p "$deployed/bin" "$deployed/lib"
+  cp "$HPL_ENGINE" "$deployed/bin/herdr-pane-labels"
+  cp "$HERDR_ALIASES" "$deployed/lib/herdr-aliases.sh"
 
-  run env HOME="$home" HERDR_ENV=1 PI_ADAPTER_PATH="$pi_adapter" \
-    OPENCODE_ADAPTER_PATH="$opencode_adapter" bun -e '
-      const piHandlers = {}
-      const piExtension = (await import(`file://${process.env.PI_ADAPTER_PATH}`)).default
-      piExtension({
-        getSessionName: () => undefined,
-        on: (event, handler) => { piHandlers[event] = handler },
-      })
-      const context = {
-        hasUI: true,
-        sessionManager: { getSessionId: () => "pi-root" },
-      }
-      await piHandlers.session_start({}, context)
-      const piStart = performance.now()
-      await piHandlers.before_agent_start({ prompt: "hung pi engine" }, context)
-      if (performance.now() - piStart > 1750) throw new Error("pi adapter exceeded timeout")
-
-      const { HerdrTaskSyncPlugin } = await import(`file://${process.env.OPENCODE_ADAPTER_PATH}`)
-      const hooks = await HerdrTaskSyncPlugin()
-      const opencodeStart = performance.now()
-      await hooks["chat.message"](
-        { sessionID: "opencode-root" },
-        { parts: [{ type: "text", text: "hung opencode engine" }] },
-      )
-      if (performance.now() - opencodeStart > 1750) throw new Error("opencode adapter exceeded timeout")
-    '
+  run env PATH="$deployed/bin:/usr/bin:/bin" bash "$deployed/bin/herdr-pane-labels" --help
   assert_success
+  assert_output --partial 'Usage: herdr-pane-labels'
 }
 
-@test "herdr-task-sync opencode forgets a deleted child session" {
-  command -v bun >/dev/null || skip "bun not available"
-  local adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
-  local home log
-  hts_setup
-  home="$HTS_WORK/adapter-home"
-  log="$HTS_WORK/adapter.log"
-  mkdir -p "$home/.local/bin"
-  cat > "$home/.local/bin/herdr-task-sync" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HTS_ADAPTER_LOG"
-cat >/dev/null
-SH
-  chmod +x "$home/.local/bin/herdr-task-sync"
+@test "herdr-pane-labels terminates without writes when every alias is occupied" {
+  command -v jq >/dev/null || skip "jq not available"
+  source "$HERDR_ALIASES"
+  hpl_setup
+  local pool state
+  pool="$(herdr_alias_candidates u2-exhausted | jq -Rsc 'split("\n")[:-1]')"
+  state="$(jq -cn --argjson pool "$pool" '
+    ($pool | to_entries) as $entries
+    | {complete:true,protocol:19,
+       panes:([$entries[] | {
+         pane_id:("pane-" + (.key|tostring)),tab_id:"tab-1",workspace_id:"ws-1",
+         terminal_id:("term-" + (.key|tostring)),revision:1,agent:"claude",label:"old",tokens:{}}]
+         + [{pane_id:"target",tab_id:"tab-1",workspace_id:"ws-1",terminal_id:"target-term",
+             revision:1,agent:"pi",label:"old",tokens:{}}]),
+       tabs:[{tab_id:"tab-1",workspace_id:"ws-1",label:"old-tab"}],
+       agents:([$entries[] | {
+         pane_id:("pane-" + (.key|tostring)),tab_id:"tab-1",workspace_id:"ws-1",
+         terminal_id:("term-" + (.key|tostring)),revision:1,state_change_seq:1,
+         agent:"claude",name:.value}]
+         + [{pane_id:"target",tab_id:"tab-1",workspace_id:"ws-1",terminal_id:"target-term",
+             revision:1,state_change_seq:1,agent:"pi",name:"semantic-name"}]),
+       layouts:[],workspaces:[{workspace_id:"ws-1",label:"ws-1"}],metadata:{}}')"
+  hpl_replace_state "$HPL_DEFAULT_SOCKET" "$state"
 
-  run env HOME="$home" HERDR_ENV=1 HTS_ADAPTER_LOG="$log" ADAPTER_PATH="$adapter" bun -e '
-    const { HerdrTaskSyncPlugin } = await import(`file://${process.env.ADAPTER_PATH}`)
-    const hooks = await HerdrTaskSyncPlugin()
-    await hooks.event({ event: { type: "session.created", properties: { info: { id: "child-1", parentID: "root-1" } } } })
-    await hooks["chat.message"]({ sessionID: "child-1" }, { parts: [{ type: "text", text: "ignored child prompt" }] })
-    await hooks.event({ event: { type: "session.deleted", properties: { info: { id: "child-1" } } } })
-    await hooks["chat.message"]({ sessionID: "child-1" }, { parts: [{ type: "text", text: "new root prompt" }] })
-  '
+  run hpl_sweep_run --sweep
+  assert_failure
+
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+  assert_equal "$(jq -r '.agents[] | select(.pane_id == "target").name' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" semantic-name
+}
+
+@test "herdr-pane-labels retries only an exact confirmed agent_name_taken conflict" {
+  command -v jq >/dev/null || skip "jq not available"
+  source "$HERDR_ALIASES"
+  hpl_setup
+  export HERDR_ALIAS_TEST_SEED=u2-conflict
+  local first second occupied state raced
+  first="$(herdr_alias_candidates ignored | sed -n '1p')"
+  second="$(herdr_alias_candidates ignored | sed -n '2p')"
+  occupied=red-wolf
+  [[ "$occupied" != "$first" && "$occupied" != "$second" ]] || occupied=blue-otter
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 pi "$occupied"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  raced="$(jq -c --arg candidate "$first" '.agents |= map(if .pane_id == "pane-2" then .name = $candidate else . end)' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$raced"
+  hpl_fail_next_agent_rename "$HPL_DEFAULT_SOCKET" agent_name_taken
+
+  hpl_request_only
+  hpl_presentation_run
+
+  assert_equal "$(jq -r '.agents[] | select(.pane_id == "pane-1").name' "$state")" "$second"
+  assert_equal "$(jq -r '.agents[] | select(.pane_id == "pane-2").name' "$state")" "$first"
+  assert_file_contains "$HPL_LOG" "^agent rename pane-1 $first$"
+  assert_file_contains "$HPL_LOG" "^agent rename pane-1 $second$"
+
+  hpl_teardown
+  hpl_setup
+  export HERDR_ALIAS_TEST_SEED=u2-generic
+  first="$(herdr_alias_candidates ignored | sed -n '1p')"
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 pi red-wolf
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  raced="$(jq -c --arg candidate "$first" '.agents |= map(if .pane_id == "pane-2" then .name = $candidate else . end)' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$raced"
+  hpl_fail_next_agent_rename "$HPL_DEFAULT_SOCKET" internal_error
+  hpl_request_only
+  hpl_presentation_run
+  assert_equal "$(jq -r '.agents[] | select(.pane_id == "pane-1").name' "$state")" semantic-name
+  assert_equal "$(grep -c '^agent rename pane-1' "$HPL_LOG")" 1
+  run grep -E '^(pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+  unset HERDR_ALIAS_TEST_SEED
+}
+
+@test "herdr-pane-labels never renames a stale target that exits moves or changes before validation" {
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  local state changed
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  changed="$(jq -c '.panes = [] | .agents = []' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 1 "$changed"
+  hpl_request_only
+  hpl_presentation_run
+  run grep '^agent rename' "$HPL_LOG"
+  assert_failure
+
+  hpl_teardown
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  changed="$(jq -c '
+    .panes[0].pane_id = "pane-2" | .panes[0].terminal_id = "term-2"
+    | .panes[0].revision = 2
+    | .agents[0].pane_id = "pane-2" | .agents[0].terminal_id = "term-2"
+    | .agents[0].revision = 2 | .agents[0].state_change_seq = 2' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 1 "$changed"
+  hpl_request_only
+  hpl_presentation_run
+  run grep '^agent rename pane-1' "$HPL_LOG"
+  assert_failure
+  run cat "$HPL_WORK/presentation.trace"
+  assert_output --partial retry-stale-generation
+  run cat "$HPL_LOG"
+  assert_output --partial 'agent rename pane-2 '
+
+  hpl_teardown
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  changed="$(jq -c '
+    .panes[0].agent = "opencode" | .panes[0].revision = 2
+    | .agents[0].agent = "opencode" | .agents[0].revision = 2 | .agents[0].state_change_seq = 2' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 1 "$changed"
+  hpl_request_only
+  hpl_presentation_run
+  run grep -c '^agent rename pane-1' "$HPL_LOG"
+  assert_output 1
+  assert_equal "$(jq -r '.panes[0].label' "$state")" "oc:$(jq -r '.agents[0].name' "$state")"
+}
+
+@test "herdr-pane-labels accepts a same-pane replacement in the rename command interval" {
+  command -v jq >/dev/null || skip "jq not available"
+  source "$HERDR_ALIASES"
+  hpl_setup
+  export HERDR_ALIAS_TEST_SEED=u2-command-interval
+  local candidate state replacement
+  candidate="$(herdr_alias_candidates ignored | sed -n '1p')"
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  replacement="$(jq -c --arg candidate "$candidate" '
+    .panes[0].agent = "pi" | .panes[0].revision = 2
+    | .agents[0].agent = "pi" | .agents[0].revision = 2
+    | .agents[0].state_change_seq = 2 | .agents[0].name = $candidate' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$replacement"
+  hpl_request_only
+  hpl_presentation_run
+  assert_equal "$(jq -r '.agents[0].name' "$state")" "$candidate"
+  assert_equal "$(jq -r '.panes[0].label' "$state")" "pi:$candidate"
+  run grep -c '^agent rename pane-1' "$HPL_LOG"
+  assert_output 1
+  unset HERDR_ALIAS_TEST_SEED
+}
+
+@test "herdr-pane-labels rejects incomplete malformed duplicate and contradictory snapshots before writes" {
+  command -v jq >/dev/null || skip "jq not available"
+  local mutation baseline state
+  for mutation in \
+    'del(.agents[0].revision)' \
+    '.panes[0].terminal_id = 7' \
+    '.agents += [(.agents[0] | .name = "blue-otter")]' \
+    '.agents[0].terminal_id = "contradiction"' \
+    '.agents[0].tab_id = "other-tab"'; do
+    hpl_setup
+    hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+    state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+    baseline="$(jq -c . "$state")"
+    hpl_transform_state "$HPL_DEFAULT_SOCKET" "$mutation"
+    run hpl_sweep_run --sweep
+    assert_failure
+    run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+    assert_failure
+
+    hpl_replace_state "$HPL_DEFAULT_SOCKET" "$baseline"
+    : > "$HPL_LOG"
+    hpl_sweep_run --sweep
+    assert_file_contains "$HPL_LOG" '^agent rename pane-1 '
+    hpl_teardown
+  done
+
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 pi red-wolf
+  run hpl_sweep_run --sweep
+  assert_failure
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+  hpl_transform_state "$HPL_DEFAULT_SOCKET" '.agents[1].name = "blue-otter"'
+  : > "$HPL_LOG"
+  run hpl_sweep_run --sweep
   assert_success
-  hts_wait_for_file_match "$log" "--agent opencode --session child-1"
-  run cat "$log"
-  assert_output "--agent opencode --session child-1"
+  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cc:red-wolf$'
+  assert_file_contains "$HPL_LOG" '^pane rename pane-2 pi:blue-otter$'
+
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  hpl_snapshot_complete "$HPL_DEFAULT_SOCKET" false
+  run hpl_sweep_run --sweep
+  assert_failure
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+
+  hpl_snapshot_complete "$HPL_DEFAULT_SOCKET" true
+  : > "$HPL_LOG"
+  : > "$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")/malformed-next-snapshot"
+  run hpl_sweep_run --sweep
+  assert_failure
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+  : > "$HPL_LOG"
+  hpl_sweep_run --sweep
+  assert_file_contains "$HPL_LOG" '^agent rename pane-1 '
 }
 
-@test "herdr-task-sync presentation coordinates concurrent panes in one shared tab" {
+@test "herdr-pane-labels rejects a complete stale post-rename snapshot and converges later" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":"claude","agent_session":{"agent":"claude","kind":"id","value":"s1"},"label":"","tokens":{}}'
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-2","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-2","agent":"pi","agent_session":{"agent":"pi","kind":"id","value":"s2"},"label":"","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
+  local state stale
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  stale="$(jq -c '.agents[0].name = "stale-result"' "$state")"
+  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$stale"
+  hpl_request_only
+  hpl_presentation_run
+  assert_equal "$(jq -r '.panes[0].label' "$state")" old
+  run grep -E '^(pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
 
-  hts_run --pane pane-1 --agent claude --session s1 --set first-task < /dev/null
-  hts_run --pane pane-2 --agent pi --session s2 --set second-task < /dev/null
-  hts_wait_for_task_slug "$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)" first-task
-  hts_wait_for_task_slug "$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-2 s2)" second-task
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-
-  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .label' "$state")" cc:first-task
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" pi:second-task
-  assert_equal "$(jq -r '.tabs[] | select(.tab_id == "tab-1") | .label' "$state")" "cc:first-task · pi:second-task"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.task' "$state")" first-task
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.task' "$state")" second-task
+  : > "$HPL_LOG"
+  hpl_request_only
+  hpl_presentation_run
+  assert_file_contains "$HPL_LOG" '^agent rename pane-1 '
+  [[ "$(jq -r '.panes[0].label' "$state")" == cc:* ]]
 }
 
-@test "herdr-task-sync presentation accepts pi jsonl path sessions that end with the active session id" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local state tmp task
-  hts_run --agent pi --session 01abc --set session-path-task < /dev/null
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 01abc)"
-  hts_wait_for_task_slug "$task" session-path-task
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+@test "herdr-pane-labels contains no semantic naming or retired worker interface" {
+  run grep -E 'prompt|transcript|model|task|--worker|--agent|--session|--set|HERDR_TASK_SYNC' "$HPL_ENGINE"
+  assert_failure
+  run grep -E -- '--event|--sweep|--sweep-daemon|--ensure-sweep-daemon|--presentation-worker' "$HPL_ENGINE"
+  assert_success
 
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  tmp="$state.tmp"
-  jq '.panes[0].agent_session.value = "/tmp/2026-08-20T00-00-00_01abc.jsonl" | .panes[0].label = ""' \
-    "$state" > "$tmp" && mv "$tmp" "$state"
-  hts_location_pass
-
-  assert_equal "$(jq -r '.panes[0].label' "$state")" pi:session-path-task
+  local retired
+  for retired in --agent --session --transcript --set --worker; do
+    run bash "$HPL_ENGINE" "$retired"
+    assert_failure 2
+    assert_output --partial 'Usage: herdr-pane-labels'
+  done
 }
 
-@test "herdr-task-sync presentation publishes only the newest accepted generation" {
+@test "managed source removes semantic adapters and keeps alias presentation files" {
+  local retired
+  for retired in \
+    "$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync" \
+    "$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh" \
+    "$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts" \
+    "$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"; do
+    assert_file_not_exists "$retired"
+  done
+
+  assert_file_exists "$HPL_ENGINE"
+  assert_file_exists "$HERDR_ALIASES"
+  assert_file_exists "$HPL_PLUGIN_DIR/herdr-plugin.toml"
+  assert_file_exists "$HPL_PLUGIN_DIR/ensure.sh"
+  assert_file_exists "$HPL_PLUGIN_DIR/sweep.sh"
+}
+
+@test "herdr-pane-labels presentation coalesces event bursts into an active pass and rerun" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 stale-first
-  hts_model_fixture pi 2 newest-second
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  : > "$HPL_WORK/block-herdr"
+  hpl_event_run
+  hpl_wait_for_file "$HPL_WORK/herdr-blocked"
+  hpl_event_run
+  hpl_event_run
+  hpl_event_run
+  : > "$HPL_WORK/release-herdr"
+  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
 
-  hts_run --agent claude --session latest-s <<< 'first request'
-  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
-  hts_run --agent claude --session latest-s <<< 'second request'
-  hts_release_model pi 1
-  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
-  hts_release_model pi 2
-
-  local control task state
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 latest-s)"
-  hts_wait_for_quiescence "$control"
-  hts_wait_for_task_slug "$task" newest-second
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" newest-second
-  assert_equal "$(jq -r '.panes[0].label' "$state")" cc:newest-second
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:newest-second
-  run grep -c '^pane report-metadata' "$HTS_LOG"
+  run grep -c '^api snapshot' "$HPL_LOG"
+  # One read belongs to the generation invalidated by the burst; the latest
+  # generation then performs its required initial and final complete reads.
+  assert_output "3"
+  run grep -c '^pane rename pane-1 btop$' "$HPL_LOG"
+  assert_output "1"
+  run grep -c '^tab rename tab-1 btop$' "$HPL_LOG"
   assert_output "1"
 }
 
-@test "herdr-task-sync presentation coalesces event bursts into an active pass and rerun" {
+@test "herdr-pane-labels presentation retries a newer invalidation after transient pass failure" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  : > "$HTS_WORK/block-herdr"
-  hts_event_run
-  hts_wait_for_file "$HTS_WORK/herdr-blocked"
-  hts_event_run
-  hts_event_run
-  hts_event_run
-  : > "$HTS_WORK/release-herdr"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-
-  run grep -c '^api snapshot' "$HTS_LOG"
-  assert_output "2"
-  run grep -c '^pane rename pane-1 btop$' "$HTS_LOG"
-  assert_output "1"
-  run grep -c '^tab rename tab-1 btop$' "$HTS_LOG"
-  assert_output "1"
-}
-
-@test "herdr-task-sync presentation retries a newer invalidation after transient pass failure" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  local dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
   : > "$dir/fail-next-snapshot"
-  : > "$HTS_WORK/block-herdr"
-  hts_event_run
-  hts_wait_for_file "$HTS_WORK/herdr-blocked"
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
-  : > "$HTS_WORK/release-herdr"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  run grep -c '^api snapshot' "$HTS_LOG"
-  assert_output "2"
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
+  : > "$HPL_WORK/block-herdr"
+  hpl_event_run
+  hpl_wait_for_file "$HPL_WORK/herdr-blocked"
+  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
+  : > "$HPL_WORK/release-herdr"
+  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
+  run grep -c '^api snapshot' "$HPL_LOG"
+  # The failed read is followed by initial and final complete reads.
+  assert_output "3"
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" btop
 }
 
-@test "herdr-task-sync presentation release recheck does not lose a pending invalidation" {
+@test "herdr-pane-labels presentation release recheck does not lose a pending invalidation" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local pause="$HTS_WORK/release-edge"
-  HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="$pause" hts_event_run
-  hts_wait_for_file "$pause.reached"
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  local pause="$HPL_WORK/release-edge"
+  HERDR_PANE_LABELS_TEST_PAUSE_BEFORE_RELEASE="$pause" hpl_event_run
+  hpl_wait_for_file "$pause.reached"
   # The second event only has to make an invalidation pending; letting it also
   # start a presentation of its own races the paused pass under load, which
   # adds a third snapshot and reads as a lost invalidation when it is not.
   # Suppressing it keeps the recheck the only route to the second snapshot, so
   # the exact count below still means what the test name says.
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
+  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
   : > "$pause.release"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  run grep -c '^api snapshot' "$HTS_LOG"
-  assert_output "2"
+  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
+  run grep -c '^api snapshot' "$HPL_LOG"
+  # Both successful generations perform initial and final complete reads.
+  assert_output "4"
 }
 
-@test "herdr-task-sync event presentation leaves the hook process group" {
+@test "herdr-pane-labels event presentation leaves the hook process group" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local pause="$HTS_WORK/process-group" claim worker_pid worker_pgid hook_pgid
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  local pause="$HPL_WORK/process-group" claim worker_pid worker_pgid hook_pgid
 
-  HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="$pause" hts_event_run
-  hts_wait_for_file "$pause.reached"
-  claim="$(hts_namespace "$HTS_DEFAULT_SOCKET")/presentation.claim/owner"
-  worker_pid="$(hts_record_number "$claim" pid)"
+  HERDR_PANE_LABELS_TEST_PAUSE_BEFORE_RELEASE="$pause" hpl_event_run
+  hpl_wait_for_file "$pause.reached"
+  claim="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/presentation.claim/owner"
+  worker_pid="$(hpl_record_number "$claim" pid)"
   worker_pgid="$(ps -p "$worker_pid" -o pgid= | tr -d '[:space:]')"
   hook_pgid="$(ps -p "$$" -o pgid= | tr -d '[:space:]')"
   : > "$pause.release"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
 
   [ -n "$worker_pgid" ]
   [ "$worker_pgid" != "$hook_pgid" ]
 }
 
-@test "herdr-task-sync presentation automatically corrects divergent pane and tab labels" {
+@test "herdr-pane-labels presentation automatically corrects divergent pane and tab labels" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_run --agent claude --session correction-s --set automatic-task < /dev/null
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
-  : > "$HTS_LOG"
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  run grep '^pane rename' "$HTS_LOG"
-  assert_output "pane rename pane-1 cc:automatic-task"
-  run grep -c '^tab rename' "$HTS_LOG"
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_sweep_run --sweep
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
+  : > "$HPL_LOG"
+  hpl_event_run
+  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
+  run grep '^pane rename' "$HPL_LOG"
+  assert_output "pane rename pane-1 cc:red-wolf"
+  run grep -c '^tab rename' "$HPL_LOG"
   assert_failure
 
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 divergent-again
-  hts_socket_run "$HTS_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
-  : > "$HTS_LOG"
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_file_contains "$HTS_LOG" '^pane rename pane-1 cc:automatic-task$'
-  assert_file_contains "$HTS_LOG" '^tab rename tab-1 cc:automatic-task$'
-  run grep -E 'owner|reclaim|notification' "$HTS_LOG"
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 divergent-again
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
+  : > "$HPL_LOG"
+  hpl_event_run
+  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
+  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cc:red-wolf$'
+  assert_file_contains "$HPL_LOG" '^tab rename tab-1 cc:red-wolf$'
+  run grep -E 'owner|reclaim|notification' "$HPL_LOG"
   assert_failure
 }
 
-@test "herdr-task-sync presentation drops a malformed-width record and keeps labeling the rest" {
+@test "herdr-pane-labels presentation rejects an unsafe row without reducing pass scope" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  # A FIELD_SEPARATOR smuggled into a pane field would shift every later
-  # positional field and surface as a wrong label. The width guard must drop
-  # only that pane's record; the other pane and the tab still get labeled.
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"bad\u001flabel","tokens":{}}'
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-2","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-  hts_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  local state
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" btop
-  run grep '^pane rename pane-1' "$HTS_LOG"
+  hpl_setup
+  # A FIELD_SEPARATOR in one pane must abort the whole pass. Labeling only the
+  # other pane would turn malformed data into an apparently successful pass.
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"bad\u001flabel","tokens":{}}'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-2","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-2","agent":null,"label":"old","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+  hpl_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  hpl_request_only
+  hpl_presentation_run
+  local state namespace pending completed
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" old
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" old-tab
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
   assert_failure
-  assert_file_contains "$HTS_LOG" '^tab rename tab-1 btop$'
+  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
+  pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
+  completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
+  [[ "$pending" -gt "$completed" ]]
 }
 
-@test "herdr-task-sync presentation skips pre-read deletion and repairs the post-read race next pass" {
+@test "herdr-pane-labels aborts unsafe process and Git-derived positional rows" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  hpl_setup
+  hpl_set_process_pane pane-1 tab-1 ws-1 term-1 /tmp old
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["bad\u001fcommand"]}]}}}'
+  hpl_request_only
+  hpl_presentation_run
+
+  local namespace pending completed root common unsafe_root
+  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
+  pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
+  completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
+  [[ "$pending" -gt "$completed" ]]
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+  run find "$namespace/panes" -name location.state -print
+  assert_output ""
+
+  hpl_teardown
+  hpl_setup
+  root="$HPL_WORK/repository"
+  common="$root/.git"
+  unsafe_root="bad$(printf '\037')root"
+  mkdir -p "$root" "$common"
+  hpl_git_location_fixture "$root" "$unsafe_root" "$common" refs/heads/main
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+  hpl_set_process_label pane-1 worker
+  hpl_request_only
+  HERDR_PANE_LABELS_GIT_BUDGET="$HPL_GIT_BUDGET" hpl_presentation_run
+
+  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
+  pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
+  completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
+  [[ "$pending" -gt "$completed" ]]
+  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
+  assert_failure
+  run find "$namespace/panes" -name location.state -print
+  assert_output ""
+}
+
+@test "herdr-pane-labels presentation skips pre-read deletion and repairs the post-read race next pass" {
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
   local state missing next dir
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   missing="$(jq -c '.panes = []' "$state")"
-  hts_after_next_call_state "$HTS_DEFAULT_SOCKET" "$missing"
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  run grep -c '^pane rename' "$HTS_LOG"
+  hpl_after_next_call_state "$HPL_DEFAULT_SOCKET" "$missing"
+  hpl_request_only
+  hpl_presentation_run
+  run grep -c '^pane rename' "$HPL_LOG"
   assert_failure
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-2","agent":null,"label":"wrong","tokens":{}}'
-  : > "$HTS_LOG"
-  dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-2","agent":null,"label":"wrong","tokens":{}}'
+  : > "$HPL_LOG"
+  dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
   next=$(( $(cat "$dir/call-seq") + 3 ))
-  hts_after_call_script "$HTS_DEFAULT_SOCKET" "$next" "printf '%s' '{\"result\":{\"process_info\":{\"shell_pid\":100,\"foreground_process_group_id\":300,\"foreground_processes\":[{\"pid\":300,\"name\":\"cargo\",\"argv0\":\"cargo\",\"argv\":[\"cargo\",\"test\"]}]}}}' > '$dir/proc-pane-1.json'"
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  hpl_after_call_script "$HPL_DEFAULT_SOCKET" "$next" "printf '%s' '{\"result\":{\"process_info\":{\"shell_pid\":100,\"foreground_process_group_id\":300,\"foreground_processes\":[{\"pid\":300,\"name\":\"cargo\",\"argv0\":\"cargo\",\"argv\":[\"cargo\",\"test\"]}]}}}' > '$dir/proc-pane-1.json'"
+  hpl_request_only
+  hpl_presentation_run
   assert_equal "$(jq -r '.panes[0].label' "$state")" btop
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  hpl_request_only
+  hpl_presentation_run
   assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
 }
 
-@test "herdr-task-sync presentation skips reused pane and tab identities at the final read" {
+@test "herdr-pane-labels presentation skips reused pane and tab identities at the final read" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old-pane","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old-pane","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
   local state next_state
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   next_state="$(jq -c '
     .panes[0].terminal_id = "term-2"
+    | .panes[0].workspace_id = "ws-2"
     | .panes[0].label = "reused-pane"
     | .tabs[0].workspace_id = "ws-2"
     | .tabs[0].label = "reused-tab"
+    | .workspaces += [{"workspace_id":"ws-2","label":"ws-2"}]
   ' "$state")"
-  hts_after_next_call_state "$HTS_DEFAULT_SOCKET" "$next_state"
+  hpl_after_next_call_state "$HPL_DEFAULT_SOCKET" "$next_state"
 
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  hpl_request_only
+  hpl_presentation_run
   assert_equal "$(jq -r '.panes[0].label' "$state")" reused-pane
   assert_equal "$(jq -r '.tabs[0].label' "$state")" reused-tab
-  run grep -E '^(pane|tab) rename' "$HTS_LOG"
+  run grep -E '^(pane|tab) rename' "$HPL_LOG"
   assert_failure
 
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  hpl_request_only
+  hpl_presentation_run
   assert_equal "$(jq -r '.panes[0].label' "$state")" btop
   assert_equal "$(jq -r '.tabs[0].label' "$state")" btop
 }
 
-@test "herdr-task-sync age cleanup removes only inactive task payloads" {
+@test "herdr-pane-labels presentation isolates exact colliding socket identities" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local old_task old_marker active_task active_control active_high_water
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
-    --agent claude --session expired-session --set expired-task < /dev/null
-  old_task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 expired-session)"
-  old_marker="$(hts_migration_marker "$HTS_DEFAULT_SOCKET" claude pane-1 expired-session)"
-  hts_wait_for_task_slug "$old_task" expired-task
-
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
-    --agent claude --session active-session --set active-task < /dev/null
-  active_task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 active-session)"
-  active_control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  active_high_water="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/high-water.state"
-  hts_wait_for_task_slug "$active_task" active-task
-  hts_wait_for_quiescence "$active_control"
-  touch -t 200001010000 "$old_task" "$active_task"
-
-  HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS=0 hts_location_pass
-
-  assert_file_not_exists "$old_task"
-  assert_file_exists "$old_marker"
-  assert_file_exists "$active_task"
-  assert_file_exists "$active_control"
-  assert_file_exists "$active_high_water"
+  hpl_setup
+  local socket_one="$HPL_WORK/a-b.sock" socket_two="$HPL_WORK/a_b.sock"
+  hpl_set_pane "$socket_one" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1a","agent":null,"label":"old-one","tokens":{}}'
+  hpl_set_tab "$socket_one" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-one"}'
+  hpl_set_pane "$socket_two" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1b","agent":null,"label":"old-two","tokens":{}}'
+  hpl_set_tab "$socket_two" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-two"}'
+  hpl_proc_info_for_socket "$socket_one" pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["one"]}]}}}'
+  hpl_proc_info_for_socket "$socket_two" pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["two"]}]}}}'
+  hpl_event_run_for_socket "$socket_one"
+  hpl_event_run_for_socket "$socket_two"
+  hpl_wait_for_presentation_quiescence "$socket_one"
+  hpl_wait_for_presentation_quiescence "$socket_two"
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$socket_one")")" one
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$socket_two")")" two
+  [[ "$(hpl_namespace "$socket_one")" != "$(hpl_namespace "$socket_two")" ]]
 }
 
-@test "herdr-task-sync presentation preserves state on incomplete and transient snapshots" {
+@test "herdr-pane-labels presentation fails closed without an exact socket" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run --agent pi --session retained-s --set retained-task < /dev/null
-  local task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 retained-s)"
-  hts_wait_for_task_slug "$task" retained-task
-  hts_wait_for_record_number "$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state" pending_generation 1
-  touch -t 202001010000 "$task"
-  hts_snapshot_complete "$HTS_DEFAULT_SOCKET" false
-  run hts_presentation_run
+  hpl_setup
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"unchanged","tokens":{}}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"unchanged"}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["changed"]}]}}}'
+  run env -u HERDR_SOCKET_PATH PATH="$HPL_STUB:/usr/bin:/bin" HERDR_PANE_LABELS_STATE_DIR="$HPL_STATE" bash "$HPL_ENGINE" --event
   assert_success
-  assert_file_exists "$task"
-  assert_equal "$(cat "$HTS_LOG")" "api snapshot"
-
-  hts_snapshot_complete "$HTS_DEFAULT_SOCKET" true
-  printf 'not-json\n' > "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  : > "$HTS_LOG"
-  run hts_presentation_run
+  run env -u HERDR_SOCKET_PATH PATH="$HPL_STUB:/usr/bin:/bin" HERDR_PANE_LABELS_STATE_DIR="$HPL_STATE" bash "$HPL_ENGINE" --sweep
   assert_success
-  assert_file_exists "$task"
-  run grep -E 'rename|report-metadata' "$HTS_LOG"
-  assert_failure
+  assert_equal "$(cat "$HPL_LOG")" ""
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" unchanged
 }
 
-@test "herdr-task-sync naming worker never age-cleans tasks without safe snapshot ownership" {
+@test "herdr-pane-labels location resolves main linked nested and administrative paths with strict foreground semantics" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
-    --pane pane-old --agent pi --session old-s --set old-task < /dev/null
-  local old_task active_task socket_dir
-  old_task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-old old-s)"
-  active_task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 active-s)"
-  socket_dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
-  hts_wait_for_task_slug "$old_task" old-task
-  touch -t 202001010000 "$old_task"
-
-  hts_snapshot_complete "$HTS_DEFAULT_SOCKET" false
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
-    --agent claude --session active-s --set active-one < /dev/null
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 run hts_worker_run
-  assert_success
-  hts_wait_for_task_slug "$active_task" active-one
-  assert_file_exists "$old_task"
-  assert_file_exists "$active_task"
-
-  hts_snapshot_complete "$HTS_DEFAULT_SOCKET" true
-  : > "$socket_dir/fail-next-snapshot"
-  HERDR_TASK_SYNC_TEST_NO_WORKER=1 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run \
-    --agent claude --session active-s --set active-two < /dev/null
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 run hts_worker_run
-  assert_success
-  hts_wait_for_task_slug "$active_task" active-two
-  run hts_presentation_run
-  assert_success
-  assert_file_exists "$old_task"
-  assert_file_exists "$active_task"
-
-  run hts_presentation_run
-  assert_success
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_file_exists "$old_task"
-  assert_file_exists "$active_task"
-  assert_equal "$(hts_record_text "$active_task" slug)" active-two
-}
-
-@test "herdr-task-sync presentation isolates exact colliding socket identities" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local socket_one="$HTS_WORK/a-b.sock" socket_two="$HTS_WORK/a_b.sock"
-  hts_set_pane "$socket_one" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1a","agent":null,"label":"old-one","tokens":{}}'
-  hts_set_tab "$socket_one" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-one"}'
-  hts_set_pane "$socket_two" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1b","agent":null,"label":"old-two","tokens":{}}'
-  hts_set_tab "$socket_two" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-two"}'
-  hts_proc_info_for_socket "$socket_one" pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["one"]}]}}}'
-  hts_proc_info_for_socket "$socket_two" pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["two"]}]}}}'
-  hts_event_run_for_socket "$socket_one"
-  hts_event_run_for_socket "$socket_two"
-  hts_wait_for_presentation_quiescence "$socket_one"
-  hts_wait_for_presentation_quiescence "$socket_two"
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$socket_one")")" one
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$socket_two")")" two
-  [[ "$(hts_namespace "$socket_one")" != "$(hts_namespace "$socket_two")" ]]
-}
-
-@test "herdr-task-sync presentation recovers stale and half-created owner claims" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_run --agent pi --session recovery-s --set recovery-task < /dev/null
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  local namespace claim owner start
-  namespace="$(hts_namespace "$HTS_DEFAULT_SOCKET")"
-  claim="$namespace/presentation.claim"
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 wrong
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
-  mkdir "$claim"
-  owner="stale-owner"
-  cat > "$claim/owner" <<EOF
-owner_id=$(printf '%s' "$owner" | base64 | tr -d '\n')
-pid=$$
-process_start=$(printf '%s' 'not-this-process' | base64 | tr -d '\n')
-socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')
-EOF
-  run hts_presentation_run
-  assert_success
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_dir_not_exists "$claim"
-
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 wrong-again
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
-  mkdir "$claim"
-  run hts_presentation_run
-  assert_success
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_dir_not_exists "$claim"
-
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 release-race
-  local pause="$HTS_WORK/owner-release" predecessor_pid successor_start
-  HERDR_TASK_SYNC_TEST_PAUSE_BEFORE_RELEASE="$pause" hts_event_run
-  hts_wait_for_file "$pause.reached"
-  predecessor_pid="$(hts_record_number "$claim/owner" pid)"
-  successor_start="$(ps -p $$ -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  cat > "$claim/owner" <<EOF
-owner_id=$(printf '%s' successor-owner | base64 | tr -d '\n')
-pid=$$
-process_start=$(printf '%s' "$successor_start" | base64 | tr -d '\n')
-socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')
-EOF
-  : > "$pause.release"
-  for _ in $(seq 1 $HTS_WAIT_POLLS); do
-    kill -0 "$predecessor_pid" 2>/dev/null || break
-    sleep 0.01
-  done
-  run kill -0 "$predecessor_pid"
-  assert_failure
-  assert_dir_exists "$claim"
-  assert_equal "$(hts_record_text "$claim/owner" owner_id)" successor-owner
-  rm -f "$claim/owner"
-  rmdir "$claim"
-
-  mkdir "$claim"
-  start="$(ps -p $$ -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  cat > "$claim/owner" <<EOF
-owner_id=$(printf '%s' live-owner | base64 | tr -d '\n')
-pid=$$
-process_start=$(printf '%s' "$start" | base64 | tr -d '\n')
-socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')
-EOF
-  HERDR_TASK_SYNC_LOCK_ATTEMPTS=1 run hts_presentation_run
-  assert_success
-  assert_dir_exists "$claim"
-  assert_equal "$(hts_record_text "$claim/owner" owner_id)" live-owner
-}
-
-@test "herdr-task-sync presentation resumes safely across durable crash boundaries" {
-  command -v jq >/dev/null || skip "jq not available"
-  local boundary
-  for boundary in metadata pane-rename pending-complete; do
-    hts_setup
-    HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run --agent claude --session "crash-$boundary" --set "task-$boundary" < /dev/null
-    local task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 "crash-$boundary")"
-    hts_wait_for_task_slug "$task" "task-$boundary"
-    hts_wait_for_record_number "$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state" pending_generation 1
-    HERDR_TASK_SYNC_TEST_CRASH_AFTER="$boundary" run hts_presentation_run
-    assert_failure 97
-    run hts_presentation_run
-    assert_success
-    hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-    assert_equal "$(jq -r '.panes[0].tokens.task' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "task-$boundary"
-    assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "cc:task-$boundary"
-  done
-}
-
-@test "herdr-task-sync presentation self-events converge to a no-op" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_run --agent claude --session self-event-s --set self-event-task < /dev/null
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  : > "$HTS_LOG"
-  hts_event_run
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  run grep -E 'rename|report-metadata' "$HTS_LOG"
-  assert_failure
-  run grep -c '^api snapshot' "$HTS_LOG"
-  assert_output "1"
-}
-
-@test "herdr-task-sync presentation fails closed without an exact socket" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"unchanged","tokens":{}}'
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"unchanged"}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["changed"]}]}}}'
-  run env -u HERDR_SOCKET_PATH PATH="$HTS_STUB:/usr/bin:/bin" HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" bash "$HTS_ENGINE" --event
-  assert_success
-  run env -u HERDR_SOCKET_PATH PATH="$HTS_STUB:/usr/bin:/bin" HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" bash "$HTS_ENGINE" --sweep
-  assert_success
-  assert_equal "$(cat "$HTS_LOG")" ""
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" unchanged
-}
-
-@test "herdr-task-sync presentation restart recomputes durable pending intent without a label ledger" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run --agent pi --session restart-presentation --set restart-task < /dev/null
-  local reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
-  hts_wait_for_record_number "$reconcile" pending_generation 1
-  [[ "$(hts_record_number "$reconcile" pending_generation)" -gt "$(hts_record_number "$reconcile" completed_generation 2>/dev/null || printf 0)" ]]
-  run hts_presentation_run
-  assert_success
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" pi:restart-task
-  run grep -ER 'intended_label|applied_label|manual_owner|reclaim|server_epoch|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
-  assert_failure
-}
-
-@test "herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local main="$HTS_WORK/checkouts/repository" linked="$HTS_WORK/linked/feature"
-  local common="$main/.git" nongit="$HTS_WORK/outside" state
+  hpl_setup
+  local main="$HPL_WORK/checkouts/repository" linked="$HPL_WORK/linked/feature"
+  local common="$main/.git" nongit="$HPL_WORK/outside" state
   mkdir -p "$main/src/nested" "$common/objects" "$common/worktrees/feature/logs" "$linked/deep/path" "$nongit"
-  hts_mark_linked_worktree "$linked" "$common/worktrees/feature"
+  hpl_mark_linked_worktree "$linked" "$common/worktrees/feature"
   printf '%s/.git\n' "$linked" > "$common/worktrees/feature/gitdir"
-  hts_git_location_fixture "$main/src/nested" "$main" "$common" refs/heads/main
-  hts_git_location_fixture "$main" "$main" "$common" refs/heads/main
-  hts_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
-  hts_git_location_fixture "$linked/deep/path" "$linked" "$common" refs/heads/feature
-  hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
+  hpl_git_location_fixture "$main/src/nested" "$main" "$common" refs/heads/main
+  hpl_git_location_fixture "$main" "$main" "$common" refs/heads/main
+  hpl_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
+  hpl_git_location_fixture "$linked/deep/path" "$linked" "$common" refs/heads/feature
+  hpl_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json main-nested tab-1 "$main" present "$main/src/nested")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json main-admin tab-1 "$main" present "$common/objects")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json linked-admin tab-1 "$linked" present "$common/worktrees/feature/logs")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json fallback tab-1 "$linked/deep/path" absent)"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json foreground-wins tab-1 "$linked/deep/path" present "$nongit")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json agent-ignores-foreground tab-1 "$linked/deep/path" present "$nongit" | jq -c '.agent = "pi"')"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
-  for pane_id in main-nested main-admin linked-admin fallback foreground-wins agent-ignores-foreground; do hts_set_process_label "$pane_id" "$pane_id"; done
-  LANG=fr_FR.UTF-8 LC_ALL= hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json main-nested tab-1 "$main" present "$main/src/nested")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json main-admin tab-1 "$main" present "$common/objects")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json linked-admin tab-1 "$linked" present "$common/worktrees/feature/logs")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json fallback tab-1 "$linked/deep/path" absent)"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json foreground-wins tab-1 "$linked/deep/path" present "$nongit")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json agent-ignores-foreground tab-1 "$linked/deep/path" present "$nongit" | jq -c '.agent = "pi"')"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
+  for pane_id in main-nested main-admin linked-admin fallback foreground-wins agent-ignores-foreground; do hpl_set_process_label "$pane_id" "$pane_id"; done
+  LANG=fr_FR.UTF-8 LC_ALL= hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
 
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.repo' "$state" | sort -u)" repository
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
   # Main checkout: branch icon; folder qualifier suppressed because the
   # worktree token equals the workspace name.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
   # Linked worktree (.git file at root): worktree icon; folder qualifier
   # suppressed because the worktree token equals the branch.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE feature"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.branch' "$state")" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.worktree' "$state")" feature
   run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == null)' "$state"
   assert_success
-  assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
+  assert_equal "$(cat "$(hpl_git_fixture_dir "$nongit")/locale")" C
 }
 
-@test "herdr-task-sync dangling administrative gitdir retains stale location" {
+@test "herdr-pane-labels dangling administrative gitdir retains stale location" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local main="$HTS_WORK/checkouts/repository" linked="$HTS_WORK/linked/feature"
+  hpl_setup
+  local main="$HPL_WORK/checkouts/repository" linked="$HPL_WORK/linked/feature"
   local common="$main/.git" admin="$common/worktrees/feature/logs" state
   mkdir -p "$common/worktrees/feature/logs" "$linked"
-  hts_mark_linked_worktree "$linked" "$common/worktrees/feature"
+  hpl_mark_linked_worktree "$linked" "$common/worktrees/feature"
   printf '%s/.git\n' "$linked" > "$common/worktrees/feature/gitdir"
-  hts_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$linked" present "$linked")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 worker
-  hts_location_pass
+  hpl_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$linked" present "$linked")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 worker
+  hpl_location_pass
 
-  printf '%s\n' "$HTS_WORK/missing/.git" > "$common/worktrees/feature/gitdir"
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$linked" "$admin"
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  printf '%s\n' "$HPL_WORK/missing/.git" > "$common/worktrees/feature/gitdir"
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$linked" "$admin"
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" feature
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
   assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
   # Retained stale evidence keeps the worktree place icon and renders stale
   # as a suffix icon on $git_ref, not as a separate row or text marker.
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_STALE"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE feature $HPL_ICON_STALE"
 }
 
-@test "herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water" {
+@test "herdr-pane-labels location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
-  local branch="$root/branch" detached="$root/detached" nongit="$HTS_WORK/non-git" state first_seq second_seq
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
+  local branch="$root/branch" detached="$root/detached" nongit="$HPL_WORK/non-git" state first_seq second_seq
   mkdir -p "$branch" "$detached" "$nongit" "$common" "$root/.git"
-  hts_git_location_fixture "$branch" "$root" "$common" refs/heads/topic
-  hts_git_location_fixture "$detached" "$root" "$common" HEAD a1b2c3d
-  hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hts_set_process_label pane-1 worker
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 --source task-sync --token task=kept-task --seq 900
+  hpl_git_location_fixture "$branch" "$root" "$common" refs/heads/topic
+  hpl_git_location_fixture "$detached" "$root" "$common" HEAD a1b2c3d
+  hpl_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$branch")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hpl_set_process_label pane-1 worker
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata pane-1 --source foreign-source --token foreign=kept --seq 900
 
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=1000 hts_location_pass
-  first_seq="$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)"
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=1 hts_location_pass
-  second_seq="$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)"
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  HERDR_PANE_LABELS_TEST_NOW_SEQ=1000 hpl_location_pass
+  first_seq="$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)"
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
+  HERDR_PANE_LABELS_TEST_NOW_SEQ=1 hpl_location_pass
+  second_seq="$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   [[ "$second_seq" -gt "$first_seq" ]]
   assert_equal "$(jq -r '.panes[0].tokens.repo' "$state")" repo.git
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" repo
   # Detached HEAD keeps the location: commit icon plus 7-char short SHA, no
   # stale marker, and no branch token.
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT a1b2c3d"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
-  run jq -e '.panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.task == "kept-task"' "$state"
+  run jq -e '.panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.foreign == "kept"' "$state"
   assert_success
 
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  # pane_inline is deferred by the plan and never published; the non-Git arm
-  # clears any stale copy, so only the task token survives.
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
-  [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
+  HERDR_PANE_LABELS_TEST_NOW_SEQ=0 hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  # The non-Git arm clears only presentation-owned location tokens.
+  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"foreign":"kept"}'
+  [[ "$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
 }
 
-@test "herdr-task-sync location real probe shape pays the second sha call only when detached" {
+@test "herdr-pane-labels location real probe shape pays the second sha call only when detached" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
   local branch="$root/branch" detached="$root/detached" state branch_fixture detached_fixture
   mkdir -p "$branch" "$detached" "$common" "$root/.git"
   # given: real-git probe shape — three lines from the first call, the short
   # SHA only from a separate `rev-parse --short=7 HEAD` answered via the
   # stub's stdout.short selector.
-  hts_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
-  hts_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  branch_fixture="$(hts_git_fixture_dir "$branch")"
-  detached_fixture="$(hts_git_fixture_dir "$detached")"
+  hpl_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
+  hpl_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  branch_fixture="$(hpl_git_fixture_dir "$branch")"
+  detached_fixture="$(hpl_git_fixture_dir "$detached")"
   printf 'e4f5a6b\n' > "$branch_fixture/stdout.short"
   printf 'e4f5a6b\n' > "$detached_fixture/stdout.short"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hts_set_process_label pane-1 worker
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$branch")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hpl_set_process_label pane-1 worker
 
   # when: a branch pane resolves
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=1000 hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  HERDR_PANE_LABELS_TEST_NOW_SEQ=1000 hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   # then: the ref came from the 3-line probe alone — no --short call fired
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
   run grep -c -- '--short=7' "$branch_fixture/calls"
   assert_failure
 
   # when: the same pane moves to a detached checkout
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
-  HERDR_TASK_SYNC_TEST_NOW_SEQ=1001 hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
+  HERDR_PANE_LABELS_TEST_NOW_SEQ=1001 hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   # then: exactly one second budgeted call fetched the SHA
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT e4f5a6b"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT e4f5a6b"
   assert_equal "$(grep -c -- '--short=7' "$detached_fixture/calls")" 1
 }
 
-@test "herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref" {
+@test "herdr-pane-labels location detached sha failure retains prior identity as stale and never publishes a malformed git_ref" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
   local branch="$root/branch" empty_sha="$root/empty-sha" bad_sha="$root/bad-sha" state target fixture
   mkdir -p "$branch" "$empty_sha" "$bad_sha" "$common" "$root/.git"
   # given: real-git probe shape — the detached probes answer 3 lines, and the
   # second `rev-parse --short=7` call yields an empty or non-hex SHA.
-  hts_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
-  hts_git_fixture "$empty_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  hts_git_fixture "$bad_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  : > "$(hts_git_fixture_dir "$empty_sha")/stdout.short"
-  printf 'not-a-sha\n' > "$(hts_git_fixture_dir "$bad_sha")/stdout.short"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$branch")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hts_set_process_label pane-1 worker
+  hpl_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
+  hpl_git_fixture "$empty_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  hpl_git_fixture "$bad_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  : > "$(hpl_git_fixture_dir "$empty_sha")/stdout.short"
+  printf 'not-a-sha\n' > "$(hpl_git_fixture_dir "$bad_sha")/stdout.short"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$branch")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hpl_set_process_label pane-1 worker
   # given: prior canonical identity from a healthy branch resolve
-  hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_BRANCH topic"
+  hpl_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" "$HPL_ICON_BRANCH topic"
 
   for target in "$empty_sha" "$bad_sha"; do
     # when: the pane moves to a detached checkout whose SHA fetch fails
-    hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$target" "$target"
-    hts_location_pass
-    state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+    hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$target" "$target"
+    hpl_location_pass
+    state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
     # then: the second call fired, and the pane retains the prior branch
     # identity as stale — no commit ref built from a malformed SHA.
-    fixture="$(hts_git_fixture_dir "$target")"
+    fixture="$(hpl_git_fixture_dir "$target")"
     assert_equal "$(grep -c -- '--short=7' "$fixture/calls")" 1
-    assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_STALE"
+    assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic $HPL_ICON_STALE"
     assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
     assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
   done
 }
 
-@test "herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals" {
+@test "herdr-pane-labels location detached sha budget failure with no prior state renders no git location and self-heals" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
   local detached="$root/detached" fixture state
   mkdir -p "$detached" "$common" "$root/.git"
   # given: real-git probe shape — the first call answers 3 lines in budget,
   # and block.short stalls the second --short=7 call past LOCATION_GIT_BUDGET.
-  hts_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  fixture="$(hts_git_fixture_dir "$detached")"
+  hpl_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
+  fixture="$(hpl_git_fixture_dir "$detached")"
   printf 'e4f5a6b\n' > "$fixture/stdout.short"
   : > "$fixture/block.short"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$detached")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hts_set_process_label pane-1 worker
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$detached")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hpl_set_process_label pane-1 worker
   # when: the very first pass for this pane — no prior location state exists
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   # then: the SHA probe fired, its budget failure discarded the freshly
   # resolved root, and with nothing prior to retain the pane renders with no
   # git location this pass — no half-built commit ref, no stale marker.
@@ -2843,31 +2748,31 @@ EOF
   assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
   # when: the next sweep finds a responsive SHA probe
   : > "$fixture/release"
-  hts_location_pass
+  hpl_location_pass
   # then: the pane self-heals to the commit ref without manual repair
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_COMMIT e4f5a6b"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" "$HPL_ICON_COMMIT e4f5a6b"
 }
 
-@test "herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths" {
+@test "herdr-pane-labels location clears the retired location_label token on both publish and non-git clear paths" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" nongit="$HTS_WORK/non-git" state
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git" nongit="$HPL_WORK/non-git" state
   mkdir -p "$root" "$common" "$nongit"
-  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
-  hts_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
+  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hpl_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
   # given: panes still carrying the legacy location_label token published by
   # the previously deployed version
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root" | jq -c '.tokens.location_label = "legacy label"')"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$nongit" | jq -c '.tokens = {location_label:"legacy label", git_ref:"stale ref"}')"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hts_set_process_label pane-1 worker
-  hts_set_process_label pane-2 shell
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root" | jq -c '.tokens.location_label = "legacy label"')"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$nongit" | jq -c '.tokens = {location_label:"legacy label", git_ref:"stale ref"}')"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hpl_set_process_label pane-1 worker
+  hpl_set_process_label pane-2 shell
   # when: one location/presentation pass runs
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   # then: the Git publish path sheds the legacy token while publishing git_ref
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label == null' "$state"
   assert_success
   # then: the non-Git clear path sheds it alongside the other location tokens
@@ -2875,80 +2780,80 @@ EOF
   assert_success
 }
 
-@test "herdr-task-sync location transient modes retain identity as stale without foreground fallback" {
+@test "herdr-pane-labels location transient modes retain identity as stale without foreground fallback" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
-  local fallback="$root/fallback" fresh="$root/fresh" permission="$HTS_WORK/permission" unavailable="$HTS_WORK/unavailable"
-  local malformed="$HTS_WORK/malformed" blocked="$HTS_WORK/blocked" missing="$HTS_WORK/missing" state
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
+  local fallback="$root/fallback" fresh="$root/fresh" permission="$HPL_WORK/permission" unavailable="$HPL_WORK/unavailable"
+  local malformed="$HPL_WORK/malformed" blocked="$HPL_WORK/blocked" missing="$HPL_WORK/missing" state
   mkdir -p "$fresh" "$fallback" "$permission" "$unavailable" "$malformed" "$blocked" "$common"
-  hts_git_location_fixture "$fresh" "$root" "$common" refs/heads/main
-  hts_git_location_fixture "$fallback" "$root" "$common" refs/heads/main
-  hts_git_fixture "$permission" "denied" 126
-  hts_git_fixture "$unavailable" "missing" 127
-  hts_git_fixture "$malformed" "only-one-line" 0
-  hts_git_fixture "$blocked" "never" 0 block
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$fallback" present "$fresh")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 primary
-  hts_set_process_label pane-2 repaired
-  hts_location_pass
+  hpl_git_location_fixture "$fresh" "$root" "$common" refs/heads/main
+  hpl_git_location_fixture "$fallback" "$root" "$common" refs/heads/main
+  hpl_git_fixture "$permission" "denied" 126
+  hpl_git_fixture "$unavailable" "missing" 127
+  hpl_git_fixture "$malformed" "only-one-line" 0
+  hpl_git_fixture "$blocked" "never" 0 block
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$fallback" present "$fresh")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 primary
+  hpl_set_process_label pane-2 repaired
+  hpl_location_pass
 
   local transient
   for transient in "$missing" "$permission" "$unavailable" "$malformed"; do
-    hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$transient")"
-    hts_location_pass
-    state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+    hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$transient")"
+    hpl_location_pass
+    state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
     assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" repo
     assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
   done
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "")"
-  hts_location_pass
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" stale
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "")"
+  hpl_location_pass
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" stale
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" repaired
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
-  hts_location_pass
-  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
+  hpl_location_pass
+  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status == null' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_success
 }
 
-@test "herdr-task-sync coordinator resolves eight pane locations concurrently within one event envelope" {
+@test "herdr-pane-labels coordinator resolves eight pane locations concurrently within one event envelope" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   local i root common cwd fixture blocked_fixture state pane stale_label
-  local reconcile pending completed coordinator_pid deadline_pid deadline="$HTS_WORK/coordinator-deadline"
+  local reconcile pending completed coordinator_pid deadline_pid deadline="$HPL_WORK/coordinator-deadline"
   for i in $(seq 1 8); do
-    root="$HTS_WORK/repos/repo-$i"
-    common="$HTS_WORK/repos/repo-$i.git"
+    root="$HPL_WORK/repos/repo-$i"
+    common="$HPL_WORK/repos/repo-$i.git"
     cwd="$root/work"
     mkdir -p "$cwd" "$common" "$root/.git"
     if [ "$i" -eq 1 ]; then
-      hts_git_location_fixture "$cwd" "$root" "$common" refs/heads/initial-1
+      hpl_git_location_fixture "$cwd" "$root" "$common" refs/heads/initial-1
     else
-      hts_git_fixture "$cwd" "" 1 ready 'fatal: not a git repository'
+      hpl_git_fixture "$cwd" "" 1 ready 'fatal: not a git repository'
     fi
-    pane="$(hts_process_pane_json "pane-$i" tab-1 "$cwd")"
+    pane="$(hpl_process_pane_json "pane-$i" tab-1 "$cwd")"
     pane="$(jq -c --arg label "stable-$i" '.agent = "claude" | .label = $label' <<< "$pane")"
-    hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane"
+    hpl_set_pane "$HPL_DEFAULT_SOCKET" "$pane"
   done
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_location_pass
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_location_pass
 
-  rm -f "$HTS_WORK/git-started"/*
+  rm -f "$HPL_WORK/git-started"/*
   for i in $(seq 1 8); do
-    root="$HTS_WORK/repos/repo-$i"
-    common="$HTS_WORK/repos/repo-$i.git"
+    root="$HPL_WORK/repos/repo-$i"
+    common="$HPL_WORK/repos/repo-$i.git"
     cwd="$root/work"
-    fixture="$(hts_git_fixture_dir "$cwd")"
+    fixture="$(hpl_git_fixture_dir "$cwd")"
     rm -f "$fixture/started" "$fixture/completed"
     if [ "$i" -eq 1 ]; then
       : > "$fixture/block"
@@ -2956,18 +2861,18 @@ EOF
     fi
   done
 
-  stale_label="$HTS_ICON_BRANCH initial-1 $HTS_ICON_STALE stable-1"
+  stale_label="$HPL_ICON_BRANCH initial-1 $HPL_ICON_STALE stable-1"
   for i in $(seq 2 8); do stale_label="$stale_label · stable-$i"; done
-  hts_set_tab "$HTS_DEFAULT_SOCKET" "$(jq -cn --arg label "$stale_label" \
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" "$(jq -cn --arg label "$stale_label" \
     '{tab_id:"tab-1",workspace_id:"ws-1",label:$label}')"
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
-  reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
-  pending="$(hts_record_number "$reconcile" pending_generation)"
-  export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="$HTS_WORK/location-probes-started"
-  export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT=8
-  export HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="$HTS_WORK/location-probes-release"
-  export HERDR_TASK_SYNC_GIT_BUDGET=$HTS_GIT_BUDGET
-  hts_presentation_run &
+  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
+  reconcile="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/reconcile.state"
+  pending="$(hpl_record_number "$reconcile" pending_generation)"
+  export HERDR_PANE_LABELS_TEST_LOCATION_BARRIER="$HPL_WORK/location-probes-started"
+  export HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_COUNT=8
+  export HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_RELEASE="$HPL_WORK/location-probes-release"
+  export HERDR_PANE_LABELS_GIT_BUDGET=$HPL_GIT_BUDGET
+  hpl_presentation_run &
   coordinator_pid=$!
   # The barrier is what proves concurrency: every probe publishes its marker and then
   # spins until all eight exist, so serial probes deadlock on the first one and this
@@ -2976,13 +2881,13 @@ EOF
   # here measured the serial presentation tail after the probes (~78% of the window),
   # so it went red on slower CI runners without any regression behind it.
   for i in $(seq 1 8); do
-    hts_wait_for_file "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER/$(hts_key "pane-$i")"
+    hpl_wait_for_file "$HERDR_PANE_LABELS_TEST_LOCATION_BARRIER/$(hpl_key "pane-$i")"
   done
   (sleep 30; : > "$deadline") &
   deadline_pid=$!
-  : > "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE"
+  : > "$HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_RELEASE"
   while :; do
-    completed="$(hts_record_number "$reconcile" completed_generation 2>/dev/null || true)"
+    completed="$(hpl_record_number "$reconcile" completed_generation 2>/dev/null || true)"
     if [ "$completed" = "$pending" ]; then
       break
     fi
@@ -2996,18 +2901,18 @@ EOF
   kill "$deadline_pid" 2>/dev/null || true
   wait "$deadline_pid" 2>/dev/null || true
   wait "$coordinator_pid"
-  unset HERDR_TASK_SYNC_TEST_LOCATION_BARRIER \
-    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT \
-    HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE HERDR_TASK_SYNC_GIT_BUDGET
+  unset HERDR_PANE_LABELS_TEST_LOCATION_BARRIER \
+    HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_COUNT \
+    HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_RELEASE HERDR_PANE_LABELS_GIT_BUDGET
 
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.branch == "initial-1" and .tokens.location_status == "stale"' "$state"
   assert_success
   for i in $(seq 2 8); do
     run jq -e --arg pane "pane-$i" \
       '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == null)' "$state"
     assert_success
-    fixture="$(hts_git_fixture_dir "$HTS_WORK/repos/repo-$i/work")"
+    fixture="$(hpl_git_fixture_dir "$HPL_WORK/repos/repo-$i/work")"
     assert_file_exists "$fixture/started"
     assert_file_exists "$fixture/completed"
   done
@@ -3015,373 +2920,373 @@ EOF
   assert_file_not_exists "$blocked_fixture/completed"
 }
 
-@test "herdr-task-sync no-op location event preserves the state file" {
+@test "herdr-pane-labels no-op location event preserves the state file" {
   command -v jq >/dev/null || skip "jq not available"
   command -v perl >/dev/null || skip "perl not available"
-  hts_setup
-  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" cwd="$HTS_WORK/repo/work"
+  hpl_setup
+  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git" cwd="$HPL_WORK/repo/work"
   local location_file before_link before_mtime after_mtime
   mkdir -p "$cwd" "$common"
-  hts_git_location_fixture "$cwd" "$root" "$common" refs/heads/main
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$cwd")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
+  hpl_git_location_fixture "$cwd" "$root" "$common" refs/heads/main
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$cwd")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
 
-  location_file="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/location.state"
-  before_link="$HTS_WORK/location-before.state"
+  location_file="$(hpl_pane_state_dir "$HPL_DEFAULT_SOCKET" pane-1)/location.state"
+  before_link="$HPL_WORK/location-before.state"
   touch -t 200001010000 "$location_file"
   ln "$location_file" "$before_link"
   before_mtime="$(perl -e 'print((stat shift)[9])' "$location_file")"
-  hts_location_pass
+  hpl_location_pass
   after_mtime="$(perl -e 'print((stat shift)[9])' "$location_file")"
 
   [ "$location_file" -ef "$before_link" ]
   assert_equal "$after_mtime" "$before_mtime"
 }
 
-@test "herdr-task-sync transient location preserves live token-only identity when retained state is unavailable" {
+@test "herdr-pane-labels transient location preserves live token-only identity when retained state is unavailable" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local missing_one="$HTS_WORK/missing-one" unavailable="$HTS_WORK/unavailable"
-  local outside="$HTS_WORK/outside" pane_one pane_two location_two state
+  hpl_setup
+  local missing_one="$HPL_WORK/missing-one" unavailable="$HPL_WORK/unavailable"
+  local outside="$HPL_WORK/outside" pane_one pane_two location_two state
   mkdir -p "$outside" "$unavailable"
-  hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hts_git_fixture "$unavailable" unavailable 127
-  pane_one="$(hts_process_pane_json pane-1 tab-1 "$missing_one")"
+  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hpl_git_fixture "$unavailable" unavailable 127
+  pane_one="$(hpl_process_pane_json pane-1 tab-1 "$missing_one")"
   pane_one="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",branch:"topic-one",pane_inline:"· one"}' <<< "$pane_one")"
-  pane_two="$(hts_process_pane_json pane-2 tab-1 "$unavailable")"
+  pane_two="$(hpl_process_pane_json pane-2 tab-1 "$unavailable")"
   pane_two="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",location_status:"current"}' <<< "$pane_two")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane_one"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$pane_two"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-3 tab-1 "$outside")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 one
-  hts_set_process_label pane-2 two
-  hts_set_process_label pane-3 three
-  location_two="$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-2)/location.state"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$pane_one"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$pane_two"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-1 "$outside")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 one
+  hpl_set_process_label pane-2 two
+  hpl_set_process_label pane-3 three
+  location_two="$(hpl_pane_state_dir "$HPL_DEFAULT_SOCKET" pane-2)/location.state"
   mkdir -p "$(dirname "$location_two")"
   printf '%s\n' not-a-location-record > "$location_two"
 
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   # Token-only evidence carries no is_linked proof, so the place icon falls
   # back to the branch icon; without any ref evidence the folder icon plus
   # worktree token is the whole $git_ref.
   run jq -e \
-    --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
-    --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" '
+    --arg ref_one "$HPL_ICON_BRANCH topic-one $HPL_ICON_FOLDER live-token $HPL_ICON_STALE" \
+    --arg ref_two "$HPL_ICON_FOLDER live-token $HPL_ICON_STALE" '
     (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one})
     and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two})
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "one · two · three"
-  assert_file_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/location.state"
+  assert_file_not_exists "$(hpl_pane_state_dir "$HPL_DEFAULT_SOCKET" pane-1)/location.state"
   assert_equal "$(cat "$location_two")" not-a-location-record
 }
 
-@test "herdr-task-sync location authoritative worktree deletion clears retained evidence" {
+@test "herdr-pane-labels location authoritative worktree deletion clears retained evidence" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/linked/deleted" common="$HTS_WORK/main/.git"
+  hpl_setup
+  local root="$HPL_WORK/linked/deleted" common="$HPL_WORK/main/.git"
   local live="$root/live" missing="$root/gone"
   mkdir -p "$live" "$common"
-  hts_git_location_fixture "$live" "$root" "$common" refs/heads/deleted
-  hts_git_fixture "gitdir:$common" "worktree $HTS_WORK/main\nHEAD 123456\nbranch refs/heads/main" 0
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$live")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 worker
-  hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" deleted
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$missing")"
-  hts_location_pass
-  run jq -e '.panes[0].tokens.repo == null and .panes[0].tokens.worktree == null and .panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.git_ref == null' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_git_location_fixture "$live" "$root" "$common" refs/heads/deleted
+  hpl_git_fixture "gitdir:$common" "worktree $HPL_WORK/main\nHEAD 123456\nbranch refs/heads/main" 0
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$live")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 worker
+  hpl_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" deleted
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$missing")"
+  hpl_location_pass
+  run jq -e '.panes[0].tokens.repo == null and .panes[0].tokens.worktree == null and .panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.git_ref == null' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_success
 }
 
-@test "herdr-task-sync formatter keeps Git refs in metadata and tab labels names-only" {
+@test "herdr-pane-labels formatter keeps Git refs in metadata and tab labels names-only" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/project" common="$HTS_WORK/project/.git"
-  local one="$root/one" two="$root/two" missing="$root/missing" outside="$HTS_WORK/outside" state
+  hpl_setup
+  local root="$HPL_WORK/project" common="$HPL_WORK/project/.git"
+  local one="$root/one" two="$root/two" missing="$root/missing" outside="$HPL_WORK/outside" state
   mkdir -p "$one" "$two" "$outside" "$common"
-  hts_git_location_fixture "$one" "$root" "$common" refs/heads/main
-  hts_git_location_fixture "$two" "$root" "$common" refs/heads/main
-  hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"project"}'
-  hts_set_process_label pane-1 alpha
-  hts_set_process_label pane-2 beta
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_git_location_fixture "$one" "$root" "$common" refs/heads/main
+  hpl_git_location_fixture "$two" "$root" "$common" refs/heads/main
+  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$two")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"project"}'
+  hpl_set_process_label pane-1 alpha
+  hpl_set_process_label pane-2 beta
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
 
   # Stale state changes only the sidebar metadata, not the tab identity.
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-2 "$two" "$missing"
-  hts_location_pass
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-2 "$two" "$missing"
+  hpl_location_pass
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$outside" "$outside"
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-2 "$outside" "$outside"
-  hts_location_pass
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$outside" "$outside"
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-2 "$outside" "$outside"
+  hpl_location_pass
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
-@test "herdr-task-sync formatter renders a main checkout ref in metadata only" {
+@test "herdr-pane-labels formatter renders a main checkout ref in metadata only" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   # Main checkout (.git directory at the root), branch main, and checkout
   # folder equal to the Herdr workspace name.
-  local root="$HTS_WORK/my-mac-setup" state
+  local root="$HPL_WORK/my-mac-setup" state
   mkdir -p "$root/.git"
-  hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main"
+  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH main"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-@test "herdr-task-sync formatter renders a worktree ref in metadata only" {
+@test "herdr-pane-labels formatter renders a worktree ref in metadata only" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   # A linked worktree in a folder named exactly like its branch. The worktree
   # icon alone carries the place; a folder qualifier would only repeat the ref.
-  local root="$HTS_WORK/feature" common="$HTS_WORK/repository/.git" state
+  local root="$HPL_WORK/feature" common="$HPL_WORK/repository/.git" state
   mkdir -p "$root" "$common"
-  hts_mark_linked_worktree "$root" "$common/worktrees/feature"
-  hts_git_location_fixture "$root" "$root" "$common" refs/heads/feature
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature"
+  hpl_mark_linked_worktree "$root" "$common/worktrees/feature"
+  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/feature
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-@test "herdr-task-sync formatter keeps a Git-backed all-idle tab names-only" {
+@test "herdr-pane-labels formatter keeps a Git-backed all-idle tab names-only" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repository" state
+  hpl_setup
+  local root="$HPL_WORK/repository" state
   mkdir -p "$root/.git"
-  hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hts_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  hpl_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "~ 1"
   assert_equal "$(jq -r '.panes[] | .label' "$state" | sort -u)" "~"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main $HPL_ICON_FOLDER repository"
 }
 
-@test "herdr-task-sync Git-only location changes do not rename a names-only tab" {
+@test "herdr-pane-labels Git-only location changes do not rename a names-only tab" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local one="$HTS_WORK/one" two="$HTS_WORK/two" state
+  hpl_setup
+  local one="$HPL_WORK/one" two="$HPL_WORK/two" state
   mkdir -p "$one/.git" "$two/.git"
-  hts_git_location_fixture "$one" "$one" "$one/.git" refs/heads/one
-  hts_git_location_fixture "$two" "$two" "$two/.git" refs/heads/two
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 worker
-  hts_location_pass
-  : > "$HTS_LOG"
+  hpl_git_location_fixture "$one" "$one" "$one/.git" refs/heads/one
+  hpl_git_location_fixture "$two" "$two" "$two/.git" refs/heads/two
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 worker
+  hpl_location_pass
+  : > "$HPL_LOG"
 
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$two" "$two"
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$two" "$two"
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" two
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH two"
-  run grep '^tab rename' "$HTS_LOG"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH two"
+  run grep '^tab rename' "$HPL_LOG"
   assert_failure
 }
 
-@test "herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder" {
+@test "herdr-pane-labels formatter keeps the folder qualifier on a main checkout in a differently-named folder" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   # Plan decision 5 describes the typical main checkout, whose folder repeats
   # the branch or the workspace name. When the folder differs from BOTH it is
   # real location information, so the sidebar qualifier stays — the same
   # suppression rule as every other checkout, no main-checkout special case.
-  local root="$HTS_WORK/setup-copy" state
+  local root="$HPL_WORK/setup-copy" state
   mkdir -p "$root/.git"
-  hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER setup-copy"
+  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH main $HPL_ICON_FOLDER setup-copy"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-@test "herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent" {
+@test "herdr-pane-labels formatter reads the workspace display name from the legacy name field when label is absent" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   # Older snapshot shapes carry the workspace display name as `name`; the
   # (.label // .name // "") read must still suppress the folder qualifier when
   # the worktree token merely repeats that name.
-  local root="$HTS_WORK/legacy-ws" state
+  local root="$HPL_WORK/legacy-ws" state
   mkdir -p "$root/.git"
-  hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/topic
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"legacy-ws"}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/topic
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"legacy-ws"}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
 }
 
-@test "herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon" {
+@test "herdr-pane-labels formatter gives a detached HEAD inside a linked worktree the commit icon" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   # The commit place deliberately wins over the worktree place: the detached
   # short SHA locates the pane more precisely than worktree-ness does, and the
   # folder qualifier still names the linked worktree in the sidebar.
-  local root="$HTS_WORK/wt-detached" common="$HTS_WORK/repository/.git" state
+  local root="$HPL_WORK/wt-detached" common="$HPL_WORK/repository/.git" state
   mkdir -p "$root" "$common"
-  hts_mark_linked_worktree "$root" "$common/worktrees/wt-detached"
-  hts_git_location_fixture "$root" "$root" "$common" HEAD a1b2c3d
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d $HTS_ICON_FOLDER wt-detached"
+  hpl_mark_linked_worktree "$root" "$common/worktrees/wt-detached"
+  hpl_git_location_fixture "$root" "$root" "$common" HEAD a1b2c3d
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT a1b2c3d $HPL_ICON_FOLDER wt-detached"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-@test "herdr-task-sync formatter qualifies a divergent worktree folder in metadata only" {
+@test "herdr-pane-labels formatter qualifies a divergent worktree folder in metadata only" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   # A divergent folder remains useful in the sidebar while the tab stays
   # limited to the two pane labels.
-  local root="$HTS_WORK/wt-hotfix" common="$HTS_WORK/repository/.git" state
+  local root="$HPL_WORK/wt-hotfix" common="$HPL_WORK/repository/.git" state
   mkdir -p "$root" "$common"
-  hts_mark_linked_worktree "$root" "$common/worktrees/wt-hotfix"
-  hts_git_location_fixture "$root" "$root" "$common" refs/heads/fix-login
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hts_set_process_label pane-1 alpha
-  hts_set_process_label pane-2 beta
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE fix-login $HTS_ICON_FOLDER wt-hotfix"
+  hpl_mark_linked_worktree "$root" "$common/worktrees/wt-hotfix"
+  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/fix-login
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
+  hpl_set_process_label pane-1 alpha
+  hpl_set_process_label pane-2 beta
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE fix-login $HPL_ICON_FOLDER wt-hotfix"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
-@test "herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels" {
+@test "herdr-pane-labels formatter keeps mixed Git identities out of tabs and repairs external labels" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root_a="$HTS_WORK/a" root_b="$HTS_WORK/b" common_a="$HTS_WORK/a/.git" common_b="$HTS_WORK/b/.git"
-  local cwd_a="$root_a/work" cwd_b="$root_b/work" outside="$HTS_WORK/outside" missing="$root_b/missing" state
+  hpl_setup
+  local root_a="$HPL_WORK/a" root_b="$HPL_WORK/b" common_a="$HPL_WORK/a/.git" common_b="$HPL_WORK/b/.git"
+  local cwd_a="$root_a/work" cwd_b="$root_b/work" outside="$HPL_WORK/outside" missing="$root_b/missing" state
   mkdir -p "$cwd_a" "$cwd_b" "$outside" "$common_a" "$common_b"
-  hts_git_location_fixture "$cwd_a" "$root_a" "$common_a" refs/heads/dev
-  hts_git_location_fixture "$cwd_b" "$root_b" "$common_b" refs/heads/main
-  hts_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$cwd_a")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$cwd_b")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 first
-  hts_set_process_label pane-2 second
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_git_location_fixture "$cwd_a" "$root_a" "$common_a" refs/heads/dev
+  hpl_git_location_fixture "$cwd_b" "$root_b" "$common_b" refs/heads/main
+  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$cwd_a")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$cwd_b")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 first
+  hpl_set_process_label pane-2 second
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$cwd_b" present "$missing")"
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
-  hts_socket_run "$HTS_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$cwd_b" present "$missing")"
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .label' "$state")" first
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
 
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$outside")"
-  hts_location_pass
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$outside")"
+  hpl_location_pass
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
 }
 
-@test "herdr-task-sync formatter joins only pane labels when three panes span two repositories" {
+@test "herdr-pane-labels formatter joins only pane labels when three panes span two repositories" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root_a="$HTS_WORK/a" root_b="$HTS_WORK/b" state
+  hpl_setup
+  local root_a="$HPL_WORK/a" root_b="$HPL_WORK/b" state
   mkdir -p "$root_a/.git" "$root_b/.git"
-  hts_git_location_fixture "$root_a" "$root_a" "$root_a/.git" refs/heads/dev
-  hts_git_location_fixture "$root_b" "$root_b" "$root_b/.git" refs/heads/main
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root_a")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root_a")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-3 tab-1 "$root_b")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 one
-  hts_set_process_label pane-2 two
-  hts_set_process_label pane-3 three
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_git_location_fixture "$root_a" "$root_a" "$root_a/.git" refs/heads/dev
+  hpl_git_location_fixture "$root_b" "$root_b" "$root_b/.git" refs/heads/main
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root_a")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$root_a")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-1 "$root_b")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 one
+  hpl_set_process_label pane-2 two
+  hpl_set_process_label pane-3 three
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" \
     "one · two · three"
 }
 
-@test "herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions" {
+@test "herdr-pane-labels worktree tokens use shortest unique slash suffixes for basename collisions" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local one="$HTS_WORK/team/feature" two="$HTS_WORK/release/feature" common="$HTS_WORK/repository/.git" state
+  hpl_setup
+  local one="$HPL_WORK/team/feature" two="$HPL_WORK/release/feature" common="$HPL_WORK/repository/.git" state
   mkdir -p "$one" "$two" "$common"
-  hts_mark_linked_worktree "$one" "$common/worktrees/one"
-  hts_mark_linked_worktree "$two" "$common/worktrees/two"
-  hts_git_location_fixture "$one" "$one" "$common" refs/heads/one
-  hts_git_location_fixture "$two" "$two" "$common" refs/heads/two
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 alpha
-  hts_set_process_label pane-2 beta
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_mark_linked_worktree "$one" "$common/worktrees/one"
+  hpl_mark_linked_worktree "$two" "$common/worktrees/two"
+  hpl_git_location_fixture "$one" "$one" "$common" refs/heads/one
+  hpl_git_location_fixture "$two" "$two" "$common" refs/heads/two
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$two")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 alpha
+  hpl_set_process_label pane-2 beta
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" team/feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")" release/feature
   # The slash-suffix folder token appears only in the sidebar qualifier.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE one $HTS_ICON_FOLDER team/feature"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER release/feature"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE one $HPL_ICON_FOLDER team/feature"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE two $HPL_ICON_FOLDER release/feature"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
-@test "herdr-task-sync worktree tokens digest overlong roots and extend colliding digest prefixes" {
+@test "herdr-pane-labels worktree tokens digest overlong roots and extend colliding digest prefixes" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local unique="$HTS_WORK/extraordinarily-long-worktree"
-  local one="$HTS_WORK/parent-component-that-is-long-one/shared-overlong-name"
-  local two="$HTS_WORK/parent-component-that-is-long-two/shared-overlong-name"
-  local common="$HTS_WORK/repository/.git" digests="$HTS_WORK/digests" state token_one token_two
+  hpl_setup
+  local unique="$HPL_WORK/extraordinarily-long-worktree"
+  local one="$HPL_WORK/parent-component-that-is-long-one/shared-overlong-name"
+  local two="$HPL_WORK/parent-component-that-is-long-two/shared-overlong-name"
+  local common="$HPL_WORK/repository/.git" digests="$HPL_WORK/digests" state token_one token_two
   mkdir -p "$unique" "$one" "$two" "$common"
-  hts_git_location_fixture "$unique" "$unique" "$common" refs/heads/unique
-  hts_git_location_fixture "$one" "$one" "$common" refs/heads/one
-  hts_git_location_fixture "$two" "$two" "$common" refs/heads/two
+  hpl_git_location_fixture "$unique" "$unique" "$common" refs/heads/unique
+  hpl_git_location_fixture "$one" "$one" "$common" refs/heads/one
+  hpl_git_location_fixture "$two" "$two" "$common" refs/heads/two
   printf '%s\037%s\n%s\037%s\n' "$one" abcdef00000000000000000000000000 "$two" abcdef10000000000000000000000000 > "$digests"
-  export HERDR_TASK_SYNC_TEST_DIGEST_FILE="$digests"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$unique")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-3 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  for pane_id in pane-1 pane-2 pane-3; do hts_set_process_label "$pane_id" task; done
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  export HERDR_PANE_LABELS_TEST_DIGEST_FILE="$digests"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$unique")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$one")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-1 "$two")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  for pane_id in pane-1 pane-2 pane-3; do hpl_set_process_label "$pane_id" task; done
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   run jq -e '[.panes[].tokens.worktree | select(length <= 18 and test("^[A-Za-z0-9._/-]+~[0-9a-f]{6,}$"))] | length == 3' "$state"
   assert_success
   token_one="$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")"
@@ -3391,85 +3296,85 @@ EOF
   [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]]
 }
 
-@test "herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering" {
+@test "herdr-pane-labels worktree token ordinal fallback is unique and stable under pane reordering" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local common="$HTS_WORK/repository/.git" digests="$HTS_WORK/digests" panes='[]' before after i root
+  hpl_setup
+  local common="$HPL_WORK/repository/.git" digests="$HPL_WORK/digests" panes='[]' before after i root
   mkdir -p "$common"
   : > "$digests"
   for i in $(seq 1 12); do
-    root="$HTS_WORK/parent-component-that-is-deliberately-long-$i/shared-overlong-name"
+    root="$HPL_WORK/parent-component-that-is-deliberately-long-$i/shared-overlong-name"
     mkdir -p "$root"
-    hts_git_location_fixture "$root" "$root" "$common" "refs/heads/b$i"
+    hpl_git_location_fixture "$root" "$root" "$common" "refs/heads/b$i"
     printf '%s\037%s\n' "$root" ffffffffffffffffffffffffffffffff >> "$digests"
-    panes="$(jq -c --argjson pane "$(hts_process_pane_json "pane-$i" tab-1 "$root")" '. + [$pane]' <<< "$panes")"
-    hts_set_process_label "pane-$i" task
+    panes="$(jq -c --argjson pane "$(hpl_process_pane_json "pane-$i" tab-1 "$root")" '. + [$pane]' <<< "$panes")"
+    hpl_set_process_label "pane-$i" task
   done
-  export HERDR_TASK_SYNC_TEST_DIGEST_FILE="$digests"
-  hts_pane_list "$(jq -cn --argjson panes "$panes" '{result:{panes:$panes}}')"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_location_pass
-  before="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")"
-  run jq -e '[.panes[].tokens.worktree] | length == 12 and (unique | length == 12) and all(.[]; length <= 18)' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  export HERDR_PANE_LABELS_TEST_DIGEST_FILE="$digests"
+  hpl_pane_list "$(jq -cn --argjson panes "$panes" '{result:{panes:$panes}}')"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_location_pass
+  before="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")"
+  run jq -e '[.panes[].tokens.worktree] | length == 12 and (unique | length == 12) and all(.[]; length <= 18)' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_success
-  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")" tmp="$HTS_WORK/reversed.json"
+  local state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")" tmp="$HPL_WORK/reversed.json"
   jq '.panes |= reverse' "$state" > "$tmp" && mv "$tmp" "$state"
-  hts_location_pass
+  hpl_location_pass
   after="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$state")"
   assert_equal "$after" "$before"
 }
 
-@test "herdr-task-sync long branch refs stay in metadata and do not alter the tab label" {
+@test "herdr-pane-labels long branch refs stay in metadata and do not alter the tab label" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/worktree" common="$HTS_WORK/repository/.git" state
+  hpl_setup
+  local root="$HPL_WORK/worktree" common="$HPL_WORK/repository/.git" state
   local long_ref="feature/very-long-branch-name-that-overflows"
   mkdir -p "$root" "$common"
-  hts_mark_linked_worktree "$root" "$common/worktrees/one"
-  hts_git_location_fixture "$root" "$root" "$common" "refs/heads/$long_ref"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_mark_linked_worktree "$root" "$common/worktrees/one"
+  hpl_git_location_fixture "$root" "$root" "$common" "refs/heads/$long_ref"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" "$long_ref"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref $HTS_ICON_FOLDER worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE $long_ref $HPL_ICON_FOLDER worktree"
 }
 
-@test "herdr-task-sync long repository names do not alter a multi-repo tab label" {
+@test "herdr-pane-labels long repository names do not alter a multi-repo tab label" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local one="$HTS_WORK/integration-platform-connectors"
-  local two="$HTS_WORK/internal-developer-tooling"
+  hpl_setup
+  local one="$HPL_WORK/integration-platform-connectors"
+  local two="$HPL_WORK/internal-developer-tooling"
   local common_one="$one/.git" common_two="$two/.git" state
   mkdir -p "$common_one" "$common_two"
-  hts_git_location_fixture "$one" "$one" "$common_one" refs/heads/feat/connector-runtime-rewrite
-  hts_git_location_fixture "$two" "$two" "$common_two" refs/heads/fix/oauth-refresh-loop-retry
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$one")"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$two")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 first
-  hts_set_process_label pane-2 second
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  hpl_git_location_fixture "$one" "$one" "$common_one" refs/heads/feat/connector-runtime-rewrite
+  hpl_git_location_fixture "$two" "$two" "$common_two" refs/heads/fix/oauth-refresh-loop-retry
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$two")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 first
+  hpl_set_process_label pane-2 second
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
   assert_equal "$(jq -r '.panes[] | .tokens.repo' "$state" | sort)" $'integration-platform-connectors\ninternal-developer-tooling'
 }
 
-@test "herdr-task-sync location clears a retired location_label even when every published token already matches" {
+@test "herdr-pane-labels location clears a retired location_label even when every published token already matches" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/repository" common="$HTS_WORK/repository/.git" state
+  hpl_setup
+  local root="$HPL_WORK/repository" common="$HPL_WORK/repository/.git" state
   mkdir -p "$common"
-  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 worker
+  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 worker
   # given: one pass has already published every current token
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic $HPL_ICON_FOLDER repository"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
   # given: a stale daemon of the retired version puts location_label back while
   # leaving every token this version compares untouched. It reports under the
@@ -3477,48 +3382,48 @@ EOF
   # sharing the generation counter does.
   local legacy_seq
   legacy_seq="$(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state")"
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 \
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata pane-1 \
     --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic'
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label' "$state")" repository/topic
   # when: the next pass computes identical tokens and would otherwise skip
-  hts_location_pass
+  hpl_location_pass
   # then: the legacy token is gone and the live tokens are unharmed
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic $HPL_ICON_FOLDER repository"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
 
-@test "herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state" {
+@test "herdr-pane-labels location and formatter add only approved static icon glyphs and no forbidden ownership state" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local root="$HTS_WORK/plain-worktree" common="$HTS_WORK/repository/.git" state
+  hpl_setup
+  local root="$HPL_WORK/plain-worktree" common="$HPL_WORK/repository/.git" state
   mkdir -p "$root" "$common"
-  hts_mark_linked_worktree "$root" "$common/worktrees/plain"
-  hts_git_location_fixture "$root" "$root" "$common" refs/heads/plain
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_set_process_label pane-1 plain-task
-  hts_location_pass
-  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
+  hpl_mark_linked_worktree "$root" "$common/worktrees/plain"
+  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/plain
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_process_label pane-1 plain-task
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
   assert_failure
   # After removing every approved codicon glyph, only plain ASCII (plus the
   # label separator and ellipsis) may remain in published labels and tokens.
-  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE" '
+  run jq -e --arg icons "$HPL_ICON_BRANCH$HPL_ICON_WORKTREE$HPL_ICON_COMMIT$HPL_ICON_FOLDER$HPL_ICON_STALE" '
     [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree, .panes[0].tokens.git_ref]
     | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026-]*$"))
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain $HTS_ICON_FOLDER plain-worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE plain $HPL_ICON_FOLDER plain-worktree"
   # pane_inline stays deferred per the label-system plan: no pass publishes it.
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
-@test "herdr-task-sync plugin exposes only the approved pane and tab invalidations" {
-  local manifest="$HTS_PLUGIN_DIR/herdr-plugin.toml"
+@test "herdr-pane-labels plugin exposes only the approved pane and tab invalidations" {
+  local manifest="$HPL_PLUGIN_DIR/herdr-plugin.toml"
   run awk '
     /^on = "/ {
       event = $0
@@ -3535,7 +3440,7 @@ EOF
   ' "$manifest"
   assert_success
   assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
-  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
+  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.2"$'
   assert_file_contains "$manifest" '^id = "sweep"$'
   assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
   assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
@@ -3543,64 +3448,64 @@ EOF
   assert_failure
 }
 
-@test "herdr-task-sync plugin wrappers invoke one engine mode and isolate failures" {
+@test "herdr-pane-labels plugin wrappers invoke one engine mode and isolate failures" {
   local home="$BATS_TEST_TMPDIR/home" engine_log="$BATS_TEST_TMPDIR/plugin-engine.log"
   mkdir -p "$home/.local/bin"
-  cat > "$home/.local/bin/herdr-task-sync" <<'SH'
+  cat > "$home/.local/bin/herdr-pane-labels" <<'SH'
 #!/bin/sh
-printf '%s|%s|%s\n' "${HTS_PLUGIN_CASE:-}" "$1" "${HERDR_SOCKET_PATH:-}" >> "$HTS_PLUGIN_ENGINE_LOG"
+printf '%s|%s|%s\n' "${HPL_PLUGIN_CASE:-}" "$1" "${HERDR_SOCKET_PATH:-}" >> "$HPL_PLUGIN_ENGINE_LOG"
 printf 'unexpected stdout\n'
 printf 'unexpected stderr\n' >&2
-[ "${HTS_PLUGIN_FAIL_ARG:-}" != "$1" ] || exit 23
+[ "${HPL_PLUGIN_FAIL_ARG:-}" != "$1" ] || exit 23
 exit 0
 SH
-  chmod +x "$home/.local/bin/herdr-task-sync"
+  chmod +x "$home/.local/bin/herdr-pane-labels"
 
   run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=startup \
-    HTS_PLUGIN_FAIL_ARG=--ensure-daemon sh "$HTS_PLUGIN_DIR/ensure.sh"
+    HPL_PLUGIN_ENGINE_LOG="$engine_log" HPL_PLUGIN_CASE=startup \
+    HPL_PLUGIN_FAIL_ARG=--ensure-sweep-daemon sh "$HPL_PLUGIN_DIR/ensure.sh"
   assert_success
   assert_output ""
   run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=event-fails \
-    HTS_PLUGIN_FAIL_ARG=--event sh "$HTS_PLUGIN_DIR/ensure.sh" --event
+    HPL_PLUGIN_ENGINE_LOG="$engine_log" HPL_PLUGIN_CASE=event-fails \
+    HPL_PLUGIN_FAIL_ARG=--event sh "$HPL_PLUGIN_DIR/ensure.sh" --event
   assert_success
   assert_output ""
   run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HTS_PLUGIN_ENGINE_LOG="$engine_log" HTS_PLUGIN_CASE=sweep \
-    HTS_PLUGIN_FAIL_ARG=--sweep sh "$HTS_PLUGIN_DIR/sweep.sh"
+    HPL_PLUGIN_ENGINE_LOG="$engine_log" HPL_PLUGIN_CASE=sweep \
+    HPL_PLUGIN_FAIL_ARG=--sweep sh "$HPL_PLUGIN_DIR/sweep.sh"
   assert_success
   assert_output ""
   run cat "$engine_log"
-  assert_output $'startup|--ensure-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
+  assert_output $'startup|--ensure-sweep-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
 }
 
-@test "herdr-task-sync event requests reconciliation and ensures the daemon fail-open" {
+@test "herdr-pane-labels event requests reconciliation and ensures the daemon fail-open" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   local namespace reconcile sweep_lock pending pid owner start socket_record
-  namespace="$(hts_namespace "$HTS_DEFAULT_SOCKET")"
+  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
   reconcile="$namespace/reconcile.state"
   sweep_lock="$namespace/sweep.lock"
 
-  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
-  pending="$(hts_record_number "$reconcile" pending_generation)"
+  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
+  pending="$(hpl_record_number "$reconcile" pending_generation)"
   mkdir "$namespace/presentation-inbox.lock"
   owner="event-test-owner"
   start="$(ps -p "$$" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   socket_record="owner_id=$(printf '%s' "$owner" | base64 | tr -d '\n')
 pid=$$
 process_start=$(printf '%s' "$start" | base64 | tr -d '\n')
-socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
+socket_path=$(printf '%s' "$HPL_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   printf '%s\n' "$socket_record" > "$namespace/presentation-inbox.lock/owner"
 
-  export HERDR_TASK_SYNC_TEST_NO_DAEMON=
-  export HERDR_TASK_SYNC_LOCK_ATTEMPTS=1
-  run hts_event_run
-  unset HERDR_TASK_SYNC_TEST_NO_DAEMON HERDR_TASK_SYNC_LOCK_ATTEMPTS
+  export HERDR_PANE_LABELS_TEST_NO_DAEMON=
+  export HERDR_PANE_LABELS_LOCK_ATTEMPTS=1
+  run hpl_event_run
+  unset HERDR_PANE_LABELS_TEST_NO_DAEMON HERDR_PANE_LABELS_LOCK_ATTEMPTS
   assert_success
-  hts_wait_for_file "$sweep_lock/pid"
-  assert_equal "$(hts_record_number "$reconcile" pending_generation)" "$pending"
+  hpl_wait_for_file "$sweep_lock/pid"
+  assert_equal "$(hpl_record_number "$reconcile" pending_generation)" "$pending"
   pid="$(cat "$sweep_lock/pid")"
   kill "$pid" 2>/dev/null || true
   rm -f "$namespace/presentation-inbox.lock/owner"
@@ -3608,451 +3513,194 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
 
 }
 
-@test "herdr-task-sync sweep repairs an external pane rename without pane.updated" {
+@test "herdr-pane-labels sweep repairs an external pane rename without pane.updated" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_run --agent claude --session sweep-correction --set automatic-task < /dev/null
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 external-label
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" external-label
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_sweep_run --sweep
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 external-label
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" external-label
 
-  : > "$HTS_LOG"
-  run hts_sweep_run --sweep
+  : > "$HPL_LOG"
+  run hpl_sweep_run --sweep
   assert_success
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" cc:automatic-task
-  assert_file_contains "$HTS_LOG" '^pane rename pane-1 cc:automatic-task$'
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" cc:red-wolf
+  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cc:red-wolf$'
 }
 
-@test "herdr-task-sync sweep repairs process and CWD changes through the presentation coordinator" {
+@test "herdr-pane-labels sweep repairs process and CWD changes through the presentation coordinator" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local old="$HTS_WORK/repos/old" new="$HTS_WORK/repos/new-worktree" common="$HTS_WORK/repos/.git"
+  hpl_setup
+  local old="$HPL_WORK/repos/old" new="$HPL_WORK/repos/new-worktree" common="$HPL_WORK/repos/.git"
   mkdir -p "$old" "$new" "$common"
-  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$old" present "$old")"
-  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hts_git_location_fixture "$old" "$old" "$common" refs/heads/old
-  hts_set_process_label pane-1 btop
-  # hts_location_pass, not bare hts_event_run: this pass asserts a worktree
-  # token, so its git probe needs the calibrated HTS_GIT_BUDGET instead of the
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$old" present "$old")"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_git_location_fixture "$old" "$old" "$common" refs/heads/old
+  hpl_set_process_label pane-1 btop
+  # hpl_location_pass, not bare hpl_event_run: this pass asserts a worktree
+  # token, so its git probe needs the calibrated HPL_GIT_BUDGET instead of the
   # shipped 75 ms bound (killed probe -> tokens.worktree null under load).
-  hts_location_pass
-  assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" old
+  hpl_location_pass
+  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" btop
+  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" old
 
-  hts_git_location_fixture "$new" "$new" "$common" refs/heads/new-branch
-  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$new" "$new"
-  hts_set_process_label pane-1 'cargo test'
-  : > "$HTS_LOG"
-  run hts_sweep_run --sweep
+  hpl_git_location_fixture "$new" "$new" "$common" refs/heads/new-branch
+  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$new" "$new"
+  hpl_set_process_label pane-1 'cargo test'
+  : > "$HPL_LOG"
+  run hpl_sweep_run --sweep
   assert_success
 
-  local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  local state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" new-worktree
-  assert_file_contains "$HTS_LOG" '^api snapshot$'
-  assert_file_contains "$HTS_LOG" '^pane rename pane-1 cargo test$'
+  assert_file_contains "$HPL_LOG" '^api snapshot$'
+  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cargo test$'
 }
 
-@test "herdr-task-sync passes bash syntax check" {
-  run bash -n "$HTS_ENGINE"
+@test "herdr-pane-labels passes bash syntax check" {
+  run bash -n "$HPL_ENGINE"
   assert_success
 }
 
-@test "herdr-task-sync stays silent outside herdr" {
-  hts_setup
-  hts_stub_engine pi never-used 0 0
-  run env -u HERDR_ENV PATH="$HTS_STUB:/usr/bin:/bin" \
-    HERDR_PANE_ID=pane-1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    bash "$HTS_ENGINE" --agent claude --session s1 <<< 'review the cache layer'
-  assert_success
-  sleep 2
-  assert_equal "$(cat "$HTS_LOG")" ""
-}
-
-@test "herdr-task-sync publishes the engine slug and stores it (R4, R7)" {
-  hts_setup
-  hts_stub_engine pi cache-review 0 0
-  run hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  assert_success
-  hts_wait_for_publish
-  assert_equal "$(hts_token)" "cache-review"
-  local state; state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  assert_file_exists "$state"
-  assert_equal "$(hts_state_field "$state" slug)" "cache-review"
-  assert_equal "$(hts_state_field "$state" first_prompt)" "review the cache layer please"
-}
-
-# AE1: a continuation prompt must not rename the session. The model decides
-# stability (KTD6), so the stub stands in for a model that repeats the name.
-@test "herdr-task-sync keeps the slug on a continuation prompt (AE1)" {
-  hts_setup
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_worker_exit
-  local state control generation
-  state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  generation="$(hts_record_number "$control" generation)"
-  : > "$HTS_LOG"
-  hts_run --agent claude --session s1 <<< 'продолжай'
-  hts_wait_for_record_number "$control" generation $((generation + 1))
-  hts_wait_for_quiescence "$control"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_equal "$(hts_record_text "$state" slug)" "cache-review"
-  run grep -E 'report-metadata|rename' "$HTS_LOG"
-  assert_failure
-  # The naming call sees the session's first prompt, not only the newest one.
-  run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "Current name: cache-review"
-  assert_output --partial "review the cache layer please"
-}
-
-# AE3: with no usable naming engine the pane keeps whatever it had.
-@test "herdr-task-sync publishes nothing when no engine is usable (AE3, R5)" {
-  hts_setup
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_worker_exit
-  local state before_slug control generation
-  state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  before_slug="$(hts_record_text "$state" slug)"
-  generation="$(hts_record_number "$control" generation)"
-
-  rm -f "$HTS_STUB/pi"
-  : > "$HTS_LOG"
-  run hts_run --agent claude --session s1 <<< 'now fix the flaky login test'
-  assert_success
-  hts_wait_for_record_number "$control" generation $((generation + 1))
-  hts_wait_for_quiescence "$control"
-  assert_equal "$(cat "$HTS_LOG")" ""
-  assert_equal "$(hts_record_text "$state" slug)" "$before_slug"
-  assert_equal "$(hts_record_text "$state" first_prompt)" "review the cache layer please"
-  assert_equal "$(hts_record_text "$state" latest_prompt)" "now fix the flaky login test"
-}
-
-@test "herdr-task-sync resets the stored context on a new session id" {
-  hts_setup
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_worker_exit
-  : > "$HTS_LOG"
-  hts_run --agent claude --session s2 <<< 'now fix the flaky login test'
-  local state control
-  state="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s2)"
-  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  # The second session's own state file, not the log: with two sessions in
-  # play only a session-scoped signal proves whose worker got this far.
-  hts_wait_for_state "$state"
-  hts_wait_for_quiescence "$control"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-  assert_equal "$(hts_state_field "$state" first_prompt)" "now fix the flaky login test"
-  run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "Current name: (none)"
-}
-
-# The tests run the engine's two timing budgets at load-tolerant values, because
-# the shipped ones are too tight to survive --jobs contention on a busy machine.
-# That is deliberate, and it costs the coverage this test buys back: nothing else
-# in the suite would notice if a shipped default moved or disappeared, so a
-# production change from 75 ms to seconds -- or to no budget at all -- would go
-# out green.
-#
-# Asserted statically against the source rather than by timing a probe. A timing
-# assertion at 75 ms is exactly the idle-machine calibration that made these
-# tests flaky under load in the first place; reading the shipped default has no
-# such failure mode.
-@test "herdr-task-sync ships the timing defaults the tests deliberately override" {
-  run grep -c 'LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"' "$HTS_ENGINE"
-  assert_output "1"
-  run grep -c 'ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"' "$HTS_ENGINE"
-  assert_output "1"
-  # The watchdog default above is the value HTS_ENGINE_WATCHDOG_SECONDS tracks,
-  # so a change to either side without the other turns this red.
-  assert_equal "$HTS_ENGINE_WATCHDOG_SECONDS" 30
-}
-
-# R8: the adapter's call must not wait on the model.
-#
-# The property is causal, not temporal, so assert it causally. The controlled
-# engine blocks until its release marker exists, so an entry point that waited
-# on the model could not return at all -- the regression turns this test red by
-# hanging, not by exceeding a number. The previous form timed the entry point
-# against a wall-clock bound while the stub slept a fixed 4 s, which only
-# discriminates while the bound stays under 4 s; once the bound moved to the
-# suite's load-tolerant ceiling a synchronous wait passed it comfortably.
-@test "herdr-task-sync returns before the naming engine finishes (R8)" {
-  hts_setup
-  hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 late-slug
-  run hts_run --agent claude --session s1 <<< 'a slow substantive prompt'
-  assert_success
-  # Not vacuous: the engine really was invoked, and it really had not finished
-  # when the entry point returned.
-  hts_wait_for_file "$HTS_WORK/models/pi/1/started"
-  assert_file_not_exists "$HTS_WORK/models/pi/1/completed"
-  hts_release_model pi 1
-  hts_wait_for_publish
-  assert_equal "$(hts_token)" "late-slug"
-}
-
-# KTD8: the token reaching herdr and the sidebar is bounded whatever the model
-# returns — no shell metacharacters, no ANSI escapes, no newlines. The stub's
-# output normalizes to five hyphen-separated words, the engine's cap for a
-# published slug; wordier output is treated as a failed naming call instead.
-@test "herdr-task-sync normalizes a hostile engine slug (KTD8)" {
-  hts_setup
-  # Unique per test so concurrent tests cannot collide, and deliberately a
-  # single slug word: the payload normalizes to cache-touch-tmp-htspwnN-review,
-  # exactly SLUG_MAX_WORDS. A longer path (a $BATS_TEST_TMPDIR one, say) adds
-  # words, the engine reads the answer as prose and publishes nothing, and this
-  # test then fails waiting for a publish rather than on what it asserts.
-  # rm -f clears any file a previous run's payload managed to create.
-  local pwn="/tmp/htspwn$BATS_TEST_NUMBER"
-  rm -f "$pwn"
-  cat > "$HTS_STUB/pi" <<SH
-#!/usr/bin/env bash
-cat >/dev/null
-printf '\n  cache \$(touch $pwn) \033[31mREVIEW\nsecond line\n'
-SH
-  chmod +x "$HTS_STUB/pi"
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_publish
-  run bash -c "printf '%s' '$(hts_token)' | grep -Eq '^[a-z0-9-]{1,40}\$'"
-  assert_success
-  assert_file_not_exists "$pwn"
-}
-
-# KTD7: a naming call that fires the agent's own hooks must not recurse.
-@test "herdr-task-sync exits under the recursion guard (KTD7)" {
-  hts_setup
-  hts_stub_engine pi never-used 0 0
-  run env PATH="$HTS_STUB:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
-    HERDR_TASK_SYNC_ACTIVE=1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    bash "$HTS_ENGINE" --agent claude --session s1 <<< 'review the cache layer'
-  assert_success
-  sleep 2
-  assert_equal "$(cat "$HTS_LOG")" ""
-}
-
-# KTD1 chain order: pi first, claude second, then nothing.
-@test "herdr-task-sync falls back to claude when pi fails (KTD1)" {
-  hts_setup
-  hts_stub_engine pi '' 1 0
-  hts_stub_engine claude flaky-login-test 0 0
-  hts_run --agent claude --session s1 <<< 'now fix the flaky login test'
-  hts_wait_for_publish
-  assert_equal "$(hts_token)" "flaky-login-test"
-}
-
-@test "herdr-task-sync publishes nothing when both engines time out (KTD1)" {
-  hts_setup
-  hts_stub_engine pi slow-one 0 5
-  hts_stub_engine claude slow-two 0 5
-  HTS_TIMEOUT=1 hts_run --agent claude --session s1 <<< 'a substantive prompt here'
-  sleep 6
-  assert_equal "$(cat "$HTS_LOG")" ""
-}
-
-@test "herdr-task-sync creates its state directory with mode 700 (KTD3)" {
-  hts_setup
-  rmdir "$HTS_STATE"
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_publish
-  run bash -c "ls -ld '$HTS_STATE' | cut -c1-10"
-  assert_output "drwx------"
-}
-
-# AE5: a resumed Claude Code session is named from its transcript, before any
-# prompt arrives.
-@test "herdr-task-sync names a session from its transcript (AE5)" {
+@test "herdr-pane-labels names a command pane after the process group leader" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_stub_engine pi uploader-retry 0 0
-  local transcript="$HTS_WORK/transcript.jsonl"
-  {
-    printf '%s\n' '{"type":"user","isMeta":true,"message":{"role":"user","content":"<command-name>/init</command-name>"}}'
-    printf '%s\n' '{"type":"user","message":{"role":"user","content":"add retry logic to the uploader"}}'
-    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}'
-    printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"also add a test"}]}}'
-  } > "$transcript"
-  hts_run --agent claude --session s1 --transcript "$transcript" < /dev/null
-  hts_wait_for_publish
-  assert_equal "$(hts_token)" "uploader-retry"
-  run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "add retry logic to the uploader"
-  refute_output --partial "<command-name>"
-}
-
-@test "herdr-task-sync publishes nothing for an empty prompt without a transcript" {
-  hts_setup
-  hts_stub_engine pi never-used 0 0
-  run hts_run --agent claude --session s1 < /dev/null
-  assert_success
-  sleep 2
-  assert_equal "$(cat "$HTS_LOG")" ""
-}
-
-# AE6: the pi session-name seed path publishes without a model call.
-@test "herdr-task-sync --set publishes a normalized name with no engine call (AE6)" {
-  hts_setup
-  hts_stub_engine pi never-used 0 0
-  hts_run --agent pi --session pis1 --set 'Fix CI Flake!' < /dev/null
-  hts_wait_for_publish
-  assert_equal "$(hts_token)" "fix-ci-flake"
-  local state; state="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 pis1)"
-  assert_equal "$(hts_state_field "$state" slug)" "fix-ci-flake"
-  assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
-}
-
-# The pane label opens with a short ASCII prefix for the agent, so it renders
-# the same on any terminal, patched font or not.
-@test "herdr-task-sync names the pane with the agent prefix" {
-  hts_setup
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'pane rename'
-  assert_equal "$(hts_pane_label)" "cc:cache-review"
-}
-
-# An agent outside the known set still gets a readable label: its first letter.
-@test "herdr-task-sync falls back to a letter prefix for an unknown agent" {
-  hts_setup
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent aider --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'pane rename'
-  assert_equal "$(hts_pane_label)" "a:cache-review"
-}
-
-# Herdr keeps one label per tab and composes nothing itself. The engine joins
-# the labels of the tab's own agent panes; another tab's panes stay out.
-@test "herdr-task-sync rebuilds the tab label from the pane labels" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"first"},
-    {"pane_id":"pane-2","tab_id":"tab-1","agent":"pi","label":"second"},
-    {"pane_id":"pane-3","tab_id":"tab-1","agent":"opencode","label":null},
-    {"pane_id":"pane-4","tab_id":"tab-2","agent":"claude","label":"other tab"}]}}'
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'tab rename'
-  run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 cc:cache-review · second"
-}
-
-# A pane with no agent is named after its command. The name belongs to the
-# leader of the foreground process group (pid 200 here), not to the `node`
-# child that `bun run dev` spawns and that the payload lists first.
-@test "herdr-task-sync names a command pane after the process group leader" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
+  hpl_setup
+  hpl_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","name":"red-wolf","label":"agent-label"},
     {"pane_id":"pane-2","tab_id":"tab-1","agent":null,"label":null}]}}'
-  hts_proc_info pane-2 '{"result":{"process_info":{
+  hpl_proc_info pane-2 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
       {"pid":201,"name":"node","argv0":"node","argv":["node","-e","timer"]},
       {"pid":200,"name":"bun","argv0":"bun","argv":["bun","run","dev"]}]}}}'
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'tab rename'
-  assert_equal "$(hts_pane_label pane-2)" "bun run dev"
-  run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 cc:cache-review · bun run dev"
+  hpl_sweep_run --sweep
+  assert_equal "$(hpl_pane_label pane-2)" "bun run dev"
+  run grep -m1 '^tab rename' "$HPL_LOG"
+  assert_output "tab rename tab-1 cc:red-wolf · bun run dev"
 }
 
 # A pane whose foreground process group is its own shell runs nothing. It keeps
 # its slot in the tab label under a placeholder instead of disappearing.
-@test "herdr-task-sync names an idle pane with the placeholder" {
+@test "herdr-pane-labels names an idle pane with the placeholder" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
+  hpl_setup
+  hpl_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","name":"red-wolf","label":"agent-label"},
     {"pane_id":"pane-2","tab_id":"tab-1","agent":null,"label":"btop"}]}}'
-  hts_proc_info pane-2 '{"result":{"process_info":{
+  hpl_proc_info pane-2 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
       {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'tab rename'
-  assert_equal "$(hts_pane_label pane-2)" "~"
-  run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 cc:cache-review · ~"
+  hpl_sweep_run --sweep
+  assert_equal "$(hpl_pane_label pane-2)" "~"
+  run grep -m1 '^tab rename' "$HPL_LOG"
+  assert_output "tab rename tab-1 cc:red-wolf · ~"
 }
 
 # The session coordinator knows tab position, so task invalidation and sweeps
 # use the same numbered placeholder for an all-idle tab.
-@test "herdr-task-sync presentation numbers an all-idle tab" {
+@test "herdr-pane-labels presentation numbers an all-idle tab" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_pane_list '{"result":{"panes":[
+  hpl_setup
+  hpl_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null}]}}'
-  hts_proc_info pane-1 '{"result":{"process_info":{
+  hpl_proc_info pane-1 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
       {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'tab rename tab-1 ~ 1'
-  assert_equal "$(hts_pane_label pane-1)" "~"
+  hpl_sweep_run --sweep
+  assert_equal "$(hpl_pane_label pane-1)" "~"
 }
 
 # One pane must not eat the whole tab label, so a long command name is cut to
 # 24 characters with a trailing ellipsis. Flags and paths drop out entirely.
-@test "herdr-task-sync truncates a long command name" {
+@test "herdr-pane-labels truncates a long command name" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_pane_list '{"result":{"panes":[
+  hpl_setup
+  hpl_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null}]}}'
-  hts_proc_info pane-1 '{"result":{"process_info":{
+  hpl_proc_info pane-1 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
       {"pid":200,"name":"long","argv0":"/opt/bin/averyveryverylongcommandname",
        "argv":["/opt/bin/averyveryverylongcommandname","--flag","/tmp/path","sub"]}]}}}'
-  hts_stub_engine pi cache-review 0 0
-  hts_run --agent claude --session s1 <<< 'review the cache layer please'
-  hts_wait_for_call 'tab rename'
-  run grep -m1 '^tab rename' "$HTS_LOG"
+  hpl_sweep_run --sweep
+  run grep -m1 '^tab rename' "$HPL_LOG"
   assert_output "tab rename tab-1 averyveryverylongcomman…"
 }
 
 # A naming call refreshes only its own tab, so a command that ends and an agent
 # that quits leave a stale label behind. The sweep is the observer for both: it
 # walks every tab herdr knows, not just the one that triggered it.
-@test "herdr-task-sync --sweep relabels every tab" {
+@test "herdr-pane-labels --sweep relabels every tab" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_tab_list '{"result":{"tabs":[
+  hpl_setup
+  hpl_tab_list '{"result":{"tabs":[
     {"tab_id":"tab-1","label":"1"},
     {"tab_id":"tab-2","label":"2"}]}}'
-  hts_pane_list '{"result":{"panes":[
+  hpl_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
     {"pane_id":"pane-2","tab_id":"tab-2","agent":null,"label":null}]}}'
-  hts_proc_info pane-2 '{"result":{"process_info":{
+  hpl_proc_info pane-2 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
       {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  run hts_sweep_run --sweep
+  run hpl_sweep_run --sweep
   assert_success
-  run grep -c '^tab rename' "$HTS_LOG"
+  run grep -c '^tab rename' "$HPL_LOG"
   assert_output "2"
-  run grep '^tab rename tab-2' "$HTS_LOG"
+  run grep '^tab rename tab-2' "$HPL_LOG"
   assert_output "tab rename tab-2 btop"
+}
+
+@test "herdr-pane-labels --sweep reports a failed reconciliation" {
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  local dir
+  dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
+  : > "$dir/fail-snapshot"
+
+  run hpl_sweep_run --sweep
+
+  assert_failure
+}
+
+@test "herdr-pane-labels strict sweep rejects failed and unapplied presentation writes" {
+  command -v jq >/dev/null || skip "jq not available"
+  local marker
+  for marker in fail-pane-rename drop-pane-rename fail-tab-rename drop-tab-rename; do
+    hpl_setup
+    hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+    : > "$HPL_WORK/$marker"
+    export HERDR_PANE_LABELS_STRICT_SWEEP=1
+
+    run hpl_sweep_run --sweep
+
+    assert_failure
+    unset HERDR_PANE_LABELS_STRICT_SWEEP
+    hpl_teardown
+  done
+
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_transform_state "$HPL_DEFAULT_SOCKET" '.panes[0].tokens = {repo:"repo",worktree:"main",branch:"main",git_ref:"main",location_label:"legacy"}'
+  : > "$HPL_WORK/fail-pane-report"
+  export HERDR_PANE_LABELS_STRICT_SWEEP=1
+  run hpl_sweep_run --sweep
+  assert_failure
+  unset HERDR_PANE_LABELS_STRICT_SWEEP
 }
 
 # The daemon sweeps every few seconds. Renaming a tab to the label it already
 # carries would churn the tab row and the socket for nothing.
-@test "herdr-task-sync --sweep leaves an unchanged tab label alone" {
+@test "herdr-pane-labels --sweep leaves an unchanged tab label alone" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"btop"}]}}'
-  hts_pane_list '{"result":{"panes":[
+  hpl_setup
+  hpl_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"btop"}]}}'
+  hpl_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":"btop"}]}}'
-  hts_proc_info pane-1 '{"result":{"process_info":{
+  hpl_proc_info pane-1 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
       {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  run hts_sweep_run --sweep
+  run hpl_sweep_run --sweep
   assert_success
-  run cat "$HTS_LOG"
+  run cat "$HPL_LOG"
   refute_output --partial "tab rename"
   refute_output --partial "pane rename"
 }
@@ -4060,29 +3708,29 @@ SH
 # An all-idle tab is numbered instead of skipped, or its last composed label
 # would outlive the pane that produced it. The number counts tabs inside one
 # workspace, because a tab row shows one workspace at a time.
-@test "herdr-task-sync --sweep numbers all-idle tabs per workspace" {
+@test "herdr-pane-labels --sweep numbers all-idle tabs per workspace" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_tab_list '{"result":{"tabs":[
+  hpl_setup
+  hpl_tab_list '{"result":{"tabs":[
     {"tab_id":"tab-1","workspace_id":"ws-1","label":"1"},
     {"tab_id":"tab-2","workspace_id":"ws-1","label":"stale name"},
     {"tab_id":"tab-3","workspace_id":"ws-2","label":"2"}]}}'
-  hts_pane_list '{"result":{"panes":[
+  hpl_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null},
     {"pane_id":"pane-2","tab_id":"tab-2","agent":null,"label":null},
-    {"pane_id":"pane-3","tab_id":"tab-3","agent":null,"label":null}]}}'
-  hts_proc_info pane-1 '{"result":{"process_info":{
+    {"pane_id":"pane-3","tab_id":"tab-3","workspace_id":"ws-2","agent":null,"label":null}]}}'
+  hpl_proc_info pane-1 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
       {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hts_proc_info pane-2 '{"result":{"process_info":{
+  hpl_proc_info pane-2 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
       {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hts_proc_info pane-3 '{"result":{"process_info":{
+  hpl_proc_info pane-3 '{"result":{"process_info":{
     "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
       {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  run hts_sweep_run --sweep
+  run hpl_sweep_run --sweep
   assert_success
-  run grep '^tab rename' "$HTS_LOG"
+  run grep '^tab rename' "$HPL_LOG"
   assert_line "tab rename tab-1 ~ 1"
   assert_line "tab rename tab-2 ~ 2"
   assert_line "tab rename tab-3 ~ 1"
@@ -4090,14 +3738,14 @@ SH
 
 # herdr fires the plugin hook on every agent state change, so the guard has to
 # be cheap and exact: one daemon per machine, however often it is called.
-@test "herdr-task-sync --ensure-daemon keeps a single daemon" {
+@test "herdr-pane-labels --ensure-sweep-daemon keeps a single daemon" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   sleep 30 &
-  local live=$! sweep_lock="$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
+  local live=$! sweep_lock="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
   mkdir -p "$sweep_lock"
   printf '%s' "$live" > "$sweep_lock/pid"
-  run hts_sweep_run --ensure-daemon
+  run hpl_sweep_run --ensure-sweep-daemon
   assert_success
   assert_equal "$(cat "$sweep_lock/pid")" "$live"
   kill "$live" 2>/dev/null || true
@@ -4105,33 +3753,33 @@ SH
 
 # A daemon killed with its herdr session leaves the lock behind. The next hook
 # must clear it and start a new daemon, or labels stay frozen until a restart.
-@test "herdr-task-sync --ensure-daemon replaces a dead daemon" {
+@test "herdr-pane-labels --ensure-sweep-daemon replaces a dead daemon" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  hts_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}'
-  hts_pane_list '{"result":{"panes":[
+  hpl_setup
+  hpl_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}'
+  hpl_pane_list '{"result":{"panes":[
     {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"}]}}'
-  local sweep_lock="$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
+  local sweep_lock="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
   mkdir -p "$sweep_lock"
   # A pid that cannot be running: process ids are allocated from 1 upwards.
   printf '%s' "999999" > "$sweep_lock/pid"
-  run hts_sweep_run --ensure-daemon
+  run hpl_sweep_run --ensure-sweep-daemon
   assert_success
-  hts_wait_for_call 'tab rename'
+  hpl_wait_for_call 'tab rename'
   local pid; pid="$(cat "$sweep_lock/pid" 2>/dev/null)"
   [ -n "$pid" ] && [ "$pid" != "999999" ]
   kill "$pid" 2>/dev/null || true
 }
 
-@test "herdr-task-sync sweep daemon exits after three unreachable snapshots" {
+@test "herdr-pane-labels sweep daemon exits after three unreachable snapshots" {
   command -v jq >/dev/null || skip "jq not available"
-  hts_setup
+  hpl_setup
   local dir daemon_pid i
-  dir="$(hts_socket_dir "$HTS_DEFAULT_SOCKET")"
+  dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
   : > "$dir/fail-snapshot"
-  HTS_SWEEP_INTERVAL=0.01 hts_sweep_run --sweep-daemon &
+  HPL_SWEEP_INTERVAL=0.01 hpl_sweep_run --sweep-daemon &
   daemon_pid=$!
-  for i in $(seq 1 $HTS_WAIT_POLLS); do
+  for i in $(seq 1 $HPL_WAIT_POLLS); do
     kill -0 "$daemon_pid" 2>/dev/null || break
     sleep 0.01
   done
@@ -4141,113 +3789,9 @@ SH
     fail "sweep daemon kept polling an unreachable socket"
   fi
   wait "$daemon_pid"
-  run grep -c '^api snapshot$' "$HTS_LOG"
+  run grep -c '^api snapshot$' "$HPL_LOG"
   assert_output "3"
-  assert_dir_not_exists "$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
-}
-
-# ===========================================
-# herdr-task-sync Claude Code hook
-# ===========================================
-
-HTS_HOOK="$HOOKS_DIR/executable_herdr-task-sync-hook.sh"
-
-# Put a recording stub named `herdr-task-sync` on PATH so the hook's own
-# argument handling can be checked without running the real engine.
-hts_hook_setup() {
-  hts_setup
-  cat > "$HTS_STUB/herdr-task-sync" <<SH
-#!/usr/bin/env bash
-{ printf 'ARGS[%s]\n' "\$*"; printf 'STDIN[%s]\n' "\$(cat)"; } >> "$HTS_WORK/engine.log"
-SH
-  chmod +x "$HTS_STUB/herdr-task-sync"
-}
-
-hts_hook_run() {
-  env PATH="$HTS_STUB:/usr/bin:/bin" bash "$HTS_HOOK" "$@"
-}
-
-@test "herdr-task-sync hook passes bash syntax check" {
-  run bash -n "$HTS_HOOK"
-  assert_success
-}
-
-# Claude Code injects a UserPromptSubmit hook's stdout into the conversation,
-# so the hook must stay silent on every path. This one drives the real engine
-# with HERDR_ENV unset: the guard lives there, not in the hook.
-@test "herdr-task-sync hook stays silent and publishes nothing outside herdr" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  # A copy, not a symlink: the source file is mode 644 and only chezmoi's
-  # `executable_` prefix makes the deployed engine executable.
-  cp "$HTS_ENGINE" "$HTS_STUB/herdr-task-sync"
-  chmod +x "$HTS_STUB/herdr-task-sync"
-  run env -u HERDR_ENV PATH="$HTS_STUB:/usr/bin:/bin" \
-    HERDR_PANE_ID=pane-1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
-    bash "$HTS_HOOK" prompt <<'EOF'
-{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/tmp/none.jsonl","prompt":"review the cache layer"}
-EOF
-  assert_success
-  assert_output ""
-  sleep 2
-  assert_equal "$(cat "$HTS_LOG")" ""
-}
-
-@test "herdr-task-sync hook writes nothing to stdout when the engine runs" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_hook_setup
-  run hts_hook_run prompt <<'EOF'
-{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/tmp/none.jsonl","prompt":"review the cache layer"}
-EOF
-  assert_success
-  assert_output ""
-}
-
-@test "herdr-task-sync hook forwards the prompt, session, and transcript" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_hook_setup
-  hts_hook_run prompt <<'EOF'
-{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/tmp/t.jsonl","prompt":"review the cache layer"}
-EOF
-  run cat "$HTS_WORK/engine.log"
-  assert_output --partial "--agent claude --session s1 --transcript /tmp/t.jsonl"
-  assert_output --partial "STDIN[review the cache layer]"
-}
-
-# KTD9: session start and pre-compact name the session from the transcript,
-# with no prompt on stdin.
-@test "herdr-task-sync hook calls transcript mode on session start and compact" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_hook_setup
-  hts_hook_run session <<'EOF'
-{"hook_event_name":"SessionStart","session_id":"s1","transcript_path":"/tmp/t.jsonl","source":"resume"}
-EOF
-  hts_hook_run compact <<'EOF'
-{"hook_event_name":"PreCompact","session_id":"s1","transcript_path":"/tmp/t.jsonl","trigger":"manual"}
-EOF
-  run cat "$HTS_WORK/engine.log"
-  assert_output --partial "--transcript /tmp/t.jsonl"
-  assert_output --partial "STDIN[]"
-  refute_output --partial "STDIN[review"
-}
-
-# agent_id is present only when a hook fires inside a subagent call, so the
-# pane's task name never follows subagent traffic (R3).
-@test "herdr-task-sync hook drops subagent traffic (R3)" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_hook_setup
-  run hts_hook_run prompt <<'EOF'
-{"hook_event_name":"UserPromptSubmit","session_id":"s1","agent_id":"agent-abc123","transcript_path":"/tmp/t.jsonl","prompt":"subagent prompt"}
-EOF
-  assert_success
-  assert_file_not_exists "$HTS_WORK/engine.log"
-}
-
-@test "herdr-task-sync hook survives malformed stdin" {
-  hts_hook_setup
-  run hts_hook_run prompt <<< 'not json at all'
-  assert_success
-  assert_output ""
+  assert_dir_not_exists "$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
 }
 
 @test "se pipeline --setup-cmd lands in the workflow input JSON" {
@@ -4631,4 +4175,608 @@ se_fake_runtime() {
   run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
   assert_success
   [ -d "$fake_home/.scratchpad/fresh-entry" ]
+}
+
+# ===========================================
+# herdr pane-label cutover (U5)
+# ===========================================
+
+@test "herdr pane-label cutover selects modes only for the configured engine paths" {
+  local library="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
+  run env HOME="$BATS_TEST_TMPDIR/cutover-mode-home" bash -c '
+    source "$1"
+    [ "$(hpl_cutover_mode_for_engine "$HPL_CUTOVER_OLD_ENGINE")" = --ensure-daemon ]
+    [ "$(hpl_cutover_mode_for_engine "$HPL_CUTOVER_NEW_ENGINE")" = --ensure-sweep-daemon ]
+    ! hpl_cutover_mode_for_engine "$HOME/.local/bin/unknown-engine"
+  ' _ "$library"
+  assert_success
+}
+
+@test "herdr pane-label cutover freezes adapters, disables before TERM, and drains writers causally" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local owner hook disable_line term_line
+  owner="$(hpl_cutover_spawn_owner --presentation-worker "$HPL_DEFAULT_SOCKET" presentation.claim)"
+  cat > "$HPL_WORK/cutover-hook" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1" = owner-free-1 ]]; then
+  "$HOME/.local/bin/herdr-task-sync" --agent claude --session late </dev/null
+  "$HOME/.local/bin/herdr-task-sync" --event </dev/null
+  printf '%s\n' event-during-quiescence >> "$HPL_WORK/hook.log"
+fi
+SH
+  chmod +x "$HPL_WORK/cutover-hook"
+  export HERDR_PANE_LABELS_CUTOVER_TEST_HOOK="$HPL_WORK/cutover-hook"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_success
+  run hpl_pid_is_live "$owner"
+  assert_failure
+  assert_file_not_exists "$HPL_WORK/legacy-adapter.log"
+  assert_file_contains "$HPL_WORK/hook.log" '^event-during-quiescence$'
+  disable_line="$(grep -n '^plugin-disabled$' "$HPL_CUTOVER_TRACE" | cut -d: -f1)"
+  term_line="$(grep -n '^term:presentation:' "$HPL_CUTOVER_TRACE" | cut -d: -f1)"
+  [[ -n "$disable_line" && -n "$term_line" && "$disable_line" -lt "$term_line" ]]
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^old-entry-frozen$'
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^child-entry-frozen$'
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^owner-free:2$'
+  run env HOME="$HPL_CUTOVER_HOME" "$HPL_CUTOVER_HOME/.local/bin/herdr-child" start --kind claude --prompt blocked
+  assert_failure
+  assert_output --partial "unavailable during pane-label cutover"
+  unset HERDR_PANE_LABELS_CUTOVER_TEST_HOOK
+}
+
+@test "herdr pane-label cutover rejects a non-pool child and restores old daemons for every socket" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local socket_two="$HPL_WORK/second.sock" before_hash after_hash child_before child_after pid_one pid_two
+  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET" "$socket_two"
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude review-auth
+  hpl_socket_state "$socket_two" >/dev/null
+  before_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync" | cut -d' ' -f1)"
+  child_before="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-child" | cut -d' ' -f1)"
+  pid_one="$(hpl_cutover_start_old_daemon "$HPL_DEFAULT_SOCKET")"
+  pid_two="$(hpl_cutover_start_old_daemon "$socket_two")"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  assert_output --partial "review-auth"
+  assert_output --partial "pane-1"
+  after_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync" | cut -d' ' -f1)"
+  child_after="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-child" | cut -d' ' -f1)"
+  assert_equal "$after_hash" "$before_hash"
+  assert_equal "$child_after" "$child_before"
+  kill -0 "$pid_one"
+  kill -0 "$pid_two"
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin disable seigi\.pane-labels$'
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin enable seigi\.pane-labels$'
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^ensure:$HPL_DEFAULT_SOCKET:--ensure-daemon$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^ensure:$socket_two:--ensure-daemon$"
+  [[ "$(grep -c '^daemon-verified:' "$HPL_CUTOVER_TRACE")" -eq 2 ]]
+}
+
+@test "herdr pane-label cutover rollback restarts every daemon killed before a later refusal" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local socket_two="$HPL_WORK/rollback.sock" old_one old_two new_one new_two unrelated
+  local namespace claim start
+  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET" "$socket_two"
+  hpl_socket_state "$socket_two" >/dev/null
+  old_one="$(hpl_cutover_start_old_daemon "$HPL_DEFAULT_SOCKET")"
+  old_two="$(hpl_cutover_start_old_daemon "$socket_two")"
+  sleep 30 &
+  unrelated=$!
+  namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  claim="$namespace/presentation.claim"
+  mkdir -p "$claim"
+  start="$(ps -p "$unrelated" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  printf 'owner_id=%s\npid=%s\nprocess_start=%s\nsocket_path=%s\n' \
+    "$(printf unrelated | base64 | tr -d '\n')" "$unrelated" \
+    "$(printf '%s' "$start" | base64 | tr -d '\n')" \
+    "$(printf '%s' "$HPL_DEFAULT_SOCKET" | base64 | tr -d '\n')" > "$claim/owner"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  run hpl_pid_is_live "$old_one"
+  assert_failure
+  run hpl_pid_is_live "$old_two"
+  assert_failure
+  new_one="$(cat "$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")/sweep.lock/pid")"
+  new_two="$(cat "$(hpl_cutover_namespace herdr-task-sync "$socket_two")/sweep.lock/pid")"
+  [[ "$new_one" != "$old_one" && "$new_two" != "$old_two" ]]
+  kill -0 "$new_one"
+  kill -0 "$new_two"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^term:daemon:$HPL_DEFAULT_SOCKET:$old_one$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^term:daemon:$socket_two:$old_two$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^ensure:$HPL_DEFAULT_SOCKET:--ensure-daemon$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^ensure:$socket_two:--ensure-daemon$"
+  kill "$unrelated" 2>/dev/null || true
+}
+
+@test "herdr pane-label cutover drains daemon presentation and naming owners and removes stale locks" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local namespace daemon presentation naming stale
+  daemon="$(hpl_cutover_start_old_daemon "$HPL_DEFAULT_SOCKET")"
+  presentation="$(hpl_cutover_spawn_owner --presentation-worker "$HPL_DEFAULT_SOCKET" presentation.claim)"
+  naming="$(hpl_cutover_spawn_owner --worker "$HPL_DEFAULT_SOCKET" panes/$(hpl_key pane-1)/worker.claim)"
+  namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  stale="$namespace/panes/$(hpl_key pane-2)/control.lock"
+  mkdir -p "$HPL_CUTOVER_HOME/.cache/herdr-task-sync/sweep.lock"
+  mkdir -p "$stale"
+  printf 'owner_id=%s\npid=999999\nprocess_start=%s\nsocket_path=%s\n' \
+    "$(printf stale | base64 | tr -d '\n')" "$(printf dead | base64 | tr -d '\n')" \
+    "$(printf '%s' "$HPL_DEFAULT_SOCKET" | base64 | tr -d '\n')" > "$stale/owner"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_success
+  for pid in "$daemon" "$presentation" "$naming"; do
+    run hpl_pid_is_live "$pid"
+    assert_failure
+  done
+  assert_dir_not_exists "$stale"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-task-sync/sweep.lock"
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^term:daemon:'
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^term:presentation:'
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^term:naming:'
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^stale-lock:'
+}
+
+@test "herdr pane-label cutover double-check refuses a changed owner identity before TERM" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local owner namespace owner_file hook
+  owner="$(hpl_cutover_spawn_owner --presentation-worker "$HPL_DEFAULT_SOCKET" presentation.claim)"
+  namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  owner_file="$namespace/presentation.claim/owner"
+  hook="$HPL_WORK/change-owner-hook"
+  cat > "$hook" <<SH
+#!/usr/bin/env bash
+case "\$1" in
+  before-term-claim:*)
+    perl -pi -e 's/^pid=.*/pid=999999/' "$owner_file"
+    ;;
+esac
+SH
+  chmod +x "$hook"
+  export HERDR_PANE_LABELS_CUTOVER_TEST_HOOK="$hook"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  kill -0 "$owner"
+  refute_output --partial "old and current writers quiesced"
+  run grep "^term:presentation:.*:$owner$" "$HPL_CUTOVER_TRACE"
+  assert_failure
+  kill "$owner" 2>/dev/null || true
+  unset HERDR_PANE_LABELS_CUTOVER_TEST_HOOK
+}
+
+@test "herdr pane-label cutover double-checks the legacy daemon PID immediately before TERM" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local daemon namespace pid_file hook
+  daemon="$(hpl_cutover_start_old_daemon "$HPL_DEFAULT_SOCKET")"
+  namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  pid_file="$namespace/sweep.lock/pid"
+  hook="$HPL_WORK/change-daemon-hook"
+  cat > "$hook" <<SH
+#!/usr/bin/env bash
+case "\$1" in
+  before-term-daemon:$daemon) printf '%s' 999999 > "$pid_file" ;;
+esac
+SH
+  chmod +x "$hook"
+  export HERDR_PANE_LABELS_CUTOVER_TEST_HOOK="$hook"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  assert_output --partial "daemon identity changed before TERM"
+  kill -0 "$daemon"
+  run grep "^term:daemon:.*:$daemon$" "$HPL_CUTOVER_TRACE"
+  assert_failure
+  kill "$daemon" 2>/dev/null || true
+  unset HERDR_PANE_LABELS_CUTOVER_TEST_HOOK
+}
+
+@test "herdr pane-label cutover refuses an unrelated live PID and rolls back" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local namespace unrelated before_hash after_hash
+  sleep 30 &
+  unrelated=$!
+  namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  hpl_cutover_write_socket_state "$namespace" "$HPL_DEFAULT_SOCKET"
+  mkdir -p "$namespace/sweep.lock"
+  printf '%s' "$unrelated" > "$namespace/sweep.lock/pid"
+  before_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync" | cut -d' ' -f1)"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  assert_output --partial "refusing unrelated or unverifiable daemon PID"
+  kill -0 "$unrelated"
+  after_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync" | cut -d' ' -f1)"
+  assert_equal "$after_hash" "$before_hash"
+  kill "$unrelated" 2>/dev/null || true
+}
+
+@test "herdr pane-label cutover migrates only validated location state and clears task unsequenced" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local old_namespace new_namespace pane_key main_key old_reconcile new_reconcile clear_line
+  old_namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  new_namespace="$(hpl_cutover_namespace herdr-pane-labels "$HPL_DEFAULT_SOCKET")"
+  pane_key="$(hpl_key pane-1)"
+  hpl_cutover_write_socket_state "$old_namespace" "$HPL_DEFAULT_SOCKET"
+  mkdir -p "$old_namespace/panes/$pane_key" "$old_namespace/tasks" "$old_namespace/migration" \
+    "$old_namespace/workers"
+  cat > "$old_namespace/panes/$pane_key/location.state" <<EOF
+pane=$(printf pane-1 | base64 | tr -d '\n')
+checkout_root=$(printf /repo/wt | base64 | tr -d '\n')
+repository_anchor=$(printf /repo/.git | base64 | tr -d '\n')
+repo=$(printf repo | base64 | tr -d '\n')
+branch=$(printf topic | base64 | tr -d '\n')
+is_linked=$(printf 1 | base64 | tr -d '\n')
+sha=$(printf abc1234 | base64 | tr -d '\n')
+EOF
+  main_key="$(hpl_key pane-main)"
+  mkdir -p "$old_namespace/panes/$main_key"
+  cat > "$old_namespace/panes/$main_key/location.state" <<EOF
+pane=$(printf pane-main | base64 | tr -d '\n')
+checkout_root=$(printf /repo/main | base64 | tr -d '\n')
+repository_anchor=$(printf /repo/main/.git | base64 | tr -d '\n')
+repo=$(printf repo | base64 | tr -d '\n')
+branch=$(printf main | base64 | tr -d '\n')
+is_linked=
+sha=
+EOF
+  old_reconcile="$old_namespace/reconcile.state"
+  cat > "$old_reconcile" <<EOF
+pending_generation=90
+completed_generation=80
+task_metadata_high_water=99
+location_metadata_high_water=77
+checkout_root=$(printf /repo/wt | base64 | tr -d '\n')
+repository_anchor=$(printf /repo/.git | base64 | tr -d '\n')
+retained_location=$(printf pane-1 | base64 | tr -d '\n')
+EOF
+  printf secret > "$old_namespace/tasks/task.state"
+  printf secret > "$old_namespace/migration/task.state"
+  printf secret > "$old_namespace/panes/$pane_key/control.state"
+  printf secret > "$old_namespace/workers/claim.state"
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata pane-1 --source task-sync --seq 99 --token task=legacy
+  : > "$HPL_LOG"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_success
+  assert_file_exists "$new_namespace/socket.state"
+  assert_file_exists "$new_namespace/panes/$pane_key/location.state"
+  assert_file_exists "$new_namespace/panes/$main_key/location.state"
+  new_reconcile="$new_namespace/reconcile.state"
+  assert_file_contains "$new_reconcile" '^pending_generation=0$'
+  assert_file_contains "$new_reconcile" '^completed_generation=0$'
+  assert_file_contains "$new_reconcile" '^location_metadata_high_water=77$'
+  run grep -ER 'task_metadata|secret|worker|claim|control' "$new_namespace"
+  assert_failure
+  clear_line="$(grep '^pane report-metadata pane-1 --source task-sync --clear-token task$' "$HPL_LOG")"
+  assert_equal "$clear_line" "pane report-metadata pane-1 --source task-sync --clear-token task"
+  run jq -e '.panes[0].tokens | has("task") | not' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  assert_success
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^task-token-verified:$HPL_DEFAULT_SOCKET$"
+  [[ "$(grep -c '^api snapshot$' "$HPL_LOG")" -ge 2 ]]
+}
+
+@test "herdr pane-label cutover fails closed when session discovery fails" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local before_hash after_hash
+  before_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync" | cut -d' ' -f1)"
+  : > "$HPL_WORK/fail-session-list"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  assert_output --partial "cannot inspect running Herdr sessions"
+  after_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync" | cut -d' ' -f1)"
+  assert_equal "$after_hash" "$before_hash"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+}
+
+@test "herdr pane-label cutover preserves rollback sockets when the second refresh fails" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local old_pid new_pid namespace
+  old_pid="$(hpl_cutover_start_old_daemon "$HPL_DEFAULT_SOCKET")"
+  printf '%s\n' 2 > "$HPL_WORK/fail-session-list-at"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  run hpl_pid_is_live "$old_pid"
+  assert_failure
+  namespace="$(hpl_cutover_namespace herdr-task-sync "$HPL_DEFAULT_SOCKET")"
+  new_pid="$(cat "$namespace/sweep.lock/pid")"
+  kill -0 "$new_pid"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^ensure:$HPL_DEFAULT_SOCKET:--ensure-daemon$"
+}
+
+@test "herdr pane-label cutover rejects an incomplete cleanup snapshot" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local state tmp
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  tmp="$state.tmp"
+  jq '.complete=false' "$state" > "$tmp" && mv "$tmp" "$state"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+
+  assert_failure
+  run grep -q '^pane report-metadata.*--clear-token task' "$HPL_LOG"
+  assert_failure
+}
+
+@test "herdr pane-label after drain catches a late old writer and ensures independent socket daemons" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local socket_two="$HPL_WORK/late.sock" stopped_socket="$HPL_WORK/stopped.sock" late pid_one pid_two state
+  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET" "$socket_two"
+  : > "$HPL_WORK/require-live-plugin-command-socket"
+  jq -c --arg socket "$stopped_socket" \
+    '.result.sessions += [{running:false,socket_path:$socket}]' "$HPL_WORK/sessions.json" \
+    > "$HPL_WORK/sessions.tmp" && mv "$HPL_WORK/sessions.tmp" "$HPL_WORK/sessions.json"
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude review-auth
+  hpl_set_agent_pane "$socket_two" pane-2 tab-2 ws-2 term-2 opencode CORE-42
+  late="$(hpl_cutover_spawn_owner --presentation-worker "$HPL_DEFAULT_SOCKET" presentation.claim)"
+  rm -f "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  run hpl_pid_is_live "$late"
+  assert_failure
+  pid_one="$(cat "$(hpl_cutover_namespace herdr-pane-labels "$HPL_DEFAULT_SOCKET")/sweep.lock/pid")"
+  pid_two="$(cat "$(hpl_cutover_namespace herdr-pane-labels "$socket_two")/sweep.lock/pid")"
+  [[ "$pid_one" != "$pid_two" ]]
+  kill -0 "$pid_one"
+  kill -0 "$pid_two"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^first-pass:$HPL_DEFAULT_SOCKET$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^first-pass:$socket_two$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^daemon-verified:$HPL_DEFAULT_SOCKET:"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^daemon-verified:$socket_two:"
+  grep -Fxq "$HPL_DEFAULT_SOCKET|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  grep -Fxq "$socket_two|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  grep -Fxq "$HPL_DEFAULT_SOCKET|server reload-config" "$HPL_WORK/plugin-sockets.log"
+  grep -Fxq "$socket_two|server reload-config" "$HPL_WORK/plugin-sockets.log"
+  assert_dir_not_exists "$(hpl_cutover_namespace herdr-pane-labels "$stopped_socket")/sweep.lock"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  run jq -e '.agents[0].name | test("^[a-z]+-[a-z]+$")' "$state"
+  assert_success
+  run jq -e '.panes[0].label | test("^cc:[a-z]+-[a-z]+$")' "$state"
+  assert_success
+  run jq -e '.tabs[0].label == .panes[0].label' "$state"
+  assert_success
+}
+
+@test "herdr pane-label second apply replaces the currently loaded daemon" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local namespace first second
+  rm -f "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+  hpl_cutover_run "$HPL_CUTOVER_AFTER"
+  namespace="$(hpl_cutover_namespace herdr-pane-labels "$HPL_DEFAULT_SOCKET")"
+  first="$(cat "$namespace/sweep.lock/pid")"
+  : > "$HPL_CUTOVER_TRACE"
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+  assert_success
+  run hpl_pid_is_live "$first"
+  assert_failure
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+  assert_success
+  second="$(cat "$namespace/sweep.lock/pid")"
+  [[ "$second" != "$first" ]]
+  kill -0 "$second"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^term:daemon:$HPL_DEFAULT_SOCKET:$first$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^daemon-verified:$HPL_DEFAULT_SOCKET:$second:"
+}
+
+@test "herdr pane-label first install succeeds without Herdr sessions or old owners" {
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  assert_file_contains "$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh" \
+    'local root="\$1" lock pid'
+  hpl_cutover_sessions
+  rm -f "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
+  local empty_path="$HPL_WORK/no-herdr-bin"
+  mkdir -p "$empty_path"
+
+  run env HOME="$HPL_CUTOVER_HOME" PATH="$empty_path:/usr/bin:/bin" \
+    HERDR_PANE_LABELS_CUTOVER_TRACE="$HPL_CUTOVER_TRACE" \
+    bash "$HPL_CUTOVER_BEFORE"
+
+  assert_success
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^owner-free:2$'
+}
+
+@test "herdr pane-label after script links offline without live-only commands" {
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  hpl_cutover_sessions
+  : > "$HPL_WORK/fail-live-plugin-command-without-sessions"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin link '
+  assert_output --partial "no running Herdr sessions require verification"
+  run grep -E '^plugin enable |^server reload-config$' "$HPL_WORK/plugin.log"
+  assert_failure
+}
+
+@test "herdr pane-label after script catches a session created during plugin linking" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local late_socket="$HPL_WORK/late-start.sock"
+  hpl_cutover_sessions
+  : > "$HPL_WORK/require-live-plugin-command-socket"
+  hpl_set_agent_pane "$late_socket" pane-late tab-late ws-late term-late claude red-wolf
+  printf '%s\n' '{"result":{"sessions":[{"running":true,"socket_path":"'"$late_socket"'"}]}}' \
+    > "$HPL_WORK/sessions-after-link.json"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  grep -Fxq "$late_socket|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  grep -Fxq "$late_socket|server reload-config" "$HPL_WORK/plugin-sockets.log"
+  run grep -Fx "$HPL_DEFAULT_SOCKET|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  assert_failure
+  run grep -Fx "$HPL_DEFAULT_SOCKET|server reload-config" "$HPL_WORK/plugin-sockets.log"
+  assert_failure
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^first-pass:$late_socket$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^daemon-verified:$late_socket:"
+}
+
+@test "herdr pane-label after script disables known sessions when post-link discovery fails" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local saved_socket="$HPL_WORK/saved.sock"
+  hpl_cutover_sessions "$saved_socket"
+  : > "$HPL_WORK/require-live-plugin-command-socket"
+  printf '%s\n' 2 > "$HPL_WORK/fail-session-list-at"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_failure
+  assert_output --partial "cannot inspect running Herdr sessions"
+  grep -Fxq "$saved_socket|plugin disable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin link .* --disabled$'
+  run grep -Fx "$HPL_DEFAULT_SOCKET|plugin disable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  assert_failure
+}
+
+@test "herdr pane-label post-link discovery failure disables the offline registry without sessions" {
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  hpl_cutover_sessions
+  printf '%s\n' 2 > "$HPL_WORK/fail-session-list-at"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_failure
+  assert_output --partial "cannot inspect running Herdr sessions"
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin link .* --disabled$'
+  run grep -E '^plugin enable |^plugin disable |^server reload-config$' "$HPL_WORK/plugin.log"
+  assert_failure
+}
+
+@test "herdr pane-label activation failure still disables every remaining live session" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local stale_socket="$HPL_WORK/a-stale.sock" live_socket="$HPL_WORK/z-live.sock"
+  hpl_cutover_sessions "$stale_socket" "$live_socket"
+  hpl_set_agent_pane "$stale_socket" pane-stale tab-stale ws-stale term-stale claude red-wolf
+  hpl_set_agent_pane "$live_socket" pane-live tab-live ws-live term-live opencode blue-fox
+  : > "$HPL_WORK/require-live-plugin-command-socket"
+  printf '%s\n' '{"result":{"sessions":[{"running":true,"socket_path":"'"$live_socket"'"}]}}' \
+    > "$HPL_WORK/sessions-before-enable.json"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_failure
+  assert_output --partial "failed to enable or reload seigi.pane-labels"
+  grep -Fxq "$live_socket|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+  grep -Fxq "$live_socket|plugin disable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
+}
+
+@test "herdr pane-label after script rejects a failed first sweep" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local state tmp
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  tmp="$state.tmp"
+  jq '.complete=false' "$state" > "$tmp" && mv "$tmp" "$state"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_failure
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin disable seigi\.pane-labels$'
+  refute_output --partial "linked and verified"
+}
+
+@test "herdr pane-label rollback artifact survives before and clears after verification" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+  assert_success
+  assert_file_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/herdr-task-sync.backup"
+  assert_file_contains "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/state" '^phase=prepared$'
+  assert_file_contains "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/state" '^plugin_disabled=1$'
+  assert_file_contains "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/sockets" "^$HPL_DEFAULT_SOCKET$"
+  rm -f "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
+  cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-child" "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
+  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+  assert_success
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+  assert_file_contains "$HPL_CUTOVER_TRACE" '^cutover-committed$'
+}
+
+@test "herdr pane-label deployed retry never restores the legacy child launcher" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  local child_hash state tmp
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+
+  hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+  rm -f "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
+  cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-child" "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
+  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
+  child_hash="$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-child" | cut -d' ' -f1)"
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  tmp="$state.tmp"
+  jq '.complete=false' "$state" > "$tmp" && mv "$tmp" "$state"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+  assert_failure
+  assert_file_contains "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/state" '^phase=deployed$'
+  assert_file_contains "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/state" '^child_backed_up=0$'
+  assert_file_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/herdr-child.backup"
+
+  jq '.complete=true' "$state" > "$tmp" && mv "$tmp" "$state"
+  : > "$HPL_WORK/fail-session-list"
+  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+  assert_failure
+  assert_equal "$(shasum -a 256 "$HPL_CUTOVER_HOME/.local/bin/herdr-child" | cut -d' ' -f1)" "$child_hash"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
 }

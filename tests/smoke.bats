@@ -967,50 +967,55 @@ se_fixture_repo() {
 }
 
 # ===========================================
-# herdr task sync (engine, adapters, sidebar)
+# herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 
-@test "herdr task and child engines are deployed and executable" {
-  assert_file_exists "$HOME/.local/bin/herdr-task-sync"
-  assert_file_executable "$HOME/.local/bin/herdr-task-sync"
+@test "herdr alias, pane-label, and child files are deployed" {
+  assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
+  assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
+  assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
 }
 
-@test "herdr-task-sync Claude Code hook is deployed and executable" {
-  assert_file_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
-  assert_file_executable "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+@test "herdr child and consult contracts use allocator-owned pair addressing" {
+  local child="$HOME/.local/bin/herdr-child"
+  local ask="$HOME/.claude/skills/ask-in-herdr/scripts/ask.sh"
+  local contract="$HOME/.claude/shared/child-agent-contract.md"
+  local consult_skill="$HOME/.claude/skills/ask-in-herdr/SKILL.md"
+
+  assert_file_contains "$child" 'ALIAS_LIBRARY="\$SCRIPT_DIR/\.\./lib/herdr-aliases\.sh"'
+  run grep -E -- 'start .*--name|case .*--name' "$child"
+  assert_failure
+  run grep -E -- 'consult-\$AGENT|herdr-child.*--name' "$ask"
+  assert_failure
+  assert_file_contains "$ask" 'herdr-child reap --to %s --pane %s'
+  assert_file_contains "$contract" 'herdr-child reap --to <alias> --pane <pane-id>'
+  assert_file_contains "$consult_skill" 'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-@test "claude settings wire the task-sync hook to prompt, session, and compact" {
+@test "semantic adapters are absent while native Herdr integrations remain" {
+  assert_file_not_exists "$HOME/.local/bin/herdr-task-sync"
+  assert_file_not_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+  assert_file_not_exists "$HOME/.config/opencode/plugins/herdr-task-sync.ts"
+  assert_file_not_exists "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
+  assert_file_exists "$HOME/.claude/hooks/herdr-agent-state.sh"
+  assert_file_exists "$HOME/.config/opencode/plugins/herdr-agent-state.js"
+  assert_file_exists "$HOME/.pi/agent/extensions/herdr-agent-state.ts"
+}
+
+@test "claude settings omit task-sync hooks and retain native agent state" {
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
   run python3 - "$settings" <<'PY'
 import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]
-for event, action in (("UserPromptSubmit", "prompt"),
-                      ("SessionStart", "session"),
-                      ("PreCompact", "compact")):
-    commands = [h["command"] for entry in hooks[event] for h in entry["hooks"]]
-    matching = [c for c in commands if "herdr-task-sync-hook.sh" in c]
-    assert len(matching) == 1, (event, commands)
-    assert matching[0].endswith(f"' {action}"), (event, matching[0])
-
-# UserPromptSubmit has no matcher support; the herdr agent-state SessionStart
-# hook must stay wired alongside the task-sync one.
-assert all("matcher" not in e for e in hooks["UserPromptSubmit"]), hooks["UserPromptSubmit"]
+commands = [h["command"] for entries in hooks.values() for entry in entries for h in entry["hooks"]]
+assert not any("herdr-task-sync-hook.sh" in command for command in commands), commands
 session = [h["command"] for entry in hooks["SessionStart"] for h in entry["hooks"]]
 assert any("herdr-agent-state.sh" in c for c in session), session
 PY
   assert_success
-}
-
-@test "herdr-task-sync pi extension is deployed beside herdr's own" {
-  local ext="$HOME/.pi/agent/extensions/herdr-task-sync.ts"
-  assert_file_exists "$ext"
-  assert_file_contains "$ext" 'before_agent_start'
-  assert_file_contains "$ext" 'session_start'
-  assert_file_contains "$ext" 'getSessionName'
 }
 
 @test "Pi local private instructions focused tests pass" {
@@ -1057,43 +1062,26 @@ PY
   assert_success
 }
 
-@test "herdr-task-sync opencode plugin is deployed and filters child sessions" {
-  local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
-  assert_file_exists "$plugin"
-  assert_file_contains "$plugin" 'chat.message'
-  # Static stand-in for AE4: subagent messages must not rename the pane.
-  assert_file_contains "$plugin" 'parentID'
-}
-
 assert_herdr_sidebar_deployment_contract() {
   local config="$1"
   local engine="$2"
   local plugin="$3"
-  local claude_adapter="$4"
-  local opencode_adapter="$5"
-  local pi_adapter="$6"
   local width
   local writer_files=(
     "$engine"
     "$plugin/herdr-plugin.toml"
     "$plugin/ensure.sh"
     "$plugin/sweep.sh"
-    "$claude_adapter"
-    "$opencode_adapter"
-    "$pi_adapter"
   )
   local writer_roots=(
     "$(dirname "$engine")"
     "$(dirname "$config")"
-    "$(dirname "$claude_adapter")"
-    "$(dirname "$opencode_adapter")"
-    "$(dirname "$pi_adapter")"
   )
 
   assert_file_contains "$config" '^sidebar_min_width = 32$'
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
   # Herdr 0.8 collapses an empty custom-token row when the token is the row's
-  # only item. The first row keeps workspace and task together, and the second
+  # only item. The first row keeps workspace and pane together, and the second
   # row carries the one combined $git_ref token — stale state rides on it as
   # a suffix icon, so there is no third row and no $location_status token.
   assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]$'
@@ -1142,29 +1130,20 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$engine" 'LABEL_SEPARATOR=.* · '
   assert_file_contains "$engine" '…'
 
-  run grep -Ei 'location_status|(^|[^[:alnum:]_])(location|worktree|branch|git)([^[:alnum:]_]|$)' \
-    "$claude_adapter" "$opencode_adapter" "$pi_adapter"
-  assert_failure
 }
 
 @test "herdr managed source preserves the U6 sidebar and ownership boundaries" {
   assert_herdr_sidebar_deployment_contract \
     "$SOURCE_ROOT/private_dot_config/herdr/config.toml" \
-    "$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync" \
-    "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels" \
-    "$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh" \
-    "$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts" \
-    "$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
+    "$SOURCE_ROOT/dot_local/bin/executable_herdr-pane-labels" \
+    "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 }
 
 @test "herdr deployed files preserve the U6 sidebar and ownership boundaries" {
   assert_herdr_sidebar_deployment_contract \
     "$HOME/.config/herdr/config.toml" \
-    "$HOME/.local/bin/herdr-task-sync" \
-    "$HOME/.config/herdr/plugins/herdr-pane-labels" \
-    "$HOME/.claude/hooks/herdr-task-sync-hook.sh" \
-    "$HOME/.config/opencode/plugins/herdr-task-sync.ts" \
-    "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
+    "$HOME/.local/bin/herdr-pane-labels" \
+    "$HOME/.config/herdr/plugins/herdr-pane-labels"
 }
 
 @test "herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs" {
@@ -1194,7 +1173,7 @@ assert_herdr_sidebar_deployment_contract() {
   ' "$manifest"
   assert_success
   assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
-  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
+  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.2"$'
   assert_file_contains "$manifest" '^id = "sweep"$'
   assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
   assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
@@ -1208,14 +1187,50 @@ assert_herdr_sidebar_deployment_contract() {
   local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   assert_file_contains "$manifest" '^\[\[startup\]\]$'
   assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
-  assert_file_contains "$plugin/ensure.sh" 'herdr-task-sync'
-  assert_file_contains "$plugin/ensure.sh" 'sync.*--ensure-daemon'
-  assert_file_contains "$plugin/sweep.sh" 'sync.*--sweep'
+  assert_file_contains "$plugin/ensure.sh" 'herdr-pane-labels'
+  assert_file_contains "$plugin/ensure.sh" 'labels.*--ensure-sweep-daemon'
+  assert_file_contains "$plugin/ensure.sh" "^  ''|--ensure-sweep-daemon)\$"
+  assert_file_contains "$plugin/sweep.sh" 'labels.*--sweep'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
   assert_file_contains "$relink" 'herdr plugin link'
-  assert_file_contains "$relink" 'herdr plugin enable seigi.pane-labels'
+  assert_file_contains "$relink" 'herdr plugin enable "\$HPL_CUTOVER_PLUGIN_ID"'
+}
+
+@test "herdr pane-label cutover templates share one safety body and complete hash inputs" {
+  local before="$SOURCE_ROOT/.chezmoiscripts/run_onchange_before_6-quiesce-herdr-pane-labels.sh.tmpl"
+  local after="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
+  local shared="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
+  local file input
+  local inputs=(
+    'dot_local/bin/executable_herdr-pane-labels'
+    'dot_local/lib/herdr-aliases.sh'
+    'private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml'
+    'private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh'
+    'private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh'
+    '.chezmoitemplates/herdr-pane-labels-cutover-lib.sh'
+  )
+
+  assert_file_exists "$before"
+  assert_file_exists "$after"
+  assert_file_exists "$shared"
+  for file in "$before" "$after"; do
+    assert_file_contains "$file" 'include "\.chezmoitemplates/herdr-pane-labels-cutover-lib\.sh"'
+    for input in "${inputs[@]}"; do
+      assert_file_contains "$file" "include \"$input\" \\| sha256sum"
+    done
+  done
+  assert_file_contains "$before" 'include "dot_local/lib/herdr-aliases\.sh"'
+  assert_file_contains "$before" '^source "\$alias_library"'
+  assert_file_contains "$shared" 'herdr pane report-metadata "\$pane"'
+  assert_file_contains "$shared" '^        --source task-sync --clear-token task'
+  run grep -n -- '--source task-sync.*--seq\|--clear-token task.*--seq' "$shared"
+  assert_failure
+  assert_file_contains "$after" 'hpl_cutover_drain_fixed_point'
+  assert_file_contains "$after" 'hpl_cutover_ensure_all'
+  assert_file_contains "$shared" '^hpl_cutover_rollback()'
+  assert_file_contains "$shared" '^hpl_cutover_verify_daemon()'
 }
 
 # ===========================================

@@ -53,8 +53,8 @@ description = "close pane, then tab, but keep workspace"
 prompt_new_tab_name = false
 sidebar_min_width = 32
 
-# The `pane` row renders the pane label, which herdr-task-sync
-# (~/.local/bin/herdr-task-sync) sets to `<agent-prefix>:<task-slug>`. The same
+# The `pane` row renders the pane label, which herdr-pane-labels
+# (~/.local/bin/herdr-pane-labels) sets to `<agent-prefix>:<color-animal>`. The same
 # script rebuilds each tab label from the labels of its panes. The second row
 # is the combined Git location token (place icon + ref + optional folder
 # qualifier + stale suffix icon); herdr 0.8 collapses the row entirely for

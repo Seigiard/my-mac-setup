@@ -5,14 +5,24 @@ set -euo pipefail
 
 SOURCE_ID="child-agent"
 WAITING_TTL_MS=3600000
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ALIAS_LIBRARY="$SCRIPT_DIR/../lib/herdr-aliases.sh"
+
+if [ ! -r "$ALIAS_LIBRARY" ]; then
+  printf 'herdr-child: alias library is not readable: %s\n' "$ALIAS_LIBRARY" >&2
+  exit 1
+fi
+# shellcheck source=home/dot_local/lib/herdr-aliases.sh
+source "$ALIAS_LIBRARY"
 
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  herdr-child start --kind <claude|opencode|pi> --name <name> [options]
+  herdr-child start --kind <claude|opencode|pi> [options]
   herdr-child ask <question>
-  herdr-child reply --to <name> --pane <pane-id> <decision>
-  herdr-child reap <name>...
+  herdr-child verify --to <alias> --pane <pane-id>
+  herdr-child reply --to <alias> --pane <pane-id> <decision>
+  herdr-child reap --to <alias> --pane <pane-id>
 
 Start options:
   --posture <ro|rw>       Child tool posture (default: ro)
@@ -70,22 +80,114 @@ now_seq() {
   printf '%s000000' "$(date +%s)"
 }
 
-json_has_name() {
-  local name="$1"
-  python3 -c 'import json,sys
-name=sys.argv[1]
-data=json.load(sys.stdin)
-agents=data.get("result",{}).get("agents",[])
-raise SystemExit(0 if any(a.get("name")==name for a in agents) else 1)' "$name"
+json_agents_are_complete() {
+  python3 -c 'import json,math,sys
+try:
+ data=json.load(sys.stdin)
+ agents=data["result"]["agents"]
+except Exception:
+ raise SystemExit(1)
+if not isinstance(agents,list): raise SystemExit(1)
+panes=set(); terminals=set(); names=set()
+for a in agents:
+ if not isinstance(a,dict): raise SystemExit(1)
+ for key in ("pane_id","agent","terminal_id"):
+  if not isinstance(a.get(key),str) or not a[key]: raise SystemExit(1)
+ for key in ("revision","state_change_seq"):
+  if not isinstance(a.get(key),(int,float)) or isinstance(a[key],bool) or not math.isfinite(a[key]): raise SystemExit(1)
+ if "name" in a and not isinstance(a["name"],str): raise SystemExit(1)
+ if a["pane_id"] in panes or a["terminal_id"] in terminals: raise SystemExit(1)
+ if a.get("name") and a["name"] in names: raise SystemExit(1)
+ panes.add(a["pane_id"]); terminals.add(a["terminal_id"])
+ if a.get("name"): names.add(a["name"])
+'
 }
 
-json_has_pair() {
+read_live_agents() {
+  local context="$1" output
+  output="$(herdr agent list)" || {
+    printf 'herdr-child: could not list live agents during %s\n' "$context" >&2
+    return 1
+  }
+  if ! printf '%s' "$output" | json_agents_are_complete; then
+    printf 'herdr-child: live agent records are incomplete during %s\n' "$context" >&2
+    return 1
+  fi
+  LIVE_AGENTS_JSON="$output"
+  OCCUPIED_NAMES="$(printf '%s' "$output" | json_occupied_names)"
+}
+
+json_occupied_names() {
+  python3 -c 'import json,sys
+agents=json.load(sys.stdin)["result"]["agents"]
+for agent in agents:
+ name=agent.get("name")
+ if name: print(name)'
+}
+
+alias_is_occupied() {
+  local wanted="$1" name
+  while IFS= read -r name; do
+    [ "$name" != "$wanted" ] || return 0
+  done <<EOF
+$OCCUPIED_NAMES
+EOF
+  return 1
+}
+
+json_alias_belongs_elsewhere() {
   local name="$1" pane="$2"
   python3 -c 'import json,sys
 name,pane=sys.argv[1:3]
-data=json.load(sys.stdin)
-agents=data.get("result",{}).get("agents",[])
-raise SystemExit(0 if any(a.get("name")==name and a.get("pane_id")==pane for a in agents) else 1)' "$name" "$pane"
+agents=json.load(sys.stdin)["result"]["agents"]
+matches=[a for a in agents if a.get("name")==name]
+raise SystemExit(0 if len(matches)==1 and matches[0]["pane_id"]!=pane else 1)' "$name" "$pane"
+}
+
+json_pane_has_no_agent() {
+  local pane="$1"
+  python3 -c 'import json,sys
+pane=sys.argv[1]
+agents=json.load(sys.stdin)["result"]["agents"]
+raise SystemExit(0 if not any(a["pane_id"]==pane for a in agents) else 1)' "$pane"
+}
+
+json_pair_terminal() {
+  local name="$1" pane="$2"
+  python3 -c 'import json,sys
+name,pane=sys.argv[1:3]
+agents=json.load(sys.stdin)["result"]["agents"]
+matches=[a for a in agents if a.get("name")==name and a["pane_id"]==pane]
+if len(matches)!=1: raise SystemExit(1)
+print(matches[0]["terminal_id"])' "$name" "$pane"
+}
+
+json_current_alias() {
+  local pane="$1"
+  python3 -c 'import json,sys
+pane=sys.argv[1]
+agents=json.load(sys.stdin)["result"]["agents"]
+matches=[a for a in agents if a["pane_id"]==pane and isinstance(a.get("name"),str) and a["name"]]
+if len(matches)!=1: raise SystemExit(1)
+print(matches[0]["name"])' "$pane"
+}
+
+json_error_file_is() {
+  local file="$1" expected="$2"
+  python3 -c 'import json,sys
+try: data=json.load(open(sys.argv[1]))
+except Exception: raise SystemExit(1)
+raise SystemExit(0 if data.get("error",{}).get("code")==sys.argv[2] else 1)' "$file" "$expected"
+}
+
+pane_terminal_matches() {
+  local pane="$1" terminal="$2" output
+  output="$(herdr pane get "$pane")" || return 1
+  printf '%s' "$output" | python3 -c 'import json,sys
+pane_id,terminal_id=sys.argv[1:3]
+try: pane=json.load(sys.stdin)["result"]["pane"]
+except Exception: raise SystemExit(1)
+raise SystemExit(0 if pane.get("pane_id")==pane_id and pane.get("terminal_id")==terminal_id else 1)' "$pane" "$terminal"
 }
 
 start_child() {
@@ -93,14 +195,13 @@ start_child() {
 
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
   local configured_agent="" prompt="" prompt_file="" direction="right"
-  local wait_for_child=0 timeout="30000" pane="" list_json="" split_json=""
+  local wait_for_child=0 timeout="30000" pane="" terminal="" split_json=""
   local skills_count=0
-  local -a skills=() split_args=() native_args=()
+  local -a skills=() split_args=() native_args=() candidates=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
       --kind) [ $# -ge 2 ] || fail_usage '--kind needs a value'; kind="$2"; shift 2 ;;
-      --name) [ $# -ge 2 ] || fail_usage '--name needs a value'; name="$2"; shift 2 ;;
       --posture) [ $# -ge 2 ] || fail_usage '--posture needs a value'; posture="$2"; shift 2 ;;
       --cwd) [ $# -ge 2 ] || fail_usage '--cwd needs a value'; cwd="$2"; shift 2 ;;
       --model) [ $# -ge 2 ] || fail_usage '--model needs a value'; model="$2"; shift 2 ;;
@@ -120,7 +221,6 @@ start_child() {
   case "$kind" in claude|opencode|pi) ;; *) fail_usage '--kind must be claude, opencode, or pi' ;; esac
   case "$posture" in ro|rw) ;; *) fail_usage '--posture must be ro or rw' ;; esac
   case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
-  [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || fail_usage 'name must match [a-z][a-z0-9_-]{0,31}'
   [[ "$timeout" =~ ^[0-9]+$ ]] || fail_usage '--timeout must be an integer'
   [ -d "$cwd" ] || fail_usage "working directory does not exist: $cwd"
   if [ -n "$prompt" ] && [ -n "$prompt_file" ]; then fail_usage 'use only one of --prompt or --prompt-file'; fi
@@ -136,42 +236,6 @@ start_child() {
   if [ -n "$effort" ] && [ "$kind" != pi ]; then fail_usage "--effort is not supported for $kind"; fi
   if [ "$skills_count" -gt 0 ] && [ "$kind" = opencode ]; then fail_usage '--skills is not supported for opencode'; fi
   if [ -n "$configured_agent" ] && [ "$kind" != opencode ]; then fail_usage "--agent is not supported for $kind"; fi
-
-  list_json="$(herdr agent list)" || {
-    printf 'herdr-child: could not list live agents\n' >&2
-    exit 1
-  }
-  if printf '%s' "$list_json" | json_has_name "$name"; then
-    fail_usage "agent name is already live: $name"
-  fi
-
-  split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
-    --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
-
-  case "$kind:$posture" in
-    opencode:ro)
-      # Deny the interactive question and edit tools; the shell stays available for callbacks.
-      split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}')
-      ;;
-    opencode:rw)
-      # Deny only the interactive question tool in read-write work.
-      split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny"}')
-      ;;
-  esac
-
-  split_json="$(herdr "${split_args[@]}")" || {
-    printf 'herdr-child: pane split failed\n' >&2
-    exit 1
-  }
-  pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
-    printf 'herdr-child: pane split returned no pane ID\n' >&2
-    exit 1
-  }
-
-  cleanup_pane() {
-    herdr pane close "$pane" >/dev/null 2>&1 || true
-  }
-  trap cleanup_pane INT TERM
 
   case "$kind" in
     claude)
@@ -206,37 +270,203 @@ start_child() {
       ;;
   esac
 
-  local attempt=1 start_err start_out start_status=1 start_timeout="$timeout"
+  if ! read_live_agents 'initial allocation'; then
+    return 1
+  fi
+
+  local seed candidate_file candidate candidate_index=0 selected=""
+  seed="${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(now_seq)"
+  candidate_file="$(mktemp)"
+  if ! herdr_alias_candidates "$seed" > "$candidate_file"; then
+    rm -f "$candidate_file"
+    printf 'herdr-child: could not build alias candidates\n' >&2
+    return 1
+  fi
+  while IFS= read -r candidate; do candidates+=("$candidate"); done < "$candidate_file"
+  rm -f "$candidate_file"
+
+  select_next_candidate() {
+    selected=""
+    while [ "$candidate_index" -lt "${#candidates[@]}" ]; do
+      candidate="${candidates[$candidate_index]}"
+      candidate_index=$((candidate_index + 1))
+      if ! alias_is_occupied "$candidate"; then
+        selected="$candidate"
+        return 0
+      fi
+    done
+    return 1
+  }
+
+  close_unregistered_pane() {
+    local reason="$1"
+    [ -n "$pane" ] || return 0
+    if ! read_live_agents "$reason cleanup" \
+      || ! printf '%s' "$LIVE_AGENTS_JSON" | json_pane_has_no_agent "$pane" \
+      || ! pane_terminal_matches "$pane" "$terminal"; then
+      printf 'herdr-child: preserving pane %s; cleanup identity is ambiguous after %s\n' "$pane" "$reason" >&2
+      return 1
+    fi
+    if ! herdr pane close "$pane" >/dev/null; then
+      printf 'herdr-child: preserving pane %s; close failed after %s\n' "$pane" "$reason" >&2
+      return 1
+    fi
+    pane=""
+    terminal=""
+  }
+
+  close_collision_pane() {
+    local collision_alias="$1"
+    if ! read_live_agents 'name collision' \
+      || ! printf '%s' "$LIVE_AGENTS_JSON" | json_alias_belongs_elsewhere "$collision_alias" "$pane" \
+      || ! printf '%s' "$LIVE_AGENTS_JSON" | json_pane_has_no_agent "$pane" \
+      || ! pane_terminal_matches "$pane" "$terminal"; then
+      printf 'herdr-child: preserving collision pane %s; alias or terminal ownership is ambiguous\n' "$pane" >&2
+      return 1
+    fi
+    if ! herdr pane close "$pane" >/dev/null; then
+      printf 'herdr-child: preserving collision pane %s; close failed\n' "$pane" >&2
+      return 1
+    fi
+    pane=""
+    terminal=""
+  }
+
+  close_registered_pane() {
+    local accepted_alias="$1" reason="$2" current_terminal=""
+    [ -n "$pane" ] || return 0
+    if ! read_live_agents "$reason cleanup"; then
+      printf 'herdr-child: preserving pane %s; accepted alias ownership could not be verified after %s\n' "$pane" "$reason" >&2
+      return 1
+    fi
+    current_terminal="$(printf '%s' "$LIVE_AGENTS_JSON" | json_pair_terminal "$accepted_alias" "$pane")" || true
+    if [ "$current_terminal" != "$terminal" ] || ! pane_terminal_matches "$pane" "$terminal"; then
+      printf 'herdr-child: preserving pane %s; accepted alias no longer has the captured terminal after %s\n' "$pane" "$reason" >&2
+      return 1
+    fi
+    if ! herdr pane close "$pane" >/dev/null; then
+      printf 'herdr-child: preserving pane %s; close failed after %s\n' "$pane" "$reason" >&2
+      return 1
+    fi
+    pane=""
+    terminal=""
+  }
+
+  local accepted=0
+  signal_cleanup() {
+    set +e
+    if [ "$accepted" -eq 1 ]; then
+      close_registered_pane "$name" signal
+    else
+      close_unregistered_pane signal
+    fi
+    exit 130
+  }
+  trap signal_cleanup INT TERM
+
+  if ! select_next_candidate; then
+    trap - INT TERM
+    printf 'herdr-child: alias pool is exhausted\n' >&2
+    return 1
+  fi
+
+  local attempt start_err start_out start_status start_timeout="$timeout" split_record
   # herdr caps agent startup at five minutes; a longer caller timeout belongs to prompt waiting.
   [ "$start_timeout" -le 300000 ] || start_timeout=300000
   start_err="$(mktemp)"
   start_out="$(mktemp)"
-  while [ "$attempt" -le 3 ]; do
-    set +e
-    herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
-    start_status=$?
-    set -e
-    [ "$start_status" -eq 0 ] && break
-    if ! grep -q '"code":"agent_pane_busy"' "$start_err"; then
-      cat "$start_err" >&2
-      printf 'herdr-child: agent start failed\n' >&2
+  while :; do
+    name="$selected"
+    split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+    case "$kind:$posture" in
+      opencode:ro) split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}') ;;
+      opencode:rw) split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny"}') ;;
+    esac
+
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: pane split failed\n' >&2
       rm -f "$start_err" "$start_out"
-      cleanup_pane
+      trap - INT TERM
       return 1
+    }
+    split_record="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try: pane=json.load(sys.stdin)["result"]["pane"]
+except Exception: raise SystemExit(1)
+pane_id=pane.get("pane_id"); terminal_id=pane.get("terminal_id")
+if not isinstance(pane_id,str) or not pane_id or not isinstance(terminal_id,str) or not terminal_id: raise SystemExit(1)
+print(pane_id+"\t"+terminal_id)')" || {
+      printf 'herdr-child: pane split returned no pane and terminal identity; preserving the new pane\n' >&2
+      rm -f "$start_err" "$start_out"
+      trap - INT TERM
+      return 1
+    }
+    IFS=$'\t' read -r pane terminal <<< "$split_record"
+
+    attempt=1
+    start_status=1
+    while [ "$attempt" -le 3 ]; do
+      set +e
+      herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
+      start_status=$?
+      set -e
+      if [ "$start_status" -eq 0 ]; then
+        accepted=1
+        break
+      fi
+      if json_error_file_is "$start_err" agent_pane_busy; then
+        attempt=$((attempt + 1))
+        [ "$attempt" -le 3 ] && sleep 1
+        continue
+      fi
+      break
+    done
+
+    [ "$accepted" -eq 0 ] || break
+    if json_error_file_is "$start_err" agent_name_taken; then
+      if ! close_collision_pane "$name"; then
+        printf 'herdr-child: alias collision could not be cleaned up safely\n' >&2
+        rm -f "$start_err" "$start_out"
+        trap - INT TERM
+        return 1
+      fi
+      if ! select_next_candidate; then
+        printf 'herdr-child: alias pool became exhausted after a registration collision\n' >&2
+        rm -f "$start_err" "$start_out"
+        trap - INT TERM
+        return 1
+      fi
+      continue
     fi
-    attempt=$((attempt + 1))
-    [ "$attempt" -le 3 ] && sleep 1
-  done
-  if [ "$start_status" -ne 0 ]; then
+
     cat "$start_err" >&2
-    printf 'herdr-child: pane was not ready after three agent start attempts\n' >&2
+    if json_error_file_is "$start_err" agent_pane_busy; then
+      printf 'herdr-child: pane was not ready after three agent start attempts\n' >&2
+      close_unregistered_pane readiness-failure || true
+    else
+      printf 'herdr-child: agent start failed\n' >&2
+      close_unregistered_pane start-failure || true
+    fi
     rm -f "$start_err" "$start_out"
-    cleanup_pane
+    trap - INT TERM
     return 1
-  fi
+  done
   rm -f "$start_err" "$start_out"
 
-  local initial_prompt prompt_out prompt_err prompt_status
+  local initial_prompt prompt_out prompt_err prompt_status registered_terminal=""
+  if ! read_live_agents 'post-registration validation'; then
+    printf 'herdr-child: accepted alias could not be verified before the initial prompt\n' >&2
+    trap - INT TERM
+    close_registered_pane "$name" post-registration-validation || true
+    return 1
+  fi
+  registered_terminal="$(printf '%s' "$LIVE_AGENTS_JSON" | json_pair_terminal "$name" "$pane")" || true
+  if [ "$registered_terminal" != "$terminal" ]; then
+    printf 'herdr-child: accepted alias, pane, or terminal changed before the initial prompt\n' >&2
+    trap - INT TERM
+    close_registered_pane "$name" post-registration-validation || true
+    return 1
+  fi
   initial_prompt="$(cat <<EOF
 You are child agent '$name' in pane '$pane'. Your launch parent is pane '$HERDR_PANE_ID'.
 If you need a question or blocking decision, run: herdr-child ask '<decision brief>'. Do not open an interactive question dialog. Stop your turn after the call succeeds or fails.
@@ -251,28 +481,28 @@ EOF
   prompt_err="$(mktemp)"
   set +e
   if [ "$wait_for_child" -eq 1 ]; then
-    herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
+    herdr agent prompt "$pane" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
   else
-    herdr agent prompt "$name" "$initial_prompt" >"$prompt_out" 2>"$prompt_err"
+    herdr agent prompt "$pane" "$initial_prompt" >"$prompt_out" 2>"$prompt_err"
   fi
   prompt_status=$?
   set -e
   if [ "$prompt_status" -ne 0 ]; then
     cat "$prompt_err" >&2
-    if [ "$wait_for_child" -eq 1 ] && grep -q '"code":"timeout"' "$prompt_err"; then
+    if [ "$wait_for_child" -eq 1 ] && json_error_file_is "$prompt_err" timeout; then
       printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
       rm -f "$prompt_out" "$prompt_err"
       trap - INT TERM
       printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
       return 124
     fi
-    if grep -q 'agent_prompt_stalled' "$prompt_err"; then
+    if json_error_file_is "$prompt_err" agent_prompt_stalled; then
       printf 'herdr-child: initial prompt stalled\n' >&2
     else
       printf 'herdr-child: initial prompt failed\n' >&2
     fi
     rm -f "$prompt_out" "$prompt_err"
-    cleanup_pane
+    close_registered_pane "$name" prompt-failure || true
     return 1
   fi
   rm -f "$prompt_out" "$prompt_err"
@@ -288,24 +518,25 @@ ask_parent() {
   [ -n "${HERDR_CHILD_PARENT_PANE:-}" ] || { printf 'herdr-child: HERDR_CHILD_PARENT_PANE is missing\n' >&2; exit 1; }
   [ -n "${HERDR_PANE_ID:-}" ] || { printf 'herdr-child: HERDR_PANE_ID is missing\n' >&2; exit 1; }
 
-  local seq list_json message
+  local seq current_alias message
   seq="$(now_seq)"
   herdr pane report-metadata "$HERDR_PANE_ID" --source "$SOURCE_ID" \
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" --seq "$seq" >/dev/null
 
-  list_json="$(herdr agent list)" || {
-    printf 'herdr-child: parent lookup failed; waiting label remains published\n' >&2
+  if ! read_live_agents 'callback lookup'; then
+    printf 'herdr-child: child or parent lookup failed; waiting label remains published\n' >&2
+    exit 1
+  fi
+  current_alias="$(printf '%s' "$LIVE_AGENTS_JSON" | json_current_alias "$HERDR_PANE_ID")" || {
+    printf 'herdr-child: current pane has no unique registered alias; waiting label remains published\n' >&2
     exit 1
   }
-  if ! printf '%s' "$list_json" | python3 -c 'import json,sys
-pane=sys.argv[1]
-agents=json.load(sys.stdin).get("result",{}).get("agents",[])
-raise SystemExit(0 if any(a.get("pane_id")==pane for a in agents) else 1)' "$HERDR_CHILD_PARENT_PANE"; then
+  if printf '%s' "$LIVE_AGENTS_JSON" | json_pane_has_no_agent "$HERDR_CHILD_PARENT_PANE"; then
     printf 'herdr-child: no live parent occupies pane %s; waiting label remains published\n' "$HERDR_CHILD_PARENT_PANE" >&2
     exit 1
   fi
 
-  message="[child-ask v1 agent=$HERDR_CHILD_NAME pane=$HERDR_PANE_ID]
+  message="[child-ask v1 agent=$current_alias pane=$HERDR_PANE_ID]
 
 $1"
   if ! herdr agent prompt "$HERDR_CHILD_PARENT_PANE" "$message" >/dev/null; then
@@ -315,13 +546,35 @@ $1"
   printf 'Question delivered. End this turn and wait for the parent reply.\n'
 }
 
-reply_child() {
+verify_pair() {
   require_parent
-  local name="" pane="" text="" list_json="" message=""
+  local name="" pane="" terminal=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; name="$2"; shift 2 ;;
-      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; pane="$2"; shift 2 ;;
+      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; [ -z "$name" ] || fail_usage 'verify accepts --to once'; name="$2"; shift 2 ;;
+      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; [ -z "$pane" ] || fail_usage 'verify accepts --pane once'; pane="$2"; shift 2 ;;
+      *) fail_usage "unknown verify option: $1" ;;
+    esac
+  done
+  [ -n "$name" ] || fail_usage 'verify requires --to'
+  [ -n "$pane" ] || fail_usage 'verify requires --pane'
+
+  read_live_agents 'pair verification' || exit 1
+  terminal="$(printf '%s' "$LIVE_AGENTS_JSON" | json_pair_terminal "$name" "$pane")" || true
+  if [ -z "$terminal" ]; then
+    printf 'herdr-child: child alias and pane do not identify the same live agent\n' >&2
+    exit 1
+  fi
+  printf '%s\n' "$terminal"
+}
+
+reply_child() {
+  require_parent
+  local name="" pane="" text="" message="" terminal="" fresh_terminal=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; [ -z "$name" ] || fail_usage 'reply accepts --to once'; name="$2"; shift 2 ;;
+      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; [ -z "$pane" ] || fail_usage 'reply accepts --pane once'; pane="$2"; shift 2 ;;
       --*) fail_usage "unknown reply option: $1" ;;
       *) [ -z "$text" ] || fail_usage 'reply accepts one decision argument'; text="$1"; shift ;;
     esac
@@ -330,8 +583,9 @@ reply_child() {
   [ -n "$pane" ] || fail_usage 'reply requires --pane'
   [ -n "$text" ] || fail_usage 'reply requires a decision'
 
-  list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; exit 1; }
-  if ! printf '%s' "$list_json" | json_has_pair "$name" "$pane"; then
+  read_live_agents 'reply pair capture' || exit 1
+  terminal="$(printf '%s' "$LIVE_AGENTS_JSON" | json_pair_terminal "$name" "$pane")" || true
+  if [ -z "$terminal" ]; then
     printf 'herdr-child: child name and pane do not identify the same live agent\n' >&2
     exit 1
   fi
@@ -339,7 +593,13 @@ reply_child() {
   message="[parent-reply v1 pane=$HERDR_PANE_ID]
 
 $text"
-  if ! herdr agent prompt "$name" "$message" >/dev/null; then
+  read_live_agents 'reply final validation' || exit 1
+  fresh_terminal="$(printf '%s' "$LIVE_AGENTS_JSON" | json_pair_terminal "$name" "$pane")" || true
+  if [ "$fresh_terminal" != "$terminal" ]; then
+    printf 'herdr-child: child alias, pane, or terminal changed before reply\n' >&2
+    exit 1
+  fi
+  if ! herdr agent prompt "$pane" "$message" >/dev/null; then
     printf 'herdr-child: reply delivery failed; waiting label remains published\n' >&2
     exit 1
   fi
@@ -353,99 +613,89 @@ $text"
 
 reap_children() {
   require_parent
-  [ $# -gt 0 ] || fail_usage 'reap requires at least one child name'
-  local list_json name record pane status focused pane_json label_status fresh_list_json fresh_status
-  list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; exit 1; }
-
-  for name in "$@"; do
-    set +e
-    record="$(printf '%s' "$list_json" | python3 -c 'import json,sys
-try:
- data=json.load(sys.stdin)
-except Exception:
- raise SystemExit(2)
-name=sys.argv[1]
-agents=data.get("result",{}).get("agents",[])
-match=next((a for a in agents if a.get("name")==name), None)
-if match is None:
- raise SystemExit(1)
-print("%s\t%s\t%s" % (match.get("pane_id",""), match.get("agent_status","unknown"), str(bool(match.get("focused"))).lower()))' "$name")"
-    fresh_status=$?
-    set -e
-    case "$fresh_status" in
-      0) ;;
-      1) printf '%s: skipped; no live agent has this name\n' "$name"; continue ;;
-      *) printf '%s: kept; live agent state could not be parsed\n' "$name"; continue ;;
+  local name="" pane="" record="" status="" focused="" terminal=""
+  local pane_json="" label_status fresh_status
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; [ -z "$name" ] || fail_usage 'reap accepts --to once'; name="$2"; shift 2 ;;
+      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; [ -z "$pane" ] || fail_usage 'reap accepts --pane once'; pane="$2"; shift 2 ;;
+      *) fail_usage "unknown reap option: $1" ;;
     esac
-    IFS=$'\t' read -r pane status focused <<< "$record"
-    case "$status" in
-      done|idle) ;;
-      *) printf '%s: kept; status is %s\n' "$name" "$status"; continue ;;
-    esac
-    if [ "$focused" = true ]; then
-      printf '%s: kept; pane %s is focused\n' "$name" "$pane"
-      continue
-    fi
-    pane_json="$(herdr pane get "$pane")" || {
-      printf '%s: kept; pane metadata could not be read\n' "$name"
-      continue
-    }
-    set +e
-    printf '%s' "$pane_json" | python3 -c 'import json,sys
-try:
- pane=json.load(sys.stdin).get("result",{}).get("pane",{})
-except Exception:
- raise SystemExit(2)
-labels=pane.get("state_labels")
-if labels is None or labels == {}:
- raise SystemExit(1)
-if isinstance(labels, dict):
- raise SystemExit(0)
-raise SystemExit(2)'
-    label_status=$?
-    set -e
-    case "$label_status" in
-      0) printf '%s: kept; pane %s has a waiting state label\n' "$name" "$pane"; continue ;;
-      1) ;;
-      *) printf '%s: kept; pane metadata could not be read\n' "$name"; continue ;;
-    esac
-    fresh_list_json="$(herdr agent list)" || {
-      printf '%s: kept; live agent state could not be read\n' "$name"
-      continue
-    }
-    set +e
-    printf '%s' "$fresh_list_json" | python3 -c 'import json,sys
-try:
- data=json.load(sys.stdin)
-except Exception:
- raise SystemExit(2)
-name,pane=sys.argv[1:3]
-agents=data.get("result",{}).get("agents",[])
-match=next((a for a in agents if a.get("name")==name and a.get("pane_id")==pane), None)
-if match is None:
- raise SystemExit(1)
-status=match.get("agent_status","unknown")
-focused=str(bool(match.get("focused"))).lower()
-if status not in ("done","idle"):
- raise SystemExit(3)
-if focused == "true":
- raise SystemExit(4)' "$name" "$pane"
-    fresh_status=$?
-    set -e
-    case "$fresh_status" in
-      0) ;;
-      1) printf '%s: kept; child name and pane no longer identify the same live agent\n' "$name"; continue ;;
-      2) printf '%s: kept; live agent state could not be parsed\n' "$name"; continue ;;
-      3) printf '%s: kept; current status is not settled\n' "$name"; continue ;;
-      4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; continue ;;
-      *) printf '%s: kept; live agent state could not be read\n' "$name"; continue ;;
-    esac
-    if herdr pane close "$pane" >/dev/null; then
-      printf '%s: closed pane %s\n' "$name" "$pane"
-    else
-      printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
-    fi
   done
+  [ -n "$name" ] || fail_usage 'reap requires --to'
+  [ -n "$pane" ] || fail_usage 'reap requires --pane'
+
+  read_live_agents 'reap pair capture' || { printf '%s: kept; live agent state could not be read\n' "$name"; return 1; }
+  set +e
+  record="$(printf '%s' "$LIVE_AGENTS_JSON" | python3 -c 'import json,sys
+name,pane=sys.argv[1:3]
+agents=json.load(sys.stdin)["result"]["agents"]
+matches=[a for a in agents if a.get("name")==name and a["pane_id"]==pane]
+if len(matches)!=1: raise SystemExit(1)
+a=matches[0]
+print("%s\t%s\t%s" % (a["terminal_id"], a.get("agent_status","unknown"), str(bool(a.get("focused"))).lower()))' "$name" "$pane")"
+  fresh_status=$?
+  set -e
+  if [ "$fresh_status" -ne 0 ]; then
+    printf '%s: kept; child alias and pane do not identify the same live agent\n' "$name"
+    return 0
+  fi
+  IFS=$'\t' read -r terminal status focused <<< "$record"
+  case "$status" in
+    done|idle) ;;
+    *) printf '%s: kept; status is %s\n' "$name" "$status"; return 0 ;;
+  esac
+  if [ "$focused" = true ]; then
+    printf '%s: kept; pane %s is focused\n' "$name" "$pane"
+    return 0
+  fi
+
+  pane_json="$(herdr pane get "$pane")" || {
+    printf '%s: kept; pane metadata could not be read\n' "$name"
+    return 0
+  }
+  set +e
+  printf '%s' "$pane_json" | python3 -c 'import json,sys
+pane_id,terminal_id=sys.argv[1:3]
+try: pane=json.load(sys.stdin)["result"]["pane"]
+except Exception: raise SystemExit(2)
+if pane.get("pane_id")!=pane_id or pane.get("terminal_id")!=terminal_id: raise SystemExit(2)
+labels=pane.get("state_labels")
+if labels is None or labels == {}: raise SystemExit(1)
+if isinstance(labels,dict): raise SystemExit(0)
+raise SystemExit(2)' "$pane" "$terminal"
+  label_status=$?
+  set -e
+  case "$label_status" in
+    0) printf '%s: kept; pane %s has a waiting state label\n' "$name" "$pane"; return 0 ;;
+    1) ;;
+    *) printf '%s: kept; pane metadata could not be read\n' "$name"; return 0 ;;
+  esac
+
+  read_live_agents 'reap final validation' || { printf '%s: kept; live agent state could not be read\n' "$name"; return 0; }
+  set +e
+  printf '%s' "$LIVE_AGENTS_JSON" | python3 -c 'import json,sys
+name,pane,terminal=sys.argv[1:4]
+agents=json.load(sys.stdin)["result"]["agents"]
+matches=[a for a in agents if a.get("name")==name and a["pane_id"]==pane and a["terminal_id"]==terminal]
+if len(matches)!=1: raise SystemExit(1)
+a=matches[0]
+if a.get("agent_status") not in ("done","idle"): raise SystemExit(3)
+if bool(a.get("focused")): raise SystemExit(4)' "$name" "$pane" "$terminal"
+  fresh_status=$?
+  set -e
+  case "$fresh_status" in
+    0) ;;
+    1) printf '%s: kept; child alias, pane, or terminal changed\n' "$name"; return 0 ;;
+    3) printf '%s: kept; current status is not settled\n' "$name"; return 0 ;;
+    4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; return 0 ;;
+    *) printf '%s: kept; live agent state could not be parsed\n' "$name"; return 0 ;;
+  esac
+  if herdr pane close "$pane" >/dev/null; then
+    printf '%s: closed pane %s\n' "$name" "$pane"
+  else
+    printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
+  fi
 }
 
 [ $# -gt 0 ] || { usage; exit 2; }
@@ -454,6 +704,7 @@ shift
 case "$command" in
   start) start_child "$@" ;;
   ask) ask_parent "$@" ;;
+  verify) verify_pair "$@" ;;
   reply) reply_child "$@" ;;
   reap) reap_children "$@" ;;
   -h|--help) usage ;;

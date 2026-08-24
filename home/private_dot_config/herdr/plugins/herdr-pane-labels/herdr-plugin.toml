@@ -1,11 +1,11 @@
 id = "seigi.pane-labels"
 name = "Pane Labels"
 version = "0.1.0"
-min_herdr_version = "0.8.0"
+min_herdr_version = "0.8.2"
 description = "Keep pane and tab labels in step with what each pane runs."
 platforms = ["macos", "linux"]
 
-# ~/.local/bin/herdr-task-sync remains the only pane and tab label writer.
+# ~/.local/bin/herdr-pane-labels remains the only pane and tab label writer.
 # Events only invalidate its session-wide presentation coordinator, while the
 # daemon repairs foreground process and CWD changes that emit no useful event.
 

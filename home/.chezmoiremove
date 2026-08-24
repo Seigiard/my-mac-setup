@@ -15,3 +15,10 @@
 # Marta now reads configuration from Application Support/org.yanex.marta.
 # Remove the legacy config directory that earlier applies left behind.
 Library/marta
+
+# Registered aliases replace the retired prompt-driven naming engine and its
+# client-specific adapters.
+.local/bin/herdr-task-sync
+.claude/hooks/herdr-task-sync-hook.sh
+.config/opencode/plugins/herdr-task-sync.ts
+.pi/agent/extensions/herdr-task-sync.ts

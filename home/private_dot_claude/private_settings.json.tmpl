@@ -78,39 +78,6 @@
           }
         ],
         "matcher": "*"
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' session",
-            "timeout": 5,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' compact",
-            "timeout": 5,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' prompt",
-            "timeout": 5,
-            "type": "command"
-          }
-        ]
       }
     ]
   },
