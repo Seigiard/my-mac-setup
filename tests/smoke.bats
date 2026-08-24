@@ -983,6 +983,7 @@ se_fixture_repo() {
   local ask="$HOME/.claude/skills/ask-in-herdr/scripts/ask.sh"
   local contract="$HOME/.claude/shared/child-agent-contract.md"
   local consult_skill="$HOME/.claude/skills/ask-in-herdr/SKILL.md"
+  local herdr_skill="$HOME/.claude/skills/herdr/SKILL.md"
 
   assert_file_contains "$child" 'ALIAS_LIBRARY="\$SCRIPT_DIR/\.\./lib/herdr-aliases\.sh"'
   run grep -E -- 'start .*--name|case .*--name' "$child"
@@ -992,6 +993,12 @@ se_fixture_repo() {
   assert_file_contains "$ask" 'herdr-child reap --to %s --pane %s'
   assert_file_contains "$contract" 'herdr-child reap --to <alias> --pane <pane-id>'
   assert_file_contains "$consult_skill" 'herdr-child reap --to <alias> --pane <pane-id>'
+  assert_file_contains "$herdr_skill" 'callback alias may differ from the launch alias'
+  assert_file_contains "$herdr_skill" 'CALLBACK_ALIAS="\$CHILD_NAME"'
+  assert_file_contains "$herdr_skill" 'herdr-child verify --to "\$CALLBACK_CANDIDATE" --pane "\$CHILD_PANE"'
+  assert_file_contains "$herdr_skill" 'CALLBACK_ALIAS="\$CALLBACK_CANDIDATE"'
+  assert_file_contains "$herdr_skill" 'herdr-child reply --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
+  assert_file_contains "$herdr_skill" 'herdr-child reap --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
 }
 
 @test "semantic adapters are absent" {

@@ -1056,6 +1056,19 @@ write_pool_records() {
   [[ "$call3" != *--wait* ]]
 }
 
+@test "herdr skill verifies and reuses the callback alias for the launch pane" {
+  local skill="$SOURCE_ROOT/private_dot_claude/skills/herdr/SKILL.md"
+
+  assert_file_contains "$skill" 'callback alias may differ from the launch alias'
+  assert_file_contains "$skill" 'CALLBACK_ALIAS="\$CHILD_NAME"'
+  assert_file_contains "$skill" 'herdr-child verify --to "\$CALLBACK_CANDIDATE" --pane "\$CHILD_PANE"'
+  assert_file_contains "$skill" 'CALLBACK_ALIAS="\$CALLBACK_CANDIDATE"'
+  assert_file_contains "$skill" 'herdr-child reply --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
+  assert_file_contains "$skill" 'herdr-child reap --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
+  run grep -E -- 'herdr-child (reply|reap) --to "\$CHILD_NAME"' "$skill"
+  assert_failure
+}
+
 @test "herdr-child ask leaves the label when parent lookup or delivery fails" {
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
@@ -4749,6 +4762,38 @@ EOF
   assert_success
   assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
   assert_file_contains "$HPL_CUTOVER_TRACE" '^cutover-committed$'
+}
+
+@test "herdr pane-label after script skips missing herdr without a transaction" {
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  mv "$HPL_STUB/herdr" "$HPL_STUB/herdr.unavailable"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  assert_output --partial "herdr not found; skipping pane-labels plugin link"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+}
+
+@test "herdr pane-label after script retries when herdr disappears during cutover" {
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
+
+  hpl_cutover_run "$HPL_CUTOVER_BEFORE"
+  rm -f "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
+  cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-child" "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
+  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
+  mv "$HPL_STUB/herdr" "$HPL_STUB/herdr.unavailable"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_failure
+  assert_output --partial "herdr not found; pane-label activation remains pending"
+  assert_file_contains "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback/state" '^phase=deployed$'
+  refute_output --partial "skipping pane-labels plugin link"
 }
 
 @test "herdr pane-label deployed retry never restores the legacy child launcher" {
