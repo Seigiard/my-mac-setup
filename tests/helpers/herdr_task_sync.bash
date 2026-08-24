@@ -320,9 +320,6 @@ if [ -d "$fixture" ]; then
   : > "$fixture/started"
   mkdir -p "$HTS_WORK/git-started"
   : > "$HTS_WORK/git-started/${fixture##*/}"
-  if [ -n "${HTS_GIT_PROBE_ID:-}" ]; then
-    : > "$HTS_WORK/git-started/$HTS_GIT_PROBE_ID"
-  fi
   if [ -f "$fixture/block" ]; then
     while [ ! -f "$fixture/release" ]; do sleep 0.01; done
   fi
@@ -349,29 +346,6 @@ SH
   chmod +x "$HTS_STUB/git"
   "$HTS_STUB/git" --version >/dev/null 2>&1 || true
 
-  cat > "$HTS_STUB/hts-crash-worker" <<'SH'
-#!/usr/bin/env bash
-set -e
-state="$1"
-crash_after="${2:-none}"
-markers="$state.markers"
-mkdir -p "$markers"
-[ -f "$state" ] || printf '%s\n' '{"completed":[],"complete":false}' > "$state"
-for boundary in enqueue state presentation; do
-  if jq -e --arg boundary "$boundary" '.completed | index($boundary)' "$state" >/dev/null; then
-    continue
-  fi
-  tmp="$state.tmp.$$"
-  jq --arg boundary "$boundary" '.completed += [$boundary]' "$state" > "$tmp"
-  mv "$tmp" "$state"
-  : > "$markers/$boundary"
-  [ "$crash_after" != "$boundary" ] || exit 97
-done
-tmp="$state.tmp.$$"
-jq '.complete = true' "$state" > "$tmp"
-mv "$tmp" "$state"
-SH
-  chmod +x "$HTS_STUB/hts-crash-worker"
   # jq lives outside /usr/bin on Homebrew installs (macOS and the Linux test
   # container alike), so link it in rather than widening the pinned PATH — a
   # wider PATH would also expose the real pi and claude.
@@ -898,36 +872,6 @@ hts_location_source_tokens() {
 
 hts_location_source_seq() {
   jq -r --arg pane "$2" '.metadata[$pane]["location-sync"].seq // 0' "$(hts_socket_state "$1")"
-}
-
-hts_git_probe() {
-  local pane="$1" cwd="$2" result_dir="$HTS_WORK/git-results" git_pid timer_pid git_status
-  mkdir -p "$result_dir"
-  env PATH="$HTS_STUB:/usr/bin:/bin" HTS_GIT_PROBE_ID="$pane" \
-    git -C "$cwd" rev-parse --show-toplevel \
-    > "$result_dir/$pane.output" 2>/dev/null &
-  git_pid=$!
-  hts_wait_for_file "$HTS_WORK/git-started/$pane"
-  (
-    sleep 0.075
-    if kill -0 "$git_pid" 2>/dev/null; then
-      : > "$result_dir/$pane.timed-out"
-      kill "$git_pid" 2>/dev/null || true
-    fi
-  ) &
-  timer_pid=$!
-  if wait "$git_pid"; then git_status=0; else git_status=$?; fi
-  kill "$timer_pid" 2>/dev/null || true
-  wait "$timer_pid" 2>/dev/null || true
-  if [[ -e "$result_dir/$pane.timed-out" || "$git_status" -ne 0 ]]; then
-    printf '%s\n' stale > "$result_dir/$pane"
-  else
-    printf 'fresh:%s\n' "$(cat "$result_dir/$pane.output")" > "$result_dir/$pane"
-  fi
-}
-
-hts_crash_run() {
-  "$HTS_STUB/hts-crash-worker" "$1" "${2:-none}"
 }
 
 # The sweep modes carry no agent and no pane, so they run the script directly

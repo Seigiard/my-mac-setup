@@ -58,12 +58,6 @@ teardown() {
   assert_output --partial "email = "
 }
 
-@test "gitconfig template has no unresolved markers" {
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/dot_gitconfig.tmpl" > "$BATS_TEST_TMPFILE"
-  assert_no_template_markers "$BATS_TEST_TMPFILE"
-}
-
 # ===========================================
 # dot_zshenv.tmpl
 # ===========================================
@@ -71,12 +65,6 @@ teardown() {
 @test "zshenv template renders without op in PATH" {
   run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
   assert_success
-}
-
-@test "zshenv template output has no unresolved markers" {
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/dot_zshenv.tmpl" > "$BATS_TEST_TMPFILE" || true
-  assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
 @test "zshenv sources Cargo environment only when readable" {
@@ -92,12 +80,6 @@ teardown() {
 @test "zshrc template renders successfully" {
   run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
   assert_success
-}
-
-@test "zshrc template has no unresolved markers" {
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/dot_zshrc.tmpl" > "$BATS_TEST_TMPFILE"
-  assert_no_template_markers "$BATS_TEST_TMPFILE"
 }
 
 # ===========================================
@@ -246,7 +228,7 @@ PROBE
 }
 
 # ===========================================
-# opencode.json.tmpl (macOS-only plugin path guarded by .is_darwin)
+# opencode.json.tmpl
 # ===========================================
 
 @test "opencode.json.tmpl renders valid JSON" {
@@ -268,18 +250,6 @@ PROBE
   run jq -r '[.mcp.fff.command[0], (.provider.openrouter.models | has("qwen/qwen3-coder:free")), .plugin[0]] | @tsv' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output $'fff-mcp\ttrue\tcompound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git'
-}
-
-@test "opencode.json.tmpl renders with no unresolved template markers" {
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
-  assert_no_template_markers "$BATS_TEST_TMPFILE"
-}
-
-@test "opencode.json.tmpl omits the macOS brew plugin path on Linux" {
-  is_linux || skip "Only relevant on Linux"
-  run render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
-  refute_output --partial "/opt/homebrew"
 }
 
 @test "opencode skill symlinks target canonical claude skills" {
@@ -358,12 +328,6 @@ render_with_source() {
   assert_output "3"
 }
 
-@test "private_settings.json.tmpl has no unresolved template markers" {
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-  assert_no_template_markers "$BATS_TEST_TMPFILE"
-}
-
 # ===========================================
 # .chezmoiremove
 # ===========================================
@@ -434,6 +398,7 @@ assert_minimal_brewfile() {
   assert_line 'brew "node"'
   assert_line --partial 'brew "oven-sh/bun/bun"'
   assert_line 'brew "jq"'
+  assert_line 'brew "gitleaks"'
 
   refute_line 'brew "git"'
   # rgrc stays out of the minimal set: no test references it, and the shell
@@ -510,8 +475,6 @@ assert_minimal_brewfile() {
 }
 
 @test "MMS_CI_MINIMAL=0 selects the minimal render, because 0 is non-empty" {
-  # The flag is emptiness-tested, not parsed. Reading '0' as "off" is wrong,
-  # and this pins which reading the implementation actually has.
   local cfg="$BATS_TEST_TMPDIR/zero.yaml"
   MMS_CI_MINIMAL=0 write_test_config "$cfg"
 

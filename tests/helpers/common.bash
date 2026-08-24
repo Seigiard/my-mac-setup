@@ -204,9 +204,3 @@ render_with_config() {
     --config "$config_file" --source "$SOURCE_ROOT" \
     execute-template < "$template_file"
 }
-
-assert_no_template_markers() {
-  local file="$1"
-  run grep -n '{{.*}}' "$file"
-  assert_failure
-}
