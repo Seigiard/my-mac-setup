@@ -1,24 +1,110 @@
 {
-  "additionalDirectories": [
-    "{{ .chezmoi.homeDir }}/Dropbox/Knowledge Base",
-    "{{ .chezmoi.homeDir }}/Dropbox/Knowledge Base/Calendar/",
-    "~/Library/CloudStorage/Dropbox/Knowledge Base/",
-    "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
-    "~/.claude/hooks/"
-  ],
+  "fileSuggestion": {
+    "type": "command",
+    "command": "~/.claude/hooks/file-suggestion.sh"
+  },
+  "cleanupPeriodDays": 365,
   "attribution": {
     "commit": "",
     "pr": ""
   },
-  "autoCompactWindow": 400000,
-  "autoCompactEnabled": false,
-  "autoUpdatesChannel": "stable",
-  "cleanupPeriodDays": 365,
-  "disableBundledSkills": true,
-  "disableWorkflows": true,
-  "disableRemoteControl": true,
+  "permissions": {
+    "allow": [
+      "mcp__claude-in-chrome",
+      "mcp__deepwiki",
+      "mcp__jina",
+      "mcp__tavily-mcp",
+      "mcp__fff"
+    ],
+    "deny": [
+      "DesignSync",
+      "NotebookEdit",
+      "PushNotification",
+      "RemoteTrigger",
+      "ReportFindings",
+      "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)",
+      "Bash(rm -r:*)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
   "disableClaudeAiConnectors": true,
-  "effortLevel": "high",
+  "disableBundledSkills": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__fff__grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/fff-grep-guard.sh'",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/webfetch-markdown-hint.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' session",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' compact",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' prompt",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "disableRemoteControl": true,
+  "disableWorkflows": true,
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/hooks/statusline.sh"
+  },
   "enabledPlugins": {
     "claude-md-management@claude-plugins-official": true,
     "compound-engineering@compound-engineering-plugin": true,
@@ -31,110 +117,29 @@
   },
   "extraKnownMarketplaces": {
     "compound-engineering-plugin": {
-      "autoUpdate": true,
       "source": {
-        "repo": "EveryInc/compound-engineering-plugin",
-        "source": "github"
-      }
+        "source": "github",
+        "repo": "EveryInc/compound-engineering-plugin"
+      },
+      "autoUpdate": true
     }
   },
+  "outputStyle": "writing-style",
+  "effortLevel": "high",
+  "autoCompactWindow": 400000,
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "custom:light-ansi-daltonized",
+  "autoCompactEnabled": false,
+  "additionalDirectories": [
+    "{{ .chezmoi.homeDir }}/Dropbox/Knowledge Base",
+    "{{ .chezmoi.homeDir }}/Dropbox/Knowledge Base/Calendar/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/",
+    "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
+    "~/.claude/hooks/"
+  ],
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
   },
-  "fileSuggestion": {
-    "command": "~/.claude/hooks/file-suggestion.sh",
-    "type": "command"
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/fff-grep-guard.sh'",
-            "timeout": 5,
-            "type": "command"
-          }
-        ],
-        "matcher": "mcp__fff__grep"
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/webfetch-markdown-hint.sh'",
-            "timeout": 5,
-            "type": "command"
-          }
-        ],
-        "matcher": "WebFetch"
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-agent-state.sh' session",
-            "timeout": 10,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' session",
-            "timeout": 5,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' compact",
-            "timeout": 5,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-task-sync-hook.sh' prompt",
-            "timeout": 5,
-            "type": "command"
-          }
-        ]
-      }
-    ]
-  },
-  "outputStyle": "writing-style",
-  "permissions": {
-    "allow": [
-      "mcp__claude-in-chrome", "mcp__deepwiki", "mcp__jina", "mcp__tavily-mcp", "mcp__fff"
-    ],
-    "defaultMode": "bypassPermissions",
-    "deny": [
-      "DesignSync",
-      "NotebookEdit",
-      "PushNotification",
-      "RemoteTrigger",
-      "ReportFindings",
-      "Bash(rm -rf:*)",
-      "Bash(rm -fr:*)",
-      "Bash(rm -r:*)"
-    ]
-  },
-  "skipDangerousModePermissionPrompt": true,
-  "statusLine": {
-    "command": "~/.claude/hooks/statusline.sh",
-    "type": "command"
-  },
-  "theme": "custom:light-ansi-daltonized"
+  "tui": "fullscreen"
 }
