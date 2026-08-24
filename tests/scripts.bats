@@ -2013,6 +2013,21 @@ SH
   assert_equal "$(jq -r '.panes[0].label' "$state")" pi:session-path-task
 }
 
+@test "herdr-task-sync presentation labels a detected agent without task state" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_set_pane "$HTS_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":"claude","agent_session":{"agent":"claude","kind":"id","value":"untracked"},"label":"~","tokens":{}}'
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"~"}'
+
+  hts_event_run
+  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+
+  local state
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].label' "$state")" cc
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" cc
+}
+
 @test "herdr-task-sync presentation publishes only the newest accepted generation" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3763,7 +3778,7 @@ SH
 }
 
 # Herdr keeps one label per tab and composes nothing itself. The engine joins
-# the labels of the tab's own agent panes; another tab's panes stay out.
+# normalized labels for the tab's own agent panes; another tab's panes stay out.
 @test "herdr-task-sync rebuilds the tab label from the pane labels" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3776,7 +3791,7 @@ SH
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
   hts_wait_for_call 'tab rename'
   run grep -m1 '^tab rename' "$HTS_LOG"
-  assert_output "tab rename tab-1 cc:cache-review · second"
+  assert_output "tab rename tab-1 cc:cache-review · pi · oc"
 }
 
 # A pane with no agent is named after its command. The name belongs to the
@@ -3958,6 +3973,47 @@ SH
   local pid; pid="$(cat "$sweep_lock/pid" 2>/dev/null)"
   [ -n "$pid" ] && [ "$pid" != "999999" ]
   kill "$pid" 2>/dev/null || true
+}
+
+@test "herdr-task-sync --restart-daemon replaces a live daemon" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  hts_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}'
+  hts_pane_list '{"result":{"panes":[
+    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"}]}}'
+  local sweep_lock="$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock" old_pid new_pid i
+  HTS_SWEEP_INTERVAL=30 hts_sweep_run --ensure-daemon
+  hts_wait_for_file "$sweep_lock/pid"
+  old_pid="$(cat "$sweep_lock/pid")"
+
+  HTS_SWEEP_INTERVAL=30 run hts_sweep_run --restart-daemon
+  assert_success
+  for i in $(seq 1 "$HTS_WAIT_POLLS"); do
+    new_pid="$(cat "$sweep_lock/pid" 2>/dev/null || true)"
+    [ -n "$new_pid" ] && [ "$new_pid" != "$old_pid" ] && break
+    sleep 0.01
+  done
+
+  [ -n "$new_pid" ]
+  [ "$new_pid" != "$old_pid" ]
+  ! kill -0 "$old_pid" 2>/dev/null
+  kill "$new_pid" 2>/dev/null || true
+}
+
+@test "herdr-task-sync --restart-daemon refuses an unrelated lock owner" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  sleep 30 &
+  local live=$! sweep_lock="$(hts_namespace "$HTS_DEFAULT_SOCKET")/sweep.lock"
+  mkdir -p "$sweep_lock"
+  printf '%s' "$live" > "$sweep_lock/pid"
+
+  run hts_sweep_run --restart-daemon
+
+  assert_failure
+  assert_output --partial "refusing to stop unrelated sweep lock owner $live"
+  kill -0 "$live"
+  kill "$live" 2>/dev/null || true
 }
 
 @test "herdr-task-sync sweep daemon exits after three unreachable snapshots" {
