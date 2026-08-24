@@ -1755,9 +1755,21 @@ PY
   assert_output --partial "exceeded fail-open behavioral deadline"
 }
 
+@test "herdr-task-sync fail-open guard accepts a representative same-run baseline" {
+  hts_setup
+  local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=0.1
+  local HTS_FAIL_OPEN_BASELINE_MULTIPLIER=0
+  local HTS_FAIL_OPEN_REFERENCE_MILLIS=1000
+
+  run hts_run_fail_open_guard sleep 0.5
+
+  assert_success
+}
+
 @test "herdr-task-sync fails open for missing tools contention write failure and malformed input" {
   hts_setup
-  local pane_dir
+  local pane_dir namespace control task_file
+  local baseline_start baseline_end baseline_status
   run hts_run_fail_open_guard env PATH="/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=pane-1 \
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     bash "$HTS_ENGINE" --agent claude --session missing <<< 'missing herdr'
@@ -1781,7 +1793,6 @@ PY
   hts_setup
   HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
     --agent pi --session worker-write-failure --set pending-task < /dev/null
-  local namespace control
   namespace="$(hts_namespace "$HTS_DEFAULT_SOCKET")"
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   rmdir "$namespace/tasks"
@@ -1793,9 +1804,18 @@ PY
 
   hts_setup
   HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
+    --agent pi --session commit-write-control --set pending-task < /dev/null
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1
+  baseline_start="$(hts_millis)"
+  baseline_status=0
+  hts_worker_run || baseline_status=$?
+  baseline_end="$(hts_millis)"
+  assert_equal "$baseline_status" 0
+  local HTS_FAIL_OPEN_REFERENCE_MILLIS=$((baseline_end - baseline_start))
+
+  HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
     --agent pi --session commit-write-failure --set pending-task < /dev/null
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
-  local task_file
   task_file="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-write-failure)"
   mkdir "$task_file"
   run hts_run_fail_open_guard hts_worker_run
