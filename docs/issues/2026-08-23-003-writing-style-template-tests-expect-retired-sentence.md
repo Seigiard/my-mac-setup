@@ -1,12 +1,13 @@
 ---
 title: "Writing-style template tests expect retired sentence"
-short_description: "make test-ubuntu fails three templates.bats assertions because origin/main expects the retired sentence while the managed writing-style source now uses the actionable style contract."
+short_description: "PR #71 replaced all stale writing-style assertions with the current shared contract; the template gate passes, while full Ubuntu completion remains blocked later by tracked issue 2026-08-24-002."
 type: "bug"
 category: "testing-ci"
 tags: ["writing-style","test-regression","ubuntu"]
 date: "2026-08-23"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-24"
 ---
 
 ## Why this exists
@@ -24,3 +25,7 @@ priority: "high"
 ## Open decisions
 
 - Decide which current sentence or structural marker is stable enough to serve as the shared render assertion.
+
+## Resolution
+
+Already resolved by PR #71, which replaced the three stale template assertions and three matching smoke assertions with the current shared writing-style contract. make test-templates passed all 37 template cases. make test-ubuntu passed the writing-style template, apply, and post-apply checks, then failed later in Smithers at the separate blocker tracked by 2026-08-24-002.
