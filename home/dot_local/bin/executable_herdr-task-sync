@@ -97,7 +97,8 @@ usage() {
   cat >&2 <<'EOF'
 Usage: herdr-task-sync --agent <name> --session <id> [--pane <id>]
                        [--transcript <path>] [--set <name>]
-       herdr-task-sync --event | --sweep | --sweep-daemon | --ensure-daemon
+       herdr-task-sync --event | --sweep | --sweep-daemon
+                       | --ensure-daemon | --restart-daemon
 The prompt is read from stdin.
 EOF
 }
@@ -115,6 +116,7 @@ while [ $# -gt 0 ]; do
     --sweep) mode="sweep"; shift ;;
     --sweep-daemon) mode="sweep-daemon"; shift ;;
     --ensure-daemon) mode="ensure-daemon"; shift ;;
+    --restart-daemon) mode="restart-daemon"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) shift ;;
   esac
@@ -353,7 +355,7 @@ command -v herdr >/dev/null 2>&1 || exit 0
 # starts them runs outside an agent's environment, so they clear the guards
 # below on their own: a reachable herdr CLI is all they need.
 case "$mode" in
-  event | presentation-worker | sweep | sweep-daemon | ensure-daemon) ;;
+  event | presentation-worker | sweep | sweep-daemon | ensure-daemon | restart-daemon) ;;
   *)
     # Every entry point exits silently outside herdr, so the same files apply on
     # Linux/CI without a .chezmoiignore rule.
@@ -474,16 +476,19 @@ import_legacy_state() {
 # rendered as empty boxes on any terminal without a patched font. An agent
 # with no prefix of its own falls back to its first letter.
 pane_label() {
-  local name="$1" slug="$2"
+  local name="$1" slug="$2" prefix
   case "$name" in
-    claude) printf 'cc:%s' "$slug"; return 0 ;;
-    opencode) printf 'oc:%s' "$slug"; return 0 ;;
-    pi) printf 'pi:%s' "$slug"; return 0 ;;
-    codex) printf 'cx:%s' "$slug"; return 0 ;;
+    claude) prefix=cc ;;
+    opencode) prefix=oc ;;
+    pi) prefix=pi ;;
+    codex) prefix=cx ;;
+    *) prefix="$(LC_ALL=C printf '%s' "$name" | cut -c1 | tr '[:upper:]' '[:lower:]')" ;;
   esac
-  printf '%s:%s' \
-    "$(LC_ALL=C printf '%s' "$name" | cut -c1 | tr '[:upper:]' '[:lower:]')" \
-    "$slug"
+  if [ -n "$slug" ]; then
+    printf '%s:%s' "$prefix" "$slug"
+  else
+    printf '%s' "$prefix"
+  fi
 }
 
 # A pane running no agent is named after its command. The name comes from the
@@ -1325,6 +1330,7 @@ EOF
     slug=""
     metadata_seq=0
     if [ -n "$agent_of" ]; then
+      intended="$(pane_label "$agent_of" "")"
       pane="$id"
       control="$(pane_state_dir)/control.state"
       active_agent="$(read_state_field "$control" active_agent)"
@@ -1662,6 +1668,43 @@ ensure_sweep_daemon() {
   return 0
 }
 
+# Deployment replaces the script on disk while its long-lived daemon keeps the
+# old program in memory. Stop only the process that both owns this socket's lock
+# and identifies itself as this script's sweep daemon, then start the new copy.
+restart_sweep_daemon() {
+  local self="$1" pid command tries=0
+  if [ -d "$SWEEP_LOCK_DIR" ]; then
+    pid="$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      command="$(ps -p "$pid" -o command= 2>/dev/null)"
+      case "$command" in
+        *"/herdr-task-sync --sweep-daemon" | *"/executable_herdr-task-sync --sweep-daemon")
+          kill -TERM "$pid" 2>/dev/null || return 1
+          ;;
+        *) printf '%s\n' "herdr-task-sync: refusing to stop unrelated sweep lock owner $pid" >&2; return 1 ;;
+      esac
+      while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 20 ]; do
+        tries=$((tries + 1))
+        sleep 0.1
+      done
+      # Bash defers TERM traps while waiting for the interval's `sleep` child.
+      # The command fingerprint above makes escalation safe and keeps deploys
+      # bounded even when the configured interval is long.
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || return 1
+        while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 50 ]; do
+          tries=$((tries + 1))
+          sleep 0.1
+        done
+      fi
+      kill -0 "$pid" 2>/dev/null && return 1
+    fi
+    rm -f "$SWEEP_LOCK_DIR/pid" 2>/dev/null
+    rmdir "$SWEEP_LOCK_DIR" 2>/dev/null
+  fi
+  ensure_sweep_daemon "$self"
+}
+
 # Claude Code writes one JSON object per line. Keep user entries that carry
 # real prose: drop meta entries, tool results, and slash-command envelopes.
 transcript_user_entries() {
@@ -1982,7 +2025,7 @@ case "$mode" in
     fi
     SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
     ;;
-  presentation-worker | sweep | sweep-daemon | ensure-daemon)
+  presentation-worker | sweep | sweep-daemon | ensure-daemon | restart-daemon)
     if [ -z "$SOCKET_PATH" ]; then
       printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
       exit 0
@@ -2018,6 +2061,10 @@ case "$mode" in
   ensure-daemon)
     ensure_sweep_daemon "$(script_path)"
     exit 0
+    ;;
+  restart-daemon)
+    restart_sweep_daemon "$(script_path)"
+    exit $?
     ;;
 esac
 

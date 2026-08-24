@@ -6,11 +6,14 @@
 # # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/config.toml" | sha256sum }}
+# # {{ include "dot_local/bin/executable_herdr-task-sync" | sha256sum }}
 
 # Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
 set -u
 
 plugin_dir="$HOME/.config/herdr/plugins/herdr-pane-labels"
+sync="$HOME/.local/bin/herdr-task-sync"
 
 if ! command -v herdr >/dev/null 2>&1; then
   echo "herdr not found; skipping pane-labels plugin link"
@@ -33,6 +36,18 @@ if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
     echo "Reloaded Herdr config"
   else
     echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+  fi
+  if [[ -f "$sync" ]] && command -v jq >/dev/null 2>&1; then
+    while IFS= read -r socket; do
+      [[ -n "$socket" ]] || continue
+      if ! HERDR_SOCKET_PATH="$socket" bash "$sync" --restart-daemon; then
+        echo "Warning: failed to restart pane-label sweep daemon for $socket" >&2
+        continue
+      fi
+      if ! HERDR_SOCKET_PATH="$socket" bash "$sync" --sweep; then
+        echo "Warning: failed to refresh pane labels for $socket" >&2
+      fi
+    done < <(herdr session list --json 2>/dev/null | jq -r '.sessions[]? | select(.running == true) | .socket_path // empty')
   fi
 else
   echo "Warning: failed to link Herdr pane-labels plugin. Run manually: herdr plugin link $plugin_dir" >&2
