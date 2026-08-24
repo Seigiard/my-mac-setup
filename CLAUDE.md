@@ -28,6 +28,7 @@ Reference docs (read on demand):
 | Command | What it does |
 |---|---|
 | `make test-issues` | Strictly validate repository issues and run issue CLI tests |
+| `make test-smithers` | Frozen install, required `gitleaks`, TypeScript check, and complete Bun test suite |
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
 | `make test-suite` | Post-apply suite in parallel, host-safe files only. It keeps `tests/idempotent.bats` excluded as redundant defense behind that file's `MMS_DISPOSABLE_HOME` guard. Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
@@ -82,7 +83,7 @@ Adding a managed config, step by step:
 1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
 2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
 3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
-4. Add a smoke test in `tests/smoke.bats`.
+4. Add or extend the narrowest test that proves deployment behavior; use `tests/smoke.bats` only for cross-component coverage.
 5. Verify: `make test-local` (diff only), then `make test-ubuntu`.
 
 `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
@@ -126,12 +127,18 @@ Use the `repository-issues` skill and `python3 scripts/issues` for `docs/issues/
 
 Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
-<important if="you are adding a new feature, script, or config that should be tested">
+<important if="you are adding, changing, or reviewing tests">
 
-- Add a smoke test in `tests/smoke.bats` (bats-core syntax).
-- Run locally with `make test-suite` (parallel, host-safe files), or `make test-ubuntu` for the full Docker suite including `tests/idempotent.bats`.
+- Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`; it defines semantic regression tests, control fixtures, coverage ownership, and honest verification.
+- A regression test is complete only when it goes red for the intended regression and green for the corrected behavior.
+- Assert externally observable behavior. Assert literal source or rendered text only when consumers depend on that exact shape.
+- Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
+- Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/smoke.bats` for deployed cross-component behavior.
+- Run the smallest canonical `make` target that covers the change instead of reconstructing its component commands. Smithers changes use `make test-smithers`.
+- Run `make test-suite` for the parallel host-safe files, or `make test-ubuntu` for the full Docker suite including `tests/idempotent.bats`.
 - `tests/idempotent.bats` guards every real chezmoi command with `MMS_DISPOSABLE_HOME=1`. Direct workstation runs skip those commands; `make test-ubuntu` declares a disposable `$HOME` and runs them.
 - `make test-suite` reads the deployed `~/` and applies nothing, so it cannot see an edit under `home/` that has not been applied yet. For a change to a managed file, `make test-ubuntu` is the one that proves it — it applies the checkout first.
+- Treat skips, partial runs, and isolated passes as incomplete evidence. If a required suite stalls, record the exact boundary, isolate the case, create a repository issue, and report the suite as incomplete.
 - CI runs both ubuntu and macos jobs.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.
 
