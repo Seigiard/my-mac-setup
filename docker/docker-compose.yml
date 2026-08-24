@@ -34,6 +34,9 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../scripts/issues:/home/testuser/issues-cli:ro
+      - ../docs/issues:/home/testuser/issues:ro
+      - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
@@ -55,9 +58,12 @@ services:
       - |
         set -e
         echo "=== Staging writable test worktree ==="
-        mkdir -p /home/testuser/worktree
+        mkdir -p /home/testuser/worktree/.git /home/testuser/worktree/docs /home/testuser/worktree/scripts
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
+        cp /home/testuser/issues-cli /home/testuser/worktree/scripts/issues
+        cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
+        cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
@@ -76,11 +82,8 @@ services:
         echo "=== Applying dotfiles (with package installation) ==="
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
 
-        echo "=== Installing smithers dependencies in the source tree ==="
-        bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
-
-        echo "=== Running Smithers type-check and tests ==="
-        (cd home/private_dot_claude/dot_smithers && bun run check)
+        echo "=== Running Smithers test gate ==="
+        make test-smithers
 
         echo "=== Running post-apply tests ==="
         tests/run-post-apply.sh full
@@ -95,6 +98,9 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../scripts/issues:/home/testuser/issues-cli:ro
+      - ../docs/issues:/home/testuser/issues:ro
+      - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
@@ -109,9 +115,12 @@ services:
     command:
       - |
         set -e
-        mkdir -p /home/testuser/worktree
+        mkdir -p /home/testuser/worktree/.git /home/testuser/worktree/docs /home/testuser/worktree/scripts
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
+        cp /home/testuser/issues-cli /home/testuser/worktree/scripts/issues
+        cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
+        cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
@@ -121,6 +130,5 @@ services:
           --promptString email="test@example.com"
         bats tests/templates.bats
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
-        bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
-        (cd home/private_dot_claude/dot_smithers && bun run check)
+        make test-smithers
         tests/run-post-apply.sh full

@@ -32,7 +32,6 @@ teardown() {
   assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile.tmpl" '^brew "shellcheck"'
 }
 
-# Docker mounts only home/ and tests/, so the repo-root Makefile is absent there.
 @test "lint target propagates shellcheck failures" {
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
