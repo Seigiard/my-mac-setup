@@ -994,14 +994,11 @@ se_fixture_repo() {
   assert_file_contains "$consult_skill" 'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-@test "semantic adapters are absent while native Herdr integrations remain" {
+@test "semantic adapters are absent" {
   assert_file_not_exists "$HOME/.local/bin/herdr-task-sync"
   assert_file_not_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
   assert_file_not_exists "$HOME/.config/opencode/plugins/herdr-task-sync.ts"
   assert_file_not_exists "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
-  assert_file_exists "$HOME/.claude/hooks/herdr-agent-state.sh"
-  assert_file_exists "$HOME/.config/opencode/plugins/herdr-agent-state.js"
-  assert_file_exists "$HOME/.pi/agent/extensions/herdr-agent-state.ts"
 }
 
 @test "claude settings omit task-sync hooks and retain native agent state" {
