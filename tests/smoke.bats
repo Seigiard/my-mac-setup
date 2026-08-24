@@ -1091,10 +1091,10 @@ assert_herdr_sidebar_deployment_contract() {
 
   assert_file_contains "$config" '^sidebar_min_width = 32$'
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
-  # Git metadata remains available to integrations, but the agent sidebar is
-  # deliberately names-only: state, workspace, and pane/task label.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\]\]$'
-  run grep -E '\$(git_ref|location_label|location_status)' "$config"
+  # Tab labels stay names-only, while the sidebar keeps Git location on its
+  # own row so branch/worktree context never competes with the agent name.
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]$'
+  run grep -E '\$location_label|\$location_status' "$config"
   assert_failure
   width="$(awk '
     $0 == "[ui]" { in_ui = 1; next }
@@ -1124,7 +1124,7 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
     "$config" "${writer_files[@]}"
   assert_success
-  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\]\]'
+  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]'
   assert_file_contains "$config" '"state_icon"'
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
