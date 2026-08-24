@@ -606,7 +606,10 @@ hts_run_fail_open_guard() {
     return 1
   }
   rm -f "$timeout_marker"
-  cat > "$input"
+  # A test with no redirected input must not consume the runner's terminal.
+  if [[ ! -t 0 ]]; then
+    cat > "$input"
+  fi
 
   baseline_start="$(hts_millis)"
   bash -c ':' >/dev/null 2>&1

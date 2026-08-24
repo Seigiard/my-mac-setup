@@ -1693,6 +1693,56 @@ PY
   grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
 }
 
+@test "herdr-task-sync fail-open guard ignores terminal input and preserves redirected input" {
+  hts_setup
+  local helper="$BATS_TEST_DIRNAME/helpers/herdr_task_sync.bash"
+
+  run python3 - "$helper" <<'PY'
+import os
+import pty
+import signal
+import subprocess
+import sys
+
+master, slave = pty.openpty()
+proc = subprocess.Popen(
+    [
+        "bash",
+        "-c",
+        'source "$1"; hts_run_fail_open_guard true',
+        "bash",
+        sys.argv[1],
+    ],
+    stdin=slave,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    start_new_session=True,
+)
+os.close(slave)
+try:
+    output, _ = proc.communicate(timeout=10)
+except subprocess.TimeoutExpired:
+    os.killpg(proc.pid, signal.SIGKILL)
+    output, _ = proc.communicate()
+    sys.stdout.write(output)
+    print("fail-open guard read from its interactive terminal for 10 seconds", file=sys.stderr)
+    raise SystemExit(124)
+finally:
+    os.close(master)
+
+sys.stdout.write(output)
+raise SystemExit(proc.returncode)
+PY
+
+  assert_success
+
+  run hts_run_fail_open_guard cat <<< 'redirected payload'
+
+  assert_success
+  assert_output 'redirected payload'
+}
+
 @test "herdr-task-sync fail-open deadline rejects late success before the hang guard" {
   hts_setup
   local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=1

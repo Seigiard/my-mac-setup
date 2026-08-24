@@ -1,12 +1,13 @@
 ---
 title: "Full scripts suite hangs after socket namespace test"
-short_description: "On macOS, bats tests/scripts.bats stalls for more than 25 minutes when entering the fail-open deadline case after test 74, while that case passes immediately in isolation."
+short_description: "Interactive macOS runs blocked before the fail-open watchdog because the test helper copied inherited TTY stdin; the helper now treats a terminal as empty input and has a bounded PTY regression."
 type: "bug"
 category: "testing-ci"
 tags: ["herdr-task-sync","test-hang"]
 date: "2026-08-24"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-24"
 ---
 
 ## Why this exists
@@ -21,11 +22,12 @@ ok 74 herdr-task-sync exact socket namespaces survive legacy sanitized-name coll
 
 Process inspection showed two nested `bats-exec-test` processes running
 `herdr-task-sync fail-open deadline rejects late success before the hang guard`.
-The same test passed immediately when invoked alone with `bats --filter`, so
-the failure depends on prior suite state rather than the test body in
-isolation. Sending SIGINT produced status 130 at the call to
-`hts_run_fail_open_guard sleep 2` and confirmed that only 75 of 194 tests had
-executed.
+The same test passed immediately when invoked noninteractively with
+`bats --filter`, which initially made the failure look order-dependent. The
+actual difference was stdin: the full suite inherited an interactive terminal,
+while the isolated invocation received immediate EOF. Sending SIGINT produced
+status 130 at the call to `hts_run_fail_open_guard sleep 2` and confirmed that
+only 75 of 194 tests had executed.
 
 This prevents a bounded local full-suite verification and can strand CI if the
 same ordering occurs there. It resembles the process/file-descriptor
@@ -44,3 +46,14 @@ the observed failure is a persistent hang rather than an assertion flake.
 ## Open decisions
 
 None.
+
+## Resolution
+
+Fixed `hts_run_fail_open_guard` so an inherited terminal is treated as empty
+test input while redirected payloads are still forwarded. Added a PTY-backed
+regression that was observed red against the old helper and green after the
+fix; a separate mutation proved the same test rejects discarded redirected
+bytes. Verified three focused fail-open cases, two complete interactive macOS
+`scripts.bats` runs with 198 passing tests, and the focused regression in
+Ubuntu. The canonical `make test-ubuntu` gate remains blocked before post-apply
+tests by the separate `2026-08-24-002` issue.
