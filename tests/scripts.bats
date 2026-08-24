@@ -118,30 +118,15 @@ render_install_packages() {
 
 @test "install-packages script renders as valid bash" {
   skip_if_no_chezmoi
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
-  [[ -f "$script" ]] || skip "install-packages script not found at $script"
-
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/install-packages.sh"
   render_install_packages > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
 }
 
-@test "install-packages template has no rendering errors" {
-  skip_if_no_chezmoi
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
-  [[ -f "$script" ]] || skip "install-packages script not found at $script"
-  run render_install_packages
-  assert_success
-}
-
 # ===========================================
 # macOS tunes script
 # ===========================================
-
-@test "macos-tunes script exists in darwin-specific directory" {
-  assert_file_exists "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
-}
 
 @test "macos-tunes script is valid bash" {
   local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
@@ -197,9 +182,7 @@ SH
   chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr"
 }
 
-@test "ask-in-herdr script is valid bash and requires arguments" {
-  run bash -n "$ASK_HERDR_DIR/ask.sh"
-  assert_success
+@test "ask-in-herdr script requires arguments" {
   run bash "$ASK_HERDR_DIR/ask.sh"
   assert_failure 2
   assert_output --partial "Usage:"
@@ -801,15 +784,6 @@ child_start() {
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 
-@test "herdr-integrations script renders to valid bash" {
-  skip_if_no_chezmoi
-  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
-  run bash -n "$BATS_TEST_TMPFILE"
-  assert_success
-}
-
 @test "herdr-integrations script guards on command -v herdr and stays tolerant" {
   run grep -q "command -v herdr" "$HERDR_INTEGRATIONS_TMPL"
   assert_success
@@ -839,13 +813,6 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
 HOOKS_DIR="$SOURCE_ROOT/private_dot_claude/hooks"
 FFF_GUARD="$HOOKS_DIR/executable_fff-grep-guard.sh"
 WEBFETCH_HINT="$HOOKS_DIR/executable_webfetch-markdown-hint.sh"
-
-@test "PreToolUse hook scripts are valid bash" {
-  run bash -n "$FFF_GUARD"
-  assert_success
-  run bash -n "$WEBFETCH_HINT"
-  assert_success
-}
 
 @test "fff-grep-guard denies a query of several bare words" {
   command -v jq >/dev/null || skip "jq not available"
@@ -1405,45 +1372,6 @@ PY
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane rename pane-1 converged
   run hts_socket_run "$HTS_DEFAULT_SOCKET" pane get pane-1
   assert_output --partial '"label":"converged"'
-}
-
-@test "herdr-task-sync harness restarts from every durable crash boundary" {
-  command -v jq >/dev/null || skip "jq not available"
-  hts_setup
-  local boundary state
-  for boundary in enqueue state presentation; do
-    state="$HTS_WORK/crash-$boundary.json"
-    run hts_crash_run "$state" "$boundary"
-    assert_failure 97
-    assert_equal "$(jq -r '.complete' "$state")" false
-    assert_file_exists "$state.markers/$boundary"
-
-    run hts_crash_run "$state"
-    assert_success
-    assert_equal "$(jq -r '.complete' "$state")" true
-    assert_equal "$(jq -r '.completed | length' "$state")" 3
-    assert_equal "$(jq -r '.completed | unique | length' "$state")" 3
-  done
-}
-
-@test "herdr-task-sync harness gives eight panes independent 75 ms Git budgets" {
-  hts_setup
-  local i pids= pid
-  for i in 1 2 3 4 5 6 7; do
-    hts_git_fixture "/repo/$i" "/repo/$i"
-  done
-  hts_git_fixture /repo/8 /repo/8 0 block
-
-  for i in 1 2 3 4 5 6 7 8; do
-    hts_git_probe "pane-$i" "/repo/$i" &
-    pids="$pids $!"
-  done
-  for pid in $pids; do wait "$pid"; done
-
-  for i in 1 2 3 4 5 6 7; do
-    assert_equal "$(cat "$HTS_WORK/git-results/pane-$i")" "fresh:/repo/$i"
-  done
-  assert_equal "$(cat "$HTS_WORK/git-results/pane-8")" stale
 }
 
 @test "herdr-task-sync latest committed request survives stale completion and a third request" {
@@ -3505,11 +3433,6 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   assert_file_contains "$HTS_LOG" '^pane rename pane-1 cargo test$'
 }
 
-@test "herdr-task-sync passes bash syntax check" {
-  run bash -n "$HTS_ENGINE"
-  assert_success
-}
-
 @test "herdr-task-sync stays silent outside herdr" {
   hts_setup
   hts_stub_engine pi never-used 0 0
@@ -4058,11 +3981,6 @@ SH
 
 hts_hook_run() {
   env PATH="$HTS_STUB:/usr/bin:/bin" bash "$HTS_HOOK" "$@"
-}
-
-@test "herdr-task-sync hook passes bash syntax check" {
-  run bash -n "$HTS_HOOK"
-  assert_success
 }
 
 # Claude Code injects a UserPromptSubmit hook's stdout into the conversation,

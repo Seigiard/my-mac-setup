@@ -37,8 +37,8 @@ env:
   # clears this again per-job, below.
   MMS_CI_MINIMAL: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '1' || '' }}
   # Declares this runner's $HOME disposable, which is the only thing that lets
-  # the four idempotency tests in tests/idempotent.bats run their real
-  # `chezmoi apply`. Unconditional on purpose: it must NOT copy the
+  # the idempotency scenario in tests/idempotent.bats run its real `chezmoi
+  # apply`. Unconditional on purpose: it must NOT copy the
   # trigger-conditional shape of MMS_CI_MINIMAL above, or the nightly
   # `schedule` and the manual `workflow_dispatch` runs would silently lose that
   # coverage. tests/idempotent.bats hard-fails when GITHUB_ACTIONS is set and
@@ -151,6 +151,18 @@ jobs:
       - name: Add chezmoi to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
+      # CI-minimal Linux applies skip Homebrew entirely. Full applies install
+      # gitleaks into Linuxbrew, but that script-local shellenv does not reach
+      # later workflow steps. Keep the required Smithers scanner on the
+      # runner-facing PATH in both modes.
+      - name: Install gitleaks
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" gitleaks
+          gitleaks version
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+
       - name: Install bats
         run: |
           sudo apt-get update
@@ -195,13 +207,8 @@ jobs:
       # The other smithers directory. Tests that set SE_SMITHERS_DIR point `se`
       # at the checkout instead of the deployed runtime, and nothing provisions
       # that copy — the apply deploys from it, it does not build it.
-      - name: Install smithers dependencies in the source tree
-        working-directory: home/private_dot_claude/dot_smithers
-        run: bun install --frozen-lockfile
-
-      - name: Test the Smithers issue writer
-        working-directory: home/private_dot_claude/dot_smithers
-        run: bun test workflows/lib/issue-writer.test.ts
+      - name: Run the Smithers test gate
+        run: make test-smithers
 
       # Report each gap once, here, instead of once per dependent test.
       - name: Verify both smithers directories the tests call
@@ -340,13 +347,8 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Install smithers dependencies in the source tree
-        working-directory: home/private_dot_claude/dot_smithers
-        run: bun install --frozen-lockfile
-
-      - name: Test the Smithers issue writer
-        working-directory: home/private_dot_claude/dot_smithers
-        run: bun test workflows/lib/issue-writer.test.ts
+      - name: Run the Smithers test gate
+        run: make test-smithers
 
       - name: Verify both smithers directories the tests call
         run: |

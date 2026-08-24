@@ -144,25 +144,6 @@ describe("agentCapUsd", () => {
 });
 
 describe("readRunUsage", () => {
-  test("reads this run's events and its subflow children's", () => {
-    // #given a database that answers the usage query
-    const seen: string[] = [];
-    const db = {
-      rows: (_sql: string, runId: string) => {
-        seen.push(runId);
-        return [{ payload_json: JSON.stringify({ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 }) }];
-      },
-      close: () => {},
-    };
-
-    // #when usage is read
-    const events = readRunUsage("run-1", "/launch", () => db);
-
-    // #then the run id is passed through and the event is parsed
-    expect(seen).toEqual(["run-1"]);
-    expect(events[0]).toMatchObject({ nodeId: "work", inputTokens: 10, outputTokens: 5 });
-  });
-
   test("falls through to the parent directory when the launch dir has no database", () => {
     const opened: string[] = [];
     readRunUsage("run-1", "/launch/dir", (dbPath) => {
@@ -202,21 +183,41 @@ describe("openUsageDb", () => {
     expect(openUsageDb(dbPath)).toBeNull();
   });
 
-  test("a real database answers the usage query end to end", () => {
-    // #given a state database holding one TokenUsageReported event
+  test("a real database includes parent and subflow-child usage but excludes unrelated runs", () => {
+    // #given a state database holding usage for the parent run, one of its
+    // subflows, and an unrelated run
     const dbPath = join(mkdtempSync(join(tmpdir(), "cost-test-")), "smithers.db");
     const seed = new Database(dbPath);
     seed.run("CREATE TABLE _smithers_events (type TEXT, run_id TEXT, payload_json TEXT)");
     seed.run(
       "INSERT INTO _smithers_events VALUES ('TokenUsageReported', 'run-1', ?1)",
-      [JSON.stringify({ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 })],
+      [JSON.stringify({ nodeId: "parent", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 })],
+    );
+    seed.run(
+      "INSERT INTO _smithers_events VALUES ('TokenUsageReported', 'run-1:child:simplify', ?1)",
+      [JSON.stringify({ nodeId: "subflow-child", model: "claude-sonnet-5", inputTokens: 20, outputTokens: 8, cacheReadTokens: 2 })],
+    );
+    seed.run(
+      "INSERT INTO _smithers_events VALUES ('TokenUsageReported', 'run-2', ?1)",
+      [JSON.stringify({ nodeId: "unrelated", model: "claude-sonnet-5", inputTokens: 999, outputTokens: 999, cacheReadTokens: 999 })],
+    );
+    seed.run(
+      "INSERT INTO _smithers_events VALUES ('TokenUsageReported', 'run-10', ?1)",
+      [JSON.stringify({ nodeId: "same-prefix", model: "claude-sonnet-5", inputTokens: 999, outputTokens: 999, cacheReadTokens: 999 })],
+    );
+    seed.run(
+      "INSERT INTO _smithers_events VALUES ('OtherEvent', 'run-1', ?1)",
+      [JSON.stringify({ nodeId: "wrong-event", model: "claude-sonnet-5", inputTokens: 999, outputTokens: 999, cacheReadTokens: 999 })],
     );
     seed.close();
 
     // #when the production opener is handed to the reader
     const events = readRunUsage("run-1", dirname(dbPath), openUsageDb);
 
-    // #then the event round-trips through real sqlite
-    expect(events).toEqual([{ nodeId: "work", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 }]);
+    // #then only the parent and its subflow child round-trip through real sqlite
+    expect(events.sort((a, b) => a.nodeId.localeCompare(b.nodeId))).toEqual([
+      { nodeId: "parent", model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { nodeId: "subflow-child", model: "claude-sonnet-5", inputTokens: 20, outputTokens: 8, cacheReadTokens: 2, cacheWriteTokens: 0 },
+    ]);
   });
 })
