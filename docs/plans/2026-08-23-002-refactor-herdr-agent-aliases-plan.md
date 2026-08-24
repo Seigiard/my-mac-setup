@@ -16,7 +16,7 @@ execution: code
 - **Objective:** replace semantic task names with locally generated `color-animal` aliases for every live Herdr agent, and use the registered alias as the identity shown in panes and tabs.
 - **Product authority:** the Product Contract below and the user's confirmed all-agent scope on 2026-08-23.
 - **Superseded behavior:** the LLM-generated task naming contract in `docs/plans/2026-08-10-001-feat-herdr-task-sync-plan.md`; the pane-label task-slug portions of later presentation plans.
-- **Preserved behavior:** runtime prefixes, process and idle labels, tab composition, Git/worktree sidebar metadata, complete-snapshot reconciliation, the sweep daemon, and the existing child callback protocol.
+- **Preserved behavior:** runtime prefixes, process and idle labels, tab composition, Git/worktree metadata, complete-snapshot reconciliation, the sweep daemon, and the existing child callback protocol.
 - **Execution profile:** cleanly separate the presentation coordinator from retired semantic naming, add one shared alias allocator, and update child launchers, managed deployment, tests, and documentation in one cutover.
 - **Open blockers:** none.
 - **Stop conditions:** stop implementation if `herdr agent rename <pane-id> <alias>` cannot assign an addressable registered name, if Herdr 0.8.2 does not return the structured `agent_name_taken` conflict code, or if live records do not expose the required pane, runtime, terminal, revision, and state-sequence fields. Do not invent a second identity registry to work around those failures.
@@ -34,6 +34,7 @@ The desired surface is intentionally mechanical:
 | Registered Herdr agent name | `<color>-<animal>` |
 | Pane label | `<runtime-prefix>:<color>-<animal>` |
 | Tab label | ordered pane labels joined with ` · `; all-idle tabs retain `~ <tab-index>` |
+| Agent sidebar | state icon, workspace, and pane label only; no Git location row |
 | Child start result | `{"agent":"<color>-<animal>","pane":"<pane-id>"}` |
 
 Runtime prefixes remain `cc` for Claude Code, `oc` for OpenCode, `pi` for Pi, and `cx` for Codex. Unknown runtimes retain the current lowercase-first-letter fallback rather than blocking alias assignment.
@@ -51,7 +52,7 @@ Runtime prefixes remain `cc` for Claude Code, `oc` for OpenCode, `pi` for Pi, an
 **Presentation**
 
 - R6. Agent panes render `<runtime-prefix>:<alias>`. Process panes retain the current foreground-process label, idle panes retain `~`, and tabs retain the current ordered pane-label composition.
-- R7. Git/worktree resolution and the `$git_ref` sidebar token remain unchanged. Alias assignment must not weaken location metadata, stale-location behavior, process truncation, external-label repair, or idempotency.
+- R7. Git/worktree resolution and `$git_ref` metadata remain unchanged for integrations, but no Git token renders in pane labels, tab labels, or the agent sidebar. Alias assignment must not weaken location metadata, stale-location behavior, process truncation, external-label repair, or idempotency.
 - R8. Herdr lifecycle event payloads remain invalidation signals only. Every event and sweep derives intent from a fresh complete snapshot.
 
 **Launch and cleanup**
@@ -65,7 +66,7 @@ Runtime prefixes remain `cc` for Claude Code, `oc` for OpenCode, `pi` for Pi, an
 ### Acceptance Examples
 
 - AE1. Given three live agents named `review-auth`, `CORE-42`, and `consult-pi-123`, one successful pass registers three distinct pool aliases and renders labels such as `cc:yellow-falcon`, `oc:red-bear`, and `pi:blue-otter`.
-- AE2. Given a live agent already registered as a valid pool alias, repeated events and sweeps issue no agent rename and preserve the same pane and tab labels.
+- AE2. Given a live agent already registered as a valid pool alias, repeated events and sweeps issue no agent rename and preserve the same pane, tab, and sidebar identity. Git-only location changes update metadata without changing those surfaces.
 - AE3. Given two allocators choose the same first candidate concurrently, Herdr accepts only one registration; the loser refreshes live state and chooses another candidate. Collision cleanup closes only a still-agent-free pane with the captured terminal identity; ambiguous cleanup preserves the pane and reports it instead of risking another agent.
 - AE4. Given an agent exits or is replaced before the final pre-rename validation, the pass skips it. Given replacement occurs in Herdr 0.8.2's unavoidable interval between validation and rename, the replacement may receive the candidate intended for its predecessor; this is acceptable because aliases carry no semantic ownership and the resulting live state already satisfies R1-R6.
 - AE5. Given an incomplete or contradictory snapshot, the pass performs no new presentation writes and leaves existing labels and location state intact. A later complete snapshot converges once.
@@ -161,12 +162,12 @@ flowchart TB
 
 ### U2. Replace task sync with alias-aware presentation reconciliation
 
-- **Goal:** make one presentation-only engine own agent aliases, pane labels, tab labels, and existing location metadata.
+- **Goal:** make one presentation-only engine own agent aliases, pane labels, tab labels, sidebar identity, and existing location metadata.
 - **Requirements:** R1-R8. Implements KTD1 and KTD3-KTD9.
 - **Dependencies:** U1.
 - **Files:** `home/dot_local/bin/executable_herdr-task-sync` (delete), `home/dot_local/bin/executable_herdr-pane-labels` (new from the retained presentation code), `home/private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh`, `home/private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh`, `home/private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml`, `home/private_dot_config/herdr/config.toml`, `tests/helpers/herdr_task_sync.bash` (replace with `tests/helpers/herdr_pane_labels.bash`), `tests/herdr_task_sync_descriptor_probe.bats` (replace with `tests/herdr_pane_labels_descriptor_probe.bats`), `tests/scripts.bats`.
-- **Approach:** remove the prompt CLI, detached naming worker, model chain, transcript parser, slug normalization, task inbox, task claims, task metadata publication, semantic session state, and task pruning. Retain the snapshot coordinator, location resolver, process/idle formatter, intent comparison, final guards, socket serialization, and sweep loop under presentation-only names. Join each agent pane to its live agent record, preserve or allocate its registered alias, and refresh before composing `<prefix>:<alias>` pane labels and ordered tabs.
-- **Test scenarios:** known and unknown runtime prefixes; existing valid alias stays stable across restart and sweep; semantic/tracker/manual non-pool names converge; exact `agent_name_taken` chooses another alias while generic failure does not; agent exits, moves, or is replaced before rename; same-pane replacement in the final non-atomic interval receives a valid alias and produces current pane/tab intent; missing required field, wrong type, duplicate pane/terminal, contradictory join, malformed response, and complete-but-stale post-rename snapshot each abort the pass; complete follow-up snapshot converges; process, idle, tab-order, external repair, Git/worktree, detached HEAD, migrated first-pass stale location, UTF-8 icon, truncation, and idempotency regressions remain green; no task token or model process is produced.
+- **Approach:** remove the prompt CLI, detached naming worker, model chain, transcript parser, slug normalization, task inbox, task claims, task metadata publication, semantic session state, and task pruning. Retain the snapshot coordinator, location resolver, process/idle formatter, intent comparison, final guards, socket serialization, and sweep loop under presentation-only names. Join each agent pane to its live agent record, preserve or allocate its registered alias, and refresh before composing `<prefix>:<alias>` pane labels and ordered tabs. Keep Git location as pane metadata while rendering only state, workspace, and pane identity in the agent sidebar.
+- **Test scenarios:** known and unknown runtime prefixes; existing valid alias stays stable across restart and sweep; semantic/tracker/manual non-pool names converge; exact `agent_name_taken` chooses another alias while generic failure does not; agent exits, moves, or is replaced before rename; same-pane replacement in the final non-atomic interval receives a valid alias and produces current pane/tab intent; missing required field, wrong type, duplicate pane/terminal, contradictory join, malformed response, and complete-but-stale post-rename snapshot each abort the pass; complete follow-up snapshot converges; process, idle, tab-order, external repair, Git/worktree metadata, names-only sidebar, detached HEAD, migrated first-pass stale location, UTF-8 icon, truncation, and idempotency regressions remain green; no task token or model process is produced.
 - **Verification:** `bash -n` passes for the new engine, the focused presentation tests pass, and repeated sweeps record no writes after convergence.
 
 ### U3. Make child and peer-consult names allocator-owned
@@ -227,7 +228,7 @@ Each implementation batch is gated on its focused tests before the next batch. T
 2. Before apply, inspect `herdr agent list` and drain any explicitly named non-pool child; the before-script enforces this and prints the blocking alias plus pane.
 3. The user runs `chezmoi apply`; the agent does not run it on the host. If quiescence cannot verify or stop every old owner, apply stops before managed files change; resolve the reported PID/child and rerun apply before continuing.
 4. The before/after scripts freeze old adapter entry, disable and quiesce the old plugin, migrate location-only state, clear old task tokens, deploy, relink, and enable the new plugin.
-5. Verify every active socket has one new daemon, `herdr agent list` contains pool aliases, pane labels use runtime prefixes plus those aliases, and tabs join the resulting pane labels.
+5. Verify every active socket has one new daemon, `herdr agent list` contains pool aliases, pane labels use runtime prefixes plus those aliases, tabs join the resulting pane labels, and the agent sidebar contains no Git location row.
 6. Restart any Claude Code, OpenCode, and Pi clients that were open during apply so their in-memory adapter configuration matches the deployed removal.
 7. Start one child through `herdr-child` and one consult through `ask-in-herdr`; verify returned alias-plus-pane pairs support read, reply, and reap.
 
@@ -236,7 +237,7 @@ The old `~/.cache/herdr-task-sync` directory is not migrated wholesale. The befo
 ## Definition of Done
 
 - Every complete live Herdr agent record converges to one unique alias from the repository-owned pool.
-- Registered names, pane labels, tabs, child result JSON, and callback validation agree on the same alias.
+- Registered names, pane labels, tabs, sidebar identity, child result JSON, and callback validation agree on the same alias without rendering Git location.
 - Existing valid aliases remain stable without a mapping database or semantic fallback.
 - Concurrent allocation, target replacement, the documented non-atomic rename/close intervals, incomplete snapshots, alias reuse, and pool exhaustion have explicit safe defaults, accepted residuals, and focused tests.
 - Process/idle labels, tab order, Git/worktree metadata, stale-location behavior, repair, and sweep idempotency retain regression coverage.
