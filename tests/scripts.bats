@@ -1754,15 +1754,14 @@ PY
   assert_output --partial "exceeded fail-open behavioral deadline"
 }
 
-@test "herdr-task-sync fail-open guard accepts a representative same-run baseline" {
-  hts_setup
-  local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=0.1
-  local HTS_FAIL_OPEN_BASELINE_MULTIPLIER=0
-  local HTS_FAIL_OPEN_REFERENCE_MILLIS=1000
-
-  run hts_run_fail_open_guard sleep 0.5
-
+@test "herdr-task-sync fail-open guard uses the greater baseline" {
+  run hts_fail_open_behavior_baseline_ms 200 8 1000
   assert_success
+  assert_output 1600
+
+  run hts_fail_open_behavior_baseline_ms 100 8 1000
+  assert_success
+  assert_output 1000
 }
 
 @test "herdr-task-sync fails open for missing tools contention write failure and malformed input" {

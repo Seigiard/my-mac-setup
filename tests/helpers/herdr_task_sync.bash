@@ -590,6 +590,17 @@ print(millis / decimal.Decimal(1000))
 PY
 }
 
+hts_fail_open_behavior_baseline_ms() {
+  local launch_ms="$1" multiplier="$2" reference_ms="$3"
+  local scaled_ms=$((launch_ms * multiplier))
+
+  if [ "$reference_ms" -gt "$scaled_ms" ]; then
+    printf '%s\n' "$reference_ms"
+  else
+    printf '%s\n' "$scaled_ms"
+  fi
+}
+
 hts_run_fail_open_guard() {
   local behavior_ms hang_ms baseline_multiplier reference_ms
   local baseline_start baseline_end baseline_ms behavior_baseline_ms
@@ -624,10 +635,9 @@ hts_run_fail_open_guard() {
   bash -c ':' >/dev/null 2>&1
   baseline_end="$(hts_millis)"
   baseline_ms=$((baseline_end - baseline_start))
-  behavior_baseline_ms=$((baseline_ms * baseline_multiplier))
-  if [ "$reference_ms" -gt "$behavior_baseline_ms" ]; then
-    behavior_baseline_ms="$reference_ms"
-  fi
+  behavior_baseline_ms="$(
+    hts_fail_open_behavior_baseline_ms "$baseline_ms" "$baseline_multiplier" "$reference_ms"
+  )"
   behavior_allowed_ms=$((behavior_ms + behavior_baseline_ms))
   hang_allowed_ms=$((baseline_ms + hang_ms))
   hang_allowed_seconds="$(hts_millis_to_seconds "$hang_allowed_ms")" || {
