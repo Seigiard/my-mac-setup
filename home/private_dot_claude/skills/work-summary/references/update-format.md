@@ -21,6 +21,16 @@ Five parts, in this order:
 - Short sentences and fragments land better here than one long clause chain.
 - Work that landed just before the window still belongs here when the focus text names it as an open problem. Say so: "fixed just before this window".
 
+#### Lists vs prose
+
+Prose is for a story: one outcome with causes, consequences, and an order the sentences have to follow. A list is for a count: several independent things that happened to land in the same period.
+
+- **A theme that is N separate fixes is a list, not a paragraph.** Burying five bug fixes in one dense block hides how many there were; the reader wants to see that five things got fixed. Put the count in the lead-in — "Visual regression, five fixes:" — then one bullet per fix.
+- **One sentence per bullet.** Lead with the consequence, not the mechanism: what was wrong for whom, or what is now true. Add a second sentence only when the fix makes no sense without the "why", and never a third.
+- **Drop the internals.** File names, formats, function behavior, the shape of the wrong data — none of it survives the cut. "Console and API disagreed on how id lists are encoded, so any lookup by id silently returned nothing" is the whole bug; the encoding is not the story.
+- **Keep prose where the sentences depend on each other.** Two epics with their motivation, or one migration and its fallout, read worse as bullets.
+
+
 ### Still ahead
 
 - Derive it from **open Linear issues**, not from re-reading the focus prose. An item the focus named may already be done, and a keyword search is what proves it.
@@ -36,6 +46,8 @@ Five parts, in this order:
 
 **Default: omit it.** The focus line at the top already says what the person is working on, so "Now continuing on the same focus" only restates it. Write a closing line only when the next period's focus genuinely differs from the one at the top — a new direction, or an addition to it ("plus making the screenshot tests more stable").
 
+**A replaced focus makes the line mandatory.** When the coming period's focus is a new one — the user wrote it, or `current_focus` in vector-prime is about to be overwritten — the update must end by stating it. Say it as the focus, not as a plan: "Focus this week: …". Silently switching direction between two updates leaves the reader thinking the old focus is still running.
+
 Never guess its content. Ask the user, or flag the line as a placeholder to replace. When the user gives a general answer, keep it general — do not sharpen it into specific tickets.
 
 In the flat shape the closing line is mandatory: nothing else there says what comes next.
@@ -47,7 +59,7 @@ The zero-context rule in `SKILL.md` governs. Two additions for this shape:
 - No ticket IDs, file paths, or PR numbers.
 - Expand product-internal nouns on first use: "a shipment's rate card — the negotiated pricing table every booking inherits".
 
-Length: ~250-350 words. Longer than the flat shape, because three sections earn their space.
+Length: ~250-350 words as prose. A period whose Shipped section carries fix lists runs longer, and that is fine — the lists are what makes the count readable. Trim by shortening bullets, never by merging them back into a paragraph.
 
 ### Example (fictional freight-platform product, from 21 done Linear issues + a stated focus)
 

@@ -17,9 +17,9 @@ services:
       # Empty by default, which selects the full Brewfile render, so R5 holds
       # unless the caller opts in.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
-      # Declares this container's $HOME disposable, which is what lets the four
-      # idempotency tests in tests/idempotent.bats run their real
-      # `chezmoi apply`. Written literally in all three services, unlike
+      # Declares this container's $HOME disposable, which is what lets the
+      # idempotency scenario in tests/idempotent.bats run its real `chezmoi
+      # apply`. Written literally in all three services, unlike
       # MMS_CI_MINIMAL above, which is read from the host and is deliberately
       # absent from the test-ubuntu service. tests/idempotent.bats hard-fails when
       # /.dockerenv exists and this is missing.
@@ -34,6 +34,8 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../scripts:/home/testuser/scripts:ro
+      - ../docs/issues:/home/testuser/issues:ro
       - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
@@ -56,8 +58,12 @@ services:
         set -e
         echo "=== Staging writable test worktree ==="
         mkdir -p /home/testuser/worktree
+        mkdir -p /home/testuser/worktree/.git
+        mkdir -p /home/testuser/worktree/docs
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
+        cp -r /home/testuser/scripts /home/testuser/worktree/scripts
+        cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
@@ -79,6 +85,9 @@ services:
         echo "=== Installing smithers dependencies in the source tree ==="
         bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
 
+        echo "=== Running Smithers type-check and tests ==="
+        (cd home/private_dot_claude/dot_smithers && bun run check)
+
         echo "=== Running post-apply tests ==="
         tests/run-post-apply.sh full
 
@@ -92,6 +101,8 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
+      - ../scripts:/home/testuser/scripts:ro
+      - ../docs/issues:/home/testuser/issues:ro
       - ../README.md:/home/testuser/README.md:ro
     environment:
       - CHEZMOI_NAME=Test User
@@ -107,8 +118,12 @@ services:
       - |
         set -e
         mkdir -p /home/testuser/worktree
+        mkdir -p /home/testuser/worktree/.git
+        mkdir -p /home/testuser/worktree/docs
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
+        cp -r /home/testuser/scripts /home/testuser/worktree/scripts
+        cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
@@ -119,4 +134,5 @@ services:
         bats tests/templates.bats
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
         bun install --cwd home/private_dot_claude/dot_smithers --frozen-lockfile
+        (cd home/private_dot_claude/dot_smithers && bun run check)
         tests/run-post-apply.sh full

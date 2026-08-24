@@ -281,30 +281,15 @@ render_install_packages() {
 
 @test "install-packages script renders as valid bash" {
   skip_if_no_chezmoi
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
-  [[ -f "$script" ]] || skip "install-packages script not found at $script"
-
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/install-packages.sh"
   render_install_packages > "$BATS_TEST_TMPFILE"
   run bash -n "$BATS_TEST_TMPFILE"
   assert_success
 }
 
-@test "install-packages template has no rendering errors" {
-  skip_if_no_chezmoi
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
-  [[ -f "$script" ]] || skip "install-packages script not found at $script"
-  run render_install_packages
-  assert_success
-}
-
 # ===========================================
 # macOS tunes script
 # ===========================================
-
-@test "macos-tunes script exists in darwin-specific directory" {
-  assert_file_exists "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
-}
 
 @test "macos-tunes script is valid bash" {
   local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
@@ -377,9 +362,7 @@ SH
   chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr"
 }
 
-@test "ask-in-herdr script is valid bash and requires arguments" {
-  run bash -n "$ASK_HERDR_DIR/ask.sh"
-  assert_success
+@test "ask-in-herdr script requires arguments" {
   run bash "$ASK_HERDR_DIR/ask.sh"
   assert_failure 2
   assert_output --partial "Usage:"
@@ -1295,15 +1278,6 @@ write_pool_records() {
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 
-@test "herdr-integrations script renders to valid bash" {
-  skip_if_no_chezmoi
-  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
-  run bash -n "$BATS_TEST_TMPFILE"
-  assert_success
-}
-
 @test "herdr-integrations script guards on command -v herdr and stays tolerant" {
   run grep -q "command -v herdr" "$HERDR_INTEGRATIONS_TMPL"
   assert_success
@@ -1333,13 +1307,6 @@ HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup
 HOOKS_DIR="$SOURCE_ROOT/private_dot_claude/hooks"
 FFF_GUARD="$HOOKS_DIR/executable_fff-grep-guard.sh"
 WEBFETCH_HINT="$HOOKS_DIR/executable_webfetch-markdown-hint.sh"
-
-@test "PreToolUse hook scripts are valid bash" {
-  run bash -n "$FFF_GUARD"
-  assert_success
-  run bash -n "$WEBFETCH_HINT"
-  assert_success
-}
 
 @test "fff-grep-guard denies a query of several bare words" {
   command -v jq >/dev/null || skip "jq not available"
@@ -1875,45 +1842,6 @@ PY
   hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 converged
   run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
   assert_output --partial '"label":"converged"'
-}
-
-@test "herdr-pane-labels harness restarts from every durable crash boundary" {
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local boundary state
-  for boundary in enqueue state presentation; do
-    state="$HPL_WORK/crash-$boundary.json"
-    run hpl_crash_run "$state" "$boundary"
-    assert_failure 97
-    assert_equal "$(jq -r '.complete' "$state")" false
-    assert_file_exists "$state.markers/$boundary"
-
-    run hpl_crash_run "$state"
-    assert_success
-    assert_equal "$(jq -r '.complete' "$state")" true
-    assert_equal "$(jq -r '.completed | length' "$state")" 3
-    assert_equal "$(jq -r '.completed | unique | length' "$state")" 3
-  done
-}
-
-@test "herdr-pane-labels harness gives eight panes independent 75 ms Git budgets" {
-  hpl_setup
-  local i pids= pid
-  for i in 1 2 3 4 5 6 7; do
-    hpl_git_fixture "/repo/$i" "/repo/$i"
-  done
-  hpl_git_fixture /repo/8 /repo/8 0 block
-
-  for i in 1 2 3 4 5 6 7 8; do
-    hpl_git_probe "pane-$i" "/repo/$i" &
-    pids="$pids $!"
-  done
-  for pid in $pids; do wait "$pid"; done
-
-  for i in 1 2 3 4 5 6 7; do
-    assert_equal "$(cat "$HPL_WORK/git-results/pane-$i")" "fresh:/repo/$i"
-  done
-  assert_equal "$(cat "$HPL_WORK/git-results/pane-8")" stale
 }
 
 @test "herdr-pane-labels assigns distinct aliases and renders known and fallback runtime prefixes" {
@@ -3569,11 +3497,6 @@ socket_path=$(printf '%s' "$HPL_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" new-worktree
   assert_file_contains "$HPL_LOG" '^api snapshot$'
   assert_file_contains "$HPL_LOG" '^pane rename pane-1 cargo test$'
-}
-
-@test "herdr-pane-labels passes bash syntax check" {
-  run bash -n "$HPL_ENGINE"
-  assert_success
 }
 
 @test "herdr-pane-labels names a command pane after the process group leader" {

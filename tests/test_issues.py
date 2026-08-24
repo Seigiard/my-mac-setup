@@ -204,8 +204,12 @@ class ReadTests(IssueFixtures):
     def test_repeated_filter_matrix_for_list_and_search(self):
         self.write_issue("2026-08-21-001-first.md", issue_text(title="Needle first", category="herdr", priority="high", type="bug", tags='["alpha","beta"]'))
         self.write_issue("2026-08-21-002-second.md", issue_text(title="Needle second", status="in-progress", category="testing-ci", priority="low", type="chore", tags='["alpha","beta","gamma"]'))
+        self.write_issue("2026-08-21-003-control.md", issue_text(title="Needle control", category="repository-maintenance", priority="medium", type="idea", tags='["alpha"]'))
+        done = issue_text(title="Needle done", status="done", closed="2026-08-21", category="testing-ci", priority="low", type="chore", tags='["alpha","beta"]')
+        done_frontmatter = done.split(b"\n---\n", 1)[0] + b"\n---\n"
+        self.write_issue("2026-08-21-004-done.md", done_frontmatter + b"\n## Why this exists\n\nReason.\n\n## Resolution\n\nDone.\n")
         cases = (
-            (("--status", "open", "--status", "in-progress"), ["2026-08-21-001-first", "2026-08-21-002-second"]),
+            (("--status", "in-progress", "--status", "done"), ["2026-08-21-002-second", "2026-08-21-004-done"]),
             (("--category", "herdr", "--category", "testing-ci"), ["2026-08-21-001-first", "2026-08-21-002-second"]),
             (("--priority", "high", "--priority", "low"), ["2026-08-21-001-first", "2026-08-21-002-second"]),
             (("--type", "bug", "--type", "chore"), ["2026-08-21-001-first", "2026-08-21-002-second"]),

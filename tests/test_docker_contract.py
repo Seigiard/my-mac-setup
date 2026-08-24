@@ -26,6 +26,28 @@ class TestDockerContract(unittest.TestCase):
         self.assertIn("chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose", compose)
         self.assertIn("tests/idempotent.bats", compose)
 
+    def test_full_services_stage_repository_issue_cli_for_smithers(self):
+        compose = COMPOSE.read_text(encoding="utf-8")
+
+        for service in ("test-full", "test-ubuntu"):
+            match = re.search(
+                rf"(?ms)^  {re.escape(service)}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)",
+                compose,
+            )
+            self.assertIsNotNone(match, f"docker-compose.yml must define {service}")
+            body = match.group("body")
+            self.assertIn("- ../scripts:/home/testuser/scripts:ro", body)
+            self.assertIn("- ../docs/issues:/home/testuser/issues:ro", body)
+            self.assertIn(
+                "cp -r /home/testuser/scripts /home/testuser/worktree/scripts",
+                body,
+            )
+            self.assertIn(
+                "cp -r /home/testuser/issues /home/testuser/worktree/docs/issues",
+                body,
+            )
+            self.assertIn("mkdir -p /home/testuser/worktree/.git", body)
+
 
 if __name__ == "__main__":
     unittest.main()

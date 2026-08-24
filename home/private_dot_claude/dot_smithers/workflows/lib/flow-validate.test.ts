@@ -77,17 +77,18 @@ describe("validateFlowSpec", () => {
   });
 
   test("a pr block with a secret-scan ancestor is accepted", () => {
-    // #given the same flow with the scan inserted
+    // #given the same flow with the scan inserted and every bound edge
+    // schema-compatible
     const s = spec([
       block({ id: "fix", block: "work" }),
       block({ id: "scan", block: "secret-scan", after: ["fix"], bindTo: ["fix"] }),
-      block({ id: "ship", block: "pr", after: ["scan"], bindTo: ["scan"] }),
+      block({ id: "review", block: "code-review", after: ["scan"], bindTo: ["scan"] }),
+      block({ id: "ship", block: "pr", after: ["review"], bindTo: ["review"] }),
     ]);
 
     // #when / #then
     const result = validateFlowSpec(s, deps);
-    const scanErrors = result.ok ? [] : result.errors.filter((e) => e.invariant === "scan-before-external");
-    expect(scanErrors).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 
   test("AE1: external review without a preceding secret-scan is rejected naming the block", () => {
