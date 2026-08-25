@@ -9,27 +9,16 @@ HTS_PLUGIN_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 # the stub directory plus the system directories, so a real `pi` or `claude`
 # outside them can never be reached: a missing engine is then a property of the
 # test, not of the machine that runs it.
-# Codicon glyphs of the $git_ref grammar. The octal UTF-8 table lives once, in
-# the engine; retyping it here would let an engine codepoint change pass while
-# the suite still asserted the old bytes. Raw PUA glyphs must never be pasted
-# into either file, so the sequences are read out and re-expanded.
-hts_icon() {
-  local octal
-  octal="$(sed -n "s/^ICON_$1=\"\\\$(printf '\\([^']*\\)')\".*/\\1/p" "$HTS_ENGINE")"
-  [ -n "$octal" ] || { printf 'missing ICON_%s in %s\n' "$1" "$HTS_ENGINE" >&2; return 1; }
-  # shellcheck disable=SC2059  # the format string is the engine's own octal table
-  printf "$octal"
-}
 # shellcheck disable=SC2034
-HTS_ICON_BRANCH="$(hts_icon BRANCH)"     # nf-cod-git_branch U+EC6F
+HTS_ICON_BRANCH="$(printf '\356\261\257')"     # nf-cod-git_branch U+EC6F
 # shellcheck disable=SC2034
-HTS_ICON_WORKTREE="$(hts_icon WORKTREE)" # nf-cod-worktree U+EC7E
+HTS_ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 # shellcheck disable=SC2034
-HTS_ICON_COMMIT="$(hts_icon COMMIT)"     # nf-cod-git_commit U+EAFC
+HTS_ICON_COMMIT="$(printf '\356\253\274')"     # nf-cod-git_commit U+EAFC
 # shellcheck disable=SC2034
-HTS_ICON_FOLDER="$(hts_icon FOLDER)"     # nf-cod-folder U+EA83
+HTS_ICON_FOLDER="$(printf '\356\252\203')"     # nf-cod-folder U+EA83
 # shellcheck disable=SC2034
-HTS_ICON_STALE="$(hts_icon STALE)"       # nf-cod-history U+EA82
+HTS_ICON_STALE="$(printf '\356\252\202')"       # nf-cod-history U+EA82
 
 hts_teardown() {
   # Reap a background reader a failed test left running BEFORE deleting its

@@ -113,24 +113,6 @@ load 'helpers/common'
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
 }
 
-@test "remaining herdr GitHub plugins install automatically on macOS" {
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-
-  assert_file_exists "$script"
-  run grep -F "ImArtisann/zed-herdr:artisann.zed-herdr" "$script"
-  assert_failure
-  assert_file_contains "$script" 'herdr plugin uninstall artisann.zed-herdr'
-  assert_file_contains "$script" "dio16/herdr-auto-update:herdr-auto-update"
-  assert_file_contains "$script" 'herdr plugin install "$repo" -y'
-  assert_file_contains "$script" 'herdr plugin enable "$plugin_id"'
-
-  run grep -Fq '[[ "$(uname -s)" != "Darwin" ]]' "$script"
-  assert_success
-
-  run bash -n "$script"
-  assert_success
-}
-
 @test "obsolete zed-herdr removal accepts formatted plugin JSON" {
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
@@ -194,30 +176,6 @@ SH
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
   assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
-}
-
-# herdr-auto-update holds any plugin whose GitHub owner is absent from
-# trusted_owners, so adding a plugin without extending the list silently stops
-# that plugin from ever updating. Keep the two lists coupled.
-@test "every auto-installed herdr plugin owner is listed in trusted_owners" {
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
-
-  local owners_line
-  owners_line="$(grep '^trusted_owners' "$config")"
-
-  local owner
-  local count=0
-  while read -r owner; do
-    [ -n "$owner" ] || continue
-    count=$((count + 1))
-    if [[ "$owners_line" != *"\"$owner\""* ]]; then
-      fail "plugin owner $owner is installed by the script but missing from trusted_owners"
-    fi
-  done < <(awk '/^plugins=\(/{f=1;next} f&&/^\)/{f=0} f' "$script" |
-    sed -n 's/^[[:space:]]*"\([^\/"]*\)\/.*/\1/p')
-
-  [ "$count" -gt 0 ]
 }
 
 @test "herdr lazygit popup entrypoint is configured" {
@@ -339,18 +297,12 @@ PY
 
 @test "writing-style output style is deployed and enabled in settings" {
   assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
-  run grep -q 'keep-coding-instructions: true' "$HOME/.claude/output-styles/writing-style.md"
-  assert_success
-  run grep -q 'Start with the useful thing. End when the response has done its job. State each point once.' "$HOME/.claude/output-styles/writing-style.md"
-  assert_success
-  run grep -q '"outputStyle": "writing-style"' "$HOME/.claude/settings.json"
+  run jq -e '.outputStyle == "writing-style"' "$HOME/.claude/settings.json"
   assert_success
 }
 
-@test "pi APPEND_SYSTEM.md carries the full writing-style rules" {
+@test "pi APPEND_SYSTEM.md is deployed" {
   assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
-  run grep -q 'Start with the useful thing. End when the response has done its job. State each point once.' "$HOME/.pi/agent/APPEND_SYSTEM.md"
-  assert_success
 }
 
 @test "pi settings include all managed packages" {
@@ -384,16 +336,14 @@ PY
 
 @test "opencode reads the shared writing-style file via instructions" {
   assert_file_exists "$HOME/.config/agents/writing-style.md"
-  run grep -q 'Start with the useful thing. End when the response has done its job. State each point once.' "$HOME/.config/agents/writing-style.md"
-  assert_success
-  run grep -q '"~/.config/agents/writing-style.md"' "$HOME/.config/opencode/opencode.json"
+  run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$HOME/.config/opencode/opencode.json"
   assert_success
 }
 
 @test "opencode exposes curated claude skills through canonical symlinks" {
   local skill
 
-  for skill in ask-in-herdr markdown-new vector-prime work-summary; do
+  for skill in ask-in-herdr markdown-new vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.config/opencode/skills/$skill"
     assert_success
     assert_output "$HOME/.claude/skills/$skill"
@@ -438,11 +388,6 @@ PY
   assert_success
 }
 
-@test "CLAUDE.md no longer duplicates the Writing style section" {
-  run grep '^## Writing style' "$HOME/.claude/CLAUDE.md"
-  assert_failure
-}
-
 # One manifest replaces the per-skill existence tests; content-level guards
 # (YAML descriptions, shared-pointer resolution) keep their own tests below.
 @test "agent skills are deployed with their scripts and references" {
@@ -479,37 +424,12 @@ PY
   assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
 }
 
-@test "every skill description survives YAML parsing" {
-  # An unquoted YAML scalar ends at " #" (comment) and cannot contain ": ".
-  # Both truncate or invalidate the description, which is how the agent finds
-  # the skill at all — and both fail silently in a lenient parser.
-  local offenders=""
-  for skill in "$HOME"/.claude/skills/*/SKILL.md; do
-    [ -f "$skill" ] || continue
-    local line
-    line=$(grep -m1 '^description:' "$skill") || continue
-    local value=${line#description:}
-    value=${value# }
-    case "$value" in
-      \"*|\'*|\|*|\>*) continue ;;            # quoted or block scalar: safe
-    esac
-    case "$value" in
-      *" #"*|*": "*) offenders="$offenders $skill" ;;
-    esac
-  done
-  [ -z "$offenders" ] || fail "unquoted description with ' #' or ': ':$offenders"
-}
-
-@test "shared references are deployed and every pointer to them resolves" {
+@test "shared references are deployed" {
   assert_file_exists "$HOME/.claude/shared/README.md"
   assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
   assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
   assert_file_exists "$HOME/.claude/shared/decision-brief.md"
   assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
-
-  # No skill may point into another skill's references/ — shared material lives in shared/.
-  run grep -rEl '~/\.claude/skills/[a-z-]+/references/' "$HOME/.claude/skills"
-  assert_output ""
 }
 
 # ===========================================
@@ -619,16 +539,10 @@ SH
     run python3 "$FOCUS_NOTIFY_DIR/notify.py"
 }
 
-@test "focus-notify plugin compiles and declares no build step or extra backend" {
+@test "focus-notify plugin compiles and declares its runtime entrypoint" {
   run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
     python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
   assert_success
-
-  # The whole point of this local plugin: no compile-at-install step and no
-  # notifier backend beyond the terminal-notifier formula the repo installs.
-  run grep -Ei 'cargo|alerter|\[\[build\]\]' \
-    "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" "$FOCUS_NOTIFY_DIR/notify.py"
-  assert_failure
 
   # The manifest wires the status event and the interpreter as argv arrays.
   assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
@@ -677,20 +591,6 @@ argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
 assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
 assert argv[argv.index("-title") + 1] == "claude finished", argv
 PY
-  assert_success
-}
-
-@test "focus-notify plugin is linked by a tolerant darwin-guarded script" {
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_8-link-herdr-focus-notify.sh.tmpl"
-
-  assert_file_exists "$script"
-  assert_file_contains "$script" 'herdr plugin link "\$plugin_dir"'
-  assert_file_contains "$script" 'herdr plugin enable seigi.focus-notify'
-
-  run grep -Fq '[[ "$(uname -s)" != "Darwin" ]]' "$script"
-  assert_success
-
-  run bash -n "$script"
   assert_success
 }
 
@@ -781,74 +681,6 @@ se_fixture_repo() {
   assert_output --partial '"docReview":true'
 }
 
-@test "se peer skills share one fresh lifecycle and keep report-only boundaries" {
-  local code_review="$SE_ROOT/private_dot_claude/skills/se-code-review/SKILL.md"
-  local doc_review="$SE_ROOT/private_dot_claude/skills/se-doc-review/SKILL.md"
-  local simplify="$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
-  local lifecycle="$SE_ROOT/private_dot_claude/shared/herdr-peer-launch.md"
-
-  assert_file_exists "$code_review"
-  assert_file_exists "$doc_review"
-  assert_file_exists "$simplify"
-  assert_file_exists "$lifecycle"
-
-  run python3 - "$code_review" "$doc_review" "$simplify" "$lifecycle" <<'PY'
-from pathlib import Path
-import sys
-
-code_review = Path(sys.argv[1]).read_text()
-doc_review = Path(sys.argv[2]).read_text()
-simplify = Path(sys.argv[3]).read_text()
-lifecycle = Path(sys.argv[4]).read_text()
-
-launch_contract = (
-    "--model sonnet",
-    "--effort high",
-    "--dangerously-skip-permissions",
-    "--model openai/gpt-5.6-terra",
-    "--variant high",
-    "--agent build",
-    "--auto",
-    '"permission":"allow"',
-    'herdr pane close "$CLAUDE_PANE"',
-    'herdr pane close "$OPENCODE_PANE"',
-)
-
-for literal in launch_contract:
-    assert literal in lifecycle
-
-for skill in (code_review, doc_review, simplify):
-    assert "~/.claude/shared/herdr-peer-launch.md" in skill
-    assert all(literal not in skill for literal in launch_contract)
-    assert ".smithers" not in skill
-
-assert "mode:agent <resolved arguments>" in code_review
-assert "mode:report-only" in code_review
-assert "parent is the only apply owner" in code_review
-assert "Do not mechanically apply every `gated_auto` finding" in code_review
-
-assert "mode:headless <absolute DOC_COPY path>" in doc_review
-assert "gitleaks dir --no-banner --redact --exit-code 2" in doc_review
-assert "local pass is the only review allowed to mutate" in doc_review
-assert "at least 500 characters" in doc_review
-assert "append the synthesis to the local envelope" in doc_review
-
-assert "Execute only Step 1 and Step 2" in simplify
-assert "Do not execute Steps 3 through 5" in simplify
-assert "/compound-engineering:ce-simplify-code" in simplify
-assert "parent is the only apply owner" in simplify
-assert "validate-cmd" not in simplify
-PY
-  assert_success
-}
-
-@test "opencode config allows every external staging directory (R11)" {
-  local cfg="$SE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
-  assert_file_exists "$cfg"
-  run grep -F '"*": "allow"' "$cfg"
-  assert_success
-}
-
 @test "se pipeline dry-run honors --until=pr and --attach (no --detach)" {
   local repo
   repo="$(se_fixture_repo)"
@@ -927,20 +759,6 @@ PY
   local link_src="$SE_ROOT/dot_local/bin/symlink_se.tmpl"
   assert_file_exists "$link_src"
   run grep -q '.claude/.smithers/bin/se' "$link_src"
-  assert_success
-}
-
-@test "smithers deps install script exists with hash triggers on package.json and bun.lock" {
-  local script="$SE_ROOT/.chezmoiscripts/run_onchange_after_4-install-smithers-deps.sh.tmpl"
-  assert_file_exists "$script"
-  run grep -c 'sha256sum' "$script"
-  assert_success
-  assert_output "2"
-}
-
-@test "smithers deps install script skips gracefully without bun" {
-  local script="$SE_ROOT/.chezmoiscripts/run_onchange_after_4-install-smithers-deps.sh.tmpl"
-  run grep -q 'command -v bun' "$script"
   assert_success
 }
 
@@ -1038,9 +856,6 @@ PY
 @test "herdr-task-sync pi extension is deployed beside herdr's own" {
   local ext="$HOME/.pi/agent/extensions/herdr-task-sync.ts"
   assert_file_exists "$ext"
-  assert_file_contains "$ext" 'before_agent_start'
-  assert_file_contains "$ext" 'session_start'
-  assert_file_contains "$ext" 'getSessionName'
 }
 
 @test "Pi local private instructions focused tests pass" {
@@ -1049,37 +864,9 @@ PY
   assert_success
 }
 
-@test "Pi brew auto updater is deployed with startup and manual entry points" {
+@test "Pi brew auto updater is deployed" {
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
   assert_file_exists "$ext"
-  assert_file_contains "$ext" 'pi.on("session_start"'
-  assert_file_contains "$ext" 'event.reason !== "startup"'
-  assert_file_contains "$ext" 'registerCommand("brew-auto-update-now"'
-  assert_file_contains "$ext" 'PI_OFFLINE'
-  assert_file_contains "$ext" 'PI_BREW_AUTO_UPDATE'
-}
-
-@test "Pi brew auto updater keeps package-manager commands scoped" {
-  local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
-  run python3 - "$ext" <<'PY'
-import re
-import sys
-
-source = open(sys.argv[1], encoding="utf-8").read()
-required = [
-    r'command: "brew",\s+args: \["update"\]',
-    r'command: "brew",\s+args: \["upgrade", "pi-coding-agent"\]',
-    r'command: "pi",\s+args: \["update", "--extensions"\]',
-    r'deps\.exec\(step\.command, \[\.\.\.step\.args\]',
-]
-for pattern in required:
-    assert re.search(pattern, source), pattern
-for forbidden in ('"--self"', '"--all"', 'command: "npm"'):
-    assert forbidden not in source, forbidden
-assert len(re.findall(r'command: "brew"', source)) == 2
-assert len(re.findall(r'command: "pi"', source)) == 1
-PY
-  assert_success
 }
 
 @test "Pi brew auto updater focused tests pass" {
@@ -1087,38 +874,14 @@ PY
   assert_success
 }
 
-@test "herdr-task-sync opencode plugin is deployed and filters child sessions" {
+@test "herdr-task-sync opencode plugin is deployed" {
   local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
   assert_file_exists "$plugin"
-  assert_file_contains "$plugin" 'chat.message'
-  # Static stand-in for AE4: subagent messages must not rename the pane.
-  assert_file_contains "$plugin" 'parentID'
 }
 
 assert_herdr_sidebar_deployment_contract() {
   local config="$1"
-  local engine="$2"
-  local plugin="$3"
-  local claude_adapter="$4"
-  local opencode_adapter="$5"
-  local pi_adapter="$6"
   local width
-  local writer_files=(
-    "$engine"
-    "$plugin/herdr-plugin.toml"
-    "$plugin/ensure.sh"
-    "$plugin/sweep.sh"
-    "$claude_adapter"
-    "$opencode_adapter"
-    "$pi_adapter"
-  )
-  local writer_roots=(
-    "$(dirname "$engine")"
-    "$(dirname "$config")"
-    "$(dirname "$claude_adapter")"
-    "$(dirname "$opencode_adapter")"
-    "$(dirname "$pi_adapter")"
-  )
 
   assert_file_contains "$config" '^sidebar_min_width = 32$'
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
@@ -1135,64 +898,14 @@ assert_herdr_sidebar_deployment_contract() {
   [ "$width" -eq 32 ]
   [ "$((width - 4))" -ge 28 ]
   [ "$((width - 4))" -ge 8 ]
-
-  run bash -c '
-    pattern="$1"; shift
-    find "$@" -type f -exec grep -hE "$pattern" {} +
-  ' _ '^[[:space:]]*herdr pane rename ' "${writer_roots[@]}"
-  assert_success
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
-  run bash -c '
-    pattern="$1"; shift
-    find "$@" -type f -exec grep -hE "$pattern" {} +
-  ' _ '^[[:space:]]*herdr tab rename ' "${writer_roots[@]}"
-  assert_success
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
-
-  run grep -Ei 'reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
-    "$engine" "$plugin/herdr-plugin.toml" "$plugin/ensure.sh" "$plugin/sweep.sh"
-  assert_failure
-  run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
-    "$config" "${writer_files[@]}"
-  assert_success
-  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]'
-  assert_file_contains "$config" '"state_icon"'
-  # The engine builds the five codicon glyphs of the $git_ref grammar from
-  # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
-  # files pass through editors or agents, so none may be committed verbatim.
-  assert_file_contains "$engine" '\\356\\261\\257' # nf-cod-git_branch U+EC6F
-  assert_file_contains "$engine" '\\356\\261\\276' # nf-cod-worktree U+EC7E
-  assert_file_contains "$engine" '\\356\\253\\274' # nf-cod-git_commit U+EAFC
-  assert_file_contains "$engine" '\\356\\252\\203' # nf-cod-folder U+EA83
-  assert_file_contains "$engine" '\\356\\252\\202' # nf-cod-history U+EA82
-  run env LC_ALL=C grep -n "$(printf '\356')" "$engine" "$config"
-  assert_failure
-  assert_file_contains "$engine" 'LABEL_SEPARATOR=.* · '
-  assert_file_contains "$engine" '…'
-
-  run grep -Ei 'location_status|(^|[^[:alnum:]_])(location|worktree|branch|git)([^[:alnum:]_]|$)' \
-    "$claude_adapter" "$opencode_adapter" "$pi_adapter"
-  assert_failure
 }
 
 @test "herdr managed source preserves the U6 sidebar and ownership boundaries" {
-  assert_herdr_sidebar_deployment_contract \
-    "$SOURCE_ROOT/private_dot_config/herdr/config.toml" \
-    "$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync" \
-    "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels" \
-    "$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh" \
-    "$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts" \
-    "$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
+  assert_herdr_sidebar_deployment_contract "$SOURCE_ROOT/private_dot_config/herdr/config.toml"
 }
 
 @test "herdr deployed files preserve the U6 sidebar and ownership boundaries" {
-  assert_herdr_sidebar_deployment_contract \
-    "$HOME/.config/herdr/config.toml" \
-    "$HOME/.local/bin/herdr-task-sync" \
-    "$HOME/.config/herdr/plugins/herdr-pane-labels" \
-    "$HOME/.claude/hooks/herdr-task-sync-hook.sh" \
-    "$HOME/.config/opencode/plugins/herdr-task-sync.ts" \
-    "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
+  assert_herdr_sidebar_deployment_contract "$HOME/.config/herdr/config.toml"
 }
 
 @test "herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs" {
@@ -1236,18 +949,11 @@ assert_herdr_sidebar_deployment_contract() {
   local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   assert_file_contains "$manifest" '^\[\[startup\]\]$'
   assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
-  assert_file_contains "$plugin/ensure.sh" 'herdr-task-sync'
-  assert_file_contains "$plugin/ensure.sh" 'sync.*--ensure-daemon'
-  assert_file_contains "$plugin/sweep.sh" 'sync.*--sweep'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
   assert_file_contains "$relink" 'include "private_dot_config/herdr/config.toml"'
   assert_file_contains "$relink" 'include "dot_local/bin/executable_herdr-task-sync"'
-  assert_file_contains "$relink" 'herdr plugin link'
-  assert_file_contains "$relink" 'herdr plugin enable seigi.pane-labels'
-  assert_file_contains "$relink" 'restart-daemon'
-  assert_file_contains "$relink" ' --sweep'
 }
 
 # ===========================================

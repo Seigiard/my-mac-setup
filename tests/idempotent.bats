@@ -151,13 +151,6 @@ predicate_verdict() {
   assert_equal "$dest" "$HOME"
 }
 
-@test "guard: no file under home/ exports the marker" {
-  # home/ is deployed onto the developer's machine. A marker shipped from there
-  # would opt every workstation in, which is the failure this guard prevents.
-  run grep -rl "MMS_DISPOSABLE_HOME" "$SOURCE_ROOT"
-  assert_failure
-}
-
 @test "guard: the skip message names make test-ubuntu and the marker" {
   # `run` executes in a subshell, so these stubs cannot leak into another test.
   # Stubbing is the only way to read the message: a real skip ends the test

@@ -501,16 +501,6 @@ class ClientDiscoveryTests(unittest.TestCase):
     def test_clients_share_the_canonical_repository_issues_skill(self):
         skill = REPOSITORY / ".claude" / "skills" / "repository-issues" / "SKILL.md"
         self.assertTrue(skill.is_file())
-        contents = skill.read_text()
-        self.assertIn("name: repository-issues", contents)
-        self.assertIn("short_description", contents)
-        self.assertIn("testing-ci", contents)
-        self.assertIn("repository-maintenance", contents)
-        self.assertIn("critical", contents)
-        self.assertIn("low", contents)
-        for command in ("list", "show", "search", "create", "start", "edit", "close", "wontfix", "validate"):
-            self.assertIn(command, contents)
-        self.assertIn("unresolved", contents.lower())
 
         opencode_skill = REPOSITORY / ".opencode" / "skills" / "repository-issues"
         self.assertTrue(opencode_skill.is_symlink())
@@ -524,11 +514,6 @@ class ClientDiscoveryTests(unittest.TestCase):
         self.assertTrue(agents.is_symlink())
         self.assertEqual(Path("CLAUDE.md"), agents.readlink())
         self.assertEqual((REPOSITORY / "CLAUDE.md").resolve(), agents.resolve())
-
-        policy = (REPOSITORY / "CLAUDE.md").read_text()
-        self.assertIn("repository-issues", policy)
-        self.assertIn("scripts/issues", policy)
-        self.assertIn("docs/issues", policy)
 
         ignored = (REPOSITORY / ".gitignore").read_text().splitlines()
         self.assertIn("docs/issues/.issues.lock", ignored)

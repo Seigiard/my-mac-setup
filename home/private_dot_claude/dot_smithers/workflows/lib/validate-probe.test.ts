@@ -2,9 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyValidateFailure,
   commandHeads,
-  environmentFailureMessage,
   missingModuleName,
-  missingRunnerMessage,
   probeValidateCmd,
   segmentHead,
   selfProvisioning,
@@ -113,16 +111,6 @@ describe("probeValidateCmd", () => {
   });
 });
 
-describe("missingRunnerMessage", () => {
-  test("называет бинарь, причину и оба выхода", () => {
-    const msg = missingRunnerMessage("vitest run", ["vitest"]);
-    expect(msg).toContain('"vitest"');
-    expect(msg).toContain("--setup-cmd");
-    expect(msg).toContain("--validate-cmd");
-    expect(msg).toContain("vitest run");
-  });
-});
-
 describe("classifyValidateFailure", () => {
   test("несобранный dist — это окружение, а не упавший тест (run-1786718288581)", () => {
     // #given ровно тот вывод, за который заплатили дважды
@@ -162,15 +150,6 @@ describe("missingModuleName", () => {
 
   test("нераспознанная форма не выдумывает имя", () => {
     expect(missingModuleName("something broke")).toBe(null);
-  });
-});
-
-describe("environmentFailureMessage", () => {
-  test("называет модуль, состояние worktree и способ починки", () => {
-    const msg = environmentFailureMessage("bun run test:scripts", "missing-module", "Cannot find module '@membranehq/sdk/dist/index.node.js'");
-    expect(msg).toContain('"@membranehq/sdk/dist/index.node.js"');
-    expect(msg).toContain("--setup-cmd");
-    expect(msg).toContain("not a failing test");
   });
 });
 

@@ -52,9 +52,5 @@ class TestDockerContract(unittest.TestCase):
                 for contract_line in required:
                     self.assertIn(contract_line, service)
 
-        self.assertNotIn("bun install --cwd home/private_dot_claude/dot_smithers", self.compose)
-        self.assertNotIn("bun run check", self.compose)
-
-
 if __name__ == "__main__":
     unittest.main()

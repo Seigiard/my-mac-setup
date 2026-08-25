@@ -90,10 +90,12 @@ No OpenCode plugins are installed via `plugin[]`.
 
 Local plugins kept in repo: `herdr-agent-state.js`.
 
-### Skills (`~/.config/opencode/skills/` — 38)
+### Skills (`~/.config/opencode/skills/`)
 
 - `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
 - Own: `lfg`.
+- Canonical Claude skills exposed through managed symlinks: `ask-in-herdr`,
+  `markdown-new`, `vector-prime`, `work-summary`, `writing-for-agents`.
 
 ### Commands (`~/.config/opencode/commands/`)
 
