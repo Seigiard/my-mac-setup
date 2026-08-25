@@ -117,6 +117,7 @@ The checkout script was exposed as `/tmp/child-contract-bin/herdr-child` because
 5. Reply through `herdr-child reply`. The command sends the marked decision and clears the child's waiting label in the same operation.
 6. If the parent needs the user's decision, use the decision-brief shape from `~/.claude/shared/decision-brief.md`: name the thing, state the blocked decision, give options with consequences, and recommend one option.
 7. On a later turn, call `herdr-child reap <name>...` for children this parent started. Reaping is best effort and must preserve focused or waiting panes.
+8. When `ask-in-herdr` submits `[child-settled v1 ...]`, validate the live child pair. Reap it with `herdr-child reap --pane <pane-id> <name>` if no follow-up is needed; otherwise leave it open and continue the dialogue.
 
 ## Child duties
 
@@ -144,6 +145,18 @@ A parent reply starts with this exact marker line, followed by a blank line and 
 [parent-reply v1 pane=<parent-pane-id>]
 
 <body>
+```
+
+The `ask-in-herdr` wrapper submits this reminder after it reads a settled answer:
+
+```text
+[child-settled v1 agent=<name> pane=<pane-id>]
+
+The child is <idle|done> and its initial answer has been read.
+If another turn may have run, read its current output before reaping.
+If no follow-up is needed, run:
+herdr-child reap --pane <pane-id> <name>
+If you need a follow-up, leave the pane open and prompt <name>.
 ```
 
 Markers identify and version messages. They do not authenticate the sender. The parent must still perform the live-child check, and the child must still check the launch parent's pane ID.
