@@ -75,7 +75,7 @@ The compensating control for fail-open: per-leg parse status is surfaced every r
 
 **4. The signal is gate input, not content — strip it at the same position you parse it.**
 
-`stripSeverityLine` (`severity-summary.ts:88-103`) removes the machine line before an envelope is echoed into the work prompt or a human synthesis (the interactive-skill side of the same contract: `home/private_dot_claude/skills/se-doc-review/SKILL.md:55`). The strip is position-anchored to the *same* protected slot, plus JSON-shape checked — a prefix-match-anywhere strip silently truncated review prose that legitimately began with `SEVERITY:` (prose a review has every reason to write when discussing the gate's own contract). That over-matching was P2 tail #1, fixed in `3d28f09`. The extraction rule and the removal rule must agree on where the signal lives, or one of them corrupts data.
+`stripSeverityLine` (`severity-summary.ts:88-103`) removes the machine line before an envelope is echoed into the work prompt. The strip is position-anchored to the *same* protected slot, plus JSON-shape checked — a prefix-match-anywhere strip silently truncated review prose that legitimately began with `SEVERITY:` (prose a review has every reason to write when discussing the gate's own contract). That over-matching was P2 tail #1, fixed in `3d28f09`. The extraction rule and the removal rule must agree on where the signal lives, or one of them corrupts data. Standalone `se-doc-review` uses Herdr peers and does not request this Smithers pipeline-only slot.
 
 **5. Make the wiring testable without spoofing yourself.**
 

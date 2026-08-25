@@ -72,7 +72,7 @@ https://ccsafetynet.com/docs/installation
 | se-code-review | `repo` | repo    |
 | se-doc-review  | `repo` | repo    |
 
-Shared package for local `se-*` wrappers. Runtime deps/state are ignored.
+Managed Smithers backends remain available to `se-pipeline` and `se-flow`; standalone review wrappers launch fresh Herdr peers. Runtime deps/state are ignored.
 
 ### Agents (`~/.claude/agents/`)
 

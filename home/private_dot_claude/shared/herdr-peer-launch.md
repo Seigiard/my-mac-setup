@@ -1,6 +1,6 @@
 # Fresh Herdr peer lifecycle
 
-This is the single source of truth for the peer mechanics shared by `se-code-review` and `se-simplify`. The calling skill owns scope, peer prompts, report validation, synthesis, and apply policy. Read this file in full before every launch.
+This is the single source of truth for the peer mechanics shared by `se-code-review`, `se-doc-review`, and `se-simplify`. The calling skill owns scope, peer prompts, report validation, synthesis, and apply policy. Read this file in full before every launch.
 
 ## Inputs
 
@@ -66,13 +66,20 @@ herdr agent start "$OPENCODE_NAME" \
 
 Do not substitute another model, effort, variant, agent, permission posture, launcher, or reused session.
 
-## Prompt, wait, and read
+## Prompt both peers
 
 Submit both prompts before either wait can block:
 
 ```bash
 herdr agent prompt "$CLAUDE_NAME" "$CLAUDE_PROMPT"
 herdr agent prompt "$OPENCODE_NAME" "$OPENCODE_PROMPT"
+```
+
+After both submissions, perform any concurrent local work explicitly defined by the calling skill. Skills with no concurrent work proceed directly to waiting.
+
+## Wait and read
+
+```bash
 herdr agent wait "$CLAUDE_NAME" --timeout 1800000
 herdr agent wait "$OPENCODE_NAME" --timeout 1800000
 ```
