@@ -1,77 +1,164 @@
 ---
 name: se-code-review
-description: Code review, three independent runs synthesized — the local plugin review plus external claude and opencode. Use before a PR or when asked to review code; for a quick single-pass review use compound-engineering:ce-code-review.
-argument-hint: "[mode:agent] [blank to review current branch, or PR link / base:<ref> / plan:<path> / depth: / grouping:]"
+description: Review code through fresh Claude Sonnet/high and OpenCode Terra/high sessions, synthesize both reports, and apply clear verified fixes. Use before a PR or when asked to review code.
+argument-hint: "[mode:agent] [PR URL/number | branch | base:<ref>] [plan:<path>] [depth:auto|full] [grouping:auto|off|always]"
 ---
 
-# Code Review (wrapper: local persona review + external reviews via smithers)
+# Cross-model code review in herdr
 
-Wrapper over `compound-engineering:ce-code-review`. Runs the plugin review locally AND has two external agents (claude and opencode) each execute the **same plugin workflow** in `mode:agent` on a **frozen snapshot** of the checkout — dispatching their own reviewer subagents on their own model family — then synthesizes the three result reports.
+Run the same `compound-engineering:ce-code-review` workflow through two fresh peer sessions:
 
-All external orchestration (snapshotting, staging, parallel CLI launches, timeouts, budget caps, report collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-code-review.tsx`. Do not re-implement any of it in instructions — launch it and read its outputs. Harness mechanics shared with `/se-doc-review` and `/se-simplify` — launching, the secret gate, staging, error boundaries, the wait cap, diagnostics: read `~/.claude/shared/se-harness.md`.
+- Claude Code: Sonnet, effort `high`
+- OpenCode: `openai/gpt-5.6-terra`, variant `high`
 
-Argument contract is identical to the plugin skill: `mode:` / `base:` / `plan:` / `depth:` / `grouping:` tokens plus an optional PR number/URL/branch target. Everything is passed through to the local review unchanged.
+Both peers review the same current checkout independently in `mode:agent`. They return reports and never edit the checkout. After collecting their reports, close both panes before synthesis. Never resume or reuse either peer, and never retain one for another phase.
 
-**Cost note:** three multi-persona reviews (up to ~9 reviewer subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-8; a big diff (4800+ lines) bills ~$17+. The claude leg runs `retries={0}` because budget exhaustion is deterministic for a given diff — a retry burns the cap again on the same failure. Expect ~10-20 minutes and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-code-review` directly (its quick-review short-circuit also stays available there).
+## Resolve arguments
 
-## Recursion guard (read first)
+Parse arguments according to `ce-code-review`:
 
-If the current prompt contains the marker `[ce-code-review-external-consult]`, you ARE one of the external consults. Execute only the plugin workflow in mode:agent on the checkout you were given and return its JSON report. Never launch the harness or external consults from inside a consult. (The harness embeds this marker in every consult prompt.)
+- Always pass `mode:agent` to both peers. It is the supported report-only JSON mode and skips the plugin's apply stage.
+- Forward `base:`, `plan:`, `depth:`, and `grouping:` unchanged.
+- Forward an optional PR URL, PR number, or branch target.
+- Reject `base:` combined with a PR or branch target.
+- Normalize `mode:headless` to `mode:agent`.
+- Remove `mode:report-only` and `mode:autofix`; both are deprecated or ignored and do not create a report-only run.
 
-## Phase 1: Resolve the target
+Empty target arguments review the current branch against its detected base. Record whether the worktree is clean before review; the apply stage uses that fact.
 
-- Parse the arguments exactly like the plugin does: strip recognized tokens; the remainder (if any) is the PR number/URL/branch.
-- Build the harness `target` string: the original arguments **minus all `mode:` tokens** (externals always run `mode:agent`). Empty string = review the current branch against an auto-detected base — the harness computes and freezes the merge-base itself.
-- Conflicting arguments (per the plugin's rules) → don't launch anything; report the same one-line failure the plugin would.
+## Launch exactly two fresh peers
 
-## Phase 2: Launch the external harness (background, FIRST)
+Require `HERDR_ENV=1`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Use unique run-scoped agent names no longer than 32 characters.
 
-One background Bash task (`run_in_background: true`), launched **before** the local plugin review so all three reviews run concurrently:
+Create sibling panes rooted at the repository without taking focus:
 
 ```bash
-cd ~/.claude/.smithers && \
-CODE_REVIEW_REPO="<abs repo root>" ./node_modules/.bin/smithers up workflows/se-code-review.tsx \
-  --input '{"target":"<target string, may be empty>"}'
+CLAUDE_PANE=$(herdr pane split --current --direction right --cwd "$REPO_ROOT" --no-focus \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
+
+OPENCODE_PANE=$(herdr pane split "$CLAUDE_PANE" --direction down --cwd "$REPO_ROOT" --no-focus \
+  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow"}}}' \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 ```
 
-- The harness **freezes the review target** before anything else: `git stash create` captures dirty tracked state (untracked files are excluded, matching the plugin's own default scope) and a detached `git worktree` under `/tmp/ce-code-review/run-<ts>/repo` checks it out. External agents review that snapshot, so the local review applying fixes and committing mid-run cannot move the diff under them.
-- **Secret gate range:** merge-base with the base branch → the stash snapshot, dirty tree included. A secret already committed on the base branch is inside the snapshot and is not scanned.
-- The run's final output prints `stageDir`, `pluginVersion` (the compound-engineering version the external reviews ran against — cite it in Coverage), `snapshotSha`, `consultTarget`, `claudeStatus` / `opencodeStatus` (`ok` | `failed`), and a report path per surviving agent.
+Start Claude with the exact model, effort, and permission bypass:
 
-## Phase 3: Run the local plugin review
-
-Invoke the Skill tool with skill `compound-engineering:ce-code-review` and the **original arguments unchanged** (including any `mode:` token — local interactive mode may apply fixes; that's its contract, and the snapshot isolates the externals from it). Let it run its full flow.
-
-Never invoke bare `se-code-review` from here — that is this wrapper.
-
-## Phase 4: Collect external reports
-
-After the local review returns, wait for the background harness task (wait cap: se-harness → Waiting for the harness). Then read the report path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error). Each report is the plugin's `mode:agent` JSON (`status`, `verdict`, `findings[]`, `actionable_findings[]`, …); a report with `"status": "failed"` / `"degraded"` / `"skipped"` counts as that agent's honest result, not a harness failure.
-
-## Phase 5: Synthesize the three reports
-
-All three results share the finding structure (severity P0-P3, file/line, `autofix_class`, `suggested_fix`). Merge by file/line proximity + issue substance:
-
-1. **Consensus** — the same finding in 2+ reports. Report once with all sources; agreement across model families is the strongest signal in this review. If the local review already applied or reported it, mark as confirmed rather than re-opening. On severity disagreement within a consensus finding, keep the highest severity and note the spread.
-2. **Unique** — findings only one review produced. These are the payload of running three: name which review caught it and why the others plausibly missed it.
-3. **Contradictions** — reviews disagree on substance (one calls it a bug, another calls it intended), or the local review's applied fix conflicts with an external finding. Surface explicitly with both positions; do not silently pick a side.
-4. **Fix divergence** — same finding, materially different `suggested_fix`. Present the strongest fix with attribution; note the alternatives in one line.
-
-Verdict: take the most conservative of the three verdicts ("Not ready" > "Ready with fixes" > "Ready to merge") unless the stricter verdict rests solely on a finding the synthesis rejected — then say so explicitly.
-
-Present as:
-
-```
-## Cross-review synthesis
-Coverage: local reviewers: <list>; external claude: <ok | failed>; external opencode: <ok | failed>; plugin <version>
-Verdict: <merged verdict> (local: X / claude: Y / opencode: Z)
-### Consensus (N)
-### Unique findings (M) — by source
-### Contradictions / fix divergence (K)
+```bash
+herdr agent start "$CLAUDE_NAME" \
+  --kind claude \
+  --pane "$CLAUDE_PANE" \
+  --timeout 60000 \
+  -- \
+  --model sonnet \
+  --effort high \
+  --dangerously-skip-permissions
 ```
 
-**Delivery by mode:**
+Start OpenCode with the exact model, variant, build agent, and permission bypass:
 
-- **Interactive (default):** print the synthesis after the local review's report, then for unresolved Consensus/Unique/Contradiction findings offer the standard routing (walk through / apply best judgment / report only) via AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`).
-- **`mode:agent`:** return the local review's JSON with one added top-level field `cross_review`: `{ "coverage": {...}, "verdict_by_source": {...}, "consensus": [...], "unique": [...], "contradictions": [...] }` (findings referenced by their stable `#` from the local report where they exist there, inline objects otherwise). No questions — the caller decides.
+```bash
+herdr agent start "$OPENCODE_NAME" \
+  --kind opencode \
+  --pane "$OPENCODE_PANE" \
+  --timeout 60000 \
+  -- \
+  --model openai/gpt-5.6-terra \
+  --variant high \
+  --agent build \
+  --auto
+```
 
+Do not substitute another model, effort, variant, agent, permission posture, launcher, or reused session.
+
+## Prompt both before waiting
+
+Send Claude this prompt:
+
+```text
+Invoke `/compound-engineering:ce-code-review` with these exact arguments:
+
+mode:agent <resolved arguments>
+
+This is an independent report-only review. Do not edit files, stage changes,
+commit, push, switch branches, or ask interactive questions.
+
+Run the complete reviewer selection, persona dispatch, validation, merge, and
+JSON output flow. Return the final raw JSON report.
+```
+
+Send OpenCode this prompt:
+
+```text
+Use the `ce-code-review` skill with these exact arguments:
+
+mode:agent <resolved arguments>
+
+This is an independent report-only review. Do not edit files, stage changes,
+commit, push, switch branches, or ask interactive questions.
+
+Run the complete reviewer selection, persona dispatch, validation, merge, and
+JSON output flow. Return the final raw JSON report.
+```
+
+Submit both prompts without `--wait`, then wait for each agent. This starts both reviews before either wait can block:
+
+```bash
+herdr agent prompt "$CLAUDE_NAME" "$CLAUDE_PROMPT"
+herdr agent prompt "$OPENCODE_NAME" "$OPENCODE_PROMPT"
+herdr agent wait "$CLAUDE_NAME" --timeout 1800000
+herdr agent wait "$OPENCODE_NAME" --timeout 1800000
+```
+
+Read Claude from `visible` and OpenCode from `recent-unwrapped`:
+
+```bash
+CLAUDE_REPORT=$(herdr agent read "$CLAUDE_NAME" --source visible --format text)
+OPENCODE_REPORT=$(herdr agent read "$OPENCODE_NAME" --source recent-unwrapped --format text)
+```
+
+A settled state is only a wake-up signal: require a complete parseable JSON report. One failed or malformed peer degrades coverage; two failed peers fail the review.
+
+## Close peers before synthesis
+
+After reading the available reports, close both panes created by this run:
+
+```bash
+herdr pane close "$CLAUDE_PANE"
+herdr pane close "$OPENCODE_PANE"
+```
+
+Close them on success, failure, malformed output, or timeout. Do not continue either session and do not pass any peer context into `se-simplify`.
+
+## Synthesize reports
+
+Merge findings by file, nearby line, and issue substance:
+
+1. **Consensus**: both reports found the same issue.
+2. **Claude-only**: only Sonnet found it.
+3. **OpenCode-only**: only Terra found it.
+4. **Contradiction**: the reports disagree on whether the issue exists or what behavior is correct.
+5. **Fix divergence**: they agree on the issue but propose materially different fixes.
+
+Keep the highest supported severity. Treat cross-model agreement as stronger evidence, not proof. Use the most conservative supported verdict unless it depends only on a finding rejected during synthesis.
+
+## Apply findings in default mode
+
+Skip apply when this wrapper was invoked with `mode:agent`; return the synthesized machine handoff instead.
+
+In default mode, the parent is the only apply owner. Mirror `ce-code-review` Stage 5c:
+
+- Apply every merged finding that is a clear improvement and reversible edit, regardless of severity.
+- Judge consensus and unique findings on their merits. A unique source is not a deny condition.
+- Treat `autofix_class` as routing signal, not apply permission. Do not mechanically apply every `gated_auto` finding.
+- Do not apply contradictions, design decisions, taste calls, advisory findings, or findings the parent determines are wrong.
+- Apply only when the current working tree is the tree that both peers reviewed.
+- Run targeted tests and lint after each coherent fix group. Broaden checks when the change touches shared behavior.
+- Revert a fix that makes verification fail; never leave the tree red.
+- Self-review the complete apply delta and rerun affected checks after follow-up edits.
+- Never push, open a PR, or file tickets.
+
+If the pre-review tree was clean, commit verified fixes as one review-labeled commit following repository conventions. If it was dirty, leave fixes uncommitted and list every file changed by the apply stage.
+
+## Output
+
+Report peer coverage, merged verdict, consensus, source-unique findings, contradictions, fixes applied or skipped, verification commands and results, commit status, and remaining actionable findings. In `mode:agent`, return one JSON object and no prose outside it.

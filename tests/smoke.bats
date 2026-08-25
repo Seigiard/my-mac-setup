@@ -781,11 +781,46 @@ se_fixture_repo() {
   assert_output --partial '"docReview":true'
 }
 
-@test "se-simplify skill + se-review-and-work skill + se-simplify workflow are in the source tree" {
-  assert_file_exists "$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
-  assert_file_exists "$SE_ROOT/private_dot_claude/skills/se-review-and-work/SKILL.md"
-  assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/se-simplify.tsx"
-  assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/lib/stage-gate.ts"
+@test "se peer skills require fresh bypassed Sonnet and Terra report sessions" {
+  local code_review="$SE_ROOT/private_dot_claude/skills/se-code-review/SKILL.md"
+  local simplify="$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
+
+  assert_file_exists "$code_review"
+  assert_file_exists "$simplify"
+
+  run python3 - "$code_review" "$simplify" <<'PY'
+from pathlib import Path
+import sys
+
+code_review = Path(sys.argv[1]).read_text()
+simplify = Path(sys.argv[2]).read_text()
+
+for skill in (code_review, simplify):
+    assert "--model sonnet" in skill
+    assert "--effort high" in skill
+    assert "--dangerously-skip-permissions" in skill
+    assert "--model openai/gpt-5.6-terra" in skill
+    assert "--variant high" in skill
+    assert "--agent build" in skill
+    assert "--auto" in skill
+    assert '"permission":"allow"' in skill
+    assert 'herdr pane close "$CLAUDE_PANE"' in skill
+    assert 'herdr pane close "$OPENCODE_PANE"' in skill
+    assert "resume or reuse" in skill
+    assert ".smithers" not in skill
+
+assert "mode:agent <resolved arguments>" in code_review
+assert "mode:report-only" in code_review
+assert "parent is the only apply owner" in code_review
+assert "Do not mechanically apply every `gated_auto` finding" in code_review
+
+assert "Execute only Step 1 and Step 2" in simplify
+assert "Do not execute Steps 3 through 5" in simplify
+assert "/compound-engineering:ce-simplify-code" in simplify
+assert "parent is the only apply owner" in simplify
+assert "validate-cmd" not in simplify
+PY
+  assert_success
 }
 
 @test "opencode config allows every external staging directory (R11)" {
