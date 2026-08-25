@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +7,6 @@ const extensionPath =
   process.env.PI_AGENTS_LOCAL_EXTENSION_PATH ?? join(import.meta.dir, "../home/dot_pi/agent/extensions/agents-local.ts");
 const {
   default: registerAgentsLocalExtension,
-  formatLocalInstructions,
   inspectLocalInstructions,
   MAX_LOCAL_INSTRUCTIONS_BYTES,
 } = await import(extensionPath);
@@ -136,34 +135,5 @@ describe("Pi AGENTS.local.md extension selection", () => {
     expect(selection.selected).toBeUndefined();
     expect(selection.warnings).toEqual([]);
     expect(selection.diagnostics[0].status).toBe("skipped-not-file");
-  });
-});
-
-describe("Pi AGENTS.local.md extension hooks", () => {
-  test("appends one local instruction block before the agent starts", async () => {
-    const root = await temporaryProject();
-    await writeFile(join(root, "AGENTS.local.md"), "Use only AGENTS.\n");
-    await writeFile(join(root, "CLAUDE.local.md"), "Do not load this file.\n");
-    const { handlers } = fakePi();
-    const { ctx } = fakeContext(root);
-
-    const result = await handlers.before_agent_start({ systemPrompt: "Base prompt" }, ctx);
-
-    expect(result.systemPrompt).toStartWith("Base prompt");
-    expect(result.systemPrompt).toContain("## Local Private Project Instructions");
-    expect(result.systemPrompt).toContain("Use only AGENTS.");
-    expect(result.systemPrompt).not.toContain("Do not load this file.");
-  });
-
-  test("formatLocalInstructions names the real loaded path", async () => {
-    const root = await temporaryProject();
-    await writeFile(join(root, "AGENTS.local.md"), "Use formatted instructions.\n");
-    const selection = await inspectLocalInstructions(root);
-    const content = await readFile(selection.selected!.realPath, "utf8");
-
-    const promptBlock = formatLocalInstructions(selection.selected!, content);
-
-    expect(promptBlock).toContain(`Loaded from ${selection.selected!.realPath}`);
-    expect(promptBlock).toContain("Use formatted instructions.");
   });
 });

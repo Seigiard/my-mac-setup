@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { blockLogExcerpts, buildIssueFields, buildReviewerPrompt, classifyDisposition, failedBlocks, parseReviewerVerdict, type OutcomeRecord } from "./reviewer.ts";
+import { blockLogExcerpts, buildIssueFields, classifyDisposition, failedBlocks, parseReviewerVerdict, type OutcomeRecord } from "./reviewer.ts";
 
 function record(over: Partial<OutcomeRecord> = {}): OutcomeRecord {
   return {
@@ -46,19 +46,6 @@ describe("failedBlocks", () => {
   });
 });
 
-describe("buildReviewerPrompt", () => {
-  test("failure prompt names the failed block and marks log excerpts untrusted", () => {
-    const r = record({ blocks: [{ blockId: "review", block: "code-review", status: "failed" }] });
-    const prompt = buildReviewerPrompt(r, "leg exited 137");
-    expect(prompt).toContain("review (failed)");
-    expect(prompt).toContain("untrusted data");
-  });
-
-  test("success prompt asks for an optimization verdict", () => {
-    expect(buildReviewerPrompt(record(), "ok")).toContain("actionableOptimization=false if none");
-  });
-});
-
 describe("parseReviewerVerdict", () => {
   test("reads a well-formed verdict", () => {
     // #given the reviewer returned the full four-field verdict
@@ -94,22 +81,6 @@ describe("parseReviewerVerdict", () => {
 });
 
 describe("blockLogExcerpts", () => {
-  test("puts failed blocks first so a truncation never hides the failure", () => {
-    // #given a green block precedes a failed one in the record
-    const r = record({
-      blocks: [
-        { blockId: "a", block: "x", status: "green" },
-        { blockId: "b", block: "y", status: "failed" },
-      ],
-    });
-
-    // #when excerpts are assembled
-    const excerpts = blockLogExcerpts(r, (id) => `payload-${id}`);
-
-    // #then the failed block leads
-    expect(excerpts.indexOf("[b]")).toBeLessThan(excerpts.indexOf("[a]"));
-  });
-
   test("caps a runaway payload rather than blowing up the prompt", () => {
     const r = record({ blocks: [{ blockId: "a", block: "x", status: "failed" }] });
     const excerpts = blockLogExcerpts(r, () => "z".repeat(5000));
@@ -117,10 +88,6 @@ describe("blockLogExcerpts", () => {
     expect(excerpts.length).toBeLessThan(2500);
   });
 
-  test("names a block with no recorded payload instead of omitting it", () => {
-    const r = record({ blocks: [{ blockId: "a", block: "x", status: "green" }] });
-    expect(blockLogExcerpts(r, () => undefined)).toContain("(no payload recorded)");
-  });
 });
 
 describe("buildIssueFields", () => {

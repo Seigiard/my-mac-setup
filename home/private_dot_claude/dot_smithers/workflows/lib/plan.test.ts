@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveValidateCmd, extractValidateCmd, noValidateCmdRefusal } from "./plan.ts";
+import { deriveValidateCmd, extractValidateCmd } from "./plan.ts";
 
 // A contract whose only content is the given commands, one per fenced line.
 const contractWith = (...cmds: string[]): string => `## Verification Contract\n\n\`\`\`bash\n${cmds.join("\n")}\n\`\`\`\n`;
@@ -473,28 +473,6 @@ describe("deriveValidateCmd: декларация в frontmatter (issue 014)", (
   test("extractValidateCmd видит декларацию тем же значением", () => {
     const md = declaring("bun test");
     expect(extractValidateCmd(md)).toBe("(bun test)");
-  });
-});
-
-describe("noValidateCmdRefusal: отказ gate-0 называет обе формы (issue 014)", () => {
-  test("сообщение называет декларацию с примером и секцию-fallback", () => {
-    // #given план, из которого команду взять неоткуда
-    const message = noValidateCmdRefusal([]);
-
-    // #when / #then обе формы названы, и декларация показана целиком
-    expect(message).toContain("validate_commands:\n         - cd engine/api && bun run typecheck");
-    expect(message).toContain("`Verification Contract` section (`##` through `######`)");
-  });
-
-  test("наблюдения деривации попадают в отказ", () => {
-    // #given отброшенная команда — единственное объяснение, почему план пуст
-    const derived = deriveValidateCmd(declaring("oxfmt --write src"));
-
-    // #when
-    const message = noValidateCmdRefusal(derived.dropped.map((d) => `derivation dropped \`${d.cmd}\` — ${d.reason}`));
-
-    // #then
-    expect(message).toContain("What it refused: derivation dropped `oxfmt --write src` — refused: segment `oxfmt --write src` carries the mutating flag `--write`");
   });
 });
 

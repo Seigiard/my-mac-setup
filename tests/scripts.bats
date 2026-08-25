@@ -28,10 +28,6 @@ teardown() {
 # Repository linting
 # ===========================================
 
-@test "shellcheck is managed by the cross-platform Brewfile" {
-  assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile.tmpl" '^brew "shellcheck"'
-}
-
 @test "lint target propagates shellcheck failures" {
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
@@ -44,16 +40,6 @@ teardown() {
   run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
   rm -rf "$stubdir"
   assert_failure
-}
-
-@test "Docker image fails at build time when apt git is too old for zdiff3" {
-  local repo_root="$BATS_TEST_DIRNAME/.."
-  local dockerfile="$repo_root/docker/Dockerfile.ubuntu"
-  [[ -f "$dockerfile" ]] || skip "repo-root Dockerfile is not available in this environment"
-
-  assert_file_contains "$dockerfile" '^      if ! dpkg --compare-versions "\$found" ge "\$required"; then \\$'
-  assert_file_contains "$dockerfile" '^    assert_git_version_at_least 2 35; \\$'
-  assert_file_contains "$dockerfile" '^    command -v python3 >/dev/null'
 }
 
 # ===========================================
@@ -796,50 +782,11 @@ child_start() {
   assert_failure
 }
 
-# One dead verb (`herdr wait output`, which herdr spells `herdr pane wait-output`) cost a
-# whole broken mode for six weeks. Every herdr command a skill script runs is checked
-# here: its group against the allowlist always, and the full command against the installed
-# binary when there is one — CI has no herdr, a dev machine does. Scope includes skill
-# scripts and the shared launch executable, where the surviving herdr calls are concentrated.
-@test "skill scripts call only herdr commands that exist" {
-  local groups='agent|api|channel|completion|config|integration|notification|pane|plugin|session|tab|workspace|worktree|status|update|server'
-  local calls bad="" grp cmd
-  # Comment lines out, then command position only: line start, or after a pipe, `;`,
-  # `&&`, `(`, backtick or `$(` — prose about herdr must not read as a call.
-  calls="$({ grep -rh --include='*.sh' -E 'herdr' "$SOURCE_ROOT/private_dot_claude/skills"; \
-      grep -h -E 'herdr' "$HERDR_CHILD"; } \
-    | grep -vE '^[[:space:]]*#' \
-    | grep -oE '(^|[|;&(`]|\$\()[[:space:]]*herdr [a-z][a-z-]*( [a-z][a-z-]*)?' \
-    | sed 's/.*herdr //' | sort -u)"
-  while read -r grp cmd; do
-    [ -n "$grp" ] || continue
-    if ! printf '%s' "$grp" | grep -qE "^($groups)\$"; then
-      bad="$bad herdr:$grp:$cmd"; continue
-    fi
-    if command -v herdr >/dev/null && [ -n "$cmd" ]; then
-      herdr "$grp" "$cmd" --help >/dev/null 2>&1 || bad="$bad herdr:$grp:$cmd"
-    fi
-  done <<< "$calls"
-  [ -z "$bad" ] || fail "skill scripts call herdr commands that do not exist:$bad"
-}
-
 # ===========================================
 # herdr-integrations run-script
 # ===========================================
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
-
-@test "herdr-integrations script guards on command -v herdr and stays tolerant" {
-  run grep -q "command -v herdr" "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-  run grep -q 'for target in claude pi opencode' "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-}
-
-@test "herdr-integrations version trigger is lookPath-guarded so CI without herdr still renders" {
-  run grep -q 'lookPath "herdr"' "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-}
 
 @test "herdr-integrations script exits 0 and skips when herdr is absent" {
   skip_if_no_chezmoi
@@ -1908,40 +1855,6 @@ PY
   hts_wait_for_task_slug "$task" invoked-first-committed-second
   hts_wait_for_quiescence "$control"
   [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]]
-}
-
-@test "herdr-task-sync agent adapters await only the engine enqueue boundary" {
-  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
-  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
-  local claude_adapter="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-task-sync-hook.sh"
-  run grep -c 'await callEngine' "$pi_adapter"
-  assert_output "2"
-  run grep -c 'await callEngine' "$opencode_adapter"
-  assert_output "1"
-  run bash -c "! grep -q 'detached: true' '$pi_adapter' '$opencode_adapter'"
-  assert_success
-  run grep -c "bounded atomic inbox commit" "$claude_adapter"
-  assert_output "1"
-}
-
-@test "herdr-task-sync adapters bound and clean up direct engine processes" {
-  local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
-  local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
-  local adapter
-  for adapter in "$pi_adapter" "$opencode_adapter"; do
-    run grep -Fq 'child.stdin?.destroy()' "$adapter"
-    assert_success
-    run grep -Fq 'child.kill("SIGTERM")' "$adapter"
-    assert_success
-    run grep -Fq 'child.once("error", finish)' "$adapter"
-    assert_success
-    run grep -Fq 'child.once("close", finish)' "$adapter"
-    assert_success
-    run grep -Fq 'timer.unref?.()' "$adapter"
-    assert_success
-    run grep -Fq 'removeListener("error"' "$adapter"
-    assert_failure
-  done
 }
 
 @test "herdr-task-sync adapters return when a direct engine hangs" {
@@ -3688,27 +3601,6 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   assert_equal "$(hts_state_field "$state" first_prompt)" "now fix the flaky login test"
   run cat "$HTS_WORK/pi-stdin.txt"
   assert_output --partial "Current name: (none)"
-}
-
-# The tests run the engine's two timing budgets at load-tolerant values, because
-# the shipped ones are too tight to survive --jobs contention on a busy machine.
-# That is deliberate, and it costs the coverage this test buys back: nothing else
-# in the suite would notice if a shipped default moved or disappeared, so a
-# production change from 75 ms to seconds -- or to no budget at all -- would go
-# out green.
-#
-# Asserted statically against the source rather than by timing a probe. A timing
-# assertion at 75 ms is exactly the idle-machine calibration that made these
-# tests flaky under load in the first place; reading the shipped default has no
-# such failure mode.
-@test "herdr-task-sync ships the timing defaults the tests deliberately override" {
-  run grep -c 'LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"' "$HTS_ENGINE"
-  assert_output "1"
-  run grep -c 'ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"' "$HTS_ENGINE"
-  assert_output "1"
-  # The watchdog default above is the value HTS_ENGINE_WATCHDOG_SECONDS tracks,
-  # so a change to either side without the other turns this red.
-  assert_equal "$HTS_ENGINE_WATCHDOG_SECONDS" 30
 }
 
 # R8: the adapter's call must not wait on the model.

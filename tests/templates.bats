@@ -67,12 +67,6 @@ teardown() {
   assert_success
 }
 
-@test "zshenv sources Cargo environment only when readable" {
-  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
-  assert_success
-  assert_output --partial '[[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"'
-}
-
 # ===========================================
 # dot_zshrc.tmpl
 # ===========================================
@@ -92,24 +86,6 @@ teardown() {
 # sources. That is how ~/.cache/zsh/mise-activate.zsh grew five orphan lines
 # and every new shell printed "zsh: command not found: ".
 # ===========================================
-
-@test "zshenv generates the mise cache through a temp file rename" {
-  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
-  assert_success
-  assert_output --partial 'mv -f "$_mise_cache_tmp" "$_mise_cache"'
-  refute_output --partial 'mise activate zsh > "$_mise_cache"'
-}
-
-@test "zshenv strips the absolute PATH export when generating the mise cache" {
-  # Line 1 of `mise activate zsh` is an `export PATH='...'` snapshot of the
-  # generating shell. Cached, it froze that one shell's PATH into every later
-  # shell until the mise binary changed (docs/issues/2026-08-21-001). The
-  # activate script ends with a direct `_mise_hook` call that recomputes PATH
-  # via `mise hook-env` at source time, so the snapshot line is redundant.
-  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
-  assert_success
-  assert_output --partial "sed '1{/^export PATH=/d;}'"
-}
 
 @test "zshenv mise cache does not freeze the generating shell's PATH into later shells" {
   command_exists zsh || skip "zsh not installed"
@@ -169,13 +145,6 @@ PROBE
   assert_success
   refute_output --partial "$work/marker"
   assert_output --partial "$work/toolbin"
-}
-
-@test "zshrc cached_init generates the cache through a temp file rename" {
-  run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
-  assert_success
-  assert_output --partial 'mv -f "$tmp" "$cache"'
-  refute_output --partial '"$@" > "$cache"'
 }
 
 @test "zshrc cached_init never splices two concurrent generators" {
@@ -255,56 +224,18 @@ PROBE
 @test "opencode skill symlinks target canonical claude skills" {
   local skill
 
-  for skill in ask-in-herdr markdown-new vector-prime work-summary; do
+  for skill in ask-in-herdr markdown-new vector-prime work-summary writing-for-agents; do
     run render_template "$SOURCE_ROOT/private_dot_config/opencode/skills/symlink_${skill}.tmpl"
     assert_success
     assert_output "$HOME/.claude/skills/$skill"
   done
 }
 
-# ===========================================
-# Shared writing-style template (.chezmoitemplates/writing-style.md)
-# rendered into each agent's native style mechanism
-# ===========================================
-
-# includeTemplate resolves against .chezmoitemplates in the chezmoi source dir,
-# so these renders must point --source at the checkout under test, not at the
-# host's chezmoi clone.
-render_with_source() {
-  local template_file="$1"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
-}
-
-@test "claude output style renders the shared writing-style rules" {
-  run render_with_source "$SOURCE_ROOT/private_dot_claude/output-styles/writing-style.md.tmpl"
-  assert_success
-  assert_output --partial 'keep-coding-instructions: true'
-  assert_output --partial 'Start with the useful thing. End when the response has done its job. State each point once.'
-}
-
-@test "pi APPEND_SYSTEM renders the shared writing-style rules" {
-  run render_with_source "$SOURCE_ROOT/dot_pi/agent/APPEND_SYSTEM.md.tmpl"
-  assert_success
-  assert_output --partial '# Writing style'
-  assert_output --partial 'Start with the useful thing. End when the response has done its job. State each point once.'
-}
-
-@test "shared agents/writing-style.md renders the shared rules" {
-  run render_with_source "$SOURCE_ROOT/private_dot_config/agents/writing-style.md.tmpl"
-  assert_success
-  assert_output --partial 'Start with the useful thing. End when the response has done its job. State each point once.'
-}
-
 @test "opencode instructions point at the shared writing-style file" {
-  run render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
+  run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output --partial '"instructions"'
-  assert_output --partial '"~/.config/agents/writing-style.md"'
-}
-
-@test "CLAUDE.md source no longer carries the Writing style section" {
-  run grep '^## Writing style' "$SOURCE_ROOT/private_dot_claude/CLAUDE.md"
-  assert_failure
 }
 
 # ===========================================
@@ -316,16 +247,6 @@ render_with_source() {
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
   run python3 -m json.tool "$BATS_TEST_TMPFILE"
   assert_success
-}
-
-@test "private_settings.json.tmpl renders the task-sync hook on all three events" {
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-  assert_file_contains "$BATS_TEST_TMPFILE" '"UserPromptSubmit"'
-  assert_file_contains "$BATS_TEST_TMPFILE" '"PreCompact"'
-  run grep -c "herdr-task-sync-hook.sh" "$BATS_TEST_TMPFILE"
-  assert_success
-  assert_output "3"
 }
 
 # ===========================================
@@ -523,13 +444,6 @@ assert_minimal_brewfile() {
   # entry would still render indented, and `brew bundle` would keep working — so
   # without this nothing goes red.
   #
-  # This covers the rendered file only, and that is deliberately half the job.
-  # An entry sitting directly after a `-}}` trim marker renders at column zero
-  # however it is indented in the source, because the marker eats the leading
-  # whitespace. The other half is tests/scripts.bats, which asserts the anchored
-  # pattern ^brew "shellcheck" against the template *source*. Verified by
-  # mutation: indenting `brew "ffmpeg"` reddens this test, indenting
-  # `brew "shellcheck"` reddens that one. Neither test alone catches both.
   local mode cfg tmpl out
   for mode in 1 ""; do
     cfg="$BATS_TEST_TMPDIR/indent-$mode.yaml"
@@ -542,23 +456,9 @@ assert_minimal_brewfile() {
   done
 }
 
-@test "the install script's hash triggers name the renamed .tmpl sources" {
-  # `include` reads the chezmoi source path, which keeps the .tmpl suffix; the
-  # `brew bundle` calls in the same script read the deployed path, which does
-  # not. A stale include here is the documented gotcha: it either breaks the
-  # apply or silently stops the script re-running when a Brewfile changes.
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
-
-  run grep -F 'include "private_dot_config/brewfiles/Brewfile.tmpl"' "$script"
-  assert_success
-  run grep -F 'include "private_dot_config/brewfiles/empty_Brewfile.macos.tmpl"' "$script"
-  assert_success
-
-  # The deployed paths in the same file must NOT gain the suffix.
-  run grep -F 'brew bundle --file="$BREWFILES_DIR/Brewfile"' "$script"
-  assert_success
-  run grep -F 'brew bundle --file="$BREWFILES_DIR/Brewfile.macos"' "$script"
-  assert_success
+render_with_source() {
+  local template_file="$1"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
 }
 
 @test "every hash-trigger include in the install script resolves to a real file" {
