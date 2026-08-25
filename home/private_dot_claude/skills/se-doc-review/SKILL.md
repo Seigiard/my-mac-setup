@@ -65,9 +65,13 @@ file; stage changes; commit; push; switch branches; or ask interactive
 questions. Where the workflow would apply a safe_auto fix, keep it in the
 envelope as an applied-candidate finding with the exact suggested edit.
 
-Return the complete envelope, not a completion note. It must name the personas
-executed in Coverage, contain at least 500 characters, and end with the exact
-line: Review complete
+Return the canonical complete headless envelope, not a completion note.
+Coverage must name every persona attempted and its status.
+Coverage finding counts must reconcile. Route every surviving finding once through
+Applied fixes, Proposed fixes, Decisions, FYI observations, Residual concerns,
+or Deferred questions, with the evidence and suggested fix required by the
+canonical schema. An empty review still includes Coverage with explicit zero
+counts. End with the exact line: Review complete
 ```
 
 ### OpenCode prompt
@@ -87,14 +91,18 @@ file; stage changes; commit; push; switch branches; or ask interactive
 questions. Where the workflow would apply a safe_auto fix, keep it in the
 envelope as an applied-candidate finding with the exact suggested edit.
 
-Return the complete envelope, not a completion note. It must name the personas
-executed in Coverage, contain at least 500 characters, and end with the exact
-line: Review complete
+Return the canonical complete headless envelope, not a completion note.
+Coverage must name every persona attempted and its status.
+Coverage finding counts must reconcile. Route every surviving finding once through
+Applied fixes, Proposed fixes, Decisions, FYI observations, Residual concerns,
+or Deferred questions, with the evidence and suggested fix required by the
+canonical schema. An empty review still includes Coverage with explicit zero
+counts. End with the exact line: Review complete
 ```
 
 After the shared lifecycle submits both prompts and before it waits, invoke the local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and pane closure.
 
-Accept an envelope only when it satisfies the complete-envelope contract above. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. If all three passes fail, fail the review without modifying the document further.
+Accept an envelope only when Coverage accounts for every attempted persona, its counts reconcile, every surviving finding is routed once with its required fields, and the terminal line is exact. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. If all three passes fail, fail the review without modifying the document further.
 
 Remove the temporary document copy and its empty staging directory after pane closure or any earlier failure.
 

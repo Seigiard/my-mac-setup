@@ -12,6 +12,8 @@ Resolve these values before launch:
 
 Require `HERDR_ENV=1`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
 
+The **cleanup boundary** begins when the first pane is created. Track each created pane ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every pane created by this run before control returns to the calling skill.
+
 ## Create panes
 
 Use run-scoped agent names no longer than 32 characters:
@@ -29,11 +31,11 @@ CLAUDE_PANE=$(herdr pane split --current --direction right --cwd "$REPO_ROOT" --
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 
 OPENCODE_PANE=$(herdr pane split "$CLAUDE_PANE" --direction down --cwd "$REPO_ROOT" --no-focus \
-  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow"}}}' \
+  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow","reasoningEffort":"high"}}}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 ```
 
-A new pane can briefly return `agent_pane_busy`. Retry only that readiness error; do not retry a generic startup timeout.
+A freshly split pane can make its following `agent start` return `agent_pane_busy`. On that exact error, wait two seconds and retry the same start once. A failed retry enters the cleanup boundary. A generic startup timeout enters cleanup immediately without retry.
 
 ## Start exact peers
 
@@ -50,7 +52,7 @@ herdr agent start "$CLAUDE_NAME" \
   --dangerously-skip-permissions
 ```
 
-Start OpenCode with Terra, variant `high`, the build agent, and permission bypass:
+Start OpenCode with Terra, high reasoning effort from the build-agent config, and permission bypass:
 
 ```bash
 herdr agent start "$OPENCODE_NAME" \
@@ -59,12 +61,13 @@ herdr agent start "$OPENCODE_NAME" \
   --timeout 60000 \
   -- \
   --model openai/gpt-5.6-terra \
-  --variant high \
   --agent build \
   --auto
 ```
 
-Do not substitute another model, effort, variant, agent, permission posture, launcher, or reused session.
+The interactive OpenCode entrypoint does not accept the run command's variant flag; keep high reasoning in `agent.build.reasoningEffort`. Do not substitute another model, effort, agent, permission posture, launcher, or reused session.
+
+Each start is complete only when the command succeeds and reports `interactive_ready:true`. Enter the cleanup boundary before prompting if either peer fails this criterion.
 
 ## Prompt both peers
 
@@ -102,4 +105,4 @@ herdr pane close "$CLAUDE_PANE"
 herdr pane close "$OPENCODE_PANE"
 ```
 
-Close every pane created by the run on success, launch failure, prompt failure, malformed output, or timeout. If a command fails after the first split, close the panes already created before returning.
+Pane closure completes the cleanup boundary. Attempt every recorded pane closure even when an earlier close command fails; report any pane that remains open.

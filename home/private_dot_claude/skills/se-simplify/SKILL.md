@@ -42,8 +42,14 @@ code-quality, and efficiency reviewers. Do not execute Steps 3 through 5.
 This is an independent report-only simplification review. Do not edit files,
 stage changes, commit, push, switch branches, or ask interactive questions.
 
-Return structured findings with the reviewer dimension, file and location,
-proposed behavior-preserving change, evidence, confidence, and required checks.
+Return a complete report with these sections:
+- Coverage: status for code-reuse, code-quality, and efficiency.
+- Findings: reviewer dimension, file and location, proposed behavior-preserving
+  change, evidence, confidence, and required checks for every accepted item.
+- Rejected or uncertain: every candidate excluded as unsafe, contradictory,
+  false-positive, or low-value, with its reason.
+Write `Findings: none` when no item survives. End with the exact line:
+Simplify review complete
 ```
 
 ### OpenCode prompt
@@ -59,11 +65,17 @@ code-quality, and efficiency reviewers. Do not execute Steps 3 through 5.
 This is an independent report-only simplification review. Do not edit files,
 stage changes, commit, push, switch branches, or ask interactive questions.
 
-Return structured findings with the reviewer dimension, file and location,
-proposed behavior-preserving change, evidence, confidence, and required checks.
+Return a complete report with these sections:
+- Coverage: status for code-reuse, code-quality, and efficiency.
+- Findings: reviewer dimension, file and location, proposed behavior-preserving
+  change, evidence, confidence, and required checks for every accepted item.
+- Rejected or uncertain: every candidate excluded as unsafe, contradictory,
+  false-positive, or low-value, with its reason.
+Write `Findings: none` when no item survives. End with the exact line:
+Simplify review complete
 ```
 
-Execute the shared lifecycle through pane closure. Require a complete report from each peer. One failed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
+Execute the shared lifecycle through pane closure. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
 
 ## Synthesize findings
 
