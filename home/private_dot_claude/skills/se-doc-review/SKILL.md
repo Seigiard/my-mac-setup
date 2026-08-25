@@ -61,9 +61,10 @@ Run the complete document classification, persona selection and dispatch,
 validation, synthesis, and headless-envelope flow.
 
 This is an independent report-only review. Do not create, edit, or delete any
-file; stage changes; commit; push; switch branches; or ask interactive
-questions. Where the workflow would apply a safe_auto fix, keep it in the
-envelope as an applied-candidate finding with the exact suggested edit.
+repository file or the reviewed document; stage changes; commit; push; switch
+branches; or ask interactive questions. The shared lifecycle's report transport
+file is the only permitted write. Where the workflow would apply a safe_auto fix,
+keep it in the envelope as an applied-candidate finding with the exact suggested edit.
 
 Return the canonical complete headless envelope, not a completion note.
 Coverage must name every persona attempted and its status.
@@ -87,9 +88,10 @@ Run the complete document classification, persona selection and dispatch,
 validation, synthesis, and headless-envelope flow.
 
 This is an independent report-only review. Do not create, edit, or delete any
-file; stage changes; commit; push; switch branches; or ask interactive
-questions. Where the workflow would apply a safe_auto fix, keep it in the
-envelope as an applied-candidate finding with the exact suggested edit.
+repository file or the reviewed document; stage changes; commit; push; switch
+branches; or ask interactive questions. The shared lifecycle's report transport
+file is the only permitted write. Where the workflow would apply a safe_auto fix,
+keep it in the envelope as an applied-candidate finding with the exact suggested edit.
 
 Return the canonical complete headless envelope, not a completion note.
 Coverage must name every persona attempted and its status.
