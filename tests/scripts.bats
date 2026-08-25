@@ -171,6 +171,11 @@ case "$1 $2" in
     else printf '{"result":{"agents":[]}}\n'; fi ;;
   "agent read") [ "${STUB_READ_FAIL:-0}" = 1 ] && { printf 'read failed\n' >&2; exit 1; }; printf 'ANSWER from child\n' ;;
   "agent get") printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
+  "agent prompt")
+    [ "${STUB_PARENT_PROMPT_FAIL:-0}" = 1 ] && { printf 'prompt failed\n' >&2; exit 1; }
+    printf '%s' "$4" > "$CHILD_STUB/parent-prompt"
+    printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    ;;
   "pane get")
     if [ "${STUB_WAITING_LABEL:-0}" = 1 ]; then
       printf '{"result":{"pane":{"state_labels":{"blocked":"waiting for parent"}}}}\n'
@@ -232,7 +237,7 @@ SH
     bash "$ASK_HERDR_DIR/ask.sh" claude "hi there"
   assert_success
   assert_output --partial "ANSWER from child"
-  assert_output --partial "close with: herdr-child reap consult-claude-"
+  assert_output --partial "close with: herdr-child reap --pane wT:p9 consult-claude-"
   assert_output --partial "ask.sh: status=answered"
   run grep -E -- '^start --kind claude --name consult-claude-[0-9]+ --posture ro ' "$CHILD_STUB/child.log"
   assert_success
@@ -240,6 +245,22 @@ SH
   assert_success
   run grep -E -- '^agent read consult-claude-[0-9]+ --source visible --lines 200' "$CHILD_STUB/herdr.log"
   assert_success
+  assert_file_contains "$CHILD_STUB/parent-prompt" '^\[child-settled v1 agent=consult-claude-[0-9][0-9]* pane=wT:p9\]$'
+  assert_file_contains "$CHILD_STUB/parent-prompt" 'initial answer has been read'
+  assert_file_contains "$CHILD_STUB/parent-prompt" 'read its current output before reaping'
+  assert_file_contains "$CHILD_STUB/parent-prompt" 'herdr-child reap --pane wT:p9 consult-claude-[0-9][0-9]*'
+  assert_file_contains "$CHILD_STUB/herdr.log" '^agent prompt wT:p0 '
+}
+
+@test "ask.sh keeps a settled answer when the parent reminder cannot be queued" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=done STUB_PARENT_PROMPT_FAIL=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_success
+  assert_output --partial "ANSWER from child"
+  assert_output --partial "warning: could not queue the cleanup reminder"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
 @test "ask.sh forwards posture and every native caller option" {
@@ -278,6 +299,7 @@ SH
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
   assert_file_contains "$CHILD_STUB/herdr.log" '^agent read .*--source recent-unwrapped'
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_WAITING_LABEL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -285,6 +307,7 @@ SH
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
 @test "ask.sh reports undelivered when child output cannot be read" {
@@ -303,6 +326,7 @@ SH
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
 @test "ask.sh classifies successful waits with working, unknown, and fallback statuses" {
@@ -698,11 +722,33 @@ child_start() {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" reap idle-a
+    bash "$HERDR_CHILD" reap --pane wT:p1 idle-a
   assert_success
   assert_output --partial "idle-a: closed pane wT:p1"
+  refute_output --partial "--pane: skipped"
   run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
   assert_output 1
+}
+
+@test "herdr-child reap rejects an empty expected pane" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap --pane "" idle-a
+  assert_failure 2
+  assert_output --partial "reap --pane requires a non-empty pane ID"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+}
+
+@test "herdr-child reap preserves a reused name outside the expected pane" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"reused-a","pane_id":"wT:p2","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" reap --pane wT:p1 reused-a
+  assert_success
+  assert_output --partial "reused-a: kept; expected pane wT:p1, current pane is wT:p2"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 @test "herdr-child reap preserves a pane when fresh state no longer matches" {

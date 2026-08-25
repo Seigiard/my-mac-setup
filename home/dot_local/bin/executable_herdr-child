@@ -12,7 +12,7 @@ Usage:
   herdr-child start --kind <claude|opencode|pi> --name <name> [options]
   herdr-child ask <question>
   herdr-child reply --to <name> --pane <pane-id> <decision>
-  herdr-child reap <name>...
+  herdr-child reap [--pane <pane-id>] <name>...
 
 Start options:
   --posture <ro|rw>       Child tool posture (default: ro)
@@ -353,6 +353,14 @@ $text"
 
 reap_children() {
   require_parent
+  local expected_pane=""
+  if [ "${1:-}" = "--pane" ]; then
+    [ $# -ge 3 ] || fail_usage 'reap --pane requires a pane ID and child name'
+    expected_pane="$2"
+    [ -n "$expected_pane" ] || fail_usage 'reap --pane requires a non-empty pane ID'
+    shift 2
+    [ $# -eq 1 ] || fail_usage 'reap --pane accepts exactly one child name'
+  fi
   [ $# -gt 0 ] || fail_usage 'reap requires at least one child name'
   local list_json name record pane status focused pane_json label_status fresh_list_json fresh_status
   list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; exit 1; }
@@ -378,6 +386,10 @@ print("%s\t%s\t%s" % (match.get("pane_id",""), match.get("agent_status","unknown
       *) printf '%s: kept; live agent state could not be parsed\n' "$name"; continue ;;
     esac
     IFS=$'\t' read -r pane status focused <<< "$record"
+    if [ -n "$expected_pane" ] && [ "$pane" != "$expected_pane" ]; then
+      printf '%s: kept; expected pane %s, current pane is %s\n' "$name" "$expected_pane" "$pane"
+      continue
+    fi
     case "$status" in
       done|idle) ;;
       *) printf '%s: kept; status is %s\n' "$name" "$status"; continue ;;
