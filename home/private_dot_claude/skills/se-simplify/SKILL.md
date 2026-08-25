@@ -39,8 +39,9 @@ Invoke `/compound-engineering:ce-simplify-code` as the governing rubric for this
 Execute only Step 1 and Step 2: resolve the scope and run the code-reuse,
 code-quality, and efficiency reviewers. Do not execute Steps 3 through 5.
 
-This is an independent report-only simplification review. Do not edit files,
-stage changes, commit, push, switch branches, or ask interactive questions.
+This is an independent report-only simplification review. Do not edit repository
+files, stage changes, commit, push, switch branches, or ask interactive questions.
+The shared lifecycle's report transport file is the only permitted write.
 
 Return a complete report with these sections:
 - Coverage: status for code-reuse, code-quality, and efficiency.
@@ -62,8 +63,9 @@ Use the `ce-simplify-code` skill as the governing rubric for this scope:
 Execute only Step 1 and Step 2: resolve the scope and run the code-reuse,
 code-quality, and efficiency reviewers. Do not execute Steps 3 through 5.
 
-This is an independent report-only simplification review. Do not edit files,
-stage changes, commit, push, switch branches, or ask interactive questions.
+This is an independent report-only simplification review. Do not edit repository
+files, stage changes, commit, push, switch branches, or ask interactive questions.
+The shared lifecycle's report transport file is the only permitted write.
 
 Return a complete report with these sections:
 - Coverage: status for code-reuse, code-quality, and efficiency.

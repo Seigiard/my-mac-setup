@@ -12,7 +12,7 @@ Resolve these values before launch:
 
 Require `HERDR_ENV=1`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
 
-The **cleanup boundary** begins when the first pane is created. Track each created pane ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every pane created by this run before control returns to the calling skill.
+The **cleanup boundary** begins when the report transport directory is created. Track each created pane ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every pane created by this run and removes its report transport files before control returns to the calling skill.
 
 ## Create panes
 
@@ -22,6 +22,11 @@ Use run-scoped agent names no longer than 32 characters:
 PEER_RUN_ID="$(date +%s)-$$"
 CLAUDE_NAME="se-claude-$PEER_RUN_ID"
 OPENCODE_NAME="se-opencode-$PEER_RUN_ID"
+
+PEER_REPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/se-peer-$PEER_RUN_ID.XXXXXX")
+chmod 700 "$PEER_REPORT_DIR"
+CLAUDE_REPORT_PATH="$PEER_REPORT_DIR/claude.report"
+OPENCODE_REPORT_PATH="$PEER_REPORT_DIR/opencode.report"
 ```
 
 Create sibling panes rooted at the repository without taking focus:
@@ -71,7 +76,21 @@ Each start is complete only when the command succeeds and reports `interactive_r
 
 ## Prompt both peers
 
-Submit both prompts before either wait can block:
+Append the report transport contract to each calling prompt. This is the only permitted file-write exception in a report-only peer: it does not permit changes to the checkout, reviewed document, or any other file.
+
+```bash
+CLAUDE_PROMPT="$CLAUDE_PROMPT
+
+[peer-report-transport]
+Before ending this turn, write the exact complete report you are returning, byte-for-byte, to $CLAUDE_REPORT_PATH. Write it atomically through $CLAUDE_REPORT_PATH.tmp and rename the completed file to $CLAUDE_REPORT_PATH. The file is the authoritative report transport. After it is durable, return the same report in the UI as usual. Do not write any other file."
+
+OPENCODE_PROMPT="$OPENCODE_PROMPT
+
+[peer-report-transport]
+Before ending this turn, write the exact complete report you are returning, byte-for-byte, to $OPENCODE_REPORT_PATH. Write it atomically through $OPENCODE_REPORT_PATH.tmp and rename the completed file to $OPENCODE_REPORT_PATH. The file is the authoritative report transport. After it is durable, return the same report in the UI as usual. Do not write any other file."
+```
+
+Submit both augmented prompts before either wait can block:
 
 ```bash
 herdr agent prompt "$CLAUDE_NAME" "$CLAUDE_PROMPT"
@@ -80,29 +99,58 @@ herdr agent prompt "$OPENCODE_NAME" "$OPENCODE_PROMPT"
 
 After both submissions, perform any concurrent local work explicitly defined by the calling skill. Skills with no concurrent work proceed directly to waiting.
 
-## Wait and read
+## Wait and collect
 
 ```bash
 herdr agent wait "$CLAUDE_NAME" --timeout 1800000
 herdr agent wait "$OPENCODE_NAME" --timeout 1800000
 ```
 
-Read Claude from `visible` and OpenCode from `recent-unwrapped`:
+The report files are the primary transport. A settled peer that did not create a non-empty regular report file gets one bounded recovery prompt to persist its previous answer:
 
 ```bash
-CLAUDE_REPORT=$(herdr agent read "$CLAUDE_NAME" --source visible --format text)
-OPENCODE_REPORT=$(herdr agent read "$OPENCODE_NAME" --source recent-unwrapped --format text)
+recover_peer_report() {
+  local agent_name="$1" report_path="$2"
+  [ -f "$report_path" ] && [ -s "$report_path" ] && return 0
+
+  herdr agent prompt "$agent_name" \
+    "The report transport file is missing or empty. Write your exact complete previous report, byte-for-byte, atomically through $report_path.tmp and rename it to $report_path. Then reply with only the path." \
+    --wait --timeout 120000 || return 1
+
+  [ -f "$report_path" ] && [ -s "$report_path" ]
+}
+
+CLAUDE_TRANSPORT_OK=1
+if ! recover_peer_report "$CLAUDE_NAME" "$CLAUDE_REPORT_PATH"; then
+  CLAUDE_TRANSPORT_OK=0
+  CLAUDE_DIAGNOSTIC=$(herdr agent read "$CLAUDE_NAME" --source visible --lines 200 --format text || true)
+fi
+
+OPENCODE_TRANSPORT_OK=1
+if ! recover_peer_report "$OPENCODE_NAME" "$OPENCODE_REPORT_PATH"; then
+  OPENCODE_TRANSPORT_OK=0
+  OPENCODE_DIAGNOSTIC=$(herdr agent read "$OPENCODE_NAME" --source recent-unwrapped --lines 200 --format text || true)
+fi
+
+[ "$CLAUDE_TRANSPORT_OK" -eq 0 ] || CLAUDE_REPORT=$(<"$CLAUDE_REPORT_PATH")
+[ "$OPENCODE_TRANSPORT_OK" -eq 0 ] || OPENCODE_REPORT=$(<"$OPENCODE_REPORT_PATH")
 ```
 
-A settled state is only a wake-up signal. The calling skill must validate a complete report before accepting either result.
+A settled state is only a wake-up signal. Pane-backed reads can silently omit alternate-screen history and are diagnostic only; never accept `CLAUDE_DIAGNOSTIC` or `OPENCODE_DIAGNOSTIC` as a report. A failed transport degrades that peer. The calling skill must still validate the complete file-backed report before accepting it.
 
-## Close before synthesis
+## Close and clean before synthesis
 
-After reading every available report, close both panes before synthesis:
+After collecting every available report into memory, close both panes and remove the transport directory before synthesis:
 
 ```bash
-herdr pane close "$CLAUDE_PANE"
-herdr pane close "$OPENCODE_PANE"
+CLEANUP_ERRORS=""
+herdr pane close "$CLAUDE_PANE" || CLEANUP_ERRORS="$CLEANUP_ERRORS pane:$CLAUDE_PANE"
+herdr pane close "$OPENCODE_PANE" || CLEANUP_ERRORS="$CLEANUP_ERRORS pane:$OPENCODE_PANE"
+rm -f "$CLAUDE_REPORT_PATH" "$CLAUDE_REPORT_PATH.tmp" \
+  "$OPENCODE_REPORT_PATH" "$OPENCODE_REPORT_PATH.tmp" \
+  || CLEANUP_ERRORS="$CLEANUP_ERRORS reports:$PEER_REPORT_DIR"
+rmdir "$PEER_REPORT_DIR" || CLEANUP_ERRORS="$CLEANUP_ERRORS directory:$PEER_REPORT_DIR"
+[ -z "$CLEANUP_ERRORS" ] || printf 'peer cleanup incomplete:%s\n' "$CLEANUP_ERRORS" >&2
 ```
 
-Pane closure completes the cleanup boundary. Attempt every recorded pane closure even when an earlier close command fails; report any pane that remains open.
+Pane closure and report-directory removal complete the cleanup boundary. Attempt every recorded pane closure and every cleanup command even when an earlier command fails; report any pane or transport path that remains.

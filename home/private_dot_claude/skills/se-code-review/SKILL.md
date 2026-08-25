@@ -38,8 +38,9 @@ Invoke `/compound-engineering:ce-code-review` with these exact arguments:
 
 mode:agent <resolved arguments>
 
-This is an independent report-only review. Do not edit files, stage changes,
-commit, push, switch branches, or ask interactive questions.
+This is an independent report-only review. Do not edit repository files, stage
+changes, commit, push, switch branches, or ask interactive questions. The shared
+lifecycle's report transport file is the only permitted write.
 
 Run the complete reviewer selection, persona dispatch, validation, merge, and
 JSON output flow. Return the final raw JSON report.
@@ -52,8 +53,9 @@ Use the `ce-code-review` skill with these exact arguments:
 
 mode:agent <resolved arguments>
 
-This is an independent report-only review. Do not edit files, stage changes,
-commit, push, switch branches, or ask interactive questions.
+This is an independent report-only review. Do not edit repository files, stage
+changes, commit, push, switch branches, or ask interactive questions. The shared
+lifecycle's report transport file is the only permitted write.
 
 Run the complete reviewer selection, persona dispatch, validation, merge, and
 JSON output flow. Return the final raw JSON report.
