@@ -45,8 +45,9 @@ fail-closed — один P0 блокирует, даже если второе �
 ослабляет гейт ниже чистой доступности. Пер-плечевой статус парса severity
 (parsed/missing) пишется в notes и `verify-doc.result.json` каждый прогон —
 системный отказ контракта виден, а не тихо инертен. SEVERITY-строка выстригается
-из конверта перед инъекцией в work-промпт (`readDocReviewAdvisory`) и из синтеза
-standalone-скилла — это вход гейта, не контент ревью.
+из конверта перед инъекцией в work-промпт (`readDocReviewAdvisory`) — это вход
+Smithers-гейта, не контент ревью. Standalone `se-doc-review` использует Herdr
+peers без этого pipeline-only слота.
 
 ## Стадия simplify и два входа (se-work / se-review-and-work)
 

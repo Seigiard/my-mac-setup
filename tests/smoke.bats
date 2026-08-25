@@ -503,7 +503,7 @@ PY
 @test "shared references are deployed and every pointer to them resolves" {
   assert_file_exists "$HOME/.claude/shared/README.md"
   assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
-  assert_file_exists "$HOME/.claude/shared/se-harness.md"
+  assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
   assert_file_exists "$HOME/.claude/shared/decision-brief.md"
   assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
 
@@ -781,11 +781,65 @@ se_fixture_repo() {
   assert_output --partial '"docReview":true'
 }
 
-@test "se-simplify skill + se-review-and-work skill + se-simplify workflow are in the source tree" {
-  assert_file_exists "$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
-  assert_file_exists "$SE_ROOT/private_dot_claude/skills/se-review-and-work/SKILL.md"
-  assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/se-simplify.tsx"
-  assert_file_exists "$SE_ROOT/private_dot_claude/dot_smithers/workflows/lib/stage-gate.ts"
+@test "se peer skills share one fresh lifecycle and keep report-only boundaries" {
+  local code_review="$SE_ROOT/private_dot_claude/skills/se-code-review/SKILL.md"
+  local doc_review="$SE_ROOT/private_dot_claude/skills/se-doc-review/SKILL.md"
+  local simplify="$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
+  local lifecycle="$SE_ROOT/private_dot_claude/shared/herdr-peer-launch.md"
+
+  assert_file_exists "$code_review"
+  assert_file_exists "$doc_review"
+  assert_file_exists "$simplify"
+  assert_file_exists "$lifecycle"
+
+  run python3 - "$code_review" "$doc_review" "$simplify" "$lifecycle" <<'PY'
+from pathlib import Path
+import sys
+
+code_review = Path(sys.argv[1]).read_text()
+doc_review = Path(sys.argv[2]).read_text()
+simplify = Path(sys.argv[3]).read_text()
+lifecycle = Path(sys.argv[4]).read_text()
+
+launch_contract = (
+    "--model sonnet",
+    "--effort high",
+    "--dangerously-skip-permissions",
+    "--model openai/gpt-5.6-terra",
+    "--variant high",
+    "--agent build",
+    "--auto",
+    '"permission":"allow"',
+    'herdr pane close "$CLAUDE_PANE"',
+    'herdr pane close "$OPENCODE_PANE"',
+)
+
+for literal in launch_contract:
+    assert literal in lifecycle
+
+for skill in (code_review, doc_review, simplify):
+    assert "~/.claude/shared/herdr-peer-launch.md" in skill
+    assert all(literal not in skill for literal in launch_contract)
+    assert ".smithers" not in skill
+
+assert "mode:agent <resolved arguments>" in code_review
+assert "mode:report-only" in code_review
+assert "parent is the only apply owner" in code_review
+assert "Do not mechanically apply every `gated_auto` finding" in code_review
+
+assert "mode:headless <absolute DOC_COPY path>" in doc_review
+assert "gitleaks dir --no-banner --redact --exit-code 2" in doc_review
+assert "local pass is the only review allowed to mutate" in doc_review
+assert "at least 500 characters" in doc_review
+assert "append the synthesis to the local envelope" in doc_review
+
+assert "Execute only Step 1 and Step 2" in simplify
+assert "Do not execute Steps 3 through 5" in simplify
+assert "/compound-engineering:ce-simplify-code" in simplify
+assert "parent is the only apply owner" in simplify
+assert "validate-cmd" not in simplify
+PY
+  assert_success
 }
 
 @test "opencode config allows every external staging directory (R11)" {
