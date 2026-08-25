@@ -1,15 +1,12 @@
 ---
 name: se-code-review
-description: Review code through fresh Claude Sonnet/high and OpenCode Terra/high sessions, synthesize both reports, and apply clear verified fixes. Use before a PR or when asked to review code.
+description: Review code through two fresh cross-model peer sessions, synthesize both reports, and apply clear verified fixes. Use before a PR or when asked to review code.
 argument-hint: "[mode:agent] [PR URL/number | branch | base:<ref>] [plan:<path>] [depth:auto|full] [grouping:auto|off|always]"
 ---
 
 # Cross-model code review in herdr
 
-Run the same `compound-engineering:ce-code-review` workflow through two fresh peer sessions:
-
-- Claude Code: Sonnet, effort `high`
-- OpenCode: `openai/gpt-5.6-terra`, variant `high`
+Run the same `compound-engineering:ce-code-review` workflow through two fresh peer sessions.
 
 Both peers review the same current checkout independently in `mode:agent`. They return reports and never edit the checkout. After collecting their reports, close both panes before synthesis. Never resume or reuse either peer, and never retain one for another phase.
 
@@ -26,51 +23,13 @@ Parse arguments according to `ce-code-review`:
 
 Empty target arguments review the current branch against its detected base. Record whether the worktree is clean before review; the apply stage uses that fact.
 
-## Launch exactly two fresh peers
+## Dispatch fresh peers
 
-Require `HERDR_ENV=1`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Use unique run-scoped agent names no longer than 32 characters.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
 
-Create sibling panes rooted at the repository without taking focus:
+Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
 
-```bash
-CLAUDE_PANE=$(herdr pane split --current --direction right --cwd "$REPO_ROOT" --no-focus \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-
-OPENCODE_PANE=$(herdr pane split "$CLAUDE_PANE" --direction down --cwd "$REPO_ROOT" --no-focus \
-  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow"}}}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-```
-
-Start Claude with the exact model, effort, and permission bypass:
-
-```bash
-herdr agent start "$CLAUDE_NAME" \
-  --kind claude \
-  --pane "$CLAUDE_PANE" \
-  --timeout 60000 \
-  -- \
-  --model sonnet \
-  --effort high \
-  --dangerously-skip-permissions
-```
-
-Start OpenCode with the exact model, variant, build agent, and permission bypass:
-
-```bash
-herdr agent start "$OPENCODE_NAME" \
-  --kind opencode \
-  --pane "$OPENCODE_PANE" \
-  --timeout 60000 \
-  -- \
-  --model openai/gpt-5.6-terra \
-  --variant high \
-  --agent build \
-  --auto
-```
-
-Do not substitute another model, effort, variant, agent, permission posture, launcher, or reused session.
-
-## Prompt both before waiting
+### Claude prompt
 
 Send Claude this prompt:
 
@@ -86,7 +45,7 @@ Run the complete reviewer selection, persona dispatch, validation, merge, and
 JSON output flow. Return the final raw JSON report.
 ```
 
-Send OpenCode this prompt:
+### OpenCode prompt
 
 ```text
 Use the `ce-code-review` skill with these exact arguments:
@@ -100,34 +59,7 @@ Run the complete reviewer selection, persona dispatch, validation, merge, and
 JSON output flow. Return the final raw JSON report.
 ```
 
-Submit both prompts without `--wait`, then wait for each agent. This starts both reviews before either wait can block:
-
-```bash
-herdr agent prompt "$CLAUDE_NAME" "$CLAUDE_PROMPT"
-herdr agent prompt "$OPENCODE_NAME" "$OPENCODE_PROMPT"
-herdr agent wait "$CLAUDE_NAME" --timeout 1800000
-herdr agent wait "$OPENCODE_NAME" --timeout 1800000
-```
-
-Read Claude from `visible` and OpenCode from `recent-unwrapped`:
-
-```bash
-CLAUDE_REPORT=$(herdr agent read "$CLAUDE_NAME" --source visible --format text)
-OPENCODE_REPORT=$(herdr agent read "$OPENCODE_NAME" --source recent-unwrapped --format text)
-```
-
-A settled state is only a wake-up signal: require a complete parseable JSON report. One failed or malformed peer degrades coverage; two failed peers fail the review.
-
-## Close peers before synthesis
-
-After reading the available reports, close both panes created by this run:
-
-```bash
-herdr pane close "$CLAUDE_PANE"
-herdr pane close "$OPENCODE_PANE"
-```
-
-Close them on success, failure, malformed output, or timeout. Do not continue either session and do not pass any peer context into `se-simplify`.
+Execute the shared lifecycle through pane closure. Require a complete parseable JSON report from each peer. One failed or malformed peer degrades coverage; two failed peers fail the review. Do not pass peer context into `se-simplify`.
 
 ## Synthesize reports
 

@@ -1,15 +1,12 @@
 ---
 name: se-simplify
-description: Simplify changed code through fresh Claude Sonnet/high and OpenCode Terra/high reviews, then apply the synthesized behavior-preserving findings once. Use for a tidy or refactor pass before review.
+description: Simplify changed code through two fresh cross-model peer reviews, then apply the synthesized behavior-preserving findings once. Use for a tidy or refactor pass before review.
 argument-hint: "[scope description]"
 ---
 
 # Cross-model simplify in herdr
 
-Launch two fresh peer sessions to inspect the same simplification scope:
-
-- Claude Code: Sonnet, effort `high`
-- OpenCode: `openai/gpt-5.6-terra`, variant `high`
+Launch two fresh peer sessions to inspect the same simplification scope.
 
 Each peer uses the `ce-simplify-code` rubric to produce findings without editing. After collecting both reports, close both panes before synthesis. The parent applies the accepted set exactly once and verifies behavior.
 
@@ -24,51 +21,13 @@ Resolve the scope using `ce-simplify-code` Step 1:
 
 Capture the pre-apply worktree state so simplify-owned edits can be distinguished from existing user changes.
 
-## Launch exactly two fresh peers
+## Dispatch fresh peers
 
-Require `HERDR_ENV=1`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Use unique run-scoped agent names no longer than 32 characters.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
 
-Create sibling panes rooted at the repository without taking focus:
+Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
 
-```bash
-CLAUDE_PANE=$(herdr pane split --current --direction right --cwd "$REPO_ROOT" --no-focus \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-
-OPENCODE_PANE=$(herdr pane split "$CLAUDE_PANE" --direction down --cwd "$REPO_ROOT" --no-focus \
-  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow"}}}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-```
-
-Start Claude exactly as:
-
-```bash
-herdr agent start "$CLAUDE_NAME" \
-  --kind claude \
-  --pane "$CLAUDE_PANE" \
-  --timeout 60000 \
-  -- \
-  --model sonnet \
-  --effort high \
-  --dangerously-skip-permissions
-```
-
-Start OpenCode exactly as:
-
-```bash
-herdr agent start "$OPENCODE_NAME" \
-  --kind opencode \
-  --pane "$OPENCODE_PANE" \
-  --timeout 60000 \
-  -- \
-  --model openai/gpt-5.6-terra \
-  --variant high \
-  --agent build \
-  --auto
-```
-
-Do not substitute another model, effort, variant, agent, permission posture, launcher, or reused session.
-
-## Prompt both before waiting
+### Claude prompt
 
 Send Claude this prompt:
 
@@ -87,7 +46,7 @@ Return structured findings with the reviewer dimension, file and location,
 proposed behavior-preserving change, evidence, confidence, and required checks.
 ```
 
-Send OpenCode this prompt:
+### OpenCode prompt
 
 ```text
 Use the `ce-simplify-code` skill as the governing rubric for this scope:
@@ -104,34 +63,7 @@ Return structured findings with the reviewer dimension, file and location,
 proposed behavior-preserving change, evidence, confidence, and required checks.
 ```
 
-Submit both prompts without `--wait`, then wait for each agent:
-
-```bash
-herdr agent prompt "$CLAUDE_NAME" "$CLAUDE_PROMPT"
-herdr agent prompt "$OPENCODE_NAME" "$OPENCODE_PROMPT"
-herdr agent wait "$CLAUDE_NAME" --timeout 1800000
-herdr agent wait "$OPENCODE_NAME" --timeout 1800000
-```
-
-Read Claude from `visible` and OpenCode from `recent-unwrapped`:
-
-```bash
-CLAUDE_REPORT=$(herdr agent read "$CLAUDE_NAME" --source visible --format text)
-OPENCODE_REPORT=$(herdr agent read "$OPENCODE_NAME" --source recent-unwrapped --format text)
-```
-
-Require a complete report, not only a settled process state. One failed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
-
-## Close peers before synthesis
-
-After reading the available reports, close both panes created by this run:
-
-```bash
-herdr pane close "$CLAUDE_PANE"
-herdr pane close "$OPENCODE_PANE"
-```
-
-Close them on success, failure, malformed output, or timeout. Never resume or reuse an agent from another phase.
+Execute the shared lifecycle through pane closure. Require a complete report from each peer. One failed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
 
 ## Synthesize findings
 

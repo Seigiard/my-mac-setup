@@ -504,6 +504,7 @@ PY
   assert_file_exists "$HOME/.claude/shared/README.md"
   assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
   assert_file_exists "$HOME/.claude/shared/se-harness.md"
+  assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
   assert_file_exists "$HOME/.claude/shared/decision-brief.md"
   assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
 
@@ -781,32 +782,42 @@ se_fixture_repo() {
   assert_output --partial '"docReview":true'
 }
 
-@test "se peer skills require fresh bypassed Sonnet and Terra report sessions" {
+@test "se peer skills share one fresh lifecycle and keep report-only boundaries" {
   local code_review="$SE_ROOT/private_dot_claude/skills/se-code-review/SKILL.md"
   local simplify="$SE_ROOT/private_dot_claude/skills/se-simplify/SKILL.md"
+  local lifecycle="$SE_ROOT/private_dot_claude/shared/herdr-peer-launch.md"
 
   assert_file_exists "$code_review"
   assert_file_exists "$simplify"
+  assert_file_exists "$lifecycle"
 
-  run python3 - "$code_review" "$simplify" <<'PY'
+  run python3 - "$code_review" "$simplify" "$lifecycle" <<'PY'
 from pathlib import Path
 import sys
 
 code_review = Path(sys.argv[1]).read_text()
 simplify = Path(sys.argv[2]).read_text()
+lifecycle = Path(sys.argv[3]).read_text()
+
+launch_contract = (
+    "--model sonnet",
+    "--effort high",
+    "--dangerously-skip-permissions",
+    "--model openai/gpt-5.6-terra",
+    "--variant high",
+    "--agent build",
+    "--auto",
+    '"permission":"allow"',
+    'herdr pane close "$CLAUDE_PANE"',
+    'herdr pane close "$OPENCODE_PANE"',
+)
+
+for literal in launch_contract:
+    assert literal in lifecycle
 
 for skill in (code_review, simplify):
-    assert "--model sonnet" in skill
-    assert "--effort high" in skill
-    assert "--dangerously-skip-permissions" in skill
-    assert "--model openai/gpt-5.6-terra" in skill
-    assert "--variant high" in skill
-    assert "--agent build" in skill
-    assert "--auto" in skill
-    assert '"permission":"allow"' in skill
-    assert 'herdr pane close "$CLAUDE_PANE"' in skill
-    assert 'herdr pane close "$OPENCODE_PANE"' in skill
-    assert "resume or reuse" in skill
+    assert "~/.claude/shared/herdr-peer-launch.md" in skill
+    assert all(literal not in skill for literal in launch_contract)
     assert ".smithers" not in skill
 
 assert "mode:agent <resolved arguments>" in code_review

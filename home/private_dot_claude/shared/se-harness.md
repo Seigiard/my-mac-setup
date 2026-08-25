@@ -1,6 +1,6 @@
-# The smithers harness — shared mechanics for `/se-code-review`, `/se-doc-review`, `/se-simplify`
+# The smithers harness for `/se-doc-review`
 
-Not a command. Each of those skills launches a smithers workflow that runs external agent legs (claude + opencode) in parallel. The mechanics below are identical across all three and are stated once here; each skill states only what differs — its workflow file, its input JSON, its scan range, and its output fields.
+Not a command. `se-doc-review` launches a smithers workflow that runs external agent legs (claude + opencode) in parallel. Its skill states only what differs: the workflow file, input JSON, scan range, and output fields.
 
 ## Launching
 
