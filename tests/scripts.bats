@@ -32,7 +32,6 @@ teardown() {
   assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile.tmpl" '^brew "shellcheck"'
 }
 
-# Docker mounts only home/ and tests/, so the repo-root Makefile is absent there.
 @test "lint target propagates shellcheck failures" {
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
@@ -1755,15 +1754,14 @@ PY
   assert_output --partial "exceeded fail-open behavioral deadline"
 }
 
-@test "herdr-task-sync fail-open guard accepts a representative same-run baseline" {
-  hts_setup
-  local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=0.1
-  local HTS_FAIL_OPEN_BASELINE_MULTIPLIER=0
-  local HTS_FAIL_OPEN_REFERENCE_MILLIS=1000
-
-  run hts_run_fail_open_guard sleep 0.5
-
+@test "herdr-task-sync fail-open guard uses the greater baseline" {
+  run hts_fail_open_behavior_baseline_ms 200 8 1000
   assert_success
+  assert_output 1600
+
+  run hts_fail_open_behavior_baseline_ms 100 8 1000
+  assert_success
+  assert_output 1000
 }
 
 @test "herdr-task-sync fails open for missing tools contention write failure and malformed input" {
@@ -1905,42 +1903,92 @@ PY
   local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
   local opencode_adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
   local home="$BATS_TEST_TMPDIR/adapter-timeout-home"
+  local driver="$home/adapter-timeout-driver.ts"
   mkdir -p "$home/.local/bin"
   cat > "$home/.local/bin/herdr-task-sync" <<'SH'
 #!/bin/sh
+agent=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--agent" ] && [ "$#" -gt 1 ]; then
+    agent="$2"
+    break
+  fi
+  shift
+done
+[ -n "$agent" ] || exit 2
+started="$HOME/$agent.started"
+terminated="$HOME/$agent.terminated"
+trap 'touch "$terminated"; exit 0' TERM
+touch "$started"
 cat >/dev/null
-trap 'exit 0' TERM
 while :; do sleep 0.05; done
 SH
   chmod +x "$home/.local/bin/herdr-task-sync"
 
-  run env HOME="$home" HERDR_ENV=1 PI_ADAPTER_PATH="$pi_adapter" \
-    OPENCODE_ADAPTER_PATH="$opencode_adapter" bun -e '
-      const piHandlers = {}
-      const piExtension = (await import(`file://${process.env.PI_ADAPTER_PATH}`)).default
-      piExtension({
-        getSessionName: () => undefined,
-        on: (event, handler) => { piHandlers[event] = handler },
-      })
-      const context = {
-        hasUI: true,
-        sessionManager: { getSessionId: () => "pi-root" },
-      }
-      await piHandlers.session_start({}, context)
-      const piStart = performance.now()
-      await piHandlers.before_agent_start({ prompt: "hung pi engine" }, context)
-      if (performance.now() - piStart > 1750) throw new Error("pi adapter exceeded timeout")
+  cat > "$driver" <<'TS'
+const piHandlers = {}
+const piExtension = (await import(`file://${process.env.PI_ADAPTER_PATH}`)).default
+piExtension({
+  getSessionName: () => undefined,
+  on: (event, handler) => { piHandlers[event] = handler },
+})
+const context = {
+  hasUI: true,
+  sessionManager: { getSessionId: () => "pi-root" },
+}
+await piHandlers.session_start({}, context)
+await piHandlers.before_agent_start({ prompt: "hung pi engine" }, context)
 
-      const { HerdrTaskSyncPlugin } = await import(`file://${process.env.OPENCODE_ADAPTER_PATH}`)
-      const hooks = await HerdrTaskSyncPlugin()
-      const opencodeStart = performance.now()
-      await hooks["chat.message"](
-        { sessionID: "opencode-root" },
-        { parts: [{ type: "text", text: "hung opencode engine" }] },
-      )
-      if (performance.now() - opencodeStart > 1750) throw new Error("opencode adapter exceeded timeout")
-    '
+const { HerdrTaskSyncPlugin } = await import(`file://${process.env.OPENCODE_ADAPTER_PATH}`)
+const hooks = await HerdrTaskSyncPlugin()
+await hooks["chat.message"](
+  { sessionID: "opencode-root" },
+  { parts: [{ type: "text", text: "hung opencode engine" }] },
+)
+TS
+
+  run python3 - "$home" "$driver" "$pi_adapter" "$opencode_adapter" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+home, driver, pi_adapter, opencode_adapter = sys.argv[1:]
+env = os.environ.copy()
+env.update(
+    HOME=home,
+    HERDR_ENV="1",
+    PI_ADAPTER_PATH=pi_adapter,
+    OPENCODE_ADAPTER_PATH=opencode_adapter,
+)
+proc = subprocess.Popen(
+    ["bun", driver],
+    env=env,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    start_new_session=True,
+)
+try:
+    output, _ = proc.communicate(timeout=30)
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    output, _ = proc.communicate()
+    sys.stdout.write(output)
+    print("adapter timeout fixture exceeded its 30-second hang guard", file=sys.stderr)
+    raise SystemExit(124)
+
+sys.stdout.write(output)
+raise SystemExit(proc.returncode)
+PY
   assert_success
+  assert_file_exists "$home/pi.started"
+  assert_file_exists "$home/pi.terminated"
+  assert_file_exists "$home/opencode.started"
+  assert_file_exists "$home/opencode.terminated"
 }
 
 @test "herdr-task-sync opencode forgets a deleted child session" {
