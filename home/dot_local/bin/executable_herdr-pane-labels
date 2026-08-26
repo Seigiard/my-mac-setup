@@ -178,7 +178,7 @@ recover_claim() {
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     current_start="$(process_start_token "$pid")"
     if [ "$socket" = "$SOCKET_PATH" ] && \
-      { [ -z "$start" ] || [ "$start" = "$current_start" ]; }; then
+      [ -n "$start" ] && [ "$start" = "$current_start" ]; then
       return 1
     fi
   fi
@@ -325,9 +325,10 @@ location_state_file() {
 }
 
 write_location_state() {
-  local file="$1" pane_id="$2" root="$3" anchor="$4" repo="$5" branch="$6"
-  local is_linked="$7" sha="$8" content
+  local file="$1" pane_id="$2" terminal="$3" root="$4" anchor="$5" repo="$6" branch="$7"
+  local is_linked="$8" sha="$9" content
   content="pane=$(encode_value "$pane_id")
+terminal_id=$(encode_value "$terminal")
 checkout_root=$(encode_value "$root")
 repository_anchor=$(encode_value "$anchor")
 repo=$(encode_value "$repo")
@@ -338,9 +339,10 @@ sha=$(encode_value "$sha")"
 }
 
 location_state_matches() {
-  local file="$1" pane_id="$2" root="$3" anchor="$4" repo="$5" branch="$6"
-  local is_linked="$7" sha="$8"
+  local file="$1" pane_id="$2" terminal="$3" root="$4" anchor="$5" repo="$6" branch="$7"
+  local is_linked="$8" sha="$9"
   [ "$(read_state_field "$file" pane)" = "$pane_id" ] &&
+    [ "$(read_state_field "$file" terminal_id)" = "$terminal" ] &&
     [ "$(read_state_field "$file" checkout_root)" = "$root" ] &&
     [ "$(read_state_field "$file" repository_anchor)" = "$anchor" ] &&
     [ "$(read_state_field "$file" repo)" = "$repo" ] &&
@@ -441,12 +443,23 @@ resolve_pane_location() {
   local pane_json="$1" state_file="$2" has_agent has_foreground cwd prior_root prior_anchor
   local prior_repo prior_branch prior_is_linked prior_sha candidate outfile errfile status
   local root anchor branch repo lines is_linked sha sha_outfile sha_errfile
+  local pane_terminal prior_terminal
   prior_root="$(read_state_field "$state_file" checkout_root)"
   prior_anchor="$(read_state_field "$state_file" repository_anchor)"
   prior_repo="$(read_state_field "$state_file" repo)"
   prior_branch="$(read_state_field "$state_file" branch)"
   prior_is_linked="$(read_state_field "$state_file" is_linked)"
   prior_sha="$(read_state_field "$state_file" sha)"
+  prior_terminal="$(read_state_field "$state_file" terminal_id)"
+  pane_terminal="$(printf '%s' "$pane_json" | jq -r '.terminal_id // ""' 2>/dev/null)"
+  # A pane ID reused for a new terminal must not inherit the prior occupant's
+  # retained Git location through a transient probe; only the terminal that
+  # wrote this evidence may have it played back. A record with no terminal_id
+  # at all (e.g. migrated from the retired pre-cutover engine) is unverifiable
+  # and treated the same as a mismatch.
+  if [ "$prior_terminal" != "$pane_terminal" ]; then
+    prior_root=""; prior_anchor=""; prior_repo=""; prior_branch=""; prior_is_linked=""; prior_sha=""
+  fi
   has_agent="$(printf '%s' "$pane_json" | jq -r '(.agent // "") != ""' 2>/dev/null)"
   has_foreground="$(printf '%s' "$pane_json" | jq -r 'has("foreground_cwd")' 2>/dev/null)"
   if [ "$has_agent" != "true" ] && [ "$has_foreground" = "true" ]; then
@@ -1240,8 +1253,8 @@ EOF
     [ -n "$id" ] || continue
     location_file="$(location_state_file "$id")"
     case "$outcome" in
-      git) location_state_matches "$location_file" "$id" "$root" "$anchor" "$repo" "$branch" "$linked" "$sha" ||
-        write_location_state "$location_file" "$id" "$root" "$anchor" "$repo" "$branch" "$linked" "$sha" || return 1 ;;
+      git) location_state_matches "$location_file" "$id" "$terminal" "$root" "$anchor" "$repo" "$branch" "$linked" "$sha" ||
+        write_location_state "$location_file" "$id" "$terminal" "$root" "$anchor" "$repo" "$branch" "$linked" "$sha" || return 1 ;;
       non_git) rm -f "$location_file" 2>/dev/null || return 1 ;;
     esac
   done <<EOF
@@ -1403,7 +1416,7 @@ run_presentation_coordinator() {
       pass="$pending"
       if reconcile_presentation_pass "$pass"; then
         if complete_presentation_generation "$pass"; then
-          :
+          status=0
         else
           status=$?
           [ "$status" -eq 2 ] && continue
@@ -1459,6 +1472,7 @@ run_sweep_daemon() {
     sleep 1
   done
   printf '%s' "$$" > "$SWEEP_LOCK_DIR/pid" 2>/dev/null
+  process_start_token "$$" > "$SWEEP_LOCK_DIR/start" 2>/dev/null
   # Two traps, not one: a TERM handler that only cleans up would let the loop
   # carry on after it dropped its own lock, and the next hook would then start
   # a second daemon beside the first.
@@ -1466,7 +1480,7 @@ run_sweep_daemon() {
   # The cleanup releases the lock only while this daemon still owns it. A
   # dying daemon that cleared its successor's lock left no daemon running.
   trap 'if [ "$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
-          rm -f "$SWEEP_LOCK_DIR/pid"
+          rm -f "$SWEEP_LOCK_DIR/pid" "$SWEEP_LOCK_DIR/start"
           rmdir "$SWEEP_LOCK_DIR" 2>/dev/null
         fi' EXIT
   trap 'exit 0' INT TERM
@@ -1490,14 +1504,16 @@ run_sweep_daemon() {
 # Called by the herdr plugin on startup and on agent-status events. A live
 # daemon makes this a no-op; a lock left behind by a killed daemon is cleared.
 ensure_sweep_daemon() {
-  local self="$1" pid
+  local self="$1" pid start
   [ -z "${HERDR_PANE_LABELS_TEST_NO_DAEMON:-}" ] || return 0
   if [ -d "$SWEEP_LOCK_DIR" ]; then
     pid="$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    start="$(cat "$SWEEP_LOCK_DIR/start" 2>/dev/null)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && \
+      [ -n "$start" ] && [ "$start" = "$(process_start_token "$pid")" ]; then
       return 0
     fi
-    rm -f "$SWEEP_LOCK_DIR/pid" 2>/dev/null
+    rm -f "$SWEEP_LOCK_DIR/pid" "$SWEEP_LOCK_DIR/start" 2>/dev/null
     rmdir "$SWEEP_LOCK_DIR" 2>/dev/null
   fi
   # herdr reaps the process group of a plugin hook once the hook exits, and a

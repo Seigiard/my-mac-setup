@@ -599,6 +599,14 @@ case "${1:-} ${2:-}" in
       printf 'agent start before pane split\n' >&2
       exit 1
     fi
+    if [ "${STUB_START_BLOCK:-0}" = 1 ]; then
+      : > "$CHILD_STUB/start-blocked"
+      for _ in $(seq 1 200); do [ -f "$CHILD_STUB/start-release" ] && break; sleep 0.01; done
+      if [ ! -f "$CHILD_STUB/start-release" ]; then
+        printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
+        exit 1
+      fi
+    fi
     if [ "${STUB_START_MODE:-ok}" = busy-once ] && [ ! -f "$CHILD_STUB/start-once" ]; then
       : > "$CHILD_STUB/start-once"
       printf '{"error":{"code":"agent_pane_busy","message":"not an available shell"}}\n' >&2
@@ -643,6 +651,10 @@ case "${1:-} ${2:-}" in
   "agent prompt")
     [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
     [ "${STUB_PROMPT_TIMEOUT:-0}" = 1 ] && { printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; }
+    if [ "${STUB_PROMPT_BLOCK:-0}" = 1 ]; then
+      : > "$CHILD_STUB/prompt-blocked"
+      for _ in $(seq 1 200); do [ -f "$CHILD_STUB/prompt-release" ] && break; sleep 0.01; done
+    fi
     printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
   "pane report-metadata") [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1; printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
   "pane get")
@@ -883,6 +895,48 @@ write_pool_records() {
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
   assert_output 1
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child start closes the split pane on a real signal before registration succeeds" {
+  child_stub_herdr
+  local out="$BATS_TEST_TMPDIR/out" err="$BATS_TEST_TMPDIR/err" child_pid status
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed STUB_START_BLOCK=1 \
+    bash "$HERDR_CHILD" start --kind claude --prompt "test task" >"$out" 2>"$err" &
+  child_pid=$!
+  hpl_wait_for_file "$CHILD_STUB/start-blocked"
+  kill -TERM "$child_pid"
+  status=0
+  wait "$child_pid" || status=$?
+  [ "$status" -eq 130 ]
+  run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_output 1
+  run grep -c '^agent prompt' "$CHILD_STUB/calls.log"
+  assert_output 0
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q 'preserving pane' "$err"
+  assert_failure
+}
+
+@test "herdr-child start closes the registered pane on a real signal during the initial prompt" {
+  child_stub_herdr
+  local out="$BATS_TEST_TMPDIR/out" err="$BATS_TEST_TMPDIR/err" child_pid status
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed STUB_PROMPT_BLOCK=1 \
+    bash "$HERDR_CHILD" start --kind claude --wait --prompt "test task" >"$out" 2>"$err" &
+  child_pid=$!
+  hpl_wait_for_file "$CHILD_STUB/prompt-blocked"
+  kill -TERM "$child_pid"
+  status=0
+  wait "$child_pid" || status=$?
+  [ "$status" -eq 130 ]
+  run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_output 1
+  run grep -c '^agent prompt' "$CHILD_STUB/calls.log"
+  assert_output 1
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q 'preserving pane' "$err"
+  assert_failure
 }
 
 @test "herdr-child retries an exact name collision with the next bounded candidate" {
@@ -3681,6 +3735,7 @@ socket_path=$(printf '%s' "$HPL_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   local live=$! sweep_lock="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
   mkdir -p "$sweep_lock"
   printf '%s' "$live" > "$sweep_lock/pid"
+  ps -p "$live" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' > "$sweep_lock/start"
   run hpl_sweep_run --ensure-sweep-daemon
   assert_success
   assert_equal "$(cat "$sweep_lock/pid")" "$live"

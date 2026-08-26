@@ -51,6 +51,8 @@ hpl_cutover_hook() {
 
 hpl_cutover_setup() {
   HPL_CUTOVER_WORK="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/herdr-pane-label-cutover.XXXXXX")" || return 1
+  HPL_CUTOVER_HERDR_PRESENT=0
+  command -v herdr >/dev/null 2>&1 && HPL_CUTOVER_HERDR_PRESENT=1
   HPL_CUTOVER_SOCKETS="$HPL_CUTOVER_WORK/sockets"
   HPL_CUTOVER_ROLLBACK_DIR="${HERDR_PANE_LABELS_CUTOVER_ROLLBACK_DIR:-$HPL_CUTOVER_NEW_CACHE/cutover-rollback}"
   HPL_CUTOVER_BACKUP="$HPL_CUTOVER_ROLLBACK_DIR/herdr-task-sync.backup"
@@ -450,7 +452,13 @@ hpl_cutover_mark_plugin_linked() {
 
 hpl_cutover_refresh_sessions() {
   local payload payload_file error_file tmp
-  command -v herdr >/dev/null 2>&1 || return 0
+  if ! command -v herdr >/dev/null 2>&1; then
+    if [ "${HPL_CUTOVER_HERDR_PRESENT:-0}" -eq 1 ]; then
+      hpl_cutover_error "herdr became unreachable mid-run"
+      return 1
+    fi
+    return 0
+  fi
   payload_file="$HPL_CUTOVER_WORK/sessions.json"
   error_file="$HPL_CUTOVER_WORK/sessions.err"
   hpl_cutover_capture_with_deadline "$payload_file" "$error_file" herdr session list --json || {
