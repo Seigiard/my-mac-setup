@@ -67,26 +67,54 @@ PR_FIXTURES = {
     "checks-passed": {"draft": False, "conclusion": "success"},
     "checks-failed": {"draft": False, "conclusion": "failure"},
 }
+PENDING_FIXTURE = "checks-pending"
+# The documented minimum observation window every remote candidate gets while
+# the pending run stays active, the dispatch hold that must exceed it, and the
+# workflow hard timeout that bounds the hold. 600 < 1800 <= 2400 < 45*60.
+PENDING_MIN_OBSERVATION_SECONDS = 600
+PENDING_HOLD_SECONDS = 1800
+PENDING_HOLD_CAP_SECONDS = 2400
+PENDING_WORKFLOW_TIMEOUT_MINUTES = 45
 # Inert by construction: no third-party actions, no PR-triggered execution,
 # empty permissions, bounded runtime. Bootstrap hashes this exact text and
-# treats any remote divergence as drift.
+# treats any remote divergence as drift. The dispatch path carries the run's
+# nonce into the run name so every playground dispatch is queryable by
+# repository/ref/head/workflow/event/nonce, and the hold input is validated
+# and capped below the hard job timeout.
 WORKFLOW_CONTENT = """\
 # Owned by herdr-git-status-playground bootstrap; edits outside bootstrap are drift.
 name: herdr-git-status-playground
+run-name: herdr-git-status-playground ${{ inputs.intent || github.ref_name }}
 on:
   push:
     branches:
       - "herdr-playground/**"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      intent:
+        description: nonce-bearing dispatch intent recorded by the controller
+        required: true
+        type: string
+      hold_seconds:
+        description: bounded pending hold in seconds
+        required: true
+        type: string
 permissions: {}
 concurrency:
-  group: herdr-git-status-playground-${{ github.ref }}
+  group: herdr-git-status-playground-${{ github.ref }}-${{ inputs.intent || 'push' }}
   cancel-in-progress: false
 jobs:
   verdict:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 45
     steps:
+      - name: bounded pending hold
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          hold="${{ inputs.hold_seconds }}"
+          case "$hold" in *[!0-9]*|'') exit 64 ;; esac
+          if [ "$hold" -gt 2400 ]; then exit 64; fi
+          sleep "$hold"
       - name: deterministic verdict
         run: |
           case "${GITHUB_REF_NAME}" in
@@ -950,6 +978,7 @@ def new_manifest(
         "profiles": profiles,
         "launch_intents": {},
         "processes": {},
+        "remote": None,
         "mutation_lease": None,
         "error": None,
         "next_command": "status %s" % run_id,
@@ -1616,9 +1645,15 @@ class BootstrapContext:
 
 
 def gh_api(
-    ctx: BootstrapContext, path: str, code: str, fields: Optional[List[Tuple[str, str]]] = None
+    ctx: BootstrapContext,
+    path: str,
+    code: str,
+    fields: Optional[List[Tuple[str, str]]] = None,
+    method: Optional[str] = None,
 ) -> Any:
     arguments = [ctx.gh, "api", "--hostname", ctx.host, path]
+    if method:
+        arguments.extend(["--method", method])
     for flag, pair in fields or []:
         arguments.extend([flag, pair])
     try:
@@ -1636,6 +1671,8 @@ def gh_api(
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip() or "status %d" % completed.returncode
         raise PlaygroundError(code, detail)
+    if not completed.stdout.strip():
+        return None
     try:
         return json.loads(completed.stdout)
     except ValueError as error:
@@ -1756,7 +1793,14 @@ def push_ref(
         raise PlaygroundError(code, "remote %s did not verify to the pushed object" % refname)
 
 
-def lease_payload(ctx: BootstrapContext, kind: str, operation_id: str) -> Dict[str, Any]:
+def lease_payload(
+    ctx: BootstrapContext,
+    kind: str,
+    operation_id: str,
+    lifecycle_state: Optional[str] = None,
+    fixture_generation: Optional[int] = None,
+    workflow_intents: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "host": ctx.host,
@@ -1767,17 +1811,26 @@ def lease_payload(ctx: BootstrapContext, kind: str, operation_id: str) -> Dict[s
         "operation_id": operation_id,
         "host_installation_id": ctx.host_id,
         "owner_start_identity": process_start_identity(os.getpid()),
-        "lifecycle_state": "%s-in-progress" % kind,
-        "fixture_generation": None,
-        "workflow_intents": [],
+        "lifecycle_state": lifecycle_state or "%s-in-progress" % kind,
+        "fixture_generation": fixture_generation,
+        "workflow_intents": workflow_intents or [],
         "claimed_at": utc_now(),
     }
 
 
-def acquire_lease(ctx: BootstrapContext, kind: str, operation_id: str, code: str) -> str:
+def acquire_lease(
+    ctx: BootstrapContext,
+    kind: str,
+    operation_id: str,
+    code: str,
+    lifecycle_state: Optional[str] = None,
+    fixture_generation: Optional[int] = None,
+    workflow_intents: Optional[List[str]] = None,
+) -> str:
+    payload = lease_payload(ctx, kind, operation_id, lifecycle_state, fixture_generation, workflow_intents)
     workspace, sha = build_commit(
         ctx,
-        {"lease.json": json.dumps(lease_payload(ctx, kind, operation_id), sort_keys=True) + "\n"},
+        {"lease.json": json.dumps(payload, sort_keys=True) + "\n"},
         "%s lease %s" % (kind, operation_id),
     )
     completed = git_run(
@@ -1814,17 +1867,21 @@ def read_lease(ctx: BootstrapContext) -> Tuple[Optional[str], Optional[Dict[str,
     return sha, payload if isinstance(payload, dict) else None
 
 
-def release_lease(ctx: BootstrapContext, owned_sha: str) -> None:
+def conditional_delete_ref(ctx: BootstrapContext, refname: str, owned_sha: str, code: str) -> None:
     completed = git_run(
         ctx.git,
-        ["push", "--quiet", ctx.url, ":%s" % LEASE_REF, "--force-with-lease=%s:%s" % (LEASE_REF, owned_sha)],
+        ["push", "--quiet", ctx.url, ":%s" % refname, "--force-with-lease=%s:%s" % (refname, owned_sha)],
         ctx.scratch,
         ctx.git_env,
-        "LEASE_RELEASE_FAILED",
+        code,
         allow_failure=True,
     )
-    if completed.returncode != 0 or LEASE_REF in ls_remote(ctx):
-        raise PlaygroundError("LEASE_RELEASE_FAILED", "the conditional lease delete did not verify")
+    if completed.returncode != 0 or refname in ls_remote(ctx):
+        raise PlaygroundError(code, "the conditional delete of %s did not verify" % refname)
+
+
+def release_lease(ctx: BootstrapContext, owned_sha: str) -> None:
+    conditional_delete_ref(ctx, LEASE_REF, owned_sha, "LEASE_RELEASE_FAILED")
 
 
 def marker_contents(ctx: BootstrapContext) -> Dict[str, Any]:
@@ -1905,6 +1962,11 @@ def audit_owned_namespace(ctx: BootstrapContext, remote_refs: Dict[str, str]) ->
     recovery = record.get("recovery") or {}
     for mutation in recovery.get("mutations", []):
         expected.setdefault(mutation["ref"], set()).add(mutation["new_sha"])
+    # Per-run transient refs (the checks-pending branch) are recorded before
+    # their push and removed by run teardown; a crashed run's leftover is
+    # recorded ownership, not foreign drift.
+    for refname, transient in (record.get("transient_refs") or {}).items():
+        expected.setdefault(refname, set()).add(transient["sha"])
     retired = set(record.get("retired_branches", []))
     for refname, sha in remote_refs.items():
         if not refname.startswith("refs/heads/" + PLAYGROUND_NAMESPACE) or refname == LEASE_REF:
@@ -2456,6 +2518,728 @@ def bootstrap_converge(ctx: BootstrapContext, payload: Dict[str, Any]) -> int:
     return 0
 
 
+# ---- Per-run remote generation and transient ownership (U4) ----------------
+
+
+def pending_branch_for(run_id: str) -> str:
+    return "%schecks-pending/%s" % (PLAYGROUND_NAMESPACE, run_id)
+
+
+def stage_attempts() -> Dict[str, int]:
+    """Bounded per-stage deadlines, measured in attempts so tests can prove
+    exhaustion with counters instead of wall-clock sleeps."""
+    if test_mode():
+        return {"promotion": 6, "readiness": 6, "settlement": 6, "authority": 6}
+    return {"promotion": 40, "readiness": 90, "settlement": 60, "authority": 40}
+
+
+def remote_backoff(attempt: int) -> None:
+    time.sleep((0.01 if test_mode() else 2.0) * min(attempt + 1, 5))
+
+
+def controller_remote_tools(source: Dict[str, str]) -> Dict[str, str]:
+    executable_paths: Dict[str, str] = {}
+    for name in ("git", "gh"):
+        resolved = resolve_executable(name, source.get("PATH", ""))
+        if resolved is None:
+            raise PlaygroundError("%s_NOT_FOUND" % name.upper(), "%s is not on the approved PATH" % name)
+        executable_paths[name] = resolved
+    return executable_paths
+
+
+def gh_run_by_id(ctx: BootstrapContext, run_number: int, code: str) -> Optional[Dict[str, Any]]:
+    try:
+        return gh_api(ctx, repo_path(ctx, "/actions/runs/%d" % run_number), code)
+    except PlaygroundError as error:
+        if "404" in error.message:
+            return None
+        raise
+
+
+def query_intent_runs(
+    ctx: BootstrapContext, pending: Dict[str, Any], intent: Dict[str, Any], code: str
+) -> List[Dict[str, Any]]:
+    """The unambiguous repository/ref/head/workflow/event/nonce recovery query.
+    Any nonce-bearing record that disagrees with the recorded dispatch identity
+    is a collision and fails closed instead of being adopted or ignored."""
+    payload = gh_api(ctx, repo_path(ctx, "/actions/runs"), code)
+    matches: List[Dict[str, Any]] = []
+    colliding: List[Any] = []
+    for run in payload.get("workflow_runs", []):
+        name = run.get("name") or ""
+        if intent["nonce"] not in name:
+            continue
+        if (
+            name == intent["run_name"]
+            and run.get("head_branch") == pending["branch"]
+            and run.get("head_sha") == pending["head_sha"]
+            and run.get("event") == "workflow_dispatch"
+            and isinstance(run.get("id"), int)
+        ):
+            matches.append(run)
+        else:
+            colliding.append(run.get("id"))
+    if colliding:
+        raise PlaygroundError(
+            "PENDING_NONCE_AMBIGUOUS",
+            "nonce %s appears on records that disagree with the recorded dispatch identity: %r"
+            % (intent["nonce"], sorted(colliding, key=str)),
+        )
+    return matches
+
+
+def mergeability_authority(ctx: BootstrapContext, pr_number: int) -> Dict[str, Any]:
+    for attempt in range(stage_attempts()["authority"]):
+        current = gh_api(ctx, repo_path(ctx, "/pulls/%d" % pr_number), "AUTHORITY_QUERY_FAILED")
+        if current.get("mergeable") is not None:
+            return current
+        remote_backoff(attempt)
+    raise PlaygroundError(
+        "AUTHORITY_UNSETTLED",
+        "mergeability for PR #%d stayed unknown through the bounded authority window; it cannot become stable "
+        "evidence" % pr_number,
+    )
+
+
+def fixture_authority(
+    ctx: BootstrapContext, name: str, fixture_record: Dict[str, Any], refs: Dict[str, str]
+) -> Dict[str, Any]:
+    identity: Dict[str, Any] = {
+        "ref": "refs/heads/%s" % fixture_record["branch"],
+        "ref_sha": refs.get("refs/heads/%s" % fixture_record["branch"]),
+    }
+    if "pr_number" in fixture_record:
+        pull = gh_api(ctx, repo_path(ctx, "/pulls/%d" % fixture_record["pr_number"]), "AUTHORITY_QUERY_FAILED")
+        identity["pull"] = {
+            "number": pull.get("number"),
+            "node_id": pull.get("node_id"),
+            "state": pull.get("state"),
+            "draft": pull.get("draft"),
+            "head_sha": pull.get("head", {}).get("sha"),
+        }
+        if name == "merge-conflict":
+            identity["pull"]["mergeable"] = pull.get("mergeable")
+            identity["pull"]["mergeable_state"] = pull.get("mergeable_state")
+    if "workflow_run_id" in fixture_record:
+        run = gh_run_by_id(ctx, fixture_record["workflow_run_id"], "AUTHORITY_QUERY_FAILED")
+        identity["workflow_run"] = (
+            None
+            if run is None
+            else {
+                "id": run.get("id"),
+                "head_sha": run.get("head_sha"),
+                "status": run.get("status"),
+                "conclusion": run.get("conclusion"),
+            }
+        )
+    return identity
+
+
+def authority_snapshot(ctx: BootstrapContext) -> Dict[str, Any]:
+    record = ctx.record
+    assert record is not None
+    refs = ls_remote(ctx)
+    fixtures: Dict[str, Any] = {}
+    for name in GITHUB_FIXTURES:
+        fixture_record = record["fixtures"].get(name)
+        if fixture_record is None:
+            raise PlaygroundError(
+                "AUTHORITY_DRIFT", "fixture %s is missing from the repository record; rerun bootstrap" % name
+            )
+        if name == "merge-conflict":
+            mergeability_authority(ctx, fixture_record["pr_number"])
+        identity = fixture_authority(ctx, name, fixture_record, refs)
+        if identity["ref_sha"] != fixture_record["head_sha"]:
+            raise PlaygroundError(
+                "AUTHORITY_DRIFT",
+                "fixture %s head moved to %r from the recorded %r; rerun bootstrap before starting a run"
+                % (name, identity["ref_sha"], fixture_record["head_sha"]),
+            )
+        fixtures[name] = identity
+    return {"captured_at": utc_now(), "repository_id": ctx.repository_id, "fixtures": fixtures}
+
+
+def snapshot_identity(snapshot: Optional[Dict[str, Any]]) -> Any:
+    return (snapshot or {}).get("fixtures")
+
+
+def lease_inspection_commands(ctx: BootstrapContext) -> str:
+    return (
+        "inspect it read-only with: git ls-remote %s %s && git fetch %s %s && git show FETCH_HEAD:lease.json"
+        % (ctx.url, LEASE_REF, ctx.url, LEASE_REF)
+    )
+
+
+def resolve_held_lease(ctx: BootstrapContext, root: Path) -> None:
+    """Fail closed on any held repository lease unless it provably belongs to a
+    terminal same-host run whose every ownership probe has settled."""
+    sha, doc = read_lease(ctx)
+    if sha is None:
+        return
+    inspect = lease_inspection_commands(ctx)
+    if not isinstance(doc, dict):
+        raise PlaygroundError(
+            "REPOSITORY_LEASE_HELD",
+            "the repository lease at %s is unreadable; %s; no automated takeover is performed" % (sha, inspect),
+        )
+    if doc.get("host_installation_id") != ctx.host_id:
+        raise PlaygroundError(
+            "REPOSITORY_LEASE_FOREIGN",
+            "the repository lease at %s belongs to foreign host installation %r running operation %r with workflow "
+            "intents %r; automation always refuses foreign takeover; %s; after inspecting, recover manually with: "
+            "gh run list --repo %s/%s, gh run cancel <run-id> --repo %s/%s, then git push %s :%s "
+            "--force-with-lease=%s:%s"
+            % (
+                sha,
+                doc.get("host_installation_id"),
+                doc.get("operation_id"),
+                doc.get("workflow_intents"),
+                inspect,
+                ctx.owner,
+                ctx.name,
+                ctx.owner,
+                ctx.name,
+                ctx.url,
+                LEASE_REF,
+                LEASE_REF,
+                sha,
+            ),
+        )
+    operation_id = doc.get("operation_id")
+    if doc.get("operation_kind") != "run" or not isinstance(operation_id, str):
+        raise PlaygroundError(
+            "REPOSITORY_LEASE_HELD",
+            "the repository lease at %s is held by %s operation %r; %s"
+            % (sha, doc.get("operation_kind"), operation_id, inspect),
+        )
+    try:
+        other = read_manifest(root, operation_id)
+    except PlaygroundError:
+        raise PlaygroundError(
+            "REPOSITORY_LEASE_HELD",
+            "the repository lease at %s names run %r, which has no readable local manifest; %s; no automated "
+            "takeover is performed" % (sha, operation_id, inspect),
+        )
+    if other["lifecycle_state"] in ACTIVE_STATES:
+        raise PlaygroundError(
+            "REPOSITORY_LEASE_HELD",
+            "run %s still owns the repository lease in state %s; an exited command owner does not make it stale; "
+            "same-host recovery resumes that run (%s stop %s) and a new run stays blocked"
+            % (operation_id, other["lifecycle_state"], APP_NAME, operation_id),
+        )
+    remote = other.get("remote") or {}
+    pending = remote.get("pending") or {}
+    for intent in pending.get("intents", []):
+        run_ids = list(intent.get("run_ids") or [])
+        if not run_ids and intent.get("dispatched_at"):
+            run_ids = [run["id"] for run in query_intent_runs(ctx, pending, intent, "LEASE_PROBE_FAILED")]
+        for run_number in run_ids:
+            run = gh_run_by_id(ctx, run_number, "LEASE_PROBE_FAILED")
+            if run is not None and run.get("status") != "completed":
+                raise PlaygroundError(
+                    "REPOSITORY_LEASE_HELD",
+                    "leaked-lease probe found workflow run %d still active for terminal run %s; settle it with: "
+                    "%s stop %s" % (run_number, operation_id, APP_NAME, operation_id),
+                )
+    if pending.get("ref") and pending["ref"] in ls_remote(ctx):
+        raise PlaygroundError(
+            "REPOSITORY_LEASE_HELD",
+            "leaked-lease probe found transient ref %s still present for terminal run %s; settle it with: %s stop %s"
+            % (pending["ref"], operation_id, APP_NAME, operation_id),
+        )
+    release_lease(ctx, sha)
+
+
+def dispatch_pending(ctx: BootstrapContext, branch: str, nonce: str) -> None:
+    gh_api(
+        ctx,
+        repo_path(ctx, "/actions/workflows/%s/dispatches" % os.path.basename(WORKFLOW_FILE)),
+        "PENDING_DISPATCH_FAILED",
+        fields=[
+            ("-f", "ref=%s" % branch),
+            ("-f", "inputs[intent]=%s" % nonce),
+            ("-f", "inputs[hold_seconds]=%d" % PENDING_HOLD_SECONDS),
+        ],
+    )
+
+
+def await_pending_readiness(mutation: Mutation, ctx: BootstrapContext, intent: Dict[str, Any]) -> str:
+    """Bracket every readiness observation between authority snapshots anchored
+    to the run's generation; equal stale values never establish readiness."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    remote = manifest["remote"]
+    generation = remote["generation"]
+    for attempt in range(stage_attempts()["readiness"]):
+        before = authority_snapshot(ctx)
+        active: List[int] = []
+        statuses: Dict[str, Dict[str, Any]] = {}
+        for run_number in intent["run_ids"]:
+            run = gh_run_by_id(ctx, run_number, "PENDING_READINESS_QUERY_FAILED")
+            if run is None:
+                raise PlaygroundError(
+                    "PENDING_RUN_UNKNOWN", "promoted workflow run %d disappeared from the authority" % run_number
+                )
+            statuses[str(run_number)] = {"status": run.get("status"), "conclusion": run.get("conclusion")}
+            if run.get("status") in ("queued", "in_progress"):
+                active.append(run_number)
+        after = authority_snapshot(ctx)
+        anchored = snapshot_identity(generation["snapshot"])
+        if snapshot_identity(before) != anchored or snapshot_identity(after) != anchored:
+            remote.setdefault("diagnostics", []).append(
+                {
+                    "at": utc_now(),
+                    "code": "AUTHORITY_SLICE_INVALIDATED",
+                    "message": "authority identities changed during the readiness bracket",
+                }
+            )
+            mutation.persist("readiness-slice-invalidated")
+            remote_backoff(attempt)
+            continue
+        intent["readiness_statuses"] = statuses
+        if active:
+            return "ready"
+        if all(status["status"] == "completed" for status in statuses.values()):
+            return "completed-early"
+        remote_backoff(attempt)
+    raise PlaygroundError(
+        "PENDING_READINESS_DEADLINE",
+        "the pending run did not reach an observable pending state within the bounded readiness window",
+    )
+
+
+def dispatch_and_await_pending(mutation: Mutation, ctx: BootstrapContext) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    remote = manifest["remote"]
+    pending = remote["pending"]
+    attempts = stage_attempts()
+    for attempt_number in (1, 2):
+        nonce = secrets.token_hex(12)
+        intent = {
+            "attempt": attempt_number,
+            "nonce": nonce,
+            "run_name": "%s %s" % (WORKFLOW_NAME, nonce),
+            "hold_seconds": PENDING_HOLD_SECONDS,
+            "ref": pending["ref"],
+            "branch": pending["branch"],
+            "head_sha": pending["head_sha"],
+            "event": "workflow_dispatch",
+            "workflow": WORKFLOW_NAME,
+            "created_at": utc_now(),
+            "dispatched_at": None,
+            "run_ids": [],
+            "phase": "intent-committed",
+        }
+        pending["intents"].append(intent)
+        pending["state"] = "intent-committed"
+        # The unique dispatch intent is durable before the API call.
+        mutation.persist("pending-intent")
+        if test_failpoint() == "pending-before-dispatch":
+            raise PlaygroundError(
+                "INJECTED_PENDING_BEFORE_DISPATCH",
+                "injected crash after the durable dispatch intent, before the API call",
+            )
+        dispatch_pending(ctx, pending["branch"], nonce)
+        intent["dispatched_at"] = utc_now()
+        intent["phase"] = "dispatched"
+        pending["state"] = "dispatched"
+        mutation.persist("pending-dispatched")
+        if test_failpoint() == "pending-after-dispatch":
+            raise PlaygroundError(
+                "INJECTED_PENDING_AFTER_DISPATCH", "injected crash after dispatch, before numeric-ID promotion"
+            )
+        matches: List[Dict[str, Any]] = []
+        for attempt in range(attempts["promotion"]):
+            matches = query_intent_runs(ctx, pending, intent, "PENDING_PROMOTION_QUERY_FAILED")
+            if matches:
+                break
+            remote_backoff(attempt)
+        if not matches:
+            raise PlaygroundError(
+                "PENDING_PROMOTION_DEADLINE",
+                "no nonce-matched workflow run appeared for intent %s within the bounded promotion window" % nonce,
+            )
+        if test_failpoint() == "pending-before-promotion":
+            raise PlaygroundError(
+                "INJECTED_PENDING_BEFORE_PROMOTION",
+                "injected crash after the nonce query, before numeric-ID promotion",
+            )
+        run_ids = sorted(run["id"] for run in matches)
+        intent["run_ids"] = run_ids
+        intent["phase"] = "promoted"
+        generation = remote["generation"]
+        generation["pending_run_ids"] = sorted(set(generation["pending_run_ids"]) | set(run_ids))
+        # One atomic manifest replacement promotes every matched numeric ID
+        # into the generation.
+        mutation.persist("pending-promoted")
+        outcome = await_pending_readiness(mutation, ctx, intent)
+        if outcome == "ready":
+            pending["state"] = "ready"
+            pending["ready_at"] = utc_now()
+            pending["observation_window"] = {
+                "started_at": pending["ready_at"],
+                "min_seconds": PENDING_MIN_OBSERVATION_SECONDS,
+                "hold_seconds": PENDING_HOLD_SECONDS,
+                "workflow_timeout_minutes": PENDING_WORKFLOW_TIMEOUT_MINUTES,
+            }
+            mutation.persist("pending-ready")
+            return
+        if attempt_number == 1:
+            # One retrigger is allowed inside the overall deadline.
+            continue
+        raise PlaygroundError(
+            "PENDING_COMPLETED_EARLY",
+            "the pending workflow completed before first readiness on both dispatch attempts; it cannot silently "
+            "satisfy the pending fixture",
+        )
+    raise PlaygroundError("PENDING_COMPLETED_EARLY", "the pending workflow completed before first readiness")
+
+
+def provision_pending_fixture(mutation: Mutation, ctx: BootstrapContext) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None and ctx.record is not None
+    run_id = manifest["run_id"]
+    remote = manifest["remote"]
+    branch = pending_branch_for(run_id)
+    refname = "refs/heads/%s" % branch
+    workspace, sha = build_commit(
+        ctx,
+        {"fixtures/checks-pending.txt": "herdr playground checks-pending fixture for run %s\n" % run_id},
+        "checks-pending fixture for run %s" % run_id,
+        base_ref="refs/heads/%s" % ctx.record["default_branch"],
+    )
+    remote["pending"] = {
+        "fixture": PENDING_FIXTURE,
+        "ref": refname,
+        "branch": branch,
+        "head_sha": sha,
+        "hold_seconds": PENDING_HOLD_SECONDS,
+        "min_observation_seconds": PENDING_MIN_OBSERVATION_SECONDS,
+        "workflow_timeout_minutes": PENDING_WORKFLOW_TIMEOUT_MINUTES,
+        "intents": [],
+        "state": "ref-intent",
+        "ready_at": None,
+    }
+    mutation.persist("pending-ref-intent")
+    ctx.record.setdefault("transient_refs", {})[refname] = {
+        "run_id": run_id,
+        "sha": sha,
+        "recorded_at": utc_now(),
+    }
+    ctx.persist_record()
+    push_ref(ctx, workspace, refname, sha, "", PENDING_FIXTURE, "PENDING_REF_CAS_FAILED")
+    remote["pending"]["state"] = "ref-pushed"
+    mutation.persist("pending-ref-pushed")
+    dispatch_and_await_pending(mutation, ctx)
+
+
+def provision_remote_generation(
+    mutation: Mutation, source: Dict[str, str], executable_paths: Dict[str, str]
+) -> None:
+    """Bind the run to one fixture generation and one cancellable pending
+    workflow: lease, generation allocation, authority snapshot, durable
+    dispatch intent, dispatch, promotion, and bracketed readiness."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    root = mutation.root
+    ownership = manifest["fixture_repository"]
+    record_path = repository_state_directory(root, ownership) / "repository.json"
+    if not record_path.exists():
+        # The dedicated repository has not been bootstrapped on this host;
+        # remote candidates stay unavailable and later units enforce it.
+        manifest["remote"] = None
+        mutation.persist("remote-skipped")
+        return
+    ctx = BootstrapContext(
+        root, ownership, {"git": executable_paths["git"], "gh": executable_paths["gh"]}, source
+    )
+    try:
+        payload = resolve_repository(ctx)
+        require_write_permission(ctx, payload)
+        ctx.record = read_json(record_path)
+        for key in ("host", "owner", "name", "repository_id"):
+            if ctx.record.get(key) != ownership[key]:
+                raise PlaygroundError(
+                    "BOOTSTRAP_IDENTITY_MISMATCH",
+                    "the persisted repository record does not match the run's canonical identity",
+                )
+        resolve_held_lease(ctx, root)
+        generation_number = int(ctx.record.get("fixture_generation_counter", 0)) + 1
+        ctx.record["fixture_generation_counter"] = generation_number
+        ctx.persist_record()
+        lease_sha = acquire_lease(
+            ctx,
+            "run",
+            manifest["run_id"],
+            "REPOSITORY_LEASE_HELD",
+            lifecycle_state=manifest["lifecycle_state"],
+            fixture_generation=generation_number,
+            workflow_intents=["refs/heads/%s" % pending_branch_for(manifest["run_id"])],
+        )
+        attempts = stage_attempts()
+        manifest["remote"] = {
+            "repository": dict(ownership),
+            "lease": {
+                "ref": LEASE_REF,
+                "sha": lease_sha,
+                "operation_id": manifest["run_id"],
+                "acquired_at": utc_now(),
+                "released": None,
+            },
+            "generation": {
+                "number": generation_number,
+                "snapshot": None,
+                "deadlines": {
+                    "promotion_attempts": attempts["promotion"],
+                    "readiness_attempts": attempts["readiness"],
+                    "settlement_attempts": attempts["settlement"],
+                    "authority_attempts": attempts["authority"],
+                    "min_observation_seconds": PENDING_MIN_OBSERVATION_SECONDS,
+                    "hold_seconds": PENDING_HOLD_SECONDS,
+                    "workflow_timeout_minutes": PENDING_WORKFLOW_TIMEOUT_MINUTES,
+                },
+                "pending_run_ids": [],
+            },
+            "pending": None,
+            "observations": [],
+            "settlement": None,
+        }
+        mutation.persist("remote-lease")
+        if test_failpoint() == "run-lease-acquired":
+            raise PlaygroundError(
+                "INJECTED_RUN_LEASE_ACQUIRED", "injected crash after lease acquisition, before the snapshot"
+            )
+        snapshot = authority_snapshot(ctx)
+        manifest["remote"]["generation"]["snapshot"] = snapshot
+        mutation.persist("remote-snapshot")
+        provision_pending_fixture(mutation, ctx)
+    finally:
+        ctx.cleanup()
+
+
+def settle_pending_intents(ctx: BootstrapContext, remote: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Settle every exact recorded numeric run ID, resolving unpromoted intents
+    through the nonce query first; already-terminal matches count as settled,
+    cancellation is followed by bounded exact-ID polling to a terminal state."""
+    pending = remote.get("pending")
+    if not pending:
+        return []
+    attempts = stage_attempts()["settlement"]
+    evidence: List[Dict[str, Any]] = []
+    for intent in pending.get("intents", []):
+        run_ids = list(intent.get("run_ids") or [])
+        if not run_ids:
+            # Crash before promotion (or before dispatch): recover by the
+            # unambiguous query instead of assuming nothing was dispatched.
+            run_ids = sorted(
+                run["id"] for run in query_intent_runs(ctx, pending, intent, "PENDING_SETTLEMENT_QUERY_FAILED")
+            )
+            intent["run_ids"] = run_ids
+        for run_number in run_ids:
+            run = gh_run_by_id(ctx, run_number, "PENDING_SETTLEMENT_QUERY_FAILED")
+            if run is None:
+                raise PlaygroundError(
+                    "PENDING_RUN_UNKNOWN",
+                    "recorded workflow run %d cannot be read from the authority" % run_number,
+                )
+            already_terminal = run.get("status") == "completed"
+            cancelled = False
+            if not already_terminal:
+                gh_api(
+                    ctx,
+                    repo_path(ctx, "/actions/runs/%d/cancel" % run_number),
+                    "PENDING_CANCEL_FAILED",
+                    method="POST",
+                )
+                cancelled = True
+                terminal = False
+                for attempt in range(attempts):
+                    run = gh_run_by_id(ctx, run_number, "PENDING_SETTLEMENT_QUERY_FAILED")
+                    if run is None:
+                        raise PlaygroundError(
+                            "PENDING_RUN_UNKNOWN",
+                            "workflow run %d vanished while polling for a terminal state" % run_number,
+                        )
+                    if run.get("status") == "completed":
+                        terminal = True
+                        break
+                    remote_backoff(attempt)
+                if not terminal:
+                    raise PlaygroundError(
+                        "PENDING_STILL_ACTIVE",
+                        "workflow run %d stayed active through the bounded settlement window" % run_number,
+                    )
+            evidence.append(
+                {
+                    "run_id": run_number,
+                    "nonce": intent["nonce"],
+                    "already_terminal": already_terminal,
+                    "cancelled": cancelled,
+                    "final_status": run.get("status"),
+                    "conclusion": run.get("conclusion"),
+                    "settled_at": utc_now(),
+                }
+            )
+        intent["phase"] = "settled"
+    return evidence
+
+
+def settle_remote(mutation: Mutation, source: Dict[str, str], unresolved: List[str]) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    remote = manifest.get("remote")
+    if not remote:
+        return
+    if remote.get("settlement") is not None and remote["lease"].get("released") is not None:
+        return
+    if not os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"):
+        remote.setdefault("diagnostics", []).append(
+            {
+                "at": utc_now(),
+                "code": "CREDENTIAL_AUTHORITY_INVALID",
+                "message": "remote settlement requires the scoped controller credential",
+            }
+        )
+        unresolved.append("CREDENTIAL_AUTHORITY_INVALID")
+        return
+    try:
+        executable_paths = controller_remote_tools(source)
+        ctx = BootstrapContext(mutation.root, manifest["fixture_repository"], executable_paths, source)
+    except PlaygroundError as error:
+        remote.setdefault("diagnostics", []).append(
+            {"at": utc_now(), "code": error.code, "message": error.message}
+        )
+        unresolved.append(error.code)
+        return
+    try:
+        try:
+            resolve_repository(ctx)
+            if ctx.record_path.exists():
+                ctx.record = read_json(ctx.record_path)
+            evidence = settle_pending_intents(ctx, remote)
+            remote["settlement"] = {"runs": evidence, "completed_at": utc_now()}
+            pending = remote.get("pending")
+            if pending:
+                refname = pending["ref"]
+                current = ls_remote(ctx).get(refname)
+                if current is not None:
+                    if current != pending["head_sha"]:
+                        raise PlaygroundError(
+                            "OWNERSHIP_DRIFT",
+                            "transient ref %s moved to unrecorded commit %s; inspect it before retrying stop"
+                            % (refname, current),
+                        )
+                    conditional_delete_ref(ctx, refname, current, "PENDING_REF_CLEANUP_FAILED")
+                remote["settlement"]["transient_ref_deleted"] = True
+                if ctx.record is not None and refname in (ctx.record.get("transient_refs") or {}):
+                    del ctx.record["transient_refs"][refname]
+                    ctx.persist_record()
+            lease = remote["lease"]
+            sha, doc = read_lease(ctx)
+            if sha is None:
+                lease["released"] = {"at": utc_now(), "verified": "already-absent"}
+            elif sha == lease["sha"] or (
+                isinstance(doc, dict)
+                and doc.get("operation_id") == manifest["run_id"]
+                and doc.get("host_installation_id") == ctx.host_id
+            ):
+                release_lease(ctx, sha)
+                lease["released"] = {"at": utc_now(), "sha": sha, "verified": "conditional-delete"}
+            else:
+                raise PlaygroundError(
+                    "REPOSITORY_LEASE_FOREIGN",
+                    "the repository lease at %s is not owned by run %s; %s; no automated takeover is performed"
+                    % (sha, manifest["run_id"], lease_inspection_commands(ctx)),
+                )
+        except PlaygroundError as error:
+            remote.setdefault("diagnostics", []).append(
+                {"at": utc_now(), "code": error.code, "message": error.message}
+            )
+            unresolved.append(error.code)
+    finally:
+        ctx.cleanup()
+
+
+def probe_remote_observation(mutation: Mutation, source: Dict[str, str]) -> None:
+    """The mutating post-ready probe: bracket each fixture's authority slice
+    against the run generation, invalidate only drifted slices, and persist
+    degradation when the pending fixture or any authority probe fails."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    remote = manifest.get("remote")
+    if not remote or manifest["lifecycle_state"] not in ("active-ready", "active-degraded"):
+        return
+    degraded: List[Tuple[str, str]] = []
+    slices: Dict[str, Any] = {}
+    try:
+        executable_paths = controller_remote_tools(source)
+        if not os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"):
+            raise PlaygroundError(
+                "CREDENTIAL_AUTHORITY_INVALID", "the observation probe requires the scoped controller credential"
+            )
+        ctx = BootstrapContext(mutation.root, manifest["fixture_repository"], executable_paths, source)
+    except PlaygroundError as error:
+        remote.setdefault("diagnostics", []).append(
+            {"at": utc_now(), "code": error.code, "message": error.message}
+        )
+        if manifest["lifecycle_state"] == "active-ready":
+            manifest["lifecycle_state"] = "active-degraded"
+            manifest["error"] = {"code": error.code, "message": error.message}
+        mutation.persist("remote-observation")
+        return
+    try:
+        recorded_fixtures = snapshot_identity(remote["generation"]["snapshot"]) or {}
+        for name, recorded in recorded_fixtures.items():
+            fixture_record = {"branch": recorded["ref"][len("refs/heads/"):], "head_sha": recorded["ref_sha"]}
+            if recorded.get("pull") is not None:
+                fixture_record["pr_number"] = recorded["pull"]["number"]
+            if recorded.get("workflow_run") is not None:
+                fixture_record["workflow_run_id"] = recorded["workflow_run"]["id"]
+            try:
+                before = fixture_authority(ctx, name, fixture_record, ls_remote(ctx))
+                after = fixture_authority(ctx, name, fixture_record, ls_remote(ctx))
+                valid = before == after == recorded
+                slices[name] = {"valid": valid, "before": before, "after": after}
+                if not valid:
+                    degraded.append(("AUTHORITY_DRIFT", name))
+            except PlaygroundError as error:
+                slices[name] = {"valid": False, "error": {"code": error.code, "message": error.message}}
+                degraded.append((error.code, name))
+        pending = remote.get("pending") or {}
+        pending_active = False
+        pending_error: Optional[PlaygroundError] = None
+        try:
+            for run_number in remote["generation"]["pending_run_ids"]:
+                run = gh_run_by_id(ctx, run_number, "AUTHORITY_QUERY_FAILED")
+                if run is not None and run.get("status") in ("queued", "in_progress"):
+                    pending_active = True
+        except PlaygroundError as error:
+            pending_error = error
+            degraded.append((error.code, PENDING_FIXTURE))
+        if pending_error is not None:
+            slices[PENDING_FIXTURE] = {
+                "valid": False,
+                "error": {"code": pending_error.code, "message": pending_error.message},
+            }
+        elif pending.get("state") == "ready" and not pending_active:
+            degraded.append(("PENDING_COMPLETED_EARLY", PENDING_FIXTURE))
+            slices[PENDING_FIXTURE] = {
+                "valid": False,
+                "detail": "the pending workflow completed early after active-ready",
+            }
+        else:
+            slices[PENDING_FIXTURE] = {"valid": True, "pending_active": pending_active}
+        remote.setdefault("observations", []).append({"captured_at": utc_now(), "slices": slices})
+        if degraded and manifest["lifecycle_state"] == "active-ready":
+            code, name = degraded[0]
+            manifest["lifecycle_state"] = "active-degraded"
+            manifest["error"] = {"code": code, "message": "the observation probe invalidated the %s slice" % name}
+        mutation.persist("remote-observation")
+    finally:
+        ctx.cleanup()
+
+
 def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     ctx: Optional[BootstrapContext] = None
     try:
@@ -2464,12 +3248,7 @@ def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> 
             raise PlaygroundError(
                 "CREDENTIAL_AUTHORITY_INVALID", "bootstrap requires the scoped controller credential"
             )
-        executable_paths: Dict[str, str] = {}
-        for name in ("git", "gh"):
-            resolved = resolve_executable(name, source.get("PATH", ""))
-            if resolved is None:
-                raise PlaygroundError("%s_NOT_FOUND" % name.upper(), "%s is not on the approved PATH" % name)
-            executable_paths[name] = resolved
+        executable_paths = controller_remote_tools(source)
         root = state_root(source)
         ensure_private_directory(root)
         ctx = BootstrapContext(root, ownership, executable_paths, source)
@@ -2544,21 +3323,41 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
             manifest = mutation.manifest
             assert manifest is not None
             build_local_fixture_catalog(mutation, environments, executable_paths)
+
+            remote_error: Optional[PlaygroundError] = None
+            try:
+                provision_remote_generation(mutation, source, executable_paths)
+            except PlaygroundError as error:
+                remote_error = error
+            if remote_error is not None:
+                if remote_error.code.startswith("INJECTED_"):
+                    # Injected crash boundary: leave the durable state exactly as
+                    # a real crash would, for recovery through stop.
+                    current = read_manifest(root, run_id)
+                    print_json(output_record(current, remote_error.code, remote_error.message, "stop %s" % run_id))
+                    return remote_error.status
+                # Startup failed before first readiness: automatic cleanup that
+                # settles every dispatch identity and releases the lease.
+                manifest["error"] = playground_error_json(remote_error)
+                final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
+                mutation.finish()
+                if cleanup_status == 0:
+                    print_json(
+                        output_record(final_manifest, remote_error.code, remote_error.message, "status %s" % run_id)
+                    )
+                else:
+                    print_json(output_record(final_manifest))
+                return remote_error.status
+
             target = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS") if test_mode() else None
             if not target:
-                manifest["lifecycle_state"] = "startup-failed-cleaned"
                 manifest["error"] = {
                     "code": "PROFILE_STARTUP_NOT_IMPLEMENTED",
                     "message": "candidate startup belongs to a later implementation unit",
                 }
-                manifest["next_command"] = "status %s" % run_id
-                mutation.persist("foundation-only")
-                runtime = run_dir / "runtime"
-                if runtime.exists():
-                    shutil.rmtree(str(runtime))
-                    fsync_directory(run_dir)
+                final_manifest, _ = teardown_phases(mutation, source, "startup-failed-cleaned")
                 mutation.finish()
-                print_json(output_record(manifest))
+                print_json(output_record(final_manifest))
                 return 1
 
             launch_error = start_foundation_process(mutation, environments["candidate-runtime"], target)
@@ -2581,7 +3380,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                 "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
             )
         except KeyboardInterrupt:
-            stopped, stop_status = stop_run(root, run_id)
+            stopped, stop_status = stop_run(root, run_id, source)
             print_json(
                 output_record(
                     stopped,
@@ -2606,7 +3405,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     except KeyboardInterrupt:
         if manifest is None or run_dir is None:
             return error_result(PlaygroundError("START_INTERRUPTED", "start was interrupted", 130))
-        stopped, stop_status = stop_run(root, manifest["run_id"])
+        stopped, stop_status = stop_run(root, manifest["run_id"], source)
         print_json(
             output_record(
                 stopped,
@@ -2682,56 +3481,72 @@ def terminate_owned_process(record: Dict[str, Any]) -> Tuple[bool, Optional[str]
     return False, "PROCESS_STOP_TIMEOUT"
 
 
-def stop_run(root: Path, run_id: str) -> Tuple[Dict[str, Any], int]:
+def teardown_phases(
+    mutation: Mutation, source: Dict[str, str], final_state: str
+) -> Tuple[Dict[str, Any], int]:
+    """Ordered continue-on-error teardown: stop owned processes, settle every
+    recorded pending workflow, delete the transient ref, conditionally release
+    the repository lease, then remove disposable runtime. Any unresolved
+    resource leaves cleanup-incomplete and retains the lease for retry."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    run_id = manifest["run_id"]
+    manifest["lifecycle_state"] = "stopping"
+    manifest["next_command"] = "stop %s" % run_id
+    mutation.persist("stopping")
+    unresolved: List[str] = []
+
+    for intent_id, intent in manifest.get("launch_intents", {}).items():
+        process = manifest.get("processes", {}).get(intent_id)
+        if process is None:
+            process = adopt_claim(mutation.run_dir, intent)
+            if process is not None:
+                manifest["processes"][intent_id] = process
+        if process is None:
+            if intent.get("phase") == "intent-committed":
+                intent["phase"] = "cancelled-before-spawn"
+                continue
+            unresolved.append("PROCESS_IDENTITY_UNRESOLVED")
+            continue
+        stopped, code = terminate_owned_process(process)
+        if stopped:
+            intent["phase"] = "stopped"
+        elif code:
+            unresolved.append(code)
+
+    settle_remote(mutation, source, unresolved)
+
+    if unresolved:
+        code = "PROCESS_IDENTITY_MISMATCH" if "PROCESS_IDENTITY_MISMATCH" in unresolved else unresolved[0]
+        manifest["lifecycle_state"] = "cleanup-incomplete"
+        manifest["error"] = {"code": code, "message": "owned resource cleanup could not be proved"}
+        manifest["next_command"] = "stop %s" % run_id
+        mutation.persist("cleanup-incomplete")
+        return manifest, 1
+
+    manifest["lifecycle_state"] = final_state
+    if final_state == "stopped":
+        manifest["error"] = None
+    manifest["next_command"] = "status %s" % run_id
+    mutation.persist(final_state)
+    runtime = mutation.run_dir / "runtime"
+    if runtime.exists():
+        shutil.rmtree(str(runtime))
+        fsync_directory(mutation.run_dir)
+    return manifest, 0
+
+
+def stop_run(root: Path, run_id: str, source: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, Any], int]:
+    if source is None:
+        source = dict(os.environ)
     current = read_manifest(root, run_id)
-    if current["lifecycle_state"] == "stopped":
+    if current["lifecycle_state"] in ("stopped", "startup-failed-cleaned"):
         return current, 0
     try:
         with Mutation(root, run_id) as mutation:
-            manifest = mutation.manifest
-            assert manifest is not None
-            manifest["lifecycle_state"] = "stopping"
-            manifest["next_command"] = "stop %s" % run_id
-            mutation.persist("stopping")
-            unresolved: List[str] = []
-
-            for intent_id, intent in manifest.get("launch_intents", {}).items():
-                process = manifest.get("processes", {}).get(intent_id)
-                if process is None:
-                    process = adopt_claim(mutation.run_dir, intent)
-                    if process is not None:
-                        manifest["processes"][intent_id] = process
-                if process is None:
-                    if intent.get("phase") == "intent-committed":
-                        intent["phase"] = "cancelled-before-spawn"
-                        continue
-                    unresolved.append("PROCESS_IDENTITY_UNRESOLVED")
-                    continue
-                stopped, code = terminate_owned_process(process)
-                if stopped:
-                    intent["phase"] = "stopped"
-                elif code:
-                    unresolved.append(code)
-
-            if unresolved:
-                code = "PROCESS_IDENTITY_MISMATCH" if "PROCESS_IDENTITY_MISMATCH" in unresolved else unresolved[0]
-                manifest["lifecycle_state"] = "cleanup-incomplete"
-                manifest["error"] = {"code": code, "message": "owned process cleanup could not be proved"}
-                manifest["next_command"] = "stop %s" % run_id
-                mutation.persist("cleanup-incomplete")
-                mutation.finish()
-                return manifest, 1
-
-            manifest["lifecycle_state"] = "stopped"
-            manifest["error"] = None
-            manifest["next_command"] = "status %s" % run_id
-            mutation.persist("stopped")
-            runtime = mutation.run_dir / "runtime"
-            if runtime.exists():
-                shutil.rmtree(str(runtime))
-                fsync_directory(mutation.run_dir)
+            manifest, status = teardown_phases(mutation, source, "stopped")
             mutation.finish()
-            return manifest, 0
+            return manifest, status
     except PlaygroundError as error:
         current = read_manifest(root, run_id)
         current["_operation_error"] = {"code": error.code, "message": error.message}
@@ -2741,7 +3556,7 @@ def stop_run(root: Path, run_id: str) -> Tuple[Dict[str, Any], int]:
 def command_stop(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     root = state_root(source)
     try:
-        manifest, status = stop_run(root, arguments.run_id)
+        manifest, status = stop_run(root, arguments.run_id, source)
     except PlaygroundError as error:
         return error_result(error)
     operation_error = manifest.pop("_operation_error", None)
@@ -2790,6 +3605,13 @@ def command_view(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     root = state_root(source)
     try:
         manifest = read_manifest(root, arguments.run_id)
+        if manifest.get("remote") and manifest["lifecycle_state"] in ("active-ready", "active-degraded"):
+            # view acquires the run lease and persists any resulting
+            # degradation before attaching.
+            with Mutation(root, arguments.run_id) as mutation:
+                probe_remote_observation(mutation, source)
+                mutation.finish()
+            manifest = read_manifest(root, arguments.run_id)
     except PlaygroundError as error:
         return error_result(error)
     try:

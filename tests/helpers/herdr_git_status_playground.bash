@@ -1,7 +1,7 @@
 # Herdr Git status playground Bats harness.
 # Load after helpers/common so SOURCE_ROOT and assertion helpers are available.
 
-HGSP_CONTROLLER="$SOURCE_ROOT/dot_local/bin/executable_herdr-git-status-playground"
+HGSP_CONTROLLER="${HGSP_CONTROLLER_OVERRIDE:-$SOURCE_ROOT/dot_local/bin/executable_herdr-git-status-playground}"
 HGSP_PYTHON="$(command -v python3)"
 
 hgsp_teardown() {
@@ -22,6 +22,7 @@ hgsp_teardown() {
         XDG_STATE_HOME="$HGSP_XDG_STATE" \
         HERDR_GIT_STATUS_PLAYGROUND_TEST_MODE=1 \
         HERDR_GIT_STATUS_PLAYGROUND_TEST_LOG="$HGSP_ENV_LOG" \
+        HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN=controller-canary \
         "$HGSP_PYTHON" "$HGSP_CONTROLLER" stop "$run_id" >/dev/null 2>&1 || true
     done
   fi
@@ -533,6 +534,27 @@ def isolated_env():
     return environment
 
 
+def mature(repo, run):
+    """Advance one run per observation: poll-count driven early completion and
+    cancellation, so tests prove ordering with counters, not wall clocks."""
+    if run.get("status") == "completed":
+        return
+    polls = run.get("complete_after_polls")
+    if polls is not None:
+        if polls <= 0:
+            run["status"] = "completed"
+            run["conclusion"] = "success"
+            return
+        run["complete_after_polls"] = polls - 1
+    if run.get("cancel_requested") and not run.get("uncancellable"):
+        remaining = run.get("cancel_pending_polls", 1)
+        if remaining <= 0:
+            run["status"] = "completed"
+            run["conclusion"] = "cancelled"
+        else:
+            run["cancel_pending_polls"] = remaining - 1
+
+
 def compute_mergeable(real_git, git_dir, base_ref, head_sha):
     scratch = tempfile.mkdtemp(prefix="hgsp-merge-")
     environment = isolated_env()
@@ -613,6 +635,11 @@ def main():
         permission = state["tokens"].get(token)
         if permission is None:
             fail("HTTP 401: authentication failed")
+        remaining = state.get("api_fail_after")
+        if remaining is not None:
+            if remaining <= 0:
+                fail(state.get("api_fail_message", "HTTP 403: API rate limit exceeded"))
+            state["api_fail_after"] = remaining - 1
         parts = route.split("/")
         if parts[0] != "repos" or len(parts) < 3:
             fail("HTTP 404: unsupported path %s" % route)
@@ -643,7 +670,73 @@ def main():
             head_sha = params.get("head_sha", [None])[0]
             if head_sha:
                 runs = [run for run in runs if run["head_sha"] == head_sha]
+            event = params.get("event", [None])[0]
+            if event:
+                runs = [run for run in runs if run.get("event") == event]
+            branch = params.get("branch", [None])[0]
+            if branch:
+                runs = [run for run in runs if run.get("head_branch") == branch]
+            for run in runs:
+                mature(repo, run)
             out = {"total_count": len(runs), "workflow_runs": runs}
+        elif len(tail) == 3 and tail[:2] == ["actions", "runs"] and tail[2].isdigit():
+            run = next(
+                (entry for entry in repo.get("workflow_runs", []) if entry["id"] == int(tail[2])), None
+            )
+            if run is None:
+                fail("HTTP 404: workflow run %s" % tail[2])
+            mature(repo, run)
+            out = dict(run)
+        elif len(tail) == 4 and tail[:2] == ["actions", "runs"] and tail[3] == "cancel":
+            if permission != "write":
+                fail("HTTP 403: write permission required")
+            run = next(
+                (entry for entry in repo.get("workflow_runs", []) if entry["id"] == int(tail[2])), None
+            )
+            if run is None:
+                fail("HTTP 404: workflow run %s" % tail[2])
+            log("gh-cancel|run=%s" % tail[2])
+            if run.get("status") == "completed":
+                fail("HTTP 409: cannot cancel a completed workflow run")
+            run["cancel_requested"] = True
+            run.setdefault("cancel_pending_polls", repo.get("cancel_pending_polls", 1))
+            out = None
+        elif len(tail) == 4 and tail[:2] == ["actions", "workflows"] and tail[3] == "dispatches":
+            if permission != "write":
+                fail("HTTP 403: write permission required")
+            ref = fields.get("ref")
+            probe = subprocess.run(
+                [real_git, "--git-dir", repo["git_dir"], "rev-parse", "refs/heads/%s" % ref],
+                env=isolated_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if probe.returncode != 0:
+                fail("HTTP 422: no ref %s" % ref)
+            if repo.get("dispatch_creates_run") is False:
+                out = None
+            else:
+                queue = repo.get("dispatch_complete_after_polls_queue") or []
+                complete_after = queue.pop(0) if queue else None
+                run = {
+                    "id": repo["next_run_id"],
+                    "name": "herdr-git-status-playground %s" % fields.get("inputs[intent]", ""),
+                    "head_branch": ref,
+                    "head_sha": probe.stdout.strip(),
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "event": "workflow_dispatch",
+                    "hold_seconds": fields.get("inputs[hold_seconds]"),
+                    "complete_after_polls": complete_after,
+                }
+                repo["next_run_id"] += 1
+                repo.setdefault("workflow_runs", []).append(run)
+                log(
+                    "gh-dispatch|ref=%s|intent=%s|hold=%s|run=%d"
+                    % (ref, fields.get("inputs[intent]", ""), fields.get("inputs[hold_seconds]", ""), run["id"])
+                )
+                out = None
         elif tail == ["pulls"] and method == "GET":
             pulls = repo.get("pulls", [])
             state_param = params.get("state", ["open"])[0]
@@ -710,7 +803,8 @@ def main():
         handle.truncate()
         json.dump(state, handle)
         handle.write("\n")
-    print(json.dumps(out))
+    if out is not None:
+        print(json.dumps(out))
 
 
 main()
@@ -762,6 +856,49 @@ hgsp_repo_record() {
 
 hgsp_record_field() {
   hgsp_json_field "$(cat "$(hgsp_repo_record)")" "$1"
+}
+
+# One-call remote foundation for run-level (U4) cases: simulator, explicit
+# initialization, and a converged durable fixture catalog.
+hgsp_remote_ready() {
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  run hgsp_bootstrap
+  assert_success
+}
+
+hgsp_host_installation_id() {
+  cat "$HGSP_STATE_ROOT/host-installation-id"
+}
+
+hgsp_manifest_query() {
+  local run_id="$1" expression="$2"
+  "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" "$expression" <<'PY'
+import json
+import sys
+
+path, expression = sys.argv[1:]
+with open(path, encoding="utf-8") as handle:
+    manifest = json.load(handle)
+value = eval(expression, {"manifest": manifest, "remote": manifest.get("remote")})
+print("true" if value is True else "false" if value is False else value)
+PY
+}
+
+# Force-write a lease commit with the given lease.json payload through real
+# Git, bypassing the simulator, to model exited-owner, leaked, and foreign
+# repository leases.
+hgsp_seed_lease() {
+  local payload="$1" scratch
+  scratch="$(mktemp -d "$HGSP_WORK/lease.XXXXXX")"
+  hgsp_real_git init --quiet --initial-branch=seed "$scratch"
+  printf '%s\n' "$payload" > "$scratch/lease.json"
+  hgsp_real_git -C "$scratch" add lease.json
+  hgsp_real_git -C "$scratch" -c user.name=Holder -c user.email=holder@example.invalid \
+    commit --quiet -m "seeded lease"
+  hgsp_real_git -C "$scratch" push --quiet --force "$HGSP_REMOTE_GIT" "HEAD:refs/heads/herdr-playground/lease"
+  rm -rf "$scratch"
 }
 
 # Rewrite one file on the remote default branch through real Git, bypassing

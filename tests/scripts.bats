@@ -1239,6 +1239,467 @@ PY
 }
 
 # ===========================================
+# herdr-git-status-playground remote generation (U4)
+# ===========================================
+
+@test "herdr-git-status-playground run binds a leased generation with a durable nonce-bearing pending dispatch" {
+  hgsp_setup
+  hgsp_remote_ready
+  hgsp_patch_github_state 'repo["decoy_runs"] = True'
+
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_a="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  hgsp_wait_for_file "$HGSP_WORK/managed-ready"
+
+  # #then the run is bound to the repository lease and its own fixture generation
+  assert_equal "$(hgsp_manifest_query "$run_a" 'remote["generation"]["number"]')" 1
+  assert_equal "$(hgsp_manifest_query "$run_a" 'remote["lease"]["operation_id"]')" "$run_a"
+  assert_equal "$(hgsp_manifest_query "$run_a" 'remote["lease"]["sha"]')" \
+    "$(hgsp_remote_git rev-parse refs/heads/herdr-playground/lease)"
+  assert_equal "$(hgsp_manifest_query "$run_a" 'len(remote["generation"]["snapshot"]["fixtures"])')" 5
+  # #then per-stage deadlines are recorded inside the generation
+  assert_equal "$(hgsp_manifest_query "$run_a" 'sorted(remote["generation"]["deadlines"])')" \
+    "['authority_attempts', 'hold_seconds', 'min_observation_seconds', 'promotion_attempts', 'readiness_attempts', 'settlement_attempts', 'workflow_timeout_minutes']"
+  # #then the pending intent is nonce-bearing and its hold exceeds the documented window under the hard timeout
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_a")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+pending = manifest["remote"]["pending"]
+assert pending["state"] == "ready", pending["state"]
+assert pending["hold_seconds"] > pending["min_observation_seconds"], pending
+assert pending["hold_seconds"] <= pending["workflow_timeout_minutes"] * 60, pending
+intents = pending["intents"]
+assert len(intents) == 1, intents
+intent = intents[0]
+assert intent["nonce"] and intent["nonce"] in intent["run_name"], intent
+assert intent["dispatched_at"], intent
+assert intent["run_ids"], intent
+assert manifest["remote"]["generation"]["pending_run_ids"] == intent["run_ids"], manifest["remote"]["generation"]
+assert pending["observation_window"]["min_seconds"] == pending["min_observation_seconds"]
+PY
+  assert_success
+  run grep -E '^gh-dispatch\|.*\|hold=1800\|' "$HGSP_CALL_LOG"
+  assert_success
+  local dispatched
+  dispatched="$(grep '^gh-dispatch|' "$HGSP_CALL_LOG" | sed 's/.*run=//')"
+  # #then decoy and push records on the same head stay excluded from the promotion
+  run "$HGSP_PYTHON" - "$HGSP_WORK/github-state.json" "$run_a" "$dispatched" <<'PY'
+import json
+import sys
+
+repo = json.load(open(sys.argv[1], encoding="utf-8"))["repositories"]["github.com/example/herdr-status-fixtures"]
+branch = "herdr-playground/checks-pending/%s" % sys.argv[2]
+on_branch = [run for run in repo["workflow_runs"] if run["head_branch"] == branch]
+assert len(on_branch) >= 3, on_branch
+dispatch_runs = [run for run in on_branch if run.get("event") == "workflow_dispatch"]
+assert [run["id"] for run in dispatch_runs] == [int(sys.argv[3])], dispatch_runs
+PY
+  assert_success
+  assert_equal "$(hgsp_manifest_query "$run_a" 'remote["generation"]["pending_run_ids"]')" "[$dispatched]"
+
+  # #then a second run cannot acquire the same repository lease while this run is active
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_LEASE_HELD
+  assert_output --partial "$run_a"
+  assert_output --partial "stop $run_a"
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+  assert_equal "$(hgsp_remote_git rev-parse refs/heads/herdr-playground/lease)" \
+    "$(hgsp_manifest_query "$run_a" 'remote["lease"]["sha"]')"
+
+  # #then teardown settles the exact run, deletes the transient ref, and releases the lease
+  run hgsp_env stop "$run_a"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_a")" "$dispatched" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+settlement = manifest["remote"]["settlement"]
+runs = settlement["runs"]
+assert [run["run_id"] for run in runs] == [int(sys.argv[2])], runs
+assert runs[0]["cancelled"] is True and runs[0]["already_terminal"] is False, runs
+assert runs[0]["final_status"] == "completed" and runs[0]["conclusion"] == "cancelled", runs
+assert settlement["transient_ref_deleted"] is True, settlement
+assert manifest["remote"]["lease"]["released"]["verified"] == "conditional-delete", manifest["remote"]["lease"]
+PY
+  assert_success
+  run hgsp_remote_git rev-parse "refs/heads/herdr-playground/checks-pending/$run_a"
+  assert_failure
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  assert_equal "$(hgsp_record_field transient_refs)" "{}"
+
+  # #then terminal cleanup allows a new run on the next generation
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  assert_equal "$(hgsp_manifest_query "$HGSP_LAST_RUN_ID" 'remote["generation"]["number"]')" 2
+  run hgsp_env stop "$HGSP_LAST_RUN_ID"
+  assert_success
+  # #then durable state never retains a credential canary
+  run grep -r controller-canary "$HGSP_STATE_ROOT"
+  assert_failure
+  run grep -r candidate-canary "$HGSP_STATE_ROOT"
+  assert_failure
+}
+
+@test "herdr-git-status-playground refuses stale-owner takeover and settles leaked or foreign leases safely" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_a="$HGSP_LAST_RUN_ID"
+  run hgsp_env stop "$run_a"
+  assert_success
+  local settled_run host_id
+  settled_run="$(hgsp_manifest_query "$run_a" 'remote["generation"]["pending_run_ids"][0]')"
+  host_id="$(hgsp_host_installation_id)"
+
+  # #then a leaked terminal-run lease survives while any ownership probe is unsettled
+  hgsp_seed_lease "{\"schema_version\":1,\"operation_kind\":\"run\",\"operation_id\":\"$run_a\",\"host_installation_id\":\"$host_id\",\"workflow_intents\":[\"refs/heads/herdr-playground/checks-pending/$run_a\"]}"
+  local leaked_sha
+  leaked_sha="$(hgsp_remote_git rev-parse refs/heads/herdr-playground/lease)"
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $settled_run][0].update({'status': 'in_progress', 'conclusion': None, 'cancel_requested': False})"
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_LEASE_HELD
+  assert_output --partial "still active"
+  assert_equal "$(hgsp_remote_git rev-parse refs/heads/herdr-playground/lease)" "$leaked_sha"
+
+  # #then once every probe settles the leaked lease is conditionally deleted and a run proceeds
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $settled_run][0].update({'status': 'completed', 'conclusion': 'cancelled'})"
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_b="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  run hgsp_env stop "$run_b"
+  assert_success
+
+  # #then a lease naming an unknown local run refuses automation
+  hgsp_seed_lease "{\"schema_version\":1,\"operation_kind\":\"run\",\"operation_id\":\"run-unknown-0000\",\"host_installation_id\":\"$host_id\",\"workflow_intents\":[]}"
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_LEASE_HELD
+  assert_output --partial "no readable local manifest"
+
+  # #then a foreign-host lease always reports exact read-only inspection and manual recovery
+  hgsp_seed_lease "{\"schema_version\":1,\"operation_kind\":\"run\",\"operation_id\":\"run-elsewhere-0000\",\"host_installation_id\":\"foreign-host\",\"workflow_intents\":[\"refs/heads/herdr-playground/checks-pending/run-elsewhere-0000\"]}"
+  local foreign_sha
+  foreign_sha="$(hgsp_remote_git rev-parse refs/heads/herdr-playground/lease)"
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_LEASE_FOREIGN
+  assert_output --partial "git ls-remote"
+  assert_output --partial "gh run cancel"
+  assert_output --partial "refuses foreign takeover"
+  assert_output --partial "foreign-host"
+  assert_output --partial "run-elsewhere-0000"
+  assert_equal "$(hgsp_remote_git rev-parse refs/heads/herdr-playground/lease)" "$foreign_sha"
+
+  # #then the nearby control starts once the operator frees the lease externally
+  hgsp_remote_git update-ref -d refs/heads/herdr-playground/lease
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  run hgsp_env stop "$HGSP_LAST_RUN_ID"
+  assert_success
+}
+
+@test "herdr-git-status-playground pending dispatch intents are durable and crashes recover by exact query" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then the nonce-bearing intent is durable before any API dispatch
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=pending-before-dispatch run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" INJECTED_PENDING_BEFORE_DISPATCH
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" provisioning
+  assert_equal "$(hgsp_manifest_query "$run_id" 'remote["pending"]["intents"][0]["phase"]')" intent-committed
+  [[ -n "$(hgsp_manifest_query "$run_id" 'remote["pending"]["intents"][0]["nonce"]')" ]]
+  run grep '^gh-dispatch|' "$HGSP_CALL_LOG"
+  assert_failure
+  # #then recovery verifies by query instead of assuming, then releases the lease
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  assert_equal "$(hgsp_manifest_query "$run_id" 'remote["settlement"]["runs"]')" "[]"
+  run hgsp_remote_git rev-parse "refs/heads/herdr-playground/checks-pending/$run_id"
+  assert_failure
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+
+  # #then crashes after dispatch and before promotion recover through the nonce query
+  local point dispatched
+  for point in pending-after-dispatch pending-before-promotion; do
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="$point" run hgsp_start
+    assert_failure 1
+    hgsp_capture_run_id
+    run_id="$HGSP_LAST_RUN_ID"
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" provisioning
+    assert_equal "$(hgsp_manifest_query "$run_id" 'remote["pending"]["intents"][0]["run_ids"]')" "[]"
+    dispatched="$(grep '^gh-dispatch|' "$HGSP_CALL_LOG" | tail -1 | sed 's/.*run=//')"
+    run hgsp_env stop "$run_id"
+    assert_success
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+    assert_equal "$(hgsp_manifest_query "$run_id" '[r["run_id"] for r in remote["settlement"]["runs"]]')" "[$dispatched]"
+    assert_equal "$(hgsp_manifest_query "$run_id" 'remote["settlement"]["runs"][0]["conclusion"]')" cancelled
+    run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+    assert_failure
+  done
+
+  # #then a forged nonce-bearing record that disagrees with the recorded identity fails closed
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=pending-after-dispatch run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  local nonce
+  nonce="$(hgsp_manifest_query "$run_id" 'remote["pending"]["intents"][0]["nonce"]')"
+  hgsp_patch_github_state "repo['workflow_runs'].append({'id': repo['next_run_id'], 'name': 'herdr-git-status-playground $nonce', 'head_branch': 'herdr-playground/checks-pending/$run_id', 'head_sha': 'a'*40, 'status': 'completed', 'conclusion': 'success', 'event': 'workflow_dispatch'}); repo['next_run_id'] += 1"
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" PENDING_NONCE_AMBIGUOUS
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_success
+  # #then the nearby control settles the same stop once the forgery is gone
+  hgsp_patch_github_state "repo['workflow_runs'] = [r for r in repo['workflow_runs'] if r['head_sha'] != 'a'*40]"
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+@test "herdr-git-status-playground retriggers one early completion and settles every dispatch attempt" {
+  hgsp_setup
+  hgsp_remote_ready
+  hgsp_patch_github_state 'repo["dispatch_complete_after_polls_queue"] = [0]'
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  # #then the early-completed first attempt cannot satisfy the fixture and was retriggered once
+  assert_equal "$(hgsp_manifest_query "$run_id" 'len(remote["pending"]["intents"])')" 2
+  assert_equal "$(hgsp_manifest_query "$run_id" 'remote["pending"]["state"]')" ready
+  assert_equal "$(hgsp_manifest_query "$run_id" 'len(remote["generation"]["pending_run_ids"])')" 2
+  # #then teardown settles every exact numeric run ID, not only the newest
+  run hgsp_env stop "$run_id"
+  assert_success
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+remote = manifest["remote"]
+expected = set(remote["generation"]["pending_run_ids"])
+settled = {run["run_id"]: run for run in remote["settlement"]["runs"]}
+assert set(settled) == expected and len(expected) == 2, (settled, expected)
+assert sorted(run["already_terminal"] for run in settled.values()) == [False, True], settled
+for run in settled.values():
+    assert run["final_status"] == "completed", run
+PY
+  assert_success
+
+  # #then a second early completion fails startup into automatic cleanup
+  hgsp_patch_github_state 'repo["dispatch_complete_after_polls_queue"] = [0, 0]'
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" PENDING_COMPLETED_EARLY
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+  assert_equal "$(hgsp_manifest_query "$run_id" 'len(remote["pending"]["intents"])')" 2
+  assert_equal "$(hgsp_manifest_query "$run_id" 'len(remote["settlement"]["runs"])')" 2
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+}
+
+@test "herdr-git-status-playground fails startup closed on promotion deadlines, drift, and unsettled authority" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then a dispatch that never materializes exhausts the bounded promotion window
+  hgsp_patch_github_state 'repo["dispatch_creates_run"] = False'
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" PENDING_PROMOTION_DEADLINE
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+  # #then every dispatch identity is preserved through automatic teardown
+  [[ -n "$(hgsp_manifest_query "$run_id" 'remote["pending"]["intents"][0]["nonce"]')" ]]
+  assert_equal "$(hgsp_manifest_query "$run_id" 'remote["pending"]["intents"][0]["phase"]')" settled
+  # #then the promotion loop stayed within the recorded bounded deadline
+  local bound queries
+  bound="$(hgsp_manifest_query "$run_id" 'remote["generation"]["deadlines"]["promotion_attempts"]')"
+  queries="$(grep -c 'path=repos/example/herdr-status-fixtures/actions/runs|' "$HGSP_CALL_LOG")"
+  [[ "$queries" -le $((bound + 2)) ]]
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  hgsp_patch_github_state 'repo["dispatch_creates_run"] = True'
+
+  # #then a moved fixture head is authority drift, never readiness or evidence
+  local draft_sha
+  draft_sha="$(hgsp_remote_git rev-parse refs/heads/herdr-playground/draft/head)"
+  hgsp_seed_remote_ref refs/heads/herdr-playground/draft/head "moved head" refs/heads/herdr-playground/draft/head
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" AUTHORITY_DRIFT
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+  assert_output --partial "draft"
+  hgsp_remote_git update-ref refs/heads/herdr-playground/draft/head "$draft_sha"
+
+  # #then persistent unknown mergeability can never become stable evidence
+  hgsp_patch_github_state "[p for p in repo['pulls'] if p['head_ref'] == 'herdr-playground/merge-conflict/head'][0].update({'mergeable': None, 'mergeable_state': 'unknown', 'mergeable_polls_remaining': 10**6})"
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" AUTHORITY_UNSETTLED
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+  hgsp_patch_github_state "[p for p in repo['pulls'] if p['head_ref'] == 'herdr-playground/merge-conflict/head'][0].update({'mergeable': False, 'mergeable_state': 'dirty'})"
+
+  # #then the nearby control reaches readiness once authority settles
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  run hgsp_env stop "$HGSP_LAST_RUN_ID"
+  assert_success
+}
+
+@test "herdr-git-status-playground retains the repository lease when settlement cannot be proved" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  local pending_run
+  pending_run="$(hgsp_manifest_query "$run_id" 'remote["generation"]["pending_run_ids"][0]')"
+
+  # #then authentication failure leaves cleanup-incomplete with the lease retained
+  HGSP_CONTROLLER_TOKEN=expired-token run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_IDENTITY_UNRESOLVED
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_success
+  assert_equal "$(hgsp_manifest_query "$run_id" 'remote["generation"]["pending_run_ids"][0]')" "$pending_run"
+
+  # #then an unknown recorded identity leaves cleanup-incomplete with the lease retained
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $pending_run][0]['id'] = 424242"
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" PENDING_RUN_UNKNOWN
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_success
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == 424242][0]['id'] = $pending_run"
+
+  # #then a run that stays active through the bounded window leaves cleanup-incomplete
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $pending_run][0]['uncancellable'] = True"
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" PENDING_STILL_ACTIVE
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_success
+
+  # #then a new run stays blocked while the cleanup-incomplete run retains the lease
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_LEASE_HELD
+  assert_output --partial "$run_id"
+  assert_output --partial "stop $run_id"
+
+  # #then the nearby control settles the retried stop once cancellation can take effect
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $pending_run][0]['uncancellable'] = False"
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground observation probes invalidate only drifted slices and persist degradation" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  hgsp_patch_manifest "$run_id" "manifest['lifecycle_state']='active-ready'"
+
+  # #then moving one fixture head invalidates only that observation slice
+  local draft_sha
+  draft_sha="$(hgsp_remote_git rev-parse refs/heads/herdr-playground/draft/head)"
+  hgsp_seed_remote_ref refs/heads/herdr-playground/draft/head "post-ready drift" refs/heads/herdr-playground/draft/head
+  run hgsp_env view "$run_id"
+  assert_failure
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["lifecycle_state"] == "active-degraded", manifest["lifecycle_state"]
+slices = manifest["remote"]["observations"][-1]["slices"]
+assert slices["draft"]["valid"] is False, slices["draft"]
+for name in ("no-pr", "checks-failed", "checks-passed", "merge-conflict", "checks-pending"):
+    assert slices[name]["valid"] is True, (name, slices[name])
+assert manifest["error"]["code"] == "AUTHORITY_DRIFT", manifest["error"]
+PY
+  assert_success
+  hgsp_remote_git update-ref refs/heads/herdr-playground/draft/head "$draft_sha"
+
+  # #then early completion after active-ready persists active-degraded, never stable evidence
+  hgsp_patch_manifest "$run_id" "manifest['lifecycle_state']='active-ready'; manifest['error']=None"
+  local pending_run
+  pending_run="$(hgsp_manifest_query "$run_id" 'remote["generation"]["pending_run_ids"][0]')"
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $pending_run][0].update({'status': 'completed', 'conclusion': 'success'})"
+  run hgsp_env view "$run_id"
+  assert_failure
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-degraded
+  assert_equal "$(hgsp_json_field "$output" error.code)" PENDING_COMPLETED_EARLY
+  assert_equal "$(hgsp_manifest_query "$run_id" 'remote["observations"][-1]["slices"]["checks-pending"]["valid"]')" false
+
+  # #then authentication expiry degrades the run instead of reading as no-PR or stable
+  hgsp_patch_manifest "$run_id" "manifest['lifecycle_state']='active-ready'; manifest['error']=None"
+  hgsp_patch_github_state 'state["api_fail_after"] = 0; state["api_fail_message"] = "HTTP 401: Bad credentials"'
+  run hgsp_env view "$run_id"
+  assert_failure
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-degraded
+  assert_equal "$(hgsp_json_field "$output" error.code)" AUTHORITY_QUERY_FAILED
+  hgsp_patch_github_state 'state["api_fail_after"] = None'
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+# ===========================================
 # python3 -- the declared interpreter
 # ===========================================
 
