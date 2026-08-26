@@ -126,9 +126,11 @@ SH
   chmod +x "$HGSP_STUB/gh"
   ln -s "$HGSP_PYTHON" "$HGSP_STUB/python3"
 
-  # Herdr stub: `--version` and the long-running `server run` stay in shell so
-  # the controller-owned server process image keeps the stub path in its
-  # command line; every other subcommand runs the stateful profile simulator.
+  # Herdr stub: `--version`, the long-running `server run`, and the long-lived
+  # `client attach` all stay in shell (never exec into python) so the
+  # controller-owned process image keeps the stub path in its command line,
+  # matching what verify_process's identity check requires; every other
+  # subcommand runs the stateful profile simulator and exits immediately.
   cat > "$HGSP_STUB/herdr" <<SH
 #!/bin/sh
 profile="\${XDG_STATE_HOME:-}"
@@ -148,6 +150,17 @@ if [ "\$1" = server ] && [ "\$2" = run ]; then
   trap 'rm -f "\$state/session.sock"; exit 0' TERM INT HUP
   while [ -d "\$state" ]; do sleep 0.05; done
   rm -f "\$state/session.sock" 2>/dev/null
+  exit 0
+fi
+if [ "\$1" = client ] && [ "\$2" = attach ]; then
+  socket="\$("$HGSP_PYTHON" "$HGSP_STUB/herdr-sim.py" "\$@")"
+  status=\$?
+  if [ "\$status" -ne 0 ]; then
+    exit "\$status"
+  fi
+  state="\$XDG_STATE_HOME/herdr"
+  trap 'exit 0' TERM INT HUP
+  while [ -e "\$socket" ] && [ -d "\$state" ]; do sleep 0.05; done
   exit 0
 fi
 exec "$HGSP_PYTHON" "$HGSP_STUB/herdr-sim.py" "\$@"
@@ -566,6 +579,83 @@ def main():
     if args[:2] == ["config", "reload"]:
         require_server()
         return
+    if args[:2] == ["space", "focus"]:
+        require_server()
+        label = args[2]
+        if not any(entry["label"] == label for entry in load_json(SPACES, [])):
+            fail("no space labelled %s" % label)
+        focus_path = os.path.join(STATE_DIR, "focus.json")
+        current = load_json(focus_path, {"generation": 0})
+        save_json(
+            focus_path,
+            {
+                "label": label,
+                "generation": current.get("generation", 0) + 1,
+                "previous_label": current.get("label"),
+                "previous_generation": current.get("generation"),
+            },
+        )
+        return
+    if args[:2] == ["space", "current"]:
+        require_server()
+        current = load_json(os.path.join(STATE_DIR, "focus.json"), None)
+        if current is None:
+            fail("no fixture has been focused yet")
+        # Test knob: model a client that echoes a cached read from before the
+        # most recent focus switch, so causal-freshness tests can prove that
+        # an equal stale value is rejected rather than trusted (KTD7).
+        if os.environ.get("HGSP_STALE_FOCUS_READ") and current.get("previous_label") is not None:
+            print(json.dumps({"label": current["previous_label"], "generation": current["previous_generation"]}))
+        else:
+            print(json.dumps({"label": current["label"], "generation": current["generation"]}))
+        return
+    if args[:2] == ["workspace", "create"]:
+        require_server()
+        name = args[2]
+        cwd = args[args.index("--cwd") + 1]
+        workspace_path = os.path.join(STATE_DIR, "workspace.json")
+        if os.path.exists(workspace_path):
+            fail("workspace %s already exists" % name)
+        save_json(workspace_path, {"name": name, "cwd": cwd, "panes": {}})
+        return
+    if args[:2] == ["workspace", "layout"]:
+        require_server()
+        name = args[2]
+        panes_count = int(args[args.index("--panes") + 1])
+        columns = int(args[args.index("--columns") + 1])
+        rows = int(args[args.index("--rows") + 1])
+        if panes_count != 4 or columns % 2 != 0 or rows % 2 != 0:
+            fail("only an even 2x2 layout is supported")
+        workspace_path = os.path.join(STATE_DIR, "workspace.json")
+        workspace = load_json(workspace_path, None)
+        if workspace is None or workspace.get("name") != name:
+            fail("no workspace named %s" % name)
+        width, height = columns // 2, rows // 2
+        workspace["layout"] = {"columns": columns, "rows": rows, "width": width, "height": height}
+        save_json(workspace_path, workspace)
+        print(json.dumps({"panes": [{"width": width, "height": height} for _ in range(panes_count)]}))
+        return
+    if args[:2] == ["client", "attach"]:
+        # Registration only: the sh wrapper that invoked this owns the
+        # long-lived idle loop and signal handling, so the recorded launch
+        # identity (the stub path) stays in the process image, matching the
+        # server-run pattern's identity contract (KTD9's process-verification
+        # relies on the stub path appearing in the live process command).
+        socket_path = args[args.index("--socket") + 1]
+        pane_id = args[args.index("--pane") + 1]
+        header = json.loads(args[args.index("--header") + 1])
+        if "--nested" not in args or "--no-auto-start" not in args:
+            fail("nested client attach requires --nested and --no-auto-start")
+        if not os.path.exists(socket_path):
+            fail("candidate socket is unavailable: %s" % socket_path)
+        workspace_path = os.path.join(STATE_DIR, "workspace.json")
+        workspace = load_json(workspace_path, None)
+        if workspace is None:
+            fail("no viewer workspace to attach into")
+        workspace.setdefault("panes", {})[pane_id] = {"header": header, "socket": socket_path}
+        save_json(workspace_path, workspace)
+        print(socket_path)
+        return
     fail("unsupported herdr invocation: %r" % (args,), 97)
 
 
@@ -680,6 +770,33 @@ hgsp_wait_for_file() {
 hgsp_assert_no_launch_or_mutation() {
   run grep -E '^(managed-probe|gh\|api|gh\|pr|gh\|workflow|git\|push)' "$HGSP_CALL_LOG"
   assert_failure
+}
+
+hgsp_evidence_index() {
+  printf '%s/runs/%s/evidence-index.json\n' "$HGSP_STATE_ROOT" "$1"
+}
+
+# Mutate the run's evidence-index.json in place through a Python expression
+# bound to `rows` (the list); used to fabricate finalize-time edge cases
+# (missing/duplicate/corrupted records) without recapturing real evidence.
+hgsp_patch_evidence_index() {
+  local run_id="$1" expression="$2"
+  "$HGSP_PYTHON" - "$(hgsp_evidence_index "$run_id")" "$expression" <<'PY'
+import json
+import os
+import sys
+
+path, expression = sys.argv[1:]
+with open(path, encoding="utf-8") as handle:
+    index = json.load(handle)
+rows = index["rows"]
+exec(expression, {"index": index, "rows": rows})
+temporary = path + ".fixture"
+with open(temporary, "w", encoding="utf-8") as handle:
+    json.dump(index, handle, sort_keys=True, separators=(",", ":"))
+    handle.write("\n")
+os.replace(temporary, path)
+PY
 }
 
 hgsp_patch_manifest() {

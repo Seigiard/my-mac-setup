@@ -1007,6 +1007,9 @@ def new_manifest(
         "launch_intents": {},
         "processes": {},
         "remote": None,
+        "viewer": None,
+        "current_fixture": None,
+        "fixture_epoch": 0,
         "mutation_lease": None,
         "error": None,
         "next_command": "status %s" % run_id,
@@ -4060,6 +4063,12 @@ def provision_candidates(
             "activation-observation",
         )
 
+    # Every candidate shares one comparison fixture at a time (the product
+    # goal is the same repository state across all four panes); establish it
+    # now so `view` has a well-defined header and `snapshot` has a causal
+    # starting point (KTD7).
+    set_current_fixture(mutation, herdr_path, runtime_environments, LOCAL_FIXTURES[0])
+
 
 def process_group_members(pgid: int) -> List[int]:
     try:
@@ -4234,6 +4243,727 @@ def teardown_candidates(mutation: Mutation, source: Dict[str, str], unresolved: 
     mutation.persist("candidate-teardown")
 
 
+# ---- Comparison viewer and evidence snapshots (U6) --------------------------
+# Documented minimum terminal size for four equal panes; both dimensions are
+# even so a 2x2 split is always an exact division with no remainder pane.
+MIN_VIEWER_COLUMNS = 80
+MIN_VIEWER_ROWS = 24
+VIEWER_WORKSPACE_NAME = "comparison"
+# The full R11 field set every finalized inventory row must carry. Values may
+# be None (an operator note the operator skipped, or a controller measurement
+# that legitimately has nothing to report); the key itself must be present.
+R11_FIELDS = (
+    "capability_family",
+    "baseline_signal",
+    "candidate_visible_signal",
+    "companion_surface",
+    "ground_truth_classification",
+    "refresh_authority_state",
+    "terminal_dimensions",
+    "displaced_or_duplicated",
+    "readability_note",
+    "dependency_note",
+    "error_link",
+    "lifecycle_note",
+    "observation_id",
+    "hashes",
+    "applicability",
+)
+
+
+def interactive_mode(source: Dict[str, str]) -> bool:
+    if test_mode():
+        override = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_INTERACTIVE")
+        if override is not None:
+            return override == "1"
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def full_fixture_catalog(manifest: Dict[str, Any]) -> List[str]:
+    """Every fixture label a finalized run must cover for every candidate,
+    matching the shared order build_space_catalog installed as spaces."""
+    labels = list(LOCAL_FIXTURES)
+    if manifest.get("remote"):
+        labels.extend("gh-%s" % name for name in GITHUB_FIXTURES)
+    return labels
+
+
+def known_fixture_labels(manifest: Dict[str, Any]) -> List[str]:
+    return [entry["label"] for entry in manifest.get("space_catalog", [])]
+
+
+def build_candidate_runtime_environments(
+    source: Dict[str, str], executable_paths: Dict[str, str], profiles: Dict[str, Dict[str, str]]
+) -> Dict[str, Dict[str, str]]:
+    return {
+        name: candidate_runtime_environment(source, executable_paths, profiles, name, with_token=False)
+        for name in CANDIDATE_ORDER
+    }
+
+
+def viewer_environment(
+    source: Dict[str, str], executable_paths: Dict[str, str], profiles: Dict[str, Dict[str, str]]
+) -> Dict[str, str]:
+    viewer = profiles["viewer"]
+    environment = minimal_environment(source, executable_paths, Path(viewer["home"]))
+    environment.update(
+        {
+            "XDG_CONFIG_HOME": viewer["config_home"],
+            "XDG_STATE_HOME": viewer["state_home"],
+            "XDG_DATA_HOME": viewer["data_home"],
+        }
+    )
+    return environment
+
+
+def viewer_terminal_dimensions(source: Dict[str, str]) -> Tuple[int, int]:
+    override = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEWER_DIMENSIONS") if test_mode() else None
+    if override:
+        columns_text, _, rows_text = override.partition("x")
+        try:
+            return int(columns_text), int(rows_text)
+        except ValueError:
+            raise PlaygroundError("VIEWER_DIMENSIONS_INVALID", override)
+    # Without a real controlling terminal (piped, ssh -T, non-interactive
+    # automation), fall back to the documented minimum itself rather than a
+    # 0x0 that would fail every otherwise-healthy attach.
+    size = shutil.get_terminal_size(fallback=(MIN_VIEWER_COLUMNS, MIN_VIEWER_ROWS))
+    return size.columns, size.lines
+
+
+def require_viewer_dimensions(columns: int, rows: int) -> None:
+    if columns < MIN_VIEWER_COLUMNS or rows < MIN_VIEWER_ROWS or columns % 2 != 0 or rows % 2 != 0:
+        raise PlaygroundError(
+            "VIEWER_DIMENSIONS_TOO_SMALL",
+            "the terminal is %dx%d; the playground viewer requires an even %dx%d or larger"
+            % (columns, rows, MIN_VIEWER_COLUMNS, MIN_VIEWER_ROWS),
+        )
+
+
+def known_fixture_labels_or_raise(manifest: Dict[str, Any], label: str) -> None:
+    if label not in known_fixture_labels(manifest):
+        raise PlaygroundError("FIXTURE_UNKNOWN", "%s is not in this run's fixture catalog" % label)
+
+
+def set_current_fixture(
+    mutation: Mutation, herdr_path: str, environments: Dict[str, Dict[str, str]], label: str
+) -> None:
+    """Move every candidate profile's focus to one shared fixture and bump the
+    run's fixture epoch (KTD7): a read from before this call, even if its
+    value happens to equal the new one, carries the old epoch and can never
+    be confused with a fresh post-switch observation."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    known_fixture_labels_or_raise(manifest, label)
+    if manifest.get("current_fixture") == label:
+        return
+    focus: Dict[str, Any] = {}
+    for name in CANDIDATE_ORDER:
+        environment = environments[name]
+        run_checked([herdr_path, "space", "focus", label], environment, "FIXTURE_FOCUS_FAILED")
+        echoed = herdr_json(herdr_path, ["space", "current"], environment, "FIXTURE_FOCUS_UNPROVED")
+        if not isinstance(echoed, dict) or echoed.get("label") != label:
+            raise PlaygroundError(
+                "FIXTURE_FOCUS_UNPROVED", "the %s profile did not confirm focus on %s" % (name, label)
+            )
+        focus[name] = echoed
+    manifest["current_fixture"] = label
+    manifest["fixture_epoch"] = manifest.get("fixture_epoch", 0) + 1
+    manifest["candidate_focus"] = focus
+    mutation.persist("fixture-%s" % label)
+
+
+def candidate_current_focus(herdr_path: str, environment: Dict[str, str]) -> Dict[str, Any]:
+    echoed = herdr_json(herdr_path, ["space", "current"], environment, "FIXTURE_FOCUS_UNPROVED")
+    if not isinstance(echoed, dict):
+        raise PlaygroundError("FIXTURE_FOCUS_UNPROVED", "the candidate never confirmed a focused fixture")
+    return echoed
+
+
+def pane_header(manifest: Dict[str, Any], name: str) -> Dict[str, Any]:
+    return {
+        "run_id": manifest["run_id"],
+        "generation": manifest["generation"],
+        "candidate": manifest["candidates"][name]["revision"],
+        "profile": name,
+        "fixture": manifest.get("current_fixture"),
+    }
+
+
+def verify_candidate_socket(manifest: Dict[str, Any], name: str) -> None:
+    """KTD14: a missing or mismatched candidate socket fails attachment; the
+    viewer never creates a replacement server or connects back to itself."""
+    profiles = manifest["profiles"]
+    socket_path = Path(profiles[name]["socket"])
+    process = manifest["processes"].get("server-%s" % name)
+    if not socket_path.exists() or process is None:
+        raise PlaygroundError(
+            "VIEWER_ATTACH_SOCKET_MISSING", "the %s candidate socket is unavailable for attachment" % name
+        )
+    verdict, reason = verify_process(process)
+    if verdict != "owned":
+        raise PlaygroundError(
+            "VIEWER_ATTACH_SOCKET_MISMATCHED", "the %s candidate server is not owned: %s" % (name, reason)
+        )
+
+
+def create_viewer_workspace(
+    mutation: Mutation, herdr_path: str, environment: Dict[str, str], columns: int, rows: int
+) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    run_checked(
+        [herdr_path, "workspace", "create", VIEWER_WORKSPACE_NAME, "--cwd", manifest["viewer_workspace"]],
+        environment,
+        "VIEWER_WORKSPACE_FAILED",
+    )
+    layout = herdr_json(
+        herdr_path,
+        ["workspace", "layout", VIEWER_WORKSPACE_NAME, "--panes", "4", "--columns", str(columns), "--rows", str(rows)],
+        environment,
+        "VIEWER_LAYOUT_FAILED",
+    )
+    panes = layout.get("panes") if isinstance(layout, dict) else None
+    if not isinstance(panes, list) or len(panes) != 4:
+        raise PlaygroundError("VIEWER_LAYOUT_INVALID", "the viewer layout did not return four panes")
+    widths = {pane["width"] for pane in panes}
+    heights = {pane["height"] for pane in panes}
+    if len(widths) != 1 or len(heights) != 1:
+        raise PlaygroundError("VIEWER_LAYOUT_UNEQUAL", "the viewer panes are not equal regions")
+    manifest["viewer"] = {
+        "workspace": VIEWER_WORKSPACE_NAME,
+        "dimensions": {"columns": columns, "rows": rows},
+        "pane_size": {"width": panes[0]["width"], "height": panes[0]["height"]},
+        "diagnostic": False,
+        "panes": {},
+        "attached_at": None,
+    }
+
+
+def attach_viewer_pane(mutation: Mutation, name: str, pane_id: str, herdr_path: str, environment: Dict[str, str]) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    profiles = manifest["profiles"]
+    verify_candidate_socket(manifest, name)
+    header = pane_header(manifest, name)
+    spawn_owned_process(
+        mutation,
+        environment,
+        "client-%s" % name,
+        "viewer",
+        herdr_path,
+        (
+            "client",
+            "attach",
+            "--socket",
+            profiles[name]["socket"],
+            "--nested",
+            "--no-auto-start",
+            "--pane",
+            pane_id,
+            "--header",
+            json.dumps(header, sort_keys=True),
+        ),
+        process_class="viewer-client",
+    )
+    # Re-verify after the spawn race window: a candidate that died during
+    # attachment must never leave a connected pane or spawn a replacement
+    # server (KTD14).
+    try:
+        verify_candidate_socket(manifest, name)
+    except PlaygroundError:
+        process = manifest["processes"].get("client-%s" % name)
+        if process is not None:
+            terminate_owned_process(process)
+        raise PlaygroundError(
+            "VIEWER_ATTACH_CANDIDATE_DIED", "the %s candidate died during viewer attachment" % name
+        )
+    manifest["viewer"]["panes"][name] = {"pane_id": pane_id, "header": header, "attached_at": utc_now()}
+
+
+def attach_viewer(mutation: Mutation, source: Dict[str, str], executable_paths: Dict[str, str]) -> None:
+    """Create or reconcile the disposable viewer profile: one workspace, an
+    equal 2x2 pane layout, and one no-auto-start nested client per candidate
+    socket (KTD3, KTD14). Never touches the live Herdr socket."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    profiles = manifest["profiles"]
+    herdr_path = executable_paths["herdr"]
+    environment = viewer_environment(source, executable_paths, profiles)
+    record_test_environments({"viewer-attach": environment})
+    columns, rows = viewer_terminal_dimensions(source)
+
+    existing = manifest.get("viewer")
+    if existing is None:
+        require_viewer_dimensions(columns, rows)
+        server_process = manifest["processes"].get("server-viewer")
+        if server_process is None:
+            spawn_owned_process(
+                mutation, environment, "server-viewer", "viewer", herdr_path, ("server", "run"), process_class="server"
+            )
+            wait_for_path(
+                Path(profiles["viewer"]["socket"]),
+                "VIEWER_SERVER_SOCKET_MISSING",
+                "the viewer profile socket never appeared",
+            )
+        create_viewer_workspace(mutation, herdr_path, environment, columns, rows)
+        mutation.persist("viewer-workspace")
+        existing = manifest["viewer"]
+    else:
+        try:
+            require_viewer_dimensions(columns, rows)
+        except PlaygroundError:
+            existing["diagnostic"] = True
+            mutation.persist("viewer-diagnostic")
+            raise
+        if existing["diagnostic"] or existing["dimensions"] != {"columns": columns, "rows": rows}:
+            existing["dimensions"] = {"columns": columns, "rows": rows}
+            existing["pane_size"] = {"width": columns // 2, "height": rows // 2}
+            existing["diagnostic"] = False
+            mutation.persist("viewer-resized")
+
+    for name in CANDIDATE_ORDER:
+        process = manifest["processes"].get("client-%s" % name)
+        pane = existing["panes"].get(name)
+        if process is None or pane is None or verify_process(process)[0] != "owned":
+            pane_id = (pane or {}).get("pane_id", "pane-%s" % name)
+            attach_viewer_pane(mutation, name, pane_id, herdr_path, environment)
+            mutation.persist("viewer-attached-%s" % name)
+
+    if not manifest["viewer"].get("attached_at"):
+        manifest["viewer"]["attached_at"] = utc_now()
+        mutation.persist("viewer-ready")
+
+
+def perform_view(root: Path, run_id: str, source: Dict[str, str]) -> int:
+    """Attach the viewer from active-ready/active-degraded; from any other
+    state (including the legacy foundation-test-process scaffold used to
+    exercise interrupt/detach plumbing) skip straight to the marker wait
+    below without touching Mutation, matching the pre-attach behavior every
+    caller of `view` for signal semantics still relies on."""
+    manifest: Optional[Dict[str, Any]] = None
+    viewable_error: Optional[PlaygroundError] = None
+    try:
+        manifest = read_manifest(root, run_id)
+        if manifest["lifecycle_state"] in ("active-ready", "active-degraded"):
+            executable_paths = manifest["dependencies"]
+            with Mutation(root, run_id) as mutation:
+                manifest = mutation.manifest
+                assert manifest is not None
+                state_before_probe = manifest["lifecycle_state"]
+                try:
+                    probe_remote_observation(mutation, source)
+                except PlaygroundError as error:
+                    manifest["error"] = playground_error_json(error)
+                    viewable_error = error
+                if (
+                    viewable_error is None
+                    and state_before_probe == "active-ready"
+                    and manifest["lifecycle_state"] == "active-degraded"
+                ):
+                    # The probe just now found the drift that degraded this
+                    # run; surface that finding directly instead of letting a
+                    # downstream attach failure (no candidate infrastructure
+                    # is guaranteed once degraded) clobber the diagnosis.
+                    degradation = manifest["error"] or {}
+                    viewable_error = PlaygroundError(
+                        degradation.get("code", "AUTHORITY_DRIFT"), degradation.get("message", "observation drift")
+                    )
+                if viewable_error is None:
+                    try:
+                        attach_viewer(mutation, source, executable_paths)
+                    except PlaygroundError as error:
+                        manifest["error"] = playground_error_json(error)
+                        viewable_error = error
+                mutation.finish()
+            manifest = read_manifest(root, run_id)
+        else:
+            viewable_error = PlaygroundError(
+                "RUN_NOT_VIEWABLE", "view requires an active run; current state is %s" % manifest["lifecycle_state"]
+            )
+    except PlaygroundError as error:
+        return error_result(error)
+    try:
+        wait_for_test_marker(
+            "HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_MARKER",
+            "HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_RELEASE",
+            detached=True,
+        )
+    except ViewDetached:
+        print_json(
+            output_record(
+                manifest,
+                "VIEW_DETACHED",
+                "view detached without signalling managed processes",
+                "stop %s" % run_id,
+            )
+        )
+        return 130
+    if viewable_error is not None:
+        return error_result(viewable_error, manifest)
+    print_json(output_record(manifest))
+    return 0
+
+
+def hash_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def hash_file(path: Path) -> str:
+    return hash_bytes(path.read_bytes())
+
+
+def observation_identifier(run_id: str, name: str, fixture: str, epoch: int) -> str:
+    digest = hashlib.sha256(("%s|%s|%s|%d" % (run_id, name, fixture, epoch)).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def ground_truth_for_fixture(mutation: Mutation, label: str) -> Dict[str, Any]:
+    manifest = mutation.manifest
+    assert manifest is not None
+    if label.startswith("gh-"):
+        record_path = repository_state_directory(mutation.root, manifest["fixture_repository"]) / "repository.json"
+        record = read_json(record_path)
+        fixture_record = record["fixtures"].get(label[len("gh-") :])
+        if fixture_record is None:
+            raise PlaygroundError("GROUND_TRUTH_MISSING", "no recorded GitHub fixture for %s" % label)
+        return {"kind": "github", "fixture": fixture_record}
+    truth = read_json(ground_truth_directory(mutation.run_dir) / ("%s.json" % label))
+    return {"kind": "local", "fixture": truth}
+
+
+def write_inventory(run_dir: Path, rows: List[Dict[str, Any]]) -> None:
+    lines = ["# Herdr Git status playground inventory", "", "Controller-measured fields are immutable; notes are operator free text.", ""]
+    lines.append("| candidate | fixture | applicability | candidate-visible | notes |")
+    lines.append("|---|---|---|---|---|")
+    for row in rows:
+        lines.append(
+            "| %s | %s | %s | %s | %s |"
+            % (
+                row["profile"],
+                row["fixture"],
+                row["applicability"]["state"],
+                ", ".join(row["candidate_visible_signal"]) or NOT_APPLICABLE,
+                row.get("readability_note") or "",
+            )
+        )
+    path = run_dir / "inventory.md"
+    ensure_private_directory(path.parent)
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(descriptor, ("\n".join(lines) + "\n").encode("utf-8"))
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def capture_snapshot(
+    mutation: Mutation,
+    source: Dict[str, str],
+    executable_paths: Dict[str, str],
+    profile: str,
+    fixture: str,
+    notes: Optional[str],
+    dependency_note: Optional[str],
+    error_link: Optional[str],
+    applicability: str,
+    applicability_reason: Optional[str],
+    screenshot: Optional[str],
+) -> Dict[str, Any]:
+    manifest = mutation.manifest
+    assert manifest is not None
+    if profile not in CANDIDATE_ORDER:
+        raise PlaygroundError("SNAPSHOT_PROFILE_UNKNOWN", profile)
+    record = (manifest.get("candidates") or {}).get(profile)
+    if record is None or not record.get("ready_at"):
+        raise PlaygroundError("SNAPSHOT_CANDIDATE_NOT_READY", "%s never reached candidate readiness" % profile)
+    if applicability != "applicable" and not applicability_reason:
+        raise PlaygroundError(
+            "SNAPSHOT_APPLICABILITY_REASON_REQUIRED", "an explicit %s reason is required" % applicability
+        )
+
+    herdr_path = executable_paths["herdr"]
+    profiles = manifest["profiles"]
+    environments = build_candidate_runtime_environments(source, executable_paths, profiles)
+    known_fixture_labels_or_raise(manifest, fixture)
+    set_current_fixture(mutation, herdr_path, environments, fixture)
+
+    environment = environments[profile]
+    focus = candidate_current_focus(herdr_path, environment)
+    if focus.get("label") != fixture:
+        raise PlaygroundError(
+            "SNAPSHOT_FIXTURE_MISMATCH", "the %s profile is not currently focused on %s" % (profile, fixture)
+        )
+    captured_at = utc_now()
+    if record["ready_at"] > captured_at:
+        raise PlaygroundError("SNAPSHOT_NOT_CAUSAL", "the observation cannot precede candidate activation")
+
+    viewer = manifest.get("viewer") or {}
+    header = None
+    if viewer.get("panes", {}).get(profile):
+        header = pane_header(manifest, profile)
+        viewer["panes"][profile]["header"] = header
+        mutation.persist("pane-header-refresh-%s" % profile)
+    generation = manifest["generation"]
+
+    rows = sidebar_snapshot(herdr_path, environment)
+    baseline = read_json(mutation.run_dir / "observations" / ("baseline-%s.json" % profile))["rows"]
+    candidate_visible = [row for row in rows if row not in baseline]
+    ground_truth = ground_truth_for_fixture(mutation, fixture)
+
+    raw_observation = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": manifest["run_id"],
+        "generation": generation,
+        "candidate": record["revision"],
+        "profile": profile,
+        "fixture": fixture,
+        "fixture_epoch": manifest["fixture_epoch"],
+        "focus": focus,
+        "rows": rows,
+        "ground_truth": ground_truth,
+        "captured_at": captured_at,
+    }
+    observation_id = observation_identifier(manifest["run_id"], profile, fixture, manifest["fixture_epoch"])
+    observation_path = mutation.run_dir / "observations" / (
+        "snapshot-%s-%s-%s.json" % (profile, fixture, observation_id)
+    )
+    atomic_write_json(observation_path, raw_observation, "snapshot-observation")
+    raw_hash = hash_file(observation_path)
+
+    screenshot_hash = None
+    screenshot_relative = None
+    if screenshot:
+        source_path = Path(screenshot)
+        if not source_path.is_file():
+            raise PlaygroundError("SNAPSHOT_SCREENSHOT_MISSING", screenshot)
+        destination = mutation.run_dir / "observations" / (
+            "screenshot-%s-%s-%s%s" % (profile, fixture, observation_id, source_path.suffix)
+        )
+        ensure_private_directory(destination.parent)
+        data = source_path.read_bytes()
+        descriptor = os.open(str(destination), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(descriptor, data)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        screenshot_hash = hash_bytes(data)
+        screenshot_relative = str(destination.relative_to(mutation.run_dir))
+
+    row = {
+        "run_id": manifest["run_id"],
+        "generation": generation,
+        "candidate": record["revision"],
+        "profile": profile,
+        "fixture": fixture,
+        "fixture_epoch": manifest["fixture_epoch"],
+        "captured_at": captured_at,
+        "header": header,
+        "capability_family": list(CANDIDATE_ADAPTERS[profile]["sidebar_tokens"]),
+        "baseline_signal": baseline,
+        "candidate_visible_signal": candidate_visible,
+        "companion_surface": NOT_APPLICABLE,
+        "ground_truth_classification": ground_truth,
+        "refresh_authority_state": "authority-checked" if ground_truth["kind"] == "github" else "n/a-local",
+        "terminal_dimensions": viewer.get("pane_size"),
+        "displaced_or_duplicated": sorted(set(rows) & set(baseline) & set(candidate_visible)),
+        "readability_note": notes,
+        "dependency_note": dependency_note,
+        "error_link": error_link,
+        "lifecycle_note": effective_state(manifest),
+        "observation_id": observation_id,
+        "hashes": {"raw_observation_sha256": raw_hash, "screenshot_sha256": screenshot_hash},
+        "screenshot_path": screenshot_relative,
+        "applicability": {"state": applicability, "reason": applicability_reason},
+        "captured_lifecycle_state": manifest["lifecycle_state"],
+    }
+    index_path = mutation.run_dir / "evidence-index.json"
+    try:
+        rows_list = read_json(index_path).get("rows", [])
+    except PlaygroundError:
+        rows_list = []
+    rows_list.append(row)
+    atomic_write_json(
+        index_path,
+        {"schema_version": SCHEMA_VERSION, "run_id": manifest["run_id"], "rows": rows_list},
+        "evidence-index",
+    )
+    write_inventory(mutation.run_dir, rows_list)
+    return row
+
+
+def finalize_snapshot(mutation: Mutation, source: Dict[str, str], executable_paths: Dict[str, str]) -> Dict[str, Any]:
+    manifest = mutation.manifest
+    assert manifest is not None
+    if manifest["lifecycle_state"] != "active-ready":
+        raise PlaygroundError(
+            "FINALIZE_REQUIRES_ACTIVE_READY",
+            "finalize requires an active-ready run; a degraded run's snapshots are diagnostic only",
+        )
+    try:
+        index = read_json(mutation.run_dir / "evidence-index.json")
+    except PlaygroundError:
+        raise PlaygroundError("FINALIZE_MISSING_RECORD", "no evidence has been captured for this run")
+    rows = index.get("rows", [])
+    by_pair: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for row in rows:
+        by_pair.setdefault((row["profile"], row["fixture"]), []).append(row)
+
+    expected = full_fixture_catalog(manifest)
+    missing = []
+    duplicate = []
+    for name in CANDIDATE_ORDER:
+        for label in expected:
+            entries = by_pair.get((name, label), [])
+            if not entries:
+                missing.append("%s/%s" % (name, label))
+            elif len(entries) > 1:
+                duplicate.append("%s/%s" % (name, label))
+    if missing:
+        raise PlaygroundError(
+            "FINALIZE_MISSING_RECORD", "missing candidate-fixture records: %s" % ", ".join(sorted(missing))
+        )
+    if duplicate:
+        raise PlaygroundError(
+            "FINALIZE_DUPLICATE_RECORD", "duplicate candidate-fixture records: %s" % ", ".join(sorted(duplicate))
+        )
+
+    for key, entries in by_pair.items():
+        row = entries[0]
+        for field in R11_FIELDS:
+            if field not in row:
+                raise PlaygroundError(
+                    "FINALIZE_MISSING_FIELDS", "%s/%s is missing field %s" % (key[0], key[1], field)
+                )
+        if row.get("screenshot_path") and row.get("header") is None:
+            raise PlaygroundError(
+                "FINALIZE_SCREENSHOT_IDENTITY_MISMATCH",
+                "%s/%s has a screenshot but no visible viewer header to attribute it" % key,
+            )
+        if row.get("header") is not None:
+            header = row["header"]
+            if (
+                header.get("run_id") != row["run_id"]
+                or header.get("generation") != row["generation"]
+                or header.get("candidate") != row["candidate"]
+                or header.get("profile") != row["profile"]
+                or header.get("fixture") != row["fixture"]
+            ):
+                raise PlaygroundError(
+                    "FINALIZE_SCREENSHOT_IDENTITY_MISMATCH",
+                    "%s/%s recorded header identity disagrees with the row" % key,
+                )
+
+    viewer = manifest.get("viewer")
+    if viewer:
+        dims = viewer.get("dimensions") or {}
+        if dims.get("columns", 0) % 2 != 0 or dims.get("rows", 0) % 2 != 0 or viewer.get("diagnostic"):
+            raise PlaygroundError("FINALIZE_UNEQUAL_PANES", "the viewer panes are not equal or the view is diagnostic")
+
+    if manifest.get("remote"):
+        remote_executables = controller_remote_tools(source)
+        ctx = BootstrapContext(mutation.root, manifest["fixture_repository"], remote_executables, source)
+        try:
+            refs = ls_remote(ctx)
+            for key, entries in by_pair.items():
+                row = entries[0]
+                if not row["fixture"].startswith("gh-"):
+                    continue
+                name = row["fixture"][len("gh-") :]
+                classification = row["ground_truth_classification"]["fixture"]
+                fixture_record = {"branch": classification["branch"], "head_sha": classification["head_sha"]}
+                if "pr_number" in classification:
+                    fixture_record["pr_number"] = classification["pr_number"]
+                if "workflow_run_id" in classification:
+                    fixture_record["workflow_run_id"] = classification["workflow_run_id"]
+                current = fixture_authority(ctx, name, fixture_record, refs)
+                if current["ref_sha"] != fixture_record["head_sha"]:
+                    raise PlaygroundError(
+                        "FINALIZE_STALE_AUTHORITY", "the %s fixture head moved since capture" % row["fixture"]
+                    )
+        finally:
+            ctx.cleanup()
+
+    profiles = manifest["profiles"]
+    environments = build_candidate_runtime_environments(source, executable_paths, profiles)
+    for name in CANDIDATE_ORDER:
+        try:
+            focus = candidate_current_focus(executable_paths["herdr"], environments[name])
+        except PlaygroundError as error:
+            raise PlaygroundError("FINALIZE_WRONG_ACTIVE_FIXTURE", str(error))
+        if focus.get("label") != manifest.get("current_fixture"):
+            raise PlaygroundError(
+                "FINALIZE_WRONG_ACTIVE_FIXTURE",
+                "the %s profile is focused on %r, not the run's current fixture %r"
+                % (name, focus.get("label"), manifest.get("current_fixture")),
+            )
+
+    manifest["inventory_finalized_at"] = utc_now()
+    manifest["inventory_row_count"] = len(rows)
+    mutation.persist("finalized")
+    return {"row_count": len(rows), "finalized_at": manifest["inventory_finalized_at"]}
+
+
+def command_snapshot(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    root = state_root(source)
+    try:
+        manifest = read_manifest(root, arguments.run_id)
+    except PlaygroundError as error:
+        return error_result(error)
+    if manifest["lifecycle_state"] not in ("active-ready", "active-degraded"):
+        return error_result(
+            PlaygroundError(
+                "SNAPSHOT_NOT_VIEWABLE",
+                "snapshot requires an active run; current state is %s" % manifest["lifecycle_state"],
+            ),
+            manifest,
+        )
+    executable_paths = manifest["dependencies"]
+    result: Optional[Dict[str, Any]] = None
+    try:
+        with Mutation(root, arguments.run_id) as mutation:
+            manifest = mutation.manifest
+            assert manifest is not None
+            try:
+                probe_remote_observation(mutation, source)
+                if arguments.finalize:
+                    result = finalize_snapshot(mutation, source, executable_paths)
+                else:
+                    if not arguments.profile or not arguments.fixture:
+                        raise PlaygroundError(
+                            "SNAPSHOT_ARGUMENTS_REQUIRED", "snapshot requires --profile and --fixture"
+                        )
+                    result = capture_snapshot(
+                        mutation,
+                        source,
+                        executable_paths,
+                        arguments.profile,
+                        arguments.fixture,
+                        arguments.notes,
+                        arguments.dependency_note,
+                        arguments.error_link,
+                        arguments.applicability,
+                        arguments.applicability_reason,
+                        arguments.screenshot,
+                    )
+            except PlaygroundError as error:
+                manifest["error"] = playground_error_json(error)
+                mutation.finish()
+                return error_result(error, read_manifest(root, arguments.run_id))
+            mutation.finish()
+    except PlaygroundError as error:
+        return error_result(error)
+    manifest = read_manifest(root, arguments.run_id)
+    output = output_record(manifest)
+    output["result"] = result
+    print_json(output)
+    return 0
+
+
 def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     ctx: Optional[BootstrapContext] = None
     try:
@@ -4277,6 +5007,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     root = state_root(source)
     run_dir: Optional[Path] = None
     manifest: Optional[Dict[str, Any]] = None
+    pending_view = False
     try:
         run_dir, profiles, run_id = allocate_run(root, source)
         manifest = new_manifest(
@@ -4393,25 +5124,36 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                 mutation.persist("active-ready")
                 mutation.finish()
 
-                try:
-                    wait_for_test_marker(
-                        "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
-                        "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
-                    )
-                except KeyboardInterrupt:
-                    stopped, stop_status = stop_run(root, run_id, source)
-                    print_json(
-                        output_record(
-                            stopped,
-                            "START_INTERRUPTED",
-                            "start was interrupted and verified teardown ran",
-                            "status %s" % run_id,
+                # Interactive start attaches the viewer only once active-ready
+                # is reached; non-interactive start returns the run identity
+                # without requiring a TTY and leaves `view` for later (KTD2).
+                # perform_view opens its own lease, so it must run after this
+                # `with Mutation(...)` block has released its file lock.
+                if interactive_mode(source):
+                    pending_view = True
+                else:
+                    try:
+                        wait_for_test_marker(
+                            "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
+                            "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
                         )
-                    )
-                    return 130 if stop_status == 0 else stop_status
-                manifest = read_manifest(root, run_id)
-                print_json(output_record(manifest))
-                return 0
+                    except KeyboardInterrupt:
+                        stopped, stop_status = stop_run(root, run_id, source)
+                        print_json(
+                            output_record(
+                                stopped,
+                                "START_INTERRUPTED",
+                                "start was interrupted and verified teardown ran",
+                                "status %s" % run_id,
+                            )
+                        )
+                        return 130 if stop_status == 0 else stop_status
+                    manifest = read_manifest(root, run_id)
+                    print_json(output_record(manifest))
+                    return 0
+
+        if pending_view:
+            return perform_view(root, run_id, source)
 
         try:
             wait_for_test_marker(
@@ -4646,43 +5388,7 @@ def command_status(arguments: argparse.Namespace, source: Dict[str, str]) -> int
 
 
 def command_view(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
-    root = state_root(source)
-    try:
-        manifest = read_manifest(root, arguments.run_id)
-        if manifest.get("remote") and manifest["lifecycle_state"] in ("active-ready", "active-degraded"):
-            # view acquires the run lease and persists any resulting
-            # degradation before attaching.
-            with Mutation(root, arguments.run_id) as mutation:
-                probe_remote_observation(mutation, source)
-                mutation.finish()
-            manifest = read_manifest(root, arguments.run_id)
-    except PlaygroundError as error:
-        return error_result(error)
-    try:
-        wait_for_test_marker(
-            "HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_MARKER",
-            "HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_RELEASE",
-            detached=True,
-        )
-    except ViewDetached:
-        print_json(
-            output_record(
-                manifest,
-                "VIEW_DETACHED",
-                "view detached without signalling managed processes",
-                "stop %s" % arguments.run_id,
-            )
-        )
-        return 130
-    print_json(
-        output_record(
-            manifest,
-            "RUN_NOT_VIEWABLE",
-            "viewer startup belongs to a later implementation unit",
-            "stop %s" % arguments.run_id,
-        )
-    )
-    return 1
+    return perform_view(state_root(source), arguments.run_id, source)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -4707,6 +5413,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     snapshot = subparsers.add_parser("snapshot", help="capture attributed evidence")
     snapshot.add_argument("run_id")
+    snapshot.add_argument("--profile", choices=CANDIDATE_ORDER)
+    snapshot.add_argument("--fixture")
+    snapshot.add_argument("--notes")
+    snapshot.add_argument("--dependency-note")
+    snapshot.add_argument("--error-link")
+    snapshot.add_argument(
+        "--applicability",
+        choices=("applicable", "not-applicable", "no-visible-signal", "discrepancy"),
+        default="applicable",
+    )
+    snapshot.add_argument("--applicability-reason")
+    snapshot.add_argument("--screenshot")
+    snapshot.add_argument("--finalize", action="store_true")
 
     stop = subparsers.add_parser("stop", help="idempotently stop verified owned resources")
     stop.add_argument("run_id")
@@ -4743,6 +5462,8 @@ def main() -> int:
             return command_stop(arguments, source)
         if arguments.command == "view":
             return command_view(arguments, source)
+        if arguments.command == "snapshot":
+            return command_snapshot(arguments, source)
         if arguments.command == "bootstrap":
             return command_bootstrap(arguments, source)
         return command_not_implemented(arguments.command, arguments, source)

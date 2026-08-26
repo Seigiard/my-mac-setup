@@ -2171,6 +2171,523 @@ PY
 }
 
 # ===========================================
+# herdr-git-status-playground comparison viewer and evidence snapshots (U6)
+# ===========================================
+
+@test "herdr-git-status-playground creates an isolated viewer with four equal panes identifying run, candidate, profile, and fixture" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  run hgsp_env view "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-ready
+
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+viewer = manifest["viewer"]
+assert viewer["attached_at"], viewer
+assert viewer["diagnostic"] is False, viewer
+panes = viewer["panes"]
+assert set(panes) == {"ezcorp", "sfroment", "krystof", "jmarbutt"}, panes
+size = viewer["pane_size"]
+assert size["width"] > 0 and size["height"] > 0, size
+for name, pane in panes.items():
+    header = pane["header"]
+    assert header["run_id"] == manifest["run_id"], header
+    assert isinstance(header["generation"], int) and header["generation"] >= 0, header
+    assert header["candidate"] == manifest["candidates"][name]["revision"], header
+    assert header["profile"] == name, header
+    assert header["fixture"] == "checkout-clean", header
+PY
+  assert_success
+
+  # #then the viewer never touched, and cannot reach, the live socket
+  run "$HGSP_PYTHON" - "$HGSP_ENV_LOG" <<'PY'
+import json
+import sys
+
+records = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+by_class = {record["class"]: record["environment"] for record in records}
+child = by_class["viewer-attach"]
+assert "HERDR_SOCKET_PATH" not in child, child
+assert "HERDR_CLIENT_SOCKET_PATH" not in child, child
+assert "HERDR_ENV" not in child, child
+PY
+  assert_success
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground enforces minimum equal terminal dimensions and marks a shrunk view diagnostic until restored" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  # #given a terminal below the documented minimum, before any viewer exists
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEWER_DIMENSIONS=40x10 run hgsp_env view "$run_id"
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" VIEWER_DIMENSIONS_TOO_SMALL
+  run "$HGSP_PYTHON" -c "import json,sys; m=json.load(open(sys.argv[1])); assert m['viewer'] is None, m['viewer']" \
+    "$(hgsp_manifest "$run_id")"
+  assert_success
+
+  # #given an acceptable size, the viewer attaches cleanly
+  run hgsp_env view "$run_id"
+  assert_success
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["viewer"]["diagnostic"]')" false
+
+  # #when the terminal later shrinks below the minimum
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEWER_DIMENSIONS=40x10 run hgsp_env view "$run_id"
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" VIEWER_DIMENSIONS_TOO_SMALL
+  # #then the view is marked diagnostic rather than silently kept equal
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["viewer"]["diagnostic"]')" true
+
+  # #then restoring an equal-region size clears the diagnostic
+  run hgsp_env view "$run_id"
+  assert_success
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["viewer"]["diagnostic"]')" false
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground refuses to attach a missing candidate socket and never spawns a replacement server" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  local jmarbutt_pid
+  jmarbutt_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["server-jmarbutt"]["pid"]')"
+
+  # #given the jmarbutt candidate server is gone before the viewer ever attaches
+  kill -TERM "$jmarbutt_pid"
+  for _ in $(seq 1 200); do
+    kill -0 "$jmarbutt_pid" 2>/dev/null || break
+    sleep 0.01
+  done
+
+  run hgsp_env view "$run_id"
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" VIEWER_ATTACH_SOCKET_MISSING
+
+  # #then the three unaffected candidates attached and jmarbutt never got a replacement server
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+panes = (manifest.get("viewer") or {}).get("panes") or {}
+assert set(panes) == {"ezcorp", "sfroment", "krystof"}, panes
+assert "client-jmarbutt" not in manifest["processes"], sorted(manifest["processes"])
+PY
+  assert_success
+  run grep -F 'herdr|jmarbutt|server run' "$HGSP_CALL_LOG"
+  assert_success
+  assert_equal "${#lines[@]}" 1
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground attaches the viewer only from an interactive active-ready start, and a degraded run still allows an explicit view" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #when start runs interactively it reaches active-ready already viewing
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_INTERACTIVE=1 run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["viewer"]["attached_at"] is not None')" true
+  run hgsp_env stop "$run_id"
+  assert_success
+
+  # #given a plain (non-interactive) start
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  # #then it returned without requiring a TTY and never auto-attached a viewer
+  run "$HGSP_PYTHON" -c "import json,sys; m=json.load(open(sys.argv[1])); assert m['viewer'] is None, m['viewer']" \
+    "$(hgsp_manifest "$run_id")"
+  assert_success
+
+  # #when the run is later marked degraded
+  hgsp_patch_manifest "$run_id" 'manifest["lifecycle_state"] = "active-degraded"'
+  # #then finalize refuses acceptance from a degraded run
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_REQUIRES_ACTIVE_READY
+  # #but an explicit view still attaches it, diagnostic evidence rather than blocked
+  run hgsp_env view "$run_id"
+  assert_success
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["viewer"]["attached_at"] is not None')" true
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground rejects a stale fixture-focus reading and an observation that predates activation" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  # #given a real switch away from the provisioning default fixture
+  run hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-dirty
+  assert_success
+
+  # #when the ezcorp profile echoes its cached pre-switch focus instead of a fresh read
+  HGSP_STALE_FOCUS_READ=1 run hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-dirty
+  # #then the stale-but-plausible value cannot establish readiness
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" SNAPSHOT_FIXTURE_MISMATCH
+
+  # #given an observation timestamped before the candidate's own activation
+  hgsp_patch_manifest "$run_id" 'manifest["candidates"]["ezcorp"]["ready_at"] = "2999-01-01T00:00:00Z"'
+  run hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-dirty
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" SNAPSHOT_NOT_CAUSAL
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground snapshot output attributes run, candidate, profile, fixture, ground truth, and readiness" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  run hgsp_env snapshot "$run_id" --profile krystof --fixture checkout-clean --notes "clean sidebar reads as clean"
+  assert_success
+  run "$HGSP_PYTHON" - "$output" <<'PY'
+import json
+import sys
+
+record = json.loads(sys.argv[1])
+row = record["result"]
+assert row["run_id"] == record["run_id"], row
+assert row["profile"] == "krystof", row
+assert row["fixture"] == "checkout-clean", row
+assert row["candidate"] == "fe6575a89de9006c35d9d0b9707397839d983cff", row
+assert row["ground_truth_classification"]["kind"] == "local", row
+assert row["ground_truth_classification"]["fixture"]["repository"] == "work-tree", row
+assert row["captured_at"], row
+assert row["lifecycle_note"] == "active-ready", row
+assert row["readability_note"] == "clean sidebar reads as clean", row
+PY
+  assert_success
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground indexes screenshot and raw-observation hashes against the visible pane identity" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  run hgsp_env view "$run_id"
+  assert_success
+
+  local screenshot="$HGSP_WORK/pane.png"
+  printf 'not a real image, just fixture bytes' > "$screenshot"
+
+  run hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-clean --screenshot "$screenshot"
+  assert_success
+
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" "$HGSP_STATE_ROOT" "$run_id" "$screenshot" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+manifest_path, state_root, run_id, screenshot = sys.argv[1:]
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+run_dir = os.path.join(state_root, "runs", run_id)
+index = json.load(open(os.path.join(run_dir, "evidence-index.json"), encoding="utf-8"))
+row = next(r for r in index["rows"] if r["profile"] == "ezcorp" and r["fixture"] == "checkout-clean")
+header = row["header"]
+assert header["run_id"] == manifest["run_id"] == row["run_id"], row
+assert header["candidate"] == row["candidate"], row
+assert header["profile"] == row["profile"] == "ezcorp", row
+assert header["fixture"] == row["fixture"] == "checkout-clean", row
+expected_screenshot = hashlib.sha256(open(screenshot, "rb").read()).hexdigest()
+assert row["hashes"]["screenshot_sha256"] == expected_screenshot, row["hashes"]
+raw_path = os.path.join(run_dir, "observations", "snapshot-ezcorp-checkout-clean-%s.json" % row["observation_id"])
+expected_raw = hashlib.sha256(open(raw_path, "rb").read()).hexdigest()
+assert row["hashes"]["raw_observation_sha256"] == expected_raw, row["hashes"]
+assert row["screenshot_path"] and os.path.exists(os.path.join(run_dir, row["screenshot_path"])), row
+PY
+  assert_success
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground finalize rejects missing, duplicate, stale, misattributed, and incomplete evidence" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  local candidates=(ezcorp sfroment krystof jmarbutt)
+  local fixtures=(
+    checkout-clean checkout-dirty worktree-clean worktree-dirty conflict diverged-stash detached non-git
+    gh-no-pr gh-draft gh-checks-failed gh-checks-passed gh-merge-conflict
+  )
+  local name label
+  for label in "${fixtures[@]}"; do
+    for name in "${candidates[@]}"; do
+      run hgsp_env snapshot "$run_id" --profile "$name" --fixture "$label"
+      assert_success
+    done
+  done
+
+  # #then full, non-duplicated coverage of every candidate-fixture pair finalizes
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" result.row_count)" 52
+
+  # #given one candidate-fixture pair is recorded twice
+  hgsp_patch_evidence_index "$run_id" 'rows.append(dict(rows[0]))'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_DUPLICATE_RECORD
+
+  # #given that duplicate is undone but a different pair is then missing entirely
+  hgsp_patch_evidence_index "$run_id" '
+rows.pop()
+index["stashed_row"] = rows.pop()
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_MISSING_RECORD
+
+  # #given the missing pair is restored, coverage is complete again
+  hgsp_patch_evidence_index "$run_id" 'rows.append(index.pop("stashed_row"))'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+
+  # #given one row is missing a required R11 field
+  hgsp_patch_evidence_index "$run_id" '
+for row in rows:
+    if row["profile"] == "ezcorp" and row["fixture"] == "checkout-clean":
+        index["stashed_note"] = row.pop("dependency_note")
+        break
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_MISSING_FIELDS
+
+  hgsp_patch_evidence_index "$run_id" '
+for row in rows:
+    if row["profile"] == "ezcorp" and row["fixture"] == "checkout-clean":
+        row["dependency_note"] = index.pop("stashed_note")
+        break
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+
+  # #given a GitHub fixture row's recorded authority has drifted since capture
+  hgsp_patch_evidence_index "$run_id" '
+for row in rows:
+    if row["profile"] == "ezcorp" and row["fixture"] == "gh-checks-passed":
+        index["stashed_sha"] = row["ground_truth_classification"]["fixture"]["head_sha"]
+        row["ground_truth_classification"]["fixture"]["head_sha"] = "f" * 40
+        break
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_STALE_AUTHORITY
+
+  hgsp_patch_evidence_index "$run_id" '
+for row in rows:
+    if row["profile"] == "ezcorp" and row["fixture"] == "gh-checks-passed":
+        row["ground_truth_classification"]["fixture"]["head_sha"] = index.pop("stashed_sha")
+        break
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+
+  # #given a screenshot is attributed on a row with no visible pane header to attribute it to
+  hgsp_patch_evidence_index "$run_id" '
+for row in rows:
+    if row["profile"] == "ezcorp" and row["fixture"] == "checkout-clean":
+        row["screenshot_path"] = "observations/fake-screenshot.png"
+        break
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_SCREENSHOT_IDENTITY_MISMATCH
+
+  hgsp_patch_evidence_index "$run_id" '
+for row in rows:
+    if row["profile"] == "ezcorp" and row["fixture"] == "checkout-clean":
+        row["screenshot_path"] = None
+        break
+'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+
+  # #given the viewer panes are recorded as an unequal split
+  hgsp_patch_manifest "$run_id" \
+    'manifest["viewer"] = {"dimensions": {"columns": 81, "rows": 24}, "diagnostic": False, "panes": {}}'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_UNEQUAL_PANES
+
+  hgsp_patch_manifest "$run_id" 'manifest["viewer"] = None'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+
+  # #given the run's recorded current fixture disagrees with live candidate focus
+  hgsp_patch_manifest "$run_id" 'manifest["current_fixture"] = "checkout-dirty"'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_failure
+  assert_equal "$(hgsp_json_field "$output" error.code)" FINALIZE_WRONG_ACTIVE_FIXTURE
+
+  hgsp_patch_manifest "$run_id" 'manifest["current_fixture"] = "gh-merge-conflict"'
+  run hgsp_env snapshot "$run_id" --finalize
+  assert_success
+
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground a dead nested client does not block status, snapshot, or stop" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  run hgsp_env view "$run_id"
+  assert_success
+  local client_pid
+  client_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["client-krystof"]["pid"]')"
+
+  kill -KILL "$client_pid"
+  for _ in $(seq 1 200); do
+    kill -0 "$client_pid" 2>/dev/null || break
+    sleep 0.01
+  done
+
+  # #then status still reports, now degraded since an owned process is gone
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" effective_state)" active-degraded
+
+  # #and snapshot for another candidate still succeeds
+  run hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-clean
+  assert_success
+
+  # #and stop still succeeds
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+@test "herdr-git-status-playground view and snapshot join the same run-mutation barrier a concurrent stop cannot bypass" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  local marker="$HGSP_WORK/lease-held" release="$HGSP_WORK/lease-release"
+
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_LEASE_MARKER="$marker" \
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_LEASE_RELEASE="$release" \
+    hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-clean > "$HGSP_WORK/snapshot.out" 2>&1 &
+  local holder_pid=$!
+  HGSP_BG_PIDS="$HGSP_BG_PIDS $holder_pid"
+  hgsp_wait_for_file "$marker"
+
+  # #when a concurrent stop arrives while snapshot still owns the lease
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" RUN_BUSY
+  # #then the lifecycle state and ownership records are unharmed, not regressed
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-ready
+
+  : > "$release"
+  wait "$holder_pid"
+  HGSP_BG_PIDS=""
+
+  # #then stop now succeeds cleanly once the lease is free
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+@test "herdr-git-status-playground ordered teardown continues after one viewer-owned failure, retains runtime, and clears it once resolved" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  run hgsp_env view "$run_id"
+  assert_success
+
+  # #given the viewer server's own record is corrupted (mismatched identity).
+  # Deliberately not a nested client: every client's idle loop watches its
+  # candidate's own socket, which the same teardown pass tears down a few
+  # launch-intent entries earlier, so a corrupted client can race its own
+  # candidate's shutdown and exit on its own before its turn is even checked.
+  # The viewer server has no such dependency, so its corruption deterministically
+  # survives to its own turn in the generic teardown loop.
+  hgsp_patch_manifest "$run_id" "manifest['processes']['server-viewer']['start_identity']='mismatched'"
+
+  # #when stop runs, it still settles every other safe phase (candidates, panes)
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" PROCESS_IDENTITY_MISMATCH
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["ezcorp"]["completed"]')" true
+  # #then the disposable runtime is retained, not removed, while incomplete
+  [[ -d "$HGSP_STATE_ROOT/runs/$run_id/runtime" ]]
+
+  # #given the corrupted record is corrected (models an operator recovering identity)
+  local pid start_identity
+  pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["server-viewer"]["pid"]')"
+  start_identity="$(hgsp_process_start_identity "$pid")"
+  hgsp_patch_manifest "$run_id" "manifest['processes']['server-viewer']['start_identity']='$start_identity'"
+
+  # #then repeated stop now settles everything and removes the runtime
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  [[ ! -d "$HGSP_STATE_ROOT/runs/$run_id/runtime" ]]
+}
+
+# ===========================================
 # python3 -- the declared interpreter
 # ===========================================
 
