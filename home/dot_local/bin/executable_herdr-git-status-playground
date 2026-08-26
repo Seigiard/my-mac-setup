@@ -345,7 +345,7 @@ def output_record(
             "generation": 0,
             "lifecycle_state": "not-allocated",
             "effective_state": "not-allocated",
-            "error": {"code": code, "message": message} if code else None,
+            "error": {"code": code, "message": redact_text(message)} if code else None,
             "next_command": next_command or "fix preflight and rerun start",
         }
     return {
@@ -353,7 +353,7 @@ def output_record(
         "generation": manifest["generation"],
         "lifecycle_state": manifest["lifecycle_state"],
         "effective_state": effective_state(manifest),
-        "error": {"code": code, "message": message}
+        "error": {"code": code, "message": redact_text(message)}
         if code
         else manifest.get("error"),
         "next_command": next_command if next_command is not None else manifest.get("next_command"),
@@ -480,14 +480,31 @@ def preflight(
             "separate controller-write and candidate-read credentials are required",
         )
 
+    # Record every optional toolchain's presence before failing (KTD11): the
+    # operator preparing a real trial needs to see the whole picture in one
+    # pass, not just whichever tool alphabetically failed first.
     dependency_names = ("cargo", "node", "jq", "gh", "git", "python3", "herdr")
     executable_paths: Dict[str, str] = {}
+    toolchain_status: Dict[str, str] = {}
+    missing_dependencies: List[str] = []
     search_path = source.get("PATH", "")
     for name in dependency_names:
         resolved = resolve_executable(name, search_path)
         if resolved is None:
-            raise PlaygroundError("%s_NOT_FOUND" % name.upper(), "%s is not on the approved PATH" % name)
-        executable_paths[name] = resolved
+            toolchain_status[name] = "missing"
+            missing_dependencies.append(name)
+        else:
+            toolchain_status[name] = "found"
+            executable_paths[name] = resolved
+    if missing_dependencies:
+        first = missing_dependencies[0]
+        raise PlaygroundError(
+            "%s_NOT_FOUND" % first.upper(),
+            "%s is not on the approved PATH; recorded toolchain status: %s; install it temporarily for "
+            "this trial (a scratch rustup/npm/jq/gh prefix removed afterward) or point PATH at an "
+            "already-configured toolchain install — never add it to the managed Brewfile"
+            % (first, json.dumps(toolchain_status, sort_keys=True, separators=(",", ":"))),
+        )
 
     approved_herdr = os.path.realpath(arguments.approved_herdr)
     if executable_paths["herdr"] != approved_herdr:
@@ -552,6 +569,70 @@ def live_herdr_roots(source: Dict[str, str]) -> List[Path]:
     state = Path(source.get("XDG_STATE_HOME") or home / ".local" / "state") / "herdr"
     data = Path(source.get("XDG_DATA_HOME") or home / ".local" / "share") / "herdr"
     return [path.resolve(strict=False) for path in (config, state, data)]
+
+
+def live_probe_environment(source: Dict[str, str], executable_paths: Dict[str, str]) -> Dict[str, str]:
+    """A read-only environment aimed at the ambient (live) Herdr roots rather
+    than a disposable profile home: only the resolved approved executables
+    plus standard utilities on PATH, and the caller's own HOME/XDG_* values so
+    the probe reads exactly what the live profile resolves to (KTD15)."""
+    directories: List[str] = []
+    for executable in executable_paths.values():
+        directory = str(Path(executable).parent)
+        if directory not in directories:
+            directories.append(directory)
+    for directory in ("/usr/bin", "/bin"):
+        if directory not in directories:
+            directories.append(directory)
+    home = Path(source.get("HOME") or str(Path.home()))
+    environment = {"PATH": os.pathsep.join(directories), "HOME": str(home)}
+    for key in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+        if source.get(key):
+            environment[key] = source[key]
+    for name in SAFE_INHERITED:
+        if name in source:
+            environment[name] = source[name]
+    if test_mode():
+        for name, value in os.environ.items():
+            if name.startswith("HGSP_"):
+                environment[name] = value
+    return environment
+
+
+def capture_live_invariant(source: Dict[str, str], executable_paths: Dict[str, str]) -> Dict[str, Any]:
+    """Read-only snapshot of the live Herdr profile the playground must never
+    mutate (KTD15): plugin registry, spaces/labels, and sidebar rows, plus the
+    live session socket's device/inode identity. Every probe is best-effort —
+    a live server that is not running fails every read-only probe the same
+    way before and after a well-behaved run, which is itself a valid, stable
+    invariant to compare."""
+    herdr_path = executable_paths.get("herdr")
+    if not herdr_path:
+        return {"socket_identity": None, "plugin_registry": None, "spaces": None, "sidebar_rows": None}
+    environment = live_probe_environment(source, executable_paths)
+    socket_path = live_herdr_roots(source)[1] / "session.sock"
+    socket_identity = None
+    if socket_path.exists():
+        info = socket_path.stat()
+        socket_identity = "%s:%s" % (info.st_dev, info.st_ino)
+    try:
+        registry = herdr_json(herdr_path, ["plugin", "registry"], environment, "LIVE_PROFILE_PROBE_FAILED")
+    except PlaygroundError:
+        registry = None
+    try:
+        spaces = herdr_json(herdr_path, ["space", "list"], environment, "LIVE_PROFILE_PROBE_FAILED")
+    except PlaygroundError:
+        spaces = None
+    try:
+        sidebar_rows = sidebar_snapshot(herdr_path, environment)
+    except PlaygroundError:
+        sidebar_rows = None
+    return {
+        "socket_identity": socket_identity,
+        "plugin_registry": registry,
+        "spaces": spaces,
+        "sidebar_rows": sidebar_rows,
+    }
 
 
 def is_within(path: Path, parent: Path) -> bool:
@@ -688,6 +769,50 @@ def redacted_environment(environment: Dict[str, str]) -> Dict[str, str]:
         else:
             redacted[name] = value
     return redacted
+
+
+def known_secret_values() -> List[str]:
+    """The scoped controller/candidate credential values (KTD17): the only
+    secrets the controller itself ever holds, so a value-based scrub for
+    these two catches a leak wherever it surfaces (config, environment,
+    subprocess stderr, or plugin output) without depending on the field it
+    landed in."""
+    values = []
+    for name in ("HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN", "HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN"):
+        value = os.environ.get(name)
+        if value:
+            values.append(value)
+    return values
+
+
+def redact_text(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return text
+    redacted = text
+    for secret in known_secret_values():
+        redacted = redacted.replace(secret, "<redacted>")
+    return redacted
+
+
+def diagnostics_log_path(run_dir: Path) -> Path:
+    return run_dir / "logs" / "controller.log"
+
+
+def append_diagnostic(run_dir: Path, code: str, message: str) -> None:
+    """Append a redacted diagnostic line to the run's raw log (KTD17): kept
+    only while the run has not reached a fully cleaned terminal state, and
+    removed alongside `runtime/` once teardown succeeds."""
+    path = diagnostics_log_path(run_dir)
+    ensure_private_directory(path.parent)
+    line = json.dumps(
+        {"at": utc_now(), "code": code, "message": redact_text(message)}, sort_keys=True, separators=(",", ":")
+    )
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(descriptor, (line + "\n").encode("utf-8"))
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def record_test_environments(environments: Dict[str, Dict[str, str]]) -> None:
@@ -991,6 +1116,7 @@ def new_manifest(
     audit_digest: str,
     executable_paths: Dict[str, str],
     herdr_identity: Dict[str, str],
+    live_invariant_before: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1003,6 +1129,7 @@ def new_manifest(
         "audit_attestation_sha256": audit_digest,
         "dependencies": executable_paths,
         "herdr_identity": herdr_identity,
+        "live_invariant": {"before": live_invariant_before, "after": None, "match": None},
         "profiles": profiles,
         "launch_intents": {},
         "processes": {},
@@ -2344,7 +2471,7 @@ def bootstrap_result(
 
 
 def playground_error_json(error: PlaygroundError) -> Dict[str, str]:
-    return {"code": error.code, "message": error.message}
+    return {"code": error.code, "message": redact_text(error.message)}
 
 
 def bootstrap_initialize(ctx: BootstrapContext, payload: Dict[str, Any]) -> int:
@@ -3139,7 +3266,7 @@ def settle_remote(mutation: Mutation, source: Dict[str, str], unresolved: List[s
         ctx = BootstrapContext(mutation.root, manifest["fixture_repository"], executable_paths, source)
     except PlaygroundError as error:
         remote.setdefault("diagnostics", []).append(
-            {"at": utc_now(), "code": error.code, "message": error.message}
+            {"at": utc_now(), "code": error.code, "message": redact_text(error.message)}
         )
         unresolved.append(error.code)
         return
@@ -3185,7 +3312,7 @@ def settle_remote(mutation: Mutation, source: Dict[str, str], unresolved: List[s
                 )
         except PlaygroundError as error:
             remote.setdefault("diagnostics", []).append(
-                {"at": utc_now(), "code": error.code, "message": error.message}
+                {"at": utc_now(), "code": error.code, "message": redact_text(error.message)}
             )
             unresolved.append(error.code)
     finally:
@@ -3212,11 +3339,11 @@ def probe_remote_observation(mutation: Mutation, source: Dict[str, str]) -> None
         ctx = BootstrapContext(mutation.root, manifest["fixture_repository"], executable_paths, source)
     except PlaygroundError as error:
         remote.setdefault("diagnostics", []).append(
-            {"at": utc_now(), "code": error.code, "message": error.message}
+            {"at": utc_now(), "code": error.code, "message": redact_text(error.message)}
         )
         if manifest["lifecycle_state"] == "active-ready":
             manifest["lifecycle_state"] = "active-degraded"
-            manifest["error"] = {"code": error.code, "message": error.message}
+            manifest["error"] = {"code": error.code, "message": redact_text(error.message)}
         mutation.persist("remote-observation")
         return
     try:
@@ -3235,7 +3362,7 @@ def probe_remote_observation(mutation: Mutation, source: Dict[str, str]) -> None
                 if not valid:
                     degraded.append(("AUTHORITY_DRIFT", name))
             except PlaygroundError as error:
-                slices[name] = {"valid": False, "error": {"code": error.code, "message": error.message}}
+                slices[name] = {"valid": False, "error": {"code": error.code, "message": redact_text(error.message)}}
                 degraded.append((error.code, name))
         pending = remote.get("pending") or {}
         pending_active = False
@@ -3251,7 +3378,7 @@ def probe_remote_observation(mutation: Mutation, source: Dict[str, str]) -> None
         if pending_error is not None:
             slices[PENDING_FIXTURE] = {
                 "valid": False,
-                "error": {"code": pending_error.code, "message": pending_error.message},
+                "error": {"code": pending_error.code, "message": redact_text(pending_error.message)},
             }
         elif pending.get("state") == "ready" and not pending_active:
             degraded.append(("PENDING_COMPLETED_EARLY", PENDING_FIXTURE))
@@ -4269,6 +4396,27 @@ R11_FIELDS = (
     "hashes",
     "applicability",
 )
+# Every R11 field the worksheet must render, labeled for the header row. The
+# three OPERATOR_NOTE_FIELDS are the only free-text, human-entered columns;
+# every other column is an immutable controller measurement (R11/U7).
+R11_FIELD_LABELS = {
+    "capability_family": "capability family",
+    "baseline_signal": "baseline signal",
+    "candidate_visible_signal": "candidate-visible signal",
+    "companion_surface": "companion surface",
+    "ground_truth_classification": "ground truth",
+    "refresh_authority_state": "refresh/authority state",
+    "terminal_dimensions": "terminal dimensions",
+    "displaced_or_duplicated": "displaced/duplicated",
+    "readability_note": "readability note (operator)",
+    "dependency_note": "dependency note (operator)",
+    "error_link": "error link (operator)",
+    "lifecycle_note": "lifecycle",
+    "observation_id": "observation id",
+    "hashes": "evidence hashes",
+    "applicability": "applicability",
+}
+OPERATOR_NOTE_FIELDS = ("readability_note", "dependency_note", "error_link")
 
 
 def interactive_mode(source: Dict[str, str]) -> bool:
@@ -4635,21 +4783,50 @@ def ground_truth_for_fixture(mutation: Mutation, label: str) -> Dict[str, Any]:
     return {"kind": "local", "fixture": truth}
 
 
+def format_r11_cell(field: str, value: Any) -> str:
+    if value is None:
+        return ""
+    if field == "applicability":
+        state = value.get("state")
+        reason = value.get("reason")
+        return "%s (%s)" % (state, reason) if reason else state
+    if field == "hashes":
+        pairs = ["%s=%s" % (key, item[:12]) for key, item in sorted(value.items()) if item]
+        return ", ".join(pairs) if pairs else NOT_APPLICABLE
+    if field == "displaced_or_duplicated":
+        duplicated = ", ".join(value.get("duplicated") or []) or "none"
+        displaced = ", ".join(value.get("displaced") or []) or "none"
+        return "duplicated: %s; displaced: %s" % (duplicated, displaced)
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item) for item in value) or NOT_APPLICABLE
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True)
+    return str(value)
+
+
 def write_inventory(run_dir: Path, rows: List[Dict[str, Any]]) -> None:
-    lines = ["# Herdr Git status playground inventory", "", "Controller-measured fields are immutable; notes are operator free text.", ""]
-    lines.append("| candidate | fixture | applicability | candidate-visible | notes |")
-    lines.append("|---|---|---|---|---|")
+    """Project the durable evidence index into the human worksheet (U7): every
+    R11 category gets its own column so the later sidebar-design brainstorm
+    can read intended capability, ground truth, refresh/lifecycle behavior,
+    and evidence linkage without recomputing them from raw observations. Only
+    the three OPERATOR_NOTE_FIELDS columns are operator free text; every
+    other column is an immutable controller measurement."""
+    lines = [
+        "# Herdr Git status playground inventory",
+        "",
+        "Every column is a controller-generated measurement except the three "
+        "marked (operator), which are free-text notes and never a candidate ranking.",
+        "",
+    ]
+    headers = ["candidate", "fixture"] + [R11_FIELD_LABELS[field] for field in R11_FIELDS]
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("|" + "---|" * len(headers))
     for row in rows:
-        lines.append(
-            "| %s | %s | %s | %s | %s |"
-            % (
-                row["profile"],
-                row["fixture"],
-                row["applicability"]["state"],
-                ", ".join(row["candidate_visible_signal"]) or NOT_APPLICABLE,
-                row.get("readability_note") or "",
-            )
-        )
+        cells = [row["profile"], row["fixture"]]
+        for field in R11_FIELDS:
+            cells.append(format_r11_cell(field, row.get(field)))
+        safe_cells = [str(cell).replace("|", "/").replace("\n", " ") for cell in cells]
+        lines.append("| " + " | ".join(safe_cells) + " |")
     path = run_dir / "inventory.md"
     ensure_private_directory(path.parent)
     descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -4713,6 +4890,19 @@ def capture_snapshot(
     baseline = read_json(mutation.run_dir / "observations" / ("baseline-%s.json" % profile))["rows"]
     candidate_visible = [row for row in rows if row not in baseline]
     ground_truth = ground_truth_for_fixture(mutation, fixture)
+    # Classify every baseline signal against what the candidate still shows
+    # (KTD5/R11): "duplicated" baseline rows the candidate repeats verbatim,
+    # "displaced" baseline rows the candidate's view no longer carries. New
+    # candidate signals are already `candidate_visible` above.
+    baseline_set = set(baseline)
+    rows_set = set(rows)
+    displaced_or_duplicated = {
+        "duplicated": sorted(baseline_set & rows_set),
+        "displaced": sorted(baseline_set - rows_set),
+    }
+    notes = redact_text(notes)
+    dependency_note = redact_text(dependency_note)
+    error_link = redact_text(error_link)
 
     raw_observation = {
         "schema_version": SCHEMA_VERSION,
@@ -4770,7 +4960,7 @@ def capture_snapshot(
         "ground_truth_classification": ground_truth,
         "refresh_authority_state": "authority-checked" if ground_truth["kind"] == "github" else "n/a-local",
         "terminal_dimensions": viewer.get("pane_size"),
-        "displaced_or_duplicated": sorted(set(rows) & set(baseline) & set(candidate_visible)),
+        "displaced_or_duplicated": displaced_or_duplicated,
         "readability_note": notes,
         "dependency_note": dependency_note,
         "error_link": error_link,
@@ -5004,6 +5194,11 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     except PlaygroundError as error:
         return error_result(error)
 
+    # Captured before any playground-owned resource exists, over the ambient
+    # (live) roots the run must never touch, so a later after-check has an
+    # honest baseline (KTD15).
+    live_invariant_before = capture_live_invariant(source, executable_paths)
+
     root = state_root(source)
     run_dir: Optional[Path] = None
     manifest: Optional[Dict[str, Any]] = None
@@ -5017,6 +5212,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
             audit_digest,
             executable_paths,
             herdr_identity,
+            live_invariant_before,
         )
         atomic_write_json(run_dir / "manifest.json", manifest, "allocate")
         environments = build_environments(source, executable_paths, run_dir, profiles, fixture)
@@ -5064,6 +5260,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                 # Startup failed before first readiness: automatic cleanup that
                 # settles every dispatch identity and releases the lease.
                 manifest["error"] = playground_error_json(remote_error)
+                append_diagnostic(run_dir, remote_error.code, remote_error.message)
                 final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
                 mutation.finish()
                 if cleanup_status == 0:
@@ -5107,6 +5304,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                     # A candidate activation failure triggers cleanup for all
                     # earlier profiles and preserves its diagnostics.
                     manifest["error"] = playground_error_json(candidate_error)
+                    append_diagnostic(run_dir, candidate_error.code, candidate_error.message)
                     final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
                     mutation.finish()
                     if cleanup_status == 0:
@@ -5262,6 +5460,31 @@ def terminate_owned_process(record: Dict[str, Any]) -> Tuple[bool, Optional[str]
     return False, "PROCESS_STOP_TIMEOUT"
 
 
+def write_teardown_evidence(run_dir: Path, manifest: Dict[str, Any], final_state: str) -> None:
+    """Durable teardown projection (U7): adapter cleanup results, owned-process
+    verification, pending-run settlement, repository-lease release, and the
+    KTD15 live-profile after-check, in one evidence file that survives after
+    `runtime/` (and, on success, `logs/`) are removed."""
+    processes = {
+        intent_id: {"profile": process.get("profile"), "status": process.get("status")}
+        for intent_id, process in (manifest.get("processes") or {}).items()
+    }
+    remote = manifest.get("remote") or {}
+    evidence = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": manifest["run_id"],
+        "generation": manifest["generation"],
+        "final_state": final_state,
+        "candidate_cleanup": manifest.get("candidate_teardown", {}),
+        "owned_processes": processes,
+        "pending_run_settlement": remote.get("settlement"),
+        "repository_lease_release": (remote.get("lease") or {}).get("released"),
+        "live_profile_invariant": manifest.get("live_invariant"),
+        "recorded_at": utc_now(),
+    }
+    atomic_write_json(run_dir / "teardown.json", evidence, "teardown-evidence")
+
+
 def teardown_phases(
     mutation: Mutation, source: Dict[str, str], final_state: str
 ) -> Tuple[Dict[str, Any], int]:
@@ -5302,12 +5525,32 @@ def teardown_phases(
 
     settle_remote(mutation, source, unresolved)
 
+    # KTD15: prove the live Herdr profile this run must never touch is
+    # unchanged, immediately before the repository lease and disposable
+    # runtime are released. Only compares when a `before` snapshot exists —
+    # older/partial manifests without one skip the check rather than crash.
+    live_invariant = manifest.get("live_invariant") or {}
+    live_before = live_invariant.get("before")
+    if live_before is not None:
+        live_after = capture_live_invariant(source, manifest["dependencies"])
+        matches = live_before == live_after
+        live_invariant["after"] = live_after
+        live_invariant["match"] = matches
+        manifest["live_invariant"] = live_invariant
+        mutation.persist("live-invariant-check")
+        if not matches:
+            unresolved.append("LIVE_PROFILE_INVARIANT_MISMATCH")
+
     if unresolved:
         code = "PROCESS_IDENTITY_MISMATCH" if "PROCESS_IDENTITY_MISMATCH" in unresolved else unresolved[0]
         manifest["lifecycle_state"] = "cleanup-incomplete"
         manifest["error"] = {"code": code, "message": "owned resource cleanup could not be proved"}
         manifest["next_command"] = "stop %s" % run_id
+        append_diagnostic(
+            mutation.run_dir, code, "unresolved teardown conditions: %s" % ", ".join(unresolved)
+        )
         mutation.persist("cleanup-incomplete")
+        write_teardown_evidence(mutation.run_dir, manifest, "cleanup-incomplete")
         return manifest, 1
 
     manifest["lifecycle_state"] = final_state
@@ -5315,9 +5558,16 @@ def teardown_phases(
         manifest["error"] = None
     manifest["next_command"] = "status %s" % run_id
     mutation.persist(final_state)
+    write_teardown_evidence(mutation.run_dir, manifest, final_state)
     runtime = mutation.run_dir / "runtime"
     if runtime.exists():
         shutil.rmtree(str(runtime))
+        fsync_directory(mutation.run_dir)
+    # Raw controller diagnostics are discardable once cleanup fully succeeds
+    # (KTD17); the redacted teardown.json evidence above is what's retained.
+    logs_dir = mutation.run_dir / "logs"
+    if logs_dir.exists():
+        shutil.rmtree(str(logs_dir))
         fsync_directory(mutation.run_dir)
     return manifest, 0
 

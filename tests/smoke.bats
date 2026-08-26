@@ -825,6 +825,35 @@ se_fixture_repo() {
   assert_file_executable "$HOME/.local/bin/herdr-child"
 }
 
+# ===========================================
+# herdr-git-status-playground (deployed command, U7)
+# ===========================================
+
+# Guarded like the run-post-apply.sh case above: this host may not have run
+# `chezmoi apply` with this checkout yet, but CI/Docker (make test-ubuntu)
+# always has, so this proves the deployed command's help path there without
+# failing a local, unapplied dev checkout.
+@test "herdr-git-status-playground deployed help works without Herdr, GitHub, Cargo, or network access" {
+  local bin="$HOME/.local/bin/herdr-git-status-playground"
+  [[ -x "$bin" ]] || skip "playground executable is not deployed"
+  local python_bin restricted_path
+  python_bin="$(command -v python3)"
+  restricted_path="$(dirname "$python_bin")"
+
+  # #then --help succeeds with only python3 on PATH: no herdr, gh, cargo, git, jq
+  run env -i PATH="$restricted_path" HOME="$HOME" "$python_bin" "$bin" --help
+  assert_success
+  assert_output --partial "usage:"
+  assert_output --partial "bootstrap"
+  assert_output --partial "start"
+  assert_output --partial "snapshot"
+
+  # #and a missing subcommand fails on usage alone, before any preflight runs
+  run env -i PATH="$restricted_path" HOME="$HOME" "$python_bin" "$bin"
+  assert_failure 2
+  assert_output --partial "usage:"
+}
+
 @test "herdr-task-sync Claude Code hook is deployed and executable" {
   assert_file_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
   assert_file_executable "$HOME/.claude/hooks/herdr-task-sync-hook.sh"

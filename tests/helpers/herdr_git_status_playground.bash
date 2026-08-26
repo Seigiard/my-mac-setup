@@ -119,7 +119,16 @@ if [ "\$1" = api ] && [ -f "\${0%/*}/gh-api-sim.py" ]; then
 fi
 case "\$*" in
   --version) printf 'gh version 2.50.0\n' ;;
-  auth\ status*) exit "\${HGSP_GH_AUTH_STATUS:-0}" ;;
+  auth\ status*)
+    if [ -n "\${HGSP_LEAK_TOKEN_IN_STDERR:-}" ]; then
+      # Models a real-world hazard: a CLI that echoes the credential it was
+      # just handed into its own diagnostic stderr on failure. Proves the
+      # controller's redaction scrubs the value wherever it surfaces, not
+      # just in fields it deliberately writes (KTD17).
+      printf 'gh: authentication failed for token %s\n' "\${GH_TOKEN:-}" >&2
+    fi
+    exit "\${HGSP_GH_AUTH_STATUS:-0}"
+    ;;
 esac
 exit 0
 SH

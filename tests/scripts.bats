@@ -148,6 +148,42 @@ PY
   assert_success
 }
 
+# ===========================================
+# herdr-git-status-playground runbook, inventory, and real-trial scaffolding (U7)
+# ===========================================
+
+@test "herdr-git-status-playground real-trial preflight records every optional toolchain status with non-Brewfile remediation" {
+  hgsp_setup
+  mv "$HGSP_STUB/jq" "$HGSP_STUB/jq.off"
+  run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" JQ_NOT_FOUND
+  local message
+  message="$(hgsp_json_field "$output" error.message)"
+  # #then every optional toolchain's own status is recorded, not just jq's
+  [[ "$message" == *'"cargo":"found"'* ]] || fail "message missing cargo status: $message"
+  [[ "$message" == *'"node":"found"'* ]] || fail "message missing node status: $message"
+  [[ "$message" == *'"jq":"missing"'* ]] || fail "message missing jq status: $message"
+  [[ "$message" == *'"gh":"found"'* ]] || fail "message missing gh status: $message"
+  # #and remediation points at a temporary or already-configured toolchain, never the Brewfile
+  [[ "$message" == *"temporarily"* ]] || fail "message missing temporary-install remediation: $message"
+  [[ "$message" == *"never add it to the managed Brewfile"* ]] || fail "message missing Brewfile guardrail: $message"
+  hgsp_assert_no_launch_or_mutation
+  mv "$HGSP_STUB/jq.off" "$HGSP_STUB/jq"
+}
+
+@test "herdr-git-status-playground redacts a leaked credential value from preflight output" {
+  hgsp_setup
+  # #given the auth probe's own stderr echoes the controller credential back
+  HGSP_GH_AUTH_STATUS=1 HGSP_LEAK_TOKEN_IN_STDERR=1 run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" CONTROLLER_AUTH_FAILED
+  # #then the raw credential never reaches the CLI's own JSON output
+  refute_output --partial "controller-canary"
+  assert_output --partial "<redacted>"
+  hgsp_assert_no_launch_or_mutation
+}
+
 @test "herdr-git-status-playground rejects unproved ownership audit and auth" {
   hgsp_setup
   local valid_fixture valid_audit
@@ -2672,7 +2708,13 @@ for row in rows:
   assert_equal "$(hgsp_json_field "$output" error.code)" PROCESS_IDENTITY_MISMATCH
   assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["ezcorp"]["completed"]')" true
   # #then the disposable runtime is retained, not removed, while incomplete
-  [[ -d "$HGSP_STATE_ROOT/runs/$run_id/runtime" ]]
+  [[ -d "$HGSP_STATE_ROOT/runs/$run_id/runtime" ]] || fail "runtime was removed while cleanup-incomplete"
+  # #and a redacted raw diagnostic is retained for recovery (KTD17)
+  [[ -f "$HGSP_STATE_ROOT/runs/$run_id/logs/controller.log" ]] || fail "no controller.log was written"
+  run grep PROCESS_IDENTITY_MISMATCH "$HGSP_STATE_ROOT/runs/$run_id/logs/controller.log"
+  assert_success
+  refute_output --partial "controller-canary"
+  refute_output --partial "candidate-canary"
 
   # #given the corrupted record is corrected (models an operator recovering identity)
   local pid start_identity
@@ -2684,7 +2726,94 @@ for row in rows:
   run hgsp_env stop "$run_id"
   assert_success
   assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
-  [[ ! -d "$HGSP_STATE_ROOT/runs/$run_id/runtime" ]]
+  [[ ! -d "$HGSP_STATE_ROOT/runs/$run_id/runtime" ]] || fail "runtime survived a fully settled stop"
+  # #and the raw log is discarded now that teardown fully succeeded (KTD17)
+  [[ ! -d "$HGSP_STATE_ROOT/runs/$run_id/logs" ]] || fail "logs/ survived a fully settled stop"
+  # #and the durable teardown evidence projects the same final state (U7)
+  run "$HGSP_PYTHON" -c "
+import json
+with open('$HGSP_STATE_ROOT/runs/$run_id/teardown.json', encoding='utf-8') as handle:
+    evidence = json.load(handle)
+assert evidence['final_state'] == 'stopped', evidence
+assert evidence['owned_processes'], evidence
+assert evidence['live_profile_invariant']['match'] is True, evidence['live_profile_invariant']
+"
+  assert_success
+}
+
+@test "herdr-git-status-playground detects and blocks teardown on live-profile drift, then settles once reverted" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  # #then the before-invariant is captured up front, ahead of any candidate activity
+  local before
+  before="$(hgsp_manifest_query "$run_id" 'manifest["live_invariant"]["before"] is not None')"
+  assert_equal "$before" true
+
+  # #given the live Herdr profile changes underneath the run (an out-of-band
+  # plugin install this playground must never cause or tolerate)
+  mkdir -p "$HGSP_WORK/live-data/herdr/plugins"
+  printf '[{"plugin_id":"drift.plugin","revision":"x","enabled":true}]\n' \
+    > "$HGSP_WORK/live-data/herdr/plugins/registry.json"
+
+  # #when teardown runs, the after-check proves the live profile no longer matches
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" LIVE_PROFILE_INVARIANT_MISMATCH
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["live_invariant"]["match"]')" false
+
+  # #given the drift is reverted (models the operator confirming no drift occurred)
+  rm -f "$HGSP_WORK/live-data/herdr/plugins/registry.json"
+
+  # #then repeated stop settles cleanly and records a matching after-check
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["live_invariant"]["match"]')" true
+}
+
+@test "herdr-git-status-playground inventory worksheet carries every R11 category and marks operator notes" {
+  hgsp_setup
+  hgsp_remote_ready
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  run hgsp_env snapshot "$run_id" --profile ezcorp --fixture checkout-clean \
+    --notes "clear and legible" --dependency-note "needs cargo" --error-link "run-42"
+  assert_success
+  run hgsp_env snapshot "$run_id" --profile sfroment --fixture non-git \
+    --applicability no-visible-signal --applicability-reason "sfroment renders nothing outside a Git worktree"
+  assert_success
+
+  local inventory="$HGSP_STATE_ROOT/runs/$run_id/inventory.md"
+  [[ -f "$inventory" ]] || fail "inventory.md was not written"
+  # #then every R11 category has its own labeled column
+  local label
+  for label in "capability family" "baseline signal" "candidate-visible signal" "companion surface" \
+    "ground truth" "refresh/authority state" "terminal dimensions" "displaced/duplicated" \
+    "readability note (operator)" "dependency note (operator)" "error link (operator)" "lifecycle" \
+    "observation id" "evidence hashes" "applicability"; do
+    run grep -F "$label" "$inventory"
+    assert_success
+  done
+  # #and the operator-entered notes are legible in the row, matching what was passed
+  run grep -F "clear and legible" "$inventory"
+  assert_success
+  run grep -F "needs cargo" "$inventory"
+  assert_success
+  # #and an explicit no-visible-signal record is a documented observation, not a rank
+  run grep -F "no-visible-signal (sfroment renders nothing outside a Git worktree)" "$inventory"
+  assert_success
+
+  run hgsp_env stop "$run_id"
+  assert_success
 }
 
 # ===========================================
