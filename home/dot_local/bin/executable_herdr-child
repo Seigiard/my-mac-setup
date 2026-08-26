@@ -399,13 +399,15 @@ start_child() {
     }
     if [ "$tab_mode" -eq 1 ]; then
       split_record="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+def s(v):
+  return v if isinstance(v,str) else ""
 try:
   result=json.load(sys.stdin)["result"]
   pane=result.get("root_pane") or {}
   tab=result.get("tab") or {}
 except Exception:
   pane={}; tab={}
-print((tab.get("tab_id") or "")+"\t"+(pane.get("pane_id") or "")+"\t"+(pane.get("terminal_id") or ""))')"
+print(s(tab.get("tab_id"))+"\t"+s(pane.get("pane_id"))+"\t"+s(pane.get("terminal_id")))')"
       IFS=$'\t' read -r tab_id pane terminal <<< "$split_record"
       if [ -z "$pane" ] || [ -z "$terminal" ] || [ -z "$tab_id" ]; then
         if [ -n "$tab_id" ]; then
@@ -419,7 +421,7 @@ print((tab.get("tab_id") or "")+"\t"+(pane.get("pane_id") or "")+"\t"+(pane.get(
       fi
       if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" \
         --token "tab-id=$tab_id" --seq "$(herdr_now_seq)" >/dev/null; then
-        printf 'herdr-child: tab ownership token could not be written; preserving the new tab\n' >&2
+        printf 'herdr-child: tab ownership token could not be written; closing the new tab\n' >&2
         close_unregistered_pane token-write-failure || true
         rm -f "$start_err" "$start_out"
         trap - INT TERM
@@ -754,36 +756,46 @@ if bool(a.get("focused")): raise SystemExit(4)' "$name" "$pane" "$terminal"
     return 0
   fi
 
-  local tab_out tab_err pane_count close_err
+  local close_err
+  close_err="$(mktemp)"
+  if ! herdr pane close "$pane" >/dev/null 2>"$close_err"; then
+    if json_error_file_is "$close_err" pane_not_found; then
+      printf '%s: already cleaned; pane %s is gone\n' "$name" "$pane"
+    else
+      printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
+    fi
+    rm -f "$close_err"
+    return 0
+  fi
+  rm -f "$close_err"
+
+  # Query the tab only after the pane is confirmed closed, so the report
+  # reflects the real outcome instead of a pre-close snapshot: if the tab
+  # still exists, closing our pane did not empty it, proving a sibling
+  # pane was present all along (never a stale race).
+  local tab_out tab_err pane_count
   tab_out="$(mktemp)"
   tab_err="$(mktemp)"
   if ! herdr tab get "$token_tab" >"$tab_out" 2>"$tab_err"; then
     if json_error_file_is "$tab_err" tab_not_found; then
-      printf '%s: already cleaned; tab %s is gone\n' "$name" "$token_tab"
+      printf '%s: closed pane %s and its tab %s\n' "$name" "$pane" "$token_tab"
     else
-      printf '%s: kept; tab %s metadata could not be read\n' "$name" "$token_tab"
+      printf '%s: closed pane %s; tab %s status could not be confirmed\n' "$name" "$pane" "$token_tab"
     fi
     rm -f "$tab_out" "$tab_err"
     return 0
   fi
   pane_count="$(python3 -c 'import json,sys
-try: print(json.load(sys.stdin)["result"]["tab"]["pane_count"])
+try:
+  n=json.load(sys.stdin)["result"]["tab"]["pane_count"]
+  print(n if isinstance(n,int) and not isinstance(n,bool) else "")
 except Exception: print("")' < "$tab_out")"
   rm -f "$tab_out" "$tab_err"
-
-  close_err="$(mktemp)"
-  if herdr pane close "$pane" >/dev/null 2>"$close_err"; then
-    if [ "$pane_count" = "1" ]; then
-      printf '%s: closed pane %s and its tab %s\n' "$name" "$pane" "$token_tab"
-    else
-      printf '%s: closed pane %s; tab %s kept with %s panes\n' "$name" "$pane" "$token_tab" "$pane_count"
-    fi
-  elif json_error_file_is "$close_err" pane_not_found; then
-    printf '%s: already cleaned; pane %s is gone\n' "$name" "$pane"
+  if [ -n "$pane_count" ]; then
+    printf '%s: closed pane %s; tab %s kept with %s panes\n' "$name" "$pane" "$token_tab" "$pane_count"
   else
-    printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
+    printf '%s: closed pane %s; tab %s status could not be confirmed\n' "$name" "$pane" "$token_tab"
   fi
-  rm -f "$close_err"
 }
 
 [ $# -gt 0 ] || { usage; exit 2; }

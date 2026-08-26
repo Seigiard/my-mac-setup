@@ -733,7 +733,11 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"%s","message":"tab not found"}}\n' "${STUB_TAB_GET_ERROR:-tab_not_found}" >&2
       exit 1
     fi
-    printf '{"result":{"tab":{"tab_id":"%s","pane_count":%s}}}\n' "$tab_arg" "${STUB_TAB_PANE_COUNT:-1}" ;;
+    if [ "${STUB_TAB_PANE_COUNT_MALFORMED:-0}" = 1 ]; then
+      printf '{"result":{"tab":{"tab_id":"%s"}}}\n' "$tab_arg"
+    else
+      printf '{"result":{"tab":{"tab_id":"%s","pane_count":%s}}}\n' "$tab_arg" "${STUB_TAB_PANE_COUNT:-1}"
+    fi ;;
   *) exit 2 ;;
 esac
 SH
@@ -1109,6 +1113,25 @@ write_pool_records() {
   assert_failure
 }
 
+@test "herdr-child --tab removes the tab on a real signal before registration succeeds" {
+  child_stub_herdr
+  local out="$BATS_TEST_TMPDIR/out" err="$BATS_TEST_TMPDIR/err" child_pid status
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed HERDR_WORKSPACE_ID=wT STUB_START_BLOCK=1 \
+    bash "$HERDR_CHILD" start --kind claude --tab --prompt "test task" >"$out" 2>"$err" &
+  child_pid=$!
+  hpl_wait_for_file "$CHILD_STUB/start-blocked"
+  kill -TERM "$child_pid"
+  status=0
+  wait "$child_pid" || status=$?
+  [ "$status" -eq 130 ]
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q '^tab close' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q 'preserving pane' "$err"
+  assert_failure
+}
+
 @test "herdr-child start closes the registered pane on a real signal during the initial prompt" {
   child_stub_herdr
   local out="$BATS_TEST_TMPDIR/out" err="$BATS_TEST_TMPDIR/err" child_pid status
@@ -1269,6 +1292,25 @@ write_pool_records() {
   assert_failure
   assert_output --partial "accepted alias no longer has the captured terminal"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab removes the tab when the initial prompt stalls" {
+  child_stub_herdr
+  STUB_PROMPT_FAIL=1 run child_start_tab --kind claude --wait
+  assert_failure
+  assert_output --partial "initial prompt stalled"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child --tab preserves the tab when terminal proof changed before the prompt" {
+  child_stub_herdr
+  STUB_PROMPT_FAIL=1 STUB_TERMINAL_CHANGED=1 run child_start_tab --kind claude --wait
+  assert_failure
+  assert_output --partial "accepted alias no longer has the captured terminal"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^tab close' "$CHILD_STUB/calls.log"
   assert_failure
 }
 
@@ -1532,12 +1574,16 @@ write_pool_records() {
   child_stub_herdr
   seed_tab_token wT:p1 wT:t1
   local agents; agents="$(complete_agent_record tab-a wT:p1 term-child idle false)"
-  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_TAB_PANE_COUNT=1 \
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_TAB_GET_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to tab-a --pane wT:p1
   assert_success
   assert_output --partial "tab-a: closed pane wT:p1 and its tab wT:t1"
   assert_file_contains "$CHILD_STUB/calls.log" '^tab get wT:t1'
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p1'
+  local close_line tab_get_line
+  close_line="$(grep -n '^pane close wT:p1' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  tab_get_line="$(grep -n '^tab get wT:t1' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  [ "$close_line" -lt "$tab_get_line" ]
 }
 
 @test "herdr-child reap keeps a matched-token tab with sibling panes and reports the count" {
@@ -1565,16 +1611,26 @@ write_pool_records() {
   assert_failure
 }
 
-@test "herdr-child reap reports an already-closed tab as cleaned" {
+@test "herdr-child reap reports the tab status as unconfirmed when the post-close read fails" {
   child_stub_herdr
   seed_tab_token wT:p1 wT:t1
   local agents; agents="$(complete_agent_record gone-a wT:p1 term-child idle false)"
-  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_TAB_GET_FAIL=1 \
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" \
+    STUB_TAB_GET_FAIL=1 STUB_TAB_GET_ERROR=timeout \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to gone-a --pane wT:p1
   assert_success
-  assert_output --partial "gone-a: already cleaned; tab wT:t1 is gone"
-  run grep -q '^pane close' "$CHILD_STUB/calls.log"
-  assert_failure
+  assert_output --partial "gone-a: closed pane wT:p1; tab wT:t1 status could not be confirmed"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p1'
+}
+
+@test "herdr-child reap reports the tab status as unconfirmed when pane_count is malformed" {
+  child_stub_herdr
+  seed_tab_token wT:p1 wT:t1
+  local agents; agents="$(complete_agent_record malformed-a wT:p1 term-child idle false)"
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_TAB_PANE_COUNT_MALFORMED=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to malformed-a --pane wT:p1
+  assert_success
+  assert_output --partial "malformed-a: closed pane wT:p1; tab wT:t1 status could not be confirmed"
 }
 
 @test "herdr-child reap reports an already-closed pane as cleaned when the token matched" {
