@@ -34,7 +34,7 @@ hgsp_teardown() {
     done
   fi
   [[ -n "${HGSP_WORK:-}" ]] && rm -rf "$HGSP_WORK" || true
-  unset HGSP_WORK HGSP_STUB HGSP_STATE_ROOT HGSP_XDG_STATE HGSP_CALL_LOG
+  unset HGSP_WORK HGSP_STUB HGSP_STATE_ROOT HGSP_XDG_STATE HGSP_CALL_LOG HGSP_SYSBIN
   unset HGSP_ENV_LOG HGSP_RUN_IDS HGSP_BG_PIDS HGSP_LAST_RUN_ID HGSP_REMOTE_GIT
   unset HGSP_BYSTANDER_PID
 }
@@ -47,12 +47,33 @@ hgsp_setup() {
   HGSP_STATE_ROOT="$HGSP_XDG_STATE/herdr-git-status-playground"
   HGSP_CALL_LOG="$HGSP_WORK/calls.log"
   HGSP_ENV_LOG="$HGSP_WORK/environments.jsonl"
+  HGSP_SYSBIN="$HGSP_WORK/sysbin"
   HGSP_RUN_IDS=""
   HGSP_BG_PIDS=""
   export HGSP_WORK HGSP_STUB HGSP_CALL_LOG
-  mkdir -p "$HGSP_STUB" "$HGSP_XDG_STATE"
+  mkdir -p "$HGSP_STUB" "$HGSP_XDG_STATE" "$HGSP_SYSBIN"
   : > "$HGSP_CALL_LOG"
   : > "$HGSP_ENV_LOG"
+
+  # A curated stand-in for /bin: every real system utility (sleep, mkdir, rm,
+  # ...) that the stub shell scripts need, minus the seven dependency names
+  # the playground preflight resolves. Linux base images apt-install git
+  # (Homebrew bootstrap needs it) so plain "/bin" contains a real, working
+  # git; PATH="$HGSP_STUB:/bin:..." would then let "missing dependency" tests
+  # resolve the renamed-away stub tool straight through to that real binary
+  # (via /bin -> /usr/bin on Linux) instead of finding it absent, which
+  # macOS's git-free /bin never exposed. Using this directory instead keeps
+  # every non-dependency utility on PATH while making the seven managed tools
+  # truly unresolvable once their stub is renamed away, on every platform.
+  local sysbin_entry sysbin_name
+  for sysbin_entry in /bin/*; do
+    [[ -e "$sysbin_entry" ]] || continue
+    sysbin_name="${sysbin_entry##*/}"
+    case "$sysbin_name" in
+      cargo | node | jq | gh | git | python3 | herdr) continue ;;
+    esac
+    ln -s "$sysbin_entry" "$HGSP_SYSBIN/$sysbin_name" 2>/dev/null || true
+  done
 
   # Fixture construction needs real Git behavior; the stub answers preflight's
   # --version probe itself and delegates fixture operations (identified by the
@@ -689,7 +710,7 @@ JSON
 {"candidates":{"ezcorp":{"revision":"f144c8dac2860e344b6b379d2bcfee229dcf10ad","tree":"tree-ezcorp","approved":true},"sfroment":{"revision":"b726977143adc2847dc25e3327bc0b1b4fc26455","tree":"tree-sfroment","approved":true},"krystof":{"revision":"fe6575a89de9006c35d9d0b9707397839d983cff","tree":"tree-krystof","approved":true},"jmarbutt":{"revision":"8a56c5dce0bd65e47eddc9a1d862ddae870cddc3","tree":"tree-jmarbutt","approved":true}}}
 JSON
   cat > "$HGSP_WORK/inherited-environment.json" <<JSON
-{"DYLD_INSERT_LIBRARIES":"poison","DYLD_LIBRARY_PATH":"poison","LD_PRELOAD":"poison","LD_LIBRARY_PATH":"poison","PYTHONPATH":"poison","PYTHONHOME":"poison","PYTHONSTARTUP":"poison","NODE_OPTIONS":"poison","RUBYOPT":"poison","HTTP_PROXY":"http://credential@proxy","HTTPS_PROXY":"http://credential@proxy","ALL_PROXY":"http://credential@proxy","PATH":"$HGSP_STUB:/bin:$HGSP_WORK/poison-bin"}
+{"DYLD_INSERT_LIBRARIES":"poison","DYLD_LIBRARY_PATH":"poison","LD_PRELOAD":"poison","LD_LIBRARY_PATH":"poison","PYTHONPATH":"poison","PYTHONHOME":"poison","PYTHONSTARTUP":"poison","NODE_OPTIONS":"poison","RUBYOPT":"poison","HTTP_PROXY":"http://credential@proxy","HTTPS_PROXY":"http://credential@proxy","ALL_PROXY":"http://credential@proxy","PATH":"$HGSP_STUB:$HGSP_SYSBIN:$HGSP_WORK/poison-bin"}
 JSON
   chmod 600 "$HGSP_WORK/fixture-ownership.json" "$HGSP_WORK/audit-attestation.json" \
     "$HGSP_WORK/inherited-environment.json"
@@ -697,7 +718,7 @@ JSON
 
 hgsp_env() {
   env \
-    PATH="$HGSP_STUB:/bin:$HGSP_WORK/poison-bin" \
+    PATH="$HGSP_STUB:$HGSP_SYSBIN:$HGSP_WORK/poison-bin" \
     HOME="$HGSP_WORK/live-home" \
     XDG_CONFIG_HOME="$HGSP_WORK/live-config" \
     XDG_STATE_HOME="$HGSP_XDG_STATE" \

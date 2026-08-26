@@ -406,6 +406,15 @@ PY
   hgsp_capture_run_id
   run_id="$HGSP_LAST_RUN_ID"
   generation="$(hgsp_json_field "$output" generation)"
+  # Captured now (not grepped from the shared call log later): the earlier
+  # start's own foundation process is torn down correctly above and may or
+  # may not win its race to log a TERM line before this run even begins, so
+  # a bare "no TERM anywhere in the log" check is a coin flip on whether that
+  # unrelated, already-verified teardown happened to get logged in time.
+  # Binding to this run's own recorded pid keeps the assertion about exactly
+  # what the test claims: view's detach never signals *this* run's process.
+  local probe_pid
+  probe_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["foundation-supervisor"]["pid"]')"
   marker="$HGSP_WORK/view-waiting"
   HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_MARKER="$marker" \
   HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_RELEASE="$HGSP_WORK/view-release" \
@@ -422,7 +431,7 @@ PY
   run hgsp_env status "$run_id"
   assert_success
   assert_equal "$(hgsp_json_field "$output" generation)" "$generation"
-  run grep 'managed-probe|TERM' "$HGSP_CALL_LOG"
+  run grep "managed-probe|TERM|$probe_pid\$" "$HGSP_CALL_LOG"
   assert_failure
 }
 
@@ -1572,6 +1581,13 @@ PY
 
   # #then a dispatch that never materializes exhausts the bounded promotion window
   hgsp_patch_github_state 'repo["dispatch_creates_run"] = False'
+  # hgsp_remote_ready's own bootstrap (initialize, then converge) already
+  # verifies each PR fixture's workflow run, logging the same
+  # actions/runs-listing calls the promotion loop below uses; counting from
+  # this offset keeps the bound below scoped to only the queries this one
+  # start's promotion loop issues, not bootstrap's unrelated baseline traffic.
+  local query_log_offset
+  query_log_offset="$(wc -l < "$HGSP_CALL_LOG")"
   run hgsp_start
   assert_failure 1
   hgsp_capture_run_id
@@ -1584,8 +1600,11 @@ PY
   # #then the promotion loop stayed within the recorded bounded deadline
   local bound queries
   bound="$(hgsp_manifest_query "$run_id" 'remote["generation"]["deadlines"]["promotion_attempts"]')"
-  queries="$(grep -c 'path=repos/example/herdr-status-fixtures/actions/runs|' "$HGSP_CALL_LOG")"
-  [[ "$queries" -le $((bound + 2)) ]]
+  queries="$(tail -n "+$((query_log_offset + 1))" "$HGSP_CALL_LOG" \
+    | grep -c 'path=repos/example/herdr-status-fixtures/actions/runs|')"
+  if (( queries > bound + 2 )); then
+    fail "promotion loop issued $queries actions/runs queries, expected at most $((bound + 2))"
+  fi
   run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
   assert_failure
   hgsp_patch_github_state 'repo["dispatch_creates_run"] = True'
