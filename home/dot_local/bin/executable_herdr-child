@@ -24,6 +24,8 @@ Start options:
   --prompt <text>         Initial task
   --prompt-file <file>    Read the initial task from a file
   --direction <right|down>
+  --tab                   Launch in a new tab instead of a split pane (requires HERDR_WORKSPACE_ID)
+  --label <text>          Initial tab label; valid only with --tab
   --wait                  Wait for the initial turn to settle
   --timeout <ms>          Start and prompt timeout (default: 30000)
 EOF
@@ -92,9 +94,9 @@ start_child() {
   require_parent
 
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
-  local configured_agent="" prompt="" prompt_file="" direction="right"
+  local configured_agent="" prompt="" prompt_file="" direction="right" direction_explicit=0
   local wait_for_child=0 timeout="30000" pane="" list_json="" split_json=""
-  local skills_count=0
+  local skills_count=0 tab_mode=0 label=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -109,7 +111,9 @@ start_child() {
       --agent) [ $# -ge 2 ] || fail_usage '--agent needs a value'; configured_agent="$2"; shift 2 ;;
       --prompt) [ $# -ge 2 ] || fail_usage '--prompt needs a value'; prompt="$2"; shift 2 ;;
       --prompt-file) [ $# -ge 2 ] || fail_usage '--prompt-file needs a value'; prompt_file="$2"; shift 2 ;;
-      --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; shift 2 ;;
+      --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; direction_explicit=1; shift 2 ;;
+      --tab) tab_mode=1; shift ;;
+      --label) [ $# -ge 2 ] || fail_usage '--label needs a value'; label="$2"; shift 2 ;;
       --wait) wait_for_child=1; shift ;;
       --timeout) [ $# -ge 2 ] || fail_usage '--timeout needs a value'; timeout="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
@@ -120,6 +124,9 @@ start_child() {
   case "$kind" in claude|opencode|pi) ;; *) fail_usage '--kind must be claude, opencode, or pi' ;; esac
   case "$posture" in ro|rw) ;; *) fail_usage '--posture must be ro or rw' ;; esac
   case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
+  if [ "$tab_mode" -eq 1 ] && [ "$direction_explicit" -eq 1 ]; then fail_usage '--tab cannot be combined with --direction'; fi
+  if [ -n "$label" ] && [ "$tab_mode" -ne 1 ]; then fail_usage '--label is only valid with --tab'; fi
+  if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage '--tab requires HERDR_WORKSPACE_ID'; fi
   [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || fail_usage 'name must match [a-z][a-z0-9_-]{0,31}'
   [[ "$timeout" =~ ^[0-9]+$ ]] || fail_usage '--timeout must be an integer'
   [ -d "$cwd" ] || fail_usage "working directory does not exist: $cwd"

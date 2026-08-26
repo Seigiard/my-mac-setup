@@ -6,6 +6,7 @@ load 'helpers/herdr_task_sync'
 setup() {
   unset HERDR_CHILD_NAME
   unset HERDR_CHILD_PARENT_PANE
+  unset HERDR_WORKSPACE_ID
 }
 
 teardown() {
@@ -511,6 +512,30 @@ child_start() {
   run child_start --kind opencode --name child-c --skills A
   assert_failure 2
   assert_output --partial "--skills is not supported for opencode"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child rejects --tab combined with an explicit --direction" {
+  child_stub_herdr
+  HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab --direction right
+  assert_failure 2
+  assert_output --partial "--tab cannot be combined with --direction"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child rejects --label without --tab" {
+  child_stub_herdr
+  run child_start --kind claude --name child-a --label mylabel
+  assert_failure 2
+  assert_output --partial "--label is only valid with --tab"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child rejects --tab without HERDR_WORKSPACE_ID" {
+  child_stub_herdr
+  run child_start --kind claude --name child-a --tab
+  assert_failure
+  assert_output --partial "--tab requires HERDR_WORKSPACE_ID"
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
