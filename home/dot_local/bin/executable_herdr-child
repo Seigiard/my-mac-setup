@@ -505,11 +505,51 @@ if focused == "true":
       4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; continue ;;
       *) printf '%s: kept; live agent state could not be read\n' "$name"; continue ;;
     esac
-    if herdr pane close "$pane" >/dev/null; then
-      printf '%s: closed pane %s\n' "$name" "$pane"
+    local own_tab="" child_tab=""
+    IFS=$'\t' read -r own_tab child_tab <<< "$(printf '%s' "$pane_json" | python3 -c 'import json,sys
+try:
+ pane=json.load(sys.stdin).get("result",{}).get("pane",{})
+except Exception:
+ pane={}
+print("%s\t%s" % (pane.get("tab_id") or "", (pane.get("tokens") or {}).get("child-tab") or ""))')"
+
+    if [ -n "$child_tab" ] && [ "$child_tab" != "$own_tab" ]; then
+      printf '%s: kept; pane %s tab ownership is ambiguous\n' "$name" "$pane"
+      continue
+    fi
+
+    local close_err
+    close_err="$(mktemp)"
+    if herdr pane close "$pane" >/dev/null 2>"$close_err"; then
+      if [ -z "$child_tab" ]; then
+        printf '%s: closed pane %s\n' "$name" "$pane"
+      else
+        local tab_err tab_json tab_status pane_count
+        tab_err="$(mktemp)"
+        set +e
+        tab_json="$(herdr tab get "$child_tab" 2>"$tab_err")"
+        tab_status=$?
+        set -e
+        if [ "$tab_status" -eq 0 ]; then
+          pane_count="$(printf '%s' "$tab_json" | python3 -c 'import json,sys
+try:
+ print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("pane_count","?"))
+except Exception:
+ print("?")')"
+          printf '%s: closed pane %s; tab %s kept with %s panes\n' "$name" "$pane" "$child_tab" "$pane_count"
+        elif grep -q '"code":"tab_not_found"' "$tab_err"; then
+          printf '%s: closed pane %s and tab %s\n' "$name" "$pane" "$child_tab"
+        else
+          printf '%s: closed pane %s; tab %s status could not be confirmed\n' "$name" "$pane" "$child_tab"
+        fi
+        rm -f "$tab_err"
+      fi
+    elif [ -n "$child_tab" ] && grep -q '"code":"pane_not_found"' "$close_err"; then
+      printf '%s: already cleaned; pane %s and tab %s are gone\n' "$name" "$pane" "$child_tab"
     else
       printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
     fi
+    rm -f "$close_err"
   done
 }
 
