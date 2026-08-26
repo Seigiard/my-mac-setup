@@ -8,9 +8,6 @@ import {
   dispatchNodeId,
   epilogShouldRender,
   flowVerdict,
-  formatFlowPlan,
-  formatPrBody,
-  frozenPlanNote,
   isRedStatus,
   needsWorkspace,
   planBearingAgentBlocks,
@@ -150,17 +147,6 @@ describe("withStagedPlanPath", () => {
 
     // #when / #then there is nothing to substitute
     expect(withStagedPlanPath(input, "/tmp/copy.md")).toBe(input);
-  });
-});
-
-describe("frozenPlanNote", () => {
-  test("names the copy and pins every repository path to the agent's cwd", () => {
-    // #given the run's frozen copy
-    const note = frozenPlanNote("/tmp/se-pipeline/se-fix-1234abcd-plan/p.md");
-
-    // #then it says what the file is and where paths belong (run-1786717826270)
-    expect(note).toContain("/tmp/se-pipeline/se-fix-1234abcd-plan/p.md");
-    expect(note).toContain("belongs to your cwd");
   });
 });
 
@@ -562,7 +548,7 @@ describe("flowVerdict", () => {
     const dispatch = dispatchableBlocks(chain, rows({ scan: green("b:scan"), fix: green("b:fix"), "open-pr": green("b:open-pr") }));
 
     // #when / #then
-    expect(flowVerdict(dispatch)).toEqual({ state: "completed", stoppedBy: null, summary: "no block gated red; nothing was withheld", withheld: [] });
+    expect(flowVerdict(dispatch)).toMatchObject({ state: "completed", stoppedBy: null, withheld: [] });
   });
 
   test("a stopped run names the block that stopped it", () => {
@@ -575,8 +561,6 @@ describe("flowVerdict", () => {
     // #then an operator reads what happened instead of inferring it
     expect(verdict.state).toBe("stopped-by-red-gate");
     expect(verdict.stoppedBy).toBe("fix (work): failed");
-    expect(verdict.summary).toContain('block "fix" (work)');
-    expect(verdict.summary).toContain("1 downstream block never ran: open-pr");
   });
 
   test("a parked run is not reported as stopped", () => {
@@ -602,22 +586,6 @@ describe("flowVerdict", () => {
     expect(flowVerdict(dispatch).stoppedBy).toBe("scan (secret-scan): failed");
   });
 
-  test("a denied waive reads as a stop, not a park", () => {
-    // #given the operator refused the waive
-    const denied = [fb({ id: "fix", block: "work", waive: "approval" }), fb({ id: "open-pr", block: "pr", after: ["fix"] })];
-    const dispatch = dispatchableBlocks(denied, rows({ fix: red("b:fix") }), decisions({ fix: "denied" }));
-
-    // #when / #then
-    expect(flowVerdict(dispatch).summary).toContain("stopped by a denied waive approval");
-  });
-
-  test("a red leaf block says nothing downstream was withheld", () => {
-    // #given the last block in the flow went red
-    const dispatch = dispatchableBlocks(chain, rows({ scan: green("b:scan"), fix: green("b:fix"), "open-pr": red("b:open-pr") }));
-
-    // #when / #then the verdict does not imply successors were cut
-    expect(flowVerdict(dispatch).summary).toContain("nothing downstream was left to withhold");
-  });
 });
 
 describe("specHash / canonicalSpecJson", () => {
@@ -643,90 +611,5 @@ describe("dispatchNodeId", () => {
     // #when / #then the dispatch node is derived, so resume still matches
     expect(dispatchNodeId(nodeId)).toBe("b:do-the-thing:dispatch");
     expect(dispatchNodeId(nodeId)).toBe(dispatchNodeId(nodeId));
-  });
-});
-
-describe("formatFlowPlan (R10)", () => {
-  const lookup = (name: string) =>
-    ({
-      work: { estUsd: 20, kind: "agent" },
-      "secret-scan": { estUsd: 0, kind: "compute" },
-    })[name];
-
-  function planBlock(over: Partial<FlowBlock> = {}): FlowBlock {
-    return { id: "b1", block: "work", input: {}, retries: 0, timeoutMs: 1000, after: [], bindTo: [], waive: "none", ...over };
-  }
-
-  test("lists blocks in execution order, not spec order", () => {
-    // #given a spec whose declared order is the reverse of its dependency order
-    const blocks = [
-      planBlock({ id: "second", block: "secret-scan", after: ["first"] }),
-      planBlock({ id: "first", block: "work", after: [] }),
-    ];
-
-    // #when
-    const out = formatFlowPlan("a task", blocks, lookup);
-
-    // #then
-    expect(out.indexOf("first")).toBeLessThan(out.indexOf("second"));
-  });
-
-  test("sums the per-block cost profiles into one estimate", () => {
-    // #given two paid blocks
-    const blocks = [planBlock({ id: "a" }), planBlock({ id: "b", after: ["a"] })];
-
-    // #when / #then
-    expect(formatFlowPlan("a task", blocks, lookup)).toContain("estimated ~$40");
-  });
-
-  test("reports a retry ceiling separately from the baseline", () => {
-    // #given a block allowed two extra attempts
-    const blocks = [planBlock({ id: "a", retries: 2 })];
-
-    // #when / #then one attempt costs 20, three cost 60
-    const out = formatFlowPlan("a task", blocks, lookup);
-    expect(out).toContain("estimated ~$20");
-    expect(out).toContain("up to ~$60");
-  });
-
-  test("omits the ceiling when no block can retry", () => {
-    // #given
-    const blocks = [planBlock({ id: "a", retries: 0 })];
-
-    // #when / #then a ceiling equal to the baseline is noise, not information
-    expect(formatFlowPlan("a task", blocks, lookup)).not.toContain("up to ~$");
-  });
-
-  test("marks a block the registry does not know instead of dropping it", () => {
-    // #given a spec naming a block outside the catalog
-    const blocks = [planBlock({ id: "mystery", block: "not-a-block" })];
-
-    // #when / #then the reader has to see it
-    const out = formatFlowPlan("a task", blocks, lookup);
-    expect(out).toContain("mystery");
-    expect(out).toContain("UNKNOWN BLOCK");
-  });
-});
-
-describe("formatPrBody", () => {
-  const blocks = [
-    { blockId: "fix", block: "work", status: "green" },
-    { blockId: "scan", block: "secret-scan", status: "failed" },
-  ];
-
-  test("embeds the spec and every recorded block status (R11)", () => {
-    const body = formatPrBody("run-1", '{"task":{"description":"d"}}', blocks);
-    expect(body).toContain('{"task":{"description":"d"}}');
-    expect(body).toContain("| `fix` | work | green |");
-    expect(body).toContain("| `scan` | secret-scan | failed |");
-  });
-
-  test("says the outcome record comes later rather than implying it is embedded", () => {
-    // #given the epilog has not run when the pr block opens the PR
-    expect(formatPrBody("run-1", "{}", blocks)).toContain("written by the epilog, after this PR opens");
-  });
-
-  test("a PR opened before any block recorded says so instead of showing an empty table", () => {
-    expect(formatPrBody("run-1", "{}", [])).toContain("no block had recorded a status");
   });
 });

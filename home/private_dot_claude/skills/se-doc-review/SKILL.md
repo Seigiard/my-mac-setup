@@ -1,76 +1,137 @@
 ---
 name: se-doc-review
-description: "Review a plan, spec, or requirements doc — three independent runs synthesized: the local plugin review plus external claude and opencode. Use to improve an existing planning document; se-plan invokes it headless."
+description: "Review a plan, spec, or requirements document through one local and two fresh cross-model reviews, then synthesize all available envelopes. Use to improve an existing planning document; se-plan invokes it headless."
 argument-hint: "[mode:headless] [path/to/document.md]"
 ---
 
-# Document Review (wrapper: local persona review + external reviews via smithers)
+# Cross-model document review in herdr
 
-Wrapper over `compound-engineering:ce-doc-review`. Runs the plugin review locally AND has two external agents (claude and opencode) each execute the **same plugin workflow** end-to-end — dispatching their own persona subagents on their own model family — then synthesizes the three result envelopes.
+Run three independent `ce-doc-review` passes from one pre-review document state:
 
-All external orchestration (staging, parallel CLI launches, timeouts, budget caps, envelope collection) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-doc-review.tsx`. Do not re-implement any of it in instructions — launch it and read its outputs. Harness mechanics shared with `/se-code-review` and `/se-simplify` — launching, the secret gate, staging, error boundaries, the wait cap, diagnostics: read `~/.claude/shared/se-harness.md`.
+- The local pass runs headless on the real document and may apply `safe_auto` fixes.
+- Two fresh peers run headless on an immutable copy and return report-only envelopes.
+- The parent synthesizes all available envelopes after both peer panes close.
 
-Argument contract is identical to the plugin skill: tokens starting with `mode:` are flags; the remaining token (if any) is the document path. `mode:headless` is passed through.
+## Resolve the document
 
-**Cost note:** three multi-agent reviews (up to 7 persona subagents each; opencode on GPT-5.5). A normal external claude leg bills ~$5-6; its budget cap re-arms on retry, so the effective ceiling is attempts × cap. Expect ~10-20 minutes (the claude leg's full plugin workflow runs ~12-17 min cold) and ~3x the token cost of a plain review. For a quick pass, use `compound-engineering:ce-doc-review` directly.
+Treat tokens beginning with `mode:` as flags. The remaining token, when present, is the document path.
 
-## Recursion guard (read first)
+- Path provided: resolve it to an absolute path and require a readable file.
+- No path, interactive: ask which document to review, or find the most recent document in `docs/brainstorms/` or `docs/plans/` with a file-search tool.
+- No path, headless: output `Review failed: headless mode requires a document path. Re-invoke with: Skill("se-doc-review", "mode:headless <path>")` and stop before scanning or launching peers.
 
-If the current prompt contains the marker `[ce-doc-review-external-consult]`, you ARE one of the external consults. Execute only the plugin workflow on the document you were given and return its envelope. Never launch the harness or external consults from inside a consult. (The harness embeds this marker in every consult prompt.)
+Record whether the wrapper was invoked with `mode:headless`; delivery uses that mode after synthesis.
 
-## Phase 1: Resolve the document
+## Scan and freeze peer input
 
-- Path provided → use it (make it absolute).
-- No path, interactive → ask which document, or find the most recent in `docs/brainstorms/` / `docs/plans/` via Glob.
-- No path, headless → output `Review failed: headless mode requires a document path. Re-invoke with: Skill("se-doc-review", "mode:headless <path>")` and stop. Do not launch anything.
-
-## Phase 2: Launch the external harness (background, FIRST)
-
-One background Bash task (`run_in_background: true`), launched **before** the local plugin review so all three reviews run concurrently:
+The external payload is the document itself. Unless `SE_SKIP_SECRET_SCAN` is set to a non-empty value other than `0`, require `gitleaks` and run this fail-closed scan before creating panes:
 
 ```bash
-cd ~/.claude/.smithers && \
-DOC_REVIEW_REPO="<abs repo root>" ./node_modules/.bin/smithers up workflows/se-doc-review.tsx \
-  --input '{"docPath":"<abs document path>"}'
+gitleaks dir --no-banner --redact --exit-code 2 "$DOC_PATH"
 ```
 
-- **Secret gate range:** the document itself — a credential pasted into a plan is the whole payload here. The repo is not scanned on this path; it is read-only context for the legs.
-- External agents are report-only — they change no files; their would-be safe_auto fixes come back as findings inside the envelope.
-- The run's final output prints `stageDir`, `pluginVersion` (the compound-engineering version the external reviews ran against — cite it in Coverage), `claudeStatus` / `opencodeStatus` (`ok` | `failed`), and an envelope path per surviving agent.
+Any nonzero exit or unavailable scanner refuses the peer launch and sends nothing externally. In that path, invoke local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`, then deliver its envelope with degraded peer coverage. The override deliberately skips this gate; report that fact.
 
-## Phase 3: Run the local plugin review
+After a clean or explicitly waived scan, copy the document to an isolated temporary directory while preserving its basename and extension:
 
-Invoke the Skill tool with skill `compound-engineering:ce-doc-review` and the **original arguments unchanged** (including `mode:headless` when present, and the resolved original document path — local safe_auto fixes land on the real document). Let it run its full flow.
-
-Never invoke bare `se-doc-review` from here — that is this wrapper.
-
-## Phase 4: Collect external envelopes
-
-After the local review returns, wait for the background harness task (wait cap: se-harness → Waiting for the harness). Then read the envelope path(s) the final output block reported (an agent with status `failed` has none — that's expected, not an error).
-
-## Phase 5: Synthesize the three envelopes
-
-All three results share the envelope structure (Applied / Proposed fixes / Decisions / FYI / Residual). Merge by section + issue substance:
-
-Strip any `SEVERITY:` machine line from the envelopes before synthesizing — it is pipeline gate input (se-pipeline's `docReviewGate`), not review content, and must never appear in the human-facing synthesis.
-
-1. **Consensus** — the same finding in 2+ envelopes. Report once with all sources; agreement across model families is the strongest signal in this review. If the local review already applied or proposed it, mark as confirmed rather than re-opening.
-2. **Unique** — findings only one review produced. These are the payload of running three: name which review caught it and why the others plausibly missed it.
-3. **Contradictions** — reviews disagree on substance, or the local review's applied fix conflicts with an external finding (externals apply nothing; their safe_auto candidates are findings in the envelope). Surface explicitly with both positions; do not silently pick a side.
-4. **Fix divergence** — same finding, materially different suggested_fix. Present the strongest fix with attribution; note the alternatives in one line.
-
-Present as:
-
+```bash
+DOC_STAGE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/se-doc-review.XXXXXX")
+DOC_COPY="$DOC_STAGE_DIR/$(basename "$DOC_PATH")"
+cp "$DOC_PATH" "$DOC_COPY"
 ```
+
+Peers review `DOC_COPY`; the local pass reviews `DOC_PATH`. This keeps both peer inputs stable while local `safe_auto` edits land on the real document.
+
+## Dispatch fresh peers
+
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It owns pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
+
+Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
+
+### Claude prompt
+
+```text
+[ce-doc-review-external-consult]
+
+Invoke `/compound-engineering:ce-doc-review` with these exact arguments:
+
+mode:headless <absolute DOC_COPY path>
+
+Run the complete document classification, persona selection and dispatch,
+validation, synthesis, and headless-envelope flow.
+
+This is an independent report-only review. Do not create, edit, or delete any
+repository file or the reviewed document; stage changes; commit; push; switch
+branches; or ask interactive questions. The shared lifecycle's report transport
+file is the only permitted write. Where the workflow would apply a safe_auto fix,
+keep it in the envelope as an applied-candidate finding with the exact suggested edit.
+
+Return the canonical complete headless envelope, not a completion note.
+Coverage must name every persona attempted and its status.
+Coverage finding counts must reconcile. Route every surviving finding once through
+Applied fixes, Proposed fixes, Decisions, FYI observations, Residual concerns,
+or Deferred questions, with the evidence and suggested fix required by the
+canonical schema. An empty review still includes Coverage with explicit zero
+counts. End with the exact line: Review complete
+```
+
+### OpenCode prompt
+
+```text
+[ce-doc-review-external-consult]
+
+Use the `ce-doc-review` skill with these exact arguments:
+
+mode:headless <absolute DOC_COPY path>
+
+Run the complete document classification, persona selection and dispatch,
+validation, synthesis, and headless-envelope flow.
+
+This is an independent report-only review. Do not create, edit, or delete any
+repository file or the reviewed document; stage changes; commit; push; switch
+branches; or ask interactive questions. The shared lifecycle's report transport
+file is the only permitted write. Where the workflow would apply a safe_auto fix,
+keep it in the envelope as an applied-candidate finding with the exact suggested edit.
+
+Return the canonical complete headless envelope, not a completion note.
+Coverage must name every persona attempted and its status.
+Coverage finding counts must reconcile. Route every surviving finding once through
+Applied fixes, Proposed fixes, Decisions, FYI observations, Residual concerns,
+or Deferred questions, with the evidence and suggested fix required by the
+canonical schema. An empty review still includes Coverage with explicit zero
+counts. End with the exact line: Review complete
+```
+
+After the shared lifecycle submits both prompts and before it waits, invoke the local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and pane closure.
+
+Accept an envelope only when Coverage accounts for every attempted persona, its counts reconcile, every surviving finding is routed once with its required fields, and the terminal line is exact. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. If all three passes fail, fail the review without modifying the document further.
+
+Remove the temporary document copy and its empty staging directory after pane closure or any earlier failure.
+
+## Synthesize envelopes
+
+Merge available envelopes by section and issue substance:
+
+1. **Consensus**: the same finding appears in at least two envelopes. Report it once with every source.
+2. **Source-unique**: one pass found it. Preserve attribution and judge it on its merits.
+3. **Contradiction**: passes disagree on whether the issue exists or what behavior is correct.
+4. **Fix divergence**: passes agree on the issue but propose materially different edits.
+
+If the local pass already applied a finding, mark matching peer findings as confirmation rather than reopening them. Never apply contradictions automatically. Treat cross-model agreement as stronger evidence, not proof.
+
+Present:
+
+```text
 ## Cross-review synthesis
-Coverage: local personas: <list>; external claude: <ok | failed>; external opencode: <ok | failed>
+Coverage: local personas: <list or failed>; Claude peer: <ok or failed>; OpenCode peer: <ok or failed>
 ### Consensus (N)
-### Unique findings (M) — by source
+### Source-unique findings (M)
 ### Contradictions / fix divergence (K)
 ```
 
-**Delivery by mode:**
+## Deliver by mode
 
-- **Interactive:** print the synthesis, then for unresolved Consensus/Unique/Contradiction findings offer the standard routing (walk through / apply best judgment / append to Open Questions / report only) via AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`). On walk through: one finding per turn, each a **decision brief** (`~/.claude/shared/decision-brief.md`), stripped of persona and envelope jargon. Wait for the answer before the next finding.
-- **Headless:** append the synthesis to the local review's envelope and return the combined text to the caller. No questions — the caller (e.g. se-plan) decides.
+- **Interactive**: print the synthesis, then route unresolved findings through walk through / apply best judgment / append to Open Questions / report only. Use the platform's blocking question tool. During walk-through, present one decision brief at a time using `~/.claude/shared/decision-brief.md` and wait for the answer before continuing.
+- **Headless**: append the synthesis to the local envelope when available, otherwise to the surviving peer envelope set. Return the combined text without questions; the caller decides unresolved findings.
 
+Report every local edit, peer failure, malformed envelope, waived secret scan, and remaining unresolved finding.

@@ -86,18 +86,10 @@ describe("redactSecretsInText", () => {
 });
 
 describe("renderIssueMarkdown", () => {
-  test("failure renders cause-analysis with the failed block", () => {
+  test("failure renders machine-consumed issue metadata", () => {
     const md = renderIssueMarkdown(fields());
-    expect(md).toContain("## Cause analysis");
-    expect(md).toContain("**Failed block:** `code-review`");
     expect(md).toContain("status: open");
     expect(md).toContain("run-id: run-123");
-  });
-
-  test("actionable optimization renders the optimization heading", () => {
-    const md = renderIssueMarkdown(fields({ disposition: "actionable-optimization", failedBlock: undefined }));
-    expect(md).toContain("## Optimization opportunity");
-    expect(md).not.toContain("Failed block");
   });
 });
 

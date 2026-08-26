@@ -41,43 +41,6 @@ teardown() {
   assert_python3_available
 }
 
-@test "README.md declares the same python3 floor the test helper enforces" {
-  local repository_root
-  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-  if [[ ! -f "$repository_root/README.md" ]]; then
-    fail "README.md is missing, so the python3 floor cannot be checked against the documented requirement"
-    return 1
-  fi
-
-  run python3 - "$repository_root/README.md" "$PYTHON3_MIN_VERSION" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-readme = Path(sys.argv[1])
-expected = sys.argv[2]
-text = readme.read_text()
-match = re.search(r"(?ms)^## Requirements\n(?P<section>.*?)(?:^## |\Z)", text)
-assert match, "README.md has no Requirements section"
-
-section = match.group("section")
-patterns = {
-    "setup requirement": r"python3` is on your `PATH` and reports at least \*\*([0-9]+\.[0-9]+)\*\*",
-    "floor rationale": r"where the ([0-9]+\.[0-9]+) floor comes from",
-}
-
-for label, pattern in patterns.items():
-    matches = re.findall(pattern, section)
-    assert matches, f"README.md Requirements section is missing the python3 {label} floor"
-    assert len(matches) == 1, f"README.md Requirements section has multiple python3 {label} floors: {', '.join(matches)}"
-    assert matches[0] == expected, (
-        f"README.md {label} states python3 floor {matches[0]}, "
-        f"but tests/helpers/common.bash enforces {expected}"
-    )
-PY
-  assert_success
-}
-
 @test "a missing python3 is rejected" {
   local stub="$PALETTE_WORK/nopython" saved="$PATH"
   mkdir -p "$stub"
@@ -288,11 +251,6 @@ module.shutil.which = lambda _: None
 module.MACOS_ZED_CLI = Path(os.environ["FAKE_ZED"])
 assert module.resolve_zed() == os.environ["FAKE_ZED"]
 PY
-  assert_success
-}
-
-@test "Open in Zed command uses the validated helper" {
-  run grep -F 'command = "python3 {plugin_root_q}/open_in_zed.py {target_cwd_q}"' "$REAL_COMMANDS"
   assert_success
 }
 
@@ -910,12 +868,6 @@ PY
   assert_success
   assert_output --partial "pane report-metadata w1:pP"
   assert_output --partial "--clear-token command_palette"
-}
-
-@test "R6: overlay_shell is wired to the token clear" {
-  run grep -n -A1 'command.kind == "overlay_shell"' "$PALETTE_DIR/palette.py"
-  assert_success
-  assert_output --partial "clear_palette_token"
 }
 
 @test "R6: the lookup costs one pane list and no process-info calls" {

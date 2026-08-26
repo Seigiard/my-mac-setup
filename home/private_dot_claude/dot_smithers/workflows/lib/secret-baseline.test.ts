@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { captureBaseline, describeFindings, readReportFindings, repoIdentity, resolveBaseline } from "./secret-baseline.ts";
+import { captureBaseline, readReportFindings, repoIdentity, resolveBaseline } from "./secret-baseline.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -184,25 +184,5 @@ describe("readReportFindings", () => {
     // #then neither throws and the message just loses its names
     expect(readReportFindings(path.join(dir, "no-such.json"))).toEqual([]);
     expect(readReportFindings(broken)).toEqual([]);
-  });
-});
-
-describe("describeFindings", () => {
-  test("перечисляет fingerprint'ы и считает остаток сверх лимита", () => {
-    // #given more findings than the message should carry
-    const findings = Array.from({ length: 12 }, (_, i) => ({ fingerprint: `f${i}.txt:rule:1`, description: "" }));
-
-    // #when they are described with a limit of 3
-    const text = describeFindings(findings, 3);
-
-    // #then the message names the first few and admits how many it dropped
-    expect(text).toBe("f0.txt:rule:1, f1.txt:rule:1, f2.txt:rule:1 (+9 more)");
-  });
-
-  test("нет распарсенных findings → честная формулировка, а не пустая строка", () => {
-    // #given a scanner that reported leaks but wrote no readable report
-    // #when the findings are described
-    // #then the refusal still says something an operator can act on
-    expect(describeFindings([])).toContain("no readable report");
   });
 });

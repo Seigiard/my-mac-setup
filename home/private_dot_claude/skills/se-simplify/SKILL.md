@@ -1,57 +1,112 @@
 ---
 name: se-simplify
-description: Tidy recently changed code with cross-model verification — two report-only legs (claude + opencode), one verified apply behind a required validate-cmd. Use for a refactor pass on a branch before review; use ce-debug for bugs.
-argument-hint: "validate-cmd:'<test/typecheck command>' [blank to simplify current branch changes, or a scope description]"
+description: Simplify changed code through two fresh cross-model peer reviews, then apply the synthesized behavior-preserving findings once. Use for a tidy or refactor pass before review.
+argument-hint: "[scope description]"
 ---
 
-# Simplify (wrapper: two cross-model report legs → single verified apply, via smithers)
+# Cross-model simplify in herdr
 
-Wrapper over `compound-engineering:ce-simplify-code`. Two external agents (claude on Sonnet, opencode on GPT-5.5) each run the ce-simplify-code **reviewer phase only** (Steps 1-2: scope + the reuse/quality/efficiency personas) on a **frozen snapshot** of the branch, returning findings and changing nothing. A deterministic merge keeps cross-model **consensus** + **unique** findings and **excludes contradictions**; then ONE workflow-owned apply leg (Sonnet) applies that set to the live repo, re-locating each finding by content, and a **validate-cmd** proves behavior is preserved — reverting the whole apply and degrading on failure.
+Launch two fresh peer sessions to inspect the same simplification scope.
 
-All orchestration (right-sizing gate, snapshotting, staging, parallel launches, merge, apply, verify, revert) is **code**, not prose: the smithers workflow at `~/.claude/.smithers/workflows/se-simplify.tsx`. Do not re-implement any of it — launch it and read its outputs. Harness mechanics shared with `/se-code-review` and `/se-doc-review` — launching, the secret gate, staging, error boundaries, diagnostics: read `~/.claude/shared/se-harness.md`.
+Each peer uses the `ce-simplify-code` rubric to produce findings without editing. After collecting both reports, close both panes before synthesis. The parent applies the accepted set exactly once and verifies behavior.
 
-**The workflow's apply leg is the SINGLE apply owner.** This wrapper does NOT run a separately-applying local `ce-simplify-code` pass: that would give two apply owners mutating the live repo while the report legs analyze a frozen snapshot (stale line refs, double/conflicting edits). Any local pass, if you want a third finding source, must run **report-only** and feed the synthesis; the workflow applies exactly once.
+## Resolve scope
 
-**Cost note:** two report legs (Sonnet claude + GPT-5.5 opencode, each up to 3 reviewer subagents) + one apply leg (Sonnet) + one validate-cmd run. Expect a few minutes and a few dollars on a normal branch diff; the apply leg's `maxBudgetUsd` is a runaway breaker, not a target. Skipped cheaply when the diff is not worth simplifying (the workflow's right-sizing gate).
+Resolve the scope using `ce-simplify-code` Step 1:
 
-## Recursion guard (read first)
+1. Use an explicitly named file, directory, function, or change range without widening it.
+2. Otherwise use the current branch diff against its base branch.
+3. If no base is available, use staged and unstaged changes against `HEAD`.
+4. If no non-empty scope can be resolved, ask what to simplify and stop.
 
-If the current prompt contains the marker `[ce-simplify-external-consult]`, you ARE one of the external legs (a report leg or the apply leg). Do exactly what that prompt says — run the ce-simplify-code reviewers and return findings (report leg), or apply the provided finding set (apply leg) — and never launch the harness or another consult from inside it. (The harness embeds this marker in every consult prompt.)
+Capture the pre-apply worktree state so simplify-owned edits can be distinguished from existing user changes.
 
-## Phase 1: Resolve the scope and the REQUIRED validate-cmd
+## Dispatch fresh peers
 
-- **Resolve the repo:** the absolute path to the git checkout to simplify (default: the current working directory's repo root).
-- **Resolve the validate-cmd (required):** the behavior-preservation command — the branch's test and/or typecheck command (e.g. `bun test`, `npm test && tsc --noEmit`). Take it from a `validate-cmd:'…'` argument token; if the user named a plan with a Verification Contract, derive it from there. **If you cannot resolve a validate-cmd, STOP and ask for one — do not launch a run that would refuse to apply.** Standalone `se-simplify` has no gate-0 / Verification Contract to supply a default, and applying simplifications without a way to prove behavior is preserved is not allowed.
-- **Resolve the scope (optional):** any remaining description becomes the harness `target`. Empty = the current branch's changes vs the auto-detected base (the harness computes and freezes the merge-base itself).
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
 
-## Phase 2: Launch the harness (background)
+Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
 
-One background Bash task (`run_in_background: true`):
+### Claude prompt
 
-```bash
-cd ~/.claude/.smithers && \
-./node_modules/.bin/smithers up workflows/se-simplify.tsx \
-  --input '{"repoPath":"<abs repo root>","validateCmd":"<the resolved command>","target":"<scope or empty>"}'
+Send Claude this prompt:
+
+```text
+Invoke `/compound-engineering:ce-simplify-code` as the governing rubric for this scope:
+
+<resolved scope>
+
+Execute only Step 1 and Step 2: resolve the scope and run the code-reuse,
+code-quality, and efficiency reviewers. Do not execute Steps 3 through 5.
+
+This is an independent report-only simplification review. Do not edit repository
+files, stage changes, commit, push, switch branches, or ask interactive questions.
+The shared lifecycle's report transport file is the only permitted write.
+
+Return a complete report with these sections:
+- Coverage: status for code-reuse, code-quality, and efficiency.
+- Findings: reviewer dimension, file and location, proposed behavior-preserving
+  change, evidence, confidence, and required checks for every accepted item.
+- Rejected or uncertain: every candidate excluded as unsafe, contradictory,
+  false-positive, or low-value, with its reason.
+Write `Findings: none` when no item survives. End with the exact line:
+Simplify review complete
 ```
 
-- `repoPath` is an **explicit input**, never an env default: the apply leg mutates exactly this path. Pass the real checkout you want tidied.
-- The harness **freezes the review target** first (`git stash create` + a detached `git worktree` under `/tmp/ce-simplify/run-<ts>/repo`), so the report legs analyze a stable snapshot while the later apply leg edits the live repo.
-- **Secret gate range:** `baseSha` → the stash snapshot, dirty tree included. The gate is skipped only when the caller passes `"preScanned":true` — se-pipeline does, because it already scanned this range and its operator can waive that scan.
+### OpenCode prompt
 
-**Error handling beyond the shared boundaries:** if **zero** report legs succeed, the run reports `degraded` and applies nothing (never a clean success with an empty set). A failed post-apply validate-cmd reverts the whole apply and reports `degraded`.
+```text
+Use the `ce-simplify-code` skill as the governing rubric for this scope:
 
-## Phase 3: Collect the outcome
+<resolved scope>
 
-Wait for the background task, then read the final output block:
+Execute only Step 1 and Step 2: resolve the scope and run the code-reuse,
+code-quality, and efficiency reviewers. Do not execute Steps 3 through 5.
 
-- `status`: `ok` (applied + verified, or nothing to apply), `skipped` (right-sizing gate — the diff was not worth simplifying; the reason is included), or `degraded` (zero legs, verify failure + revert, or refused-because-no-validate-cmd).
-- `claudeStatus` / `opencodeStatus` (`ok` | `failed` | `n/a`), `appliedCount`, `contradictionCount`, `validateExitCode`, `reverted`, and a `reportPath` to the full synthesis (`simplify.report.json`).
+This is an independent report-only simplification review. Do not edit repository
+files, stage changes, commit, push, switch branches, or ask interactive questions.
+The shared lifecycle's report transport file is the only permitted write.
 
-## Phase 4: Report what was applied
+Return a complete report with these sections:
+- Coverage: status for code-reuse, code-quality, and efficiency.
+- Findings: reviewer dimension, file and location, proposed behavior-preserving
+  change, evidence, confidence, and required checks for every accepted item.
+- Rejected or uncertain: every candidate excluded as unsafe, contradictory,
+  false-positive, or low-value, with its reason.
+Write `Findings: none` when no item survives. End with the exact line:
+Simplify review complete
+```
 
-Summarize from the run output and the report:
+Execute the shared lifecycle through pane closure. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
 
-- What the apply leg **applied**, by dimension (reuse / quality / efficiency), and whether the validate-cmd passed (behavior preserved) — or that the apply was **reverted** and why.
-- **Consensus** findings (both legs agreed — the safest, applied), **unique** findings (one leg, attributed, applied), and **contradictions** (both legs touched the same spot with clashing edits — advisory only, NOT applied) so the user can decide those by hand.
-- If `status: skipped`, state the gate's reason (empty / docs-only / borderline-below-threshold) — nothing was reviewed or applied.
+## Synthesize findings
 
+Merge findings into consensus, Claude-only, OpenCode-only, contradictions, and behavior-preservation uncertainty.
+
+- Accept defensible consensus and unique findings.
+- Exclude contradictions, false positives, low-value churn, and proposals that cannot prove equivalent output, errors, side effects, or ordering.
+- Never simplify away validation, authorization, escaping, sanitization, data-loss prevention, accessibility behavior, or other safety checks.
+- Prefer readable explicit code over compact code. Fewer lines are not the goal.
+
+## Apply once
+
+The parent is the only apply owner. Apply each accepted finding directly, skipping any item that is no longer valid in the current code or cannot preserve behavior. Do not let either peer edit the checkout and do not create a second apply owner.
+
+## Verify
+
+After applying the synthesized simplifications, follow `ce-simplify-code` Step 4:
+
+- Run the project's full typecheck and lint commands when available.
+- Run tests scoped to the changed paths.
+- Broaden tests when shared or widely imported code changed.
+- Run the full suite when the test runner cannot scope execution.
+- If a check fails, fix or revert the simplification that caused it.
+- Never weaken tests, assertions, or types to obtain a passing result.
+
+Resolve commands from repository instructions, a plan's Verification Contract, package scripts, Makefile targets, and existing CI configuration. Do not invent commands or require a separate caller-supplied verification argument.
+
+Report every command run and its result. If no applicable verification command can be found, state that the simplification remains unverified.
+
+## Output
+
+Report peer coverage; consensus, unique findings, and contradictions; applied and skipped findings by reuse, quality, and efficiency; verification commands and results; and remaining risks. Do not commit or push unless the user explicitly requested it.

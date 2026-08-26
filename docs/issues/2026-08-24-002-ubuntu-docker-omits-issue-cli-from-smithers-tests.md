@@ -1,6 +1,6 @@
 ---
 title: "Ubuntu Docker omits issue CLI from Smithers tests"
-short_description: "make test-ubuntu fails the Smithers publishIssue real-CLI test because the staged Docker worktree omits scripts/issues, even though the same 626-test gate passes from the complete host checkout."
+short_description: "Docker test services now stage the issue CLI, issue records, a worktree marker, and the Makefile so the canonical Smithers gate and post-apply issue smoke test run from the reconstructed checkout."
 type: "bug"
 category: "testing-ci"
 tags: ["docker","smithers","test-gate"]
@@ -36,4 +36,4 @@ None.
 
 ## Resolution
 
-Mounted and staged scripts/issues plus docs/issues in both full Docker services, created the disposable worktree marker required by the CLI, and added a Docker contract regression. Verified with make test-ubuntu: 626 Smithers tests and 362 post-apply Bats tests passed.
+Mounted and staged scripts/issues, docs/issues, and Makefile in both Docker test services, created the staged worktree marker required by the issue CLI, and replaced duplicated Bun commands with make test-smithers. Added a two-service Docker contract regression test and verified it red when the test-ubuntu CLI mount was removed and green after restoration. Verified make test-smithers with 626 passing tests, make test-issues with 41 passing tests, Compose validation, and make test-ubuntu through all 357 post-apply Bats cases.

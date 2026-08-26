@@ -155,7 +155,19 @@ if [ "$agent_get_status" -ne 0 ]; then
 fi
 agent_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["agent"]["agent_status"])' < "$agent_out" 2>/dev/null || true)"
 case "$agent_status" in
-  idle|done) status_exit answered 0 ;;
+  idle|done)
+    printf -v reminder '%s\n\n%s\n%s\n%s\n%s\n%s' \
+      "[child-settled v1 agent=$started_name pane=$pane]" \
+      "The child is $agent_status and its initial answer has been read." \
+      'If another turn may have run, read its current output before reaping.' \
+      'If no follow-up is needed, run:' \
+      "herdr-child reap --to $started_name --pane $pane" \
+      "If you need a follow-up, leave the pane open and prompt $started_name."
+    if ! herdr agent prompt "$HERDR_PANE_ID" "$reminder" >/dev/null 2>&1; then
+      printf 'ask.sh: warning: could not queue the cleanup reminder for %s in pane %s\n' "$started_name" "$pane" >&2
+    fi
+    status_exit answered 0
+    ;;
   blocked) status_exit blocked 1 ;;
   working|unknown) status_exit working 124 ;;
   *) status_exit undelivered 1 ;;

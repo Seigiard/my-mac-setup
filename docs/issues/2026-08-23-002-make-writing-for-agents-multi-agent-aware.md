@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["skills","opencode","claude-code","pi","documentation"]
 date: "2026-08-23"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-25"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Rewrite the mechanics guidance around a universal core plus explicit client-spec
 ## Open decisions
 
 Decide whether client mechanics remain in one matrix or split into progressively disclosed references. Define which claims can be checked automatically against repository configuration and which require documented upstream verification. Decide whether the skill should direct agents to inspect current client documentation before adding a new cross-client skill.
+
+## Resolution
+
+Reworked skill mechanics into explicit Claude Code, OpenCode, and Pi sections; documented managed-source ownership and adapter rules; exposed the canonical writing-for-agents skill to OpenCode through a managed symlink; updated inventory and focused deployment checks.

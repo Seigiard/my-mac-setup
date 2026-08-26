@@ -5,7 +5,7 @@ description: "Start a live claude, opencode, or pi peer in a herdr pane and retu
 
 # ask-in-herdr — consult a live peer agent
 
-This skill works only inside herdr. It starts a live child through `herdr-child`, waits for the initial answer, prints the answer on stdout, and leaves the pane open for follow-up.
+This skill works only inside herdr. It starts a live child through `herdr-child`, waits for the initial answer, prints the answer on stdout, and leaves the pane open for follow-up. After a settled answer is read, it queues a `[child-settled v1 ...]` reminder to the parent so an unneeded pane is reaped instead of forgotten.
 
 Read `~/.claude/shared/child-agent-contract.md` before handling a callback from the child.
 
@@ -53,6 +53,8 @@ The answer or partial answer is on stdout only after two `herdr-child verify` ca
 | `ask.sh: status=refused` | 2 | Arguments or the requested posture are invalid. |
 
 The script prints a pair-addressed close hint on stderr before the status line. Keep the pane for follow-up, or use the reported `herdr-child reap --to <alias> --pane <pane-id>` command.
+
+For `status=answered`, the script also submits a cleanup reminder to the parent agent's pane. Herdr queues that prompt while the parent is working. The reminder is best effort: a delivery failure prints a warning but does not discard or downgrade the answer already read.
 
 ## Examples
 

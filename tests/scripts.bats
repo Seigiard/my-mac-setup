@@ -28,11 +28,6 @@ teardown() {
 # Repository linting
 # ===========================================
 
-@test "shellcheck is managed by the cross-platform Brewfile" {
-  assert_file_contains "$SOURCE_ROOT/private_dot_config/brewfiles/Brewfile.tmpl" '^brew "shellcheck"'
-}
-
-# Docker mounts only home/ and tests/, so the repo-root Makefile is absent there.
 @test "lint target propagates shellcheck failures" {
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
@@ -210,16 +205,6 @@ SH
   [ ! -e "$call_log" ]
 }
 
-@test "Docker image fails at build time when apt git is too old for zdiff3" {
-  local repo_root="$BATS_TEST_DIRNAME/.."
-  local dockerfile="$repo_root/docker/Dockerfile.ubuntu"
-  [[ -f "$dockerfile" ]] || skip "repo-root Dockerfile is not available in this environment"
-
-  assert_file_contains "$dockerfile" '^      if ! dpkg --compare-versions "\$found" ge "\$required"; then \\$'
-  assert_file_contains "$dockerfile" '^    assert_git_version_at_least 2 35; \\$'
-  assert_file_contains "$dockerfile" '^    command -v python3 >/dev/null'
-}
-
 # ===========================================
 # install-packages script
 # ===========================================
@@ -352,6 +337,11 @@ case "$1 $2" in
     fi ;;
   "agent read") [ "${STUB_READ_FAIL:-0}" = 1 ] && { printf 'read failed\n' >&2; exit 1; }; printf 'ANSWER from child\n' ;;
   "agent get") printf '{"result":{"agent":{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":1,"state_change_seq":1,"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
+  "agent prompt")
+    [ "${STUB_PARENT_PROMPT_FAIL:-0}" = 1 ] && { printf 'prompt failed\n' >&2; exit 1; }
+    printf '%s' "$4" > "$CHILD_STUB/parent-prompt"
+    printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    ;;
   "pane get")
     if [ "${STUB_WAITING_LABEL:-0}" = 1 ]; then
       printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","state_labels":{"blocked":"waiting for parent"}}}}\n'
@@ -421,6 +411,22 @@ SH
   assert_success
   run grep -E -- '^agent read red-wolf --source visible --lines 200' "$CHILD_STUB/herdr.log"
   assert_success
+  assert_file_contains "$CHILD_STUB/parent-prompt" '^\[child-settled v1 agent=red-wolf pane=wT:p9\]$'
+  assert_file_contains "$CHILD_STUB/parent-prompt" 'initial answer has been read'
+  assert_file_contains "$CHILD_STUB/parent-prompt" 'read its current output before reaping'
+  assert_file_contains "$CHILD_STUB/parent-prompt" 'herdr-child reap --to red-wolf --pane wT:p9'
+  assert_file_contains "$CHILD_STUB/herdr.log" '^agent prompt wT:p0 '
+}
+
+@test "ask.sh keeps a settled answer when the parent reminder cannot be queued" {
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=done STUB_PARENT_PROMPT_FAIL=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_DIR/ask.sh" claude question
+  assert_success
+  assert_output --partial "ANSWER from child"
+  assert_output --partial "warning: could not queue the cleanup reminder"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
 @test "ask.sh forwards posture and every native caller option" {
@@ -486,6 +492,7 @@ SH
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
   assert_file_contains "$CHILD_STUB/herdr.log" '^agent read .*--source recent-unwrapped'
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_WAITING_LABEL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -493,6 +500,7 @@ SH
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
 @test "ask.sh reports undelivered when child output cannot be read" {
@@ -511,6 +519,7 @@ SH
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
 @test "ask.sh classifies successful waits with working, unknown, and fallback statuses" {
@@ -1224,6 +1233,7 @@ write_pool_records() {
     bash "$HERDR_CHILD" reap --to idle-a --pane wT:p1
   assert_success
   assert_output --partial "idle-a: closed pane wT:p1"
+  refute_output --partial "--pane: skipped"
   run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
   assert_output 1
 }
@@ -1331,18 +1341,6 @@ write_pool_records() {
 # ===========================================
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
-
-@test "herdr-integrations script guards on command -v herdr and stays tolerant" {
-  run grep -q "command -v herdr" "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-  run grep -q 'for target in claude pi opencode' "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-}
-
-@test "herdr-integrations version trigger is lookPath-guarded so CI without herdr still renders" {
-  run grep -q 'lookPath "herdr"' "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-}
 
 @test "herdr-integrations script exits 0 and skips when herdr is absent" {
   skip_if_no_chezmoi

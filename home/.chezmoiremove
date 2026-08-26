@@ -5,6 +5,9 @@
 # The child launch contract replaces the turn-bound herdr-pair protocol.
 .claude/skills/herdr-pair
 
+# Standalone se reviews share the Herdr peer lifecycle now.
+.claude/shared/se-harness.md
+
 # The herdr-only peer consult is deployed under its capability-specific name.
 .claude/skills/ask-agent
 
