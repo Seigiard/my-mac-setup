@@ -155,7 +155,9 @@ Error shape for a target already gone at close time, for both kinds:
 {"error":{"code":"pane_not_found","message":"pane w2:p3 not found"}}
 ```
 
-Both exit 1. `pane list --workspace <id>` includes each pane's `tab_id`, so sibling-pane enumeration for a given tab is a filter over that list, not a separate call.
+Both exit 1. `pane list --workspace <id>` includes each pane's `tab_id`, so sibling-pane enumeration for a given tab is available as a filter over that list, but `herdr tab get <tab_id>` is the narrower call: it returns `.result.tab.pane_count` directly (confirmed above, `pane_count:1`), needs only the tab id, and fails `tab_not_found` when the tab is already gone — the mechanism `herdr-child reap` actually uses to decide "closed and its tab" versus "kept with N panes" without a second workspace-wide listing call.
+
+`pane get` itself (not just `tab create`'s response) carries the pane's own `tab_id` field, confirmed throughout the measurements above (e.g. `"tab_id":"w2:t2"` on `pane get w2:p2`) — this is what `herdr-child reap` compares against its recorded ownership token.
 
 **Consequence for tab-mode cleanup:** since last-pane-close auto-closes the tab, tab removal never needs an explicit `herdr tab close` call or a re-enumeration race guard — a validated `pane close` on the child's own pane is the complete removal mechanism when that pane is the tab's only pane. `herdr tab close` is only ever needed as a defensive fallback, never as the primary path.
 
