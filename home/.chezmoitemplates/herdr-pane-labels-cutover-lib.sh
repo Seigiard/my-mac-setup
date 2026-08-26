@@ -451,7 +451,7 @@ hpl_cutover_mark_plugin_linked() {
 }
 
 hpl_cutover_refresh_sessions() {
-  local payload payload_file error_file tmp
+  local payload payload_file error_file tmp running_sockets
   if ! command -v herdr >/dev/null 2>&1; then
     if [ "${HPL_CUTOVER_HERDR_PRESENT:-0}" -eq 1 ]; then
       hpl_cutover_error "herdr became unreachable mid-run"
@@ -467,23 +467,24 @@ hpl_cutover_refresh_sessions() {
   }
   payload="$(cat "$payload_file")"
   tmp="$HPL_CUTOVER_WORK/sockets.tmp"
-  if ! printf '%s' "$payload" | jq -e '
+  # One pass validates the shape and collects running sockets into a JSON
+  # array; jq -e reads false/null on the array itself, not on an exploded
+  # empty stream, so a valid session list with no running sockets still
+  # exits 0. A second, cheap pass explodes that small array to lines --
+  # it never re-scans or re-validates the original payload.
+  if ! running_sockets="$(printf '%s' "$payload" | jq -er '
       (.result.sessions // .sessions) as $sessions
-      | ($sessions | type == "array")
-        and all($sessions[];
-          (.running | type == "boolean")
-          and (.running == false or (.socket_path | type == "string" and length > 0)))' \
-      >/dev/null 2>&1; then
+      | if ($sessions | type == "array")
+             and all($sessions[];
+               (.running | type == "boolean")
+               and (.running == false or (.socket_path | type == "string" and length > 0)))
+        then [$sessions[] | select(.running == true) | .socket_path]
+        else error("malformed herdr session list")
+        end' 2>/dev/null)"; then
     hpl_cutover_error "malformed herdr session list"
     return 1
   fi
-  if ! printf '%s' "$payload" | jq -r '
-      (.result.sessions // .sessions) as $sessions
-      | $sessions[] | select(.running == true) | .socket_path
-      | select(type == "string" and length > 0)' 2>/dev/null | LC_ALL=C sort -u > "$tmp"; then
-    hpl_cutover_error "malformed herdr session list"
-    return 1
-  fi
+  printf '%s' "$running_sockets" | jq -r '.[]' | LC_ALL=C sort -u > "$tmp"
   hpl_cutover_persist_sockets "$tmp" || return 1
   mv "$tmp" "$HPL_CUTOVER_SOCKETS"
 }

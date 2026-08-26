@@ -68,19 +68,7 @@ require_parent() {
   }
 }
 
-now_seq() {
-  if command -v python3 >/dev/null 2>&1; then
-    local value
-    value="$(python3 -c 'import time; print(int(time.time()*1000000))' 2>/dev/null)"
-    if [ -n "$value" ]; then
-      printf '%s' "$value"
-      return
-    fi
-  fi
-  printf '%s000000' "$(date +%s)"
-}
-
-json_agents_are_complete() {
+json_agents_validate_and_list_occupied() {
   python3 -c 'import json,math,sys
 try:
  data=json.load(sys.stdin)
@@ -100,29 +88,24 @@ for a in agents:
  if a.get("name") and a["name"] in names: raise SystemExit(1)
  panes.add(a["pane_id"]); terminals.add(a["terminal_id"])
  if a.get("name"): names.add(a["name"])
+for a in agents:
+ name=a.get("name")
+ if name: print(name)
 '
 }
 
 read_live_agents() {
-  local context="$1" output
+  local context="$1" output occupied
   output="$(herdr agent list)" || {
     printf 'herdr-child: could not list live agents during %s\n' "$context" >&2
     return 1
   }
-  if ! printf '%s' "$output" | json_agents_are_complete; then
+  occupied="$(printf '%s' "$output" | json_agents_validate_and_list_occupied)" || {
     printf 'herdr-child: live agent records are incomplete during %s\n' "$context" >&2
     return 1
-  fi
+  }
   LIVE_AGENTS_JSON="$output"
-  OCCUPIED_NAMES="$(printf '%s' "$output" | json_occupied_names)"
-}
-
-json_occupied_names() {
-  python3 -c 'import json,sys
-agents=json.load(sys.stdin)["result"]["agents"]
-for agent in agents:
- name=agent.get("name")
- if name: print(name)'
+  OCCUPIED_NAMES="$occupied"
 }
 
 alias_is_occupied() {
@@ -275,7 +258,7 @@ start_child() {
   fi
 
   local seed candidate_file candidate candidate_index=0 selected=""
-  seed="${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(now_seq)"
+  seed="${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(herdr_now_seq)"
   candidate_file="$(mktemp)"
   if ! herdr_alias_candidates "$seed" > "$candidate_file"; then
     rm -f "$candidate_file"
@@ -519,7 +502,7 @@ ask_parent() {
   [ -n "${HERDR_PANE_ID:-}" ] || { printf 'herdr-child: HERDR_PANE_ID is missing\n' >&2; exit 1; }
 
   local seq current_alias message
-  seq="$(now_seq)"
+  seq="$(herdr_now_seq)"
   herdr pane report-metadata "$HERDR_PANE_ID" --source "$SOURCE_ID" \
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" --seq "$seq" >/dev/null
 
@@ -604,7 +587,7 @@ $text"
     exit 1
   fi
   if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
-    --clear-state-labels --seq "$(now_seq)" >/dev/null; then
+    --clear-state-labels --seq "$(herdr_now_seq)" >/dev/null; then
     printf 'herdr-child: reply delivered to %s in %s, but the waiting label could not be cleared\n' "$name" "$pane" >&2
     exit 1
   fi

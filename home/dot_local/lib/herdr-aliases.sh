@@ -14,6 +14,19 @@ HERDR_ALIAS_ANIMALS=(
   panda raven seal shark tiger wolf yak zebra
 )
 
+# A microsecond floor for monotonic reconciliation generations and metadata.
+herdr_now_seq() {
+  if command -v python3 >/dev/null 2>&1; then
+    local value
+    value="$(python3 -c 'import time; print(int(time.time()*1000000))' 2>/dev/null)"
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  fi
+  printf '%s000000' "$(date +%s)"
+}
+
 herdr_alias_is_valid() {
   [[ $# -eq 1 ]] || return 2
   local alias="$1"

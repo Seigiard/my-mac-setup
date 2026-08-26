@@ -95,15 +95,7 @@ now_seq() {
     printf '%s' "$HERDR_PANE_LABELS_TEST_NOW_SEQ"
     return 0
   fi
-  if command -v python3 >/dev/null 2>&1; then
-    local value
-    value="$(python3 -c 'import time; print(int(time.time()*1000000))' 2>/dev/null)"
-    if [ -n "$value" ]; then
-      printf '%s' "$value"
-      return 0
-    fi
-  fi
-  printf '%s000000' "$(date +%s)"
+  herdr_now_seq
 }
 
 encode_key() {
@@ -116,7 +108,10 @@ encode_value() {
 
 namespace_dir() {
   [ -n "$SOCKET_PATH" ] || return 1
-  printf '%s/sockets/%s' "$STATE_DIR" "$(encode_key "$SOCKET_PATH")"
+  # SOCKET_PATH is fixed for the process's lifetime, so the encoded path is
+  # computed once instead of forking base64/tr on every call.
+  [ -n "${_NAMESPACE_DIR:-}" ] || _NAMESPACE_DIR="$STATE_DIR/sockets/$(encode_key "$SOCKET_PATH")"
+  printf '%s' "$_NAMESPACE_DIR"
 }
 
 atomic_write() {
@@ -415,6 +410,12 @@ transient_location_result() {
   printf 'transient\037%s\037%s\037%s\037%s\037%s\037%s' "$1" "$2" "$3" "$4" "$5" "$6"
 }
 
+# Prints resolve_pane_location's retained-evidence early exit from the
+# caller's prior_* locals (bash dynamic scoping).
+bail_transient() {
+  transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+}
+
 authoritative_worktree_deleted() {
   local root="$1" anchor="$2" outfile errfile status
   [ -n "$root" ] && [ -n "$anchor" ] && [ -d "$anchor" ] || return 1
@@ -472,7 +473,7 @@ resolve_pane_location() {
     if authoritative_worktree_deleted "$prior_root" "$prior_anchor"; then
       printf 'non_git\037\037\037\037\037\037'
     else
-      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+      bail_transient
     fi
     return 0
   fi
@@ -481,17 +482,17 @@ resolve_pane_location() {
   case "$cwd" in
     */.git | */.git/*)
       candidate="$(admin_checkout_for_path "$cwd" 2>/dev/null)" || {
-        transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+        bail_transient
         return 0
       }
       ;;
   esac
   command -v git >/dev/null 2>&1 || {
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    bail_transient
     return 0
   }
   outfile="$(mktemp "$(namespace_dir)/.git-location.XXXXXX" 2>/dev/null)" || {
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    bail_transient
     return 0
   }
   errfile="$outfile.err"
@@ -508,7 +509,7 @@ resolve_pane_location() {
       printf 'non_git\037\037\037\037\037\037'
     else
       rm -f "$outfile" "$errfile"
-      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+      bail_transient
     fi
     return 0
   fi
@@ -535,7 +536,7 @@ resolve_pane_location() {
   sha="$(sed -n '4p' "$outfile")"
   rm -f "$outfile" "$errfile"
   if [ -z "$root" ] || [ -z "$anchor" ] || [ -z "$branch" ]; then
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    bail_transient
     return 0
   fi
   case "$branch" in
@@ -550,19 +551,19 @@ resolve_pane_location() {
       branch=""
       case "$sha" in
         *[!0-9a-f]* | '')
-          transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+          bail_transient
           return 0
           ;;
       esac
       ;;
     *)
-      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+      bail_transient
       return 0
       ;;
   esac
   repo="$(repository_name "$anchor")"
   [ -n "$repo" ] || {
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    bail_transient
     return 0
   }
   # A linked worktree carries a .git FILE at the checkout root; the main
@@ -1109,7 +1110,15 @@ reconcile_presentation_pass() {
     return "$alias_status"
   fi
   trace_presentation_phase aliases
-  pool_json="$(herdr_alias_candidates validation | jq -Rsc 'split("\n")[:-1]')" || return 1
+  # The color/animal pool is static for the process's lifetime, so a
+  # long-lived sweep daemon validates and encodes it once instead of on
+  # every pass; herdr_alias_candidates itself still validates per call on
+  # its public allocation path (rename_agent_from_snapshot), which callers
+  # may run with a test-overridden pool.
+  if [ -z "${_ALIAS_POOL_JSON_CACHE:-}" ]; then
+    _ALIAS_POOL_JSON_CACHE="$(herdr_alias_candidates validation | jq -Rsc 'split("\n")[:-1]')" || return 1
+  fi
+  pool_json="$_ALIAS_POOL_JSON_CACHE"
   snapshot_aliases_in_pool "$snapshot" "$pool_json" || return 1
   trace_presentation_phase alias-validation
   initial_identity="$(printf '%s' "$snapshot" | snapshot_identity)" || return 1
@@ -1278,47 +1287,54 @@ EOF
     elif [ "$outcome" = non_git ] && { [ -n "$current_repo$current_worktree$current_branch$current_status$current_git_ref" ]; }; then
       location_changed=1
     fi
-    final_payload="$(herdr pane get "$id" 2>/dev/null)" || {
-      [ "$STRICT_SWEEP" != 1 ] || return 1
-      continue
-    }
-    pane_target_matches "$final_payload" "$id" "$terminal" "$tab_id" "$workspace" "$runtime" "$revision" "$session_json" || {
-      [ "$STRICT_SWEEP" != 1 ] || return 1
-      continue
-    }
-    if [ "$location_changed" -eq 1 ]; then
-      final_tokens="$(printf '%s' "$final_payload" | jq -r '.result.pane.tokens | [(.repo//""),(.worktree//""),(.branch//""),(.location_status//""),(.git_ref//""),(.location_label//"")] | join("\u001f")')"
-      IFS="$FIELD_SEPARATOR" read -r final_repo final_worktree final_branch final_status final_git_ref final_legacy <<EOF
+    # A pane whose location hasn't changed and whose label is already correct
+    # needs no live pane fetch at all; skip the fork+parse for that steady-
+    # state no-op case.
+    if [ "$location_changed" -eq 1 ] || [ "$current" != "$intended" ]; then
+      final_payload="$(herdr pane get "$id" 2>/dev/null)" || {
+        [ "$STRICT_SWEEP" != 1 ] || return 1
+        continue
+      }
+      pane_target_matches "$final_payload" "$id" "$terminal" "$tab_id" "$workspace" "$runtime" "$revision" "$session_json" || {
+        [ "$STRICT_SWEEP" != 1 ] || return 1
+        continue
+      }
+      if [ "$location_changed" -eq 1 ]; then
+        final_tokens="$(printf '%s' "$final_payload" | jq -r '.result.pane.tokens | [(.repo//""),(.worktree//""),(.branch//""),(.location_status//""),(.git_ref//""),(.location_label//"")] | join("\u001f")')"
+        IFS="$FIELD_SEPARATOR" read -r final_repo final_worktree final_branch final_status final_git_ref final_legacy <<EOF
 $final_tokens
 EOF
-      if [ "$final_repo" != "$repo" ] || [ "$final_worktree" != "$worktree" ] || [ "$final_branch" != "$branch" ] ||
-        [ "$final_status" != "$status" ] || [ "$final_git_ref" != "$git_ref" ] || [ -n "$final_legacy" ]; then
-        presentation_generation_valid "$pass" || return 2
-        location_seq="$pass"
-        set -- herdr pane report-metadata "$id" --source "$LOCATION_SOURCE_ID" --seq "$location_seq"
-        if [ -n "$repo" ] && [ -n "$worktree" ]; then
-          set -- "$@" --token "repo=$repo" --token "worktree=$worktree" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token location_label
-          if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
-          if [ -n "$status" ]; then set -- "$@" --token "location_status=$status"; else set -- "$@" --clear-token location_status; fi
-        else
-          set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token location_label
+        if [ "$final_repo" != "$repo" ] || [ "$final_worktree" != "$worktree" ] || [ "$final_branch" != "$branch" ] ||
+          [ "$final_status" != "$status" ] || [ "$final_git_ref" != "$git_ref" ] || [ -n "$final_legacy" ]; then
+          presentation_generation_valid "$pass" || return 2
+          location_seq="$pass"
+          set -- herdr pane report-metadata "$id" --source "$LOCATION_SOURCE_ID" --seq "$location_seq"
+          if [ -n "$repo" ] && [ -n "$worktree" ]; then
+            set -- "$@" --token "repo=$repo" --token "worktree=$worktree" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token location_label
+            if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
+            if [ -n "$status" ]; then set -- "$@" --token "location_status=$status"; else set -- "$@" --clear-token location_status; fi
+          else
+            set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token location_label
+          fi
+          "$@" >/dev/null 2>&1 || {
+            [ "$STRICT_SWEEP" != 1 ] || return 1
+            continue
+          }
+          presentation_crash_after metadata
         fi
-        "$@" >/dev/null 2>&1 || {
-          [ "$STRICT_SWEEP" != 1 ] || return 1
-          continue
-        }
-        presentation_crash_after metadata
+      fi
+      if [ "$current" != "$intended" ]; then
+        final_label="$(printf '%s' "$final_payload" | jq -r '.result.pane.label')"
+        if [ "$final_label" != "$intended" ]; then
+          presentation_generation_valid "$pass" || return 2
+          herdr pane rename "$id" "$intended" >/dev/null 2>&1 || {
+            [ "$STRICT_SWEEP" != 1 ] || return 1
+            continue
+          }
+          presentation_crash_after pane-rename
+        fi
       fi
     fi
-    [ "$current" != "$intended" ] || continue
-    final_label="$(printf '%s' "$final_payload" | jq -r '.result.pane.label')"
-    [ "$final_label" != "$intended" ] || continue
-    presentation_generation_valid "$pass" || return 2
-    herdr pane rename "$id" "$intended" >/dev/null 2>&1 || {
-      [ "$STRICT_SWEEP" != 1 ] || return 1
-      continue
-    }
-    presentation_crash_after pane-rename
   done <<EOF
 $presentations
 EOF
