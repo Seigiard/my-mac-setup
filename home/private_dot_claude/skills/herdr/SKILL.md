@@ -117,6 +117,11 @@ herdr pane read <pane_id> --source recent-unwrapped --lines 50
 
 Pane commands control raw terminals; agent commands control the recognized coding agent occupying a pane, with lifecycle validation. Agent targets are a **unique live registered alias** or the **hosting pane ID** — not terminal IDs, not bare kind labels. Repository-owned launchers allocate aliases in `<color>-<animal>` form and return them to callers; do not construct or preflight a name yourself.
 
+Every agent pane or tab you create follows one lifecycle, regardless of how it was launched: start → arm a wait → collect and verify the result → close. Close `herdr-child` children with `herdr-child reap`; close manually assembled ones (`tab create` + `agent start`) with `herdr pane close` or by closing their tab. The turn that reports a child's result to the user is not finished until its pane is closed or the exception below is invoked.
+
+- Exception: leaving a settled pane open is a named decision — state it in the report to the user and re-evaluate it next turn. It never silently becomes the default for later panes.
+- A pane's name is its task. A new unrelated task gets a new pane, not a follow-up prompt into a pane whose name no longer describes the work.
+
 Start child agents through `herdr-child`, which owns pane readiness, tool posture, coordinates, and the return channel. Read `~/.claude/shared/child-agent-contract.md` before supervising a child.
 
 ```bash
@@ -174,6 +179,7 @@ herdr notification show "PM: decision ready" --body "pick 1 or 3" --sound reques
 - Use `--no-focus` for background work; do not steal the user's focus or hijack their view.
 - Target with `--current`, an explicit id, or a unique agent name. Never rely on another client's focused pane.
 - Do not close workspaces, tabs, panes, or sessions you did not create unless the user explicitly asked.
+- Close panes and tabs you created once their result is collected and verified. A settled child pane left open without a stated reason is a leak.
 - Never run `herdr server stop` from an active session unless the user explicitly intends to stop the server and every pane process in it.
 - Never kill the main herdr process. Use named test sessions (`herdr --session <name>`) for experiments that need an isolated server.
 - Re-read ids after anything closes; they renumber. Use `pane read` for output that already exists; use `pane wait-output` for output you expect next.
