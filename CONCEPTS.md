@@ -86,7 +86,7 @@ The delivery rule that workflow code — the interpreter, blocks, and shared lib
 ## herdr
 
 ### Child-agent contract
-The agreement between a parent agent and the child agents it launches into sibling panes: the parent's verbs are all fire-and-return (launch, answer, reap) and it never waits; the child calls back by injecting a marked message into the parent's pane when it needs a decision, which starts a new parent turn. While waiting, the child publishes a time-limited waiting label as passive state, since a waiting child runs no loop and cannot refresh its own signal. Interactive asks that would stall an unwatched child are removed at launch time rather than detected at runtime.
+The agreement between a parent agent and the child agents it launches into a sibling pane or, with `--tab`, a new tab of its own: the parent's verbs are all fire-and-return (launch, answer, reap) and it never waits; the child calls back by injecting a marked message into the parent's pane when it needs a decision, which starts a new parent turn. While waiting, the child publishes a time-limited waiting label as passive state, since a waiting child runs no loop and cannot refresh its own signal. Interactive asks that would stall an unwatched child are removed at launch time rather than detected at runtime.
 
 ### Sandbox-scoped takeover
 A Herdr intervention that attaches the operator to an agent inside its existing microVM. It preserves the agent's filesystem, network, and credential boundaries and never falls back to a host shell.
