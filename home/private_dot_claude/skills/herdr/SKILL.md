@@ -130,6 +130,12 @@ CHILD_PANE=$(printf '%s' "$CHILD" | python3 -c 'import sys,json; print(json.load
 herdr agent read "$CHILD_NAME" --source visible --lines 160
 ```
 
+With `--tab`, the same output also carries a `"tab"` key:
+
+```bash
+CHILD_TAB=$(printf '%s' "$CHILD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["tab"])')
+```
+
 - Choose `--posture ro` for review or consult work and `--posture rw` for file changes. Read-only removes file-writing tools but keeps an unscoped shell for `herdr-child ask`; it is not a write boundary. Pi cannot satisfy that contract and is refused under `ro`.
 - Add `--tab [--label TEXT]` to launch the child in its own new tab instead of a split pane (requires `HERDR_WORKSPACE_ID`; mutually exclusive with `--direction`). Use this when the child needs a tab of its own rather than sharing the caller's tab. `--label` is best-effort presentation only — a deployed label-reconciliation sweep may rename the tab within one sweep interval.
 - Keep the returned child name and pane ID. A `[child-ask v1 ...]` message is valid only when its pair matches one of these returned children and remains live in `herdr agent list`.

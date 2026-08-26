@@ -386,6 +386,8 @@ case "${1:-} ${2:-}" in
     : > "$CHILD_STUB/split-seen"
     if [ "${STUB_TAB_CREATE_MALFORMED:-0}" = 1 ]; then
       printf '{"result":{"root_pane":{"pane_id":"","terminal_id":""},"tab":{"tab_id":"wT:tA"}}}\n'
+    elif [ "${STUB_TAB_CREATE_NO_TERMINAL:-0}" = 1 ]; then
+      printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":""},"tab":{"tab_id":"wT:tA","number":1}}}\n'
     else
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term_wTp9"},"tab":{"tab_id":"wT:tA","number":1}}}\n'
     fi ;;
@@ -428,6 +430,7 @@ case "${1:-} ${2:-}" in
     exit "${STUB_CLOSE_STATUS:-0}" ;;
   "tab get")
     [ "${STUB_TAB_GET_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"tab_not_found","message":"tab not found"}}\n' >&2; exit 1; }
+    [ "${STUB_TAB_GET_TRANSIENT:-0}" = 1 ] && { printf '{"error":{"code":"internal_error","message":"transient failure"}}\n' >&2; exit 1; }
     printf '{"result":{"tab":{"pane_count":%s}}}\n' "${STUB_TAB_PANE_COUNT:-1}" ;;
   *) exit 2 ;;
 esac
@@ -652,6 +655,19 @@ child_start() {
   assert_file_contains "$CHILD_STUB/calls.log" '^tab create.*OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
 }
 
+@test "herdr-child --tab exits cleanly when tab create itself fails" {
+  child_stub_herdr
+  STUB_TAB_CREATE_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
+  assert_failure 1
+  assert_output --partial "tab create failed"
+  run grep -q '^pane report-metadata' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^agent start' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 @test "herdr-child --tab preserves and reports the tab when identity cannot be parsed" {
   child_stub_herdr
   STUB_TAB_CREATE_MALFORMED=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
@@ -663,6 +679,18 @@ child_start() {
   run grep -q '^pane report-metadata' "$CHILD_STUB/calls.log"
   assert_failure
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab rejects a valid pane/tab id pair with an empty terminal id" {
+  child_stub_herdr
+  STUB_TAB_CREATE_NO_TERMINAL=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
+  assert_failure 1
+  assert_output --partial "wT:tA"
+  assert_output --partial "preserved"
+  run grep -q '^agent start' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^pane report-metadata' "$CHILD_STUB/calls.log"
   assert_failure
 }
 
@@ -687,7 +715,7 @@ child_start() {
   child_stub_herdr
   STUB_START_MODE=busy HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
   assert_failure
-  assert_output --partial "three agent start attempts"
+  assert_output --partial "three agent start attempts (tab wT:tA)"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
   assert_output 3
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
@@ -697,8 +725,24 @@ child_start() {
   child_stub_herdr
   STUB_PROMPT_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab --wait
   assert_failure
-  assert_output --partial "initial prompt stalled"
+  assert_output --partial "initial prompt stalled (tab wT:tA)"
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child --tab names the tab in the agent-start-failed message" {
+  child_stub_herdr
+  STUB_START_MODE=error HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
+  assert_failure
+  assert_output --partial "agent start failed (tab wT:tA)"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+}
+
+@test "herdr-child pane-mode failure messages carry no tab suffix" {
+  child_stub_herdr
+  STUB_START_MODE=busy run child_start --kind claude --name child-a
+  assert_failure
+  assert_output --partial "three agent start attempts"
+  refute_output --partial "(tab "
 }
 
 @test "herdr-child ask requires every injected child coordinate" {
@@ -942,15 +986,42 @@ child_start() {
   assert_failure
 }
 
-@test "herdr-child reap reports an already-gone tab-owned pane as cleaned" {
+@test "herdr-child reap reports an already-gone tab-owned pane as cleaned when the tab is also gone" {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
-  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_TAB_ID=wT:tA STUB_CLOSE_NOT_FOUND=1 \
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_TAB_ID=wT:tA STUB_CLOSE_NOT_FOUND=1 STUB_TAB_GET_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap tab-a
   assert_success
   assert_output --partial "tab-a: already cleaned; pane wT:p1 and tab wT:tA are gone"
-  run grep -q '^tab get' "$CHILD_STUB/calls.log"
-  assert_failure
+  assert_file_contains "$CHILD_STUB/calls.log" '^tab get wT:tA'
+}
+
+@test "herdr-child reap does not claim an unchecked tab is gone when a sibling pane keeps it alive" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_TAB_ID=wT:tA STUB_CLOSE_NOT_FOUND=1 STUB_TAB_PANE_COUNT=2 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap tab-a
+  assert_success
+  assert_output --partial "tab-a: kept; pane wT:p1 already gone but tab wT:tA still has 2 panes"
+  refute_output --partial "already cleaned"
+}
+
+@test "herdr-child reap reports an unconfirmable tab status after closing the pane" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_TAB_ID=wT:tA STUB_TAB_GET_TRANSIENT=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap tab-a
+  assert_success
+  assert_output --partial "tab-a: closed pane wT:p1; tab wT:tA status could not be confirmed"
+}
+
+@test "herdr-child reap reports an unconfirmable tab status when the pane was already gone" {
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PANE_TAB_ID=wT:tA STUB_CLOSE_NOT_FOUND=1 STUB_TAB_GET_TRANSIENT=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap tab-a
+  assert_success
+  assert_output --partial "tab-a: already cleaned; pane wT:p1 is gone, tab wT:tA status could not be confirmed"
 }
 
 @test "herdr-child reap keeps an already-gone pane with no ownership evidence, unchanged from today" {
