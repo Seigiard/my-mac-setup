@@ -401,25 +401,22 @@ start_child() {
       split_record="$(printf '%s' "$split_json" | python3 -c 'import json,sys
 try:
   result=json.load(sys.stdin)["result"]
-  pane=result["root_pane"]; tab=result["tab"]
-except Exception: raise SystemExit(1)
-pane_id=pane.get("pane_id"); terminal_id=pane.get("terminal_id"); tab_id=tab.get("tab_id")
-if not isinstance(pane_id,str) or not pane_id or not isinstance(terminal_id,str) or not terminal_id or not isinstance(tab_id,str) or not tab_id: raise SystemExit(1)
-print(pane_id+"\t"+terminal_id+"\t"+tab_id)')" || {
-        local tab_id_hint
-        tab_id_hint="$(printf '%s' "$split_json" | python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("tab_id") or "")
-except Exception: print("")')"
-        if [ -n "$tab_id_hint" ]; then
-          printf 'herdr-child: tab create returned no pane and terminal identity; preserving tab %s\n' "$tab_id_hint" >&2
+  pane=result.get("root_pane") or {}
+  tab=result.get("tab") or {}
+except Exception:
+  pane={}; tab={}
+print((tab.get("tab_id") or "")+"\t"+(pane.get("pane_id") or "")+"\t"+(pane.get("terminal_id") or ""))')"
+      IFS=$'\t' read -r tab_id pane terminal <<< "$split_record"
+      if [ -z "$pane" ] || [ -z "$terminal" ] || [ -z "$tab_id" ]; then
+        if [ -n "$tab_id" ]; then
+          printf 'herdr-child: tab create returned no pane and terminal identity; preserving tab %s\n' "$tab_id" >&2
         else
           printf 'herdr-child: tab create returned no pane, terminal, or tab identity; preserving the new tab\n' >&2
         fi
         rm -f "$start_err" "$start_out"
         trap - INT TERM
         return 1
-      }
-      IFS=$'\t' read -r pane terminal tab_id <<< "$split_record"
+      fi
       if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" \
         --token "tab-id=$tab_id" --seq "$(herdr_now_seq)" >/dev/null; then
         printf 'herdr-child: tab ownership token could not be written; preserving the new tab\n' >&2
@@ -663,6 +660,7 @@ reap_children() {
   require_parent
   local name="" pane="" record="" status="" focused="" terminal=""
   local pane_json="" label_status fresh_status
+  local ownership_record="" token_tab="" pane_tab=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; [ -z "$name" ] || fail_usage 'reap accepts --to once'; name="$2"; shift 2 ;;
@@ -703,7 +701,6 @@ print("%s\t%s\t%s" % (a["terminal_id"], a.get("agent_status","unknown"), str(boo
     return 0
   }
   set +e
-  local ownership_record token_tab="" pane_tab=""
   ownership_record="$(printf '%s' "$pane_json" | python3 -c 'import json,sys
 pane_id,terminal_id=sys.argv[1:3]
 try: pane=json.load(sys.stdin)["result"]["pane"]

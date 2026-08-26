@@ -573,6 +573,15 @@ child_stub_herdr() {
 set -u
 printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
 printf '\n' >> "$CHILD_STUB/calls.log"
+record_split() {
+  count=0; [ ! -f "$CHILD_STUB/split-count" ] || read -r count < "$CHILD_STUB/split-count"
+  count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/split-count"
+  pane="wT:p$((count + 8))"; terminal="term-child-$count"
+  printf '%s\t%s\n' "$pane" "$terminal" >> "$CHILD_STUB/panes"
+}
+token_file_for() {
+  printf '%s/token-%s' "$CHILD_STUB" "$(printf '%s' "$1" | tr ':' '_')"
+}
 case "${1:-} ${2:-}" in
   "agent list")
     if [ -n "${STUB_AGENTS_JSON_FILE_FIRST:-}" ] && [ ! -f "$CHILD_STUB/list-once" ]; then
@@ -598,18 +607,13 @@ case "${1:-} ${2:-}" in
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
-    count=0; [ ! -f "$CHILD_STUB/split-count" ] || read -r count < "$CHILD_STUB/split-count"
-    count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/split-count"
-    pane="wT:p$((count + 8))"; terminal="term-child-$count"
-    printf '%s\t%s\n' "$pane" "$terminal" >> "$CHILD_STUB/panes"
+    record_split
     printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s"}}}\n' "$pane" "$terminal" ;;
   "tab create")
     [ "${STUB_TAB_CREATE_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
-    count=0; [ ! -f "$CHILD_STUB/split-count" ] || read -r count < "$CHILD_STUB/split-count"
-    count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/split-count"
-    pane="wT:p$((count + 8))"; terminal="term-child-$count"; tab="wT:t$((count + 8))"
-    printf '%s\t%s\n' "$pane" "$terminal" >> "$CHILD_STUB/panes"
+    record_split
+    tab="wT:t$((count + 8))"
     printf '%s\t%s\n' "$pane" "$tab" >> "$CHILD_STUB/pane-tabs"
     if [ "${STUB_TAB_CREATE_MALFORMED:-0}" = 1 ]; then
       printf '{"result":{"root_pane":{"pane_id":"%s"},"tab":{"tab_id":"%s"}}}\n' "$pane" "$tab"
@@ -681,7 +685,7 @@ case "${1:-} ${2:-}" in
   "pane report-metadata")
     [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1
     pane="$3"; shift 3
-    token_file="$CHILD_STUB/token-$(printf '%s' "$pane" | tr ':' '_')"
+    token_file="$(token_file_for "$pane")"
     while [ $# -gt 0 ]; do
       case "$1" in
         --token) printf '%s' "$2" > "$token_file"; shift 2 ;;
@@ -703,7 +707,7 @@ case "${1:-} ${2:-}" in
     fi
     [ "${STUB_TAB_ID_OVERRIDE:-0}" = 0 ] || tab_id="$STUB_TAB_ID_OVERRIDE"
     [ "${STUB_TERMINAL_CHANGED:-0}" = 0 ] || terminal=term-replaced
-    token_file="$CHILD_STUB/token-$(printf '%s' "$pane" | tr ':' '_')"
+    token_file="$(token_file_for "$pane")"
     if [ -f "$token_file" ]; then
       token_kv="$(cat "$token_file")"
       token_name="${token_kv%%=*}"
@@ -758,9 +762,13 @@ complete_agent_record() {
     "$name" "$pane" "$kind" "$terminal" "$status" "$focused"
 }
 
+token_file_for() {
+  printf '%s/token-%s' "$CHILD_STUB" "$(printf '%s' "$1" | tr ':' '_')"
+}
+
 seed_tab_token() {
   local pane="$1" tab="$2"
-  printf 'tab-id=%s' "$tab" > "$CHILD_STUB/token-$(printf '%s' "$pane" | tr ':' '_')"
+  printf 'tab-id=%s' "$tab" > "$(token_file_for "$pane")"
   printf '%s\t%s\n' "$pane" "$tab" >> "$CHILD_STUB/pane-tabs"
 }
 
