@@ -603,6 +603,19 @@ case "${1:-} ${2:-}" in
     pane="wT:p$((count + 8))"; terminal="term-child-$count"
     printf '%s\t%s\n' "$pane" "$terminal" >> "$CHILD_STUB/panes"
     printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s"}}}\n' "$pane" "$terminal" ;;
+  "tab create")
+    [ "${STUB_TAB_CREATE_FAIL:-0}" = 1 ] && exit 1
+    : > "$CHILD_STUB/split-seen"
+    count=0; [ ! -f "$CHILD_STUB/split-count" ] || read -r count < "$CHILD_STUB/split-count"
+    count=$((count + 1)); printf '%s\n' "$count" > "$CHILD_STUB/split-count"
+    pane="wT:p$((count + 8))"; terminal="term-child-$count"; tab="wT:t$((count + 8))"
+    printf '%s\t%s\n' "$pane" "$terminal" >> "$CHILD_STUB/panes"
+    printf '%s\t%s\n' "$pane" "$tab" >> "$CHILD_STUB/pane-tabs"
+    if [ "${STUB_TAB_CREATE_MALFORMED:-0}" = 1 ]; then
+      printf '{"result":{"root_pane":{"pane_id":"%s"},"tab":{"tab_id":"%s"}}}\n' "$pane" "$tab"
+    else
+      printf '{"result":{"root_pane":{"pane_id":"%s","terminal_id":"%s"},"tab":{"tab_id":"%s"}}}\n' "$pane" "$terminal" "$tab"
+    fi ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -665,21 +678,44 @@ case "${1:-} ${2:-}" in
       for _ in $(seq 1 200); do [ -f "$CHILD_STUB/prompt-release" ] && break; sleep 0.01; done
     fi
     printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
-  "pane report-metadata") [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1; printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
+  "pane report-metadata")
+    [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1
+    pane="$3"; shift 3
+    token_file="$CHILD_STUB/token-$(printf '%s' "$pane" | tr ':' '_')"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --token) printf '%s' "$2" > "$token_file"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
   "pane get")
     pane="$3"
     terminal="${STUB_PANE_TERMINAL:-term-child}"
+    tab_id=""
+    token_field=""
     if [ -f "$CHILD_STUB/panes" ]; then
       found="$(awk -F '\t' -v pane="$pane" '$1==pane {print $2; exit}' "$CHILD_STUB/panes")"
       [ -z "$found" ] || terminal="$found"
     fi
+    if [ -f "$CHILD_STUB/pane-tabs" ]; then
+      tab_id="$(awk -F '\t' -v pane="$pane" '$1==pane {print $2; exit}' "$CHILD_STUB/pane-tabs")"
+    fi
+    [ "${STUB_TAB_ID_OVERRIDE:-0}" = 0 ] || tab_id="$STUB_TAB_ID_OVERRIDE"
     [ "${STUB_TERMINAL_CHANGED:-0}" = 0 ] || terminal=term-replaced
+    token_file="$CHILD_STUB/token-$(printf '%s' "$pane" | tr ':' '_')"
+    if [ -f "$token_file" ]; then
+      token_kv="$(cat "$token_file")"
+      token_name="${token_kv%%=*}"
+      token_value="${token_kv#*=}"
+      token_field=",\"tokens\":{\"$token_name\":\"$token_value\"}"
+    fi
     if [ "${STUB_PANE_GET_MALFORMED:-0}" = 1 ]; then
       printf 'not json\n'
     elif [ "${STUB_LABEL:-0}" = 1 ]; then
-      printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s","state_labels":{"blocked":"waiting for parent"}}}}\n' "$pane" "$terminal"
+      printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s","tab_id":"%s","state_labels":{"blocked":"waiting for parent"}%s}}}\n' "$pane" "$terminal" "$tab_id" "$token_field"
     else
-      printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s"}}}\n' "$pane" "$terminal"
+      printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s","tab_id":"%s"%s}}}\n' "$pane" "$terminal" "$tab_id" "$token_field"
     fi ;;
   "pane close") exit "${STUB_CLOSE_STATUS:-0}" ;;
   *) exit 2 ;;
@@ -692,6 +728,12 @@ child_start() {
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
     HERDR_ALIAS_TEST_SEED=u3-child-seed \
     bash "$HERDR_CHILD" start "$@" --prompt "test task"
+}
+
+child_start_tab() {
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed HERDR_WORKSPACE_ID=wT \
+    bash "$HERDR_CHILD" start "$@" --tab --prompt "test task"
 }
 
 child_first_alias() {
@@ -915,6 +957,82 @@ write_pool_records() {
   [[ "$call3" == agent\ start* ]]
   [[ "$call4" == agent\ list* ]]
   [[ "$call5" == agent\ prompt\ wT:p9*"$alias"*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
+}
+
+@test "herdr-child --tab creates a tab, records ownership, and prompts in order" {
+  child_stub_herdr
+  local alias; alias="$(child_first_alias)"
+  STUB_REQUIRE_SPLIT=1 run child_start_tab --kind claude --wait --timeout 5000
+  assert_success
+  assert_output "{\"agent\":\"$alias\",\"pane\":\"wT:p9\",\"tab\":\"wT:t9\"}"
+  local call1 call2 call3 call4 call5 call6
+  call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
+  call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
+  call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
+  call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
+  call6="$(sed -n '6p' "$CHILD_STUB/calls.log")"
+  [[ "$call1" == agent\ list* ]]
+  [[ "$call2" == tab\ create*--workspace\ wT*HERDR_CHILD_NAME="$alias"*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
+  [[ "$call3" == pane\ report-metadata\ wT:p9*--source\ child-agent-tab*--token\ tab-id=wT:t9* ]]
+  [[ "$call4" == agent\ start* ]]
+  [[ "$call5" == agent\ list* ]]
+  [[ "$call6" == agent\ prompt\ wT:p9* ]]
+  run grep -q '^pane split' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab passes --label to tab create and omits it when unset" {
+  child_stub_herdr
+  run child_start_tab --kind claude --label spike
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" '^tab create .*--label spike'
+
+  child_stub_herdr
+  run child_start_tab --kind claude
+  assert_success
+  run grep -q '\-\-label' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab forwards opencode posture env to tab create" {
+  child_stub_herdr
+  run child_start_tab --kind opencode
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" '^tab create.*OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
+}
+
+@test "herdr-child --tab preserves the tab and reports its id when identity cannot be parsed" {
+  child_stub_herdr
+  STUB_TAB_CREATE_MALFORMED=1 run child_start_tab --kind claude
+  assert_failure
+  assert_output --partial "preserving tab wT:t9"
+  run grep -q '^pane report-metadata' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^agent start' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab cleans up the tab when the ownership token cannot be written" {
+  child_stub_herdr
+  STUB_REPORT_FAIL=1 run child_start_tab --kind claude
+  assert_failure
+  assert_output --partial "tab ownership token could not be written"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q '^agent start' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab reports the tab id on a wait timeout" {
+  child_stub_herdr
+  local alias; alias="$(child_first_alias)"
+  STUB_PROMPT_TIMEOUT=1 run child_start_tab --kind claude --wait
+  assert_failure 124
+  assert_output --partial "{\"agent\":\"$alias\",\"pane\":\"wT:p9\",\"tab\":\"wT:t9\"}"
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 @test "herdr-child caps startup timeout while preserving a long prompt wait" {

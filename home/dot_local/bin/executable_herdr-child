@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SOURCE_ID="child-agent"
+TAB_SOURCE_ID="child-agent-tab"
 WAITING_TTL_MS=3600000
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ALIAS_LIBRARY="$SCRIPT_DIR/../lib/herdr-aliases.sh"
@@ -366,38 +367,81 @@ start_child() {
     return 1
   fi
 
-  local attempt start_err start_out start_status start_timeout="$timeout" split_record
+  local attempt start_err start_out start_status start_timeout="$timeout" split_record tab_id=""
   # herdr caps agent startup at five minutes; a longer caller timeout belongs to prompt waiting.
   [ "$start_timeout" -le 300000 ] || start_timeout=300000
   start_err="$(mktemp)"
   start_out="$(mktemp)"
   while :; do
     name="$selected"
-    split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
-      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+    if [ "$tab_mode" -eq 1 ]; then
+      split_args=(tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --no-focus
+        --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+      [ -z "$label" ] || split_args+=(--label "$label")
+    else
+      split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
+        --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+    fi
     case "$kind:$posture" in
       opencode:ro) split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}') ;;
       opencode:rw) split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny"}') ;;
     esac
 
     split_json="$(herdr "${split_args[@]}")" || {
-      printf 'herdr-child: pane split failed\n' >&2
+      if [ "$tab_mode" -eq 1 ]; then
+        printf 'herdr-child: tab create failed\n' >&2
+      else
+        printf 'herdr-child: pane split failed\n' >&2
+      fi
       rm -f "$start_err" "$start_out"
       trap - INT TERM
       return 1
     }
-    split_record="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+    if [ "$tab_mode" -eq 1 ]; then
+      split_record="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+  result=json.load(sys.stdin)["result"]
+  pane=result["root_pane"]; tab=result["tab"]
+except Exception: raise SystemExit(1)
+pane_id=pane.get("pane_id"); terminal_id=pane.get("terminal_id"); tab_id=tab.get("tab_id")
+if not isinstance(pane_id,str) or not pane_id or not isinstance(terminal_id,str) or not terminal_id or not isinstance(tab_id,str) or not tab_id: raise SystemExit(1)
+print(pane_id+"\t"+terminal_id+"\t"+tab_id)')" || {
+        local tab_id_hint
+        tab_id_hint="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("tab_id") or "")
+except Exception: print("")')"
+        if [ -n "$tab_id_hint" ]; then
+          printf 'herdr-child: tab create returned no pane and terminal identity; preserving tab %s\n' "$tab_id_hint" >&2
+        else
+          printf 'herdr-child: tab create returned no pane, terminal, or tab identity; preserving the new tab\n' >&2
+        fi
+        rm -f "$start_err" "$start_out"
+        trap - INT TERM
+        return 1
+      }
+      IFS=$'\t' read -r pane terminal tab_id <<< "$split_record"
+      if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" \
+        --token "tab-id=$tab_id" --seq "$(herdr_now_seq)" >/dev/null; then
+        printf 'herdr-child: tab ownership token could not be written; preserving the new tab\n' >&2
+        close_unregistered_pane token-write-failure || true
+        rm -f "$start_err" "$start_out"
+        trap - INT TERM
+        return 1
+      fi
+    else
+      split_record="$(printf '%s' "$split_json" | python3 -c 'import json,sys
 try: pane=json.load(sys.stdin)["result"]["pane"]
 except Exception: raise SystemExit(1)
 pane_id=pane.get("pane_id"); terminal_id=pane.get("terminal_id")
 if not isinstance(pane_id,str) or not pane_id or not isinstance(terminal_id,str) or not terminal_id: raise SystemExit(1)
 print(pane_id+"\t"+terminal_id)')" || {
-      printf 'herdr-child: pane split returned no pane and terminal identity; preserving the new pane\n' >&2
-      rm -f "$start_err" "$start_out"
-      trap - INT TERM
-      return 1
-    }
-    IFS=$'\t' read -r pane terminal <<< "$split_record"
+        printf 'herdr-child: pane split returned no pane and terminal identity; preserving the new pane\n' >&2
+        rm -f "$start_err" "$start_out"
+        trap - INT TERM
+        return 1
+      }
+      IFS=$'\t' read -r pane terminal <<< "$split_record"
+    fi
 
     attempt=1
     start_status=1
@@ -449,6 +493,14 @@ print(pane_id+"\t"+terminal_id)')" || {
   done
   rm -f "$start_err" "$start_out"
 
+  print_start_json() {
+    if [ "$tab_mode" -eq 1 ]; then
+      printf '{"agent":"%s","pane":"%s","tab":"%s"}\n' "$name" "$pane" "$tab_id"
+    else
+      printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+    fi
+  }
+
   local initial_prompt prompt_out prompt_err prompt_status registered_terminal=""
   if ! read_live_agents 'post-registration validation'; then
     printf 'herdr-child: accepted alias could not be verified before the initial prompt\n' >&2
@@ -489,7 +541,7 @@ EOF
       printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
       rm -f "$prompt_out" "$prompt_err"
       trap - INT TERM
-      printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+      print_start_json
       return 124
     fi
     if json_error_file_is "$prompt_err" agent_prompt_stalled; then
@@ -504,7 +556,7 @@ EOF
   rm -f "$prompt_out" "$prompt_err"
 
   trap - INT TERM
-  printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+  print_start_json
 }
 
 ask_parent() {
