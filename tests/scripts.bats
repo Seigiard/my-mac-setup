@@ -753,6 +753,492 @@ PY
 }
 
 # ===========================================
+# herdr-git-status-playground GitHub fixtures (U3)
+# ===========================================
+
+@test "herdr-git-status-playground initialization refuses foreign, nonempty, unauthorized, and mismatched repositories" {
+  hgsp_setup
+  hgsp_github_setup
+
+  printf '%s\n' '{"host":"github.com","owner":"example","name":"my-mac-setup","repository_id":"R_fixture_1","owned":true}' > "$HGSP_WORK/fixture-ownership.json"
+  run hgsp_initialize
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" FIXTURE_OWNERSHIP_UNPROVED
+
+  printf '%s\n' '{"host":"github.com","owner":"example","name":"herdr-status-fixtures","repository_id":"R_other","owned":true}' > "$HGSP_WORK/fixture-ownership.json"
+  run hgsp_initialize
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_ID_MISMATCH
+
+  printf '%s\n' '{"host":"github.com","owner":"example","name":"herdr-status-fixtures","repository_id":"R_fixture_1","owned":true}' > "$HGSP_WORK/fixture-ownership.json"
+  hgsp_patch_github_state 'state["tokens"]["controller-canary"] = "read"'
+  run hgsp_initialize
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_PERMISSION_INSUFFICIENT
+  hgsp_patch_github_state 'state["tokens"]["controller-canary"] = "write"'
+
+  hgsp_seed_remote_ref refs/heads/unrelated-topic "unrelated operator content"
+  run hgsp_initialize
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_NOT_EMPTY
+  run hgsp_remote_git rev-parse refs/heads/main
+  assert_failure
+  assert_file_not_exists "$(hgsp_repo_record)"
+
+  # #then the nearby valid control reaches the success path once the repository is empty
+  hgsp_remote_git update-ref -d refs/heads/unrelated-topic
+  run hgsp_initialize
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" initialized)" true
+  assert_file_exists "$(hgsp_repo_record)"
+}
+
+@test "herdr-git-status-playground first initialization claims atomically and a concurrent initializer loses without mutation" {
+  hgsp_setup
+  hgsp_github_setup
+  hgsp_seed_remote_ref refs/heads/herdr-playground/lease "foreign concurrent lease"
+  run hgsp_initialize
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" INITIALIZE_LEASE_LOST
+  run hgsp_remote_git rev-parse refs/heads/main
+  assert_failure
+  assert_file_not_exists "$(hgsp_repo_record)"
+
+  hgsp_remote_git update-ref -d refs/heads/herdr-playground/lease
+  run hgsp_initialize
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lease)" released
+  # #then the lease acquisition demanded the absent-ref compare-and-swap form
+  run grep -E -- '--force-with-lease=refs/heads/herdr-playground/lease:$' "$HGSP_CALL_LOG"
+  assert_success
+  # #then one atomic claim created the default branch with marker plus workflow
+  run hgsp_remote_git rev-list --count refs/heads/main
+  assert_success
+  assert_output 1
+  run hgsp_remote_git show refs/heads/main:.herdr-git-status-playground.json
+  assert_success
+  local marker="$output"
+  assert_equal "$(hgsp_json_field "$marker" repository_id)" R_fixture_1
+  assert_equal "$(hgsp_json_field "$marker" host)" github.com
+  assert_equal "$(hgsp_json_field "$marker" namespace)" "herdr-playground/"
+  run hgsp_remote_git show refs/heads/main:.github/workflows/herdr-git-status-playground.yml
+  assert_success
+  # #then the exact lease was verified and conditionally deleted
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  # #then durable controller state never retains a credential canary
+  run grep -r controller-canary "$HGSP_STATE_ROOT"
+  assert_failure
+  run grep -r candidate-canary "$HGSP_STATE_ROOT"
+  assert_failure
+}
+
+@test "herdr-git-status-playground installs an inert pinned workflow and blocks bootstrap on policy drift" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  hgsp_remote_git show refs/heads/main:.github/workflows/herdr-git-status-playground.yml > "$HGSP_WORK/installed-workflow.yml"
+  run "$HGSP_PYTHON" - "$HGSP_WORK/installed-workflow.yml" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+assert "permissions: {}" in text, text
+assert "timeout-minutes:" in text
+assert "concurrency:" in text
+for forbidden in ("secret", "environment", "pull_request", "issue_comment", "workflow_run", "repository_dispatch", "schedule"):
+    assert forbidden not in text, forbidden
+assert "push:" in text and "workflow_dispatch:" in text
+for line in text.splitlines():
+    if "uses:" in line:
+        pinned = line.split("@")[-1].strip().strip('"')
+        assert re.fullmatch(r"[0-9a-f]{40}", pinned), line
+PY
+  assert_success
+
+  hgsp_patch_github_state 'repo["secrets_total"] = 1'
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_POLICY_DRIFT
+  assert_equal "$(hgsp_json_field "$output" lease)" not-acquired
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  hgsp_patch_github_state 'repo["secrets_total"] = 0'
+
+  hgsp_patch_github_state 'repo["environments_total"] = 2'
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_POLICY_DRIFT
+  hgsp_patch_github_state 'repo["environments_total"] = 0'
+
+  # #then the nearby control converges once policy drift is repaired
+  run hgsp_bootstrap
+  assert_success
+}
+
+@test "herdr-git-status-playground repeated bootstrap converges without duplicates or unrelated branch changes" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  hgsp_seed_remote_ref refs/heads/unrelated-topic "operator branch outside the namespace"
+  local unrelated_sha
+  unrelated_sha="$(hgsp_remote_git rev-parse refs/heads/unrelated-topic)"
+
+  run hgsp_bootstrap
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lease)" released
+  assert_equal "$(hgsp_github_query 'len(repo["pulls"])')" 4
+  cp "$(hgsp_repo_record)" "$HGSP_WORK/first-record.json"
+
+  run hgsp_bootstrap
+  assert_success
+  assert_equal "$(hgsp_github_query 'len(repo["pulls"])')" 4
+  assert_equal "$(hgsp_github_query 'len([p for p in repo["pulls"] if p["state"] == "open"])')" 4
+  run "$HGSP_PYTHON" -c 'import json,sys; a=json.load(open(sys.argv[1]))["fixtures"]; b=json.load(open(sys.argv[2]))["fixtures"]; assert a==b, (a,b)' \
+    "$HGSP_WORK/first-record.json" "$(hgsp_repo_record)"
+  assert_success
+  assert_equal "$(hgsp_remote_git rev-parse refs/heads/unrelated-topic)" "$unrelated_sha"
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+}
+
+@test "herdr-git-status-playground releases its lease on clean outcomes and retains it across partial mutation" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=bootstrap-pre-mutation run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" INJECTED_BOOTSTRAP_PRE_MUTATION
+  assert_equal "$(hgsp_json_field "$output" lease)" released
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  assert_equal "$(hgsp_record_field recovery)" None
+
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=bootstrap-partial-draft run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" INJECTED_BOOTSTRAP_PARTIAL
+  assert_equal "$(hgsp_json_field "$output" lease)" retained
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_success
+  run "$HGSP_PYTHON" - "$(hgsp_repo_record)" <<'PY'
+import json
+import sys
+
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+recovery = record["recovery"]
+assert recovery and recovery["operation_kind"] == "bootstrap", recovery
+assert recovery["operation_id"], recovery
+mutations = recovery["mutations"]
+assert mutations, recovery
+for mutation in mutations:
+    assert mutation["ref"].startswith("refs/heads/herdr-playground/"), mutation
+    assert len(mutation["new_sha"]) == 40, mutation
+    assert "fixture" in mutation and "expected" in mutation, mutation
+PY
+  assert_success
+
+  # #then resuming converges forward through matched compare-and-swap state
+  run hgsp_bootstrap
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lease)" released
+  assert_equal "$(hgsp_github_query 'len(repo["pulls"])')" 4
+  assert_equal "$(hgsp_github_query 'len([p for p in repo["pulls"] if p["state"] == "open"])')" 4
+  run hgsp_remote_git rev-parse refs/heads/herdr-playground/lease
+  assert_failure
+  assert_equal "$(hgsp_record_field recovery)" None
+
+  # #then a foreign lease fails closed with exact inspection guidance
+  hgsp_seed_remote_ref refs/heads/herdr-playground/lease "foreign holder"
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_LEASE_HELD
+  assert_output --partial "git ls-remote"
+  hgsp_remote_git update-ref -d refs/heads/herdr-playground/lease
+  run hgsp_bootstrap
+  assert_success
+}
+
+@test "herdr-git-status-playground ambient selectors cannot redirect queries or mutations" {
+  hgsp_setup
+  hgsp_github_setup
+  local decoy_host_sha decoy_repo_sha poison_cwd
+  decoy_host_sha="$(hgsp_real_git --git-dir "$HGSP_WORK/remote/decoy-host.git" rev-parse main)"
+  decoy_repo_sha="$(hgsp_real_git --git-dir "$HGSP_WORK/remote/decoy-repo.git" rev-parse main)"
+  poison_cwd="$HGSP_WORK/poison-cwd"
+  hgsp_real_git init --quiet --initial-branch=main "$poison_cwd"
+  hgsp_real_git -C "$poison_cwd" remote add origin "https://wrong.example/example/herdr-status-fixtures.git"
+
+  cd "$poison_cwd"
+  run hgsp_initialize
+  assert_success
+  run hgsp_bootstrap
+  assert_success
+  cd "$BATS_TEST_DIRNAME"
+
+  run "$HGSP_PYTHON" - "$HGSP_CALL_LOG" <<'PY'
+import sys
+
+lines = [line.strip() for line in open(sys.argv[1], encoding="utf-8") if line.startswith("gh-sim|")]
+assert lines
+for line in lines:
+    fields = dict(part.split("=", 1) for part in line.split("|")[1:])
+    assert fields["host"] == "github.com", line
+    assert fields["path"].startswith("repos/example/herdr-status-fixtures"), line
+    assert fields["ghrepo"] == "-", line
+    assert fields["ghhost"] == "-", line
+PY
+  assert_success
+  assert_equal "$(hgsp_real_git --git-dir "$HGSP_WORK/remote/decoy-host.git" rev-parse main)" "$decoy_host_sha"
+  assert_equal "$(hgsp_real_git --git-dir "$HGSP_WORK/remote/decoy-repo.git" rev-parse main)" "$decoy_repo_sha"
+  run "$HGSP_PYTHON" -c 'import json,sys; s=json.load(open(sys.argv[1]))["repositories"]; assert not s["wrong.example/example/herdr-status-fixtures"]["pulls"]; assert not s["github.com/wrong/repo"]["pulls"]' "$HGSP_WORK/github-state.json"
+  assert_success
+  run grep -E 'git-auth\|[a-z-]+\|(wrong\.example|github\.com/wrong)' "$HGSP_CALL_LOG"
+  assert_failure
+}
+
+@test "herdr-git-status-playground blocks startup on marker, workflow, default-branch, and namespace drift" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  local original_marker original_workflow
+  original_marker="$(hgsp_remote_git show refs/heads/main:.herdr-git-status-playground.json)"
+  original_workflow="$(hgsp_remote_git show refs/heads/main:.github/workflows/herdr-git-status-playground.yml)"
+
+  hgsp_patch_github_state 'repo["default_branch"] = "trunk"'
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" DEFAULT_BRANCH_MISMATCH
+  assert_output --partial "inspect"
+  hgsp_patch_github_state 'repo["default_branch"] = "main"'
+
+  printf 'not json at all\n' | hgsp_rewrite_default_file .herdr-git-status-playground.json
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" MARKER_INVALID
+  assert_output --partial "inspect"
+
+  "$HGSP_PYTHON" -c 'import json,sys; marker=json.loads(sys.argv[1]); marker["namespace"]="other/"; print(json.dumps(marker))' "$original_marker" \
+    | hgsp_rewrite_default_file .herdr-git-status-playground.json
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" NAMESPACE_MISMATCH
+  printf '%s\n' "$original_marker" | hgsp_rewrite_default_file .herdr-git-status-playground.json
+
+  printf '%s\n# drifted outside the controller\n' "$original_workflow" | hgsp_rewrite_default_file .github/workflows/herdr-git-status-playground.yml
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" WORKFLOW_DRIFT
+  assert_output --partial "inspect"
+  printf '%s\n' "$original_workflow" | hgsp_rewrite_default_file .github/workflows/herdr-git-status-playground.yml
+
+  # #then the nearby control converges after external repair
+  run hgsp_bootstrap
+  assert_success
+}
+
+@test "herdr-git-status-playground no-pr fixture rotates away from closed pull-request history" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  run hgsp_bootstrap
+  assert_success
+  local v1_branch
+  v1_branch="$(hgsp_record_field fixtures.no-pr.branch)"
+  assert_equal "$v1_branch" "herdr-playground/no-pr/v1"
+
+  hgsp_patch_github_state "repo['pulls'].append({'number': repo['next_pr_number'], 'node_id': 'PR_history', 'state': 'closed', 'draft': False, 'head_ref': '$v1_branch', 'head_sha': '0'*40, 'base_ref': 'main', 'user': 'playground-controller', 'mergeable': None, 'mergeable_state': 'unknown'}); repo['next_pr_number'] += 1"
+  run hgsp_bootstrap
+  assert_success
+  local v2_branch
+  v2_branch="$(hgsp_record_field fixtures.no-pr.branch)"
+  assert_equal "$v2_branch" "herdr-playground/no-pr/v2"
+  run "$HGSP_PYTHON" -c 'import json,sys; repo=json.load(open(sys.argv[1]))["repositories"]["github.com/example/herdr-status-fixtures"]; assert not [p for p in repo["pulls"] if p["head_ref"] == sys.argv[2]], "rotated branch has history"' \
+    "$HGSP_WORK/github-state.json" "$v2_branch"
+  assert_success
+  assert_equal "$(hgsp_github_query 'len([p for p in repo["pulls"] if p["state"] == "closed"])')" 1
+  assert_equal "$(hgsp_record_field fixtures.no-pr.checkout.branch)" "$v2_branch"
+
+  # #then the retired branch does not read as foreign drift on the next pass
+  run hgsp_bootstrap
+  assert_success
+  assert_equal "$(hgsp_record_field fixtures.no-pr.branch)" "$v2_branch"
+}
+
+@test "herdr-git-status-playground selects exact workflow records and settles mergeability authority" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  hgsp_patch_github_state 'repo["decoy_runs"] = True'
+  hgsp_patch_github_state "repo['workflow_runs'].append({'id': 8000, 'name': 'herdr-git-status-playground', 'head_branch': 'herdr-playground/checks-passed/head', 'head_sha': 'e'*40, 'status': 'completed', 'conclusion': 'failure', 'event': 'push'})"
+  run hgsp_bootstrap
+  assert_success
+  run "$HGSP_PYTHON" - "$(hgsp_repo_record)" "$HGSP_WORK/github-state.json" <<'PY'
+import json
+import sys
+
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+repo = json.load(open(sys.argv[2], encoding="utf-8"))["repositories"]["github.com/example/herdr-status-fixtures"]
+runs = {run["id"]: run for run in repo["workflow_runs"]}
+for name, conclusion in (("checks-passed", "success"), ("checks-failed", "failure"), ("draft", "success")):
+    fixture = record["fixtures"][name]
+    run = runs[fixture["workflow_run_id"]]
+    assert run["name"] == "herdr-git-status-playground", run
+    assert run["head_branch"] == fixture["branch"], (run, fixture)
+    assert run["head_sha"] == fixture["head_sha"], (run, fixture)
+    assert run["conclusion"] == conclusion, run
+conflict = record["fixtures"]["merge-conflict"]
+assert conflict["mergeable"] is False, conflict
+assert conflict["mergeable_state"] == "dirty", conflict
+pull = [p for p in repo["pulls"] if p["number"] == conflict["pr_number"]][0]
+assert pull["mergeable"] is False and pull["mergeable_state"] == "dirty", pull
+PY
+  assert_success
+  # #then mergeability was polled until the authority settled, never assumed
+  run grep -cF "path=repos/example/herdr-status-fixtures/pulls/$(hgsp_record_field fixtures.merge-conflict.pr_number)|" "$HGSP_CALL_LOG"
+  assert_success
+  [[ "$output" -ge 3 ]]
+}
+
+@test "herdr-git-status-playground treats unrecorded owned-namespace changes as drift, never overwriting" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  run hgsp_bootstrap
+  assert_success
+
+  hgsp_seed_remote_ref refs/heads/herdr-playground/draft/head "unrecorded commit" refs/heads/herdr-playground/draft/head
+  local drifted_sha
+  drifted_sha="$(hgsp_remote_git rev-parse refs/heads/herdr-playground/draft/head)"
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" OWNERSHIP_DRIFT
+  assert_equal "$(hgsp_remote_git rev-parse refs/heads/herdr-playground/draft/head)" "$drifted_sha"
+  hgsp_remote_git update-ref refs/heads/herdr-playground/draft/head "$(hgsp_record_field fixtures.draft.head_sha)"
+  run hgsp_bootstrap
+  assert_success
+
+  hgsp_patch_github_state "[p for p in repo['pulls'] if p['head_ref'] == 'herdr-playground/draft/head'][0].update({'user': 'intruder'})"
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" OWNERSHIP_DRIFT
+  hgsp_patch_github_state "[p for p in repo['pulls'] if p['head_ref'] == 'herdr-playground/draft/head'][0].update({'user': 'playground-controller'})"
+
+  hgsp_patch_github_state "pr = [p for p in repo['pulls'] if p['head_ref'] == 'herdr-playground/checks-passed/head'][0]; pr['state'] = 'closed'; repo['pulls'].append(dict(pr, number=repo['next_pr_number'], node_id='PR_replaced', state='open')); repo['next_pr_number'] += 1"
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" OWNERSHIP_DRIFT
+  hgsp_patch_github_state "repo['pulls'] = [p for p in repo['pulls'] if p['node_id'] != 'PR_replaced']; [p for p in repo['pulls'] if p['head_ref'] == 'herdr-playground/checks-passed/head'][0].update({'state': 'open'})"
+
+  local run_id
+  run_id="$(hgsp_record_field fixtures.checks-passed.workflow_run_id)"
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $run_id][0]['conclusion'] = 'failure'"
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" OWNERSHIP_DRIFT
+  hgsp_patch_github_state "[r for r in repo['workflow_runs'] if r['id'] == $run_id][0]['conclusion'] = 'success'"
+
+  hgsp_seed_remote_ref refs/heads/herdr-playground/foreign "foreign namespace branch"
+  run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" OWNERSHIP_DRIFT
+  hgsp_remote_git update-ref -d refs/heads/herdr-playground/foreign
+
+  # #then the nearby control converges once drift is externally resolved
+  run hgsp_bootstrap
+  assert_success
+}
+
+@test "herdr-git-status-playground records verified fixture checkouts under controller-only credentials" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  run hgsp_bootstrap
+  assert_success
+
+  # #then every remote fixture has a recorded checkout with exact origin, branch, and head
+  run "$HGSP_PYTHON" - "$(hgsp_repo_record)" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+environment = dict(os.environ)
+environment.update(
+    {
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+)
+
+
+def git(path, *arguments):
+    return subprocess.check_output(["git", "-C", path] + list(arguments), env=environment, text=True).strip()
+
+
+fixtures = record["fixtures"]
+assert sorted(fixtures) == ["checks-failed", "checks-passed", "draft", "merge-conflict", "no-pr"], sorted(fixtures)
+for name, fixture in fixtures.items():
+    checkout = fixture["checkout"]
+    path = checkout["path"]
+    assert os.path.isdir(path), path
+    assert git(path, "remote", "get-url", "origin") == "https://github.com/example/herdr-status-fixtures.git", name
+    assert git(path, "symbolic-ref", "--short", "HEAD") == checkout["branch"] == fixture["branch"], name
+    assert git(path, "rev-parse", "HEAD") == checkout["head_sha"] == fixture["head_sha"], name
+PY
+  assert_success
+
+  # #then bootstrap authenticated exclusively with the scoped controller credential
+  run "$HGSP_PYTHON" - "$HGSP_CALL_LOG" <<'PY'
+import sys
+
+lines = [line.strip() for line in open(sys.argv[1], encoding="utf-8")]
+gh = [line for line in lines if line.startswith("gh-sim|")]
+auth = [line for line in lines if line.startswith("git-auth|")]
+assert gh and auth
+for line in gh + auth:
+    assert "candidate-canary" not in line, line
+    assert "token=controller-canary" in line, line
+PY
+  assert_success
+  run grep -r candidate-canary "$HGSP_STATE_ROOT"
+  assert_failure
+  run grep -r controller-canary "$HGSP_STATE_ROOT"
+  assert_failure
+
+  # #then the candidate-read credential cannot mutate the repository
+  local refs_before
+  refs_before="$(hgsp_remote_git for-each-ref)"
+  HGSP_CONTROLLER_TOKEN=candidate-canary run hgsp_bootstrap
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" REPOSITORY_PERMISSION_INSUFFICIENT
+  assert_equal "$(hgsp_remote_git for-each-ref)" "$refs_before"
+}
+
+@test "herdr-git-status-playground defers approved and changes-requested states silently" {
+  hgsp_setup
+  hgsp_github_setup
+  run hgsp_initialize
+  assert_success
+  run hgsp_bootstrap
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" error)" None
+  summary="$output" "$HGSP_PYTHON" -c 'import json,os; out=json.loads(os.environ["summary"]); assert sorted(out["fixtures"]) == ["checks-failed", "checks-passed", "draft", "merge-conflict", "no-pr"], out; text=json.dumps(out).lower(); assert "approved" not in text; assert "changes-requested" not in text; assert "changes_requested" not in text'
+  run grep -iE 'approved|changes.requested' "$(hgsp_repo_record)"
+  assert_failure
+}
+
+# ===========================================
 # python3 -- the declared interpreter
 # ===========================================
 

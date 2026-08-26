@@ -34,7 +34,7 @@ hgsp_teardown() {
   fi
   [[ -n "${HGSP_WORK:-}" ]] && rm -rf "$HGSP_WORK" || true
   unset HGSP_WORK HGSP_STUB HGSP_STATE_ROOT HGSP_XDG_STATE HGSP_CALL_LOG
-  unset HGSP_ENV_LOG HGSP_RUN_IDS HGSP_BG_PIDS HGSP_LAST_RUN_ID
+  unset HGSP_ENV_LOG HGSP_RUN_IDS HGSP_BG_PIDS HGSP_LAST_RUN_ID HGSP_REMOTE_GIT
 }
 
 hgsp_setup() {
@@ -56,6 +56,10 @@ hgsp_setup() {
   # --version probe itself and delegates fixture operations (identified by the
   # fixtures environment's GIT_CEILING_DIRECTORIES) to the real binary, logging
   # them under a distinct prefix so mutation-guard greps stay meaningful.
+  # Once hgsp_github_setup installs the remote simulator, controller commands
+  # that address an https remote are routed through it (the `git|` prefix keeps
+  # mutation-guard greps meaningful) while purely local plumbing runs the real
+  # binary under the separate `git-local|` prefix.
   local real_git
   real_git="$(command -v git)"
   cat > "$HGSP_STUB/git" <<SH
@@ -64,10 +68,22 @@ if [ -n "\${GIT_CEILING_DIRECTORIES:-}" ]; then
   printf 'git-fixture|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
   exec "$real_git" "\$@"
 fi
+if [ "\$1" = --version ]; then
+  printf 'git|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+  printf 'git version 2.45.0\n'
+  exit 0
+fi
+if [ -f "\${0%/*}/git-remote-sim.py" ]; then
+  case " \$* " in
+    *" https://"*)
+      printf 'git|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+      exec "$HGSP_PYTHON" "\${0%/*}/git-remote-sim.py" "\$@"
+      ;;
+  esac
+  printf 'git-local|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+  exec "$real_git" "\$@"
+fi
 printf 'git|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
-case "\$1" in
-  --version) printf 'git version 2.45.0\n'; exit 0 ;;
-esac
 exit 0
 SH
   chmod +x "$HGSP_STUB/git"
@@ -90,6 +106,22 @@ exit 0
 SH
     chmod +x "$HGSP_STUB/$tool"
   done
+
+  # gh answers preflight probes itself; once hgsp_github_setup installs the API
+  # simulator, `gh api` calls run against the shared stateful GitHub model.
+  cat > "$HGSP_STUB/gh" <<SH
+#!/bin/sh
+printf 'gh|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+if [ "\$1" = api ] && [ -f "\${0%/*}/gh-api-sim.py" ]; then
+  exec "$HGSP_PYTHON" "\${0%/*}/gh-api-sim.py" "\$@"
+fi
+case "\$*" in
+  --version) printf 'gh version 2.50.0\n' ;;
+  auth\ status*) exit "\${HGSP_GH_AUTH_STATUS:-0}" ;;
+esac
+exit 0
+SH
+  chmod +x "$HGSP_STUB/gh"
   ln -s "$HGSP_PYTHON" "$HGSP_STUB/python3"
 
   cat > "$HGSP_STUB/herdr" <<'SH'
@@ -141,7 +173,7 @@ hgsp_env() {
     GITHUB_TOKEN=ambient-github-token GITHUB_REPOSITORY=wrong/repo \
     SSH_AUTH_SOCK="$HGSP_WORK/agent.sock" GPG_AGENT_INFO=poison \
     GIT_ASKPASS=poison SSH_ASKPASS=poison GIT_CONFIG_GLOBAL="$HGSP_WORK/live-gitconfig" \
-    HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN=controller-canary \
+    HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN="${HGSP_CONTROLLER_TOKEN:-controller-canary}" \
     HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN=candidate-canary \
     HERDR_GIT_STATUS_PLAYGROUND_TEST_MODE=1 \
     HERDR_GIT_STATUS_PLAYGROUND_TEST_LOG="$HGSP_ENV_LOG" \
@@ -243,4 +275,524 @@ import subprocess
 import sys
 print(subprocess.check_output(["ps", "-o", "lstart=", "-p", sys.argv[1]], text=True).strip())
 PY
+}
+
+# ---- Stateful GitHub simulation (U3) ------------------------------------
+# The canonical fixture repository is a real local bare repository, so every
+# ref CAS (force-with-lease) uses genuine Git semantics; a JSON state file
+# layers the GitHub-only entities (repository identity, permissions, pull
+# requests, workflow runs, policy) on top of it.
+
+hgsp_real_git() {
+  env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    GIT_TERMINAL_PROMPT=0 git "$@"
+}
+
+hgsp_remote_git() {
+  hgsp_real_git --git-dir "$HGSP_REMOTE_GIT" "$@"
+}
+
+hgsp_github_setup() {
+  HGSP_REMOTE_GIT="$HGSP_WORK/remote/fixture.git"
+  export HGSP_REMOTE_GIT
+  mkdir -p "$HGSP_WORK/remote"
+  hgsp_real_git init --quiet --bare --initial-branch=main "$HGSP_REMOTE_GIT"
+  local decoy seed
+  for decoy in decoy-host decoy-repo; do
+    hgsp_real_git init --quiet --bare --initial-branch=main "$HGSP_WORK/remote/$decoy.git"
+  done
+  seed="$(mktemp -d "$HGSP_WORK/seed.XXXXXX")"
+  hgsp_real_git init --quiet --initial-branch=main "$seed"
+  hgsp_real_git -C "$seed" -c user.name=Decoy -c user.email=decoy@example.invalid \
+    commit --quiet --allow-empty -m "decoy baseline"
+  hgsp_real_git -C "$seed" push --quiet "$HGSP_WORK/remote/decoy-host.git" main
+  hgsp_real_git -C "$seed" push --quiet "$HGSP_WORK/remote/decoy-repo.git" main
+  rm -rf "$seed"
+
+  "$HGSP_PYTHON" - "$HGSP_WORK" "$(command -v git)" <<'PY'
+import json
+import os
+import sys
+
+work, real_git = sys.argv[1:]
+
+
+def repository(name, node_id, url):
+    return {
+        "node_id": node_id,
+        "url": url,
+        "git_dir": os.path.join(work, "remote", name),
+        "default_branch": "main",
+        "secrets_total": 0,
+        "environments_total": 0,
+        "actions_enabled": True,
+        "pulls": [],
+        "next_pr_number": 1,
+        "workflow_runs": [],
+        "next_run_id": 9001,
+        "mergeable_settle_polls": 2,
+        "decoy_runs": False,
+    }
+
+
+state = {
+    "real_git": real_git,
+    "tokens": {"controller-canary": "write", "candidate-canary": "read"},
+    "repositories": {
+        "github.com/example/herdr-status-fixtures": repository(
+            "fixture.git", "R_fixture_1", "https://github.com/example/herdr-status-fixtures.git"
+        ),
+        "wrong.example/example/herdr-status-fixtures": repository(
+            "decoy-host.git", "R_decoy_host", "https://wrong.example/example/herdr-status-fixtures.git"
+        ),
+        "github.com/wrong/repo": repository(
+            "decoy-repo.git", "R_decoy_repo", "https://github.com/wrong/repo.git"
+        ),
+    },
+}
+path = os.path.join(work, "github-state.json")
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(state, handle, indent=1)
+    handle.write("\n")
+os.chmod(path, 0o600)
+PY
+
+  cat > "$HGSP_STUB/git-remote-sim.py" <<'PY'
+"""Route controller Git commands addressed to an https remote onto the local
+bare repository behind it, enforcing credential permissions and modelling the
+push-triggered GitHub Actions runs."""
+import fcntl
+import json
+import os
+import subprocess
+import sys
+
+LEASE_REF = "refs/heads/herdr-playground/lease"
+
+
+def log(line):
+    path = os.environ.get("HGSP_CALL_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
+
+def fail(message, status=128):
+    sys.stderr.write("fatal: %s\n" % message)
+    raise SystemExit(status)
+
+
+def credential_token(url):
+    store = None
+    for index in range(int(os.environ.get("GIT_CONFIG_COUNT", "0") or 0)):
+        if os.environ.get("GIT_CONFIG_KEY_%d" % index) == "credential.helper":
+            value = os.environ.get("GIT_CONFIG_VALUE_%d" % index, "")
+            if value.startswith("store --file="):
+                store = value[len("store --file="):]
+    if not store or not os.path.exists(store):
+        return None
+    host = url.split("/")[2]
+    for line in open(store, encoding="utf-8"):
+        line = line.strip()
+        if "@%s/" % host in line:
+            return line.split("://", 1)[1].split("@", 1)[0].split(":", 1)[1]
+    return None
+
+
+def record_push_effects(state, repo, real_git, argv, url):
+    positionals = [argument for argument in argv if not argument.startswith("-")]
+    for refspec in positionals[positionals.index(url) + 1:]:
+        if ":" not in refspec:
+            continue
+        source, ref = refspec.split(":", 1)
+        if not source:
+            log("git-push|%s|deleted" % ref)
+            continue
+        sha = subprocess.check_output(
+            [real_git, "--git-dir", repo["git_dir"], "rev-parse", ref], text=True
+        ).strip()
+        log("git-push|%s|%s" % (ref, sha))
+        if not ref.startswith("refs/heads/herdr-playground/") or ref == LEASE_REF:
+            continue
+        branch = ref[len("refs/heads/"):]
+        conclusion = "failure" if "checks-failed" in branch else "success"
+        runs = repo.setdefault("workflow_runs", [])
+
+        def add(name, head_sha, verdict):
+            runs.append(
+                {
+                    "id": repo["next_run_id"],
+                    "name": name,
+                    "head_branch": branch,
+                    "head_sha": head_sha,
+                    "status": "completed",
+                    "conclusion": verdict,
+                    "event": "push",
+                }
+            )
+            repo["next_run_id"] += 1
+
+        add("herdr-git-status-playground", sha, conclusion)
+        if repo.get("decoy_runs"):
+            flipped = "failure" if conclusion == "success" else "success"
+            add("herdr-git-status-playground-nightly", sha, flipped)
+            add("herdr-git-status-playground", "f" * 40, flipped)
+
+
+def main():
+    argv = sys.argv[1:]
+    work = os.environ.get("HGSP_WORK")
+    if not work:
+        fail("HGSP_WORK is not available to the git remote simulator")
+    with open(os.path.join(work, "github-state.json"), "r+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        state = json.load(handle)
+        real_git = state["real_git"]
+        url = next((argument for argument in argv if argument.startswith("https://")), None)
+        repo = None
+        for key, record in state["repositories"].items():
+            if record["url"] == url:
+                repo_key, repo = key, record
+                break
+        if repo is None:
+            fail("repository not found: %s" % url)
+        subcommand = next(argument for argument in argv if not argument.startswith("-"))
+        token = credential_token(url) or os.environ.get("HGSP_DIRECT_TOKEN")
+        permission = state["tokens"].get(token)
+        log("git-auth|%s|%s|token=%s" % (subcommand, repo_key, token or "-"))
+        if permission is None:
+            fail("authentication required for %s" % url)
+        if subcommand == "push" and permission != "write":
+            fail("write permission to %s denied for read-only credential" % repo_key, 128)
+        rewritten = [repo["git_dir"] if argument == url else argument for argument in argv]
+        completed = subprocess.run([real_git] + rewritten)
+        if completed.returncode == 0 and subcommand == "clone":
+            destination = [argument for argument in argv if not argument.startswith("-")][-1]
+            subprocess.run(
+                [real_git, "-C", destination, "remote", "set-url", "origin", url], check=True
+            )
+        if completed.returncode == 0 and subcommand == "push":
+            record_push_effects(state, repo, real_git, argv, url)
+        handle.seek(0)
+        handle.truncate()
+        json.dump(state, handle)
+        handle.write("\n")
+    raise SystemExit(completed.returncode)
+
+
+main()
+PY
+
+  cat > "$HGSP_STUB/gh-api-sim.py" <<'PY'
+"""Stateful `gh api` simulator over the shared GitHub model."""
+import fcntl
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from urllib.parse import parse_qs
+
+
+def log(line):
+    path = os.environ.get("HGSP_CALL_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
+
+def fail(message):
+    sys.stderr.write("gh: %s\n" % message)
+    raise SystemExit(1)
+
+
+def pr_json(pull):
+    return {
+        "number": pull["number"],
+        "node_id": pull["node_id"],
+        "state": pull["state"],
+        "draft": pull["draft"],
+        "head": {"ref": pull["head_ref"], "sha": pull["head_sha"]},
+        "base": {"ref": pull["base_ref"]},
+        "user": {"login": pull["user"]},
+        "mergeable": pull.get("mergeable"),
+        "mergeable_state": pull.get("mergeable_state", "unknown"),
+    }
+
+
+def isolated_env():
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+    )
+    return environment
+
+
+def compute_mergeable(real_git, git_dir, base_ref, head_sha):
+    scratch = tempfile.mkdtemp(prefix="hgsp-merge-")
+    environment = isolated_env()
+    try:
+        subprocess.run(
+            [real_git, "clone", "--quiet", git_dir, scratch], env=environment, check=True
+        )
+        subprocess.run(
+            [real_git, "-C", scratch, "checkout", "--quiet", base_ref],
+            env=environment,
+            check=True,
+        )
+        merge = subprocess.run(
+            [
+                real_git, "-C", scratch, "-c", "user.name=sim",
+                "-c", "user.email=sim@example.invalid",
+                "merge", "--no-commit", "--no-ff", head_sha,
+            ],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if merge.returncode == 0:
+            return True, "clean"
+        unmerged = subprocess.check_output(
+            [real_git, "-C", scratch, "ls-files", "-u"], env=environment, text=True
+        )
+        return (False, "dirty") if unmerged.strip() else (True, "clean")
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] != "api":
+        fail("unsupported invocation")
+    host = "github.com"
+    fields = {}
+    path = None
+    method = None
+    index = 1
+    while index < len(args):
+        argument = args[index]
+        if argument == "--hostname":
+            host = args[index + 1]
+            index += 2
+        elif argument in ("-f", "-F"):
+            key, _, value = args[index + 1].partition("=")
+            if argument == "-F" and value in ("true", "false"):
+                value = value == "true"
+            fields[key] = value
+            index += 2
+        elif argument in ("--method", "-X"):
+            method = args[index + 1]
+            index += 2
+        else:
+            path = argument
+            index += 1
+    if method is None:
+        method = "POST" if fields else "GET"
+    token = os.environ.get("GH_TOKEN", "")
+    route, _, query = (path or "").partition("?")
+    route = route.strip("/")
+    params = parse_qs(query)
+    log(
+        "gh-sim|method=%s|host=%s|path=%s|token=%s|ghrepo=%s|ghhost=%s"
+        % (
+            method, host, route, token or "-",
+            os.environ.get("GH_REPO", "-"), os.environ.get("GH_HOST", "-"),
+        )
+    )
+    work = os.environ.get("HGSP_WORK")
+    if not work:
+        fail("HGSP_WORK is not available to the gh simulator")
+    with open(os.path.join(work, "github-state.json"), "r+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        state = json.load(handle)
+        permission = state["tokens"].get(token)
+        if permission is None:
+            fail("HTTP 401: authentication failed")
+        parts = route.split("/")
+        if parts[0] != "repos" or len(parts) < 3:
+            fail("HTTP 404: unsupported path %s" % route)
+        repo = state["repositories"].get("%s/%s/%s" % (host, parts[1], parts[2]))
+        if repo is None:
+            fail("HTTP 404: repository %s/%s on %s" % (parts[1], parts[2], host))
+        real_git = state["real_git"]
+        tail = parts[3:]
+        if not tail:
+            out = {
+                "node_id": repo["node_id"],
+                "full_name": "%s/%s" % (parts[1], parts[2]),
+                "default_branch": repo["default_branch"],
+                "permissions": {
+                    "push": permission == "write",
+                    "pull": True,
+                    "admin": permission == "write",
+                },
+            }
+        elif tail == ["actions", "secrets"]:
+            out = {"total_count": repo.get("secrets_total", 0)}
+        elif tail == ["environments"]:
+            out = {"total_count": repo.get("environments_total", 0)}
+        elif tail == ["actions", "permissions"]:
+            out = {"enabled": repo.get("actions_enabled", True), "allowed_actions": "all"}
+        elif tail == ["actions", "runs"]:
+            runs = repo.get("workflow_runs", [])
+            head_sha = params.get("head_sha", [None])[0]
+            if head_sha:
+                runs = [run for run in runs if run["head_sha"] == head_sha]
+            out = {"total_count": len(runs), "workflow_runs": runs}
+        elif tail == ["pulls"] and method == "GET":
+            pulls = repo.get("pulls", [])
+            state_param = params.get("state", ["open"])[0]
+            if state_param != "all":
+                pulls = [pull for pull in pulls if pull["state"] == state_param]
+            head = params.get("head", [None])[0]
+            if head:
+                branch = head.partition(":")[2]
+                pulls = [pull for pull in pulls if pull["head_ref"] == branch]
+            out = [pr_json(pull) for pull in pulls]
+        elif tail == ["pulls"] and method == "POST":
+            if permission != "write":
+                fail("HTTP 403: write permission required")
+            probe = subprocess.run(
+                [
+                    real_git, "--git-dir", repo["git_dir"], "rev-parse",
+                    "refs/heads/%s" % fields["head"],
+                ],
+                env=isolated_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if probe.returncode != 0:
+                fail("HTTP 422: head ref %s does not exist" % fields["head"])
+            pull = {
+                "number": repo["next_pr_number"],
+                "node_id": "PR_%s_%d" % (repo["node_id"], repo["next_pr_number"]),
+                "state": "open",
+                "draft": bool(fields.get("draft", False)),
+                "head_ref": fields["head"],
+                "head_sha": probe.stdout.strip(),
+                "base_ref": fields["base"],
+                "user": "playground-controller",
+                "mergeable": None,
+                "mergeable_state": "unknown",
+                "mergeable_polls_remaining": repo.get("mergeable_settle_polls", 2),
+                "title": fields.get("title", ""),
+            }
+            repo["next_pr_number"] += 1
+            repo.setdefault("pulls", []).append(pull)
+            out = pr_json(pull)
+        elif len(tail) == 2 and tail[0] == "pulls":
+            number = int(tail[1])
+            pull = next(
+                (entry for entry in repo.get("pulls", []) if entry["number"] == number), None
+            )
+            if pull is None:
+                fail("HTTP 404: pull %d" % number)
+            if pull.get("mergeable") is None:
+                remaining = pull.get("mergeable_polls_remaining", 0)
+                if remaining > 0:
+                    pull["mergeable_polls_remaining"] = remaining - 1
+                else:
+                    mergeable, mergeable_state = compute_mergeable(
+                        real_git, repo["git_dir"], pull["base_ref"], pull["head_sha"]
+                    )
+                    pull["mergeable"] = mergeable
+                    pull["mergeable_state"] = mergeable_state
+            out = pr_json(pull)
+        else:
+            fail("HTTP 404: unsupported path %s" % route)
+        handle.seek(0)
+        handle.truncate()
+        json.dump(state, handle)
+        handle.write("\n")
+    print(json.dumps(out))
+
+
+main()
+PY
+}
+
+hgsp_bootstrap() {
+  hgsp_env bootstrap --fixture-ownership "$HGSP_WORK/fixture-ownership.json" "$@"
+}
+
+hgsp_initialize() {
+  hgsp_bootstrap --initialize "$@"
+}
+
+hgsp_patch_github_state() {
+  "$HGSP_PYTHON" - "$HGSP_WORK/github-state.json" "$1" <<'PY'
+import json
+import os
+import sys
+
+path, expression = sys.argv[1:]
+with open(path, encoding="utf-8") as handle:
+    state = json.load(handle)
+exec(expression, {"state": state, "repo": state["repositories"]["github.com/example/herdr-status-fixtures"]})
+temporary = path + ".patch"
+with open(temporary, "w", encoding="utf-8") as handle:
+    json.dump(state, handle)
+    handle.write("\n")
+os.replace(temporary, path)
+PY
+}
+
+hgsp_github_query() {
+  "$HGSP_PYTHON" - "$HGSP_WORK/github-state.json" "$1" <<'PY'
+import json
+import sys
+
+path, expression = sys.argv[1:]
+with open(path, encoding="utf-8") as handle:
+    state = json.load(handle)
+value = eval(expression, {"state": state, "repo": state["repositories"]["github.com/example/herdr-status-fixtures"]})
+print("true" if value is True else "false" if value is False else value)
+PY
+}
+
+hgsp_repo_record() {
+  printf '%s/repository/github.com/example/herdr-status-fixtures/repository.json\n' "$HGSP_STATE_ROOT"
+}
+
+hgsp_record_field() {
+  hgsp_json_field "$(cat "$(hgsp_repo_record)")" "$1"
+}
+
+# Rewrite one file on the remote default branch through real Git, bypassing
+# the simulator, to model drift performed outside the controller.
+hgsp_rewrite_default_file() {
+  local file="$1" scratch
+  scratch="$(mktemp -d "$HGSP_WORK/tamper.XXXXXX")"
+  hgsp_real_git clone --quiet "$HGSP_REMOTE_GIT" "$scratch/clone"
+  mkdir -p "$scratch/clone/$(dirname "$file")"
+  cat > "$scratch/clone/$file"
+  hgsp_real_git -C "$scratch/clone" -c user.name=Drift -c user.email=drift@example.invalid add -A
+  hgsp_real_git -C "$scratch/clone" -c user.name=Drift -c user.email=drift@example.invalid \
+    commit --quiet -m "external rewrite of $file"
+  hgsp_real_git -C "$scratch/clone" push --quiet origin HEAD
+  rm -rf "$scratch"
+}
+
+# Push one commit to an arbitrary remote ref through real Git, bypassing the
+# simulator, to model foreign leases, unrelated branches, and drifted heads.
+hgsp_seed_remote_ref() {
+  local ref="$1" message="${2:-seeded}" base="${3:-}" scratch
+  scratch="$(mktemp -d "$HGSP_WORK/seed-ref.XXXXXX")"
+  hgsp_real_git init --quiet --initial-branch=seed "$scratch"
+  if [[ -n "$base" ]]; then
+    hgsp_real_git -C "$scratch" fetch --quiet "$HGSP_REMOTE_GIT" "$base"
+    hgsp_real_git -C "$scratch" checkout --quiet -b seeded FETCH_HEAD
+  fi
+  printf '%s\n' "$message" > "$scratch/seeded.txt"
+  hgsp_real_git -C "$scratch" add seeded.txt
+  hgsp_real_git -C "$scratch" -c user.name=Foreign -c user.email=foreign@example.invalid \
+    commit --quiet -m "$message"
+  hgsp_real_git -C "$scratch" push --quiet "$HGSP_REMOTE_GIT" "HEAD:$ref"
+  rm -rf "$scratch"
 }

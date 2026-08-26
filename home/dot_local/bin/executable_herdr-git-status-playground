@@ -54,6 +54,45 @@ LOCAL_FIXTURES = (
     "detached",
     "non-git",
 )
+LEASE_REF = "refs/heads/herdr-playground/lease"
+PLAYGROUND_NAMESPACE = "herdr-playground/"
+MARKER_FILE = ".herdr-git-status-playground.json"
+WORKFLOW_FILE = ".github/workflows/herdr-git-status-playground.yml"
+WORKFLOW_NAME = APP_NAME
+# Approved and changes-requested review states are deferred by decision R9 and
+# are intentionally absent from this catalog.
+GITHUB_FIXTURES = ("no-pr", "draft", "checks-failed", "checks-passed", "merge-conflict")
+PR_FIXTURES = {
+    "draft": {"draft": True, "conclusion": "success"},
+    "checks-passed": {"draft": False, "conclusion": "success"},
+    "checks-failed": {"draft": False, "conclusion": "failure"},
+}
+# Inert by construction: no third-party actions, no PR-triggered execution,
+# empty permissions, bounded runtime. Bootstrap hashes this exact text and
+# treats any remote divergence as drift.
+WORKFLOW_CONTENT = """\
+# Owned by herdr-git-status-playground bootstrap; edits outside bootstrap are drift.
+name: herdr-git-status-playground
+on:
+  push:
+    branches:
+      - "herdr-playground/**"
+  workflow_dispatch: {}
+permissions: {}
+concurrency:
+  group: herdr-git-status-playground-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verdict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: deterministic verdict
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            herdr-playground/checks-failed/*) exit 1 ;;
+          esac
+"""
 
 
 class PlaygroundError(Exception):
@@ -1448,6 +1487,1014 @@ def build_local_fixture_catalog(
     mutation.persist("fixture-assignments")
 
 
+def identity_component_valid(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value))
+
+
+def repository_state_directory(root: Path, ownership: Dict[str, str]) -> Path:
+    directory = root / "repository"
+    ensure_private_directory(directory)
+    for part in (ownership["host"], ownership["owner"], ownership["name"]):
+        if not identity_component_valid(part):
+            raise PlaygroundError(
+                "FIXTURE_OWNERSHIP_UNPROVED", "repository identity component %r is not addressable" % part
+            )
+        directory = directory / part
+        ensure_private_directory(directory)
+    return directory
+
+
+def host_installation_id(root: Path) -> str:
+    path = root / "host-installation-id"
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    except FileNotFoundError:
+        pass
+    value = secrets.token_hex(8)
+    try:
+        descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return path.read_text(encoding="utf-8").strip()
+    try:
+        os.write(descriptor, (value + "\n").encode("utf-8"))
+    finally:
+        os.close(descriptor)
+    return value
+
+
+def poll_sleep() -> None:
+    time.sleep(0.01 if test_mode() else 2.0)
+
+
+class BootstrapContext:
+    """Scrubbed controller environments plus durable per-repository state for
+    one bootstrap operation. The temporary work directory (including the run-
+    private credential file) is removed by cleanup(); the repository record and
+    fixture checkouts persist under the state root."""
+
+    def __init__(
+        self,
+        root: Path,
+        ownership: Dict[str, str],
+        executable_paths: Dict[str, str],
+        source: Dict[str, str],
+    ):
+        self.root = root
+        self.ownership = ownership
+        self.host = ownership["host"]
+        self.owner = ownership["owner"]
+        self.name = ownership["name"]
+        self.repository_id = ownership["repository_id"]
+        self.url = canonical_remote(ownership)
+        self.git = executable_paths["git"]
+        self.gh = executable_paths["gh"]
+        self.record_dir = repository_state_directory(root, ownership)
+        self.record_path = self.record_dir / "repository.json"
+        self.host_id = host_installation_id(root)
+        self.work = Path(tempfile.mkdtemp(prefix=".%s-bootstrap-" % APP_NAME))
+        os.chmod(str(self.work), 0o700)
+        token = os.environ["HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"]
+        credential_path = self.work / "git-credentials"
+        descriptor = os.open(str(credential_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(
+                descriptor,
+                ("https://x-access-token:%s@%s/%s/%s.git\n" % (token, self.host, self.owner, self.name)).encode(
+                    "utf-8"
+                ),
+            )
+        finally:
+            os.close(descriptor)
+        git_environment = minimal_environment(source, executable_paths, self.work)
+        git_environment.update(
+            {
+                "GIT_CONFIG_SYSTEM": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": str(self.work / ".gitconfig"),
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_ASKPASS": "/usr/bin/false",
+                "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o IdentityAgent=none",
+                "GIT_AUTHOR_NAME": FIXTURE_AUTHOR_NAME,
+                "GIT_AUTHOR_EMAIL": FIXTURE_AUTHOR_EMAIL,
+                "GIT_COMMITTER_NAME": FIXTURE_AUTHOR_NAME,
+                "GIT_COMMITTER_EMAIL": FIXTURE_AUTHOR_EMAIL,
+                "GIT_CONFIG_COUNT": "2",
+                "GIT_CONFIG_KEY_0": "credential.helper",
+                "GIT_CONFIG_VALUE_0": "store --file=%s" % credential_path,
+                "GIT_CONFIG_KEY_1": "credential.useHttpPath",
+                "GIT_CONFIG_VALUE_1": "true",
+                "HERDR_PLAYGROUND_CANONICAL_REMOTE": self.url,
+            }
+        )
+        self.git_env = git_environment
+        gh_environment = minimal_environment(source, executable_paths, self.work)
+        gh_environment.update({"GH_CONFIG_DIR": str(self.work / "gh"), "GH_TOKEN": token})
+        self.gh_env = gh_environment
+        record_test_environments({"bootstrap-git": git_environment, "bootstrap-gh": gh_environment})
+        self.scratch = self.work / "scratch"
+        git_run(
+            self.git,
+            ["init", "--quiet", "--initial-branch=scratch", str(self.scratch)],
+            self.work,
+            git_environment,
+            "BOOTSTRAP_SCRATCH_FAILED",
+        )
+        self.record: Optional[Dict[str, Any]] = None
+        self.mutations: List[Dict[str, Any]] = []
+        self.mutated = False
+        self.lease_sha: Optional[str] = None
+        self.operation_id = ""
+
+    def cleanup(self) -> None:
+        shutil.rmtree(str(self.work), ignore_errors=True)
+
+    def persist_record(self) -> None:
+        if self.record is not None:
+            atomic_write_json(self.record_path, self.record, "repository-record")
+
+
+def gh_api(
+    ctx: BootstrapContext, path: str, code: str, fields: Optional[List[Tuple[str, str]]] = None
+) -> Any:
+    arguments = [ctx.gh, "api", "--hostname", ctx.host, path]
+    for flag, pair in fields or []:
+        arguments.extend([flag, pair])
+    try:
+        completed = subprocess.run(
+            arguments,
+            cwd=str(ctx.work),
+            env=ctx.gh_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise PlaygroundError(code, str(error))
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "status %d" % completed.returncode
+        raise PlaygroundError(code, detail)
+    try:
+        return json.loads(completed.stdout)
+    except ValueError as error:
+        raise PlaygroundError(code, "invalid API response: %s" % error)
+
+
+def repo_path(ctx: BootstrapContext, suffix: str = "") -> str:
+    return "repos/%s/%s%s" % (ctx.owner, ctx.name, suffix)
+
+
+def resolve_repository(ctx: BootstrapContext) -> Dict[str, Any]:
+    """Resolve canonical host/owner/name to the immutable repository ID; called
+    again immediately before every mutation so redirects and identity drift
+    fail closed."""
+    payload = gh_api(ctx, repo_path(ctx), "REPOSITORY_IDENTITY_UNRESOLVED")
+    if payload.get("node_id") != ctx.repository_id:
+        raise PlaygroundError(
+            "REPOSITORY_ID_MISMATCH",
+            "resolved repository ID %r does not match the requested target %r"
+            % (payload.get("node_id"), ctx.repository_id),
+        )
+    if payload.get("full_name") != "%s/%s" % (ctx.owner, ctx.name):
+        raise PlaygroundError(
+            "REPOSITORY_ID_MISMATCH",
+            "repository resolution was redirected to %r" % payload.get("full_name"),
+        )
+    return payload
+
+
+def require_write_permission(ctx: BootstrapContext, payload: Dict[str, Any]) -> None:
+    permissions = payload.get("permissions") or {}
+    if permissions.get("push") is not True:
+        raise PlaygroundError(
+            "REPOSITORY_PERMISSION_INSUFFICIENT",
+            "the controller credential lacks write permission on %s/%s/%s" % (ctx.host, ctx.owner, ctx.name),
+        )
+
+
+def policy_preflight(ctx: BootstrapContext) -> None:
+    if gh_api(ctx, repo_path(ctx, "/actions/secrets"), "REPOSITORY_POLICY_DRIFT").get("total_count", 0):
+        raise PlaygroundError("REPOSITORY_POLICY_DRIFT", "the repository declares Actions secret material")
+    if gh_api(ctx, repo_path(ctx, "/environments"), "REPOSITORY_POLICY_DRIFT").get("total_count", 0):
+        raise PlaygroundError("REPOSITORY_POLICY_DRIFT", "the repository declares deployment environments")
+    if gh_api(ctx, repo_path(ctx, "/actions/permissions"), "REPOSITORY_POLICY_DRIFT").get("enabled") is not True:
+        raise PlaygroundError("REPOSITORY_POLICY_DRIFT", "repository Actions policy is not enabled")
+
+
+def ls_remote(ctx: BootstrapContext) -> Dict[str, str]:
+    completed = git_run(ctx.git, ["ls-remote", ctx.url], ctx.scratch, ctx.git_env, "REMOTE_REFS_UNREADABLE")
+    refs: Dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        if not line.strip():
+            continue
+        sha, _, refname = line.partition("\t")
+        refs[refname.strip()] = sha.strip()
+    return refs
+
+
+def build_commit(
+    ctx: BootstrapContext, files: Dict[str, str], message: str, base_ref: Optional[str] = None
+) -> Tuple[Path, str]:
+    workspace = Path(tempfile.mkdtemp(prefix="commit-", dir=str(ctx.work)))
+    code = "BOOTSTRAP_COMMIT_FAILED"
+    git_run(ctx.git, ["init", "--quiet", "--initial-branch=work", str(workspace)], ctx.work, ctx.git_env, code)
+    if base_ref:
+        git_run(ctx.git, ["fetch", "--quiet", ctx.url, base_ref], workspace, ctx.git_env, code)
+        git_run(ctx.git, ["checkout", "--quiet", "FETCH_HEAD"], workspace, ctx.git_env, code)
+    for name, contents in files.items():
+        path = workspace / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+    git_run(ctx.git, ["add", "-A"], workspace, ctx.git_env, code)
+    git_run(ctx.git, ["commit", "--quiet", "-m", message], workspace, ctx.git_env, code)
+    sha = git_run(ctx.git, ["rev-parse", "HEAD"], workspace, ctx.git_env, code).stdout.strip()
+    return workspace, sha
+
+
+def push_ref(
+    ctx: BootstrapContext,
+    workspace: Path,
+    refname: str,
+    new_sha: str,
+    expected: str,
+    fixture: str,
+    code: str,
+) -> None:
+    resolve_repository(ctx)
+    ctx.mutations.append(
+        {
+            "fixture": fixture,
+            "ref": refname,
+            "expected": expected,
+            "new_sha": new_sha,
+            "recorded_at": utc_now(),
+        }
+    )
+    ctx.persist_record()
+    ctx.mutated = True
+    completed = git_run(
+        ctx.git,
+        [
+            "push",
+            "--quiet",
+            ctx.url,
+            "%s:%s" % (new_sha, refname),
+            "--force-with-lease=%s:%s" % (refname, expected),
+        ],
+        workspace,
+        ctx.git_env,
+        code,
+        allow_failure=True,
+    )
+    if completed.returncode != 0:
+        raise PlaygroundError(
+            code, "compare-and-swap update of %s was rejected: %s" % (refname, completed.stderr.strip())
+        )
+    if ls_remote(ctx).get(refname) != new_sha:
+        raise PlaygroundError(code, "remote %s did not verify to the pushed object" % refname)
+
+
+def lease_payload(ctx: BootstrapContext, kind: str, operation_id: str) -> Dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "host": ctx.host,
+        "owner": ctx.owner,
+        "name": ctx.name,
+        "repository_id": ctx.repository_id,
+        "operation_kind": kind,
+        "operation_id": operation_id,
+        "host_installation_id": ctx.host_id,
+        "owner_start_identity": process_start_identity(os.getpid()),
+        "lifecycle_state": "%s-in-progress" % kind,
+        "fixture_generation": None,
+        "workflow_intents": [],
+        "claimed_at": utc_now(),
+    }
+
+
+def acquire_lease(ctx: BootstrapContext, kind: str, operation_id: str, code: str) -> str:
+    workspace, sha = build_commit(
+        ctx,
+        {"lease.json": json.dumps(lease_payload(ctx, kind, operation_id), sort_keys=True) + "\n"},
+        "%s lease %s" % (kind, operation_id),
+    )
+    completed = git_run(
+        ctx.git,
+        ["push", "--quiet", ctx.url, "%s:%s" % (sha, LEASE_REF), "--force-with-lease=%s:" % LEASE_REF],
+        workspace,
+        ctx.git_env,
+        code,
+        allow_failure=True,
+    )
+    if completed.returncode != 0:
+        raise PlaygroundError(
+            code,
+            "the repository lease is already held; inspect it with: git ls-remote %s %s" % (ctx.url, LEASE_REF),
+        )
+    if ls_remote(ctx).get(LEASE_REF) != sha:
+        raise PlaygroundError(code, "the acquired lease did not verify on the remote")
+    resolve_repository(ctx)
+    return sha
+
+
+def read_lease(ctx: BootstrapContext) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    sha = ls_remote(ctx).get(LEASE_REF)
+    if sha is None:
+        return None, None
+    git_run(ctx.git, ["fetch", "--quiet", ctx.url, LEASE_REF], ctx.scratch, ctx.git_env, "REMOTE_REFS_UNREADABLE")
+    shown = git_run(ctx.git, ["show", "FETCH_HEAD:lease.json"], ctx.scratch, ctx.git_env, "", allow_failure=True)
+    if shown.returncode != 0:
+        return sha, None
+    try:
+        payload = json.loads(shown.stdout)
+    except ValueError:
+        return sha, None
+    return sha, payload if isinstance(payload, dict) else None
+
+
+def release_lease(ctx: BootstrapContext, owned_sha: str) -> None:
+    completed = git_run(
+        ctx.git,
+        ["push", "--quiet", ctx.url, ":%s" % LEASE_REF, "--force-with-lease=%s:%s" % (LEASE_REF, owned_sha)],
+        ctx.scratch,
+        ctx.git_env,
+        "LEASE_RELEASE_FAILED",
+        allow_failure=True,
+    )
+    if completed.returncode != 0 or LEASE_REF in ls_remote(ctx):
+        raise PlaygroundError("LEASE_RELEASE_FAILED", "the conditional lease delete did not verify")
+
+
+def marker_contents(ctx: BootstrapContext) -> Dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "host": ctx.host,
+        "owner": ctx.owner,
+        "name": ctx.name,
+        "repository_id": ctx.repository_id,
+        "namespace": PLAYGROUND_NAMESPACE,
+        "workflow_path": WORKFLOW_FILE,
+        "workflow_sha256": hashlib.sha256(WORKFLOW_CONTENT.encode("utf-8")).hexdigest(),
+    }
+
+
+def validate_remote_contract(ctx: BootstrapContext, payload: Dict[str, Any]) -> None:
+    record = ctx.record
+    assert record is not None
+    guidance = (
+        "inspect the owned files with: git fetch %s refs/heads/%s && git show FETCH_HEAD:%s; "
+        "repair externally, then rerun bootstrap" % (ctx.url, record["default_branch"], MARKER_FILE)
+    )
+    if payload.get("default_branch") != record["default_branch"]:
+        raise PlaygroundError(
+            "DEFAULT_BRANCH_MISMATCH",
+            "remote default branch %r differs from the recorded %r; inspect the repository settings before "
+            "rerunning bootstrap" % (payload.get("default_branch"), record["default_branch"]),
+        )
+    branch_ref = "refs/heads/%s" % record["default_branch"]
+    git_run(ctx.git, ["fetch", "--quiet", ctx.url, branch_ref], ctx.scratch, ctx.git_env, "REMOTE_REFS_UNREADABLE")
+    marker_blob = git_run(
+        ctx.git, ["show", "FETCH_HEAD:%s" % MARKER_FILE], ctx.scratch, ctx.git_env, "", allow_failure=True
+    )
+    if marker_blob.returncode != 0:
+        raise PlaygroundError("MARKER_INVALID", "the ownership marker %s is missing; %s" % (MARKER_FILE, guidance))
+    try:
+        marker = json.loads(marker_blob.stdout)
+        if not isinstance(marker, dict):
+            raise ValueError("marker is not an object")
+    except ValueError as error:
+        raise PlaygroundError("MARKER_INVALID", "the ownership marker is malformed (%s); %s" % (error, guidance))
+    for key in ("host", "owner", "name", "repository_id"):
+        if marker.get(key) != record[key]:
+            raise PlaygroundError(
+                "MARKER_IDENTITY_MISMATCH",
+                "marker %s %r differs from the recorded %r; %s" % (key, marker.get(key), record[key], guidance),
+            )
+    if marker.get("namespace") != record["namespace"]:
+        raise PlaygroundError(
+            "NAMESPACE_MISMATCH",
+            "marker namespace %r differs from the recorded %r; %s"
+            % (marker.get("namespace"), record["namespace"], guidance),
+        )
+    workflow_blob = git_run(
+        ctx.git, ["show", "FETCH_HEAD:%s" % WORKFLOW_FILE], ctx.scratch, ctx.git_env, "", allow_failure=True
+    )
+    if (
+        workflow_blob.returncode != 0
+        or hashlib.sha256(workflow_blob.stdout.encode("utf-8")).hexdigest() != record["workflow_sha256"]
+    ):
+        raise PlaygroundError(
+            "WORKFLOW_DRIFT", "the owned workflow %s changed outside bootstrap; %s" % (WORKFLOW_FILE, guidance)
+        )
+
+
+def audit_owned_namespace(ctx: BootstrapContext, remote_refs: Dict[str, str]) -> None:
+    record = ctx.record
+    assert record is not None
+    expected: Dict[str, set] = {}
+
+    def accept(branch: Optional[str], sha: Optional[str]) -> None:
+        if branch and sha:
+            expected.setdefault("refs/heads/%s" % branch, set()).add(sha)
+
+    for fixture in record["fixtures"].values():
+        accept(fixture.get("branch"), fixture.get("head_sha"))
+        accept(fixture.get("base_branch"), fixture.get("base_sha"))
+    recovery = record.get("recovery") or {}
+    for mutation in recovery.get("mutations", []):
+        expected.setdefault(mutation["ref"], set()).add(mutation["new_sha"])
+    retired = set(record.get("retired_branches", []))
+    for refname, sha in remote_refs.items():
+        if not refname.startswith("refs/heads/" + PLAYGROUND_NAMESPACE) or refname == LEASE_REF:
+            continue
+        if refname[len("refs/heads/"):] in retired:
+            continue
+        acceptable = expected.get(refname)
+        if acceptable is None:
+            raise PlaygroundError(
+                "OWNERSHIP_DRIFT",
+                "unrecorded ref %s exists inside the owned namespace; inspect it with: git ls-remote %s %s"
+                % (refname, ctx.url, refname),
+            )
+        if sha not in acceptable:
+            raise PlaygroundError(
+                "OWNERSHIP_DRIFT",
+                "%s moved to unrecorded commit %s; inspect the branch history before rerunning bootstrap"
+                % (refname, sha),
+            )
+    for fixture in record["fixtures"].values():
+        for branch in (fixture.get("branch"), fixture.get("base_branch")):
+            if branch and "refs/heads/%s" % branch not in remote_refs:
+                raise PlaygroundError(
+                    "OWNERSHIP_DRIFT",
+                    "recorded ref refs/heads/%s is missing from the remote; inspect the repository before "
+                    "rerunning bootstrap" % branch,
+                )
+
+
+def list_pulls(ctx: BootstrapContext, branch: str, state: str = "all") -> List[Dict[str, Any]]:
+    path = repo_path(ctx, "/pulls?state=%s&head=%s:%s" % (state, ctx.owner, branch))
+    pulls = gh_api(ctx, path, "PULL_REQUEST_QUERY_FAILED")
+    if not isinstance(pulls, list):
+        raise PlaygroundError("PULL_REQUEST_QUERY_FAILED", "unexpected pull-request list shape")
+    return pulls
+
+
+def create_pull(ctx: BootstrapContext, branch: str, base: str, title: str, draft: bool) -> Dict[str, Any]:
+    resolve_repository(ctx)
+    ctx.mutated = True
+    fields = [
+        ("-f", "title=%s" % title),
+        ("-f", "head=%s" % branch),
+        ("-f", "base=%s" % base),
+        ("-F", "draft=%s" % ("true" if draft else "false")),
+    ]
+    return gh_api(ctx, repo_path(ctx, "/pulls"), "PULL_REQUEST_CREATE_FAILED", fields)
+
+
+def wait_workflow_run(ctx: BootstrapContext, branch: str, sha: str, conclusion: str) -> Dict[str, Any]:
+    for _ in range(200):
+        payload = gh_api(ctx, repo_path(ctx, "/actions/runs?head_sha=%s" % sha), "WORKFLOW_RUN_QUERY_FAILED")
+        matches = [
+            run
+            for run in payload.get("workflow_runs", [])
+            if run.get("name") == WORKFLOW_NAME
+            and run.get("head_branch") == branch
+            and run.get("head_sha") == sha
+            and run.get("status") == "completed"
+        ]
+        if matches:
+            newest = max(matches, key=lambda run: run["id"])
+            if newest.get("conclusion") != conclusion:
+                raise PlaygroundError(
+                    "WORKFLOW_CONCLUSION_UNEXPECTED",
+                    "run %s concluded %r, expected %r" % (newest["id"], newest.get("conclusion"), conclusion),
+                )
+            return newest
+        poll_sleep()
+    raise PlaygroundError("WORKFLOW_RUN_MISSING", "no completed %s run for %s@%s" % (WORKFLOW_NAME, branch, sha))
+
+
+def verify_recorded_run(ctx: BootstrapContext, fixture_record: Dict[str, Any]) -> None:
+    payload = gh_api(
+        ctx,
+        repo_path(ctx, "/actions/runs?head_sha=%s" % fixture_record["head_sha"]),
+        "WORKFLOW_RUN_QUERY_FAILED",
+    )
+    for run in payload.get("workflow_runs", []):
+        if run.get("id") == fixture_record["workflow_run_id"]:
+            if (
+                run.get("name") == WORKFLOW_NAME
+                and run.get("head_branch") == fixture_record["branch"]
+                and run.get("conclusion") == fixture_record["workflow_conclusion"]
+            ):
+                return
+            break
+    raise PlaygroundError(
+        "OWNERSHIP_DRIFT",
+        "recorded workflow run %s for %s changed or vanished; inspect the repository Actions history"
+        % (fixture_record["workflow_run_id"], fixture_record["branch"]),
+    )
+
+
+def verify_recorded_pull(ctx: BootstrapContext, fixture_record: Dict[str, Any]) -> Dict[str, Any]:
+    pulls = list_pulls(ctx, fixture_record["branch"])
+    if len(pulls) != 1:
+        raise PlaygroundError(
+            "OWNERSHIP_DRIFT",
+            "expected exactly the recorded pull request on %s, found %d; inspect the pull-request history"
+            % (fixture_record["branch"], len(pulls)),
+        )
+    pull = pulls[0]
+    if not (
+        pull.get("number") == fixture_record["pr_number"]
+        and pull.get("node_id") == fixture_record["pr_id"]
+        and pull.get("state") == "open"
+        and pull.get("draft") == fixture_record["draft"]
+        and pull.get("head", {}).get("sha") == fixture_record["head_sha"]
+        and pull.get("user", {}).get("login") == fixture_record["author"]
+    ):
+        raise PlaygroundError(
+            "OWNERSHIP_DRIFT",
+            "the pull request on %s was replaced or edited outside bootstrap; inspect PR #%s"
+            % (fixture_record["branch"], fixture_record["pr_number"]),
+        )
+    return pull
+
+
+def ensure_branch(
+    ctx: BootstrapContext, name: str, branch: str, files: Dict[str, str]
+) -> str:
+    assert ctx.record is not None
+    refname = "refs/heads/%s" % branch
+    remote_sha = ls_remote(ctx).get(refname)
+    if remote_sha is not None:
+        if any(
+            mutation["fixture"] == name and mutation["ref"] == refname and mutation["new_sha"] == remote_sha
+            for mutation in ctx.mutations
+        ):
+            return remote_sha
+        raise PlaygroundError(
+            "OWNERSHIP_DRIFT",
+            "%s already exists with unrecorded commit %s; inspect it before rerunning bootstrap"
+            % (refname, remote_sha),
+        )
+    workspace, sha = build_commit(
+        ctx, files, "%s fixture" % name, base_ref="refs/heads/%s" % ctx.record["default_branch"]
+    )
+    push_ref(ctx, workspace, refname, sha, "", name, "FIXTURE_REF_CAS_FAILED")
+    return sha
+
+
+def adopt_or_create_pull(
+    ctx: BootstrapContext, name: str, branch: str, base: str, sha: str, draft: bool
+) -> Dict[str, Any]:
+    pulls = list_pulls(ctx, branch)
+    matching = [
+        pull
+        for pull in pulls
+        if pull.get("state") == "open" and pull.get("head", {}).get("sha") == sha and pull.get("draft") == draft
+    ]
+    if len(matching) > 1 or len(pulls) > len(matching):
+        raise PlaygroundError(
+            "OWNERSHIP_DRIFT",
+            "unexpected pull-request history on %s; inspect it before rerunning bootstrap" % branch,
+        )
+    if matching:
+        return matching[0]
+    return create_pull(ctx, branch, base, "herdr playground %s fixture" % name, draft)
+
+
+def converge_no_pr(ctx: BootstrapContext) -> None:
+    assert ctx.record is not None
+    name = "no-pr"
+    fixture_record = ctx.record["fixtures"].get(name)
+    if fixture_record is not None:
+        if not list_pulls(ctx, fixture_record["branch"]):
+            return
+        # Closed history reached the recorded branch: rotate to a fresh version
+        # instead of reusing a branch that has ever had a pull request.
+        ctx.record.setdefault("retired_branches", []).append(fixture_record["branch"])
+        start_version = fixture_record["version"] + 1
+    else:
+        start_version = 1
+    remote_refs = ls_remote(ctx)
+    for version in range(start_version, start_version + 100):
+        branch = "%sno-pr/v%d" % (PLAYGROUND_NAMESPACE, version)
+        refname = "refs/heads/%s" % branch
+        if list_pulls(ctx, branch):
+            continue
+        remote_sha = remote_refs.get(refname)
+        adopted = remote_sha is not None and any(
+            mutation["fixture"] == name and mutation["ref"] == refname and mutation["new_sha"] == remote_sha
+            for mutation in ctx.mutations
+        )
+        if remote_sha is not None and not adopted:
+            continue
+        sha = remote_sha
+        if sha is None:
+            workspace, sha = build_commit(
+                ctx,
+                {"fixtures/no-pr.txt": "herdr playground no-pr fixture %s\n" % branch},
+                "no-pr fixture v%d" % version,
+                base_ref="refs/heads/%s" % ctx.record["default_branch"],
+            )
+            push_ref(ctx, workspace, refname, sha, "", name, "FIXTURE_REF_CAS_FAILED")
+        if list_pulls(ctx, branch):
+            raise PlaygroundError(
+                "OWNERSHIP_DRIFT", "pull-request history appeared on %s during bootstrap; inspect it" % branch
+            )
+        ctx.record["fixtures"][name] = {"branch": branch, "head_sha": sha, "version": version}
+        return
+    raise PlaygroundError("FIXTURE_REF_CAS_FAILED", "could not find an unused no-pr branch version")
+
+
+def converge_pr_fixture(ctx: BootstrapContext, name: str) -> None:
+    assert ctx.record is not None
+    definition = PR_FIXTURES[name]
+    fixture_record = ctx.record["fixtures"].get(name)
+    if fixture_record is not None:
+        verify_recorded_pull(ctx, fixture_record)
+        verify_recorded_run(ctx, fixture_record)
+        return
+    branch = "%s%s/head" % (PLAYGROUND_NAMESPACE, name)
+    sha = ensure_branch(
+        ctx, name, branch, {"fixtures/%s.txt" % name: "herdr playground %s fixture\n" % name}
+    )
+    run = wait_workflow_run(ctx, branch, sha, definition["conclusion"])
+    pull = adopt_or_create_pull(ctx, name, branch, ctx.record["default_branch"], sha, definition["draft"])
+    ctx.record["fixtures"][name] = {
+        "branch": branch,
+        "head_sha": sha,
+        "base_branch": ctx.record["default_branch"],
+        "pr_number": pull["number"],
+        "pr_id": pull["node_id"],
+        "author": pull["user"]["login"],
+        "draft": definition["draft"],
+        "workflow_run_id": run["id"],
+        "workflow_conclusion": run["conclusion"],
+    }
+
+
+def converge_merge_conflict(ctx: BootstrapContext) -> None:
+    assert ctx.record is not None
+    name = "merge-conflict"
+    fixture_record = ctx.record["fixtures"].get(name)
+    if fixture_record is not None:
+        verify_recorded_pull(ctx, fixture_record)
+        return
+    base_branch = PLAYGROUND_NAMESPACE + "merge-conflict/base"
+    head_branch = PLAYGROUND_NAMESPACE + "merge-conflict/head"
+    base_sha = ensure_branch(ctx, name, base_branch, {"fixtures/conflict.txt": "base side\n"})
+    head_sha = ensure_branch(ctx, name, head_branch, {"fixtures/conflict.txt": "head side\n"})
+    pull = adopt_or_create_pull(ctx, name, head_branch, base_branch, head_sha, False)
+    settled = None
+    for _ in range(200):
+        current = gh_api(ctx, repo_path(ctx, "/pulls/%d" % pull["number"]), "PULL_REQUEST_QUERY_FAILED")
+        if current.get("mergeable") is not None:
+            settled = current
+            break
+        poll_sleep()
+    if settled is None:
+        raise PlaygroundError(
+            "MERGEABILITY_UNSETTLED", "GitHub did not settle mergeability for PR #%s" % pull["number"]
+        )
+    if settled.get("mergeable") is not False or settled.get("mergeable_state") != "dirty":
+        raise PlaygroundError(
+            "MERGE_CONFLICT_NOT_CONFLICTING",
+            "PR #%s settled as mergeable=%r state=%r"
+            % (pull["number"], settled.get("mergeable"), settled.get("mergeable_state")),
+        )
+    ctx.record["fixtures"][name] = {
+        "branch": head_branch,
+        "head_sha": head_sha,
+        "base_branch": base_branch,
+        "base_sha": base_sha,
+        "pr_number": pull["number"],
+        "pr_id": pull["node_id"],
+        "author": pull["user"]["login"],
+        "draft": False,
+        "mergeable": settled["mergeable"],
+        "mergeable_state": settled["mergeable_state"],
+    }
+
+
+def converge_github_fixture(ctx: BootstrapContext, name: str) -> None:
+    if name == "no-pr":
+        converge_no_pr(ctx)
+    elif name == "merge-conflict":
+        converge_merge_conflict(ctx)
+    else:
+        converge_pr_fixture(ctx, name)
+
+
+def ensure_fixture_checkout(ctx: BootstrapContext, name: str, fixture_record: Dict[str, Any]) -> None:
+    checkouts = ctx.record_dir / "checkouts"
+    ensure_private_directory(checkouts)
+    destination = checkouts / name
+    branch = fixture_record["branch"]
+    head_sha = fixture_record["head_sha"]
+    code = "FIXTURE_CHECKOUT_FAILED"
+
+    def verified() -> bool:
+        try:
+            origin = git_run(ctx.git, ["remote", "get-url", "origin"], destination, ctx.git_env, code).stdout.strip()
+            current = git_run(ctx.git, ["symbolic-ref", "--short", "HEAD"], destination, ctx.git_env, code).stdout.strip()
+            head = git_run(ctx.git, ["rev-parse", "HEAD"], destination, ctx.git_env, code).stdout.strip()
+        except PlaygroundError:
+            return False
+        return origin == ctx.url and current == branch and head == head_sha
+
+    if destination.exists():
+        if not verified():
+            shutil.rmtree(str(destination))
+    if not destination.exists():
+        git_run(ctx.git, ["clone", "--quiet", ctx.url, str(destination)], ctx.work, ctx.git_env, code)
+        git_run(ctx.git, ["checkout", "--quiet", branch], destination, ctx.git_env, code)
+        if not verified():
+            raise PlaygroundError(code, "the %s checkout did not verify origin, branch, and head" % name)
+    fixture_record["checkout"] = {
+        "path": str(destination),
+        "origin": ctx.url,
+        "branch": branch,
+        "head_sha": head_sha,
+    }
+
+
+def bootstrap_result(
+    ctx: Optional[BootstrapContext],
+    initialized: bool,
+    lease_state: str,
+    error: Optional[Dict[str, str]] = None,
+    next_command: Optional[str] = None,
+    fixtures: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    repository = None
+    if ctx is not None:
+        repository = {
+            "host": ctx.host,
+            "owner": ctx.owner,
+            "name": ctx.name,
+            "repository_id": ctx.repository_id,
+        }
+    return {
+        "command": "bootstrap",
+        "initialized": initialized,
+        "repository": repository,
+        "fixtures": fixtures,
+        "lease": lease_state,
+        "error": error,
+        "next_command": next_command,
+    }
+
+
+def playground_error_json(error: PlaygroundError) -> Dict[str, str]:
+    return {"code": error.code, "message": error.message}
+
+
+def bootstrap_initialize(ctx: BootstrapContext, payload: Dict[str, Any]) -> int:
+    if ctx.record_path.exists():
+        raise PlaygroundError(
+            "BOOTSTRAP_ALREADY_INITIALIZED",
+            "this repository is already initialized; run bootstrap without --initialize",
+        )
+    refs = ls_remote(ctx)
+    # A concurrent initializer's lease is contested below, not unrelated content.
+    if any(refname != LEASE_REF for refname in refs):
+        raise PlaygroundError(
+            "REPOSITORY_NOT_EMPTY",
+            "explicit initialization only claims an empty repository; %s/%s/%s holds unrelated content"
+            % (ctx.host, ctx.owner, ctx.name),
+        )
+    default_branch = payload.get("default_branch") or "main"
+    operation_id = secrets.token_hex(8)
+    lease_sha = acquire_lease(ctx, "initialize", operation_id, "INITIALIZE_LEASE_LOST")
+    try:
+        if test_failpoint() == "bootstrap-pre-mutation":
+            raise PlaygroundError(
+                "INJECTED_BOOTSTRAP_PRE_MUTATION", "injected failure after lease acquisition, before mutation"
+            )
+        marker = marker_contents(ctx)
+        workspace, sha = build_commit(
+            ctx,
+            {
+                MARKER_FILE: json.dumps(marker, indent=2, sort_keys=True) + "\n",
+                WORKFLOW_FILE: WORKFLOW_CONTENT,
+            },
+            "initialize herdr playground ownership",
+        )
+        push_ref(ctx, workspace, "refs/heads/%s" % default_branch, sha, "", "default-branch", "INITIALIZE_BRANCH_CONFLICT")
+        ctx.record = {
+            "schema_version": SCHEMA_VERSION,
+            "host": ctx.host,
+            "owner": ctx.owner,
+            "name": ctx.name,
+            "repository_id": ctx.repository_id,
+            "default_branch": default_branch,
+            "namespace": PLAYGROUND_NAMESPACE,
+            "workflow_sha256": marker["workflow_sha256"],
+            "host_installation_id": ctx.host_id,
+            "initialized_at": utc_now(),
+            "fixtures": {},
+            "retired_branches": [],
+            "recovery": None,
+        }
+        ctx.persist_record()
+    except PlaygroundError as error:
+        if ctx.mutated:
+            atomic_write_json(
+                ctx.record_dir / "initialize-recovery.json",
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "operation_id": operation_id,
+                    "lease_sha": lease_sha,
+                    "mutations": ctx.mutations,
+                    "error": playground_error_json(error),
+                },
+                "initialize-recovery",
+            )
+            print_json(
+                bootstrap_result(
+                    ctx,
+                    False,
+                    "retained",
+                    error=playground_error_json(error),
+                    next_command="inspect the retained lease and recovery record, then rerun bootstrap --initialize",
+                )
+            )
+            return error.status
+        release_lease(ctx, lease_sha)
+        print_json(
+            bootstrap_result(
+                ctx,
+                False,
+                "released",
+                error=playground_error_json(error),
+                next_command="fix the reported condition and rerun bootstrap --initialize",
+            )
+        )
+        return error.status
+    release_lease(ctx, lease_sha)
+    print_json(bootstrap_result(ctx, True, "released", fixtures={}, next_command="bootstrap"))
+    return 0
+
+
+def bootstrap_converge(ctx: BootstrapContext, payload: Dict[str, Any]) -> int:
+    try:
+        ctx.record = read_json(ctx.record_path)
+    except PlaygroundError as error:
+        if error.code == "RUN_NOT_FOUND":
+            raise PlaygroundError(
+                "BOOTSTRAP_NOT_INITIALIZED",
+                "no repository record exists; run bootstrap --initialize against the empty dedicated repository",
+            )
+        raise
+    record = ctx.record
+    for key in ("host", "owner", "name", "repository_id"):
+        if record.get(key) != ctx.ownership[key]:
+            raise PlaygroundError(
+                "BOOTSTRAP_IDENTITY_MISMATCH",
+                "the persisted repository record does not match the requested canonical identity",
+            )
+    validate_remote_contract(ctx, payload)
+    remote_refs = ls_remote(ctx)
+    audit_owned_namespace(ctx, remote_refs)
+
+    recovery = record.get("recovery")
+    remote_lease_sha = remote_refs.get(LEASE_REF)
+    if remote_lease_sha is not None:
+        _, lease_doc = read_lease(ctx)
+        if (
+            lease_doc is not None
+            and recovery
+            and lease_doc.get("operation_id") == recovery.get("operation_id")
+            and lease_doc.get("host_installation_id") == ctx.host_id
+        ):
+            ctx.lease_sha = remote_lease_sha
+            ctx.operation_id = recovery["operation_id"]
+            ctx.mutations = recovery.setdefault("mutations", [])
+        else:
+            holder = lease_doc or {}
+            raise PlaygroundError(
+                "REPOSITORY_LEASE_HELD",
+                "the repository lease is held at %s by operation %r on host %r; inspect it with: "
+                "git ls-remote %s %s && git fetch %s %s && git show FETCH_HEAD:lease.json; "
+                "no automated takeover is performed"
+                % (
+                    remote_lease_sha,
+                    holder.get("operation_id"),
+                    holder.get("host_installation_id"),
+                    ctx.url,
+                    LEASE_REF,
+                    ctx.url,
+                    LEASE_REF,
+                ),
+            )
+    else:
+        ctx.operation_id = secrets.token_hex(8)
+        ctx.lease_sha = acquire_lease(ctx, "bootstrap", ctx.operation_id, "REPOSITORY_LEASE_HELD")
+        record["recovery"] = {
+            "operation_kind": "bootstrap",
+            "operation_id": ctx.operation_id,
+            "started_at": utc_now(),
+            "lease_sha": ctx.lease_sha,
+            "mutations": [],
+        }
+        ctx.mutations = record["recovery"]["mutations"]
+        ctx.persist_record()
+    resumed_mutations = bool(ctx.mutations)
+    try:
+        if test_failpoint() == "bootstrap-pre-mutation":
+            raise PlaygroundError(
+                "INJECTED_BOOTSTRAP_PRE_MUTATION", "injected failure after lease acquisition, before mutation"
+            )
+        for name in GITHUB_FIXTURES:
+            converge_github_fixture(ctx, name)
+            ctx.persist_record()
+            if test_failpoint() == "bootstrap-partial-%s" % name:
+                raise PlaygroundError(
+                    "INJECTED_BOOTSTRAP_PARTIAL", "injected failure after the %s fixture converged" % name
+                )
+        for name in GITHUB_FIXTURES:
+            ensure_fixture_checkout(ctx, name, record["fixtures"][name])
+        ctx.persist_record()
+    except PlaygroundError as error:
+        if ctx.mutated or resumed_mutations:
+            record["recovery"]["phase"] = "mutation-incomplete"
+            record["recovery"]["error"] = playground_error_json(error)
+            ctx.persist_record()
+            print_json(
+                bootstrap_result(
+                    ctx,
+                    True,
+                    "retained",
+                    error=playground_error_json(error),
+                    next_command="rerun bootstrap to resume the recorded operation",
+                )
+            )
+            return error.status
+        record["recovery"] = None
+        ctx.persist_record()
+        release_lease(ctx, ctx.lease_sha)
+        print_json(
+            bootstrap_result(
+                ctx,
+                True,
+                "released",
+                error=playground_error_json(error),
+                next_command="fix the reported condition and rerun bootstrap",
+            )
+        )
+        return error.status
+    record["recovery"] = None
+    ctx.persist_record()
+    release_lease(ctx, ctx.lease_sha)
+    fixtures_summary = {name: dict(record["fixtures"][name]) for name in GITHUB_FIXTURES}
+    print_json(bootstrap_result(ctx, True, "released", fixtures=fixtures_summary, next_command="start"))
+    return 0
+
+
+def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    ctx: Optional[BootstrapContext] = None
+    try:
+        ownership = load_fixture_ownership(arguments.fixture_ownership)
+        if not os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"):
+            raise PlaygroundError(
+                "CREDENTIAL_AUTHORITY_INVALID", "bootstrap requires the scoped controller credential"
+            )
+        executable_paths: Dict[str, str] = {}
+        for name in ("git", "gh"):
+            resolved = resolve_executable(name, source.get("PATH", ""))
+            if resolved is None:
+                raise PlaygroundError("%s_NOT_FOUND" % name.upper(), "%s is not on the approved PATH" % name)
+            executable_paths[name] = resolved
+        root = state_root(source)
+        ensure_private_directory(root)
+        ctx = BootstrapContext(root, ownership, executable_paths, source)
+        try:
+            payload = resolve_repository(ctx)
+            require_write_permission(ctx, payload)
+            policy_preflight(ctx)
+            if arguments.initialize:
+                return bootstrap_initialize(ctx, payload)
+            return bootstrap_converge(ctx, payload)
+        finally:
+            ctx.cleanup()
+    except PlaygroundError as error:
+        print_json(
+            bootstrap_result(
+                ctx,
+                False,
+                "not-acquired",
+                error=playground_error_json(error),
+                next_command="fix the reported condition and rerun bootstrap",
+            )
+        )
+        return error.status
+
+
 def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     try:
         executable_paths, fixture, audit_digest, herdr_identity = preflight(arguments, source)
@@ -1778,6 +2825,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     bootstrap = subparsers.add_parser("bootstrap", help="initialize or validate the fixture repository")
     bootstrap.add_argument("--initialize", action="store_true")
+    bootstrap.add_argument("--fixture-ownership", required=True)
 
     start = subparsers.add_parser("start", help="preflight and allocate a recoverable run")
     start.add_argument("--approved-herdr", required=True)
@@ -1829,6 +2877,8 @@ def main() -> int:
             return command_stop(arguments, source)
         if arguments.command == "view":
             return command_view(arguments, source)
+        if arguments.command == "bootstrap":
+            return command_bootstrap(arguments, source)
         return command_not_implemented(arguments.command, arguments, source)
     except PlaygroundError as error:
         return error_result(error)
