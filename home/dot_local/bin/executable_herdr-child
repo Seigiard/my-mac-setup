@@ -703,20 +703,24 @@ print("%s\t%s\t%s" % (a["terminal_id"], a.get("agent_status","unknown"), str(boo
     return 0
   }
   set +e
-  printf '%s' "$pane_json" | python3 -c 'import json,sys
+  local ownership_record token_tab="" pane_tab=""
+  ownership_record="$(printf '%s' "$pane_json" | python3 -c 'import json,sys
 pane_id,terminal_id=sys.argv[1:3]
 try: pane=json.load(sys.stdin)["result"]["pane"]
 except Exception: raise SystemExit(2)
 if pane.get("pane_id")!=pane_id or pane.get("terminal_id")!=terminal_id: raise SystemExit(2)
 labels=pane.get("state_labels")
-if labels is None or labels == {}: raise SystemExit(1)
+if labels is None or labels == {}:
+    tokens=pane.get("tokens") or {}
+    print((tokens.get("tab-id") or "")+"\t"+(pane.get("tab_id") or ""))
+    raise SystemExit(1)
 if isinstance(labels,dict): raise SystemExit(0)
-raise SystemExit(2)' "$pane" "$terminal"
+raise SystemExit(2)' "$pane" "$terminal")"
   label_status=$?
   set -e
   case "$label_status" in
     0) printf '%s: kept; pane %s has a waiting state label\n' "$name" "$pane"; return 0 ;;
-    1) ;;
+    1) IFS=$'\t' read -r token_tab pane_tab <<< "$ownership_record" ;;
     *) printf '%s: kept; pane metadata could not be read\n' "$name"; return 0 ;;
   esac
 
@@ -739,11 +743,50 @@ if bool(a.get("focused")): raise SystemExit(4)' "$name" "$pane" "$terminal"
     4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; return 0 ;;
     *) printf '%s: kept; live agent state could not be parsed\n' "$name"; return 0 ;;
   esac
-  if herdr pane close "$pane" >/dev/null; then
-    printf '%s: closed pane %s\n' "$name" "$pane"
+  if [ -z "$token_tab" ]; then
+    if herdr pane close "$pane" >/dev/null; then
+      printf '%s: closed pane %s\n' "$name" "$pane"
+    else
+      printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
+    fi
+    return 0
+  fi
+
+  if [ "$token_tab" != "$pane_tab" ]; then
+    printf '%s: kept; tab ownership is ambiguous\n' "$name"
+    return 0
+  fi
+
+  local tab_out tab_err pane_count close_err
+  tab_out="$(mktemp)"
+  tab_err="$(mktemp)"
+  if ! herdr tab get "$token_tab" >"$tab_out" 2>"$tab_err"; then
+    if json_error_file_is "$tab_err" tab_not_found; then
+      printf '%s: already cleaned; tab %s is gone\n' "$name" "$token_tab"
+    else
+      printf '%s: kept; tab %s metadata could not be read\n' "$name" "$token_tab"
+    fi
+    rm -f "$tab_out" "$tab_err"
+    return 0
+  fi
+  pane_count="$(python3 -c 'import json,sys
+try: print(json.load(sys.stdin)["result"]["tab"]["pane_count"])
+except Exception: print("")' < "$tab_out")"
+  rm -f "$tab_out" "$tab_err"
+
+  close_err="$(mktemp)"
+  if herdr pane close "$pane" >/dev/null 2>"$close_err"; then
+    if [ "$pane_count" = "1" ]; then
+      printf '%s: closed pane %s and its tab %s\n' "$name" "$pane" "$token_tab"
+    else
+      printf '%s: closed pane %s; tab %s kept with %s panes\n' "$name" "$pane" "$token_tab" "$pane_count"
+    fi
+  elif json_error_file_is "$close_err" pane_not_found; then
+    printf '%s: already cleaned; pane %s is gone\n' "$name" "$pane"
   else
     printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
   fi
+  rm -f "$close_err"
 }
 
 [ $# -gt 0 ] || { usage; exit 2; }
