@@ -1700,6 +1700,477 @@ PY
 }
 
 # ===========================================
+# herdr-git-status-playground candidate adapters (U5)
+# ===========================================
+
+@test "herdr-git-status-playground installs pinned candidates into guarded profiles with clean baselines" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-ready
+
+  # #then each isolated registry contains exactly the pinned candidate
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" "$HGSP_STATE_ROOT" "$run_id" <<'PY'
+import json
+import os
+import sys
+
+manifest_path, state_root, run_id = sys.argv[1:]
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+revisions = {
+    "ezcorp": ("ez-corp.git-status", "f144c8dac2860e344b6b379d2bcfee229dcf10ad"),
+    "sfroment": ("git-detail", "b726977143adc2847dc25e3327bc0b1b4fc26455"),
+    "krystof": ("gitlab-ci-status", "fe6575a89de9006c35d9d0b9707397839d983cff"),
+    "jmarbutt": ("jmarbutt.spaces-pr-status", "8a56c5dce0bd65e47eddc9a1d862ddae870cddc3"),
+}
+for name, (plugin_id, revision) in revisions.items():
+    registry_path = os.path.join(
+        state_root, "runs", run_id, "runtime", "profiles", name, "data", "herdr", "plugins", "registry.json"
+    )
+    registry = json.load(open(registry_path, encoding="utf-8"))
+    assert len(registry) == 1, (name, registry)
+    assert registry[0]["plugin_id"] == plugin_id and registry[0]["revision"] == revision, (name, registry)
+    recorded = manifest["candidates"][name]["registry"]
+    assert recorded["plugin_id"] == plugin_id and recorded["revision"] == revision, recorded
+    assert recorded["enabled"] is False, recorded
+# #then the baseline holds only the shared rows and candidate rows appear post-baseline
+shared = ["state_icon", "workspace", "pane", "git_ref", "spaces_default"]
+run_dir = os.path.join(state_root, "runs", run_id)
+for name in revisions:
+    baseline = json.load(open(os.path.join(run_dir, "observations", "baseline-%s.json" % name), encoding="utf-8"))
+    assert baseline["rows"] == shared, (name, baseline["rows"])
+    activation = json.load(open(os.path.join(run_dir, "observations", "activation-%s.json" % name), encoding="utf-8"))
+    tokens = manifest["candidates"][name]["sidebar_tokens"]
+    assert activation["rows"][: len(shared)] == shared, activation["rows"]
+    for token in tokens:
+        assert token in activation["rows"], (name, token, activation["rows"])
+    config = open(
+        os.path.join(run_dir, "runtime", "profiles", name, "config", "herdr", "config.toml"), encoding="utf-8"
+    ).read()
+    for token in tokens:
+        assert 'sidebar_row = "%s"' % token in config, (name, token)
+# #then jmarbutt notifications are disabled for the comparison run
+jm_config = json.load(
+    open(
+        os.path.join(
+            run_dir, "runtime", "profiles", "jmarbutt", "data", "herdr", "plugins",
+            "jmarbutt.spaces-pr-status", "config.json",
+        ),
+        encoding="utf-8",
+    )
+)
+assert jm_config == {"notifications": False}, jm_config
+# #then every profile received the identical ordered catalog: 8 local + 5 GitHub
+catalog = manifest["space_catalog"]
+assert [entry["label"] for entry in catalog][:8] == [
+    "checkout-clean", "checkout-dirty", "worktree-clean", "worktree-dirty",
+    "conflict", "diverged-stash", "detached", "non-git",
+], catalog
+assert [entry["label"] for entry in catalog][8:] == [
+    "gh-no-pr", "gh-draft", "gh-checks-failed", "gh-checks-passed", "gh-merge-conflict",
+], catalog
+snapshots = [tuple(entry["label"] for entry in manifest["candidates"][name]["label_snapshot"]) for name in revisions]
+assert len(set(snapshots)) == 1 and len(snapshots[0]) == 13, snapshots
+# #then a plugin that drops injected variables still resolves inside its profile
+for name in ("ezcorp", "krystof", "jmarbutt"):
+    plugin_id = revisions[name][0]
+    state = json.load(
+        open(
+            os.path.join(run_dir, "runtime", "profiles", name, "state", "herdr", "plugins", plugin_id, "state.json"),
+            encoding="utf-8",
+        )
+    )
+    profile_root = os.path.join(run_dir, "runtime", "profiles", name)
+    assert state["resolved_home_root"].startswith(profile_root), (name, state["resolved_home_root"])
+PY
+  assert_success
+
+  # #then GitHub-dependent adapters proved a repository-scoped read with only the candidate credential
+  run "$HGSP_PYTHON" - "$HGSP_ENV_LOG" "$HGSP_CALL_LOG" <<'PY'
+import json
+import sys
+
+env_log, call_log = sys.argv[1:]
+records = [json.loads(line) for line in open(env_log, encoding="utf-8") if line.strip()]
+by_class = {record["class"]: record["environment"] for record in records}
+for name in ("ezcorp", "sfroment", "krystof", "jmarbutt"):
+    child = by_class["candidate-runtime-%s" % name]
+    assert "HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN" not in child, (name, sorted(child))
+    if name in ("krystof", "jmarbutt"):
+        assert child.get("GH_TOKEN") == "<redacted>", (name, child.get("GH_TOKEN"))
+    else:
+        assert "GH_TOKEN" not in child, name
+probes = [
+    line
+    for line in open(call_log, encoding="utf-8")
+    if line.startswith("gh-sim|") and "token=candidate-canary" in line
+]
+assert len(probes) >= 2, probes
+for line in probes:
+    assert "path=repos/example/herdr-status-fixtures" in line, line
+PY
+  assert_success
+
+  # #then activation ordering held: server before enable, spaces before start and refresh
+  run "$HGSP_PYTHON" - "$HGSP_CALL_LOG" <<'PY'
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+
+
+def first(prefix):
+    for index, line in enumerate(lines):
+        if line.startswith(prefix):
+            return index
+    raise AssertionError("missing call-log line %r" % prefix)
+
+
+def last(prefix):
+    found = [index for index, line in enumerate(lines) if line.startswith(prefix)]
+    assert found, "missing call-log line %r" % prefix
+    return found[-1]
+
+
+assert first("herdr|ezcorp|server run") < first("herdr|ezcorp|plugin enable ez-corp.git-status")
+assert first("herdr|ezcorp|plugin enable") < first("herdr|ezcorp|plugin run ez-corp.git-status status-enable")
+assert last("herdr|krystof|space create") < first("herdr|krystof|plugin run gitlab-ci-status start")
+assert last("herdr|jmarbutt|space create") < first("herdr|jmarbutt|plugin run jmarbutt.spaces-pr-status startup")
+assert first("herdr|jmarbutt|plugin run jmarbutt.spaces-pr-status startup") < first(
+    "herdr|jmarbutt|plugin run jmarbutt.spaces-pr-status refresh"
+)
+PY
+  assert_success
+
+  local ezcorp_pid krystof_pid jmarbutt_pid
+  ezcorp_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["candidate-ezcorp"]["pid"]')"
+  krystof_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["candidate-krystof"]["pid"]')"
+  jmarbutt_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["candidate-jmarbutt"]["pid"]')"
+
+  # #then teardown restores labels, closes the jmarbutt socket, and never invokes a signal-capable native stop
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["krystof"]["labels_restored"]')" true
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["jmarbutt"]["socket_closed"]')" true
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["jmarbutt"]["daemon_gone"]')" true
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["ezcorp"]["metadata_cleanup"]')" true
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["sfroment"]["group_quiescent"]')" true
+  run grep -E 'plugin run ez-corp.git-status status-disable|plugin run gitlab-ci-status stop' "$HGSP_CALL_LOG"
+  assert_failure
+  run grep 'herdr|krystof|space label set checkout-clean checkout-clean' "$HGSP_CALL_LOG"
+  assert_success
+  run grep 'herdr-native-signal' "$HGSP_CALL_LOG"
+  assert_failure
+  local pid
+  for pid in "$ezcorp_pid" "$krystof_pid" "$jmarbutt_pid"; do
+    run kill -0 "$pid"
+    assert_failure
+  done
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground audit attestation gates launch before any candidate build or server" {
+  hgsp_setup
+  hgsp_remote_ready
+  local attestation="$HGSP_WORK/audit-attestation.json"
+  local original
+  original="$(cat "$attestation")"
+
+  # #then an unapproved attestation blocks in preflight, before any run state
+  printf '%s\n' "$original" | sed 's/"approved":true/"approved":false/' > "$attestation"
+  run hgsp_candidate_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" AUDIT_ATTESTATION_INVALID
+  assert_equal "$(hgsp_json_field "$output" run_id)" None
+  run grep -E '^herdr\|[a-z]+\|(server run|plugin install|plugin enable|plugin fetch)' "$HGSP_CALL_LOG"
+  assert_failure
+
+  # #then a fetched tree that disagrees with the attestation blocks before any build or server
+  printf '%s\n' "$original" | sed 's/tree-ezcorp/tree-tampered/' > "$attestation"
+  run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" AUDIT_TREE_MISMATCH
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+  run grep -E '^herdr\|[a-z]+\|(server run|plugin install|plugin enable)' "$HGSP_CALL_LOG"
+  assert_failure
+
+  # #then the nearby control launches once the attestation matches again
+  printf '%s\n' "$original" > "$attestation"
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-ready
+  run hgsp_env stop "$HGSP_LAST_RUN_ID"
+  assert_success
+}
+
+@test "herdr-git-status-playground quarantines stale plugin PID records and never signals an unverified PID" {
+  hgsp_setup
+  hgsp_remote_ready
+  hgsp_start_bystander
+
+  # #then startup quarantines every planted record before a native path can read it
+  HGSP_PLANT_STALE_PID="$HGSP_BYSTANDER_PID" run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  run grep -c 'herdr-stale-planted' "$HGSP_CALL_LOG"
+  assert_output 3
+  run grep 'herdr-native-signal' "$HGSP_CALL_LOG"
+  assert_failure
+  run kill -0 "$HGSP_BYSTANDER_PID"
+  assert_success
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+stale = [entry for entry in manifest["quarantines"] if entry["reason"] == "stale-before-activation"]
+assert {entry["candidate"] for entry in stale} == {"ezcorp", "krystof", "jmarbutt"}, stale
+PY
+  assert_success
+
+  # #then repeated stop still never signals the unverified planted PID
+  run hgsp_env stop "$run_id"
+  assert_success
+  run kill -0 "$HGSP_BYSTANDER_PID"
+  assert_success
+  run hgsp_env stop "$run_id"
+  assert_success
+  run kill -0 "$HGSP_BYSTANDER_PID"
+  assert_success
+  run grep 'herdr-native-signal' "$HGSP_CALL_LOG"
+  assert_failure
+}
+
+@test "herdr-git-status-playground sfroment readiness needs traced publications, not exit status" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then a clean exit with no queries, silence, or a swallowed publication failure all fail startup
+  local mode ezcorp_pid
+  for mode in early-exit silent swallow; do
+    HGSP_GIT_DETAIL_MODE="$mode" run hgsp_candidate_start
+    assert_failure 1
+    hgsp_capture_run_id
+    assert_equal "$(hgsp_json_field "$output" error.code)" SFROMENT_READINESS_FAILED
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+    # #then cleanup for the earlier ezcorp profile ran and preserved diagnostics
+    ezcorp_pid="$(hgsp_manifest_query "$HGSP_LAST_RUN_ID" 'manifest["processes"]["candidate-ezcorp"]["pid"]')"
+    run kill -0 "$ezcorp_pid"
+    assert_failure
+    assert_equal "$(hgsp_manifest_query "$HGSP_LAST_RUN_ID" '"sfroment" in manifest["candidate_diagnostics"]')" true
+  done
+
+  # #then the control run proves ground-truth-matching publications through the traced once path
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidates"]["sfroment"]["readiness"]["publications"]["checkout-dirty"]')" \
+    "staged:1 unstaged:1 untracked:1"
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidates"]["sfroment"]["readiness"]["publications"]["conflict"]')" \
+    "staged:0 unstaged:0 untracked:0"
+  assert_equal "$(hgsp_manifest_query "$run_id" '"non-git" in manifest["candidates"]["sfroment"]["readiness"]["publications"]')" false
+  [[ "$(hgsp_manifest_query "$run_id" 'manifest["candidates"]["sfroment"]["readiness"]["queries"]')" -ge 1 ]]
+
+  # #then losing the watcher after readiness degrades the active run
+  local watcher_pid
+  watcher_pid="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["watcher-sfroment"]["pid"]')"
+  kill -TERM "$watcher_pid"
+  run "$HGSP_PYTHON" - "$watcher_pid" <<'PY'
+import os
+import sys
+import time
+
+pid = int(sys.argv[1])
+for _ in range(500):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        break
+    time.sleep(0.01)
+else:
+    raise SystemExit("watcher survived TERM")
+PY
+  assert_success
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" effective_state)" active-degraded
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground ezcorp records known worktree skips but fails unexplained gaps and lost ownership" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then an updater that never registers fails ownership before first readiness
+  HGSP_EZCORP_NO_DAEMON=1 run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" CANDIDATE_OWNERSHIP_UNPROVED
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+
+  # #then an unexplained missing space is a readiness failure, not inventory
+  HGSP_EZCORP_OMIT_SPACE=checkout-clean run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" CANDIDATE_READINESS_FAILED
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+
+  # #then the control run stays valid and records the known worktree-child skip as inventory
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+candidate = manifest["candidates"]["ezcorp"]
+notes = candidate["notes"]
+assert notes == [{"known": "skips-worktree-child-spaces", "spaces": ["worktree-clean", "worktree-dirty"]}], notes
+reported = set(candidate["readiness"]["reported_spaces"])
+assert "worktree-clean" not in reported and "checkout-clean" in reported, reported
+PY
+  assert_success
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground adopts a crashed detachment only when every identity agrees" {
+  hgsp_setup
+  hgsp_remote_ready
+  hgsp_start_bystander
+
+  # #then a crash after ezcorp detachment recovers by adopting the fully matching daemon
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=candidate-ezcorp-detached run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" INJECTED_CANDIDATE_EZCORP_DETACHED
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" provisioning
+  local state_file daemon_pid
+  state_file="$(hgsp_profile_root "$run_id" ezcorp)/state/herdr/plugins/ez-corp.git-status/state.json"
+  daemon_pid="$(hgsp_json_field "$(cat "$state_file")" pid)"
+  run kill -0 "$daemon_pid"
+  assert_success
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["ezcorp"]["adoption"]')" adopted
+  run kill -0 "$daemon_pid"
+  assert_failure
+
+  # #then a forged plugin record never becomes an adoption target or a signal target
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=candidate-jmarbutt-detached run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  state_file="$(hgsp_profile_root "$run_id" jmarbutt)/state/herdr/plugins/jmarbutt.spaces-pr-status/state.json"
+  local original_state
+  original_state="$(cat "$state_file")"
+  "$HGSP_PYTHON" - "$state_file" "$HGSP_BYSTANDER_PID" <<'PY'
+import json
+import sys
+
+path, pid = sys.argv[1:]
+state = json.load(open(path, encoding="utf-8"))
+state["pid"] = int(pid)
+json.dump(state, open(path, "w", encoding="utf-8"))
+PY
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" DETACHED_RESOURCE_UNRESOLVED
+  run kill -0 "$HGSP_BYSTANDER_PID"
+  assert_success
+
+  # #then the nearby control settles once the plugin state agrees again
+  printf '%s\n' "$original_state" > "$state_file"
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  run kill -0 "$HGSP_BYSTANDER_PID"
+  assert_success
+}
+
+@test "herdr-git-status-playground activation failure cleans every earlier profile and keeps diagnostics" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  HGSP_PLUGIN_FAIL=gitlab-ci-status:start run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" error.code)" CANDIDATE_ACTIVATION_FAILED
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$run_id")" "$HGSP_STATE_ROOT" "$run_id" <<'PY'
+import json
+import os
+import sys
+
+manifest_path, state_root, run_id = sys.argv[1:]
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+diagnostics = manifest["candidate_diagnostics"]["krystof"]
+assert diagnostics["code"] == "CANDIDATE_ACTIVATION_FAILED", diagnostics
+# every earlier owned process is verifiably gone
+for key in ("candidate-ezcorp", "watcher-sfroment", "server-ezcorp", "server-sfroment", "server-krystof", "server-jmarbutt"):
+    record = manifest["processes"][key]
+    try:
+        os.kill(record["pid"], 0)
+        alive = True
+    except ProcessLookupError:
+        alive = False
+    assert not alive, (key, record["pid"])
+run_dir = os.path.join(state_root, "runs", run_id)
+assert not os.path.exists(os.path.join(run_dir, "runtime")), "runtime survived automatic cleanup"
+for name in ("ezcorp", "sfroment", "krystof", "jmarbutt"):
+    assert os.path.exists(os.path.join(run_dir, "observations", "baseline-%s.json" % name)), name
+PY
+  assert_success
+  run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground requires sfroment process-group quiescence before teardown passes" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  HGSP_GIT_DETAIL_MODE=leak run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  local group
+  group="$(hgsp_manifest_query "$run_id" 'manifest["processes"]["watcher-sfroment"]["process_group"]')"
+
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["sfroment"]["group_quiescent"]')" true
+  assert_equal "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["sfroment"]["escalated"]')" true
+  run "$HGSP_PYTHON" - "$group" <<'PY'
+import subprocess
+import sys
+
+pgid = sys.argv[1]
+output = subprocess.check_output(["/bin/ps", "-axo", "pid=,pgid="], text=True)
+members = [line for line in output.splitlines() if line.split()[1:] == [pgid]]
+assert not members, members
+PY
+  assert_success
+}
+
+# ===========================================
 # python3 -- the declared interpreter
 # ===========================================
 

@@ -36,6 +36,7 @@ hgsp_teardown() {
   [[ -n "${HGSP_WORK:-}" ]] && rm -rf "$HGSP_WORK" || true
   unset HGSP_WORK HGSP_STUB HGSP_STATE_ROOT HGSP_XDG_STATE HGSP_CALL_LOG
   unset HGSP_ENV_LOG HGSP_RUN_IDS HGSP_BG_PIDS HGSP_LAST_RUN_ID HGSP_REMOTE_GIT
+  unset HGSP_BYSTANDER_PID
 }
 
 hgsp_setup() {
@@ -125,16 +126,451 @@ SH
   chmod +x "$HGSP_STUB/gh"
   ln -s "$HGSP_PYTHON" "$HGSP_STUB/python3"
 
-  cat > "$HGSP_STUB/herdr" <<'SH'
+  # Herdr stub: `--version` and the long-running `server run` stay in shell so
+  # the controller-owned server process image keeps the stub path in its
+  # command line; every other subcommand runs the stateful profile simulator.
+  cat > "$HGSP_STUB/herdr" <<SH
 #!/bin/sh
-printf 'herdr|%s\n' "$*" >> "$HGSP_CALL_LOG"
-if [ "$1" = --version ]; then
-  printf '%s\n' "${HGSP_HERDR_VERSION:-herdr 0.8.2}"
+profile="\${XDG_STATE_HOME:-}"
+case "\$profile" in
+  */runtime/profiles/*/state) profile="\${profile%/state}"; profile="\${profile##*/}" ;;
+  *) profile=controller ;;
+esac
+printf 'herdr|%s|%s\n' "\$profile" "\$*" >> "\$HGSP_CALL_LOG"
+if [ "\$1" = --version ]; then
+  printf '%s\n' "\${HGSP_HERDR_VERSION:-herdr 0.8.2}"
   exit 0
 fi
-exit 97
+if [ "\$1" = server ] && [ "\$2" = run ]; then
+  state="\$XDG_STATE_HOME/herdr"
+  mkdir -p "\$state"
+  : > "\$state/session.sock"
+  trap 'rm -f "\$state/session.sock"; exit 0' TERM INT HUP
+  while [ -d "\$state" ]; do sleep 0.05; done
+  rm -f "\$state/session.sock" 2>/dev/null
+  exit 0
+fi
+exec "$HGSP_PYTHON" "$HGSP_STUB/herdr-sim.py" "\$@"
 SH
   chmod +x "$HGSP_STUB/herdr"
+
+  cat > "$HGSP_STUB/plugin-daemon.py" <<'PY'
+"""Detached plugin daemon model: writes its own PID record and state file,
+then idles until its profile state directory (or, for jmarbutt, the profile
+socket) disappears. Spawned with start_new_session so pgid == pid."""
+import fcntl
+import json
+import os
+import signal
+import sys
+import time
+
+
+def locked_update(path, mutate):
+    with open(path, "r+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        value = json.load(handle)
+        mutate(value)
+        handle.seek(0)
+        handle.truncate()
+        json.dump(value, handle)
+        handle.write("\n")
+
+
+def main():
+    role, state_dir, socket_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    # Model a plugin that drops the injected XDG variables: resolution falls
+    # back to HOME, which the guarded child environment points at the profile.
+    probe_environment = dict(os.environ)
+    for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+        probe_environment.pop(name, None)
+    resolved_home_root = os.path.join(probe_environment.get("HOME", os.path.expanduser("~")), ".config", "herdr")
+
+    plugin_dirs = {
+        "ezcorp": "plugins/ez-corp.git-status",
+        "krystof": "plugins/gitlab-ci-status",
+        "jmarbutt": "plugins/jmarbutt.spaces-pr-status",
+    }
+    records = {"ezcorp": "updater.pid", "krystof": "poller.pid", "jmarbutt": "daemon.json"}
+    plugin_dir = os.path.join(state_dir, plugin_dirs[role])
+    os.makedirs(plugin_dir, exist_ok=True)
+    pid = os.getpid()
+    record_path = os.path.join(plugin_dir, records[role])
+    with open(record_path, "w", encoding="utf-8") as handle:
+        if role == "jmarbutt":
+            json.dump({"pid": pid}, handle)
+            handle.write("\n")
+        else:
+            handle.write("%d\n" % pid)
+
+    state = {
+        "pid": pid,
+        "executable": os.path.realpath(__file__),
+        "socket": socket_path,
+        "resolved_home_root": resolved_home_root,
+        "role": role,
+    }
+    spaces_path = os.path.join(state_dir, "spaces.json")
+    if role == "ezcorp":
+        spaces = []
+        try:
+            with open(spaces_path, encoding="utf-8") as handle:
+                spaces = json.load(handle)
+        except (OSError, ValueError):
+            spaces = []
+        omitted = os.environ.get("HGSP_EZCORP_OMIT_SPACE")
+        state["spaces"] = [
+            entry["label"]
+            for entry in spaces
+            if not entry.get("worktree_child") and entry["label"] != omitted
+        ]
+        state["metadata_complete"] = True
+    if role == "krystof":
+        def decorate(spaces):
+            for entry in spaces:
+                if not entry["label_text"].endswith(" •ci"):
+                    entry["label_text"] = entry["label_text"] + " •ci"
+        try:
+            locked_update(spaces_path, decorate)
+        except (OSError, ValueError):
+            pass
+    with open(os.path.join(plugin_dir, "state.json"), "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+        handle.write("\n")
+
+    while os.path.isdir(state_dir):
+        if (
+            role == "jmarbutt"
+            and not os.environ.get("HGSP_JMARBUTT_STUCK")
+            and not os.path.exists(socket_path)
+        ):
+            break
+        time.sleep(0.05)
+
+
+main()
+PY
+
+  cat > "$HGSP_STUB/herdr-sim.py" <<'PY'
+"""Stateful Herdr profile simulator: plugin registry, spaces, labels, tokens,
+sidebar snapshots, and native plugin actions with their real hazards (a
+liveness-only PID record that native paths signal blindly)."""
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import time
+
+STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME", ""), "herdr")
+DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME", ""), "herdr")
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME", ""), "herdr", "config.toml")
+SOCKET = os.path.join(STATE_DIR, "session.sock")
+SPACES = os.path.join(STATE_DIR, "spaces.json")
+REGISTRY = os.path.join(DATA_DIR, "plugins", "registry.json")
+TREES = {
+    "ez-corp.git-status": "tree-ezcorp",
+    "git-detail": "tree-sfroment",
+    "gitlab-ci-status": "tree-krystof",
+    "jmarbutt.spaces-pr-status": "tree-jmarbutt",
+}
+PID_RECORDS = {
+    "ez-corp.git-status": "updater.pid",
+    "gitlab-ci-status": "poller.pid",
+    "jmarbutt.spaces-pr-status": "daemon.json",
+}
+DAEMON_ROLES = {
+    "ez-corp.git-status": "ezcorp",
+    "gitlab-ci-status": "krystof",
+    "jmarbutt.spaces-pr-status": "jmarbutt",
+}
+
+GIT_DETAIL_SCRIPT = r'''#!/bin/sh
+mode="${1:-watch}"
+state_dir="$XDG_STATE_HOME/herdr"
+if [ "$mode" = watch ]; then
+  trap 'exit 0' TERM INT HUP
+  if [ "${HGSP_GIT_DETAIL_MODE:-}" = leak ]; then
+    ( trap '' TERM; while [ -d "$state_dir" ]; do sleep 0.05; done ) &
+  fi
+  while [ -d "$state_dir" ]; do sleep 0.05; done
+  exit 0
+fi
+knob="${HGSP_GIT_DETAIL_MODE:-ok}"
+if [ "$knob" = early-exit ]; then exit 0; fi
+tab="$(printf '\t')"
+herdr space list --plain | while IFS="$tab" read -r label cwd; do
+  [ -n "$label" ] || continue
+  herdr pane cwd "$label" >/dev/null || continue
+  [ "$knob" = silent ] && continue
+  porcelain="$(GIT_CEILING_DIRECTORIES="${HGSP_WORK:-/}" git -C "$cwd" status --porcelain 2>/dev/null)" || continue
+  staged="$(printf '%s\n' "$porcelain" | grep -c '^[MADRC].')" || true
+  unstaged="$(printf '%s\n' "$porcelain" | grep -c '^.[MD]')" || true
+  untracked="$(printf '%s\n' "$porcelain" | grep -c '^??')" || true
+  value="git_detail=staged:$staged unstaged:$unstaged untracked:$untracked"
+  if [ "$knob" = swallow ]; then
+    herdr pane publish --inject-fail "$label" "$value" 2>/dev/null || true
+    continue
+  fi
+  herdr pane publish "$label" "$value"
+done
+exit 0
+'''
+
+
+def log(line):
+    path = os.environ.get("HGSP_CALL_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
+
+def fail(message, status=1):
+    sys.stderr.write("herdr: %s\n" % message)
+    raise SystemExit(status)
+
+
+def require_server():
+    if not os.path.exists(SOCKET):
+        fail("no running server for this profile (socket missing)")
+
+
+def load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return default
+
+
+def save_json(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(value, handle)
+        handle.write("\n")
+
+
+def native_signal_record(plugin_id):
+    """The modelled hazard: native lifecycle paths trust a liveness-only PID
+    record and signal whatever process it names."""
+    record = os.path.join(STATE_DIR, "plugins", plugin_id, PID_RECORDS[plugin_id])
+    if not os.path.exists(record):
+        return
+    try:
+        with open(record, encoding="utf-8") as handle:
+            contents = handle.read().strip()
+        pid = json.loads(contents)["pid"] if contents.startswith("{") else int(contents)
+    except (OSError, ValueError, KeyError):
+        return
+    log("herdr-native-signal|%s|%s" % (plugin_id, pid))
+    try:
+        os.kill(int(pid), 15)
+    except (OSError, ProcessLookupError, PermissionError):
+        pass
+
+
+def spawn_daemon(plugin_id):
+    role = DAEMON_ROLES[plugin_id]
+    daemon = os.path.join(os.path.dirname(os.path.realpath(__file__)), "plugin-daemon.py")
+    with open(os.devnull, "rb") as null_in, open(os.devnull, "wb") as null_out:
+        subprocess.Popen(
+            [sys.executable, daemon, role, STATE_DIR, SOCKET],
+            stdin=null_in,
+            stdout=null_out,
+            stderr=null_out,
+            start_new_session=True,
+            close_fds=True,
+        )
+    state_path = os.path.join(STATE_DIR, "plugins", plugin_id, "state.json")
+    for _ in range(500):
+        if os.path.exists(state_path):
+            return
+        time.sleep(0.01)
+    fail("the %s daemon never registered" % plugin_id)
+
+
+def plugin_run(plugin_id, action):
+    injected = os.environ.get("HGSP_PLUGIN_FAIL", "")
+    if injected == "%s:%s" % (plugin_id, action):
+        fail("injected %s %s failure" % (plugin_id, action))
+    if plugin_id == "ez-corp.git-status" and action == "status-enable":
+        require_server()
+        native_signal_record(plugin_id)
+        if os.environ.get("HGSP_EZCORP_NO_DAEMON"):
+            return
+        spawn_daemon(plugin_id)
+        return
+    if plugin_id == "ez-corp.git-status" and action in ("status-disable", "metadata-cleanup"):
+        native_signal_record(plugin_id)
+        state_path = os.path.join(STATE_DIR, "plugins", plugin_id, "state.json")
+        try:
+            os.unlink(state_path)
+        except FileNotFoundError:
+            pass
+        return
+    if plugin_id == "gitlab-ci-status" and action == "start":
+        require_server()
+        if not load_json(SPACES, []):
+            fail("gitlab-ci-status start requires existing spaces")
+        native_signal_record(plugin_id)
+        spawn_daemon(plugin_id)
+        return
+    if plugin_id == "gitlab-ci-status" and action == "stop":
+        native_signal_record(plugin_id)
+        return
+    if plugin_id == "jmarbutt.spaces-pr-status" and action == "startup":
+        require_server()
+        native_signal_record(plugin_id)
+        spawn_daemon(plugin_id)
+        return
+    if plugin_id == "jmarbutt.spaces-pr-status" and action == "refresh":
+        require_server()
+        if not load_json(SPACES, []):
+            fail("refresh requires existing spaces")
+        record = load_json(os.path.join(STATE_DIR, "plugins", plugin_id, "daemon.json"), {})
+        pid = record.get("pid")
+        alive = False
+        if isinstance(pid, int):
+            try:
+                os.kill(pid, 0)
+                alive = True
+            except (OSError, ProcessLookupError, PermissionError):
+                alive = False
+        if not alive:
+            fail("refresh requires a live daemon")
+        state_path = os.path.join(STATE_DIR, "plugins", plugin_id, "state.json")
+        state = load_json(state_path, {})
+        state["refreshed"] = True
+        state["refreshed_at"] = time.time()
+        save_json(state_path, state)
+        return
+    fail("unsupported plugin action %s %s" % (plugin_id, action))
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:2] == ["plugin", "fetch"]:
+        plugin_id = args[2]
+        revision = args[args.index("--revision") + 1]
+        print(json.dumps({"plugin_id": plugin_id, "revision": revision, "tree": TREES.get(plugin_id, "")}))
+        return
+    if args[:2] == ["plugin", "install"]:
+        plugin_id = args[2]
+        revision = args[args.index("--revision") + 1]
+        registry = load_json(REGISTRY, [])
+        if any(entry["plugin_id"] == plugin_id for entry in registry):
+            fail("plugin %s is already installed" % plugin_id)
+        registry.append({"plugin_id": plugin_id, "revision": revision, "enabled": "--disabled" not in args})
+        save_json(REGISTRY, registry)
+        if plugin_id == "git-detail":
+            script = os.path.join(DATA_DIR, "plugins", "git-detail", "git-detail.sh")
+            os.makedirs(os.path.dirname(script), exist_ok=True)
+            with open(script, "w", encoding="utf-8") as handle:
+                handle.write(GIT_DETAIL_SCRIPT)
+            os.chmod(script, 0o700)
+        planted = os.environ.get("HGSP_PLANT_STALE_PID")
+        if planted and plugin_id in PID_RECORDS:
+            record = os.path.join(STATE_DIR, "plugins", plugin_id, PID_RECORDS[plugin_id])
+            os.makedirs(os.path.dirname(record), exist_ok=True)
+            with open(record, "w", encoding="utf-8") as handle:
+                if record.endswith(".json"):
+                    json.dump({"pid": int(planted)}, handle)
+                    handle.write("\n")
+                else:
+                    handle.write("%s\n" % planted)
+            log("herdr-stale-planted|%s|%s" % (plugin_id, planted))
+        return
+    if args[:2] == ["plugin", "registry"]:
+        print(json.dumps(load_json(REGISTRY, [])))
+        return
+    if args[:2] == ["plugin", "enable"]:
+        require_server()
+        registry = load_json(REGISTRY, [])
+        for entry in registry:
+            if entry["plugin_id"] == args[2]:
+                entry["enabled"] = True
+                save_json(REGISTRY, registry)
+                return
+        fail("plugin %s is not installed" % args[2])
+    if args[:2] == ["plugin", "run"]:
+        plugin_run(args[2], args[3])
+        return
+    if args[:2] == ["space", "create"]:
+        require_server()
+        label = args[2]
+        cwd = args[args.index("--cwd") + 1]
+        spaces = load_json(SPACES, [])
+        spaces.append(
+            {
+                "label": label,
+                "label_text": label,
+                "cwd": cwd,
+                "worktree_child": "--worktree-child" in args,
+                "tokens": {},
+            }
+        )
+        save_json(SPACES, spaces)
+        return
+    if args[:2] == ["space", "list"]:
+        require_server()
+        spaces = load_json(SPACES, [])
+        if "--plain" in args:
+            for entry in spaces:
+                sys.stdout.write("%s\t%s\n" % (entry["label"], entry["cwd"]))
+        else:
+            print(json.dumps(spaces))
+        return
+    if args[:3] == ["space", "label", "set"]:
+        require_server()
+        spaces = load_json(SPACES, [])
+        for entry in spaces:
+            if entry["label"] == args[3]:
+                entry["label_text"] = args[4]
+                save_json(SPACES, spaces)
+                return
+        fail("no space labelled %s" % args[3])
+    if args[:2] == ["pane", "cwd"]:
+        require_server()
+        for entry in load_json(SPACES, []):
+            if entry["label"] == args[2]:
+                print(entry["cwd"])
+                return
+        fail("no space labelled %s" % args[2])
+    if args[:2] == ["pane", "publish"]:
+        require_server()
+        rest = args[2:]
+        if rest and rest[0] == "--inject-fail":
+            fail("injected publication failure")
+        label = rest[0]
+        spaces = load_json(SPACES, [])
+        for entry in spaces:
+            if entry["label"] == label:
+                for pair in rest[1:]:
+                    key, _, value = pair.partition("=")
+                    entry["tokens"][key] = value
+                save_json(SPACES, spaces)
+                return
+        fail("no space labelled %s" % label)
+    if args[:2] == ["sidebar", "snapshot"]:
+        require_server()
+        try:
+            with open(CONFIG, encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+        except OSError:
+            fail("no sidebar configuration")
+        for line in lines:
+            if line.startswith('sidebar_row = "'):
+                sys.stdout.write(line[len('sidebar_row = "'):-1] + "\n")
+        return
+    if args[:2] == ["config", "reload"]:
+        require_server()
+        return
+    fail("unsupported herdr invocation: %r" % (args,), 97)
+
+
+main()
+PY
 
   cat > "$HGSP_STUB/managed-probe" <<'SH'
 #!/bin/sh
@@ -151,7 +587,7 @@ SH
 {"host":"github.com","owner":"example","name":"herdr-status-fixtures","repository_id":"R_fixture_1","owned":true}
 JSON
   cat > "$HGSP_WORK/audit-attestation.json" <<'JSON'
-{"candidates":{"ezcorp":{"revision":"f144c8dac2860e344b6b379d2bcfee229dcf10ad","tree":"tree-ezcorp"},"sfroment":{"revision":"b726977143adc2847dc25e3327bc0b1b4fc26455","tree":"tree-sfroment"},"krystof":{"revision":"fe6575a89de9006c35d9d0b9707397839d983cff","tree":"tree-krystof"},"jmarbutt":{"revision":"8a56c5dce0bd65e47eddc9a1d862ddae870cddc3","tree":"tree-jmarbutt"}}}
+{"candidates":{"ezcorp":{"revision":"f144c8dac2860e344b6b379d2bcfee229dcf10ad","tree":"tree-ezcorp","approved":true},"sfroment":{"revision":"b726977143adc2847dc25e3327bc0b1b4fc26455","tree":"tree-sfroment","approved":true},"krystof":{"revision":"fe6575a89de9006c35d9d0b9707397839d983cff","tree":"tree-krystof","approved":true},"jmarbutt":{"revision":"8a56c5dce0bd65e47eddc9a1d862ddae870cddc3","tree":"tree-jmarbutt","approved":true}}}
 JSON
   cat > "$HGSP_WORK/inherited-environment.json" <<JSON
 {"DYLD_INSERT_LIBRARIES":"poison","DYLD_LIBRARY_PATH":"poison","LD_PRELOAD":"poison","LD_LIBRARY_PATH":"poison","PYTHONPATH":"poison","PYTHONHOME":"poison","PYTHONSTARTUP":"poison","NODE_OPTIONS":"poison","RUBYOPT":"poison","HTTP_PROXY":"http://credential@proxy","HTTPS_PROXY":"http://credential@proxy","ALL_PROXY":"http://credential@proxy","PATH":"$HGSP_STUB:/bin:$HGSP_WORK/poison-bin"}
@@ -179,8 +615,27 @@ hgsp_env() {
     HERDR_GIT_STATUS_PLAYGROUND_TEST_MODE=1 \
     HERDR_GIT_STATUS_PLAYGROUND_TEST_LOG="$HGSP_ENV_LOG" \
     HERDR_GIT_STATUS_PLAYGROUND_TEST_PARENT_ENV="$HGSP_WORK/inherited-environment.json" \
-    HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS="$HGSP_STUB/managed-probe" \
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS="${HGSP_TEST_PROCESS-$HGSP_STUB/managed-probe}" \
     "$HGSP_PYTHON" "$HGSP_CONTROLLER" "$@"
+}
+
+# Run the real candidate lifecycle instead of the U1 foundation test process.
+hgsp_candidate_start() {
+  HGSP_TEST_PROCESS= hgsp_start "$@"
+}
+
+hgsp_profile_root() {
+  printf '%s/runs/%s/runtime/profiles/%s\n' "$HGSP_STATE_ROOT" "$1" "$2"
+}
+
+# A live process no playground run owns; regressions that signal it kill it.
+# It leads its own process group so that a forged plugin record passes every
+# liveness-shaped check and only real identity agreement can reject it.
+hgsp_start_bystander() {
+  "$HGSP_PYTHON" -c 'import os,time; os.setsid(); time.sleep(600)' \
+    </dev/null >/dev/null 2>&1 3>&- &
+  HGSP_BYSTANDER_PID=$!
+  HGSP_BG_PIDS="$HGSP_BG_PIDS $HGSP_BYSTANDER_PID"
 }
 
 hgsp_start_args() {

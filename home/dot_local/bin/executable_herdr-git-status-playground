@@ -383,6 +383,10 @@ def minimal_environment(source: Dict[str, str], executable_paths: Dict[str, str]
         directory = str(Path(executable).parent)
         if directory not in directories:
             directories.append(directory)
+    # Standard system utilities only; never ambient user-writable directories.
+    for directory in ("/usr/bin", "/bin"):
+        if directory not in directories:
+            directories.append(directory)
     environment = {
         "PATH": os.pathsep.join(directories),
         "HOME": str(home),
@@ -394,9 +398,11 @@ def minimal_environment(source: Dict[str, str], executable_paths: Dict[str, str]
         if name in source:
             environment[name] = source[name]
     if test_mode():
-        for name in ("HGSP_WORK", "HGSP_CALL_LOG", "HGSP_HERDR_VERSION", "HGSP_GH_AUTH_STATUS"):
-            if name in os.environ:
-                environment[name] = os.environ[name]
+        # The stateful test simulators and their behavior knobs all ride on
+        # HGSP_-prefixed variables; pass them through every scrubbed class.
+        for name, value in os.environ.items():
+            if name.startswith("HGSP_"):
+                environment[name] = value
     return environment
 
 
@@ -435,7 +441,7 @@ def load_fixture_ownership(path: str) -> Dict[str, str]:
     return {key: value[key] for key in expected}
 
 
-def load_audit_attestation(path: str) -> str:
+def load_audit_attestation(path: str) -> Tuple[str, Dict[str, Dict[str, Any]]]:
     try:
         contents = Path(path).read_bytes()
         value = json.loads(contents.decode("utf-8"))
@@ -451,17 +457,21 @@ def load_audit_attestation(path: str) -> str:
             or record.get("revision") != revision
             or not isinstance(record.get("tree"), str)
             or not record["tree"]
+            or record.get("approved") is not True
         ):
-            raise PlaygroundError("AUDIT_ATTESTATION_INVALID", "audit is absent or stale for %s" % candidate)
+            raise PlaygroundError(
+                "AUDIT_ATTESTATION_INVALID", "audit is absent, stale, or unapproved for %s" % candidate
+            )
     canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    digest = hashlib.sha256(canonical).hexdigest()
+    return digest, {name: dict(candidates[name]) for name in CANDIDATE_REVISIONS}
 
 
 def preflight(
     arguments: argparse.Namespace, source: Dict[str, str]
-) -> Tuple[Dict[str, str], Dict[str, str], str, Dict[str, str]]:
+) -> Tuple[Dict[str, str], Dict[str, str], str, Dict[str, str], Dict[str, Dict[str, Any]]]:
     fixture = load_fixture_ownership(arguments.fixture_ownership)
-    audit_digest = load_audit_attestation(arguments.audit_attestation)
+    audit_digest, audit_candidates = load_audit_attestation(arguments.audit_attestation)
     controller_token = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN", "")
     candidate_token = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN", "")
     if not controller_token or not candidate_token or controller_token == candidate_token:
@@ -533,7 +543,7 @@ def preflight(
         "inode": str(herdr_stat.st_ino),
         "version": APPROVED_HERDR_VERSION,
     }
-    return executable_paths, fixture, audit_digest, herdr_identity
+    return executable_paths, fixture, audit_digest, herdr_identity, audit_candidates
 
 
 def live_herdr_roots(source: Dict[str, str]) -> List[Path]:
@@ -811,7 +821,9 @@ def effective_state(manifest: Dict[str, Any]) -> str:
     for process in manifest.get("processes", {}).values():
         if process.get("status") == "running":
             verdict, _ = verify_process(process)
-            if verdict == "mismatch" and lifecycle.startswith("active"):
+            if verdict in ("mismatch", "gone") and lifecycle.startswith("active"):
+                # A lost or replaced owned process degrades only a run that was
+                # already ready; provisioning failures fail startup instead.
                 return "active-degraded"
     return lifecycle
 
@@ -856,6 +868,7 @@ def launch_wrapper(arguments: List[str]) -> int:
     parser.add_argument("--intent-id", required=True)
     parser.add_argument("--profile", required=True)
     parser.add_argument("target")
+    parser.add_argument("target_args", nargs=argparse.REMAINDER)
     namespace = parser.parse_args(arguments)
     claim = {
         "schema_version": SCHEMA_VERSION,
@@ -871,7 +884,7 @@ def launch_wrapper(arguments: List[str]) -> int:
     gate = Path(namespace.gate)
     while not gate.exists():
         time.sleep(0.01)
-    os.execve(namespace.target, [namespace.target], dict(os.environ))
+    os.execve(namespace.target, [namespace.target] + namespace.target_args, dict(os.environ))
     return 127
 
 
@@ -886,33 +899,35 @@ def wait_for_claim(path: Path, process: subprocess.Popen) -> Dict[str, Any]:
     raise PlaygroundError("LAUNCH_CLAIM_MISSING", "launch wrapper did not claim ownership")
 
 
-def start_foundation_process(
+def spawn_owned_process(
     mutation: Mutation,
     environment: Dict[str, str],
+    intent_id: str,
+    profile: str,
     target: str,
-) -> Optional[PlaygroundError]:
+    target_args: Tuple[str, ...] = (),
+    process_class: str = "managed",
+) -> Dict[str, Any]:
+    """Durable-intent controller spawn: intent, launch wrapper claim, identity
+    verification, then release through the gate. Raises on any unproved step."""
     assert mutation.manifest is not None
     manifest = mutation.manifest
     run_dir = mutation.run_dir
-    intent_id = "foundation-supervisor"
     claim_path = claim_path_for(run_dir, intent_id)
     gate_path = gate_path_for(run_dir, intent_id)
     ensure_private_directory(claim_path.parent)
     manifest["launch_intents"][intent_id] = {
         "intent_id": intent_id,
-        "profile": "ezcorp",
+        "profile": profile,
         "executable": os.path.realpath(target),
         "phase": "intent-committed",
         "claim": str(claim_path.relative_to(run_dir)),
     }
-    try:
-        mutation.persist("intent")
-    except AtomicWriteError as error:
-        return error
+    mutation.persist("intent")
 
     failpoint = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT", "")
     if failpoint == "before-spawn":
-        return PlaygroundError("INJECTED_BEFORE_SPAWN", "injected crash before spawn")
+        raise PlaygroundError("INJECTED_BEFORE_SPAWN", "injected crash before spawn")
 
     manifest["launch_intents"][intent_id]["phase"] = "spawn-attempted"
     mutation.persist("spawn-attempt")
@@ -927,9 +942,9 @@ def start_foundation_process(
         "--intent-id",
         intent_id,
         "--profile",
-        "ezcorp",
+        profile,
         os.path.realpath(target),
-    ]
+    ] + list(target_args)
     process = subprocess.Popen(
         wrapper,
         env=environment,
@@ -941,18 +956,31 @@ def start_foundation_process(
     )
     claim = wait_for_claim(claim_path, process)
     if failpoint == "after-spawn":
-        return PlaygroundError("INJECTED_AFTER_SPAWN", "injected crash after spawn")
+        raise PlaygroundError("INJECTED_AFTER_SPAWN", "injected crash after spawn")
     if failpoint == "before-identity-commit":
-        return PlaygroundError("INJECTED_BEFORE_IDENTITY_COMMIT", "injected crash before identity commit")
+        raise PlaygroundError("INJECTED_BEFORE_IDENTITY_COMMIT", "injected crash before identity commit")
 
     verdict, reason = verify_process(claim)
     if verdict != "owned":
-        return PlaygroundError("PROCESS_IDENTITY_UNPROVED", reason)
+        raise PlaygroundError("PROCESS_IDENTITY_UNPROVED", reason)
     claim["status"] = "running"
+    claim["class"] = process_class
     manifest["processes"][intent_id] = claim
     manifest["launch_intents"][intent_id]["phase"] = "identity-recorded"
     mutation.persist("identity")
     gate_path.touch(mode=0o600)
+    return claim
+
+
+def start_foundation_process(
+    mutation: Mutation,
+    environment: Dict[str, str],
+    target: str,
+) -> Optional[PlaygroundError]:
+    try:
+        spawn_owned_process(mutation, environment, "foundation-supervisor", "ezcorp", target)
+    except (AtomicWriteError, PlaygroundError) as error:
+        return error
     return None
 
 
@@ -3240,6 +3268,972 @@ def probe_remote_observation(mutation: Mutation, source: Dict[str, str]) -> None
         ctx.cleanup()
 
 
+# ---- Candidate installation and lifecycle adapters (U5) --------------------
+
+
+CANDIDATE_ORDER = ("ezcorp", "sfroment", "krystof", "jmarbutt")
+# The shared no-plugin sidebar base: the current managed agent rows plus the
+# Herdr default spaces row. Baselines must contain exactly these rows.
+SHARED_SIDEBAR_ROWS = ("state_icon", "workspace", "pane", "git_ref", "spaces_default")
+
+# The candidate adapter contract (KTD4): every per-candidate difference is data
+# in this table; the lifecycle pipeline itself is candidate-agnostic. Paths are
+# relative to the profile's Herdr state root (records) or data root (payloads).
+CANDIDATE_ADAPTERS: Dict[str, Dict[str, Any]] = {
+    "ezcorp": {
+        "plugin_id": "ez-corp.git-status",
+        "ownership": "plugin-detached",
+        "github": False,
+        "sidebar_tokens": ("git_state", "git_staged", "git_unstaged", "git_untracked", "git_stash"),
+        "activation_actions": ("status-enable",),
+        "pid_record": "plugins/ez-corp.git-status/updater.pid",
+        "state_record": "plugins/ez-corp.git-status/state.json",
+        # Signal-capable native paths that reread PID state; never invoked.
+        "signal_capable_native_actions": ("status-disable",),
+        "metadata_cleanup_action": "metadata-cleanup",
+        "restore_labels": False,
+        "notifications_disabled": False,
+        "daemon_ends_with_socket": False,
+        "readiness": "updater-metadata",
+        "known_discrepancies": ("skips-worktree-child-spaces",),
+    },
+    "sfroment": {
+        "plugin_id": "git-detail",
+        "ownership": "controller-watcher",
+        "github": False,
+        "sidebar_tokens": ("git_detail",),
+        "activation_actions": (),
+        "pid_record": None,
+        "state_record": None,
+        "signal_capable_native_actions": (),
+        "metadata_cleanup_action": None,
+        "restore_labels": False,
+        "notifications_disabled": False,
+        "daemon_ends_with_socket": False,
+        "readiness": "traced-once",
+        "watcher_script": "plugins/git-detail/git-detail.sh",
+        "known_discrepancies": ("purely-unstaged-records-may-increment-staged",),
+    },
+    "krystof": {
+        "plugin_id": "gitlab-ci-status",
+        "ownership": "plugin-detached",
+        "github": True,
+        "sidebar_tokens": ("ci_status", "pr_state"),
+        "activation_actions": ("start",),
+        "pid_record": "plugins/gitlab-ci-status/poller.pid",
+        "state_record": "plugins/gitlab-ci-status/state.json",
+        "signal_capable_native_actions": ("stop",),
+        "metadata_cleanup_action": None,
+        "restore_labels": True,
+        "notifications_disabled": False,
+        "daemon_ends_with_socket": False,
+        "readiness": "pid-and-labels",
+        "known_discrepancies": ("ci-marker-reflects-newest-single-actions-run",),
+    },
+    "jmarbutt": {
+        "plugin_id": "jmarbutt.spaces-pr-status",
+        "ownership": "plugin-detached",
+        "github": True,
+        "sidebar_tokens": ("pr_status", "pr_checks"),
+        "activation_actions": ("startup", "refresh"),
+        "pid_record": "plugins/jmarbutt.spaces-pr-status/daemon.json",
+        "state_record": "plugins/jmarbutt.spaces-pr-status/state.json",
+        "signal_capable_native_actions": (),
+        "metadata_cleanup_action": None,
+        "restore_labels": False,
+        "notifications_disabled": True,
+        "daemon_ends_with_socket": True,
+        "readiness": "daemon-refresh",
+        "known_discrepancies": ("no-merge-conflict-reporting", "caches-no-pr-after-gh-failures"),
+    },
+}
+
+
+def candidate_attempts() -> int:
+    return 300 if test_mode() else 90
+
+
+def profile_state_dir(profiles: Dict[str, Dict[str, str]], name: str) -> Path:
+    return Path(profiles[name]["state_home"]) / "herdr"
+
+
+def profile_data_dir(profiles: Dict[str, Dict[str, str]], name: str) -> Path:
+    return Path(profiles[name]["data_home"]) / "herdr"
+
+
+def profile_config_path(profiles: Dict[str, Dict[str, str]], name: str) -> Path:
+    return Path(profiles[name]["config_home"]) / "herdr" / "config.toml"
+
+
+def candidate_runtime_environment(
+    source: Dict[str, str],
+    executable_paths: Dict[str, str],
+    profiles: Dict[str, Dict[str, str]],
+    name: str,
+    with_token: bool,
+) -> Dict[str, str]:
+    profile = profiles[name]
+    environment = minimal_environment(source, executable_paths, Path(profile["home"]))
+    environment.update(
+        {
+            "XDG_CONFIG_HOME": profile["config_home"],
+            "XDG_STATE_HOME": profile["state_home"],
+            "XDG_DATA_HOME": profile["data_home"],
+        }
+    )
+    adapter = CANDIDATE_ADAPTERS.get(name)
+    if adapter and adapter["github"]:
+        environment["GH_CONFIG_DIR"] = str(Path(profile["config_home"]) / "gh")
+        candidate_token = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN")
+        if with_token and candidate_token:
+            environment["GH_TOKEN"] = candidate_token
+    return environment
+
+
+def write_private_text(path: Path, text: str) -> None:
+    ensure_private_directory(path.parent)
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(descriptor, text.encode("utf-8"))
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def write_sidebar_config(profiles: Dict[str, Dict[str, str]], name: str, tokens: Tuple[str, ...]) -> None:
+    lines = ["# generated by %s" % APP_NAME]
+    lines.extend('sidebar_row = "%s"' % row for row in SHARED_SIDEBAR_ROWS)
+    lines.extend('sidebar_row = "%s"' % token for token in tokens)
+    write_private_text(profile_config_path(profiles, name), "\n".join(lines) + "\n")
+
+
+def herdr_json(herdr_path: str, arguments: List[str], environment: Dict[str, str], code: str) -> Any:
+    output = run_checked([herdr_path] + arguments, environment, code)
+    try:
+        return json.loads(output) if output else None
+    except ValueError as error:
+        raise PlaygroundError(code, "invalid herdr output: %s" % error)
+
+
+def sidebar_snapshot(herdr_path: str, environment: Dict[str, str]) -> List[str]:
+    output = run_checked([herdr_path, "sidebar", "snapshot"], environment, "SIDEBAR_SNAPSHOT_FAILED")
+    return [line for line in output.splitlines() if line]
+
+
+def build_space_catalog(mutation: Mutation, ownership: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Stable shared space order: the local catalog first, then the recorded
+    durable GitHub fixture checkouts when the repository is bootstrapped."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    catalog: List[Dict[str, Any]] = []
+    for name in LOCAL_FIXTURES:
+        local = manifest["local_fixtures"][name]
+        catalog.append(
+            {
+                "label": name,
+                "path": local["path"],
+                "worktree_child": name.startswith("worktree-"),
+                "kind": "local",
+            }
+        )
+    if manifest.get("remote"):
+        record_path = repository_state_directory(mutation.root, ownership) / "repository.json"
+        record = read_json(record_path)
+        for name in GITHUB_FIXTURES:
+            checkout = (record["fixtures"].get(name) or {}).get("checkout")
+            if not checkout:
+                raise PlaygroundError(
+                    "FIXTURE_CHECKOUT_FAILED", "no recorded local checkout for the %s fixture" % name
+                )
+            catalog.append(
+                {"label": "gh-%s" % name, "path": checkout["path"], "worktree_child": False, "kind": "github"}
+            )
+    return catalog
+
+
+def quarantine_plugin_record(
+    mutation: Mutation, name: str, record_path: Path, reason: str
+) -> Optional[bytes]:
+    """Atomically move a plugin-owned record out of every native path's reach.
+    Returns the removed contents so discovery can still verify them."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    try:
+        contents = record_path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise PlaygroundError("PLUGIN_RECORD_UNREADABLE", "%s: %s" % (record_path, error))
+    quarantine_dir = mutation.run_dir / "runtime" / "quarantine" / name
+    ensure_private_directory(quarantine_dir)
+    target = quarantine_dir / ("%s-%d" % (record_path.name, time.time_ns()))
+    os.replace(str(record_path), str(target))
+    manifest.setdefault("quarantines", []).append(
+        {
+            "candidate": name,
+            "record": record_path.name,
+            "quarantined_to": str(target.relative_to(mutation.run_dir)),
+            "reason": reason,
+            "at": utc_now(),
+        }
+    )
+    return contents
+
+
+def discover_detached_daemon(
+    profiles: Dict[str, Dict[str, str]], name: str, adapter: Dict[str, Any]
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Adapter-specific discovery per KTD9: adopt only when plugin state,
+    process identity, executable, and profile socket all agree."""
+    state_path = profile_state_dir(profiles, name) / adapter["state_record"]
+    try:
+        with state_path.open(encoding="utf-8") as handle:
+            state = json.load(handle)
+    except FileNotFoundError:
+        return None, "plugin state is absent"
+    except (OSError, ValueError) as error:
+        return None, "plugin state is unreadable: %s" % error
+    pid = state.get("pid")
+    executable = state.get("executable")
+    socket_path = state.get("socket")
+    if not isinstance(pid, int) or pid <= 0 or not isinstance(executable, str) or not executable:
+        return None, "plugin state does not identify a process"
+    if socket_path != profiles[name]["socket"]:
+        return None, "plugin state names a different profile socket"
+    if not process_alive(pid):
+        return None, "gone"
+    if process_group(pid) != pid:
+        return None, "process group identity disagrees"
+    command = process_command(pid)
+    if command is None or executable not in command:
+        return None, "process executable disagrees with plugin state"
+    return (
+        {
+            "pid": pid,
+            "process_group": pid,
+            "start_identity": process_start_identity(pid),
+            "executable": executable,
+            "profile": name,
+            "class": "plugin-detached",
+            "status": "running",
+        },
+        "adopted",
+    )
+
+
+def promote_detached_ownership(
+    mutation: Mutation, name: str, adapter: Dict[str, Any]
+) -> Dict[str, Any]:
+    manifest = mutation.manifest
+    assert manifest is not None
+    profiles = manifest["profiles"]
+    last_reason = "plugin state never appeared"
+    for _ in range(candidate_attempts()):
+        record, reason = discover_detached_daemon(profiles, name, adapter)
+        if record is not None:
+            manifest["processes"]["candidate-%s" % name] = record
+            manifest["detached_intents"][name]["phase"] = "promoted"
+            mutation.persist("candidate-%s-promoted" % name)
+            return record
+        last_reason = reason
+        if reason == "gone":
+            break
+        poll_sleep()
+    raise PlaygroundError(
+        "CANDIDATE_OWNERSHIP_UNPROVED", "%s ownership promotion failed: %s" % (name, last_reason)
+    )
+
+
+def read_plugin_state(profiles: Dict[str, Dict[str, str]], name: str, adapter: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not adapter["state_record"]:
+        return None
+    path = profile_state_dir(profiles, name) / adapter["state_record"]
+    try:
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def ezcorp_readiness(mutation: Mutation, name: str, adapter: Dict[str, Any]) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    profiles = manifest["profiles"]
+    expected = {entry["label"] for entry in manifest["space_catalog"]}
+    allowed_missing = {entry["label"] for entry in manifest["space_catalog"] if entry["worktree_child"]}
+    missing: set = expected
+    for _ in range(candidate_attempts()):
+        state = read_plugin_state(profiles, name, adapter)
+        if state and state.get("metadata_complete") is True:
+            reported = set(state.get("spaces") or [])
+            missing = expected - reported
+            if missing <= allowed_missing:
+                record = manifest["candidates"][name]
+                record["readiness"] = {"updater_state": True, "reported_spaces": sorted(reported)}
+                if missing:
+                    # A known candidate discrepancy is inventory evidence, not
+                    # a readiness failure (R11: recorded, never hidden).
+                    record.setdefault("notes", []).append(
+                        {"known": "skips-worktree-child-spaces", "spaces": sorted(missing)}
+                    )
+                return
+        poll_sleep()
+    raise PlaygroundError(
+        "CANDIDATE_READINESS_FAILED",
+        "%s updater metadata is incomplete; unexplained missing spaces %r" % (name, sorted(missing - allowed_missing) or sorted(missing)),
+    )
+
+
+def krystof_readiness(
+    mutation: Mutation, name: str, herdr_path: str, environment: Dict[str, str]
+) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    snapshot = {entry["label"]: entry["label_text"] for entry in manifest["candidates"][name]["label_snapshot"]}
+    process = manifest["processes"]["candidate-%s" % name]
+    for _ in range(candidate_attempts()):
+        verdict, reason = verify_process(process)
+        if verdict != "owned":
+            raise PlaygroundError("CANDIDATE_READINESS_FAILED", "%s poller is not owned: %s" % (name, reason))
+        spaces = herdr_json(herdr_path, ["space", "list"], environment, "SPACE_LIST_FAILED") or []
+        decorated = [space for space in spaces if space.get("label_text") != snapshot.get(space.get("label"))]
+        if spaces and len(decorated) == len(spaces):
+            manifest["candidates"][name]["readiness"] = {
+                "pid": process["pid"],
+                "decorated_labels": [space["label_text"] for space in spaces],
+            }
+            return
+        poll_sleep()
+    raise PlaygroundError("CANDIDATE_READINESS_FAILED", "%s label decoration never covered every space" % name)
+
+
+def jmarbutt_readiness(mutation: Mutation, name: str, adapter: Dict[str, Any]) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    profiles = manifest["profiles"]
+    process = manifest["processes"]["candidate-%s" % name]
+    for _ in range(candidate_attempts()):
+        verdict, reason = verify_process(process)
+        if verdict != "owned":
+            raise PlaygroundError("CANDIDATE_READINESS_FAILED", "%s daemon is not owned: %s" % (name, reason))
+        state = read_plugin_state(profiles, name, adapter)
+        if state and state.get("refreshed") is True:
+            manifest["candidates"][name]["readiness"] = {"pid": process["pid"], "refreshed_at": state.get("refreshed_at")}
+            return
+        poll_sleep()
+    raise PlaygroundError("CANDIDATE_READINESS_FAILED", "%s never recorded a completed refresh" % name)
+
+
+def expected_git_detail_value(run_dir: Path, entry: Dict[str, Any]) -> Optional[str]:
+    """Independent expectation for one space: local ground truth, or the clean
+    bootstrap checkout premise for GitHub fixtures. None means the space is not
+    a repository and must keep its sentinel (no publication)."""
+    if entry["kind"] == "github":
+        return "staged:0 unstaged:0 untracked:0"
+    truth = read_json(ground_truth_directory(run_dir) / ("%s.json" % entry["label"]))
+    if truth["repository"] == "none":
+        return None
+
+    def count(key: str) -> int:
+        value = truth[key]
+        return len(value) if isinstance(value, list) else 0
+
+    return "staged:%d unstaged:%d untracked:%d" % (count("staged_paths"), count("unstaged_paths"), count("untracked_paths"))
+
+
+def sfroment_traced_once(
+    mutation: Mutation,
+    name: str,
+    adapter: Dict[str, Any],
+    herdr_path: str,
+    environment: Dict[str, str],
+) -> None:
+    """Run the plugin's terminating once path through a generation-specific
+    tracing shim. Its exit status is recorded but never trusted: readiness
+    requires successful current-generation queries and publications that
+    replace the preloaded sentinels with ground-truth-matching values."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    run_dir = mutation.run_dir
+    profiles = manifest["profiles"]
+    epoch = manifest["generation"]
+    shim_dir = run_dir / "runtime" / "shims" / ("sfroment-%d" % epoch)
+    ensure_private_directory(shim_dir)
+    trace_path = shim_dir / "trace.log"
+    # The shim is generated per generation so a stale trace can never satisfy
+    # the current readiness check.
+    shim = (
+        "#!/bin/sh\n"
+        "printf '%d|begin|%%s\\n' \"$*\" >> '%s'\n"
+        "'%s' \"$@\"\n"
+        "status=$?\n"
+        "printf '%d|end|%%s|%%s\\n' \"$status\" \"$*\" >> '%s'\n"
+        "exit \"$status\"\n" % (epoch, trace_path, herdr_path, epoch, trace_path)
+    )
+    write_private_text(shim_dir / "herdr", shim)
+    os.chmod(str(shim_dir / "herdr"), 0o700)
+
+    sentinel = "sentinel-%d" % epoch
+    catalog = manifest["space_catalog"]
+    for entry in catalog:
+        run_checked(
+            [herdr_path, "pane", "publish", entry["label"], "git_detail=%s" % sentinel],
+            environment,
+            "SFROMENT_SENTINEL_FAILED",
+        )
+    script = profile_data_dir(profiles, name) / adapter["watcher_script"]
+    once_environment = dict(environment)
+    once_environment["PATH"] = str(shim_dir) + os.pathsep + environment["PATH"]
+    try:
+        completed = subprocess.run(
+            [str(script), "once"],
+            env=once_environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise PlaygroundError("SFROMENT_ONCE_FAILED", str(error))
+
+    queries = 0
+    cwd_success: set = set()
+    failed_publications: List[str] = []
+    try:
+        trace_lines = trace_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        trace_lines = []
+    prefix = "%d|" % epoch
+    for line in trace_lines:
+        if not line.startswith(prefix):
+            continue
+        body = line[len(prefix):]
+        if body.startswith("end|"):
+            _, _, status, arguments = line.split("|", 3)
+            if arguments.startswith("space list") and status == "0":
+                queries += 1
+            elif arguments.startswith("pane cwd ") and status == "0":
+                cwd_success.add(arguments[len("pane cwd "):].split(" ")[0])
+            elif arguments.startswith("pane publish") and status != "0":
+                failed_publications.append(arguments)
+    if completed.returncode != 0:
+        raise PlaygroundError(
+            "SFROMENT_READINESS_FAILED", "the once path exited %d" % completed.returncode
+        )
+    if queries < 1:
+        raise PlaygroundError(
+            "SFROMENT_READINESS_FAILED",
+            "the trace shows no successful current-generation workspace query; a clean exit alone is not readiness",
+        )
+    missing_cwd = {entry["label"] for entry in catalog} - cwd_success
+    if missing_cwd:
+        raise PlaygroundError(
+            "SFROMENT_READINESS_FAILED", "no successful pane/CWD query for %r" % sorted(missing_cwd)
+        )
+    if failed_publications:
+        raise PlaygroundError(
+            "SFROMENT_READINESS_FAILED", "swallowed publication failure: %r" % failed_publications
+        )
+    spaces = herdr_json(herdr_path, ["space", "list"], environment, "SPACE_LIST_FAILED") or []
+    tokens = {space.get("label"): (space.get("tokens") or {}).get("git_detail") for space in spaces}
+    matched: Dict[str, str] = {}
+    for entry in catalog:
+        expected = expected_git_detail_value(run_dir, entry)
+        observed = tokens.get(entry["label"])
+        if expected is None:
+            if observed != sentinel:
+                raise PlaygroundError(
+                    "SFROMENT_READINESS_FAILED",
+                    "unexpected publication %r for the non-repository space %s" % (observed, entry["label"]),
+                )
+            continue
+        if observed == sentinel:
+            raise PlaygroundError(
+                "SFROMENT_READINESS_FAILED",
+                "the sentinel for %s was never replaced by a publication" % entry["label"],
+            )
+        if observed != expected:
+            raise PlaygroundError(
+                "SFROMENT_READINESS_FAILED",
+                "publication for %s was %r, ground truth expects %r" % (entry["label"], observed, expected),
+            )
+        matched[entry["label"]] = observed
+    manifest["candidates"][name]["readiness"] = {
+        "once_status": completed.returncode,
+        "queries": queries,
+        "publications": matched,
+        "epoch": epoch,
+    }
+
+
+def wait_for_path(path: Path, code: str, detail: str) -> None:
+    for _ in range(candidate_attempts()):
+        if path.exists():
+            return
+        poll_sleep()
+    raise PlaygroundError(code, detail)
+
+
+def candidate_auth_probe(
+    mutation: Mutation, name: str, gh_path: str, environment: Dict[str, str]
+) -> None:
+    """Prove authentication and one repository-scoped read through the exact
+    candidate runtime environment before activation (KTD16)."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    fixture = manifest["fixture_repository"]
+    output = run_checked(
+        [gh_path, "api", "--hostname", fixture["host"], "repos/%s/%s" % (fixture["owner"], fixture["name"])],
+        environment,
+        "CANDIDATE_AUTH_UNPROVED",
+    )
+    try:
+        payload = json.loads(output)
+    except ValueError:
+        raise PlaygroundError(
+            "CANDIDATE_AUTH_UNPROVED", "the %s candidate read returned no parseable repository" % name
+        )
+    if not isinstance(payload, dict) or payload.get("node_id") != fixture["repository_id"]:
+        raise PlaygroundError(
+            "CANDIDATE_AUTH_UNPROVED",
+            "the %s candidate read resolved a different repository identity" % name,
+        )
+    manifest["candidates"][name]["auth_probe"] = {
+        "repository_id": payload["node_id"],
+        "proved_at": utc_now(),
+    }
+
+
+def activate_candidate(
+    mutation: Mutation,
+    name: str,
+    herdr_path: str,
+    gh_path: str,
+    environment: Dict[str, str],
+) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    profiles = manifest["profiles"]
+    adapter = CANDIDATE_ADAPTERS[name]
+    record = manifest["candidates"][name]
+
+    # Candidate-specific sidebar rows and plugin configuration, then reload.
+    write_sidebar_config(profiles, name, adapter["sidebar_tokens"])
+    if adapter["notifications_disabled"]:
+        write_private_text(
+            profile_data_dir(profiles, name) / "plugins" / adapter["plugin_id"] / "config.json",
+            json.dumps({"notifications": False}, sort_keys=True) + "\n",
+        )
+    run_checked([herdr_path, "config", "reload"], environment, "CONFIG_RELOAD_FAILED")
+    record["sidebar_tokens"] = list(adapter["sidebar_tokens"])
+    record["notifications_disabled"] = adapter["notifications_disabled"]
+
+    if adapter["github"]:
+        candidate_auth_probe(mutation, name, gh_path, environment)
+
+    # Quarantine stale plugin-owned records before any startup hook or native
+    # action can reread them (KTD9).
+    if adapter["pid_record"]:
+        stale = quarantine_plugin_record(
+            mutation, name, profile_state_dir(profiles, name) / adapter["pid_record"], "stale-before-activation"
+        )
+        record["stale_record_quarantined"] = stale is not None
+    if adapter["ownership"] == "plugin-detached":
+        manifest["detached_intents"][name] = {
+            "plugin_id": adapter["plugin_id"],
+            "record": adapter["pid_record"],
+            "state": adapter["state_record"],
+            "socket": profiles[name]["socket"],
+            "phase": "intent-committed",
+        }
+    mutation.persist("candidate-%s-configured" % name)
+
+    if adapter["ownership"] == "controller-watcher":
+        script = profile_data_dir(profiles, name) / adapter["watcher_script"]
+        spawn_owned_process(
+            mutation,
+            environment,
+            "watcher-%s" % name,
+            name,
+            str(script),
+            ("watch",),
+            process_class="watcher",
+        )
+    else:
+        run_checked([herdr_path, "plugin", "enable", adapter["plugin_id"]], environment, "CANDIDATE_ACTIVATION_FAILED")
+        for action in adapter["activation_actions"]:
+            if action == "refresh":
+                # jmarbutt refresh is meaningful only once its daemon owns
+                # state and spaces exist; promotion happens first below.
+                continue
+            manifest["detached_intents"][name]["phase"] = "detached"
+            mutation.persist("candidate-%s-detaching" % name)
+            try:
+                run_checked(
+                    [herdr_path, "plugin", "run", adapter["plugin_id"], action],
+                    environment,
+                    "CANDIDATE_ACTIVATION_FAILED",
+                )
+            except PlaygroundError:
+                # The action reported failure; discovery still runs during
+                # teardown, but an absent daemon is then a settled outcome.
+                manifest["detached_intents"][name]["phase"] = "action-failed"
+                mutation.persist("candidate-%s-action-failed" % name)
+                raise
+    record["activated_at"] = utc_now()
+    mutation.persist("candidate-%s-activated" % name)
+    if test_failpoint() == "candidate-%s-detached" % name:
+        raise PlaygroundError(
+            "INJECTED_CANDIDATE_%s_DETACHED" % name.upper(),
+            "injected crash immediately after %s detachment, before ownership promotion" % name,
+        )
+
+    if adapter["ownership"] == "plugin-detached":
+        promote_detached_ownership(mutation, name, adapter)
+        if "refresh" in adapter["activation_actions"]:
+            run_checked(
+                [herdr_path, "plugin", "run", adapter["plugin_id"], "refresh"],
+                environment,
+                "CANDIDATE_ACTIVATION_FAILED",
+            )
+
+    readiness = adapter["readiness"]
+    if readiness == "updater-metadata":
+        ezcorp_readiness(mutation, name, adapter)
+    elif readiness == "traced-once":
+        sfroment_traced_once(mutation, name, adapter, herdr_path, environment)
+    elif readiness == "pid-and-labels":
+        krystof_readiness(mutation, name, herdr_path, environment)
+    elif readiness == "daemon-refresh":
+        jmarbutt_readiness(mutation, name, adapter)
+    record["ready_at"] = utc_now()
+    mutation.persist("candidate-%s-ready" % name)
+
+
+def provision_candidates(
+    mutation: Mutation,
+    source: Dict[str, str],
+    executable_paths: Dict[str, str],
+    environments: Dict[str, Dict[str, str]],
+    audit_candidates: Dict[str, Dict[str, Any]],
+) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    run_dir = mutation.run_dir
+    profiles = manifest["profiles"]
+    herdr_path = executable_paths["herdr"]
+    gh_path = executable_paths["gh"]
+    build_environment = environments["candidate-build"]
+
+    runtime_environments = {
+        name: candidate_runtime_environment(source, executable_paths, profiles, name, with_token=True)
+        for name in CANDIDATE_ORDER
+    }
+    record_test_environments(
+        {"candidate-runtime-%s" % name: environment for name, environment in runtime_environments.items()}
+    )
+
+    # Resolve every candidate's fetched tree and verify it against the
+    # operator-approved attestation before any build or server starts (KTD16).
+    manifest["candidates"] = {}
+    manifest["detached_intents"] = {}
+    for name in CANDIDATE_ORDER:
+        adapter = CANDIDATE_ADAPTERS[name]
+        revision = CANDIDATE_REVISIONS[name]
+        fetched = herdr_json(
+            herdr_path,
+            ["plugin", "fetch", adapter["plugin_id"], "--revision", revision],
+            build_environment,
+            "CANDIDATE_FETCH_FAILED",
+        )
+        tree = (fetched or {}).get("tree")
+        if not tree or tree != audit_candidates[name]["tree"]:
+            raise PlaygroundError(
+                "AUDIT_TREE_MISMATCH",
+                "the fetched %s tree %r does not match the attested tree %r"
+                % (name, tree, audit_candidates[name]["tree"]),
+            )
+        manifest["candidates"][name] = {"plugin_id": adapter["plugin_id"], "revision": revision, "tree": tree}
+    mutation.persist("candidate-trees")
+
+    # Shared no-plugin sidebar base, pinned-revision install with activation
+    # disabled, and an exact isolated-registry check per profile.
+    for name in CANDIDATE_ORDER:
+        adapter = CANDIDATE_ADAPTERS[name]
+        revision = CANDIDATE_REVISIONS[name]
+        environment = runtime_environments[name]
+        write_sidebar_config(profiles, name, ())
+        run_checked(
+            [herdr_path, "plugin", "install", adapter["plugin_id"], "--revision", revision, "--disabled"],
+            environment,
+            "CANDIDATE_INSTALL_FAILED",
+        )
+        registry = herdr_json(herdr_path, ["plugin", "registry"], environment, "CANDIDATE_REGISTRY_INVALID")
+        entries = registry if isinstance(registry, list) else []
+        if len(entries) != 1 or entries[0].get("plugin_id") != adapter["plugin_id"] or entries[0].get(
+            "revision"
+        ) != revision or entries[0].get("enabled") is not False:
+            raise PlaygroundError(
+                "CANDIDATE_REGISTRY_INVALID",
+                "the isolated %s registry does not contain exactly the pinned disabled candidate" % name,
+            )
+        manifest["candidates"][name]["registry"] = entries[0]
+    mutation.persist("candidate-installed")
+
+    # Start each candidate server as a controller-owned process, then wait for
+    # its profile socket.
+    for name in CANDIDATE_ORDER:
+        spawn_owned_process(
+            mutation,
+            runtime_environments[name],
+            "server-%s" % name,
+            name,
+            herdr_path,
+            ("server", "run"),
+            process_class="server",
+        )
+        wait_for_path(
+            Path(profiles[name]["socket"]),
+            "CANDIDATE_SERVER_SOCKET_MISSING",
+            "the %s profile socket never appeared" % name,
+        )
+
+    # Spaces in stable shared order, then the current-managed/default baseline.
+    catalog = build_space_catalog(mutation, manifest["fixture_repository"])
+    manifest["space_catalog"] = catalog
+    for name in CANDIDATE_ORDER:
+        environment = runtime_environments[name]
+        for entry in catalog:
+            arguments = [herdr_path, "space", "create", entry["label"], "--cwd", entry["path"]]
+            if entry["worktree_child"]:
+                arguments.append("--worktree-child")
+            run_checked(arguments, environment, "SPACE_CREATE_FAILED")
+        spaces = herdr_json(herdr_path, ["space", "list"], environment, "SPACE_LIST_FAILED") or []
+        if [space.get("label") for space in spaces] != [entry["label"] for entry in catalog]:
+            raise PlaygroundError("SPACE_ORDER_INVALID", "the %s profile spaces are not in catalog order" % name)
+        manifest["candidates"][name]["label_snapshot"] = [
+            {"label": space["label"], "label_text": space["label_text"]} for space in spaces
+        ]
+        rows = sidebar_snapshot(herdr_path, environment)
+        if rows != list(SHARED_SIDEBAR_ROWS):
+            raise PlaygroundError(
+                "BASELINE_CONTAMINATED",
+                "the %s baseline rows %r are not exactly the shared no-plugin rows" % (name, rows),
+            )
+        atomic_write_json(
+            run_dir / "observations" / ("baseline-%s.json" % name),
+            {
+                "schema_version": SCHEMA_VERSION,
+                "run_id": manifest["run_id"],
+                "profile": name,
+                "rows": rows,
+                "captured_at": utc_now(),
+            },
+            "baseline",
+        )
+    mutation.persist("candidate-baseline")
+
+    # Per-candidate activation in stable order; the first failure aborts and
+    # triggers cleanup for every earlier profile.
+    for name in CANDIDATE_ORDER:
+        try:
+            activate_candidate(mutation, name, herdr_path, gh_path, runtime_environments[name])
+        except PlaygroundError as error:
+            manifest.setdefault("candidate_diagnostics", {})[name] = {
+                "code": error.code,
+                "message": error.message,
+                "at": utc_now(),
+            }
+            mutation.persist("candidate-%s-diagnostics" % name)
+            raise
+        rows = sidebar_snapshot(herdr_path, runtime_environments[name])
+        atomic_write_json(
+            run_dir / "observations" / ("activation-%s.json" % name),
+            {
+                "schema_version": SCHEMA_VERSION,
+                "run_id": manifest["run_id"],
+                "profile": name,
+                "rows": rows,
+                "captured_at": utc_now(),
+            },
+            "activation-observation",
+        )
+
+
+def process_group_members(pgid: int) -> List[int]:
+    try:
+        output = subprocess.check_output(["/bin/ps", "-axo", "pid=,pgid="], text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    members: List[int] = []
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == str(pgid):
+            members.append(int(parts[0]))
+    return members
+
+
+def teardown_runtime_environment(source: Dict[str, str], manifest: Dict[str, Any], name: str) -> Dict[str, str]:
+    return candidate_runtime_environment(
+        source, manifest["dependencies"], manifest["profiles"], name, with_token=False
+    )
+
+
+def settle_detached_intent(
+    mutation: Mutation, name: str, adapter: Dict[str, Any], unresolved: List[str], result: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Return the daemon process record to stop, adopting an unpromoted daemon
+    only on full identity agreement (KTD9)."""
+    manifest = mutation.manifest
+    assert manifest is not None
+    process_key = "candidate-%s" % name
+    process = manifest["processes"].get(process_key)
+    intent = (manifest.get("detached_intents") or {}).get(name)
+    if process is not None or intent is None:
+        return process
+    if intent.get("phase") in ("intent-committed", None):
+        intent["phase"] = "cancelled-before-detach"
+        return None
+    record, reason = discover_detached_daemon(manifest["profiles"], name, adapter)
+    result["adoption"] = reason
+    if record is not None:
+        manifest["processes"][process_key] = record
+        intent["phase"] = "adopted"
+        return record
+    if reason in ("gone", "plugin state is absent"):
+        # The plugin state file is the authoritative registry of detached
+        # resources: a dead recorded process, or no registration at all,
+        # proves nothing owned remains. A live but disagreeing record below
+        # never does.
+        intent["phase"] = "settled-gone"
+        return None
+    unresolved.append("DETACHED_RESOURCE_UNRESOLVED")
+    return None
+
+
+def teardown_candidates(mutation: Mutation, source: Dict[str, str], unresolved: List[str]) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    candidates = manifest.get("candidates") or {}
+    if not candidates:
+        return
+    profiles = manifest["profiles"]
+    herdr_path = manifest["dependencies"]["herdr"]
+    results = manifest.setdefault("candidate_teardown", {})
+    for name in CANDIDATE_ORDER:
+        if name not in candidates:
+            continue
+        adapter = CANDIDATE_ADAPTERS[name]
+        result = results.setdefault(name, {})
+        if result.get("completed"):
+            continue
+        environment = teardown_runtime_environment(source, manifest, name)
+        state_dir = profile_state_dir(profiles, name)
+        candidate_unresolved: List[str] = []
+
+        daemon = settle_detached_intent(mutation, name, adapter, candidate_unresolved, result)
+        # Atomically quarantine the plugin-owned PID record before any native
+        # action could reread signal-capable state.
+        if adapter["pid_record"] and state_dir.exists():
+            quarantined = quarantine_plugin_record(
+                mutation, name, state_dir / adapter["pid_record"], "teardown"
+            )
+            if quarantined is not None:
+                result["pid_record_quarantined"] = True
+
+        if adapter["daemon_ends_with_socket"]:
+            # Closing the profile socket should end the daemon: stop this
+            # profile's server first, then verify the recorded process is gone.
+            server = manifest["processes"].get("server-%s" % name)
+            if server is not None and server.get("status") == "running":
+                stopped, code = terminate_owned_process(server)
+                result["socket_closed"] = stopped
+                if not stopped and code:
+                    candidate_unresolved.append(code)
+            if daemon is not None and daemon.get("status") == "running":
+                gone = False
+                for _ in range(candidate_attempts()):
+                    verdict, _ = verify_process(daemon)
+                    if verdict == "gone":
+                        gone = True
+                        break
+                    poll_sleep()
+                result["daemon_gone"] = gone
+                if gone:
+                    daemon["status"] = "stopped"
+                else:
+                    # Identity-checked escalation of the one remaining owned
+                    # process; never a broad or name-based signal.
+                    stopped, code = terminate_owned_process(daemon)
+                    result["escalated"] = True
+                    if not stopped and code:
+                        candidate_unresolved.append(code)
+        elif daemon is not None and daemon.get("status") == "running":
+            stopped, code = terminate_owned_process(daemon)
+            result["controller_signalled"] = stopped
+            if not stopped and code:
+                candidate_unresolved.append(code)
+
+        if adapter["ownership"] == "controller-watcher":
+            watcher = manifest["processes"].get("watcher-%s" % name)
+            if watcher is not None:
+                if watcher.get("status") == "running":
+                    stopped, code = terminate_owned_process(watcher)
+                    if not stopped and code:
+                        candidate_unresolved.append(code)
+                # Process-group quiescence before teardown passes: the watcher
+                # has no native stop, so its whole owned group must be empty.
+                pgid = watcher.get("process_group")
+                members = process_group_members(pgid) if isinstance(pgid, int) else []
+                if members:
+                    result["escalated"] = True
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+                    for _ in range(candidate_attempts()):
+                        members = process_group_members(pgid)
+                        if not members:
+                            break
+                        poll_sleep()
+                result["group_quiescent"] = not members
+                if members:
+                    candidate_unresolved.append("WATCHER_GROUP_ACTIVE")
+
+        # Only non-signalling metadata and label restoration; the adapter's
+        # signal-capable native paths are bypassed by contract.
+        if not candidate_unresolved:
+            if adapter["metadata_cleanup_action"] and not result.get("metadata_cleanup"):
+                try:
+                    run_checked(
+                        [herdr_path, "plugin", "run", adapter["plugin_id"], adapter["metadata_cleanup_action"]],
+                        environment,
+                        "CANDIDATE_METADATA_CLEANUP_FAILED",
+                    )
+                    result["metadata_cleanup"] = True
+                except PlaygroundError as error:
+                    result["metadata_cleanup"] = False
+                    candidate_unresolved.append(error.code)
+            if adapter["restore_labels"] and not result.get("labels_restored"):
+                try:
+                    for entry in candidates[name].get("label_snapshot") or []:
+                        run_checked(
+                            [herdr_path, "space", "label", "set", entry["label"], entry["label_text"]],
+                            environment,
+                            "LABEL_RESTORE_FAILED",
+                        )
+                    result["labels_restored"] = True
+                except PlaygroundError as error:
+                    result["labels_restored"] = False
+                    candidate_unresolved.append(error.code)
+        result["native_stop_invoked"] = False
+        if not candidate_unresolved:
+            result["completed"] = True
+        unresolved.extend(candidate_unresolved)
+    mutation.persist("candidate-teardown")
+
+
 def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     ctx: Optional[BootstrapContext] = None
     try:
@@ -3276,7 +4270,7 @@ def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> 
 
 def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     try:
-        executable_paths, fixture, audit_digest, herdr_identity = preflight(arguments, source)
+        executable_paths, fixture, audit_digest, herdr_identity, audit_candidates = preflight(arguments, source)
     except PlaygroundError as error:
         return error_result(error)
 
@@ -3350,29 +4344,74 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                 return remote_error.status
 
             target = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS") if test_mode() else None
-            if not target:
+            if target:
+                launch_error = start_foundation_process(mutation, environments["candidate-runtime"], target)
+                if launch_error is not None:
+                    current = read_manifest(root, run_id)
+                    print_json(output_record(current, launch_error.code, launch_error.message, "stop %s" % run_id))
+                    return launch_error.status
+
                 manifest["error"] = {
-                    "code": "PROFILE_STARTUP_NOT_IMPLEMENTED",
-                    "message": "candidate startup belongs to a later implementation unit",
+                    "code": "FOUNDATION_PROCESS_RUNNING",
+                    "message": "foundation test process is owned; candidate startup is not implemented",
                 }
-                final_manifest, _ = teardown_phases(mutation, source, "startup-failed-cleaned")
+                manifest["next_command"] = "stop %s" % run_id
+                mutation.persist("foundation-running")
                 mutation.finish()
-                print_json(output_record(final_manifest))
-                return 1
+            else:
+                candidate_error: Optional[PlaygroundError] = None
+                try:
+                    provision_candidates(mutation, source, executable_paths, environments, audit_candidates)
+                except PlaygroundError as error:
+                    candidate_error = error
+                if candidate_error is not None:
+                    if candidate_error.code.startswith("INJECTED_"):
+                        # Injected crash boundary: leave durable state exactly
+                        # as a real crash would, for recovery through stop.
+                        current = read_manifest(root, run_id)
+                        print_json(
+                            output_record(current, candidate_error.code, candidate_error.message, "stop %s" % run_id)
+                        )
+                        return candidate_error.status
+                    # A candidate activation failure triggers cleanup for all
+                    # earlier profiles and preserves its diagnostics.
+                    manifest["error"] = playground_error_json(candidate_error)
+                    final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
+                    mutation.finish()
+                    if cleanup_status == 0:
+                        print_json(
+                            output_record(
+                                final_manifest, candidate_error.code, candidate_error.message, "status %s" % run_id
+                            )
+                        )
+                    else:
+                        print_json(output_record(final_manifest))
+                    return candidate_error.status
+                manifest["lifecycle_state"] = "active-ready"
+                manifest["error"] = None
+                manifest["next_command"] = "view %s" % run_id
+                mutation.persist("active-ready")
+                mutation.finish()
 
-            launch_error = start_foundation_process(mutation, environments["candidate-runtime"], target)
-            if launch_error is not None:
-                current = read_manifest(root, run_id)
-                print_json(output_record(current, launch_error.code, launch_error.message, "stop %s" % run_id))
-                return launch_error.status
-
-            manifest["error"] = {
-                "code": "FOUNDATION_PROCESS_RUNNING",
-                "message": "foundation test process is owned; candidate startup is not implemented",
-            }
-            manifest["next_command"] = "stop %s" % run_id
-            mutation.persist("foundation-running")
-            mutation.finish()
+                try:
+                    wait_for_test_marker(
+                        "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
+                        "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
+                    )
+                except KeyboardInterrupt:
+                    stopped, stop_status = stop_run(root, run_id, source)
+                    print_json(
+                        output_record(
+                            stopped,
+                            "START_INTERRUPTED",
+                            "start was interrupted and verified teardown ran",
+                            "status %s" % run_id,
+                        )
+                    )
+                    return 130 if stop_status == 0 else stop_status
+                manifest = read_manifest(root, run_id)
+                print_json(output_record(manifest))
+                return 0
 
         try:
             wait_for_test_marker(
@@ -3495,6 +4534,11 @@ def teardown_phases(
     manifest["next_command"] = "stop %s" % run_id
     mutation.persist("stopping")
     unresolved: List[str] = []
+
+    # Candidate adapters first: quarantine plugin-owned records, settle
+    # detached daemons, and perform non-signalling restoration while the
+    # profile servers are still available.
+    teardown_candidates(mutation, source, unresolved)
 
     for intent_id, intent in manifest.get("launch_intents", {}).items():
         process = manifest.get("processes", {}).get(intent_id)
