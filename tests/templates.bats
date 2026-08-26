@@ -250,6 +250,24 @@ PROBE
 }
 
 # ===========================================
+# Yazi plugin keymaps
+# ===========================================
+
+@test "every Yazi plugin keymap has a managed plugin entrypoint" {
+  local yazi_dir="$SOURCE_ROOT/private_dot_config/yazi"
+  local plugin
+  local plugins
+  plugins="$(grep -o 'run = "plugin [^"]*"' "$yazi_dir/keymap.toml" \
+    | sed 's/run = "plugin //; s/"$//' \
+    | sort -u)"
+
+  [[ -n "$plugins" ]] || fail "no Yazi plugin keymaps found"
+  for plugin in $plugins; do
+    assert_file_exists "$yazi_dir/plugins/$plugin.yazi/main.lua"
+  done
+}
+
+# ===========================================
 # .chezmoiremove
 # ===========================================
 
