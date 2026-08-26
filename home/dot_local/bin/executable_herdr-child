@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SOURCE_ID="child-agent"
+TAB_SOURCE_ID="child-agent-tab"
 WAITING_TTL_MS=3600000
 
 usage() {
@@ -96,7 +97,7 @@ start_child() {
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
   local configured_agent="" prompt="" prompt_file="" direction="right" direction_explicit=0
   local wait_for_child=0 timeout="30000" pane="" list_json="" split_json=""
-  local skills_count=0 tab_mode=0 label=""
+  local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -152,8 +153,14 @@ start_child() {
     fail_usage "agent name is already live: $name"
   fi
 
-  split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
-    --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+  if [ "$tab_mode" -eq 1 ]; then
+    split_args=(tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+    [ -z "$label" ] || split_args+=(--label "$label")
+  else
+    split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+  fi
 
   case "$kind:$posture" in
     opencode:ro)
@@ -166,14 +173,45 @@ start_child() {
       ;;
   esac
 
-  split_json="$(herdr "${split_args[@]}")" || {
-    printf 'herdr-child: pane split failed\n' >&2
-    exit 1
-  }
-  pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
-    printf 'herdr-child: pane split returned no pane ID\n' >&2
-    exit 1
-  }
+  if [ "$tab_mode" -eq 1 ]; then
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: tab create failed\n' >&2
+      exit 1
+    }
+    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+    result = json.load(sys.stdin)["result"]
+    pane_id = result["root_pane"]["pane_id"]
+    tab_id = result["tab"]["tab_id"]
+    if not pane_id or not tab_id:
+        raise KeyError("empty identity")
+    print("%s\t%s" % (pane_id, tab_id))
+except Exception:
+    raise SystemExit(1)')" || {
+      preserved_tab="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("tab_id") or "unknown")
+except Exception:
+    print("unknown")')"
+      printf 'herdr-child: tab create returned no usable pane/tab identity; tab %s was preserved and needs manual cleanup\n' "$preserved_tab" >&2
+      exit 1
+    }
+    IFS=$'\t' read -r pane tab <<< "$identity"
+    if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" --token "child-tab=$tab" --seq "$(now_seq)" >/dev/null 2>&1; then
+      printf 'herdr-child: could not record tab ownership; removing tab %s\n' "$tab" >&2
+      herdr pane close "$pane" >/dev/null 2>&1 || true
+      exit 1
+    fi
+  else
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: pane split failed\n' >&2
+      exit 1
+    }
+    pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
+      printf 'herdr-child: pane split returned no pane ID\n' >&2
+      exit 1
+    }
+  fi
 
   cleanup_pane() {
     herdr pane close "$pane" >/dev/null 2>&1 || true
@@ -270,7 +308,11 @@ EOF
       printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
       rm -f "$prompt_out" "$prompt_err"
       trap - INT TERM
-      printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+      if [ "$tab_mode" -eq 1 ]; then
+        printf '{"agent":"%s","pane":"%s","tab":"%s"}\n' "$name" "$pane" "$tab"
+      else
+        printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+      fi
       return 124
     fi
     if grep -q 'agent_prompt_stalled' "$prompt_err"; then
@@ -285,7 +327,11 @@ EOF
   rm -f "$prompt_out" "$prompt_err"
 
   trap - INT TERM
-  printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+  if [ "$tab_mode" -eq 1 ]; then
+    printf '{"agent":"%s","pane":"%s","tab":"%s"}\n' "$name" "$pane" "$tab"
+  else
+    printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+  fi
 }
 
 ask_parent() {

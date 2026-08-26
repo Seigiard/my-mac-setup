@@ -381,6 +381,14 @@ case "${1:-} ${2:-}" in
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
     printf '{"result":{"pane":{"pane_id":"wT:p9"}}}\n' ;;
+  "tab create")
+    [ "${STUB_TAB_CREATE_FAIL:-0}" = 1 ] && exit 1
+    : > "$CHILD_STUB/split-seen"
+    if [ "${STUB_TAB_CREATE_MALFORMED:-0}" = 1 ]; then
+      printf '{"result":{"root_pane":{"pane_id":"","terminal_id":""},"tab":{"tab_id":"wT:tA"}}}\n'
+    else
+      printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term_wTp9"},"tab":{"tab_id":"wT:tA","number":1}}}\n'
+    fi ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -607,6 +615,65 @@ child_start() {
   assert_output --partial "wait timed out"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+@test "herdr-child --tab creates the tab, records ownership, then starts and prompts in order" {
+  child_stub_herdr
+  HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
+  assert_success
+  assert_output '{"agent":"child-a","pane":"wT:p9","tab":"wT:tA"}'
+  local call1 call2 call3 call4 call5
+  call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
+  call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
+  call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
+  call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
+  call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
+  [[ "$call1" == agent\ list* ]]
+  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
+  [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab\ --token\ child-tab=wT:tA* ]]
+  [[ "$call4" == agent\ start* ]]
+  [[ "$call5" == agent\ prompt* ]]
+  run grep -c '^tab create' "$CHILD_STUB/calls.log"
+  assert_output 1
+}
+
+@test "herdr-child --tab passes --label and posture env on the create call" {
+  child_stub_herdr
+  HERDR_WORKSPACE_ID=w1 run child_start --kind opencode --name child-open --tab --label mylabel
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1.*--label mylabel'
+  assert_file_contains "$CHILD_STUB/calls.log" '^tab create.*OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
+}
+
+@test "herdr-child --tab preserves and reports the tab when identity cannot be parsed" {
+  child_stub_herdr
+  STUB_TAB_CREATE_MALFORMED=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
+  assert_failure 1
+  assert_output --partial "wT:tA"
+  assert_output --partial "preserved"
+  run grep -q '^agent start' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^pane report-metadata' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab removes the tab when the ownership token cannot be written" {
+  child_stub_herdr
+  STUB_REPORT_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab
+  assert_failure 1
+  assert_output --partial "wT:tA"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q '^agent start' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child --tab --wait reports the tab id on a prompt timeout" {
+  child_stub_herdr
+  STUB_PROMPT_TIMEOUT=1 HERDR_WORKSPACE_ID=w1 run child_start --kind claude --name child-a --tab --wait
+  assert_failure 124
+  assert_output --partial '{"agent":"child-a","pane":"wT:p9","tab":"wT:tA"}'
 }
 
 @test "herdr-child ask requires every injected child coordinate" {
