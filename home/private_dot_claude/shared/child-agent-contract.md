@@ -108,6 +108,57 @@ A second run left a child waiting after `ask`. `herdr-child reap --to <returned-
 
 The checkout script was exposed as `/tmp/child-contract-bin/herdr-child` because chezmoi does not deploy files from this working checkout. The measured herdr calls and child environment were otherwise the same as the deployed command.
 
+### Tab-mode CLI facts (herdr 0.8.2, 2026-08-26, isolated `childspike` session)
+
+`tab create --env` delivers to the root pane's process, same as `pane split`:
+
+```bash
+herdr --session childspike tab create --workspace w2 --cwd "$PWD" --no-focus \
+  --env CHILDSPIKE_ENV_TEST=herdr_tab_env_value --label spiketab
+herdr --session childspike pane run w2:p2 'echo CHILDSPIKE_ENV_TEST=$CHILDSPIKE_ENV_TEST'
+```
+
+The pane printed `CHILDSPIKE_ENV_TEST=herdr_tab_env_value`.
+
+`tab create`'s JSON carries the tab id nested under `.result.tab.tab_id`, not `.result.tab` as a bare string, alongside `.result.root_pane.pane_id` and a non-empty `.result.root_pane.terminal_id`:
+
+```json
+{"id":"cli:tab:create","result":{"root_pane":{"pane_id":"w2:p2","tab_id":"w2:t2","terminal_id":"term_659f0e759348b6", "..."},"tab":{"tab_id":"w2:t2","label":"spiketab","pane_count":1,"..."},"type":"tab_created"}}
+```
+
+`pane report-metadata --token` writes land in one flat `tokens` map on `pane get`, keyed only by token name — the `--source` argument does not create a visible namespace in the read-back:
+
+```bash
+herdr --session childspike pane report-metadata w2:p3 --source child-agent-tab --token dedicated-tok=w2:t3 --ttl-ms 3600000 --seq 1
+herdr --session childspike pane report-metadata w2:p3 --source child-agent --state-label blocked=waiting --ttl-ms 3600000 --seq 1
+herdr --session childspike pane get w2:p3   # tokens.dedicated-tok still "w2:t3"; state_labels.blocked = "waiting"
+herdr --session childspike pane report-metadata w2:p3 --source child-agent --clear-state-labels --seq 2
+herdr --session childspike pane get w2:p3   # tokens.dedicated-tok survives; state_labels absent
+```
+
+A second run wrote both the token and a state-label under the *same* source (`child-agent`) and still observed the token survive a same-source `--clear-state-labels` at a higher `--seq`, and survive a stale-seq token overwrite attempt (a `--seq 1` rewrite after `--seq 3` had already been applied left the original value in place). `--clear-token <name> --seq <higher>` removes exactly that token, leaving sibling tokens untouched. Conclusion: TTL and sequence numbers are scoped per field (token name or state-label key), not per source bundle — a dedicated source id is not required for token survival against interleaved state-label traffic, but using one (`child-agent-tab`) keeps the token's identity visually distinct from the child's own ask/reply channel and costs nothing.
+
+Closing a tab's only pane auto-closes the tab — no explicit `tab close` call is needed or possible afterward:
+
+```bash
+herdr --session childspike pane close w2:p3   # {"result":{"type":"ok"}}
+herdr --session childspike tab list --workspace w2   # w2:t3 absent
+herdr --session childspike tab close w2:t3   # {"error":{"code":"tab_not_found","message":"tab w2:t3 not found"}}
+```
+
+Closing one pane of a multi-pane tab leaves the tab open with the correct `pane_count`; a fresh `pane split` into `w2:t2` followed by closing only the new pane left `w2:t2` at `pane_count:1` and still listed.
+
+Error shape for a target already gone at close time, for both kinds:
+
+```json
+{"error":{"code":"tab_not_found","message":"tab w2:t4 not found"}}
+{"error":{"code":"pane_not_found","message":"pane w2:p3 not found"}}
+```
+
+Both exit 1. `pane list --workspace <id>` includes each pane's `tab_id`, so sibling-pane enumeration for a given tab is a filter over that list, not a separate call.
+
+**Consequence for tab-mode cleanup:** since last-pane-close auto-closes the tab, tab removal never needs an explicit `herdr tab close` call or a re-enumeration race guard — a validated `pane close` on the child's own pane is the complete removal mechanism when that pane is the tab's only pane. `herdr tab close` is only ever needed as a defensive fallback, never as the primary path.
+
 ## Parent duties
 
 1. Keep the registered alias and pane ID returned by each `herdr-child start` call.
