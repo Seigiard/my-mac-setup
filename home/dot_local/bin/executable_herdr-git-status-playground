@@ -192,10 +192,14 @@ def fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def atomic_write_json(path: Path, value: Dict[str, Any], label: str = "record") -> None:
     global _atomic_pause_used
     ensure_private_directory(path.parent)
-    payload = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    payload = (canonical_json(value) + "\n").encode("utf-8")
     failpoint = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT", "") if test_mode() else ""
     injected = failpoint.startswith("intent-") and label == "intent"
     kind = failpoint[len("intent-") :] if injected else ""
@@ -361,7 +365,7 @@ def output_record(
 
 
 def print_json(value: Dict[str, Any]) -> None:
-    print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+    print(canonical_json(value))
 
 
 def error_result(error: PlaygroundError, manifest: Optional[Dict[str, Any]] = None) -> int:
@@ -462,7 +466,7 @@ def load_audit_attestation(path: str) -> Tuple[str, Dict[str, Dict[str, Any]]]:
             raise PlaygroundError(
                 "AUDIT_ATTESTATION_INVALID", "audit is absent, stale, or unapproved for %s" % candidate
             )
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    canonical = canonical_json(value).encode("utf-8")
     digest = hashlib.sha256(canonical).hexdigest()
     return digest, {name: dict(candidates[name]) for name in CANDIDATE_REVISIONS}
 
@@ -503,7 +507,7 @@ def preflight(
             "%s is not on the approved PATH; recorded toolchain status: %s; install it temporarily for "
             "this trial (a scratch rustup/npm/jq/gh prefix removed afterward) or point PATH at an "
             "already-configured toolchain install — never add it to the managed Brewfile"
-            % (first, json.dumps(toolchain_status, sort_keys=True, separators=(",", ":"))),
+            % (first, canonical_json(toolchain_status)),
         )
 
     approved_herdr = os.path.realpath(arguments.approved_herdr)
@@ -804,9 +808,7 @@ def append_diagnostic(run_dir: Path, code: str, message: str) -> None:
     removed alongside `runtime/` once teardown succeeds."""
     path = diagnostics_log_path(run_dir)
     ensure_private_directory(path.parent)
-    line = json.dumps(
-        {"at": utc_now(), "code": code, "message": redact_text(message)}, sort_keys=True, separators=(",", ":")
-    )
+    line = canonical_json({"at": utc_now(), "code": code, "message": redact_text(message)})
     descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         os.write(descriptor, (line + "\n").encode("utf-8"))
@@ -1264,8 +1266,8 @@ def measure_fixture_ground_truth(
         record["repository"] = "none"
         return record
     record["repository"] = "work-tree"
-    git_dir = git_run(git_path, ["rev-parse", "--git-dir"], path, environment, code).stdout.strip()
-    common_dir = git_run(git_path, ["rev-parse", "--git-common-dir"], path, environment, code).stdout.strip()
+    dirs = git_run(git_path, ["rev-parse", "--git-dir", "--git-common-dir"], path, environment, code).stdout.splitlines()
+    git_dir, common_dir = dirs[0].strip(), dirs[1].strip()
     record["linked_worktree"] = os.path.realpath(os.path.join(str(path), git_dir)) != os.path.realpath(
         os.path.join(str(path), common_dir)
     )
@@ -1675,7 +1677,8 @@ def build_local_fixture_catalog(
 
 
 def identity_component_valid(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value))
+    # Same grammar as run IDs: one identifier charset, so the two cannot drift.
+    return bool(RUN_ID.fullmatch(value))
 
 
 def repository_state_directory(root: Path, ownership: Dict[str, str]) -> Path:
@@ -4727,7 +4730,6 @@ def perform_view(root: Path, run_id: str, source: Dict[str, str]) -> int:
                         manifest["error"] = playground_error_json(error)
                         viewable_error = error
                 mutation.finish()
-            manifest = read_manifest(root, run_id)
         else:
             viewable_error = PlaygroundError(
                 "RUN_NOT_VIEWABLE", "view requires an active run; current state is %s" % manifest["lifecycle_state"]
@@ -4827,14 +4829,7 @@ def write_inventory(run_dir: Path, rows: List[Dict[str, Any]]) -> None:
             cells.append(format_r11_cell(field, row.get(field)))
         safe_cells = [str(cell).replace("|", "/").replace("\n", " ") for cell in cells]
         lines.append("| " + " | ".join(safe_cells) + " |")
-    path = run_dir / "inventory.md"
-    ensure_private_directory(path.parent)
-    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(descriptor, ("\n".join(lines) + "\n").encode("utf-8"))
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    write_private_text(run_dir / "inventory.md", "\n".join(lines) + "\n")
 
 
 def capture_snapshot(
@@ -5147,7 +5142,6 @@ def command_snapshot(arguments: argparse.Namespace, source: Dict[str, str]) -> i
             mutation.finish()
     except PlaygroundError as error:
         return error_result(error)
-    manifest = read_manifest(root, arguments.run_id)
     output = output_record(manifest)
     output["result"] = result
     print_json(output)
@@ -5186,6 +5180,53 @@ def command_bootstrap(arguments: argparse.Namespace, source: Dict[str, str]) -> 
             )
         )
         return error.status
+
+
+def wait_start_marker_interruptible(root: Path, run_id: str, source: Dict[str, str]) -> Optional[int]:
+    """Block on the start marker; on interrupt, stop the run and return the
+    command's exit status. Returns None when the wait completed uninterrupted."""
+    try:
+        wait_for_test_marker(
+            "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
+            "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
+        )
+    except KeyboardInterrupt:
+        stopped, stop_status = stop_run(root, run_id, source)
+        print_json(
+            output_record(
+                stopped,
+                "START_INTERRUPTED",
+                "start was interrupted and verified teardown ran",
+                "status %s" % run_id,
+            )
+        )
+        return 130 if stop_status == 0 else stop_status
+    return None
+
+
+def handle_startup_failure(
+    mutation: "Mutation", root: Path, run_dir: Path, run_id: str, error: PlaygroundError, source: Dict[str, str]
+) -> int:
+    """Shared recovery for a provisioning failure before first readiness."""
+    if error.code.startswith("INJECTED_"):
+        # Injected crash boundary: leave the durable state exactly as a real
+        # crash would, for recovery through stop.
+        current = read_manifest(root, run_id)
+        print_json(output_record(current, error.code, error.message, "stop %s" % run_id))
+        return error.status
+    # Startup failed before first readiness: automatic cleanup that settles
+    # every dispatch identity and releases the lease.
+    manifest = mutation.manifest
+    assert manifest is not None
+    manifest["error"] = playground_error_json(error)
+    append_diagnostic(run_dir, error.code, error.message)
+    final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
+    mutation.finish()
+    if cleanup_status == 0:
+        print_json(output_record(final_manifest, error.code, error.message, "status %s" % run_id))
+    else:
+        print_json(output_record(final_manifest))
+    return error.status
 
 
 def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
@@ -5251,25 +5292,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
             except PlaygroundError as error:
                 remote_error = error
             if remote_error is not None:
-                if remote_error.code.startswith("INJECTED_"):
-                    # Injected crash boundary: leave the durable state exactly as
-                    # a real crash would, for recovery through stop.
-                    current = read_manifest(root, run_id)
-                    print_json(output_record(current, remote_error.code, remote_error.message, "stop %s" % run_id))
-                    return remote_error.status
-                # Startup failed before first readiness: automatic cleanup that
-                # settles every dispatch identity and releases the lease.
-                manifest["error"] = playground_error_json(remote_error)
-                append_diagnostic(run_dir, remote_error.code, remote_error.message)
-                final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
-                mutation.finish()
-                if cleanup_status == 0:
-                    print_json(
-                        output_record(final_manifest, remote_error.code, remote_error.message, "status %s" % run_id)
-                    )
-                else:
-                    print_json(output_record(final_manifest))
-                return remote_error.status
+                return handle_startup_failure(mutation, root, run_dir, run_id, remote_error, source)
 
             target = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS") if test_mode() else None
             if target:
@@ -5293,29 +5316,9 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                 except PlaygroundError as error:
                     candidate_error = error
                 if candidate_error is not None:
-                    if candidate_error.code.startswith("INJECTED_"):
-                        # Injected crash boundary: leave durable state exactly
-                        # as a real crash would, for recovery through stop.
-                        current = read_manifest(root, run_id)
-                        print_json(
-                            output_record(current, candidate_error.code, candidate_error.message, "stop %s" % run_id)
-                        )
-                        return candidate_error.status
                     # A candidate activation failure triggers cleanup for all
                     # earlier profiles and preserves its diagnostics.
-                    manifest["error"] = playground_error_json(candidate_error)
-                    append_diagnostic(run_dir, candidate_error.code, candidate_error.message)
-                    final_manifest, cleanup_status = teardown_phases(mutation, source, "startup-failed-cleaned")
-                    mutation.finish()
-                    if cleanup_status == 0:
-                        print_json(
-                            output_record(
-                                final_manifest, candidate_error.code, candidate_error.message, "status %s" % run_id
-                            )
-                        )
-                    else:
-                        print_json(output_record(final_manifest))
-                    return candidate_error.status
+                    return handle_startup_failure(mutation, root, run_dir, run_id, candidate_error, source)
                 manifest["lifecycle_state"] = "active-ready"
                 manifest["error"] = None
                 manifest["next_command"] = "view %s" % run_id
@@ -5330,22 +5333,9 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
                 if interactive_mode(source):
                     pending_view = True
                 else:
-                    try:
-                        wait_for_test_marker(
-                            "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
-                            "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
-                        )
-                    except KeyboardInterrupt:
-                        stopped, stop_status = stop_run(root, run_id, source)
-                        print_json(
-                            output_record(
-                                stopped,
-                                "START_INTERRUPTED",
-                                "start was interrupted and verified teardown ran",
-                                "status %s" % run_id,
-                            )
-                        )
-                        return 130 if stop_status == 0 else stop_status
+                    interrupted = wait_start_marker_interruptible(root, run_id, source)
+                    if interrupted is not None:
+                        return interrupted
                     manifest = read_manifest(root, run_id)
                     print_json(output_record(manifest))
                     return 0
@@ -5353,22 +5343,9 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
         if pending_view:
             return perform_view(root, run_id, source)
 
-        try:
-            wait_for_test_marker(
-                "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
-                "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
-            )
-        except KeyboardInterrupt:
-            stopped, stop_status = stop_run(root, run_id, source)
-            print_json(
-                output_record(
-                    stopped,
-                    "START_INTERRUPTED",
-                    "start was interrupted and verified teardown ran",
-                    "status %s" % run_id,
-                )
-            )
-            return 130 if stop_status == 0 else stop_status
+        interrupted = wait_start_marker_interruptible(root, run_id, source)
+        if interrupted is not None:
+            return interrupted
 
         manifest = read_manifest(root, run_id)
         print_json(output_record(manifest))
@@ -5417,6 +5394,15 @@ def adopt_claim(run_dir: Path, intent: Dict[str, Any]) -> Optional[Dict[str, Any
     return claim
 
 
+def wait_process_dead(pid: int, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not process_alive(pid):
+            return True
+        time.sleep(0.01)
+    return False
+
+
 def terminate_owned_process(record: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     verdict, reason = verify_process(record)
     if verdict == "gone":
@@ -5433,12 +5419,9 @@ def terminate_owned_process(record: Dict[str, Any]) -> Tuple[bool, Optional[str]
         return True, None
     except (PermissionError, OSError):
         return False, "PROCESS_SIGNAL_FAILED"
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        if not process_alive(pid):
-            record["status"] = "stopped"
-            return True, None
-        time.sleep(0.01)
+    if wait_process_dead(pid):
+        record["status"] = "stopped"
+        return True, None
     verdict, _ = verify_process(record)
     if verdict == "gone":
         record["status"] = "stopped"
@@ -5451,12 +5434,9 @@ def terminate_owned_process(record: Dict[str, Any]) -> Tuple[bool, Optional[str]
         pass
     except (PermissionError, OSError):
         return False, "PROCESS_SIGNAL_FAILED"
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        if not process_alive(pid):
-            record["status"] = "stopped"
-            return True, None
-        time.sleep(0.01)
+    if wait_process_dead(pid):
+        record["status"] = "stopped"
+        return True, None
     return False, "PROCESS_STOP_TIMEOUT"
 
 
