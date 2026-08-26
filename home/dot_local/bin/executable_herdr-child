@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SOURCE_ID="child-agent"
+TAB_SOURCE_ID="child-agent-tab"
 WAITING_TTL_MS=3600000
 
 usage() {
@@ -24,6 +25,8 @@ Start options:
   --prompt <text>         Initial task
   --prompt-file <file>    Read the initial task from a file
   --direction <right|down>
+  --tab                   Launch in a new tab instead of a split pane (requires HERDR_WORKSPACE_ID)
+  --label <text>          Initial tab label; valid only with --tab
   --wait                  Wait for the initial turn to settle
   --timeout <ms>          Start and prompt timeout (default: 30000)
 EOF
@@ -88,13 +91,44 @@ agents=data.get("result",{}).get("agents",[])
 raise SystemExit(0 if any(a.get("name")==name and a.get("pane_id")==pane for a in agents) else 1)' "$name" "$pane"
 }
 
+# Prints "kept:<pane_count>" if the tab still exists, "gone" if tab_not_found,
+# or "unknown" if the check itself failed some other way.
+tab_reap_status() {
+  local tab_id="$1" err json status
+  err="$(mktemp)"
+  set +e
+  json="$(herdr tab get "$tab_id" 2>"$err")"
+  status=$?
+  set -e
+  if [ "$status" -eq 0 ]; then
+    printf 'kept:%s' "$(printf '%s' "$json" | python3 -c 'import json,sys
+try:
+ print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("pane_count","?"))
+except Exception:
+ print("?")')"
+  elif grep -q '"code":"tab_not_found"' "$err"; then
+    printf 'gone'
+  else
+    printf 'unknown'
+  fi
+  rm -f "$err"
+}
+
 start_child() {
   require_parent
 
+  print_result_json() {
+    if [ "$tab_mode" -eq 1 ]; then
+      printf '{"agent":"%s","pane":"%s","tab":"%s"}\n' "$name" "$pane" "$tab"
+    else
+      printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+    fi
+  }
+
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
-  local configured_agent="" prompt="" prompt_file="" direction="right"
+  local configured_agent="" prompt="" prompt_file="" direction="right" direction_explicit=0
   local wait_for_child=0 timeout="30000" pane="" list_json="" split_json=""
-  local skills_count=0
+  local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -109,7 +143,9 @@ start_child() {
       --agent) [ $# -ge 2 ] || fail_usage '--agent needs a value'; configured_agent="$2"; shift 2 ;;
       --prompt) [ $# -ge 2 ] || fail_usage '--prompt needs a value'; prompt="$2"; shift 2 ;;
       --prompt-file) [ $# -ge 2 ] || fail_usage '--prompt-file needs a value'; prompt_file="$2"; shift 2 ;;
-      --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; shift 2 ;;
+      --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; direction_explicit=1; shift 2 ;;
+      --tab) tab_mode=1; shift ;;
+      --label) [ $# -ge 2 ] || fail_usage '--label needs a value'; label="$2"; shift 2 ;;
       --wait) wait_for_child=1; shift ;;
       --timeout) [ $# -ge 2 ] || fail_usage '--timeout needs a value'; timeout="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
@@ -120,6 +156,9 @@ start_child() {
   case "$kind" in claude|opencode|pi) ;; *) fail_usage '--kind must be claude, opencode, or pi' ;; esac
   case "$posture" in ro|rw) ;; *) fail_usage '--posture must be ro or rw' ;; esac
   case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
+  if [ "$tab_mode" -eq 1 ] && [ "$direction_explicit" -eq 1 ]; then fail_usage '--tab cannot be combined with --direction'; fi
+  if [ -n "$label" ] && [ "$tab_mode" -ne 1 ]; then fail_usage '--label is only valid with --tab'; fi
+  if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage '--tab requires HERDR_WORKSPACE_ID'; fi
   [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || fail_usage 'name must match [a-z][a-z0-9_-]{0,31}'
   [[ "$timeout" =~ ^[0-9]+$ ]] || fail_usage '--timeout must be an integer'
   [ -d "$cwd" ] || fail_usage "working directory does not exist: $cwd"
@@ -145,8 +184,14 @@ start_child() {
     fail_usage "agent name is already live: $name"
   fi
 
-  split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
-    --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+  if [ "$tab_mode" -eq 1 ]; then
+    split_args=(tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+    [ -z "$label" ] || split_args+=(--label "$label")
+  else
+    split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+  fi
 
   case "$kind:$posture" in
     opencode:ro)
@@ -159,19 +204,61 @@ start_child() {
       ;;
   esac
 
-  split_json="$(herdr "${split_args[@]}")" || {
-    printf 'herdr-child: pane split failed\n' >&2
-    exit 1
-  }
-  pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
-    printf 'herdr-child: pane split returned no pane ID\n' >&2
-    exit 1
-  }
-
-  cleanup_pane() {
-    herdr pane close "$pane" >/dev/null 2>&1 || true
-  }
-  trap cleanup_pane INT TERM
+  if [ "$tab_mode" -eq 1 ]; then
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: tab create failed\n' >&2
+      exit 1
+    }
+    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+    result = json.load(sys.stdin)["result"]
+    pane_id = result["root_pane"]["pane_id"]
+    terminal_id = result["root_pane"]["terminal_id"]
+    tab_id = result["tab"]["tab_id"]
+    if not pane_id or not terminal_id or not tab_id:
+        raise KeyError("empty identity")
+    print("%s\t%s" % (pane_id, tab_id))
+except Exception:
+    raise SystemExit(1)')" || {
+      preserved_tab="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("tab_id") or "unknown")
+except Exception:
+    print("unknown")')"
+      printf 'herdr-child: tab create returned no usable pane/tab identity; tab %s was preserved and needs manual cleanup\n' "$preserved_tab" >&2
+      exit 1
+    }
+    IFS=$'\t' read -r pane tab <<< "$identity"
+    tab_note=" (tab $tab)"
+    cleanup_pane() {
+      herdr pane close "$pane" >/dev/null 2>&1 || true
+    }
+    trap cleanup_pane INT TERM
+    local token_err
+    token_err="$(mktemp)"
+    if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" --token "child-tab=$tab" --seq "$(now_seq)" >/dev/null 2>"$token_err"; then
+      cat "$token_err" >&2
+      rm -f "$token_err"
+      printf 'herdr-child: could not record tab ownership; removing tab %s\n' "$tab" >&2
+      cleanup_pane
+      trap - INT TERM
+      exit 1
+    fi
+    rm -f "$token_err"
+  else
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: pane split failed\n' >&2
+      exit 1
+    }
+    pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
+      printf 'herdr-child: pane split returned no pane ID\n' >&2
+      exit 1
+    }
+    cleanup_pane() {
+      herdr pane close "$pane" >/dev/null 2>&1 || true
+    }
+    trap cleanup_pane INT TERM
+  fi
 
   case "$kind" in
     claude)
@@ -219,7 +306,7 @@ start_child() {
     [ "$start_status" -eq 0 ] && break
     if ! grep -q '"code":"agent_pane_busy"' "$start_err"; then
       cat "$start_err" >&2
-      printf 'herdr-child: agent start failed\n' >&2
+      printf 'herdr-child: agent start failed%s\n' "$tab_note" >&2
       rm -f "$start_err" "$start_out"
       cleanup_pane
       return 1
@@ -229,7 +316,7 @@ start_child() {
   done
   if [ "$start_status" -ne 0 ]; then
     cat "$start_err" >&2
-    printf 'herdr-child: pane was not ready after three agent start attempts\n' >&2
+    printf 'herdr-child: pane was not ready after three agent start attempts%s\n' "$tab_note" >&2
     rm -f "$start_err" "$start_out"
     cleanup_pane
     return 1
@@ -263,13 +350,13 @@ EOF
       printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
       rm -f "$prompt_out" "$prompt_err"
       trap - INT TERM
-      printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+      print_result_json
       return 124
     fi
     if grep -q 'agent_prompt_stalled' "$prompt_err"; then
-      printf 'herdr-child: initial prompt stalled\n' >&2
+      printf 'herdr-child: initial prompt stalled%s\n' "$tab_note" >&2
     else
-      printf 'herdr-child: initial prompt failed\n' >&2
+      printf 'herdr-child: initial prompt failed%s\n' "$tab_note" >&2
     fi
     rm -f "$prompt_out" "$prompt_err"
     cleanup_pane
@@ -278,7 +365,7 @@ EOF
   rm -f "$prompt_out" "$prompt_err"
 
   trap - INT TERM
-  printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+  print_result_json
 }
 
 ask_parent() {
@@ -452,11 +539,45 @@ if focused == "true":
       4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; continue ;;
       *) printf '%s: kept; live agent state could not be read\n' "$name"; continue ;;
     esac
-    if herdr pane close "$pane" >/dev/null; then
-      printf '%s: closed pane %s\n' "$name" "$pane"
+    local own_tab="" child_tab=""
+    IFS=$'\t' read -r own_tab child_tab <<< "$(printf '%s' "$pane_json" | python3 -c 'import json,sys
+try:
+ pane=json.load(sys.stdin).get("result",{}).get("pane",{})
+except Exception:
+ pane={}
+print("%s\t%s" % (pane.get("tab_id") or "", (pane.get("tokens") or {}).get("child-tab") or ""))')"
+
+    if [ -n "$child_tab" ] && [ "$child_tab" != "$own_tab" ]; then
+      printf '%s: kept; pane %s tab ownership is ambiguous\n' "$name" "$pane"
+      continue
+    fi
+
+    local close_err
+    close_err="$(mktemp)"
+    if herdr pane close "$pane" >/dev/null 2>"$close_err"; then
+      if [ -z "$child_tab" ]; then
+        printf '%s: closed pane %s\n' "$name" "$pane"
+      else
+        local tab_state
+        tab_state="$(tab_reap_status "$child_tab")"
+        case "$tab_state" in
+          kept:*) printf '%s: closed pane %s; tab %s kept with %s panes\n' "$name" "$pane" "$child_tab" "${tab_state#kept:}" ;;
+          gone) printf '%s: closed pane %s and tab %s\n' "$name" "$pane" "$child_tab" ;;
+          *) printf '%s: closed pane %s; tab %s status could not be confirmed\n' "$name" "$pane" "$child_tab" ;;
+        esac
+      fi
+    elif [ -n "$child_tab" ] && grep -q '"code":"pane_not_found"' "$close_err"; then
+      local tab_state
+      tab_state="$(tab_reap_status "$child_tab")"
+      case "$tab_state" in
+        kept:*) printf '%s: kept; pane %s already gone but tab %s still has %s panes\n' "$name" "$pane" "$child_tab" "${tab_state#kept:}" ;;
+        gone) printf '%s: already cleaned; pane %s and tab %s are gone\n' "$name" "$pane" "$child_tab" ;;
+        *) printf '%s: already cleaned; pane %s is gone, tab %s status could not be confirmed\n' "$name" "$pane" "$child_tab" ;;
+      esac
     else
       printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
     fi
+    rm -f "$close_err"
   done
 }
 
