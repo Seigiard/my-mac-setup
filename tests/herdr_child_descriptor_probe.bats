@@ -25,6 +25,10 @@ case "${1:-} ${2:-}" in
     printf '%s' "$3" > "$HCD_WORK/started-name"
     printf '{"result":{"agent":{"interactive_ready":true}}}\n'
     ;;
+  "agent get")
+    child="$(cat "$HCD_WORK/started-name")"
+    printf '{"result":{"agent":{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"agent_status":"working","state_change_seq":10}}}\n' "$child"
+    ;;
   "agent prompt")
     printf '{"result":{"agent":{"agent_status":"working"}}}\n'
     ;;

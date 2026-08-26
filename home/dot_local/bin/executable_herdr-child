@@ -8,11 +8,17 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/herdr-process.sh"
 
 SOURCE_ID="child-agent"
+TAB_SOURCE_ID="child-agent-tab"
 WAITING_TTL_MS=3600000
 SUPERVISED_TTL_MS=90000
 DEFAULT_SUPERVISION_TIMEOUT=3600000
 MAX_SUPERVISION_TIMEOUT=86400000
 STATE_DIR="${HERDR_CHILD_STATE_DIR:-$HOME/.cache/herdr-child}"
+POLL_INTERVAL="${HERDR_CHILD_POLL_INTERVAL:-0.5}"
+MAX_DELIVERY_RETRIES="${HERDR_CHILD_MAX_DELIVERY_RETRIES:-12}"
+DELIVERY_RETRY_INITIAL="${HERDR_CHILD_DELIVERY_RETRY_INITIAL:-1}"
+DELIVERY_RETRY_MAX="${HERDR_CHILD_DELIVERY_RETRY_MAX:-15}"
+WAIT_SLICE_MS="${HERDR_CHILD_WAIT_SLICE_MS:-30000}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -20,6 +26,7 @@ Usage:
   herdr-child start --kind <claude|opencode|pi> --name <name> [options]
   herdr-child ask <question>
   herdr-child reply --to <name> --pane <pane-id> <decision>
+  herdr-child prompt --to <name> --pane <pane-id> (--wait|--detach) [options] <task>
   herdr-child reap [--pane <pane-id>] <name>...
 
 Start options:
@@ -32,6 +39,8 @@ Start options:
   --prompt <text>         Initial task
   --prompt-file <file>    Read the initial task from a file
   --direction <right|down>
+  --tab                   Launch in a new tab instead of a split pane (requires HERDR_WORKSPACE_ID)
+  --label <text>          Initial tab label; valid only with --tab
   --wait                  Wait for the initial turn to settle (required mode)
   --detach                Arm detached supervision (required mode)
   --timeout <ms>          Start and prompt timeout (default: 30000)
@@ -81,6 +90,10 @@ now_seq() {
   printf '%s000000' "$(date +%s)"
 }
 
+now_ms() {
+  python3 -c 'import time; print(int(time.time() * 1000))'
+}
+
 atomic_write() {
   local file="$1" content="$2" dir tmp
   dir="$(dirname "$file")"
@@ -125,9 +138,104 @@ if not terminal: raise SystemExit(2)
 print("%s\t%s" % (terminal,session))' "$pane"
 }
 
+json_agent_snapshot() {
+  python3 -c 'import json,sys
+try:
+ agent=json.load(sys.stdin).get("result",{}).get("agent",{})
+ status=agent["agent_status"]
+ seq=agent["state_change_seq"]
+ terminal=agent["terminal_id"]
+ session=agent.get("agent_session",{}).get("value","")
+ pane=agent["pane_id"]
+ name=agent.get("name","")
+ if status not in ("idle","working","blocked","done","unknown") or not isinstance(seq,int) or not terminal or not session or not pane:
+  raise ValueError()
+except Exception:
+ raise SystemExit(1)
+print("%s\t%s\t%s\t%s\t%s\t%s" % (status,seq,terminal,session,name,pane))'
+}
+
+json_generation_status() {
+  local generation="$1" terminal="$2" session="$3"
+  python3 -c 'import json,sys
+generation,terminal,session=sys.argv[1:4]
+try:
+ pane=json.load(sys.stdin).get("result",{}).get("pane",{})
+ tokens=pane.get("tokens") or {}
+ current=tokens.get("supervision_generation","")
+ pane_terminal=pane.get("terminal_id","")
+ pane_session=pane.get("agent_session",{}).get("value","")
+except Exception:
+ raise SystemExit(4)
+if current != generation:
+ raise SystemExit(3)
+if pane_terminal != terminal or pane_session != session:
+ raise SystemExit(2)' "$generation" "$terminal" "$session"
+}
+
+json_resolve_parent() {
+  local terminal="$1" session="$2"
+  python3 -c 'import json,sys
+terminal,session=sys.argv[1:3]
+try:
+ agents=json.load(sys.stdin).get("result",{}).get("agents",[])
+except Exception:
+ raise SystemExit(4)
+terminal_matches=[a for a in agents if a.get("terminal_id")==terminal]
+if not terminal_matches:
+ raise SystemExit(3)
+matches=[a for a in terminal_matches if a.get("agent_session",{}).get("value","")==session]
+if len(matches)!=1:
+ raise SystemExit(2)
+pane=matches[0].get("pane_id","")
+status=matches[0].get("agent_status","unknown")
+if not pane:
+ raise SystemExit(4)
+print("%s\t%s" % (pane,status))' "$terminal" "$session"
+}
+
+json_child_context() {
+  python3 -c 'import json,sys
+try:
+ pane=json.load(sys.stdin).get("result",{}).get("pane",{})
+ tokens=pane.get("tokens") or {}
+ values=(pane.get("terminal_id",""),pane.get("agent_session",{}).get("value",""),
+         tokens.get("child_mode",""),tokens.get("supervision_generation",""),
+         tokens.get("supervision_timeout",""),tokens.get("parent_terminal",""),
+         tokens.get("parent_session",""),tokens.get("child_terminal",""),
+         tokens.get("child_session",""))
+except Exception:
+ raise SystemExit(1)
+print("\t".join(str(value) for value in values))'
+}
+
+json_tab_identity() {
+  python3 -c 'import json,sys
+try:
+ result=json.load(sys.stdin)["result"]
+ pane=result["root_pane"]["pane_id"]
+ terminal=result["root_pane"]["terminal_id"]
+ tab=result["tab"]["tab_id"]
+ if not pane or not terminal or not tab: raise ValueError()
+ print("%s\t%s" % (pane,tab))
+except Exception:
+ raise SystemExit(1)'
+}
+
+json_created_tab_hint() {
+  python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("tab_id") or "unknown")
+except Exception: print("unknown")'
+}
+
+state_value() {
+  local file="$1" key="$2"
+  sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -1
+}
+
 supervision_reason() {
   local file="$1" reason
-  reason="$(sed -n 's/^reason=//p' "$file" 2>/dev/null | head -1)"
+  reason="$(state_value "$file" reason)"
   [ -n "$reason" ] || reason="watcher-unavailable"
   printf '%s' "$reason"
 }
@@ -138,11 +246,34 @@ print_supervision_failure() {
     "$name" "$pane" "$reason" "$generation" "$diagnostic"
 }
 
+print_supervision_uncertain() {
+  local name="$1" pane="$2" generation="$3" reason="$4"
+  printf '{"agent":"%s","pane":"%s","supervision":{"status":"uncertain","reason":"%s","generation":"%s","diagnostic":"%s"}}\n' \
+    "$name" "$pane" "$reason" "$generation" "$generation"
+}
+
+print_start_result() {
+  local name="$1" pane="$2" tab="$3" generation="${4:-}" timeout="${5:-}"
+  if [ -n "$generation" ]; then
+    if [ -n "$tab" ]; then
+      printf '{"agent":"%s","pane":"%s","tab":"%s","supervision":{"status":"armed","generation":"%s","timeout_ms":%s}}\n' \
+        "$name" "$pane" "$tab" "$generation" "$timeout"
+    else
+      printf '{"agent":"%s","pane":"%s","supervision":{"status":"armed","generation":"%s","timeout_ms":%s}}\n' \
+        "$name" "$pane" "$generation" "$timeout"
+    fi
+  elif [ -n "$tab" ]; then
+    printf '{"agent":"%s","pane":"%s","tab":"%s"}\n' "$name" "$pane" "$tab"
+  else
+    printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+  fi
+}
+
 wait_for_watcher_state() {
   local wanted="$1" failed="$2" pid="$3" attempt=0
   while [ "$attempt" -lt 500 ]; do
-    [ ! -f "$wanted" ] || return 0
     [ ! -f "$failed" ] || return 2
+    [ ! -f "$wanted" ] || return 0
     kill -0 "$pid" 2>/dev/null || return 1
     attempt=$((attempt + 1))
     sleep 0.01
@@ -164,16 +295,63 @@ wait_for_watcher_failure() {
 remove_supervision_run() {
   local run_dir="$1" file
   [ -n "$run_dir" ] && [ -d "$run_dir" ] || return 0
-  rm -f "$run_dir/launch.state" "$run_dir/ready.state" "$run_dir/accepted.state" \
-    "$run_dir/armed.state" "$run_dir/failed.state" "$run_dir/abort.state" 2>/dev/null || true
-  for file in "$run_dir"/.write.*; do
+  rmdir "$run_dir/arm.guard" 2>/dev/null || true
+  for file in "$run_dir"/* "$run_dir"/.write.*; do
     [ ! -e "$file" ] || rm -f "$file" 2>/dev/null || true
   done
   rmdir "$run_dir" 2>/dev/null || true
 }
 
+acquire_arm_guard() {
+  local run_dir="$1" attempt=0
+  while ! mkdir "$run_dir/arm.guard" 2>/dev/null; do
+    [ -d "$run_dir" ] || return 1
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 500 ] || return 1
+    sleep 0.01
+  done
+}
+
+release_arm_guard() {
+  rmdir "$1/arm.guard" 2>/dev/null || true
+}
+
+request_watcher_abort() {
+  local run_dir="$1" reason="$2" status=0
+  acquire_arm_guard "$run_dir" || return 1
+  if [ -f "$run_dir/failed.state" ]; then
+    release_arm_guard "$run_dir"
+    return 2
+  fi
+  if [ -f "$run_dir/armed.state" ]; then
+    release_arm_guard "$run_dir"
+    return 0
+  fi
+  atomic_write "$run_dir/abort.state" "reason=$reason" || status=1
+  release_arm_guard "$run_dir"
+  [ "$status" -eq 0 ] || return 1
+  return 2
+}
+
+report_signal_supervision() {
+  local name="$1" pane="$2" tab="$3" run_dir="$4" generation="$5" timeout="$6" reason="$7" pid="$8"
+  local state_status failure_reason
+  set +e
+  wait_for_watcher_state "$run_dir/armed.state" "$run_dir/failed.state" "$pid"
+  state_status=$?
+  set -e
+  case "$state_status" in
+    0) print_start_result "$name" "$pane" "$tab" "$generation" "$timeout" ;;
+    2)
+      failure_reason="$(supervision_reason "$run_dir/failed.state")"
+      print_supervision_failure "$name" "$pane" "$generation" "$failure_reason" "$generation"
+      ;;
+    *) print_supervision_uncertain "$name" "$pane" "$generation" "$reason" ;;
+  esac
+}
+
 stop_owned_watcher() {
-  local run_dir="$1" pid="$2" reason="$3" attempt=0
+  local run_dir="$1" pid="$2" reason="$3" preserve_state="${4:-0}" attempt=0
   [ -n "$run_dir" ] || return 0
   atomic_write "$run_dir/abort.state" "reason=$reason" || true
   case "$pid" in '' | *[!0-9]*) remove_supervision_run "$run_dir"; return 0 ;; esac
@@ -193,25 +371,265 @@ stop_owned_watcher() {
     kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
   fi
   wait "$pid" 2>/dev/null || true
-  remove_supervision_run "$run_dir"
+  [ "$preserve_state" -eq 1 ] || remove_supervision_run "$run_dir"
 }
 
-watcher_publish_failed() {
-  local pane="$1" reason="$2"
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
-    --state-label "supervision failed=$reason" --seq "$(now_seq)" >/dev/null 2>&1 || true
-}
-
-watcher_fail() {
-  local run_dir="$1" pane="$2" reason="$3"
-  rm -f "$run_dir/ready.state" "$run_dir/accepted.state" "$run_dir/abort.state" 2>/dev/null || true
-  watcher_publish_failed "$pane" "$reason"
+watcher_preflight_fail() {
+  local run_dir="$1" reason="$2"
   atomic_write "$run_dir/failed.state" "reason=$reason" || true
   exit 1
 }
 
+publish_supervision_recovery() {
+  local name="$1" pane="$2" generation="$3" reason="$4" run_dir="$5" watcher_pid="$6"
+  stop_owned_watcher "$run_dir" "$watcher_pid" "$reason" 1
+  watcher_publish_failed "$run_dir" "$pane" "$generation" "$reason" || true
+  atomic_write "$run_dir/failed.state" "reason=$reason" || true
+  print_supervision_failure "$name" "$pane" "$generation" "$reason" "$generation"
+}
+
+watcher_invalidation_action() {
+  local run_dir="$1" pane="$2" generation="$3" reason attempt=0 pane_err owner_pid
+  [ -f "$run_dir/invalidated.state" ] || return 1
+  reason="$(supervision_reason "$run_dir/invalidated.state")"
+  [ "$reason" = reap ] || return 20
+  owner_pid="$(state_value "$run_dir/reap-pending.state" owner_pid)"
+  case "$owner_pid" in '' | *[!0-9]*) return 21 ;; esac
+  while :; do
+    [ ! -f "$run_dir/reap-closed.state" ] || return 20
+    if [ -f "$run_dir/reap-restore.state" ]; then
+      rm -f "$run_dir/invalidated.state" "$run_dir/reap-pending.state" \
+        "$run_dir/reap-restore.state" 2>/dev/null || return 21
+      refresh_supervision_liveness "$pane" "$generation" || return 21
+      return 0
+    fi
+    pane_err="$run_dir/reap-pane-get.err"
+    if herdr pane get "$pane" >/dev/null 2>"$pane_err"; then
+      rm -f "$pane_err"
+    elif grep -q '"code":"pane_not_found"' "$pane_err" 2>/dev/null; then
+      rm -f "$pane_err"
+      return 20
+    else
+      rm -f "$pane_err"
+    fi
+    if ! kill -0 "$owner_pid" 2>/dev/null; then
+      rm -f "$run_dir/invalidated.state" "$run_dir/reap-pending.state" 2>/dev/null || return 21
+      refresh_supervision_liveness "$pane" "$generation" || return 21
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    if [ $((attempt % 3000)) -eq 0 ]; then
+      refresh_supervision_liveness "$pane" "$generation" || return 21
+    fi
+    sleep 0.01
+  done
+}
+
+watcher_generation_current() {
+  local run_dir="$1" pane="$2" generation="$3" pane_json status err
+  local child_terminal child_session
+  child_terminal="$(state_value "$run_dir/launch.state" child_terminal)"
+  child_session="$(state_value "$run_dir/launch.state" child_session)"
+  err="$run_dir/pane-get.err"
+  if pane_json="$(herdr pane get "$pane" 2>"$err")"; then
+    rm -f "$err"
+  else
+    if grep -q '"code":"pane_not_found"' "$err" 2>/dev/null; then
+      rm -f "$err"
+      return 32
+    fi
+    rm -f "$err"
+    return 34
+  fi
+  set +e
+  printf '%s' "$pane_json" | json_generation_status "$generation" "$child_terminal" "$child_session"
+  status=$?
+  set -e
+  case "$status" in
+    0) return 0 ;;
+    2|3) return 20 ;;
+    *) return 34 ;;
+  esac
+}
+
+watcher_publish_failed() {
+  local run_dir="$1" pane="$2" generation="$3" reason="$4" preserve_waiting="${5:-0}"
+  local current_status
+  if [ -n "${HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER:-}" ]; then
+    : > "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.ready"
+    while [ ! -e "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.release" ]; do sleep 0.01; done
+  fi
+  set +e
+  watcher_generation_current "$run_dir" "$pane" "$generation"
+  current_status=$?
+  set -e
+  [ "$current_status" -eq 0 ] || return "$current_status"
+  if [ "$preserve_waiting" -eq 1 ]; then
+    herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+      --state-label 'blocked=waiting for parent' \
+      --state-label "supervision failed=$reason" \
+      --token "supervision_failure_reason=$reason" \
+      --token "supervision_failure_generation=$generation" \
+      --token "supervision_failure_diagnostic=$generation" \
+      --seq "$(now_seq)" >/dev/null 2>&1
+  else
+    herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+      --state-label "supervision failed=$reason" \
+      --token "supervision_failure_reason=$reason" \
+      --token "supervision_failure_generation=$generation" \
+      --token "supervision_failure_diagnostic=$generation" \
+      --seq "$(now_seq)" >/dev/null 2>&1
+  fi
+}
+
+watcher_fail() {
+  local run_dir="$1" pane="$2" generation="$3" reason="$4" preserve_waiting="${5:-0}"
+  local publish_status
+  release_arm_guard "$run_dir"
+  rm -f "$run_dir/ready.state" "$run_dir/accepted.state" "$run_dir/abort.state" 2>/dev/null || true
+  set +e
+  watcher_publish_failed "$run_dir" "$pane" "$generation" "$reason" "$preserve_waiting"
+  publish_status=$?
+  set -e
+  if [ "$publish_status" -eq 20 ]; then
+    remove_supervision_run "$run_dir"
+    exit 0
+  fi
+  atomic_write "$run_dir/failed.state" "reason=$reason" || true
+  exit 1
+}
+
+watcher_fail_without_publish() {
+  local run_dir="$1"
+  remove_supervision_run "$run_dir"
+  exit 0
+}
+
+clear_supervision_metadata() {
+  local pane="$1"
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    --clear-token child_mode --clear-token supervision_generation \
+    --clear-token supervision_timeout --clear-token supervision_baseline_seq \
+    --clear-token parent_terminal --clear-token parent_session \
+    --clear-token child_terminal --clear-token child_session \
+    --clear-token supervision_failure_reason \
+    --clear-token supervision_failure_generation \
+    --clear-token supervision_failure_diagnostic \
+    --seq "$(now_seq)" >/dev/null 2>&1
+}
+
+clear_supervision_state_labels() {
+  local pane="$1"
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    --seq "$(now_seq)" >/dev/null 2>&1
+}
+
+preserve_callback_waiting_label() {
+  local pane="$1"
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" \
+    --seq "$(now_seq)" >/dev/null 2>&1
+}
+
+refresh_supervision_liveness() {
+  local pane="$1" generation="$2"
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+    --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" \
+    --seq "$(now_seq)" >/dev/null 2>&1
+}
+
+delivery_retry_pause() {
+  local delay="$1"
+  if [ -n "${HERDR_CHILD_TEST_RETRY_LOG:-}" ]; then
+    printf '%s\n' "$delay" >> "$HERDR_CHILD_TEST_RETRY_LOG"
+  fi
+  [ "${HERDR_CHILD_TEST_SKIP_RETRY_SLEEP:-0}" = 1 ] || sleep "$delay"
+}
+
+next_delivery_retry_delay() {
+  local delay="$1" next
+  next=$((delay * 2))
+  [ "$next" -le "$DELIVERY_RETRY_MAX" ] || next="$DELIVERY_RETRY_MAX"
+  printf '%s' "$next"
+}
+
+DELIVERY_REASON=""
+deliver_supervision_event() {
+  local run_dir="$1" generation="$2" event="$3" outcome="$4" reason="$5"
+  local child_name="$6" child_pane="$7" parent_terminal="$8" parent_session="$9"
+  local receipt="$run_dir/delivered.$event" list_json parent_record parent_pane parent_status message
+  local pane_json generation_status child_terminal child_session pane_err
+  DELIVERY_REASON=""
+  [ ! -f "$receipt" ] || return 0
+  [ ! -f "$run_dir/invalidated.state" ] || return 20
+
+  if [ "$event" != child-gone ]; then
+    child_terminal="$(state_value "$run_dir/launch.state" child_terminal)"
+    child_session="$(state_value "$run_dir/launch.state" child_session)"
+    pane_err="$run_dir/delivery-pane-get.err"
+    if pane_json="$(herdr pane get "$child_pane" 2>"$pane_err")"; then
+      rm -f "$pane_err"
+    elif grep -q '"code":"pane_not_found"' "$pane_err" 2>/dev/null; then
+      rm -f "$pane_err"
+      DELIVERY_REASON="child-gone"
+      return 32
+    else
+      rm -f "$pane_err"
+      DELIVERY_REASON="wait-error"
+      return 12
+    fi
+    if printf '%s' "$pane_json" | json_generation_status "$generation" "$child_terminal" "$child_session"; then
+      generation_status=0
+    else
+      generation_status=$?
+    fi
+    case "$generation_status" in
+      0) ;;
+      2) DELIVERY_REASON="child-identity-mismatch"; return 33 ;;
+      3) return 20 ;;
+      *) DELIVERY_REASON="malformed-state"; return 34 ;;
+    esac
+  fi
+
+  list_json="$(herdr agent list 2>/dev/null)" || {
+    DELIVERY_REASON="parent-not-found"
+    return 30
+  }
+  local resolve_status
+  if parent_record="$(printf '%s' "$list_json" | json_resolve_parent "$parent_terminal" "$parent_session")"; then
+    resolve_status=0
+  else
+    resolve_status=$?
+  fi
+  case "$resolve_status" in
+    0) ;;
+    2) DELIVERY_REASON="parent-session-mismatch"; return 31 ;;
+    *) DELIVERY_REASON="parent-not-found"; return 30 ;;
+  esac
+  IFS=$'\t' read -r parent_pane parent_status <<EOF
+$parent_record
+EOF
+  if [ "$parent_status" = blocked ]; then
+    DELIVERY_REASON="parent-blocked"
+    return 10
+  fi
+
+  message="[child-supervision v1 generation=$generation event=$event outcome=$outcome reason=${reason:-none} agent=$child_name pane=$child_pane]
+
+This is an observed child lifecycle state, not a task-success verdict. Verify the live pair, child output, requested commits, worktree state, tests, and artifacts."
+  if ! herdr agent prompt "$parent_pane" "$message" >/dev/null 2>&1; then
+    DELIVERY_REASON="prompt-error"
+    return 11
+  fi
+  if ! atomic_write "$receipt" "generation=$generation
+event=$event"; then
+    DELIVERY_REASON="prompt-error"
+    return 11
+  fi
+}
+
 watch_child() {
-  local run_dir="" pane="" generation="" timeout="" launcher_pid=""
+  local run_dir="" pane="" generation="" timeout="" launcher_pid="" deferred_activation=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --run-dir) run_dir="${2:-}"; shift 2 ;;
@@ -219,58 +637,289 @@ watch_child() {
       --generation) generation="${2:-}"; shift 2 ;;
       --timeout) timeout="${2:-}"; shift 2 ;;
       --launcher-pid) launcher_pid="${2:-}"; shift 2 ;;
+      --deferred-activation) deferred_activation=1; shift ;;
       *) exit 2 ;;
     esac
   done
   [ -d "$run_dir" ] && [ -n "$pane" ] && [ -n "$generation" ] || exit 2
+  case "$MAX_DELIVERY_RETRIES" in '' | 0 | *[!0-9]*) MAX_DELIVERY_RETRIES=12 ;; esac
+  case "$DELIVERY_RETRY_INITIAL" in '' | 0 | *[!0-9]*) DELIVERY_RETRY_INITIAL=1 ;; esac
+  case "$DELIVERY_RETRY_MAX" in '' | 0 | *[!0-9]*) DELIVERY_RETRY_MAX=15 ;; esac
+  [ "$DELIVERY_RETRY_MAX" -ge "$DELIVERY_RETRY_INITIAL" ] || DELIVERY_RETRY_MAX="$DELIVERY_RETRY_INITIAL"
+  case "$WAIT_SLICE_MS" in '' | 0 | *[!0-9]*) WAIT_SLICE_MS=30000 ;; esac
+  [ "$WAIT_SLICE_MS" -le 30000 ] || WAIT_SLICE_MS=30000
   close_inherited_descriptors
   umask 077
+  local launch_state="$run_dir/launch.state"
+  local child_name child_terminal child_session parent_terminal parent_session baseline_seq
+  child_name="$(state_value "$launch_state" child_name)"
+  child_terminal="$(state_value "$launch_state" child_terminal)"
+  child_session="$(state_value "$launch_state" child_session)"
+  parent_terminal="$(state_value "$launch_state" parent_terminal)"
+  parent_session="$(state_value "$launch_state" parent_session)"
+  baseline_seq="$(state_value "$launch_state" baseline_seq)"
+  [ -n "$child_name" ] && [ -n "$child_terminal" ] && [ -n "$child_session" ] && \
+    [ -n "$parent_terminal" ] && [ -n "$parent_session" ] || exit 2
+  case "$baseline_seq" in '' | *[!0-9]*) exit 2 ;; esac
   if [ -n "${HERDR_CHILD_TEST_WATCHER_PID_FILE:-}" ]; then
     printf '%s\n' "$$" > "$HERDR_CHILD_TEST_WATCHER_PID_FILE"
   fi
-  trap 'watcher_fail "$run_dir" "$pane" watcher-signal-HUP' HUP
-  trap 'watcher_fail "$run_dir" "$pane" watcher-signal-INT' INT
-  trap 'watcher_fail "$run_dir" "$pane" watcher-signal-TERM' TERM
+  trap 'watcher_fail "$run_dir" "$pane" "$generation" watcher-signal-HUP' HUP
+  trap 'watcher_fail "$run_dir" "$pane" "$generation" watcher-signal-INT' INT
+  trap 'watcher_fail "$run_dir" "$pane" "$generation" watcher-signal-TERM' TERM
 
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
-    --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" \
-    --seq "$(now_seq)" >/dev/null 2>&1 || watcher_fail "$run_dir" "$pane" liveness-publish-failed
-  atomic_write "$run_dir/ready.state" "pid=$$" || watcher_fail "$run_dir" "$pane" readiness-write-failed
+  if [ "$deferred_activation" -eq 1 ]; then
+    [ "${HERDR_CHILD_TEST_PREPARE_FAIL:-0}" != 1 ] || watcher_preflight_fail "$run_dir" watcher-readiness-failed
+    atomic_write "$run_dir/prepared.state" "pid=$$" || watcher_preflight_fail "$run_dir" readiness-write-failed
+    while [ ! -f "$run_dir/takeover.state" ]; do
+      [ ! -f "$run_dir/abort.state" ] || watcher_preflight_fail "$run_dir" "$(supervision_reason "$run_dir/abort.state")"
+      kill -0 "$launcher_pid" 2>/dev/null || watcher_preflight_fail "$run_dir" launcher-lost-before-takeover
+      sleep 0.01
+    done
+  fi
+
+  refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-publish-failed
+  atomic_write "$run_dir/ready.state" "pid=$$" || watcher_fail "$run_dir" "$pane" "$generation" readiness-write-failed
 
   while [ ! -f "$run_dir/accepted.state" ]; do
     if [ -f "$run_dir/abort.state" ]; then
-      watcher_fail "$run_dir" "$pane" "$(supervision_reason "$run_dir/abort.state")"
+      watcher_fail "$run_dir" "$pane" "$generation" "$(supervision_reason "$run_dir/abort.state")"
     fi
-    kill -0 "$launcher_pid" 2>/dev/null || watcher_fail "$run_dir" "$pane" launcher-lost-before-acceptance
+    kill -0 "$launcher_pid" 2>/dev/null || watcher_fail "$run_dir" "$pane" "$generation" launcher-lost-before-acceptance
     sleep 0.01
   done
-  if [ "${HERDR_CHILD_TEST_ARM_FAIL:-0}" = 1 ]; then
-    watcher_fail "$run_dir" "$pane" watcher-arm-failed
+  if [ -n "${HERDR_CHILD_TEST_ARM_BARRIER:-}" ]; then
+    : > "$HERDR_CHILD_TEST_ARM_BARRIER.ready"
+    while [ ! -e "$HERDR_CHILD_TEST_ARM_BARRIER.release" ] && [ ! -f "$run_dir/abort.state" ]; do
+      sleep 0.01
+    done
   fi
-  atomic_write "$run_dir/armed.state" "pid=$$" || watcher_fail "$run_dir" "$pane" armed-write-failed
+  acquire_arm_guard "$run_dir" || watcher_fail "$run_dir" "$pane" "$generation" watcher-arm-guard-failed
+  if [ -f "$run_dir/abort.state" ]; then
+    local abort_reason
+    abort_reason="$(supervision_reason "$run_dir/abort.state")"
+    release_arm_guard "$run_dir"
+    watcher_fail "$run_dir" "$pane" "$generation" "$abort_reason"
+  fi
+  if [ "${HERDR_CHILD_TEST_ARM_FAIL:-0}" = 1 ]; then
+    release_arm_guard "$run_dir"
+    watcher_fail "$run_dir" "$pane" "$generation" watcher-arm-failed
+  fi
+  if ! atomic_write "$run_dir/armed.state" "pid=$$"; then
+    release_arm_guard "$run_dir"
+    watcher_fail "$run_dir" "$pane" "$generation" armed-write-failed
+  fi
+  release_arm_guard "$run_dir"
 
-  local started now deadline next_refresh
-  started="$(date +%s)"
-  deadline=$((started + (timeout + 999) / 1000))
-  next_refresh=$((started + 30))
+  local now deadline next_refresh
+  now="$(now_ms)"
+  deadline=$((now + timeout))
+  next_refresh=$((now + 30000))
+
+  # Existing descriptor tests hold the watcher at this explicit boundary.
+  if [ -n "${HERDR_CHILD_TEST_WATCHER_RELEASE:-}" ]; then
+    while [ ! -e "$HERDR_CHILD_TEST_WATCHER_RELEASE" ]; do
+      if [ -f "$run_dir/invalidated.state" ]; then
+        set +e
+        watcher_invalidation_action "$run_dir" "$pane" "$generation"
+        local invalidation_status=$?
+        set -e
+        case "$invalidation_status" in
+          0) continue ;;
+          20) remove_supervision_run "$run_dir"; exit 0 ;;
+          *) watcher_fail "$run_dir" "$pane" "$generation" reap-recovery-failed ;;
+        esac
+      fi
+      now="$(now_ms)"
+      if [ "$now" -ge "$next_refresh" ]; then
+        refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+        next_refresh=$((now + 30000))
+      fi
+      sleep 0.1
+    done
+    clear_supervision_metadata "$pane" || true
+    remove_supervision_run "$run_dir"
+    exit 0
+  fi
+
+  local pane_json generation_status snapshot_json snapshot snapshot_status pane_err
+  local child_status child_seq observed_terminal observed_session observed_name observed_pane
+  local event="" outcome="" reason="" timeout_delivered=0 delivery_failures=0 pending_event=""
+  local delivery_status pane_get_status get_status wait_status wait_output slice remaining
+  local wait_phase=0 retry_delay="$DELIVERY_RETRY_INITIAL" callback_status preserve_waiting
   while :; do
-    if [ -n "${HERDR_CHILD_TEST_WATCHER_RELEASE:-}" ] && [ -e "$HERDR_CHILD_TEST_WATCHER_RELEASE" ]; then
-      herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
-        --seq "$(now_seq)" >/dev/null 2>&1 || true
-      rm -f "$run_dir/launch.state" "$run_dir/ready.state" "$run_dir/accepted.state" \
-        "$run_dir/armed.state" "$run_dir/abort.state" 2>/dev/null || true
-      rmdir "$run_dir" 2>/dev/null || true
-      exit 0
+    if [ -f "$run_dir/invalidated.state" ]; then
+      set +e
+      watcher_invalidation_action "$run_dir" "$pane" "$generation"
+      local invalidation_status=$?
+      set -e
+      case "$invalidation_status" in
+        0) continue ;;
+        20) remove_supervision_run "$run_dir"; exit 0 ;;
+        *) watcher_fail "$run_dir" "$pane" "$generation" reap-recovery-failed ;;
+      esac
     fi
-    now="$(date +%s)"
-    [ "$now" -lt "$deadline" ] || watcher_fail "$run_dir" "$pane" substrate-deadline
+    if [ -f "$run_dir/abort.state" ]; then
+      rm -f "$run_dir/abort.state" 2>/dev/null || true
+    fi
+
+    event=""
+    outcome=""
+    reason=""
+    pane_err="$run_dir/pane-get.err"
+    set +e
+    pane_json="$(herdr pane get "$pane" 2>"$pane_err")"
+    pane_get_status=$?
+    set -e
+    if [ "$pane_get_status" -ne 0 ]; then
+      if grep -q '"code":"pane_not_found"' "$pane_err" 2>/dev/null; then
+        event="child-gone"
+        outcome="child-gone"
+        reason="child-gone"
+      else
+        rm -f "$pane_err"
+        sleep "$POLL_INTERVAL"
+        continue
+      fi
+      rm -f "$pane_err"
+    else
+      rm -f "$pane_err"
+      set +e
+      printf '%s' "$pane_json" | json_generation_status "$generation" "$child_terminal" "$child_session"
+      generation_status=$?
+      set -e
+      case "$generation_status" in
+        0) ;;
+        2) watcher_fail_without_publish "$run_dir" child-identity-mismatch ;;
+        3) remove_supervision_run "$run_dir"; exit 0 ;;
+        *) watcher_fail "$run_dir" "$pane" "$generation" malformed-state ;;
+      esac
+
+      set +e
+      snapshot_json="$(herdr agent get "$pane" 2>/dev/null)"
+      get_status=$?
+      set -e
+      [ "$get_status" -eq 0 ] || watcher_fail "$run_dir" "$pane" "$generation" wait-error
+      set +e
+      snapshot="$(printf '%s' "$snapshot_json" | json_agent_snapshot)"
+      snapshot_status=$?
+      set -e
+      [ "$snapshot_status" -eq 0 ] || watcher_fail "$run_dir" "$pane" "$generation" malformed-state
+      IFS=$'\t' read -r child_status child_seq observed_terminal observed_session observed_name observed_pane <<EOF
+$snapshot
+EOF
+      if [ "$observed_terminal" != "$child_terminal" ] || [ "$observed_session" != "$child_session" ] || [ "$observed_pane" != "$pane" ]; then
+        watcher_fail_without_publish "$run_dir" child-identity-mismatch
+      fi
+      [ -z "$observed_name" ] || child_name="$observed_name"
+
+      if [ "$child_seq" -gt "$baseline_seq" ]; then
+        case "$child_status" in
+          idle|done) event="settled-$child_seq"; outcome="$child_status" ;;
+          blocked) event="blocked-$child_seq"; outcome="blocked"; reason="blocked" ;;
+          working) wait_phase=1 ;;
+        esac
+      fi
+    fi
+
+    now="$(now_ms)"
+    if [[ "$event" = blocked-* ]]; then
+      callback_status="$(state_value "$run_dir/callback.state" status)"
+      case "$callback_status" in
+        in-progress)
+          sleep "$POLL_INTERVAL"
+          continue
+          ;;
+        confirmed)
+          preserve_callback_waiting_label "$pane" || true
+          remove_supervision_run "$run_dir"
+          exit 0
+          ;;
+      esac
+    fi
+    if [ -z "$event" ] && [ "$timeout_delivered" -eq 0 ] && [ "$now" -ge "$deadline" ]; then
+      event="timeout"
+      outcome="timeout"
+      reason="timeout"
+    fi
+
+    if [ -n "$event" ]; then
+      if [ "$pending_event" != "$event" ]; then
+        delivery_failures=0
+        retry_delay="$DELIVERY_RETRY_INITIAL"
+        pending_event="$event"
+      fi
+      set +e
+      deliver_supervision_event "$run_dir" "$generation" "$event" "$outcome" "$reason" \
+        "$child_name" "$pane" "$parent_terminal" "$parent_session"
+      delivery_status=$?
+      set -e
+      preserve_waiting=0
+      if [[ "$event" = blocked-* ]] && [ "$(state_value "$run_dir/callback.state" status)" = failed ]; then
+        preserve_waiting=1
+      fi
+      case "$delivery_status" in
+        0)
+          delivery_failures=0
+          if [ "$event" = timeout ]; then
+            timeout_delivered=1
+          else
+            [ "$event" = child-gone ] || clear_supervision_state_labels "$pane" || true
+            remove_supervision_run "$run_dir"
+            exit 0
+          fi
+          ;;
+        10|11)
+          delivery_failures=$((delivery_failures + 1))
+          if [ "$delivery_failures" -ge "$MAX_DELIVERY_RETRIES" ]; then
+            watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting"
+          fi
+          delivery_retry_pause "$retry_delay"
+          retry_delay="$(next_delivery_retry_delay "$retry_delay")"
+          ;;
+        12) sleep "$POLL_INTERVAL"; continue ;;
+        20) remove_supervision_run "$run_dir"; exit 0 ;;
+        *) watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting" ;;
+      esac
+    fi
+
+    if [ -z "$event" ] && [ "$wait_phase" -eq 1 ]; then
+      now="$(now_ms)"
+      if [ "$timeout_delivered" -eq 0 ]; then
+        remaining=$((deadline - now))
+        [ "$remaining" -gt 0 ] || continue
+        slice="$remaining"
+        [ "$slice" -le "$WAIT_SLICE_MS" ] || slice="$WAIT_SLICE_MS"
+      else
+        slice="$WAIT_SLICE_MS"
+      fi
+      set +e
+      wait_output="$(herdr agent wait "$pane" --timeout "$slice" 2>&1)"
+      wait_status=$?
+      set -e
+      if [ "$wait_status" -ne 0 ] && ! printf '%s' "$wait_output" | grep -q '"code":"timeout"'; then
+        watcher_fail "$run_dir" "$pane" "$generation" wait-error
+      fi
+      set +e
+      watcher_generation_current "$run_dir" "$pane" "$generation"
+      generation_status=$?
+      set -e
+      case "$generation_status" in
+        0) ;;
+        20) remove_supervision_run "$run_dir"; exit 0 ;;
+        *) sleep "$POLL_INTERVAL"; continue ;;
+      esac
+      refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+      now="$(now_ms)"
+      next_refresh=$((now + 30000))
+      continue
+    fi
+
     if [ "$now" -ge "$next_refresh" ]; then
-      herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
-        --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" \
-        --seq "$(now_seq)" >/dev/null 2>&1 || watcher_fail "$run_dir" "$pane" liveness-refresh-failed
-      next_refresh=$((now + 30))
+      refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+      next_refresh=$((now + 30000))
     fi
-    sleep 0.1
+    sleep "$POLL_INTERVAL"
   done
 }
 
@@ -292,17 +941,41 @@ agents=data.get("result",{}).get("agents",[])
 raise SystemExit(0 if any(a.get("name")==name and a.get("pane_id")==pane for a in agents) else 1)' "$name" "$pane"
 }
 
+# Prints "kept:<pane_count>" while a tab exists, "gone" when it does not,
+# and "unknown" when Herdr cannot determine its state.
+tab_reap_status() {
+  local tab_id="$1" err json status
+  err="$(mktemp)"
+  set +e
+  json="$(herdr tab get "$tab_id" 2>"$err")"
+  status=$?
+  set -e
+  if [ "$status" -eq 0 ]; then
+    printf 'kept:%s' "$(printf '%s' "$json" | python3 -c 'import json,sys
+try:
+ print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("pane_count","?"))
+except Exception:
+ print("?")')"
+  elif grep -q '"code":"tab_not_found"' "$err"; then
+    printf 'gone'
+  else
+    printf 'unknown'
+  fi
+  rm -f "$err"
+}
+
 start_child() {
   require_parent
 
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
-  local configured_agent="" prompt="" prompt_file="" direction="right"
+  local configured_agent="" prompt="" prompt_file="" direction="right" direction_explicit=0
   local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
   local supervision_timeout_set=0
   local pane="" list_json="" split_json="" parent_identity="" child_identity=""
   local parent_terminal="" parent_session="" child_terminal="" child_session=""
+  local baseline_json="" baseline_snapshot="" baseline_seq=""
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
-  local skills_count=0
+  local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -317,7 +990,9 @@ start_child() {
       --agent) [ $# -ge 2 ] || fail_usage '--agent needs a value'; configured_agent="$2"; shift 2 ;;
       --prompt) [ $# -ge 2 ] || fail_usage '--prompt needs a value'; prompt="$2"; shift 2 ;;
       --prompt-file) [ $# -ge 2 ] || fail_usage '--prompt-file needs a value'; prompt_file="$2"; shift 2 ;;
-      --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; shift 2 ;;
+      --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; direction_explicit=1; shift 2 ;;
+      --tab) tab_mode=1; shift ;;
+      --label) [ $# -ge 2 ] || fail_usage '--label needs a value'; label="$2"; shift 2 ;;
       --wait)
         if [ "$mode_count" -gt 0 ]; then
           [ "$mode" != wait ] || fail_usage 'mode flag may be specified only once'
@@ -341,6 +1016,9 @@ start_child() {
   case "$kind" in claude|opencode|pi) ;; *) fail_usage '--kind must be claude, opencode, or pi' ;; esac
   case "$posture" in ro|rw) ;; *) fail_usage '--posture must be ro or rw' ;; esac
   case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
+  if [ "$tab_mode" -eq 1 ] && [ "$direction_explicit" -eq 1 ]; then fail_usage '--tab cannot be combined with --direction'; fi
+  if [ -n "$label" ] && [ "$tab_mode" -ne 1 ]; then fail_usage '--label is only valid with --tab'; fi
+  if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage '--tab requires HERDR_WORKSPACE_ID'; fi
   [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || fail_usage 'name must match [a-z][a-z0-9_-]{0,31}'
   case "$timeout" in '' | 0 | *[!0-9]*) fail_usage '--timeout must be a positive integer' ;; esac
   if [ "$mode" = wait ] && [ "$supervision_timeout_set" -eq 1 ]; then
@@ -373,27 +1051,40 @@ start_child() {
   if printf '%s' "$list_json" | json_has_name "$name"; then
     fail_usage "agent name is already live: $name"
   fi
+  set +e
+  parent_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$HERDR_PANE_ID")"
+  local parent_identity_status=$?
+  set -e
+  if [ "$parent_identity_status" -eq 0 ]; then
+    IFS=$'\t' read -r parent_terminal parent_session <<EOF
+$parent_identity
+EOF
+  fi
   if [ "$mode" = detach ]; then
-    set +e
-    parent_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$HERDR_PANE_ID")"
-    local parent_identity_status=$?
-    set -e
     [ "$parent_identity_status" -eq 0 ] || {
       printf 'herdr-child: parent terminal identity is unavailable or ambiguous\n' >&2
       return 1
     }
-    IFS=$'\t' read -r parent_terminal parent_session <<EOF
-$parent_identity
-EOF
     [ -n "$parent_session" ] || {
       printf 'herdr-child: parent agent_session is unavailable; detached launch refused before pane creation\n' >&2
       return 1
     }
+  elif [ "$parent_identity_status" -ne 0 ] || [ -z "$parent_session" ]; then
+    parent_terminal=""
+    parent_session=""
   fi
 
-  split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
-    --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
-  if [ "$mode" = detach ]; then
+  if [ "$tab_mode" -eq 1 ]; then
+    split_args=(tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
+      --env "HERDR_CHILD_LAUNCH_MODE=$mode")
+    [ -z "$label" ] || split_args+=(--label "$label")
+  else
+    split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
+      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
+      --env "HERDR_CHILD_LAUNCH_MODE=$mode")
+  fi
+  if [ -n "$parent_terminal" ] && [ -n "$parent_session" ]; then
     split_args+=(--env "HERDR_CHILD_PARENT_TERMINAL=$parent_terminal"
       --env "HERDR_CHILD_PARENT_SESSION=$parent_session")
   fi
@@ -409,24 +1100,30 @@ EOF
       ;;
   esac
 
-  split_json="$(herdr "${split_args[@]}")" || {
-    printf 'herdr-child: pane split failed\n' >&2
-    exit 1
-  }
-  pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
-    printf 'herdr-child: pane split returned no pane ID\n' >&2
-    exit 1
-  }
-
   cleanup_pane() {
-    herdr pane close "$pane" >/dev/null 2>&1 || true
+    [ -z "$pane" ] || herdr pane close "$pane" >/dev/null 2>&1 || true
   }
   owned_launch_signal() {
-    local signal="$1" status=1
+    local signal="$1" status=1 parsed_identity="" manual_tab=""
     case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+    if [ "$tab_mode" -eq 1 ] && [ -z "$pane" ] && [ -n "$split_json" ]; then
+      parsed_identity="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
+      if [ -n "$parsed_identity" ]; then
+        IFS=$'\t' read -r pane tab <<EOF
+$parsed_identity
+EOF
+      else
+        manual_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
+      fi
+    fi
     stop_owned_watcher "${run_dir:-}" "${watcher_pid:-}" "launch-signal-$signal"
     rm -f "${start_err:-}" "${start_out:-}" "${prompt_err:-}" "${prompt_out:-}" 2>/dev/null || true
-    cleanup_pane
+    if [ -n "$pane" ]; then
+      cleanup_pane
+    elif [ "$tab_mode" -eq 1 ] && [ -n "$split_json" ]; then
+      printf 'herdr-child: signal after tab creation left tab %s with unknown pane identity; manual cleanup required\n' \
+        "${manual_tab:-unknown}" >&2
+    fi
     trap - HUP INT TERM
     exit "$status"
   }
@@ -434,6 +1131,46 @@ EOF
   trap 'owned_launch_signal INT' INT
   trap 'owned_launch_signal TERM' TERM
 
+  if [ "$tab_mode" -eq 1 ]; then
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: tab create failed\n' >&2
+      exit 1
+    }
+    identity="$(printf '%s' "$split_json" | json_tab_identity)" || {
+      preserved_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
+      printf 'herdr-child: tab create returned no usable pane/tab identity; tab %s was preserved and needs manual cleanup\n' "$preserved_tab" >&2
+      exit 1
+    }
+    IFS=$'\t' read -r pane tab <<< "$identity"
+    tab_note=" (tab $tab)"
+    if [ -n "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" ]; then
+      : > "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.ready"
+      while [ ! -e "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.release" ]; do sleep 0.01; done
+    fi
+  else
+    split_json="$(herdr "${split_args[@]}")" || {
+      printf 'herdr-child: pane split failed\n' >&2
+      exit 1
+    }
+    pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
+      printf 'herdr-child: pane split returned no pane ID\n' >&2
+      exit 1
+    }
+  fi
+
+  if [ "$tab_mode" -eq 1 ]; then
+    local token_err
+    token_err="$(mktemp)"
+    if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" \
+      --token "child-tab=$tab" --seq "$(now_seq)" >/dev/null 2>"$token_err"; then
+      cat "$token_err" >&2
+      rm -f "$token_err"
+      printf 'herdr-child: could not record tab ownership; removing tab %s\n' "$tab" >&2
+      cleanup_pane
+      exit 1
+    fi
+    rm -f "$token_err"
+  fi
   case "$kind" in
     claude)
       [ -z "$model" ] || native_args+=(--model "$model")
@@ -480,7 +1217,7 @@ EOF
     [ "$start_status" -eq 0 ] && break
     if ! grep -q '"code":"agent_pane_busy"' "$start_err"; then
       cat "$start_err" >&2
-      printf 'herdr-child: agent start failed\n' >&2
+      printf 'herdr-child: agent start failed%s\n' "$tab_note" >&2
       rm -f "$start_err" "$start_out"
       cleanup_pane
       return 1
@@ -490,7 +1227,7 @@ EOF
   done
   if [ "$start_status" -ne 0 ]; then
     cat "$start_err" >&2
-    printf 'herdr-child: pane was not ready after three agent start attempts\n' >&2
+    printf 'herdr-child: pane was not ready after three agent start attempts%s\n' "$tab_note" >&2
     rm -f "$start_err" "$start_out"
     cleanup_pane
     return 1
@@ -520,6 +1257,23 @@ EOF
       cleanup_pane
       return 1
     fi
+    baseline_json="$(herdr agent get "$pane")" || {
+      printf 'herdr-child: child baseline state could not be read after agent start\n' >&2
+      cleanup_pane
+      return 1
+    }
+    set +e
+    baseline_snapshot="$(printf '%s' "$baseline_json" | json_agent_snapshot)"
+    local baseline_status=$?
+    set -e
+    if [ "$baseline_status" -ne 0 ]; then
+      printf 'herdr-child: child baseline state was malformed after agent start\n' >&2
+      cleanup_pane
+      return 1
+    fi
+    IFS=$'\t' read -r _ baseline_seq _ _ _ _ <<EOF
+$baseline_snapshot
+EOF
     generation="$(generation_nonce)" || {
       printf 'herdr-child: could not generate a supervision identity\n' >&2
       cleanup_pane
@@ -547,7 +1301,8 @@ parent_session=$parent_session
 child_name=$name
 child_pane=$pane
 child_terminal=$child_terminal
-child_session=$child_session" || {
+child_session=$child_session
+baseline_seq=$baseline_seq" || {
       printf 'herdr-child: could not initialize supervision state\n' >&2
       remove_supervision_run "$run_dir"
       cleanup_pane
@@ -556,6 +1311,7 @@ child_session=$child_session" || {
     if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
       --token 'child_mode=detach' --token "supervision_generation=$generation" \
       --token "supervision_timeout=$supervision_timeout" \
+      --token "supervision_baseline_seq=$baseline_seq" \
       --token "parent_terminal=$parent_terminal" --token "parent_session=$parent_session" \
       --token "child_terminal=$child_terminal" --token "child_session=$child_session" \
       --seq "$(now_seq)" >/dev/null; then
@@ -611,14 +1367,20 @@ EOF
     herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
   else
     launch_signal_handler() {
-      local signal="$1" status=1 reason="launch-signal-$1"
+      local signal="$1" status=1 reason="launch-signal-$1" abort_status
       case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
       [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
       [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
-      atomic_write "$run_dir/abort.state" "reason=$reason" || true
-      wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+      set +e
+      request_watcher_abort "$run_dir" "$reason"
+      abort_status=$?
+      set -e
       printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$signal" >&2
-      print_supervision_failure "$name" "$pane" "$generation" "$reason" "$generation"
+      if [ "$abort_status" -eq 0 ]; then
+        print_start_result "$name" "$pane" "$tab" "$generation" "$supervision_timeout"
+      else
+        report_signal_supervision "$name" "$pane" "$tab" "$run_dir" "$generation" "$supervision_timeout" "$reason" "$watcher_pid"
+      fi
       trap - HUP INT TERM
       exit "$status"
     }
@@ -637,7 +1399,7 @@ EOF
       printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
       rm -f "$prompt_out" "$prompt_err"
       trap - HUP INT TERM
-      printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+      print_start_result "$name" "$pane" "$tab"
       return 124
     fi
     if [ "$mode" = detach ]; then
@@ -650,9 +1412,9 @@ EOF
       return "$prompt_status"
     fi
     if grep -q 'agent_prompt_stalled' "$prompt_err"; then
-      printf 'herdr-child: initial prompt stalled\n' >&2
+      printf 'herdr-child: initial prompt stalled%s\n' "$tab_note" >&2
     else
-      printf 'herdr-child: initial prompt failed\n' >&2
+      printf 'herdr-child: initial prompt failed%s\n' "$tab_note" >&2
     fi
     rm -f "$prompt_out" "$prompt_err"
     cleanup_pane
@@ -679,14 +1441,261 @@ EOF
       trap - HUP INT TERM
       return 1
     fi
+    if [ -n "${HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER:-}" ]; then
+      : > "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.ready"
+      while [ ! -e "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.release" ]; do sleep 0.01; done
+    fi
     trap - HUP INT TERM
-    printf '{"agent":"%s","pane":"%s","supervision":{"status":"armed","generation":"%s","timeout_ms":%s}}\n' \
-      "$name" "$pane" "$generation" "$supervision_timeout"
+    print_start_result "$name" "$pane" "$tab" "$generation" "$supervision_timeout"
     return 0
   fi
 
   trap - HUP INT TERM
-  printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
+  print_start_result "$name" "$pane" "$tab"
+}
+
+invalidate_generation() {
+  local generation="$1" reason="$2" run_dir
+  [ -n "$generation" ] || return 0
+  run_dir="$STATE_DIR/runs/$generation"
+  [ ! -d "$run_dir" ] || atomic_write "$run_dir/invalidated.state" "reason=$reason"
+}
+
+begin_reap_invalidation() {
+  local generation="$1" run_dir
+  run_dir="$STATE_DIR/runs/$generation"
+  [ -d "$run_dir" ] || return 2
+  atomic_write "$run_dir/reap-pending.state" "status=pending
+owner_pid=$$" || return 1
+  if ! atomic_write "$run_dir/invalidated.state" 'reason=reap'; then
+    rm -f "$run_dir/reap-pending.state" 2>/dev/null || true
+    return 1
+  fi
+}
+
+signal_reap_transition() {
+  local generation="$1" outcome="$2" run_dir
+  run_dir="$STATE_DIR/runs/$generation"
+  [ -d "$run_dir" ] || return 1
+  atomic_write "$run_dir/reap-$outcome.state" "status=$outcome"
+}
+
+publish_reap_recovery() {
+  local pane="$1" generation="$2"
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+    --state-label 'supervision failed=reap-close-failed' \
+    --token 'supervision_failure_reason=reap-close-failed' \
+    --token "supervision_failure_generation=$generation" \
+    --token "supervision_failure_diagnostic=$generation" \
+    --seq "$(now_seq)" >/dev/null 2>&1
+}
+
+wait_for_fresh_settlement() {
+  local pane="$1" baseline_seq="$2" baseline_status="$3" child_terminal="$4" child_session="$5" timeout="$6"
+  local deadline snapshot_json snapshot status seq terminal session observed_pane
+  local observed_new_working=0
+  deadline=$(( $(now_ms) + timeout ))
+  while :; do
+    snapshot_json="$(herdr agent get "$pane" 2>/dev/null)" || return 1
+    snapshot="$(printf '%s' "$snapshot_json" | json_agent_snapshot)" || return 1
+    IFS=$'\t' read -r status seq terminal session _ observed_pane <<EOF
+$snapshot
+EOF
+    [ "$terminal" = "$child_terminal" ] && [ "$session" = "$child_session" ] && [ "$observed_pane" = "$pane" ] || return 1
+    if [ "$seq" -gt "$baseline_seq" ]; then
+      [ "$status" != working ] || observed_new_working=1
+      case "$status" in
+        idle|done|blocked)
+          if [ "$baseline_status" != working ] || [ "$observed_new_working" -eq 1 ] || [ "$seq" -gt $((baseline_seq + 1)) ]; then
+            return 0
+          fi
+          ;;
+      esac
+    fi
+    [ "$(now_ms)" -lt "$deadline" ] || return 124
+    sleep "$POLL_INTERVAL"
+  done
+}
+
+managed_detached_prompt() {
+  local name="$1" pane="$2" text="$3" supervision_timeout="$4"
+  local parent_terminal="$5" parent_session="$6" child_terminal="$7" child_session="$8"
+  local old_generation="${9:-}"
+  local baseline_json baseline_snapshot baseline_seq generation run_dir self watcher_pid
+  local prompt_out prompt_err prompt_pid="" prompt_status takeover_complete=0
+
+  [ "${HERDR_CHILD_TEST_BASELINE_FAIL:-0}" != 1 ] || {
+    printf 'herdr-child: child baseline state could not be read before detached prompt\n' >&2
+    return 1
+  }
+  baseline_json="$(herdr agent get "$pane")" || {
+    printf 'herdr-child: child baseline state could not be read before detached prompt\n' >&2
+    return 1
+  }
+  baseline_snapshot="$(printf '%s' "$baseline_json" | json_agent_snapshot)" || {
+    printf 'herdr-child: child baseline state was malformed before detached prompt\n' >&2
+    return 1
+  }
+  local baseline_terminal baseline_session baseline_pane
+  IFS=$'\t' read -r _ baseline_seq baseline_terminal baseline_session _ baseline_pane <<EOF
+$baseline_snapshot
+EOF
+  if [ "$baseline_terminal" != "$child_terminal" ] || [ "$baseline_session" != "$child_session" ] || [ "$baseline_pane" != "$pane" ]; then
+    printf 'herdr-child: child identity changed before detached prompt\n' >&2
+    return 1
+  fi
+
+  generation="$(generation_nonce)" || {
+    printf 'herdr-child: could not generate a continuation supervision identity\n' >&2
+    return 1
+  }
+  umask 077
+  mkdir -p "$STATE_DIR/runs" || return 1
+  chmod 700 "$STATE_DIR" "$STATE_DIR/runs" 2>/dev/null || true
+  run_dir="$STATE_DIR/runs/$generation"
+  mkdir "$run_dir" || return 1
+  atomic_write "$run_dir/launch.state" "mode=detach
+generation=$generation
+timeout_ms=$supervision_timeout
+parent_pane=$HERDR_PANE_ID
+parent_terminal=$parent_terminal
+parent_session=$parent_session
+child_name=$name
+child_pane=$pane
+child_terminal=$child_terminal
+child_session=$child_session
+baseline_seq=$baseline_seq" || { remove_supervision_run "$run_dir"; return 1; }
+  if [ "${HERDR_CHILD_TEST_SETUP_FAIL:-0}" = 1 ]; then
+    remove_supervision_run "$run_dir"
+    printf 'herdr-child: detached continuation setup failed before supervision takeover\n' >&2
+    return 1
+  fi
+
+  self="$(script_path)" || { remove_supervision_run "$run_dir"; return 1; }
+  set -m
+  nohup bash "$self" __watcher --run-dir "$run_dir" --pane "$pane" \
+    --generation "$generation" --timeout "$supervision_timeout" \
+    --launcher-pid "$$" --deferred-activation </dev/null >/dev/null 2>&1 &
+  watcher_pid=$!
+  set +m
+  set +e
+  wait_for_watcher_state "$run_dir/prepared.state" "$run_dir/failed.state" "$watcher_pid"
+  local prepared_status=$?
+  set -e
+  if [ "$prepared_status" -ne 0 ]; then
+    local prepared_reason="watcher-readiness-failed"
+    [ "$prepared_status" -ne 2 ] || prepared_reason="$(supervision_reason "$run_dir/failed.state")"
+    stop_owned_watcher "$run_dir" "$watcher_pid" "$prepared_reason"
+    printf 'herdr-child: detached continuation watcher failed before supervision takeover: %s\n' "$prepared_reason" >&2
+    return 1
+  fi
+
+  continuation_signal_handler() {
+    local signal="$1" status=1 reason="continuation-signal-$1" abort_status
+    case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+    [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
+    [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
+    if [ "$takeover_complete" -eq 0 ]; then
+      stop_owned_watcher "$run_dir" "$watcher_pid" "$reason"
+      printf 'herdr-child: %s before supervision takeover; prior supervision remains active\n' "$signal" >&2
+    else
+      set +e
+      request_watcher_abort "$run_dir" "$reason"
+      abort_status=$?
+      set -e
+      if [ "$abort_status" -eq 0 ]; then
+        print_start_result "$name" "$pane" "" "$generation" "$supervision_timeout"
+      else
+        report_signal_supervision "$name" "$pane" "" "$run_dir" "$generation" "$supervision_timeout" "$reason" "$watcher_pid"
+      fi
+    fi
+    trap - HUP INT TERM
+    exit "$status"
+  }
+  trap 'continuation_signal_handler HUP' HUP
+  trap 'continuation_signal_handler INT' INT
+  trap 'continuation_signal_handler TERM' TERM
+
+  if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    --token 'child_mode=detach' --token "supervision_generation=$generation" \
+    --token "supervision_timeout=$supervision_timeout" \
+    --token "supervision_baseline_seq=$baseline_seq" \
+    --token "parent_terminal=$parent_terminal" --token "parent_session=$parent_session" \
+    --token "child_terminal=$child_terminal" --token "child_session=$child_session" \
+    --clear-token supervision_failure_reason --clear-token supervision_failure_generation \
+    --clear-token supervision_failure_diagnostic --seq "$(now_seq)" >/dev/null; then
+    stop_owned_watcher "$run_dir" "$watcher_pid" metadata-publish-failed
+    printf 'herdr-child: detached continuation metadata could not be published\n' >&2
+    trap - HUP INT TERM
+    return 1
+  fi
+  takeover_complete=1
+  if ! invalidate_generation "$old_generation" managed-continuation; then
+    publish_supervision_recovery "$name" "$pane" "$generation" handoff-invalidation-failed "$run_dir" "$watcher_pid"
+    trap - HUP INT TERM
+    return 1
+  fi
+  if ! atomic_write "$run_dir/takeover.state" 'takeover=1'; then
+    publish_supervision_recovery "$name" "$pane" "$generation" takeover-write-failed "$run_dir" "$watcher_pid"
+    trap - HUP INT TERM
+    return 1
+  fi
+  set +e
+  wait_for_watcher_state "$run_dir/ready.state" "$run_dir/failed.state" "$watcher_pid"
+  local ready_status=$?
+  set -e
+  if [ "$ready_status" -ne 0 ]; then
+    local ready_reason="watcher-unavailable"
+    [ "$ready_status" -ne 2 ] || ready_reason="$(supervision_reason "$run_dir/failed.state")"
+    printf 'herdr-child: detached continuation takeover failed during activation; child preserved for recovery\n' >&2
+    publish_supervision_recovery "$name" "$pane" "$generation" "$ready_reason" "$run_dir" "$watcher_pid"
+    trap - HUP INT TERM
+    return 1
+  fi
+  prompt_out="$(mktemp)"
+  prompt_err="$(mktemp)"
+  set +e
+  herdr agent prompt "$name" "$text" >"$prompt_out" 2>"$prompt_err" &
+  prompt_pid=$!
+  wait "$prompt_pid"
+  prompt_status=$?
+  set -e
+  rm -f "$prompt_out" "$prompt_err"
+  if [ "$prompt_status" -ne 0 ]; then
+    atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
+    wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+    print_supervision_failure "$name" "$pane" "$generation" prompt-result-ambiguous "$generation"
+    trap - HUP INT TERM
+    return "$prompt_status"
+  fi
+  if ! atomic_write "$run_dir/accepted.state" 'accepted=1'; then
+    atomic_write "$run_dir/abort.state" 'reason=acceptance-write-failed' || true
+    wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+    print_supervision_failure "$name" "$pane" "$generation" acceptance-write-failed "$generation"
+    trap - HUP INT TERM
+    return 1
+  fi
+  set +e
+  wait_for_watcher_state "$run_dir/armed.state" "$run_dir/failed.state" "$watcher_pid"
+  local arm_status=$?
+  set -e
+  if [ "$arm_status" -ne 0 ]; then
+    local arm_reason="watcher-unavailable"
+    [ "$arm_status" -ne 2 ] || arm_reason="$(supervision_reason "$run_dir/failed.state")"
+    print_supervision_failure "$name" "$pane" "$generation" "$arm_reason" "$generation"
+    trap - HUP INT TERM
+    return 1
+  fi
+  trap - HUP INT TERM
+  printf '{"agent":"%s","pane":"%s","supervision":{"status":"armed","generation":"%s","timeout_ms":%s}}\n' \
+    "$name" "$pane" "$generation" "$supervision_timeout"
+}
+
+persist_callback_state() {
+  local run_dir="$1" status="$2" event="$3"
+  [ -d "$run_dir" ] || return 1
+  atomic_write "$run_dir/callback.state" "status=$status
+event=$event"
 }
 
 ask_parent() {
@@ -696,31 +1705,218 @@ ask_parent() {
   [ -n "${HERDR_CHILD_PARENT_PANE:-}" ] || { printf 'herdr-child: HERDR_CHILD_PARENT_PANE is missing\n' >&2; exit 1; }
   [ -n "${HERDR_PANE_ID:-}" ] || { printf 'herdr-child: HERDR_PANE_ID is missing\n' >&2; exit 1; }
 
-  local seq list_json message
+  local seq list_json message parent_pane="$HERDR_CHILD_PARENT_PANE" event
+  local pane_json context pane_terminal pane_session mode generation run_dir
+  local supervision_timeout stored_parent_terminal stored_parent_session
+  local stored_child_terminal stored_child_session route_terminal="" route_session=""
   seq="$(now_seq)"
   herdr pane report-metadata "$HERDR_PANE_ID" --source "$SOURCE_ID" \
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" --seq "$seq" >/dev/null
 
+  pane_json="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null || true)"
+  context="$(printf '%s' "$pane_json" | json_child_context 2>/dev/null || true)"
+  IFS=$'\t' read -r pane_terminal pane_session mode generation supervision_timeout \
+    stored_parent_terminal stored_parent_session stored_child_terminal stored_child_session <<EOF
+$context
+EOF
+  event="callback-$seq"
+  if [ "$mode" = detach ] || [ -n "$generation" ] || [ -n "$stored_parent_terminal" ] || \
+     [ -n "$stored_parent_session" ] || [ -n "$stored_child_terminal" ] || [ -n "$stored_child_session" ]; then
+    if [ "$mode" != detach ] || [ -z "$generation" ] || [ -z "$stored_parent_terminal" ] || \
+       [ -z "$stored_parent_session" ] || [ -z "$stored_child_terminal" ] || [ -z "$stored_child_session" ] || \
+       [ "$pane_terminal" != "$stored_child_terminal" ] || [ "$pane_session" != "$stored_child_session" ]; then
+      printf 'herdr-child: detached child metadata is unavailable or inconsistent; waiting label remains published\n' >&2
+      exit 1
+    fi
+    run_dir="$STATE_DIR/runs/$generation"
+    if [ "$(state_value "$run_dir/launch.state" generation)" != "$generation" ] || \
+       [ "$(state_value "$run_dir/launch.state" parent_terminal)" != "$stored_parent_terminal" ] || \
+       [ "$(state_value "$run_dir/launch.state" parent_session)" != "$stored_parent_session" ] || \
+       [ "$(state_value "$run_dir/launch.state" child_terminal)" != "$stored_child_terminal" ] || \
+       [ "$(state_value "$run_dir/launch.state" child_session)" != "$stored_child_session" ]; then
+      printf 'herdr-child: detached child supervision state is unavailable or inconsistent; waiting label remains published\n' >&2
+      exit 1
+    fi
+    if { [ -n "${HERDR_CHILD_PARENT_TERMINAL:-}" ] || [ -n "${HERDR_CHILD_PARENT_SESSION:-}" ]; } && \
+       { [ "${HERDR_CHILD_PARENT_TERMINAL:-}" != "$stored_parent_terminal" ] || \
+         [ "${HERDR_CHILD_PARENT_SESSION:-}" != "$stored_parent_session" ]; }; then
+      printf 'herdr-child: captured parent identity conflicts with detached metadata; waiting label remains published\n' >&2
+      exit 1
+    fi
+    route_terminal="$stored_parent_terminal"
+    route_session="$stored_parent_session"
+    if ! persist_callback_state "$run_dir" in-progress "$event"; then
+      printf 'herdr-child: callback intent could not be persisted; waiting label remains published\n' >&2
+      exit 1
+    fi
+    message="[child-ask v2 generation=$generation event=$event agent=$HERDR_CHILD_NAME pane=$HERDR_PANE_ID]
+
+$1"
+  else
+    if [ "${HERDR_CHILD_LAUNCH_MODE:-}" = detach ] || \
+       { [ -z "${HERDR_CHILD_LAUNCH_MODE:-}" ] && [ -n "${HERDR_CHILD_PARENT_TERMINAL:-}" ]; }; then
+      printf 'herdr-child: detached child metadata is unavailable; waiting label remains published\n' >&2
+      exit 1
+    fi
+    run_dir=""
+    if [ -n "${HERDR_CHILD_PARENT_TERMINAL:-}" ] || [ -n "${HERDR_CHILD_PARENT_SESSION:-}" ]; then
+      if [ -z "${HERDR_CHILD_PARENT_TERMINAL:-}" ] || [ -z "${HERDR_CHILD_PARENT_SESSION:-}" ]; then
+        printf 'herdr-child: captured parent identity is incomplete; waiting label remains published\n' >&2
+        exit 1
+      fi
+      route_terminal="$HERDR_CHILD_PARENT_TERMINAL"
+      route_session="$HERDR_CHILD_PARENT_SESSION"
+    fi
+    message="[child-ask v1 agent=$HERDR_CHILD_NAME pane=$HERDR_PANE_ID]
+
+$1"
+  fi
   list_json="$(herdr agent list)" || {
+    [ -z "$run_dir" ] || persist_callback_state "$run_dir" failed "$event" || true
     printf 'herdr-child: parent lookup failed; waiting label remains published\n' >&2
     exit 1
   }
-  if ! printf '%s' "$list_json" | python3 -c 'import json,sys
+  if [ -n "$route_terminal" ]; then
+    set +e
+    local parent_record
+    parent_record="$(printf '%s' "$list_json" | json_resolve_parent \
+      "$route_terminal" "$route_session")"
+    local parent_status=$?
+    set -e
+    [ "$parent_status" -eq 0 ] || {
+      persist_callback_state "$run_dir" failed "$event" || true
+      printf 'herdr-child: captured parent identity could not be resolved; waiting label remains published\n' >&2
+      exit 1
+    }
+    IFS=$'\t' read -r parent_pane _ <<EOF
+$parent_record
+EOF
+  elif ! printf '%s' "$list_json" | python3 -c 'import json,sys
 pane=sys.argv[1]
 agents=json.load(sys.stdin).get("result",{}).get("agents",[])
 raise SystemExit(0 if any(a.get("pane_id")==pane for a in agents) else 1)' "$HERDR_CHILD_PARENT_PANE"; then
-    printf 'herdr-child: no live parent occupies pane %s; waiting label remains published\n' "$HERDR_CHILD_PARENT_PANE" >&2
-    exit 1
+      printf 'herdr-child: no live parent occupies pane %s; waiting label remains published\n' "$HERDR_CHILD_PARENT_PANE" >&2
+      exit 1
   fi
-
-  message="[child-ask v1 agent=$HERDR_CHILD_NAME pane=$HERDR_PANE_ID]
-
-$1"
-  if ! herdr agent prompt "$HERDR_CHILD_PARENT_PANE" "$message" >/dev/null; then
+  if ! herdr agent prompt "$parent_pane" "$message" >/dev/null; then
+    [ -z "$run_dir" ] || persist_callback_state "$run_dir" failed "$event" || true
     printf 'herdr-child: delivery to parent failed; waiting label remains published\n' >&2
     exit 1
   fi
+  if [ -n "$run_dir" ]; then
+    if [ -n "${HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER:-}" ]; then
+      : > "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.ready"
+      while [ ! -e "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.release" ]; do sleep 0.01; done
+    fi
+    if ! persist_callback_state "$run_dir" confirmed "$event"; then
+      persist_callback_state "$run_dir" failed "$event" || rm -f "$run_dir/callback.state" 2>/dev/null || true
+      printf 'herdr-child: callback receipt was not persisted; an exact duplicate may arrive\n' >&2
+    fi
+  fi
   printf 'Question delivered. End this turn and wait for the parent reply.\n'
+}
+
+prompt_child() {
+  require_parent
+  local name="" pane="" text="" mode="" mode_count=0 timeout=30000
+  local supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT" supervision_timeout_set=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; name="$2"; shift 2 ;;
+      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; pane="$2"; shift 2 ;;
+      --wait|--detach)
+        [ "$mode_count" -eq 0 ] || fail_usage 'prompt requires exactly one of --wait or --detach'
+        mode="${1#--}"; mode_count=1; shift ;;
+      --timeout) [ $# -ge 2 ] || fail_usage '--timeout needs a value'; timeout="$2"; shift 2 ;;
+      --supervision-timeout) [ $# -ge 2 ] || fail_usage '--supervision-timeout needs a value'; supervision_timeout="$2"; supervision_timeout_set=1; shift 2 ;;
+      --*) fail_usage "unknown prompt option: $1" ;;
+      *) [ -z "$text" ] || fail_usage 'prompt accepts one task argument'; text="$1"; shift ;;
+    esac
+  done
+  [ -n "$name" ] || fail_usage 'prompt requires --to'
+  [ -n "$pane" ] || fail_usage 'prompt requires --pane'
+  [ -n "$text" ] || fail_usage 'prompt requires a task'
+  [ "$mode_count" -eq 1 ] || fail_usage 'prompt requires exactly one of --wait or --detach'
+  case "$timeout" in '' | 0 | *[!0-9]*) fail_usage '--timeout must be a positive integer' ;; esac
+  if [ "$mode" = wait ] && [ "$supervision_timeout_set" -eq 1 ]; then
+    fail_usage '--supervision-timeout requires --detach'
+  fi
+  case "$supervision_timeout" in '' | 0 | *[!0-9]*) fail_usage '--supervision-timeout must be between 1 and 86400000 milliseconds' ;; esac
+  [ "$supervision_timeout" -le "$MAX_SUPERVISION_TIMEOUT" ] || \
+    fail_usage '--supervision-timeout must be between 1 and 86400000 milliseconds'
+
+  local list_json child_identity parent_identity child_terminal child_session
+  local parent_terminal parent_session pane_json context old_mode old_generation
+  list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; return 1; }
+  printf '%s' "$list_json" | json_has_pair "$name" "$pane" || {
+    printf 'herdr-child: child name and pane do not identify the same live agent\n' >&2
+    return 1
+  }
+  child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")" || {
+    printf 'herdr-child: child identity is unavailable or ambiguous\n' >&2
+    return 1
+  }
+  IFS=$'\t' read -r child_terminal child_session <<EOF
+$child_identity
+EOF
+  [ -n "$child_session" ] || { printf 'herdr-child: child agent_session is unavailable\n' >&2; return 1; }
+  pane_json="$(herdr pane get "$pane")" || { printf 'herdr-child: child pane metadata could not be read\n' >&2; return 1; }
+  context="$(printf '%s' "$pane_json" | json_child_context)" || { printf 'herdr-child: child pane metadata was malformed\n' >&2; return 1; }
+  IFS=$'\t' read -r _ _ old_mode old_generation _ _ _ _ _ <<EOF
+$context
+EOF
+
+  if [ "$mode" = detach ]; then
+    parent_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$HERDR_PANE_ID")" || {
+      printf 'herdr-child: parent identity is unavailable or ambiguous\n' >&2
+      return 1
+    }
+    IFS=$'\t' read -r parent_terminal parent_session <<EOF
+$parent_identity
+EOF
+    [ -n "$parent_session" ] || { printf 'herdr-child: parent agent_session is unavailable\n' >&2; return 1; }
+    managed_detached_prompt "$name" "$pane" "[parent-prompt v1 pane=$HERDR_PANE_ID]
+
+$text" \
+      "$supervision_timeout" "$parent_terminal" "$parent_session" "$child_terminal" "$child_session" \
+      "$old_generation"
+    return
+  fi
+
+  local baseline_json baseline_snapshot baseline_seq status observed_terminal observed_session observed_pane
+  baseline_json="$(herdr agent get "$pane")" || { printf 'herdr-child: child baseline state could not be read\n' >&2; return 1; }
+  baseline_snapshot="$(printf '%s' "$baseline_json" | json_agent_snapshot)" || { printf 'herdr-child: child baseline state was malformed\n' >&2; return 1; }
+  IFS=$'\t' read -r status baseline_seq observed_terminal observed_session _ observed_pane <<EOF
+$baseline_snapshot
+EOF
+  if [ "$observed_terminal" != "$child_terminal" ] || [ "$observed_session" != "$child_session" ] || [ "$observed_pane" != "$pane" ]; then
+    printf 'herdr-child: child identity changed before prompt\n' >&2
+    return 1
+  fi
+  if ! herdr agent prompt "$name" "[parent-prompt v1 pane=$HERDR_PANE_ID]
+
+$text" >/dev/null; then
+    printf 'herdr-child: prompt delivery failed\n' >&2
+    return 1
+  fi
+  if [ "$old_mode" = detach ] && [ -n "$old_generation" ]; then
+    invalidate_generation "$old_generation" attached-prompt || {
+      printf 'herdr-child: prompt was accepted but prior supervision could not be invalidated; child remains on the prior generation\n' >&2
+      print_supervision_failure "$name" "$pane" "$old_generation" handoff-invalidation-failed "$old_generation"
+      return 1
+    }
+    clear_supervision_metadata "$pane" || true
+  fi
+  set +e
+  wait_for_fresh_settlement "$pane" "$baseline_seq" "$status" "$child_terminal" "$child_session" "$timeout"
+  local wait_status=$?
+  set -e
+  if [ "$wait_status" -eq 124 ]; then
+    printf 'herdr-child: prompt was delivered, but the fresh-state wait timed out\n' >&2
+    return 124
+  fi
+  [ "$wait_status" -eq 0 ] || { printf 'herdr-child: prompt fresh-state wait failed\n' >&2; return 1; }
+  printf 'Prompt completed for %s in %s.\n' "$name" "$pane"
 }
 
 reply_child() {
@@ -742,6 +1938,53 @@ reply_child() {
   if ! printf '%s' "$list_json" | json_has_pair "$name" "$pane"; then
     printf 'herdr-child: child name and pane do not identify the same live agent\n' >&2
     exit 1
+  fi
+
+  local pane_json context mode generation supervision_timeout
+  local stored_parent_terminal stored_parent_session stored_child_terminal stored_child_session
+  pane_json="$(herdr pane get "$pane" 2>/dev/null)" || {
+    printf 'herdr-child: child pane metadata could not be read\n' >&2
+    return 1
+  }
+  context="$(printf '%s' "$pane_json" | json_child_context 2>/dev/null)" || {
+    printf 'herdr-child: child pane metadata was malformed\n' >&2
+    return 1
+  }
+  IFS=$'\t' read -r _ _ mode generation supervision_timeout stored_parent_terminal \
+    stored_parent_session stored_child_terminal stored_child_session <<EOF
+$context
+EOF
+  if [ "$mode" = detach ] && [ -n "$generation" ]; then
+    local parent_identity child_identity parent_terminal parent_session child_terminal child_session
+    parent_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$HERDR_PANE_ID")" || {
+      printf 'herdr-child: parent identity is unavailable or ambiguous\n' >&2
+      return 1
+    }
+    child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")" || {
+      printf 'herdr-child: child identity is unavailable or ambiguous\n' >&2
+      return 1
+    }
+    IFS=$'\t' read -r parent_terminal parent_session <<EOF
+$parent_identity
+EOF
+    IFS=$'\t' read -r child_terminal child_session <<EOF
+$child_identity
+EOF
+    if [ "$parent_terminal" != "$stored_parent_terminal" ] || [ "$parent_session" != "$stored_parent_session" ]; then
+      printf 'herdr-child: caller does not match the detached parent identity\n' >&2
+      return 1
+    fi
+    if [ "$child_terminal" != "$stored_child_terminal" ] || [ "$child_session" != "$stored_child_session" ]; then
+      printf 'herdr-child: child identity changed before reply\n' >&2
+      return 1
+    fi
+    case "$supervision_timeout" in '' | 0 | *[!0-9]*) supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT" ;; esac
+    managed_detached_prompt "$name" "$pane" "[parent-reply v2 pane=$HERDR_PANE_ID]
+
+$text" \
+      "$supervision_timeout" "$parent_terminal" "$parent_session" "$child_terminal" "$child_session" \
+      "$generation"
+    return
   fi
 
   message="[parent-reply v1 pane=$HERDR_PANE_ID]
@@ -771,6 +2014,7 @@ reap_children() {
   fi
   [ $# -gt 0 ] || fail_usage 'reap requires at least one child name'
   local list_json name record pane status focused pane_json label_status fresh_list_json fresh_status
+  local generation own_tab child_tab close_err tab_state metadata reap_transition
   list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; exit 1; }
 
   for name in "$@"; do
@@ -820,7 +2064,8 @@ labels=pane.get("state_labels")
 if labels is None or labels == {}:
  raise SystemExit(1)
 if isinstance(labels, dict):
- raise SystemExit(0)
+ blocking=[key for key in labels if key not in ("supervised","supervision failed")]
+ raise SystemExit(0 if blocking else 1)
 raise SystemExit(2)'
     label_status=$?
     set -e
@@ -860,11 +2105,67 @@ if focused == "true":
       4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; continue ;;
       *) printf '%s: kept; live agent state could not be read\n' "$name"; continue ;;
     esac
-    if herdr pane close "$pane" >/dev/null; then
-      printf '%s: closed pane %s\n' "$name" "$pane"
-    else
-      printf '%s: kept; pane %s could not be closed\n' "$name" "$pane"
+    metadata="$(printf '%s' "$pane_json" | python3 -c 'import json,sys
+try:
+ pane=json.load(sys.stdin).get("result",{}).get("pane",{})
+ tokens=pane.get("tokens") or {}
+ print("%s\t%s\t%s" % (tokens.get("supervision_generation") or "-", pane.get("tab_id") or "-", tokens.get("child-tab") or "-"))
+except Exception:
+ raise SystemExit(1)' 2>/dev/null)" || {
+      printf '%s: kept; supervision metadata could not be parsed\n' "$name"
+      continue
+    }
+    IFS=$'\t' read -r generation own_tab child_tab <<< "$metadata"
+    [ "$generation" != - ] || generation=""
+    [ "$own_tab" != - ] || own_tab=""
+    [ "$child_tab" != - ] || child_tab=""
+    if [ -n "$child_tab" ] && [ "$child_tab" != "$own_tab" ]; then
+      printf '%s: kept; pane %s tab ownership is ambiguous\n' "$name" "$pane"
+      continue
     fi
+    reap_transition="none"
+    if [ -n "$generation" ]; then
+      set +e
+      begin_reap_invalidation "$generation"
+      local reap_status=$?
+      set -e
+      if [ "$reap_status" -eq 1 ]; then
+        printf '%s: kept; supervision generation could not be invalidated\n' "$name"
+        continue
+      fi
+      [ "$reap_status" -ne 0 ] || reap_transition="pending"
+    fi
+    close_err="$(mktemp)"
+    if herdr pane close "$pane" >/dev/null 2>"$close_err"; then
+      [ "$reap_transition" != pending ] || signal_reap_transition "$generation" closed || true
+      if [ -z "$child_tab" ]; then
+        printf '%s: closed pane %s\n' "$name" "$pane"
+      else
+        tab_state="$(tab_reap_status "$child_tab")"
+        case "$tab_state" in
+          kept:*) printf '%s: closed pane %s; tab %s kept with %s panes\n' "$name" "$pane" "$child_tab" "${tab_state#kept:}" ;;
+          gone) printf '%s: closed pane %s and tab %s\n' "$name" "$pane" "$child_tab" ;;
+          *) printf '%s: closed pane %s; tab %s status could not be confirmed\n' "$name" "$pane" "$child_tab" ;;
+        esac
+      fi
+    elif [ -n "$child_tab" ] && grep -q '"code":"pane_not_found"' "$close_err"; then
+      [ "$reap_transition" != pending ] || signal_reap_transition "$generation" closed || true
+      tab_state="$(tab_reap_status "$child_tab")"
+      case "$tab_state" in
+        kept:*) printf '%s: kept; pane %s already gone but tab %s still has %s panes\n' "$name" "$pane" "$child_tab" "${tab_state#kept:}" ;;
+        gone) printf '%s: already cleaned; pane %s and tab %s are gone\n' "$name" "$pane" "$child_tab" ;;
+        *) printf '%s: already cleaned; pane %s is gone, tab %s status could not be confirmed\n' "$name" "$pane" "$child_tab" ;;
+      esac
+    else
+      if [ "$reap_transition" = pending ] && signal_reap_transition "$generation" restore; then
+        printf '%s: kept; pane %s could not be closed; supervision recovery requested\n' "$name" "$pane"
+      elif [ -n "$generation" ] && publish_reap_recovery "$pane" "$generation"; then
+        printf '%s: kept; pane %s could not be closed; supervision is recoverable through managed prompt or reap\n' "$name" "$pane"
+      else
+        printf '%s: kept; pane %s could not be closed; supervision recovery could not be published\n' "$name" "$pane"
+      fi
+    fi
+    rm -f "$close_err"
   done
 }
 
@@ -876,6 +2177,7 @@ case "$command" in
   __watcher) watch_child "$@" ;;
   ask) ask_parent "$@" ;;
   reply) reply_child "$@" ;;
+  prompt) prompt_child "$@" ;;
   reap) reap_children "$@" ;;
   -h|--help) usage ;;
   *) fail_usage "unknown subcommand: $command" ;;

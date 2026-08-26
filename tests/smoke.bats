@@ -823,6 +823,30 @@ se_fixture_repo() {
   assert_file_executable "$HOME/.local/bin/herdr-task-sync"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
+  assert_file_exists "$HOME/.local/lib/herdr-process.sh"
+}
+
+@test "deployed herdr child contracts expose managed supervision modes" {
+  local contract="$HOME/.claude/shared/child-agent-contract.md"
+  local skill="$HOME/.claude/skills/herdr/SKILL.md"
+  local consult="$HOME/.claude/skills/ask-in-herdr/SKILL.md"
+
+  assert_file_contains "$contract" 'herdr-child start.*--wait'
+  assert_file_contains "$contract" 'herdr-child start.*--detach'
+  assert_file_contains "$contract" 'generation.*event'
+  assert_file_contains "$contract" 'herdr-child prompt.*--wait'
+  assert_file_contains "$contract" 'herdr-child prompt.*--detach'
+  assert_file_contains "$contract" 'not.*task-success verdict'
+  assert_file_contains "$contract" 'start.*prompt.*reply.*nonzero.*recovery JSON'
+  assert_file_contains "$contract" 'Do not retry.*start.*same name'
+  assert_file_contains "$contract" 'herdr agent get.*pane-id'
+  assert_file_contains "$contract" 'managed.*herdr-child prompt.*--detach.*reap'
+  assert_file_contains "$skill" 'cooperative exclusive file scope'
+  assert_file_contains "$skill" 'nonzero recovery JSON.*preserving the child'
+  assert_file_contains "$skill" 'Do not retry.*start.*same name'
+  assert_file_contains "$skill" 'herdr agent get'
+  assert_file_contains "$skill" 'rearm.*managed.*prompt.*--detach.*reap'
+  assert_file_contains "$consult" 'attached.*--wait'
 }
 
 @test "herdr-task-sync Claude Code hook is deployed and executable" {

@@ -8,6 +8,11 @@ use = "ndtoan96/ouch"
 rev = "cfb9140"
 hash = "b5067143415bd2d46c0dfa57319ddcef"
 
+[[plugin.deps]]
+use = "yazi-rs/plugins:smart-filter"
+rev = "c591a36"
+hash = "d6f7351ea25a43c9b5f4315fa1e23935"
+
 [[flavor.deps]]
 use = "gosxrgxx/flexoki-light"
 rev = "45eb0a0"
