@@ -3,8 +3,16 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=home/dot_local/lib/herdr-process.sh
+source "$SCRIPT_DIR/../lib/herdr-process.sh"
+
 SOURCE_ID="child-agent"
 WAITING_TTL_MS=3600000
+SUPERVISED_TTL_MS=90000
+DEFAULT_SUPERVISION_TIMEOUT=3600000
+MAX_SUPERVISION_TIMEOUT=86400000
+STATE_DIR="${HERDR_CHILD_STATE_DIR:-$HOME/.cache/herdr-child}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -24,8 +32,11 @@ Start options:
   --prompt <text>         Initial task
   --prompt-file <file>    Read the initial task from a file
   --direction <right|down>
-  --wait                  Wait for the initial turn to settle
+  --wait                  Wait for the initial turn to settle (required mode)
+  --detach                Arm detached supervision (required mode)
   --timeout <ms>          Start and prompt timeout (default: 30000)
+  --supervision-timeout <ms>
+                          Detached supervision deadline (default: 3600000)
 EOF
 }
 
@@ -70,6 +81,199 @@ now_seq() {
   printf '%s000000' "$(date +%s)"
 }
 
+atomic_write() {
+  local file="$1" content="$2" dir tmp
+  dir="$(dirname "$file")"
+  [ -d "$dir" ] || return 1
+  tmp="$(umask 077; mktemp "$dir/.write.XXXXXX" 2>/dev/null)" || return 1
+  if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null || ! mv "$tmp" "$file" 2>/dev/null; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+script_path() {
+  local self="$0"
+  case "$self" in
+    */*) ;;
+    *) self="$(command -v "$self" 2>/dev/null)" ;;
+  esac
+  [ -n "$self" ] || return 1
+  printf '%s' "$self"
+}
+
+generation_nonce() {
+  local nonce
+  nonce="$(LC_ALL=C od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  case "$nonce" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) printf '%s' "$nonce" ;;
+    *) return 1 ;;
+  esac
+}
+
+json_identity_for_pane() {
+  local pane="$1"
+  python3 -c 'import json,sys
+pane=sys.argv[1]
+agents=json.load(sys.stdin).get("result",{}).get("agents",[])
+matches=[a for a in agents if a.get("pane_id")==pane]
+if len(matches)!=1: raise SystemExit(1)
+record=matches[0]
+terminal=record.get("terminal_id","")
+session=record.get("agent_session",{}).get("value","")
+if not terminal: raise SystemExit(2)
+print("%s\t%s" % (terminal,session))' "$pane"
+}
+
+supervision_reason() {
+  local file="$1" reason
+  reason="$(sed -n 's/^reason=//p' "$file" 2>/dev/null | head -1)"
+  [ -n "$reason" ] || reason="watcher-unavailable"
+  printf '%s' "$reason"
+}
+
+print_supervision_failure() {
+  local name="$1" pane="$2" generation="$3" reason="$4" diagnostic="$5"
+  printf '{"agent":"%s","pane":"%s","supervision":{"status":"failed","reason":"%s","generation":"%s","diagnostic":"%s"}}\n' \
+    "$name" "$pane" "$reason" "$generation" "$diagnostic"
+}
+
+wait_for_watcher_state() {
+  local wanted="$1" failed="$2" pid="$3" attempt=0
+  while [ "$attempt" -lt 500 ]; do
+    [ ! -f "$wanted" ] || return 0
+    [ ! -f "$failed" ] || return 2
+    kill -0 "$pid" 2>/dev/null || return 1
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  return 1
+}
+
+wait_for_watcher_failure() {
+  local failed="$1" pid="$2" attempt=0
+  while [ "$attempt" -lt 500 ]; do
+    [ ! -f "$failed" ] || return 0
+    kill -0 "$pid" 2>/dev/null || return 1
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  return 1
+}
+
+remove_supervision_run() {
+  local run_dir="$1" file
+  [ -n "$run_dir" ] && [ -d "$run_dir" ] || return 0
+  rm -f "$run_dir/launch.state" "$run_dir/ready.state" "$run_dir/accepted.state" \
+    "$run_dir/armed.state" "$run_dir/failed.state" "$run_dir/abort.state" 2>/dev/null || true
+  for file in "$run_dir"/.write.*; do
+    [ ! -e "$file" ] || rm -f "$file" 2>/dev/null || true
+  done
+  rmdir "$run_dir" 2>/dev/null || true
+}
+
+stop_owned_watcher() {
+  local run_dir="$1" pid="$2" reason="$3" attempt=0
+  [ -n "$run_dir" ] || return 0
+  atomic_write "$run_dir/abort.state" "reason=$reason" || true
+  case "$pid" in '' | *[!0-9]*) remove_supervision_run "$run_dir"; return 0 ;; esac
+  while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 100 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    attempt=0
+    while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 100 ]; do
+      attempt=$((attempt + 1))
+      sleep 0.01
+    done
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+  remove_supervision_run "$run_dir"
+}
+
+watcher_publish_failed() {
+  local pane="$1" reason="$2"
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    --state-label "supervision failed=$reason" --seq "$(now_seq)" >/dev/null 2>&1 || true
+}
+
+watcher_fail() {
+  local run_dir="$1" pane="$2" reason="$3"
+  rm -f "$run_dir/ready.state" "$run_dir/accepted.state" "$run_dir/abort.state" 2>/dev/null || true
+  watcher_publish_failed "$pane" "$reason"
+  atomic_write "$run_dir/failed.state" "reason=$reason" || true
+  exit 1
+}
+
+watch_child() {
+  local run_dir="" pane="" generation="" timeout="" launcher_pid=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --run-dir) run_dir="${2:-}"; shift 2 ;;
+      --pane) pane="${2:-}"; shift 2 ;;
+      --generation) generation="${2:-}"; shift 2 ;;
+      --timeout) timeout="${2:-}"; shift 2 ;;
+      --launcher-pid) launcher_pid="${2:-}"; shift 2 ;;
+      *) exit 2 ;;
+    esac
+  done
+  [ -d "$run_dir" ] && [ -n "$pane" ] && [ -n "$generation" ] || exit 2
+  close_inherited_descriptors
+  umask 077
+  if [ -n "${HERDR_CHILD_TEST_WATCHER_PID_FILE:-}" ]; then
+    printf '%s\n' "$$" > "$HERDR_CHILD_TEST_WATCHER_PID_FILE"
+  fi
+  trap 'watcher_fail "$run_dir" "$pane" watcher-signal-HUP' HUP
+  trap 'watcher_fail "$run_dir" "$pane" watcher-signal-INT' INT
+  trap 'watcher_fail "$run_dir" "$pane" watcher-signal-TERM' TERM
+
+  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+    --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" \
+    --seq "$(now_seq)" >/dev/null 2>&1 || watcher_fail "$run_dir" "$pane" liveness-publish-failed
+  atomic_write "$run_dir/ready.state" "pid=$$" || watcher_fail "$run_dir" "$pane" readiness-write-failed
+
+  while [ ! -f "$run_dir/accepted.state" ]; do
+    if [ -f "$run_dir/abort.state" ]; then
+      watcher_fail "$run_dir" "$pane" "$(supervision_reason "$run_dir/abort.state")"
+    fi
+    kill -0 "$launcher_pid" 2>/dev/null || watcher_fail "$run_dir" "$pane" launcher-lost-before-acceptance
+    sleep 0.01
+  done
+  if [ "${HERDR_CHILD_TEST_ARM_FAIL:-0}" = 1 ]; then
+    watcher_fail "$run_dir" "$pane" watcher-arm-failed
+  fi
+  atomic_write "$run_dir/armed.state" "pid=$$" || watcher_fail "$run_dir" "$pane" armed-write-failed
+
+  local started now deadline next_refresh
+  started="$(date +%s)"
+  deadline=$((started + (timeout + 999) / 1000))
+  next_refresh=$((started + 30))
+  while :; do
+    if [ -n "${HERDR_CHILD_TEST_WATCHER_RELEASE:-}" ] && [ -e "$HERDR_CHILD_TEST_WATCHER_RELEASE" ]; then
+      herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+        --seq "$(now_seq)" >/dev/null 2>&1 || true
+      rm -f "$run_dir/launch.state" "$run_dir/ready.state" "$run_dir/accepted.state" \
+        "$run_dir/armed.state" "$run_dir/abort.state" 2>/dev/null || true
+      rmdir "$run_dir" 2>/dev/null || true
+      exit 0
+    fi
+    now="$(date +%s)"
+    [ "$now" -lt "$deadline" ] || watcher_fail "$run_dir" "$pane" substrate-deadline
+    if [ "$now" -ge "$next_refresh" ]; then
+      herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+        --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" \
+        --seq "$(now_seq)" >/dev/null 2>&1 || watcher_fail "$run_dir" "$pane" liveness-refresh-failed
+      next_refresh=$((now + 30))
+    fi
+    sleep 0.1
+  done
+}
+
 json_has_name() {
   local name="$1"
   python3 -c 'import json,sys
@@ -93,7 +297,11 @@ start_child() {
 
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
   local configured_agent="" prompt="" prompt_file="" direction="right"
-  local wait_for_child=0 timeout="30000" pane="" list_json="" split_json=""
+  local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
+  local supervision_timeout_set=0
+  local pane="" list_json="" split_json="" parent_identity="" child_identity=""
+  local parent_terminal="" parent_session="" child_terminal="" child_session=""
+  local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
   local skills_count=0
   local -a skills=() split_args=() native_args=()
 
@@ -110,18 +318,39 @@ start_child() {
       --prompt) [ $# -ge 2 ] || fail_usage '--prompt needs a value'; prompt="$2"; shift 2 ;;
       --prompt-file) [ $# -ge 2 ] || fail_usage '--prompt-file needs a value'; prompt_file="$2"; shift 2 ;;
       --direction) [ $# -ge 2 ] || fail_usage '--direction needs a value'; direction="$2"; shift 2 ;;
-      --wait) wait_for_child=1; shift ;;
+      --wait)
+        if [ "$mode_count" -gt 0 ]; then
+          [ "$mode" != wait ] || fail_usage 'mode flag may be specified only once'
+          fail_usage 'start requires exactly one of --wait or --detach'
+        fi
+        mode="wait"; mode_count=1; shift ;;
+      --detach)
+        if [ "$mode_count" -gt 0 ]; then
+          [ "$mode" != detach ] || fail_usage 'mode flag may be specified only once'
+          fail_usage 'start requires exactly one of --wait or --detach'
+        fi
+        mode="detach"; mode_count=1; shift ;;
       --timeout) [ $# -ge 2 ] || fail_usage '--timeout needs a value'; timeout="$2"; shift 2 ;;
+      --supervision-timeout) [ $# -ge 2 ] || fail_usage '--supervision-timeout needs a value'; supervision_timeout="$2"; supervision_timeout_set=1; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) fail_usage "unknown start option: $1" ;;
     esac
   done
 
+  [ "$mode_count" -eq 1 ] || fail_usage 'start requires exactly one of --wait or --detach'
   case "$kind" in claude|opencode|pi) ;; *) fail_usage '--kind must be claude, opencode, or pi' ;; esac
   case "$posture" in ro|rw) ;; *) fail_usage '--posture must be ro or rw' ;; esac
   case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
   [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || fail_usage 'name must match [a-z][a-z0-9_-]{0,31}'
-  [[ "$timeout" =~ ^[0-9]+$ ]] || fail_usage '--timeout must be an integer'
+  case "$timeout" in '' | 0 | *[!0-9]*) fail_usage '--timeout must be a positive integer' ;; esac
+  if [ "$mode" = wait ] && [ "$supervision_timeout_set" -eq 1 ]; then
+    fail_usage '--supervision-timeout requires --detach'
+  fi
+  case "$supervision_timeout" in
+    '' | 0 | *[!0-9]*) fail_usage '--supervision-timeout must be between 1 and 86400000 milliseconds' ;;
+  esac
+  [ "$supervision_timeout" -le "$MAX_SUPERVISION_TIMEOUT" ] || \
+    fail_usage '--supervision-timeout must be between 1 and 86400000 milliseconds'
   [ -d "$cwd" ] || fail_usage "working directory does not exist: $cwd"
   if [ -n "$prompt" ] && [ -n "$prompt_file" ]; then fail_usage 'use only one of --prompt or --prompt-file'; fi
   if [ -n "$prompt_file" ]; then
@@ -144,9 +373,30 @@ start_child() {
   if printf '%s' "$list_json" | json_has_name "$name"; then
     fail_usage "agent name is already live: $name"
   fi
+  if [ "$mode" = detach ]; then
+    set +e
+    parent_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$HERDR_PANE_ID")"
+    local parent_identity_status=$?
+    set -e
+    [ "$parent_identity_status" -eq 0 ] || {
+      printf 'herdr-child: parent terminal identity is unavailable or ambiguous\n' >&2
+      return 1
+    }
+    IFS=$'\t' read -r parent_terminal parent_session <<EOF
+$parent_identity
+EOF
+    [ -n "$parent_session" ] || {
+      printf 'herdr-child: parent agent_session is unavailable; detached launch refused before pane creation\n' >&2
+      return 1
+    }
+  fi
 
   split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
     --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID")
+  if [ "$mode" = detach ]; then
+    split_args+=(--env "HERDR_CHILD_PARENT_TERMINAL=$parent_terminal"
+      --env "HERDR_CHILD_PARENT_SESSION=$parent_session")
+  fi
 
   case "$kind:$posture" in
     opencode:ro)
@@ -171,7 +421,18 @@ start_child() {
   cleanup_pane() {
     herdr pane close "$pane" >/dev/null 2>&1 || true
   }
-  trap cleanup_pane INT TERM
+  owned_launch_signal() {
+    local signal="$1" status=1
+    case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+    stop_owned_watcher "${run_dir:-}" "${watcher_pid:-}" "launch-signal-$signal"
+    rm -f "${start_err:-}" "${start_out:-}" "${prompt_err:-}" "${prompt_out:-}" 2>/dev/null || true
+    cleanup_pane
+    trap - HUP INT TERM
+    exit "$status"
+  }
+  trap 'owned_launch_signal HUP' HUP
+  trap 'owned_launch_signal INT' INT
+  trap 'owned_launch_signal TERM' TERM
 
   case "$kind" in
     claude)
@@ -236,6 +497,102 @@ start_child() {
   fi
   rm -f "$start_err" "$start_out"
 
+  if [ "$mode" = detach ]; then
+    list_json="$(herdr agent list)" || {
+      printf 'herdr-child: child identity could not be read after agent start\n' >&2
+      cleanup_pane
+      return 1
+    }
+    set +e
+    child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")"
+    local child_identity_status=$?
+    set -e
+    if [ "$child_identity_status" -ne 0 ]; then
+      printf 'herdr-child: child terminal identity is unavailable or ambiguous\n' >&2
+      cleanup_pane
+      return 1
+    fi
+    IFS=$'\t' read -r child_terminal child_session <<EOF
+$child_identity
+EOF
+    if [ -z "$child_session" ]; then
+      printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
+      cleanup_pane
+      return 1
+    fi
+    generation="$(generation_nonce)" || {
+      printf 'herdr-child: could not generate a supervision identity\n' >&2
+      cleanup_pane
+      return 1
+    }
+    umask 077
+    mkdir -p "$STATE_DIR/runs" 2>/dev/null || {
+      printf 'herdr-child: could not create supervision state\n' >&2
+      cleanup_pane
+      return 1
+    }
+    chmod 700 "$STATE_DIR" "$STATE_DIR/runs" 2>/dev/null || true
+    run_dir="$STATE_DIR/runs/$generation"
+    mkdir "$run_dir" 2>/dev/null || {
+      printf 'herdr-child: could not create supervision run state\n' >&2
+      cleanup_pane
+      return 1
+    }
+    atomic_write "$run_dir/launch.state" "mode=detach
+generation=$generation
+timeout_ms=$supervision_timeout
+parent_pane=$HERDR_PANE_ID
+parent_terminal=$parent_terminal
+parent_session=$parent_session
+child_name=$name
+child_pane=$pane
+child_terminal=$child_terminal
+child_session=$child_session" || {
+      printf 'herdr-child: could not initialize supervision state\n' >&2
+      remove_supervision_run "$run_dir"
+      cleanup_pane
+      return 1
+    }
+    if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+      --token 'child_mode=detach' --token "supervision_generation=$generation" \
+      --token "supervision_timeout=$supervision_timeout" \
+      --token "parent_terminal=$parent_terminal" --token "parent_session=$parent_session" \
+      --token "child_terminal=$child_terminal" --token "child_session=$child_session" \
+      --seq "$(now_seq)" >/dev/null; then
+      printf 'herdr-child: detached launch metadata could not be published\n' >&2
+      remove_supervision_run "$run_dir"
+      cleanup_pane
+      return 1
+    fi
+    self="$(script_path)" || {
+      printf 'herdr-child: watcher entry point could not be resolved\n' >&2
+      remove_supervision_run "$run_dir"
+      cleanup_pane
+      return 1
+    }
+    set -m
+    nohup bash "$self" __watcher --run-dir "$run_dir" --pane "$pane" \
+      --generation "$generation" --timeout "$supervision_timeout" \
+      --launcher-pid "$$" </dev/null >/dev/null 2>&1 &
+    watcher_pid=$!
+    set +m
+    set +e
+    wait_for_watcher_state "$run_dir/ready.state" "$run_dir/failed.state" "$watcher_pid"
+    local ready_status=$?
+    set -e
+    if [ "$ready_status" -ne 0 ]; then
+      if [ "$ready_status" -eq 2 ]; then
+        printf 'herdr-child: watcher readiness failed: %s\n' \
+          "$(supervision_reason "$run_dir/failed.state")" >&2
+      else
+        printf 'herdr-child: watcher did not publish readiness\n' >&2
+      fi
+      stop_owned_watcher "$run_dir" "$watcher_pid" watcher-readiness-failed
+      cleanup_pane
+      return 1
+    fi
+  fi
+
   local initial_prompt prompt_out prompt_err prompt_status
   initial_prompt="$(cat <<EOF
 You are child agent '$name' in pane '$pane'. Your launch parent is pane '$HERDR_PANE_ID'.
@@ -250,21 +607,47 @@ EOF
   prompt_out="$(mktemp)"
   prompt_err="$(mktemp)"
   set +e
-  if [ "$wait_for_child" -eq 1 ]; then
+  if [ "$mode" = wait ]; then
     herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
   else
-    herdr agent prompt "$name" "$initial_prompt" >"$prompt_out" 2>"$prompt_err"
+    launch_signal_handler() {
+      local signal="$1" status=1 reason="launch-signal-$1"
+      case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+      [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
+      [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
+      atomic_write "$run_dir/abort.state" "reason=$reason" || true
+      wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+      printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$signal" >&2
+      print_supervision_failure "$name" "$pane" "$generation" "$reason" "$generation"
+      trap - HUP INT TERM
+      exit "$status"
+    }
+    trap 'launch_signal_handler HUP' HUP
+    trap 'launch_signal_handler INT' INT
+    trap 'launch_signal_handler TERM' TERM
+    herdr agent prompt "$name" "$initial_prompt" >"$prompt_out" 2>"$prompt_err" &
+    prompt_pid=$!
+    wait "$prompt_pid"
   fi
   prompt_status=$?
   set -e
   if [ "$prompt_status" -ne 0 ]; then
     cat "$prompt_err" >&2
-    if [ "$wait_for_child" -eq 1 ] && grep -q '"code":"timeout"' "$prompt_err"; then
+    if [ "$mode" = wait ] && grep -q '"code":"timeout"' "$prompt_err"; then
       printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
       rm -f "$prompt_out" "$prompt_err"
-      trap - INT TERM
+      trap - HUP INT TERM
       printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
       return 124
+    fi
+    if [ "$mode" = detach ]; then
+      atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
+      wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+      printf 'herdr-child: initial prompt result was ambiguous; child preserved for recovery\n' >&2
+      print_supervision_failure "$name" "$pane" "$generation" prompt-result-ambiguous "$generation"
+      rm -f "$prompt_out" "$prompt_err"
+      trap - HUP INT TERM
+      return "$prompt_status"
     fi
     if grep -q 'agent_prompt_stalled' "$prompt_err"; then
       printf 'herdr-child: initial prompt stalled\n' >&2
@@ -277,7 +660,32 @@ EOF
   fi
   rm -f "$prompt_out" "$prompt_err"
 
-  trap - INT TERM
+  if [ "$mode" = detach ]; then
+    if ! atomic_write "$run_dir/accepted.state" 'accepted=1'; then
+      atomic_write "$run_dir/abort.state" 'reason=acceptance-write-failed' || true
+      printf 'herdr-child: prompt was accepted but watcher arming could not be signaled; child preserved\n' >&2
+      print_supervision_failure "$name" "$pane" "$generation" acceptance-write-failed "$generation"
+      trap - HUP INT TERM
+      return 1
+    fi
+    set +e
+    wait_for_watcher_state "$run_dir/armed.state" "$run_dir/failed.state" "$watcher_pid"
+    local arm_status=$? arm_reason="watcher-unavailable"
+    set -e
+    if [ "$arm_status" -ne 0 ]; then
+      [ "$arm_status" -ne 2 ] || arm_reason="$(supervision_reason "$run_dir/failed.state")"
+      printf 'herdr-child: prompt was accepted but supervision failed to arm: %s; child preserved\n' "$arm_reason" >&2
+      print_supervision_failure "$name" "$pane" "$generation" "$arm_reason" "$generation"
+      trap - HUP INT TERM
+      return 1
+    fi
+    trap - HUP INT TERM
+    printf '{"agent":"%s","pane":"%s","supervision":{"status":"armed","generation":"%s","timeout_ms":%s}}\n' \
+      "$name" "$pane" "$generation" "$supervision_timeout"
+    return 0
+  fi
+
+  trap - HUP INT TERM
   printf '{"agent":"%s","pane":"%s"}\n' "$name" "$pane"
 }
 
@@ -465,6 +873,7 @@ command="$1"
 shift
 case "$command" in
   start) start_child "$@" ;;
+  __watcher) watch_child "$@" ;;
   ask) ask_parent "$@" ;;
   reply) reply_child "$@" ;;
   reap) reap_children "$@" ;;

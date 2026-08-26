@@ -6,10 +6,20 @@ load 'helpers/herdr_task_sync'
 setup() {
   unset HERDR_CHILD_NAME
   unset HERDR_CHILD_PARENT_PANE
+  unset HERDR_CHILD_STATE_DIR
 }
 
 teardown() {
   hts_teardown
+  if [[ -n "${CHILD_STUB:-}" ]]; then
+    [[ ! -e "$CHILD_STUB/release-watcher" ]] || true
+    : > "$CHILD_STUB/release-watcher" 2>/dev/null || true
+    if [[ -s "$CHILD_STUB/watcher.pid" ]]; then
+      local watcher_pid
+      watcher_pid="$(cat "$CHILD_STUB/watcher.pid" 2>/dev/null || true)"
+      [[ -z "$watcher_pid" ]] || kill -TERM "$watcher_pid" 2>/dev/null || true
+    fi
+  fi
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
 }
@@ -374,7 +384,21 @@ case "${1:-} ${2:-}" in
     elif [ -n "${STUB_AGENTS_JSON_SECOND:-}" ]; then
       printf '%s\n' "$STUB_AGENTS_JSON_SECOND"
     elif [ -n "${STUB_AGENTS_JSON:-}" ]; then printf '%s\n' "$STUB_AGENTS_JSON"
-    else printf '{"result":{"agents":[]}}\n'
+    elif [ "${STUB_START_CONTEXT:-0}" = 1 ] && [ -f "$CHILD_STUB/started-name" ]; then
+      child_name="$(cat "$CHILD_STUB/started-name")"
+      if [ "${STUB_CHILD_SESSION_MISSING:-0}" = 1 ]; then
+        printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent","agent_session":{"value":"parent-session"}},{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child"}]}}\n' "$child_name"
+      elif [ "${STUB_PARENT_SESSION_MISSING:-0}" = 1 ]; then
+        printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent"},{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"}}]}}\n' "$child_name"
+      else
+        printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent","agent_session":{"value":"parent-session"}},{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"}}]}}\n' "$child_name"
+      fi
+    elif [ "${STUB_START_CONTEXT:-0}" = 1 ] && [ "${STUB_PARENT_SESSION_MISSING:-0}" = 1 ]; then
+      printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent"}]}}\n'
+    elif [ "${STUB_START_CONTEXT:-0}" = 1 ]; then
+      printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent","agent_session":{"value":"parent-session"}}]}}\n'
+    else
+      printf '{"result":{"agents":[]}}\n'
     fi ;;
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
@@ -398,12 +422,28 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
       exit 1
     fi
+    printf '%s' "${3:-child}" > "$CHILD_STUB/started-name"
     printf '{"result":{"agent":{"interactive_ready":true}}}\n' ;;
   "agent prompt")
+    : > "$CHILD_STUB/prompt-seen"
+    if [ "${STUB_PROMPT_BLOCK:-0}" = 1 ]; then
+      trap 'exit 143' HUP INT TERM
+      while [ ! -e "$CHILD_STUB/release-prompt" ]; do sleep 0.01; done
+    fi
     [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
     [ "${STUB_PROMPT_TIMEOUT:-0}" = 1 ] && { printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; }
     printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
-  "pane report-metadata") [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1; printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
+  "pane report-metadata")
+    [ "${STUB_REPORT_FAIL:-0}" = 1 ] && exit 1
+    if printf '%s\n' "$*" | grep -q 'supervised'; then
+      if [ "${STUB_SUPERVISION_REPORT_BLOCK:-0}" = 1 ]; then
+        : > "$CHILD_STUB/liveness-started"
+        trap 'exit 143' HUP INT TERM
+        while [ ! -e "$CHILD_STUB/release-liveness" ]; do sleep 0.01; done
+      fi
+      [ "${STUB_SUPERVISION_REPORT_FAIL:-0}" != 1 ] || exit 1
+    fi
+    printf '{"result":{"type":"pane_metadata_reported"}}\n' ;;
   "pane get")
     if [ "${STUB_PANE_GET_MALFORMED:-0}" = 1 ]; then
       printf 'not json\n'
@@ -421,6 +461,10 @@ SH
 
 child_start() {
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
     bash "$HERDR_CHILD" start "$@" --prompt "test task"
 }
 
@@ -431,27 +475,265 @@ child_start() {
 
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" start --kind claude --name child-a --prompt task
+    bash "$HERDR_CHILD" start --kind claude --name child-a --wait --prompt task
   assert_failure
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
 @test "herdr-child refuses pi read-only before splitting a pane" {
   child_stub_herdr
-  run child_start --kind pi --name child-pi --posture ro
+  run child_start --kind pi --name child-pi --posture ro --wait
   assert_failure 2
   assert_output --partial "return channel requires bash"
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
+@test "herdr-child start requires exactly one explicit mode before Herdr mutation" {
+  child_stub_herdr
+
+  run child_start --kind claude --name child-none
+  assert_failure 2
+  assert_output --partial "exactly one of --wait or --detach"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  run child_start --kind claude --name child-both --wait --detach
+  assert_failure 2
+  assert_output --partial "exactly one of --wait or --detach"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  run child_start --kind claude --name child-repeat --wait --wait
+  assert_failure 2
+  assert_output --partial "mode flag may be specified only once"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  run child_start --kind claude --name child-repeat --detach --detach
+  assert_failure 2
+  assert_output --partial "mode flag may be specified only once"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+}
+
+@test "herdr-child validates launch and supervision timeouts before Herdr mutation" {
+  child_stub_herdr
+
+  run child_start --kind claude --name child-a --wait --timeout 0
+  assert_failure 2
+  assert_output --partial "--timeout must be a positive integer"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  run child_start --kind claude --name child-a --wait --supervision-timeout 10
+  assert_failure 2
+  assert_output --partial "--supervision-timeout requires --detach"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  run child_start --kind claude --name child-a --wait --supervision-timeout 3600000
+  assert_failure 2
+  assert_output --partial "--supervision-timeout requires --detach"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  local value
+  for value in 0 86400001 malformed; do
+    run child_start --kind claude --name child-a --detach --supervision-timeout "$value"
+    assert_failure 2
+    assert_output --partial "--supervision-timeout must be between 1 and 86400000 milliseconds"
+    assert_file_not_exists "$CHILD_STUB/calls.log"
+  done
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$HERDR_CHILD" start --kind claude --name child-a --detach \
+    --prompt "test task" --supervision-timeout
+  assert_failure 2
+  assert_output --partial "--supervision-timeout needs a value"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+}
+
+@test "herdr-child attached mode starts no watcher" {
+  child_stub_herdr
+  run child_start --kind claude --name child-attached --wait
+  assert_success
+  assert_output '{"agent":"child-attached","pane":"wT:p9"}'
+  assert_file_not_exists "$CHILD_STUB/watcher.pid"
+  run grep -q 'supervised' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child detached mode fails closed without a parent session" {
+  child_stub_herdr
+  STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --name child-a --detach
+  assert_failure
+  assert_output --partial "parent agent_session is unavailable"
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
+  run grep -Eq '^(pane split|agent start|agent prompt|pane report-metadata)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child detached mode closes only its new pane without a child session" {
+  child_stub_herdr
+  STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --name child-a --detach
+  assert_failure
+  assert_output --partial "child agent_session is unavailable"
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
+  assert_failure
+  assert_file_not_exists "$CHILD_STUB/watcher.pid"
+}
+
+@test "herdr-child detached mode returns only after liveness and causal watcher arming" {
+  child_stub_herdr
+  run child_start --kind claude --name child-detached --detach --supervision-timeout 60000
+  assert_success
+  assert_output --partial '"agent":"child-detached"'
+  assert_output --partial '"supervision":{"status":"armed"'
+  assert_output --partial '"timeout_ms":60000'
+  assert_file_exists "$CHILD_STUB/watcher.pid"
+
+  local metadata_call prompt_call
+  metadata_call="$(grep -n 'state-label supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  prompt_call="$(grep -n '^agent prompt' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  [ -n "$metadata_call" ]
+  [ "$metadata_call" -lt "$prompt_call" ]
+  assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token child_mode=detach'
+  assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token parent_session=parent-session'
+  assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token child_session=child-session'
+}
+
+@test "herdr-child detached arm failure preserves the child and returns recovery JSON" {
+  child_stub_herdr
+  HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --name child-a --detach
+  assert_failure
+  assert_output --partial '"agent":"child-a","pane":"wT:p9"'
+  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
+  assert_file_contains "$CHILD_STUB/calls.log" 'state-label supervision\\ failed='
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ]
+  assert_file_exists "$1/failed.state"
+  local state_mode
+  state_mode="$(stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1")"
+  [ "$state_mode" = 700 ]
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+@test "herdr-child signal before prompt submission closes owned state and pane" {
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    STUB_SUPERVISION_REPORT_BLOCK=1 CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+stub = Path(os.environ["CHILD_STUB"])
+proc = subprocess.Popen(
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--name",
+     "child-pre-signal", "--detach", "--prompt", "test task"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    env=os.environ.copy(),
+)
+for _ in range(1000):
+    if (stub / "liveness-started").exists():
+        break
+    time.sleep(0.01)
+else:
+    proc.kill()
+    raise AssertionError("watcher never reached its pre-submission liveness boundary")
+
+watcher_pid = int((stub / "watcher.pid").read_text().strip())
+proc.send_signal(signal.SIGTERM)
+stdout, stderr = proc.communicate(timeout=10)
+if proc.returncode == 0:
+    raise AssertionError("signaled launcher returned success")
+if stdout:
+    raise AssertionError("pre-submission signal returned a detached success or recovery record")
+calls = (stub / "calls.log").read_text()
+if "pane close wT:p9" not in calls or "agent prompt" in calls:
+    raise AssertionError("pre-submission signal did not close only the owned pane: %s" % calls)
+for _ in range(1000):
+    try:
+        os.kill(watcher_pid, 0)
+    except ProcessLookupError:
+        break
+    time.sleep(0.01)
+else:
+    raise AssertionError("owned watcher survived pre-submission cancellation")
+run_root = stub / "state" / "runs"
+if run_root.exists() and list(run_root.iterdir()):
+    raise AssertionError("pre-submission cancellation left orphan run state")
+PY
+  assert_success
+}
+
+@test "herdr-child catchable launch signals preserve ownership after prompt submission" {
+  local signal signal_name calls
+  for signal in HUP INT TERM; do
+    child_stub_herdr
+    signal_name="$(printf '%s' "$signal" | tr '[:upper:]' '[:lower:]')"
+    run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+      HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+      HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+      HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+      STUB_PROMPT_BLOCK=1 CHILD_SIGNAL="$signal" CHILD_SIGNAL_NAME="$signal_name" \
+      CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+stub = Path(os.environ["CHILD_STUB"])
+proc = subprocess.Popen(
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--name",
+     "child-" + os.environ["CHILD_SIGNAL_NAME"], "--detach", "--prompt", "test task"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    env=os.environ.copy(),
+)
+for _ in range(1000):
+    if (stub / "prompt-seen").exists():
+        break
+    time.sleep(0.01)
+else:
+    proc.kill()
+    raise AssertionError("prompt submission never reached its barrier")
+
+proc.send_signal(getattr(signal, "SIG" + os.environ["CHILD_SIGNAL"]))
+try:
+    stdout, stderr = proc.communicate(timeout=10)
+except subprocess.TimeoutExpired:
+    proc.kill()
+    proc.wait()
+    raise AssertionError("launcher did not handle the catchable signal")
+if proc.returncode == 0:
+    raise AssertionError("signaled launcher returned success")
+expected = '"supervision":{"status":"failed","reason":"launch-signal-' + os.environ["CHILD_SIGNAL"]
+if expected not in stdout or '"pane":"wT:p9"' not in stdout:
+    raise AssertionError("missing recovery JSON: stdout=%r stderr=%r" % (stdout, stderr))
+calls = (stub / "calls.log").read_text()
+if "pane close" in calls:
+    raise AssertionError("signaled launcher closed the preserved child")
+(stub / "release-watcher").touch()
+PY
+    assert_success
+    calls="$CHILD_STUB"
+    CHILD_STUB=""
+    rm -rf "$calls"
+  done
+}
+
 @test "herdr-child rejects invalid and live names before splitting" {
   child_stub_herdr
-  run child_start --kind claude --name Invalid
+  run child_start --kind claude --name Invalid --wait
   assert_failure 2
   [ ! -f "$CHILD_STUB/calls.log" ]
 
   STUB_AGENTS_JSON='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p8"}]}}' \
-    run child_start --kind claude --name child-a
+    run child_start --kind claude --name child-a --wait
   assert_failure 2
   assert_output --partial "already live"
   run grep -q '^pane split' "$CHILD_STUB/calls.log"
@@ -460,13 +742,13 @@ child_start() {
 
 @test "herdr-child maps claude postures and skill directories" {
   child_stub_herdr
-  run child_start --kind claude --name child-ro --skills A --skills B
+  run child_start --kind claude --name child-ro --skills A --skills B --wait
   assert_success
   assert_output '{"agent":"child-ro","pane":"wT:p9"}'
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--add-dir A --add-dir B.*--disallowed-tools Edit Write NotebookEdit AskUserQuestion'
 
   : > "$CHILD_STUB/calls.log"
-  run child_start --kind claude --name child-rw --posture rw
+  run child_start --kind claude --name child-rw --posture rw --wait
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--disallowed-tools AskUserQuestion'
   run grep -q 'disallowed-tools Edit' "$CHILD_STUB/calls.log"
@@ -475,13 +757,13 @@ child_start() {
 
 @test "herdr-child maps opencode permissions, model, and configured agent" {
   child_stub_herdr
-  run child_start --kind opencode --name child-open --agent reviewer
+  run child_start --kind opencode --name child-open --agent reviewer --wait
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model openai/gpt-5.5 --agent reviewer'
 
   : > "$CHILD_STUB/calls.log"
-  run child_start --kind opencode --name child-open-rw --posture rw
+  run child_start --kind opencode --name child-open-rw --posture rw --wait
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny'
   run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
@@ -490,25 +772,25 @@ child_start() {
 
 @test "herdr-child maps pi model, effort, skills, and question exclusion" {
   child_stub_herdr
-  run child_start --kind pi --name child-pi --posture rw --skills A --skills B
+  run child_start --kind pi --name child-pi --posture rw --skills A --skills B --wait
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model openai-codex/gpt-5.5 --thinking medium --skill A --skill B'
 
   : > "$CHILD_STUB/calls.log"
-  run child_start --kind pi --name child-pi-high --posture rw --model custom/model --effort high
+  run child_start --kind pi --name child-pi-high --posture rw --model custom/model --effort high --wait
   assert_success
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --thinking high'
 }
 
 @test "herdr-child rejects native options that the selected kind cannot map" {
   child_stub_herdr
-  run child_start --kind claude --name child-a --effort high
+  run child_start --kind claude --name child-a --effort high --wait
   assert_failure 2
   assert_output --partial "--effort is not supported for claude"
-  run child_start --kind pi --name child-b --posture rw --agent reviewer
+  run child_start --kind pi --name child-b --posture rw --agent reviewer --wait
   assert_failure 2
   assert_output --partial "--agent is not supported for pi"
-  run child_start --kind opencode --name child-c --skills A
+  run child_start --kind opencode --name child-c --skills A --wait
   assert_failure 2
   assert_output --partial "--skills is not supported for opencode"
   [ ! -f "$CHILD_STUB/calls.log" ]
@@ -542,13 +824,13 @@ child_start() {
 
 @test "herdr-child retries only the pane-readiness start failure" {
   child_stub_herdr
-  STUB_START_MODE=busy-once run child_start --kind claude --name child-a
+  STUB_START_MODE=busy-once run child_start --kind claude --name child-a --wait
   assert_success
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
   assert_output 2
 
   child_stub_herdr
-  STUB_START_MODE=error run child_start --kind claude --name child-b
+  STUB_START_MODE=error run child_start --kind claude --name child-b --wait
   assert_failure
   assert_output --partial "agent start failed"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
@@ -558,7 +840,7 @@ child_start() {
 
 @test "herdr-child closes its pane after three readiness failures" {
   child_stub_herdr
-  STUB_START_MODE=busy run child_start --kind claude --name child-a
+  STUB_START_MODE=busy run child_start --kind claude --name child-a --wait
   assert_failure
   assert_output --partial "three agent start attempts"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"

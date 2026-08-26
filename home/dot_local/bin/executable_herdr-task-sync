@@ -28,6 +28,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=home/dot_local/lib/herdr-process.sh
+source "$SCRIPT_DIR/../lib/herdr-process.sh"
+
 STATE_DIR="${HERDR_TASK_SYNC_STATE_DIR:-$HOME/.cache/herdr-task-sync}"
 ENGINE_TIMEOUT="${HERDR_TASK_SYNC_TIMEOUT:-30}"
 PI_MODEL="${HERDR_TASK_SYNC_PI_MODEL:-openai-codex/gpt-5.4-mini}"
@@ -315,20 +319,6 @@ retained_location=$(encode_value "")"
   [ -f "$namespace/reconcile.state" ] || \
     atomic_write "$namespace/reconcile.state" "$reconcile_record" || return 1
   return 0
-}
-
-# Agent and test harnesses can keep control pipes on descriptors above stderr.
-# Detached descendants must not keep those pipes alive after their callback or
-# test process has completed. Bash 3.2 reserves descriptor 255 for this script.
-close_inherited_descriptors() {
-  local descriptor fd
-  for descriptor in /dev/fd/*; do
-    fd="${descriptor##*/}"
-    case "$fd" in
-      0 | 1 | 2 | 255 | *[!0-9]*) continue ;;
-    esac
-    eval "exec ${fd}>&-" 2>/dev/null || true
-  done
 }
 
 # Run a command with the prompt on stdin under a hard timeout. macOS ships no
