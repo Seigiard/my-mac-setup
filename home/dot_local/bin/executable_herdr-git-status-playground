@@ -1,0 +1,1294 @@
+#!/usr/bin/env python3
+"""Safe lifecycle foundation for the disposable Herdr Git status playground."""
+
+import argparse
+import datetime as dt
+import errno
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
+
+APP_NAME = "herdr-git-status-playground"
+APPROVED_HERDR_VERSION = "0.8.2"
+SCHEMA_VERSION = 1
+RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+PROFILE_IDS = ("ezcorp", "sfroment", "krystof", "jmarbutt", "viewer")
+ACTIVE_STATES = {
+    "provisioning",
+    "active-ready",
+    "active-degraded",
+    "stopping",
+    "cleanup-incomplete",
+}
+CANDIDATE_REVISIONS = {
+    "ezcorp": "f144c8dac2860e344b6b379d2bcfee229dcf10ad",
+    "sfroment": "b726977143adc2847dc25e3327bc0b1b4fc26455",
+    "krystof": "fe6575a89de9006c35d9d0b9707397839d983cff",
+    "jmarbutt": "8a56c5dce0bd65e47eddc9a1d862ddae870cddc3",
+}
+SAFE_INHERITED = ("LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "NO_COLOR")
+SECRET_NAMES = ("TOKEN", "PASSWORD", "CREDENTIAL", "SECRET")
+
+
+class PlaygroundError(Exception):
+    def __init__(self, code: str, message: str, status: int = 1):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+
+
+class AtomicWriteError(PlaygroundError):
+    pass
+
+
+class ViewDetached(Exception):
+    pass
+
+
+_atomic_pause_used = False
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def test_mode() -> bool:
+    return os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_MODE") == "1"
+
+
+def source_environment() -> Dict[str, str]:
+    environment = dict(os.environ)
+    fixture = environment.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_PARENT_ENV")
+    if test_mode() and fixture:
+        try:
+            with open(fixture, encoding="utf-8") as handle:
+                supplied = json.load(handle)
+        except (OSError, ValueError) as error:
+            raise PlaygroundError("TEST_ENVIRONMENT_INVALID", str(error))
+        if not isinstance(supplied, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in supplied.items()
+        ):
+            raise PlaygroundError("TEST_ENVIRONMENT_INVALID", "test parent environment must be a string map")
+        environment.update(supplied)
+    return environment
+
+
+def state_root(environment: Dict[str, str]) -> Path:
+    home = Path(environment.get("HOME") or str(Path.home()))
+    xdg_state = Path(environment.get("XDG_STATE_HOME") or home / ".local" / "state")
+    return xdg_state / APP_NAME
+
+
+def ensure_private_directory(path: Path) -> None:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.is_symlink() or not path.is_dir():
+        raise PlaygroundError("UNSAFE_STATE_PATH", str(path))
+    os.chmod(path, 0o700)
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def atomic_write_json(path: Path, value: Dict[str, Any], label: str = "record") -> None:
+    global _atomic_pause_used
+    ensure_private_directory(path.parent)
+    payload = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    failpoint = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT", "") if test_mode() else ""
+    injected = failpoint.startswith("intent-") and label == "intent"
+    kind = failpoint[len("intent-") :] if injected else ""
+    code = "INTENT_%s_FAILED" % kind.upper() if kind else "ATOMIC_WRITE_FAILED"
+    if injected and kind == "permission":
+        raise AtomicWriteError(code, "injected permission failure before intent commit")
+
+    descriptor = -1
+    temporary = ""
+    try:
+        descriptor, temporary = tempfile.mkstemp(prefix=".%s-" % path.name, dir=str(path.parent))
+        os.fchmod(descriptor, 0o600)
+        if injected and kind == "write":
+            raise AtomicWriteError(code, "injected write failure before intent commit")
+        if injected and kind == "space":
+            raise AtomicWriteError(code, "injected space failure before intent commit")
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = -1
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        marker = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_ATOMIC_MARKER")
+        release = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_ATOMIC_RELEASE")
+        if test_mode() and marker and release and not _atomic_pause_used:
+            _atomic_pause_used = True
+            Path(marker).touch()
+            while not Path(release).exists():
+                time.sleep(0.01)
+
+        if injected and kind == "replace":
+            raise AtomicWriteError(code, "injected rename failure before intent commit")
+        os.replace(temporary, path)
+        temporary = ""
+        os.chmod(path, 0o600)
+        fsync_directory(path.parent)
+    except AtomicWriteError:
+        raise
+    except OSError as error:
+        raise AtomicWriteError("ATOMIC_WRITE_FAILED", "%s: %s" % (path, error))
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
+
+def read_json(path: Path) -> Dict[str, Any]:
+    try:
+        mode = path.lstat().st_mode
+        if path.is_symlink() or not stat.S_ISREG(mode):
+            raise PlaygroundError("UNSAFE_STATE_PATH", str(path))
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+    except FileNotFoundError:
+        raise PlaygroundError("RUN_NOT_FOUND", path.parent.name)
+    except (OSError, ValueError) as error:
+        raise PlaygroundError("MANIFEST_INVALID", str(error))
+    if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
+        raise PlaygroundError("MANIFEST_INVALID", str(path))
+    return value
+
+
+def validate_run_id(run_id: str) -> None:
+    if not RUN_ID.fullmatch(run_id):
+        raise PlaygroundError("RUN_ID_INVALID", run_id, 2)
+
+
+def run_directory(root: Path, run_id: str) -> Path:
+    validate_run_id(run_id)
+    return root / "runs" / run_id
+
+
+def manifest_path(root: Path, run_id: str) -> Path:
+    return run_directory(root, run_id) / "manifest.json"
+
+
+def read_manifest(root: Path, run_id: str) -> Dict[str, Any]:
+    manifest = read_json(manifest_path(root, run_id))
+    if manifest.get("run_id") != run_id:
+        raise PlaygroundError("MANIFEST_ID_MISMATCH", run_id)
+    return manifest
+
+
+def process_start_identity(pid: int) -> Optional[str]:
+    try:
+        output = subprocess.check_output(
+            ["/bin/ps", "-o", "lstart=", "-p", str(pid)],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return output or None
+
+
+def process_group(pid: int) -> Optional[int]:
+    try:
+        return os.getpgid(pid)
+    except (OSError, ProcessLookupError):
+        return None
+
+
+def process_command(pid: int) -> Optional[str]:
+    try:
+        output = subprocess.check_output(
+            ["/bin/ps", "-ww", "-o", "command=", "-p", str(pid)],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return output or None
+
+
+def process_alive(pid: int) -> bool:
+    try:
+        waited, _ = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            return False
+    except ChildProcessError:
+        pass
+    except OSError as error:
+        if error.errno != errno.ECHILD:
+            return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def output_record(
+    manifest: Optional[Dict[str, Any]],
+    code: Optional[str] = None,
+    message: Optional[str] = None,
+    next_command: Optional[str] = None,
+) -> Dict[str, Any]:
+    if manifest is None:
+        return {
+            "run_id": None,
+            "generation": 0,
+            "lifecycle_state": "not-allocated",
+            "effective_state": "not-allocated",
+            "error": {"code": code, "message": message} if code else None,
+            "next_command": next_command or "fix preflight and rerun start",
+        }
+    return {
+        "run_id": manifest["run_id"],
+        "generation": manifest["generation"],
+        "lifecycle_state": manifest["lifecycle_state"],
+        "effective_state": effective_state(manifest),
+        "error": {"code": code, "message": message}
+        if code
+        else manifest.get("error"),
+        "next_command": next_command if next_command is not None else manifest.get("next_command"),
+    }
+
+
+def print_json(value: Dict[str, Any]) -> None:
+    print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+
+def error_result(error: PlaygroundError, manifest: Optional[Dict[str, Any]] = None) -> int:
+    next_command = None
+    if manifest is not None:
+        next_command = "stop %s" % manifest["run_id"]
+    print_json(output_record(manifest, error.code, error.message, next_command))
+    return error.status
+
+
+def resolve_executable(name: str, path: str) -> Optional[str]:
+    resolved = shutil.which(name, path=path)
+    return os.path.realpath(resolved) if resolved else None
+
+
+def minimal_environment(source: Dict[str, str], executable_paths: Dict[str, str], home: Path) -> Dict[str, str]:
+    directories: List[str] = []
+    for executable in executable_paths.values():
+        directory = str(Path(executable).parent)
+        if directory not in directories:
+            directories.append(directory)
+    environment = {
+        "PATH": os.pathsep.join(directories),
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "XDG_STATE_HOME": str(home / ".state"),
+        "XDG_DATA_HOME": str(home / ".data"),
+    }
+    for name in SAFE_INHERITED:
+        if name in source:
+            environment[name] = source[name]
+    if test_mode():
+        for name in ("HGSP_WORK", "HGSP_CALL_LOG", "HGSP_HERDR_VERSION", "HGSP_GH_AUTH_STATUS"):
+            if name in os.environ:
+                environment[name] = os.environ[name]
+    return environment
+
+
+def run_checked(arguments: List[str], environment: Dict[str, str], code: str) -> str:
+    try:
+        completed = subprocess.run(
+            arguments,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise PlaygroundError(code, str(error))
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "status %d" % completed.returncode
+        raise PlaygroundError(code, detail)
+    return completed.stdout.strip()
+
+
+def load_fixture_ownership(path: str) -> Dict[str, str]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, ValueError) as error:
+        raise PlaygroundError("FIXTURE_OWNERSHIP_UNPROVED", str(error))
+    expected = ("host", "owner", "name", "repository_id")
+    if (
+        not isinstance(value, dict)
+        or value.get("owned") is not True
+        or any(not isinstance(value.get(key), str) or not value[key] for key in expected)
+        or value.get("name") == "my-mac-setup"
+    ):
+        raise PlaygroundError("FIXTURE_OWNERSHIP_UNPROVED", "fixture repository ownership is not exact")
+    return {key: value[key] for key in expected}
+
+
+def load_audit_attestation(path: str) -> str:
+    try:
+        contents = Path(path).read_bytes()
+        value = json.loads(contents.decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError) as error:
+        raise PlaygroundError("AUDIT_ATTESTATION_INVALID", str(error))
+    candidates = value.get("candidates") if isinstance(value, dict) else None
+    if not isinstance(candidates, dict):
+        raise PlaygroundError("AUDIT_ATTESTATION_INVALID", "candidate audit map is missing")
+    for candidate, revision in CANDIDATE_REVISIONS.items():
+        record = candidates.get(candidate)
+        if (
+            not isinstance(record, dict)
+            or record.get("revision") != revision
+            or not isinstance(record.get("tree"), str)
+            or not record["tree"]
+        ):
+            raise PlaygroundError("AUDIT_ATTESTATION_INVALID", "audit is absent or stale for %s" % candidate)
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def preflight(
+    arguments: argparse.Namespace, source: Dict[str, str]
+) -> Tuple[Dict[str, str], Dict[str, str], str, Dict[str, str]]:
+    fixture = load_fixture_ownership(arguments.fixture_ownership)
+    audit_digest = load_audit_attestation(arguments.audit_attestation)
+    controller_token = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN", "")
+    candidate_token = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN", "")
+    if not controller_token or not candidate_token or controller_token == candidate_token:
+        raise PlaygroundError(
+            "CREDENTIAL_AUTHORITY_INVALID",
+            "separate controller-write and candidate-read credentials are required",
+        )
+
+    dependency_names = ("cargo", "node", "jq", "gh", "git", "python3", "herdr")
+    executable_paths: Dict[str, str] = {}
+    search_path = source.get("PATH", "")
+    for name in dependency_names:
+        resolved = resolve_executable(name, search_path)
+        if resolved is None:
+            raise PlaygroundError("%s_NOT_FOUND" % name.upper(), "%s is not on the approved PATH" % name)
+        executable_paths[name] = resolved
+
+    approved_herdr = os.path.realpath(arguments.approved_herdr)
+    if executable_paths["herdr"] != approved_herdr:
+        raise PlaygroundError("HERDR_PATH_CHANGED", "resolved Herdr differs from the approved path")
+
+    preflight_home = Path(tempfile.mkdtemp(prefix=".%s-preflight-" % APP_NAME))
+    try:
+        environment = minimal_environment(source, executable_paths, preflight_home)
+        versions = {
+            "cargo": run_checked([executable_paths["cargo"], "--version"], environment, "CARGO_INVALID"),
+            "node": run_checked([executable_paths["node"], "--version"], environment, "NODE_INVALID"),
+            "jq": run_checked([executable_paths["jq"], "--version"], environment, "JQ_INVALID"),
+            "gh": run_checked([executable_paths["gh"], "--version"], environment, "GH_INVALID"),
+            "git": run_checked([executable_paths["git"], "--version"], environment, "GIT_INVALID"),
+            "python3": run_checked(
+                [executable_paths["python3"], "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+                environment,
+                "PYTHON3_INVALID",
+            ),
+            "herdr": run_checked([executable_paths["herdr"], "--version"], environment, "HERDR_INVALID"),
+        }
+        node_match = re.search(r"(\d+)", versions["node"])
+        if node_match is None or int(node_match.group(1)) < 20:
+            raise PlaygroundError("NODE_VERSION_UNSUPPORTED", versions["node"])
+        python_match = re.fullmatch(r"(\d+)\.(\d+)", versions["python3"])
+        if python_match is None or tuple(map(int, python_match.groups())) < (3, 9):
+            raise PlaygroundError("PYTHON3_VERSION_UNSUPPORTED", versions["python3"])
+        herdr_match = re.search(r"(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)", versions["herdr"])
+        if herdr_match is None or herdr_match.group(1) != APPROVED_HERDR_VERSION:
+            raise PlaygroundError("HERDR_VERSION_UNAPPROVED", versions["herdr"])
+
+        for token, suffix in ((controller_token, "controller"), (candidate_token, "candidate")):
+            auth_home = preflight_home / suffix
+            ensure_private_directory(auth_home)
+            auth_environment = minimal_environment(source, executable_paths, auth_home)
+            auth_environment["GH_CONFIG_DIR"] = str(preflight_home / suffix / "gh")
+            auth_environment["GH_TOKEN"] = token
+            run_checked(
+                [executable_paths["gh"], "auth", "status", "--hostname", fixture["host"]],
+                auth_environment,
+                "%s_AUTH_FAILED" % suffix.upper(),
+            )
+    finally:
+        shutil.rmtree(str(preflight_home), ignore_errors=True)
+
+    try:
+        herdr_stat = os.stat(approved_herdr)
+    except OSError as error:
+        raise PlaygroundError("HERDR_PATH_CHANGED", str(error))
+    herdr_identity = {
+        "path": approved_herdr,
+        "device": str(herdr_stat.st_dev),
+        "inode": str(herdr_stat.st_ino),
+        "version": APPROVED_HERDR_VERSION,
+    }
+    return executable_paths, fixture, audit_digest, herdr_identity
+
+
+def live_herdr_roots(source: Dict[str, str]) -> List[Path]:
+    home = Path(source.get("HOME") or str(Path.home()))
+    config = Path(source.get("XDG_CONFIG_HOME") or home / ".config") / "herdr"
+    state = Path(source.get("XDG_STATE_HOME") or home / ".local" / "state") / "herdr"
+    data = Path(source.get("XDG_DATA_HOME") or home / ".local" / "share") / "herdr"
+    return [path.resolve(strict=False) for path in (config, state, data)]
+
+
+def is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(parent.resolve(strict=False))
+        return True
+    except ValueError:
+        return False
+
+
+def build_profiles(run_dir: Path, source: Dict[str, str]) -> Dict[str, Dict[str, str]]:
+    profiles: Dict[str, Dict[str, str]] = {}
+    live_roots = live_herdr_roots(source)
+    for profile_id in PROFILE_IDS:
+        profile_root = run_dir / "runtime" / "profiles" / profile_id
+        record = {
+            "home": str(profile_root / "home"),
+            "config_home": str(profile_root / "config"),
+            "state_home": str(profile_root / "state"),
+            "data_home": str(profile_root / "data"),
+            "socket": str(profile_root / "state" / "herdr" / "session.sock"),
+        }
+        for value in record.values():
+            path = Path(value)
+            if any(is_within(path, root) for root in live_roots):
+                raise PlaygroundError("PROFILE_ISOLATION_FAILED", str(path))
+        for key in ("home", "config_home", "state_home", "data_home"):
+            ensure_private_directory(Path(record[key]))
+        profiles[profile_id] = record
+    return profiles
+
+
+def allocate_run(root: Path, source: Dict[str, str]) -> Tuple[Path, Dict[str, Dict[str, str]], str]:
+    ensure_private_directory(root)
+    ensure_private_directory(root / "runs")
+    for _ in range(20):
+        run_id = "run-%s-%s" % (dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"), secrets.token_hex(4))
+        run_dir = root / "runs" / run_id
+        try:
+            run_dir.mkdir(mode=0o700)
+            fsync_directory(run_dir.parent)
+            profiles = build_profiles(run_dir, source)
+            return run_dir, profiles, run_id
+        except FileExistsError:
+            continue
+    raise PlaygroundError("RUN_ALLOCATION_FAILED", "could not allocate a unique run ID")
+
+
+def canonical_remote(fixture: Dict[str, str]) -> str:
+    return "https://%s/%s/%s.git" % (fixture["host"], fixture["owner"], fixture["name"])
+
+
+def build_environments(
+    source: Dict[str, str],
+    executable_paths: Dict[str, str],
+    run_dir: Path,
+    profiles: Dict[str, Dict[str, str]],
+    fixture: Dict[str, str],
+) -> Dict[str, Dict[str, str]]:
+    controller_home = run_dir / "runtime" / "controller" / "home"
+    ensure_private_directory(controller_home)
+    git_environment = minimal_environment(source, executable_paths, controller_home)
+    git_environment.update(
+        {
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": str(controller_home / ".gitconfig"),
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "/usr/bin/false",
+            "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o IdentityAgent=none",
+            "HERDR_PLAYGROUND_CANONICAL_REMOTE": canonical_remote(fixture),
+        }
+    )
+    gh_environment = minimal_environment(source, executable_paths, controller_home)
+    gh_environment.update(
+        {
+            "GH_CONFIG_DIR": str(run_dir / "runtime" / "controller" / "gh"),
+            "GH_TOKEN": os.environ["HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"],
+        }
+    )
+    build_home = run_dir / "runtime" / "build" / "home"
+    ensure_private_directory(build_home)
+    build_environment = minimal_environment(source, executable_paths, build_home)
+    candidate = profiles["ezcorp"]
+    runtime_environment = minimal_environment(source, executable_paths, Path(candidate["home"]))
+    runtime_environment.update(
+        {
+            "XDG_CONFIG_HOME": candidate["config_home"],
+            "XDG_STATE_HOME": candidate["state_home"],
+            "XDG_DATA_HOME": candidate["data_home"],
+            "GH_TOKEN": os.environ["HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN"],
+        }
+    )
+    viewer = profiles["viewer"]
+    viewer_environment = minimal_environment(source, executable_paths, Path(viewer["home"]))
+    viewer_environment.update(
+        {
+            "XDG_CONFIG_HOME": viewer["config_home"],
+            "XDG_STATE_HOME": viewer["state_home"],
+            "XDG_DATA_HOME": viewer["data_home"],
+        }
+    )
+    return {
+        "controller-git": git_environment,
+        "controller-gh": gh_environment,
+        "candidate-build": build_environment,
+        "candidate-runtime": runtime_environment,
+        "viewer": viewer_environment,
+    }
+
+
+def redacted_environment(environment: Dict[str, str]) -> Dict[str, str]:
+    redacted: Dict[str, str] = {}
+    for name, value in environment.items():
+        if any(part in name.upper() for part in SECRET_NAMES):
+            redacted[name] = "<redacted>"
+        else:
+            redacted[name] = value
+    return redacted
+
+
+def record_test_environments(environments: Dict[str, Dict[str, str]]) -> None:
+    path = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_LOG")
+    if not test_mode() or not path:
+        return
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            for name, environment in environments.items():
+                handle.write(
+                    json.dumps(
+                        {"class": name, "environment": redacted_environment(environment)},
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        raise
+
+
+def create_git_credential_file(run_dir: Path, fixture: Dict[str, str]) -> Path:
+    path = run_dir / "runtime" / "controller" / "git-credentials"
+    token = os.environ["HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"]
+    contents = "https://x-access-token:%s@%s/%s/%s.git\n" % (
+        token,
+        fixture["host"],
+        fixture["owner"],
+        fixture["name"],
+    )
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(descriptor, contents.encode("utf-8"))
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return path
+
+
+def verify_herdr_identity(record: Dict[str, str], search_path: str) -> None:
+    resolved = resolve_executable("herdr", search_path)
+    if resolved != record["path"]:
+        raise PlaygroundError("HERDR_PATH_CHANGED", "Herdr path changed after preflight")
+    try:
+        current = os.stat(resolved)
+    except OSError as error:
+        raise PlaygroundError("HERDR_PATH_CHANGED", str(error))
+    if str(current.st_dev) != record["device"] or str(current.st_ino) != record["inode"]:
+        raise PlaygroundError("HERDR_PATH_CHANGED", "Herdr file identity changed after preflight")
+
+
+class Mutation:
+    def __init__(self, root: Path, run_id: str):
+        self.root = root
+        self.run_id = run_id
+        self.run_dir = run_directory(root, run_id)
+        self.lock_handle: Optional[Any] = None
+        self.manifest: Optional[Dict[str, Any]] = None
+        self.owner_id = ""
+
+    def __enter__(self) -> "Mutation":
+        lock_path = self.run_dir / "mutation.lock"
+        try:
+            descriptor = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+            self.lock_handle = os.fdopen(descriptor, "r+")
+            fcntl.flock(self.lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if self.lock_handle is not None:
+                self.lock_handle.close()
+            raise PlaygroundError("RUN_BUSY", "another mutating command owns the run")
+        except OSError as error:
+            raise PlaygroundError("RUN_LOCK_FAILED", str(error))
+
+        self.manifest = read_manifest(self.root, self.run_id)
+        lease = self.manifest.get("mutation_lease")
+        if isinstance(lease, dict) and lease.get("owner_id"):
+            pid = lease.get("pid")
+            start = lease.get("start_identity")
+            if (
+                isinstance(pid, int)
+                and isinstance(start, str)
+                and process_start_identity(pid) == start
+                and pid != os.getpid()
+            ):
+                raise PlaygroundError("RUN_BUSY", "durable mutation owner is still alive")
+
+        self.owner_id = secrets.token_hex(12)
+        self.manifest["mutation_lease"] = {
+            "owner_id": self.owner_id,
+            "pid": os.getpid(),
+            "start_identity": process_start_identity(os.getpid()),
+            "claimed_at": utc_now(),
+        }
+        self.persist("lease-claim")
+
+        marker = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_LEASE_MARKER")
+        release = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_LEASE_RELEASE")
+        if test_mode() and marker and release:
+            Path(marker).touch()
+            while not Path(release).exists():
+                time.sleep(0.01)
+        return self
+
+    def persist(self, label: str) -> None:
+        assert self.manifest is not None
+        self.manifest["generation"] += 1
+        atomic_write_json(manifest_path(self.root, self.run_id), self.manifest, label)
+
+    def finish(self) -> None:
+        assert self.manifest is not None
+        self.manifest["mutation_lease"] = None
+        self.persist("lease-release")
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        if self.lock_handle is not None:
+            try:
+                fcntl.flock(self.lock_handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                self.lock_handle.close()
+
+
+def effective_state(manifest: Dict[str, Any]) -> str:
+    lifecycle = manifest["lifecycle_state"]
+    if lifecycle in ("stopped", "startup-failed-cleaned"):
+        return lifecycle
+    for process in manifest.get("processes", {}).values():
+        if process.get("status") == "running":
+            verdict, _ = verify_process(process)
+            if verdict == "mismatch" and lifecycle.startswith("active"):
+                return "active-degraded"
+    return lifecycle
+
+
+def verify_process(record: Dict[str, Any]) -> Tuple[str, str]:
+    pid = record.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return "mismatch", "PID is absent"
+    if not process_alive(pid):
+        return "gone", "process exited"
+    current_start = process_start_identity(pid)
+    if current_start != record.get("start_identity"):
+        return "mismatch", "process start identity changed"
+    current_group = process_group(pid)
+    if current_group != record.get("process_group") or current_group != pid:
+        return "mismatch", "process group identity changed"
+    command = process_command(pid)
+    if command is None:
+        return "mismatch", "process command is unavailable"
+    controller = record.get("controller_executable", "")
+    target = record.get("executable", "")
+    if not (
+        (controller and controller in command and "__launch-wrapper" in command)
+        or (target and target in command)
+    ):
+        return "mismatch", "process executable changed"
+    return "owned", "verified"
+
+
+def claim_path_for(run_dir: Path, intent_id: str) -> Path:
+    return run_dir / "runtime" / "launch" / intent_id / "claim.json"
+
+
+def gate_path_for(run_dir: Path, intent_id: str) -> Path:
+    return run_dir / "runtime" / "launch" / intent_id / "release"
+
+
+def launch_wrapper(arguments: List[str]) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--claim", required=True)
+    parser.add_argument("--gate", required=True)
+    parser.add_argument("--intent-id", required=True)
+    parser.add_argument("--profile", required=True)
+    parser.add_argument("target")
+    namespace = parser.parse_args(arguments)
+    claim = {
+        "schema_version": SCHEMA_VERSION,
+        "intent_id": namespace.intent_id,
+        "profile": namespace.profile,
+        "pid": os.getpid(),
+        "process_group": os.getpgrp(),
+        "start_identity": process_start_identity(os.getpid()),
+        "controller_executable": os.path.realpath(sys.executable),
+        "executable": os.path.realpath(namespace.target),
+    }
+    atomic_write_json(Path(namespace.claim), claim, "launch-claim")
+    gate = Path(namespace.gate)
+    while not gate.exists():
+        time.sleep(0.01)
+    os.execve(namespace.target, [namespace.target], dict(os.environ))
+    return 127
+
+
+def wait_for_claim(path: Path, process: subprocess.Popen) -> Dict[str, Any]:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if path.exists():
+            return read_json(path)
+        if process.poll() is not None:
+            raise PlaygroundError("LAUNCH_CLAIM_MISSING", "launch wrapper exited before claiming ownership")
+        time.sleep(0.01)
+    raise PlaygroundError("LAUNCH_CLAIM_MISSING", "launch wrapper did not claim ownership")
+
+
+def start_foundation_process(
+    mutation: Mutation,
+    environment: Dict[str, str],
+    target: str,
+) -> Optional[PlaygroundError]:
+    assert mutation.manifest is not None
+    manifest = mutation.manifest
+    run_dir = mutation.run_dir
+    intent_id = "foundation-supervisor"
+    claim_path = claim_path_for(run_dir, intent_id)
+    gate_path = gate_path_for(run_dir, intent_id)
+    ensure_private_directory(claim_path.parent)
+    manifest["launch_intents"][intent_id] = {
+        "intent_id": intent_id,
+        "profile": "ezcorp",
+        "executable": os.path.realpath(target),
+        "phase": "intent-committed",
+        "claim": str(claim_path.relative_to(run_dir)),
+    }
+    try:
+        mutation.persist("intent")
+    except AtomicWriteError as error:
+        return error
+
+    failpoint = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT", "")
+    if failpoint == "before-spawn":
+        return PlaygroundError("INJECTED_BEFORE_SPAWN", "injected crash before spawn")
+
+    manifest["launch_intents"][intent_id]["phase"] = "spawn-attempted"
+    mutation.persist("spawn-attempt")
+    wrapper = [
+        sys.executable,
+        os.path.realpath(__file__),
+        "__launch-wrapper",
+        "--claim",
+        str(claim_path),
+        "--gate",
+        str(gate_path),
+        "--intent-id",
+        intent_id,
+        "--profile",
+        "ezcorp",
+        os.path.realpath(target),
+    ]
+    process = subprocess.Popen(
+        wrapper,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+    claim = wait_for_claim(claim_path, process)
+    if failpoint == "after-spawn":
+        return PlaygroundError("INJECTED_AFTER_SPAWN", "injected crash after spawn")
+    if failpoint == "before-identity-commit":
+        return PlaygroundError("INJECTED_BEFORE_IDENTITY_COMMIT", "injected crash before identity commit")
+
+    verdict, reason = verify_process(claim)
+    if verdict != "owned":
+        return PlaygroundError("PROCESS_IDENTITY_UNPROVED", reason)
+    claim["status"] = "running"
+    manifest["processes"][intent_id] = claim
+    manifest["launch_intents"][intent_id]["phase"] = "identity-recorded"
+    mutation.persist("identity")
+    gate_path.touch(mode=0o600)
+    return None
+
+
+def new_manifest(
+    run_id: str,
+    profiles: Dict[str, Dict[str, str]],
+    fixture: Dict[str, str],
+    audit_digest: str,
+    executable_paths: Dict[str, str],
+    herdr_identity: Dict[str, str],
+) -> Dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "generation": 0,
+        "lifecycle_state": "provisioning",
+        "created_at": utc_now(),
+        "fixture_repository": fixture,
+        "canonical_remote": canonical_remote(fixture),
+        "audit_attestation_sha256": audit_digest,
+        "dependencies": executable_paths,
+        "herdr_identity": herdr_identity,
+        "profiles": profiles,
+        "launch_intents": {},
+        "processes": {},
+        "mutation_lease": None,
+        "error": None,
+        "next_command": "status %s" % run_id,
+    }
+
+
+def wait_for_test_marker(marker_name: str, release_name: str, detached: bool = False) -> None:
+    marker = os.environ.get(marker_name)
+    release = os.environ.get(release_name)
+    if not test_mode() or not marker or not release:
+        return
+
+    def interrupted(signum: int, frame: Any) -> None:
+        if detached:
+            raise ViewDetached()
+        raise KeyboardInterrupt()
+
+    previous_int = signal.signal(signal.SIGINT, interrupted)
+    previous_hup = signal.signal(signal.SIGHUP, interrupted)
+    try:
+        Path(marker).write_text("%d\n" % os.getpid(), encoding="utf-8")
+        while not Path(release).exists():
+            time.sleep(0.01)
+    finally:
+        signal.signal(signal.SIGINT, previous_int)
+        signal.signal(signal.SIGHUP, previous_hup)
+
+
+def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    try:
+        executable_paths, fixture, audit_digest, herdr_identity = preflight(arguments, source)
+    except PlaygroundError as error:
+        return error_result(error)
+
+    root = state_root(source)
+    run_dir: Optional[Path] = None
+    manifest: Optional[Dict[str, Any]] = None
+    try:
+        run_dir, profiles, run_id = allocate_run(root, source)
+        manifest = new_manifest(
+            run_id,
+            profiles,
+            fixture,
+            audit_digest,
+            executable_paths,
+            herdr_identity,
+        )
+        atomic_write_json(run_dir / "manifest.json", manifest, "allocate")
+        environments = build_environments(source, executable_paths, run_dir, profiles, fixture)
+
+        credential_file = create_git_credential_file(run_dir, fixture)
+        try:
+            git_environment = dict(environments["controller-git"])
+            git_environment.update(
+                {
+                    "GIT_CONFIG_COUNT": "2",
+                    "GIT_CONFIG_KEY_0": "credential.helper",
+                    "GIT_CONFIG_VALUE_0": "store --file=%s" % credential_file,
+                    "GIT_CONFIG_KEY_1": "credential.useHttpPath",
+                    "GIT_CONFIG_VALUE_1": "true",
+                }
+            )
+            environments["controller-git"] = git_environment
+            run_checked([executable_paths["git"], "--version"], git_environment, "GIT_PREFLIGHT_FAILED")
+        finally:
+            try:
+                credential_file.unlink()
+                fsync_directory(credential_file.parent)
+            except FileNotFoundError:
+                pass
+        record_test_environments(environments)
+
+        verify_herdr_identity(herdr_identity, source.get("PATH", ""))
+        with Mutation(root, run_id) as mutation:
+            manifest = mutation.manifest
+            assert manifest is not None
+            target = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS") if test_mode() else None
+            if not target:
+                manifest["lifecycle_state"] = "startup-failed-cleaned"
+                manifest["error"] = {
+                    "code": "PROFILE_STARTUP_NOT_IMPLEMENTED",
+                    "message": "candidate startup belongs to a later implementation unit",
+                }
+                manifest["next_command"] = "status %s" % run_id
+                mutation.persist("foundation-only")
+                runtime = run_dir / "runtime"
+                if runtime.exists():
+                    shutil.rmtree(str(runtime))
+                    fsync_directory(run_dir)
+                mutation.finish()
+                print_json(output_record(manifest))
+                return 1
+
+            launch_error = start_foundation_process(mutation, environments["candidate-runtime"], target)
+            if launch_error is not None:
+                current = read_manifest(root, run_id)
+                print_json(output_record(current, launch_error.code, launch_error.message, "stop %s" % run_id))
+                return launch_error.status
+
+            manifest["error"] = {
+                "code": "FOUNDATION_PROCESS_RUNNING",
+                "message": "foundation test process is owned; candidate startup is not implemented",
+            }
+            manifest["next_command"] = "stop %s" % run_id
+            mutation.persist("foundation-running")
+            mutation.finish()
+
+        try:
+            wait_for_test_marker(
+                "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER",
+                "HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE",
+            )
+        except KeyboardInterrupt:
+            stopped, stop_status = stop_run(root, run_id)
+            print_json(
+                output_record(
+                    stopped,
+                    "START_INTERRUPTED",
+                    "start was interrupted and verified teardown ran",
+                    "status %s" % run_id,
+                )
+            )
+            return 130 if stop_status == 0 else stop_status
+
+        manifest = read_manifest(root, run_id)
+        print_json(output_record(manifest))
+        return 1
+    except PlaygroundError as error:
+        if manifest is None or run_dir is None:
+            return error_result(error)
+        try:
+            current = read_manifest(root, manifest["run_id"])
+        except PlaygroundError:
+            current = manifest
+        return error_result(error, current)
+    except KeyboardInterrupt:
+        if manifest is None or run_dir is None:
+            return error_result(PlaygroundError("START_INTERRUPTED", "start was interrupted", 130))
+        stopped, stop_status = stop_run(root, manifest["run_id"])
+        print_json(
+            output_record(
+                stopped,
+                "START_INTERRUPTED",
+                "start was interrupted and verified teardown ran",
+                "status %s" % manifest["run_id"],
+            )
+        )
+        return 130 if stop_status == 0 else stop_status
+
+
+def adopt_claim(run_dir: Path, intent: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    claim_name = intent.get("claim")
+    if not isinstance(claim_name, str):
+        return None
+    claim_path = (run_dir / claim_name).resolve(strict=False)
+    if not is_within(claim_path, run_dir / "runtime") or not claim_path.exists():
+        return None
+    try:
+        claim = read_json(claim_path)
+    except PlaygroundError:
+        return None
+    if (
+        claim.get("intent_id") != intent.get("intent_id")
+        or claim.get("profile") != intent.get("profile")
+        or claim.get("executable") != intent.get("executable")
+    ):
+        return None
+    claim["status"] = "running"
+    return claim
+
+
+def terminate_owned_process(record: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    verdict, reason = verify_process(record)
+    if verdict == "gone":
+        record["status"] = "stopped"
+        return True, None
+    if verdict != "owned":
+        return False, "PROCESS_IDENTITY_MISMATCH"
+    pid = record["pid"]
+    group = record["process_group"]
+    try:
+        os.killpg(group, signal.SIGTERM)
+    except ProcessLookupError:
+        record["status"] = "stopped"
+        return True, None
+    except (PermissionError, OSError):
+        return False, "PROCESS_SIGNAL_FAILED"
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if not process_alive(pid):
+            record["status"] = "stopped"
+            return True, None
+        time.sleep(0.01)
+    verdict, _ = verify_process(record)
+    if verdict == "gone":
+        record["status"] = "stopped"
+        return True, None
+    if verdict != "owned":
+        return False, "PROCESS_IDENTITY_MISMATCH"
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except (PermissionError, OSError):
+        return False, "PROCESS_SIGNAL_FAILED"
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if not process_alive(pid):
+            record["status"] = "stopped"
+            return True, None
+        time.sleep(0.01)
+    return False, "PROCESS_STOP_TIMEOUT"
+
+
+def stop_run(root: Path, run_id: str) -> Tuple[Dict[str, Any], int]:
+    current = read_manifest(root, run_id)
+    if current["lifecycle_state"] == "stopped":
+        return current, 0
+    try:
+        with Mutation(root, run_id) as mutation:
+            manifest = mutation.manifest
+            assert manifest is not None
+            manifest["lifecycle_state"] = "stopping"
+            manifest["next_command"] = "stop %s" % run_id
+            mutation.persist("stopping")
+            unresolved: List[str] = []
+
+            for intent_id, intent in manifest.get("launch_intents", {}).items():
+                process = manifest.get("processes", {}).get(intent_id)
+                if process is None:
+                    process = adopt_claim(mutation.run_dir, intent)
+                    if process is not None:
+                        manifest["processes"][intent_id] = process
+                if process is None:
+                    if intent.get("phase") == "intent-committed":
+                        intent["phase"] = "cancelled-before-spawn"
+                        continue
+                    unresolved.append("PROCESS_IDENTITY_UNRESOLVED")
+                    continue
+                stopped, code = terminate_owned_process(process)
+                if stopped:
+                    intent["phase"] = "stopped"
+                elif code:
+                    unresolved.append(code)
+
+            if unresolved:
+                code = "PROCESS_IDENTITY_MISMATCH" if "PROCESS_IDENTITY_MISMATCH" in unresolved else unresolved[0]
+                manifest["lifecycle_state"] = "cleanup-incomplete"
+                manifest["error"] = {"code": code, "message": "owned process cleanup could not be proved"}
+                manifest["next_command"] = "stop %s" % run_id
+                mutation.persist("cleanup-incomplete")
+                mutation.finish()
+                return manifest, 1
+
+            manifest["lifecycle_state"] = "stopped"
+            manifest["error"] = None
+            manifest["next_command"] = "status %s" % run_id
+            mutation.persist("stopped")
+            runtime = mutation.run_dir / "runtime"
+            if runtime.exists():
+                shutil.rmtree(str(runtime))
+                fsync_directory(mutation.run_dir)
+            mutation.finish()
+            return manifest, 0
+    except PlaygroundError as error:
+        current = read_manifest(root, run_id)
+        current["_operation_error"] = {"code": error.code, "message": error.message}
+        return current, error.status
+
+
+def command_stop(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    root = state_root(source)
+    try:
+        manifest, status = stop_run(root, arguments.run_id)
+    except PlaygroundError as error:
+        return error_result(error)
+    operation_error = manifest.pop("_operation_error", None)
+    if operation_error:
+        print_json(
+            output_record(
+                manifest,
+                operation_error["code"],
+                operation_error["message"],
+                "stop %s" % arguments.run_id,
+            )
+        )
+    else:
+        print_json(output_record(manifest))
+    return status
+
+
+def command_status(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    root = state_root(source)
+    if arguments.all:
+        runs: List[Dict[str, Any]] = []
+        runs_dir = root / "runs"
+        if runs_dir.is_dir():
+            for path in sorted(runs_dir.iterdir()):
+                if not path.is_dir() or not RUN_ID.fullmatch(path.name):
+                    continue
+                try:
+                    manifest = read_manifest(root, path.name)
+                except PlaygroundError:
+                    continue
+                if manifest["lifecycle_state"] in ACTIVE_STATES:
+                    runs.append(output_record(manifest))
+        print_json({"runs": runs, "error": None})
+        return 0
+    if not arguments.run_id:
+        raise PlaygroundError("RUN_ID_REQUIRED", "status requires RUN_ID or --all", 2)
+    try:
+        manifest = read_manifest(root, arguments.run_id)
+    except PlaygroundError as error:
+        return error_result(error)
+    print_json(output_record(manifest))
+    return 0
+
+
+def command_view(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    root = state_root(source)
+    try:
+        manifest = read_manifest(root, arguments.run_id)
+    except PlaygroundError as error:
+        return error_result(error)
+    try:
+        wait_for_test_marker(
+            "HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_MARKER",
+            "HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_RELEASE",
+            detached=True,
+        )
+    except ViewDetached:
+        print_json(
+            output_record(
+                manifest,
+                "VIEW_DETACHED",
+                "view detached without signalling managed processes",
+                "stop %s" % arguments.run_id,
+            )
+        )
+        return 130
+    print_json(
+        output_record(
+            manifest,
+            "RUN_NOT_VIEWABLE",
+            "viewer startup belongs to a later implementation unit",
+            "stop %s" % arguments.run_id,
+        )
+    )
+    return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=APP_NAME)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    bootstrap = subparsers.add_parser("bootstrap", help="initialize or validate the fixture repository")
+    bootstrap.add_argument("--initialize", action="store_true")
+
+    start = subparsers.add_parser("start", help="preflight and allocate a recoverable run")
+    start.add_argument("--approved-herdr", required=True)
+    start.add_argument("--fixture-ownership", required=True)
+    start.add_argument("--audit-attestation", required=True)
+
+    view = subparsers.add_parser("view", help="attach to a ready comparison viewer")
+    view.add_argument("run_id")
+
+    status = subparsers.add_parser("status", help="inspect one run or discover incomplete runs")
+    status.add_argument("run_id", nargs="?")
+    status.add_argument("--all", action="store_true")
+
+    snapshot = subparsers.add_parser("snapshot", help="capture attributed evidence")
+    snapshot.add_argument("run_id")
+
+    stop = subparsers.add_parser("stop", help="idempotently stop verified owned resources")
+    stop.add_argument("run_id")
+    return parser
+
+
+def command_not_implemented(command: str, arguments: argparse.Namespace, source: Dict[str, str]) -> int:
+    manifest = None
+    run_id = getattr(arguments, "run_id", None)
+    if run_id:
+        try:
+            manifest = read_manifest(state_root(source), run_id)
+        except PlaygroundError as error:
+            return error_result(error)
+    error = PlaygroundError(
+        "%s_NOT_IMPLEMENTED" % command.upper(),
+        "%s belongs to a later implementation unit" % command,
+    )
+    return error_result(error, manifest)
+
+
+def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "__launch-wrapper":
+        return launch_wrapper(sys.argv[2:])
+    parser = build_parser()
+    arguments = parser.parse_args()
+    try:
+        source = source_environment()
+        if arguments.command == "start":
+            return command_start(arguments, source)
+        if arguments.command == "status":
+            return command_status(arguments, source)
+        if arguments.command == "stop":
+            return command_stop(arguments, source)
+        if arguments.command == "view":
+            return command_view(arguments, source)
+        return command_not_implemented(arguments.command, arguments, source)
+    except PlaygroundError as error:
+        return error_result(error)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

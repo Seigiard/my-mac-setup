@@ -2,6 +2,7 @@
 
 load 'helpers/common'
 load 'helpers/herdr_task_sync'
+load 'helpers/herdr_git_status_playground'
 
 setup() {
   unset HERDR_CHILD_NAME
@@ -9,9 +10,462 @@ setup() {
 }
 
 teardown() {
+  hgsp_teardown
   hts_teardown
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
+}
+
+# ===========================================
+# herdr-git-status-playground controller (U1)
+# ===========================================
+
+@test "herdr-git-status-playground rejects invalid CLI input without state" {
+  hgsp_setup
+  run hgsp_env
+  assert_failure 2
+  assert_output --partial "usage:"
+  assert_file_not_exists "$HGSP_STATE_ROOT"
+
+  run hgsp_env status --unknown
+  assert_failure 2
+  assert_output --partial "unrecognized arguments"
+  assert_file_not_exists "$HGSP_STATE_ROOT"
+}
+
+@test "herdr-git-status-playground isolates profiles and child environments" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" provisioning
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+
+  run "$HGSP_PYTHON" - "$HGSP_ENV_LOG" "$(hgsp_manifest "$HGSP_LAST_RUN_ID")" "$HGSP_WORK" <<'PY'
+import json
+import os
+import sys
+
+env_log, manifest_path, work = sys.argv[1:]
+records = [json.loads(line) for line in open(env_log, encoding="utf-8") if line.strip()]
+by_class = {record["class"]: record["environment"] for record in records}
+required = {"controller-git", "controller-gh", "candidate-build", "candidate-runtime", "viewer"}
+assert required <= by_class.keys(), by_class.keys()
+poisoned = {
+    "HERDR_ENV", "HERDR_SESSION", "HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET_PATH",
+    "HERDR_CONFIG_PATH", "GH_REPO", "GH_HOST", "GITHUB_REPOSITORY", "GITHUB_TOKEN",
+    "SSH_AUTH_SOCK", "GPG_AGENT_INFO", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+    "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
+    "NODE_OPTIONS", "RUBYOPT", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "SSH_ASKPASS",
+}
+for name, child in by_class.items():
+    assert poisoned.isdisjoint(child), (name, poisoned & child.keys())
+    assert child["NO_COLOR"] == "safe-control", (name, child)
+    assert work + "/poison-bin" not in child["PATH"], (name, child["PATH"])
+assert "GH_TOKEN" not in by_class["candidate-build"]
+assert "GH_TOKEN" not in by_class["viewer"]
+assert by_class["controller-gh"]["GH_TOKEN"] == "<redacted>"
+assert by_class["candidate-runtime"]["GH_TOKEN"] == "<redacted>"
+git = by_class["controller-git"]
+assert git["GIT_CONFIG_SYSTEM"] == "/dev/null"
+assert git["GIT_TERMINAL_PROMPT"] == "0"
+assert git["HOME"].startswith(work + "/xdg-state/herdr-git-status-playground/runs/")
+assert git["GIT_CONFIG_GLOBAL"].startswith(git["HOME"])
+assert git["HERDR_PLAYGROUND_CANONICAL_REMOTE"] == "https://github.com/example/herdr-status-fixtures.git"
+assert git["GIT_CONFIG_KEY_0"] == "credential.helper"
+controller_root = os.path.dirname(git["HOME"])
+assert git["GIT_CONFIG_VALUE_0"].startswith("store --file=" + controller_root + "/")
+assert not os.path.exists(git["GIT_CONFIG_VALUE_0"].removeprefix("store --file="))
+assert git["GIT_ASKPASS"] != "poison"
+with open(manifest_path, encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert manifest["canonical_remote"] == "https://github.com/example/herdr-status-fixtures.git"
+profiles = manifest["profiles"]
+assert len(profiles) == 5
+keys = ("home", "config_home", "state_home", "data_home", "socket")
+for key in keys:
+    values = [profile[key] for profile in profiles.values()]
+    assert len(values) == len(set(values)), (key, values)
+live_roots = [work + "/live-config/herdr", work + "/xdg-state/herdr", work + "/live-data/herdr"]
+for profile in profiles.values():
+    for key in keys:
+        path = os.path.realpath(profile[key])
+        assert all(os.path.commonpath([path, root]) != root for root in live_roots), (path, live_roots)
+run_root = os.path.dirname(manifest_path)
+for directory, _, files in os.walk(run_root):
+    for name in files:
+        contents = open(os.path.join(directory, name), "rb").read()
+        assert b"controller-canary" not in contents, os.path.join(directory, name)
+        assert b"candidate-canary" not in contents, os.path.join(directory, name)
+PY
+  assert_success
+}
+
+@test "herdr-git-status-playground rejects every missing dependency before launch" {
+  hgsp_setup
+  local tool expected
+  for tool in cargo node jq gh git python3; do
+    mv "$HGSP_STUB/$tool" "$HGSP_STUB/$tool.off"
+    run hgsp_start
+    assert_failure 1
+    expected="$(printf '%s' "$tool" | tr '[:lower:]' '[:upper:]')_NOT_FOUND"
+    assert_equal "$(hgsp_json_field "$output" error.code)" "$expected"
+    hgsp_assert_no_launch_or_mutation
+    mv "$HGSP_STUB/$tool.off" "$HGSP_STUB/$tool"
+  done
+}
+
+@test "herdr-git-status-playground pins Herdr 0.8.2 to its approved path" {
+  hgsp_setup
+  mv "$HGSP_STUB/herdr" "$HGSP_STUB/herdr.off"
+  run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" HERDR_NOT_FOUND
+  hgsp_assert_no_launch_or_mutation
+  mv "$HGSP_STUB/herdr.off" "$HGSP_STUB/herdr"
+
+  HGSP_HERDR_VERSION='herdr 0.8.3' run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" HERDR_VERSION_UNAPPROVED
+  hgsp_assert_no_launch_or_mutation
+
+  cp "$HGSP_STUB/herdr" "$HGSP_STUB/herdr-approved"
+  chmod +x "$HGSP_STUB/herdr-approved"
+  local args=()
+  while IFS= read -r value; do args+=("$value"); done < <(hgsp_start_args)
+  args[1]="$HGSP_STUB/herdr-approved"
+  run hgsp_env start "${args[@]}"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" HERDR_PATH_CHANGED
+  hgsp_assert_no_launch_or_mutation
+
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" FOUNDATION_PROCESS_RUNNING
+  hgsp_wait_for_file "$HGSP_WORK/managed-ready"
+  run grep '^managed-probe|start|' "$HGSP_CALL_LOG"
+  assert_success
+}
+
+@test "herdr-git-status-playground rejects unproved ownership audit and auth" {
+  hgsp_setup
+  local valid_fixture valid_audit
+  valid_fixture="$HGSP_WORK/fixture-ownership.json"
+  valid_audit="$HGSP_WORK/audit-attestation.json"
+
+  printf '%s\n' '{"host":"github.com","owner":"example","name":"my-mac-setup","repository_id":"R_wrong","owned":true}' > "$valid_fixture"
+  run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" FIXTURE_OWNERSHIP_UNPROVED
+  hgsp_assert_no_launch_or_mutation
+
+  hgsp_setup
+  printf '%s\n' '{"candidates":{}}' > "$HGSP_WORK/audit-attestation.json"
+  run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" AUDIT_ATTESTATION_INVALID
+  hgsp_assert_no_launch_or_mutation
+
+  hgsp_setup
+  HGSP_GH_AUTH_STATUS=1 run hgsp_start
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" CONTROLLER_AUTH_FAILED
+  hgsp_assert_no_launch_or_mutation
+
+  hgsp_setup
+  valid_fixture="$HGSP_WORK/fixture-ownership.json"
+  valid_audit="$HGSP_WORK/audit-attestation.json"
+  run env PATH="$HGSP_STUB:/bin" XDG_STATE_HOME="$HGSP_XDG_STATE" \
+    HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN=same \
+    HERDR_GIT_STATUS_PLAYGROUND_CANDIDATE_TOKEN=same \
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_MODE=1 \
+    "$HGSP_PYTHON" "$HGSP_CONTROLLER" start \
+    --approved-herdr "$HGSP_STUB/herdr" --fixture-ownership "$valid_fixture" \
+    --audit-attestation "$valid_audit"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" CREDENTIAL_AUTHORITY_INVALID
+  hgsp_assert_no_launch_or_mutation
+}
+
+@test "herdr-git-status-playground atomically replaces private manifests" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local manifest marker release background_output
+  manifest="$(hgsp_manifest "$HGSP_LAST_RUN_ID")"
+  marker="$HGSP_WORK/atomic-ready"
+  release="$HGSP_WORK/atomic-release"
+
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_ATOMIC_MARKER="$marker" \
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_ATOMIC_RELEASE="$release" \
+    hgsp_env stop "$HGSP_LAST_RUN_ID" > "$HGSP_WORK/stop.out" 2>&1 &
+  HGSP_BG_PIDS="$HGSP_BG_PIDS $!"
+  hgsp_wait_for_file "$marker"
+  run "$HGSP_PYTHON" - "$manifest" <<'PY'
+import json,sys
+for _ in range(500):
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        value = json.load(handle)
+    assert isinstance(value["generation"], int)
+    assert value["run_id"]
+PY
+  assert_success
+  : > "$release"
+  wait ${HGSP_BG_PIDS##* }
+  HGSP_BG_PIDS=""
+  background_output="$(<"$HGSP_WORK/stop.out")"
+  assert_equal "$(hgsp_json_field "$background_output" lifecycle_state)" stopped
+  run "$HGSP_PYTHON" -c 'import os,stat,sys; print(oct(stat.S_IMODE(os.stat(sys.argv[1]).st_mode))[2:])' "$manifest"
+  assert_success
+  assert_output 600
+}
+
+@test "herdr-git-status-playground blocks spawn when intent persistence fails" {
+  hgsp_setup
+  local point
+  for point in permission write space replace; do
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="intent-$point" run hgsp_start
+    assert_failure 1
+    hgsp_capture_run_id
+    local expected
+    expected="INTENT_$(printf '%s' "$point" | tr '[:lower:]' '[:upper:]')_FAILED"
+    assert_equal "$(hgsp_json_field "$output" error.code)" "$expected"
+    assert_equal "$(hgsp_json_field "$output" next_command)" "stop $HGSP_LAST_RUN_ID"
+    hgsp_assert_no_launch_or_mutation
+    run "$HGSP_PYTHON" -m json.tool "$(hgsp_manifest "$HGSP_LAST_RUN_ID")"
+    assert_success
+  done
+}
+
+@test "herdr-git-status-playground crash boundaries preserve recoverable intents" {
+  hgsp_setup
+  local point run_id manifest
+  for point in before-spawn after-spawn before-identity-commit; do
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="$point" run hgsp_start
+    assert_failure 1
+    hgsp_capture_run_id
+    run_id="$HGSP_LAST_RUN_ID"
+    manifest="$(hgsp_manifest "$run_id")"
+    assert_equal "$(hgsp_json_field "$output" run_id)" "$run_id"
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" provisioning
+    run "$HGSP_PYTHON" - "$manifest" <<'PY'
+import json,sys
+manifest=json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["launch_intents"]
+assert next(iter(manifest["launch_intents"].values()))["phase"] in {"intent-committed", "spawn-attempted"}
+PY
+    assert_success
+
+    run hgsp_env status "$run_id"
+    assert_success
+    assert_equal "$(hgsp_json_field "$output" run_id)" "$run_id"
+    run hgsp_env stop "$run_id"
+    if [[ "$point" == after-spawn || "$point" == before-identity-commit ]]; then
+      assert_success
+    else
+      assert_success
+    fi
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  done
+}
+
+@test "herdr-git-status-playground serializes mutations without elapsed-time lease stealing" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id marker release first_pid current_start generation
+  run_id="$HGSP_LAST_RUN_ID"
+  marker="$HGSP_WORK/lease-held"
+  release="$HGSP_WORK/lease-release"
+  generation="$(hgsp_json_field "$output" generation)"
+
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_LEASE_MARKER="$marker" \
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_LEASE_RELEASE="$release" \
+    hgsp_env stop "$run_id" > "$HGSP_WORK/first-stop.out" 2>&1 &
+  first_pid=$!
+  HGSP_BG_PIDS="$HGSP_BG_PIDS $first_pid"
+  hgsp_wait_for_file "$marker"
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" RUN_BUSY
+  run hgsp_env status "$run_id"
+  assert_success
+  [[ "$(hgsp_json_field "$output" generation)" -gt "$generation" ]]
+  : > "$release"
+  wait "$first_pid"
+  HGSP_BG_PIDS=""
+
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  current_start="$(hgsp_process_start_identity "$$")"
+  hgsp_set_manifest_lease "$run_id" "$$" "$current_start"
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" RUN_BUSY
+
+  hgsp_patch_manifest "$run_id" "manifest['mutation_lease']['start_identity']='mismatched-start-identity'"
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+@test "herdr-git-status-playground discovers and stops partial runs by ID" {
+  hgsp_setup
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=after-spawn run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+
+  run hgsp_env status --all
+  assert_success
+  run_id="$run_id" "$HGSP_PYTHON" -c 'import json,os,sys; rows=json.loads(sys.argv[1])["runs"]; assert os.environ["run_id"] in [row["run_id"] for row in rows]' "$output"
+  assert_success
+
+  local manifest_before manifest_after
+  manifest_before="$($HGSP_PYTHON -c 'import hashlib,os,sys; p=sys.argv[1]; print(hashlib.sha256(open(p,"rb").read()).hexdigest(), os.stat(p).st_mtime_ns)' "$(hgsp_manifest "$run_id")")"
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" effective_state)" provisioning
+  manifest_after="$($HGSP_PYTHON -c 'import hashlib,os,sys; p=sys.argv[1]; print(hashlib.sha256(open(p,"rb").read()).hexdigest(), os.stat(p).st_mtime_ns)' "$(hgsp_manifest "$run_id")")"
+  assert_equal "$manifest_after" "$manifest_before"
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  assert_file_not_exists "$HGSP_STATE_ROOT/runs/$run_id/runtime"
+
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+@test "herdr-git-status-playground interruption tears down start but only detaches view" {
+  hgsp_setup
+  local marker="$HGSP_WORK/start-waiting" start_pid run_id generation
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_START_MARKER="$marker" \
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_START_RELEASE="$HGSP_WORK/start-release" \
+    hgsp_start > "$HGSP_WORK/start.out" 2>&1 &
+  start_pid=$!
+  HGSP_BG_PIDS="$HGSP_BG_PIDS $start_pid"
+  hgsp_wait_for_file "$marker"
+  local controller_pid
+  controller_pid="$(<"$marker")"
+  kill -INT "$controller_pid"
+  wait "$start_pid" || true
+  HGSP_BG_PIDS=""
+  local start_output="$(<"$HGSP_WORK/start.out")"
+  run_id="$(hgsp_json_field "$start_output" run_id)"
+  HGSP_RUN_IDS="$HGSP_RUN_IDS $run_id"
+  assert_equal "$(hgsp_json_field "$start_output" error.code)" START_INTERRUPTED
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  generation="$(hgsp_json_field "$output" generation)"
+  marker="$HGSP_WORK/view-waiting"
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_MARKER="$marker" \
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_VIEW_RELEASE="$HGSP_WORK/view-release" \
+    hgsp_env view "$run_id" > "$HGSP_WORK/view.out" 2>&1 &
+  local view_pid=$!
+  HGSP_BG_PIDS="$HGSP_BG_PIDS $view_pid"
+  hgsp_wait_for_file "$marker"
+  controller_pid="$(<"$marker")"
+  kill -HUP "$controller_pid"
+  wait "$view_pid" || true
+  HGSP_BG_PIDS=""
+  local view_output="$(<"$HGSP_WORK/view.out")"
+  assert_equal "$(hgsp_json_field "$view_output" error.code)" VIEW_DETACHED
+  run hgsp_env status "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" generation)" "$generation"
+  run grep 'managed-probe|TERM' "$HGSP_CALL_LOG"
+  assert_failure
+}
+
+@test "herdr-git-status-playground never signals unknown or mismatched processes" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  hgsp_wait_for_file "$HGSP_WORK/managed-ready"
+  local unknown_pid
+  unknown_pid="$($HGSP_PYTHON -c 'import json,sys; print(next(iter(json.load(open(sys.argv[1]))["processes"].values()))["pid"])' "$(hgsp_manifest "$run_id")")"
+  hgsp_patch_manifest "$run_id" "manifest['processes']={}; next(iter(manifest['launch_intents'].values()))['claim']='runtime/launch/foundation-supervisor/missing-claim.json'"
+
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" PROCESS_IDENTITY_UNRESOLVED
+  run grep 'managed-probe|TERM' "$HGSP_CALL_LOG"
+  assert_failure
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" PROCESS_IDENTITY_UNRESOLVED
+  run grep 'managed-probe|TERM' "$HGSP_CALL_LOG"
+  assert_failure
+  run hgsp_env status --all
+  assert_success
+  run_id="$run_id" "$HGSP_PYTHON" -c 'import json,os,sys; assert os.environ["run_id"] in [row["run_id"] for row in json.loads(sys.argv[1])["runs"]]' "$output"
+  assert_success
+  : > "$HGSP_WORK/managed-release"
+  run "$HGSP_PYTHON" - "$unknown_pid" <<'PY'
+import os,sys,time
+pid=int(sys.argv[1])
+for _ in range(500):
+    try: os.kill(pid, 0)
+    except ProcessLookupError: break
+    time.sleep(0.01)
+else: raise SystemExit("unrecorded fixture process did not exit after causal release")
+PY
+  assert_success
+
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run_id="$HGSP_LAST_RUN_ID"
+  hgsp_wait_for_file "$HGSP_WORK/managed-ready"
+  hgsp_patch_manifest "$run_id" "next(iter(manifest['processes'].values()))['start_identity']='mismatched'"
+
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" PROCESS_IDENTITY_MISMATCH
+  run grep 'managed-probe|TERM' "$HGSP_CALL_LOG"
+  assert_failure
+
+  run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" PROCESS_IDENTITY_MISMATCH
+  run grep 'managed-probe|TERM' "$HGSP_CALL_LOG"
+  assert_failure
+  : > "$HGSP_WORK/managed-release"
+}
+
+@test "herdr-git-status-playground extensionless Python is excluded from shellcheck by shebang" {
+  hgsp_setup
+  local stubdir="$HGSP_WORK/lint-stub"
+  mkdir -p "$stubdir"
+  cat > "$stubdir/shellcheck" <<'SH'
+#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    *executable_herdr-git-status-playground) exit 99 ;;
+  esac
+done
+exit 0
+SH
+  chmod +x "$stubdir/shellcheck"
+  run env PATH="$stubdir:$PATH" make -C "$BATS_TEST_DIRNAME/.." lint
+  assert_success
 }
 
 # ===========================================

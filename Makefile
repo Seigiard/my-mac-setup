@@ -80,7 +80,7 @@ lint:
 	@echo "=== Running shellcheck ==="
 	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "*/node_modules/*" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
-	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
+	find home -name "executable_*" -type f -exec sh -c 'for file do case "$$(head -n 1 "$$file")" in *python*) ;; *) shellcheck --severity=warning "$$file" || exit ;; esac; done' sh {} +
 
 clean:
 	docker compose -f docker/docker-compose.yml down --rmi local --volumes --remove-orphans 2>/dev/null || true
