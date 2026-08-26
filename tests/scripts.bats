@@ -751,6 +751,44 @@ write_pool_records() {
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
+@test "herdr-child --tab rejects an explicit --direction and requires HERDR_WORKSPACE_ID" {
+  child_stub_herdr
+  run child_start --kind claude --tab --direction right
+  assert_failure 2
+  assert_output --partial "--tab cannot be combined with an explicit --direction"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+
+  child_stub_herdr
+  run child_start --kind claude --label spike
+  assert_failure 2
+  assert_output --partial "--label requires --tab"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed HERDR_WORKSPACE_ID= \
+    bash "$HERDR_CHILD" start --kind claude --tab --prompt "test task"
+  assert_failure 2
+  assert_output --partial "--tab requires HERDR_WORKSPACE_ID"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+@test "herdr-child --tab passes argument validation before any mutating call" {
+  child_stub_herdr
+  local occupied="$BATS_TEST_TMPDIR/u2-tab-occupied.json"
+  write_pool_records "$occupied"
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 HERDR_SOCKET_PATH=/tmp/herdr-u3.sock \
+    HERDR_ALIAS_TEST_SEED=u3-child-seed HERDR_WORKSPACE_ID=w4 STUB_AGENTS_JSON_FILE="$occupied" \
+    bash "$HERDR_CHILD" start --kind claude --tab --prompt "test task"
+  assert_failure
+  refute_output --partial "Usage:"
+  assert_output --partial "alias pool is exhausted"
+  run grep -q '^pane split' "$CHILD_STUB/calls.log"
+  assert_failure
+  run grep -q '^tab create' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 @test "herdr-child verify accepts only one complete matching alias-pane pair" {
   child_stub_herdr
   local agents; agents="$(complete_agent_record child-a wT:p9 term-child)"
