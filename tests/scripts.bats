@@ -469,6 +469,290 @@ SH
 }
 
 # ===========================================
+# herdr-git-status-playground local fixtures (U2)
+# ===========================================
+
+@test "herdr-git-status-playground core fixtures match independent Git measurement" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run "$HGSP_PYTHON" - "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+run_dir = sys.argv[1]
+
+
+def load(name):
+    with open(os.path.join(run_dir, "ground-truth", name + ".json"), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def git(path, *arguments, check=True):
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
+    completed = subprocess.run(
+        ["git", "-C", path] + list(arguments),
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if check:
+        assert completed.returncode == 0, (path, arguments, completed.stderr)
+    return completed
+
+
+# #then clean fixtures stay clean after every harness metadata write
+for name in ("checkout-clean", "worktree-clean"):
+    record = load(name)
+    assert git(record["path"], "status", "--porcelain=v1").stdout == "", name
+    head = git(record["path"], "rev-parse", "HEAD").stdout.strip()
+    assert record["head"] == head, (name, record["head"], head)
+    for family in ("staged_paths", "unstaged_paths", "untracked_paths", "unmerged_paths"):
+        assert record[family] == [], (name, family, record[family])
+
+# #then the worktree fixture is a real linked worktree by Git metadata
+worktree = load("worktree-clean")
+git_dir = git(worktree["path"], "rev-parse", "--git-dir").stdout.strip()
+common_dir = git(worktree["path"], "rev-parse", "--git-common-dir").stdout.strip()
+resolved = [os.path.realpath(os.path.join(worktree["path"], value)) for value in (git_dir, common_dir)]
+assert resolved[0] != resolved[1], resolved
+assert worktree["linked_worktree"] is True
+assert load("checkout-clean")["linked_worktree"] is False
+
+# #then both mixed-dirty fixtures hold one staged, one unstaged, one untracked path
+for name in ("checkout-dirty", "worktree-dirty"):
+    record = load(name)
+    lines = sorted(line for line in git(record["path"], "status", "--porcelain=v1").stdout.splitlines() if line)
+    assert lines == sorted(["A  staged.txt", " M tracked.txt", "?? untracked.txt"]), (name, lines)
+    assert record["staged_paths"] == ["staged.txt"], record
+    assert record["unstaged_paths"] == ["tracked.txt"], record
+    assert record["untracked_paths"] == ["untracked.txt"], record
+assert load("worktree-dirty")["linked_worktree"] is True
+assert load("checkout-dirty")["linked_worktree"] is False
+PY
+  assert_success
+}
+
+@test "herdr-git-status-playground diagnostic fixtures attribute state without missing families" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run "$HGSP_PYTHON" - "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+run_dir = sys.argv[1]
+
+
+def load(name):
+    with open(os.path.join(run_dir, "ground-truth", name + ".json"), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def git(path, *arguments, check=True):
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
+    completed = subprocess.run(
+        ["git", "-C", path] + list(arguments),
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if check:
+        assert completed.returncode == 0, (path, arguments, completed.stderr)
+    return completed
+
+
+# #then the conflict fixture holds verified unmerged index entries
+conflict = load("conflict")
+unmerged = sorted({line.split("\t")[-1] for line in git(conflict["path"], "ls-files", "-u").stdout.splitlines()})
+assert unmerged == ["contested.txt"], unmerged
+assert conflict["unmerged_paths"] == ["contested.txt"], conflict
+
+# #then the diverged fixture proves positive ahead and behind counts and a nonempty stash
+diverged = load("diverged-stash")
+counts = git(diverged["path"], "rev-list", "--left-right", "--count", "origin/main...HEAD").stdout.split()
+behind, ahead = int(counts[0]), int(counts[1])
+assert ahead >= 1 and behind >= 1, counts
+assert diverged["ahead"] == ahead and diverged["behind"] == behind, diverged
+stash_lines = [line for line in git(diverged["path"], "stash", "list").stdout.splitlines() if line]
+assert stash_lines and diverged["stash_count"] == len(stash_lines), (diverged, stash_lines)
+
+# #then the detached fixture records the expected commit and no symbolic branch
+detached = load("detached")
+assert git(detached["path"], "symbolic-ref", "-q", "HEAD", check=False).returncode != 0
+head = git(detached["path"], "rev-parse", "HEAD").stdout.strip()
+assert detached["head"] == head and detached["branch"] is None, detached
+
+# #then the non-git fixture has no Git parent within the disposable root
+non_git = load("non-git")
+assert git(non_git["path"], "rev-parse", "--git-dir", check=False).returncode != 0
+probe = os.path.realpath(non_git["path"])
+boundary = os.path.realpath(run_dir)
+while True:
+    assert not os.path.exists(os.path.join(probe, ".git")), probe
+    if probe == boundary:
+        break
+    probe = os.path.dirname(probe)
+
+# #then every record shares one schema; unsupported families read not applicable, never missing
+order = ["checkout-clean", "checkout-dirty", "worktree-clean", "worktree-dirty",
+         "conflict", "diverged-stash", "detached", "non-git"]
+records = {name: load(name) for name in order}
+key_sets = {frozenset(record) for record in records.values()}
+assert len(key_sets) == 1, key_sets
+assert records["non-git"]["repository"] == "none"
+for key, value in records["non-git"].items():
+    if key in ("schema_version", "label", "path", "measured_at", "repository"):
+        continue
+    assert value == "not applicable", (key, value)
+for name in ("checkout-clean", "conflict", "detached"):
+    assert records[name]["ahead"] == "not applicable", name
+    assert records[name]["behind"] == "not applicable", name
+assert isinstance(records["diverged-stash"]["ahead"], int)
+assert isinstance(records["diverged-stash"]["behind"], int)
+PY
+  assert_success
+}
+
+@test "herdr-git-status-playground refuses ground truth when one premise property is sabotaged" {
+  hgsp_setup
+  local entry point expected_code sabotaged control
+  for entry in \
+    "dirty:FIXTURE_CHECKOUT_DIRTY_INCOMPLETE:checkout-dirty:checkout-clean" \
+    "conflict:FIXTURE_CONFLICT_MISSING:conflict:worktree-dirty" \
+    "diverged:FIXTURE_DIVERGENCE_MISSING:diverged-stash:conflict" \
+    "detached:FIXTURE_DETACHED_INVALID:detached:diverged-stash" \
+    "non-git:FIXTURE_NON_GIT_CONTAMINATED:non-git:detached"; do
+    IFS=: read -r point expected_code sabotaged control <<< "$entry"
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="sabotage-$point" run hgsp_start
+    assert_failure 1
+    hgsp_capture_run_id
+    assert_equal "$(hgsp_json_field "$output" error.code)" "$expected_code"
+    assert_file_not_exists "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID/ground-truth/$sabotaged.json"
+    assert_file_exists "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID/ground-truth/$control.json"
+    run hgsp_env stop "$HGSP_LAST_RUN_ID"
+    assert_success
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+  done
+}
+
+@test "herdr-git-status-playground fixture interruption never publishes partial ground truth" {
+  hgsp_setup
+  local fixtures="checkout-clean checkout-dirty worktree-clean worktree-dirty conflict diverged-stash detached non-git"
+  local index=0 name run_id expected_code
+  for name in $fixtures; do
+    HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="fixture-$name" run hgsp_start
+    assert_failure 1
+    hgsp_capture_run_id
+    run_id="$HGSP_LAST_RUN_ID"
+    expected_code="INJECTED_FIXTURE_$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
+    assert_equal "$(hgsp_json_field "$output" error.code)" "$expected_code"
+    run "$HGSP_PYTHON" - "$HGSP_STATE_ROOT/runs/$run_id" "$index" <<'PY'
+import json
+import os
+import sys
+
+run_dir, index = sys.argv[1], int(sys.argv[2])
+order = ["checkout-clean", "checkout-dirty", "worktree-clean", "worktree-dirty",
+         "conflict", "diverged-stash", "detached", "non-git"]
+directory = os.path.join(run_dir, "ground-truth")
+present = sorted(os.listdir(directory)) if os.path.isdir(directory) else []
+assert present == sorted(name + ".json" for name in order[:index]), (present, index)
+with open(os.path.join(run_dir, "manifest.json"), encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert sorted(manifest.get("local_fixtures", {})) == sorted(order[:index]), manifest.get("local_fixtures")
+assert "fixture_assignments" not in manifest
+PY
+    assert_success
+    run hgsp_env stop "$run_id"
+    assert_success
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+    index=$((index + 1))
+  done
+
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run "$HGSP_PYTHON" - "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID" <<'PY'
+import json
+import os
+import sys
+
+run_dir = sys.argv[1]
+order = ["checkout-clean", "checkout-dirty", "worktree-clean", "worktree-dirty",
+         "conflict", "diverged-stash", "detached", "non-git"]
+present = sorted(os.listdir(os.path.join(run_dir, "ground-truth")))
+assert present == sorted(name + ".json" for name in order), present
+with open(os.path.join(run_dir, "manifest.json"), encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert sorted(manifest["local_fixtures"]) == sorted(order)
+assert "fixture_assignments" in manifest
+PY
+  assert_success
+}
+
+@test "herdr-git-status-playground assigns identical ordered catalogs to candidates and a workspace to the viewer" {
+  hgsp_setup
+  run hgsp_start
+  assert_failure 1
+  hgsp_capture_run_id
+  run "$HGSP_PYTHON" - "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID" <<'PY'
+import json
+import os
+import sys
+
+run_dir = sys.argv[1]
+with open(os.path.join(run_dir, "manifest.json"), encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assignments = manifest["fixture_assignments"]
+assert sorted(assignments) == ["ezcorp", "jmarbutt", "krystof", "sfroment"], sorted(assignments)
+order = ["checkout-clean", "checkout-dirty", "worktree-clean", "worktree-dirty",
+         "conflict", "diverged-stash", "detached", "non-git"]
+reference = assignments["ezcorp"]
+assert [entry["label"] for entry in reference] == order, reference
+canonical = json.dumps(reference, sort_keys=True)
+for profile_id, catalog in assignments.items():
+    assert json.dumps(catalog, sort_keys=True) == canonical, profile_id
+for entry in reference:
+    assert os.path.isdir(entry["path"]), entry
+    assert os.path.basename(entry["path"]) == entry["label"], entry
+workspace = os.path.realpath(manifest["viewer_workspace"])
+viewer_root = os.path.realpath(os.path.dirname(manifest["profiles"]["viewer"]["home"]))
+assert os.path.commonpath([workspace, viewer_root]) == viewer_root, (workspace, viewer_root)
+assert os.path.isdir(workspace)
+fixture_paths = {os.path.realpath(entry["path"]) for entry in reference}
+assert workspace not in fixture_paths
+for path in fixture_paths:
+    assert os.path.commonpath([path, workspace]) != workspace, (path, workspace)
+PY
+  assert_success
+}
+
+# ===========================================
 # python3 -- the declared interpreter
 # ===========================================
 

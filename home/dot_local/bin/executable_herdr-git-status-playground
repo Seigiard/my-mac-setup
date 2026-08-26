@@ -41,6 +41,19 @@ CANDIDATE_REVISIONS = {
 }
 SAFE_INHERITED = ("LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "NO_COLOR")
 SECRET_NAMES = ("TOKEN", "PASSWORD", "CREDENTIAL", "SECRET")
+NOT_APPLICABLE = "not applicable"
+FIXTURE_AUTHOR_NAME = "Herdr Playground Fixture"
+FIXTURE_AUTHOR_EMAIL = "playground-fixture@example.invalid"
+LOCAL_FIXTURES = (
+    "checkout-clean",
+    "checkout-dirty",
+    "worktree-clean",
+    "worktree-dirty",
+    "conflict",
+    "diverged-stash",
+    "detached",
+    "non-git",
+)
 
 
 class PlaygroundError(Exception):
@@ -68,6 +81,10 @@ def utc_now() -> str:
 
 def test_mode() -> bool:
     return os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_MODE") == "1"
+
+
+def test_failpoint() -> str:
+    return os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT", "") if test_mode() else ""
 
 
 def source_environment() -> Dict[str, str]:
@@ -538,6 +555,22 @@ def build_environments(
             "GH_TOKEN": os.environ["HERDR_GIT_STATUS_PLAYGROUND_CONTROLLER_TOKEN"],
         }
     )
+    fixtures_home = run_dir / "runtime" / "fixtures" / "home"
+    ensure_private_directory(fixtures_home)
+    fixtures_environment = minimal_environment(source, executable_paths, fixtures_home)
+    fixtures_environment.update(
+        {
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": str(fixtures_home / ".gitconfig"),
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_CEILING_DIRECTORIES": str(run_dir / "runtime" / "fixtures"),
+            "GIT_AUTHOR_NAME": FIXTURE_AUTHOR_NAME,
+            "GIT_AUTHOR_EMAIL": FIXTURE_AUTHOR_EMAIL,
+            "GIT_COMMITTER_NAME": FIXTURE_AUTHOR_NAME,
+            "GIT_COMMITTER_EMAIL": FIXTURE_AUTHOR_EMAIL,
+        }
+    )
     build_home = run_dir / "runtime" / "build" / "home"
     ensure_private_directory(build_home)
     build_environment = minimal_environment(source, executable_paths, build_home)
@@ -566,6 +599,7 @@ def build_environments(
         "candidate-build": build_environment,
         "candidate-runtime": runtime_environment,
         "viewer": viewer_environment,
+        "local-fixtures": fixtures_environment,
     }
 
 
@@ -905,6 +939,515 @@ def wait_for_test_marker(marker_name: str, release_name: str, detached: bool = F
         signal.signal(signal.SIGHUP, previous_hup)
 
 
+def local_fixtures_root(run_dir: Path) -> Path:
+    return run_dir / "runtime" / "fixtures" / "local"
+
+
+def ground_truth_directory(run_dir: Path) -> Path:
+    return run_dir / "ground-truth"
+
+
+def git_run(
+    git_path: str,
+    arguments: List[str],
+    cwd: Path,
+    environment: Dict[str, str],
+    code: str,
+    allow_failure: bool = False,
+) -> "subprocess.CompletedProcess":
+    try:
+        completed = subprocess.run(
+            [git_path] + arguments,
+            cwd=str(cwd),
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise PlaygroundError(code, str(error))
+    if completed.returncode != 0 and not allow_failure:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "status %d" % completed.returncode
+        raise PlaygroundError(code, "%s: %s" % (" ".join(arguments), detail))
+    return completed
+
+
+def git_porcelain_status(git_path: str, path: Path, environment: Dict[str, str], code: str) -> List[str]:
+    output = git_run(git_path, ["status", "--porcelain=v1"], path, environment, code).stdout
+    return [line for line in output.splitlines() if line]
+
+
+def git_head(git_path: str, path: Path, environment: Dict[str, str], code: str) -> str:
+    return git_run(git_path, ["rev-parse", "HEAD"], path, environment, code).stdout.strip()
+
+
+def set_repository_identity(git_path: str, path: Path, environment: Dict[str, str]) -> None:
+    git_run(git_path, ["config", "user.name", FIXTURE_AUTHOR_NAME], path, environment, "FIXTURE_IDENTITY_FAILED")
+    git_run(git_path, ["config", "user.email", FIXTURE_AUTHOR_EMAIL], path, environment, "FIXTURE_IDENTITY_FAILED")
+
+
+def init_simple_repository(git_path: str, path: Path, environment: Dict[str, str], code: str) -> None:
+    path.mkdir(parents=True)
+    git_run(git_path, ["init", "--quiet", "--initial-branch=main"], path, environment, code)
+    set_repository_identity(git_path, path, environment)
+
+
+def parse_porcelain(lines: List[str]) -> Tuple[List[str], List[str], List[str], List[str]]:
+    staged: List[str] = []
+    unstaged: List[str] = []
+    untracked: List[str] = []
+    unmerged: List[str] = []
+    for line in lines:
+        index_state, tree_state, name = line[0], line[1], line[3:]
+        if line.startswith("??"):
+            untracked.append(name)
+        elif index_state + tree_state in ("DD", "AU", "UD", "UA", "DU", "AA", "UU"):
+            unmerged.append(name)
+        else:
+            if index_state != " ":
+                staged.append(name)
+            if tree_state != " ":
+                unstaged.append(name)
+    return staged, unstaged, untracked, unmerged
+
+
+def measure_fixture_ground_truth(
+    git_path: str, label: str, path: Path, environment: Dict[str, str]
+) -> Dict[str, Any]:
+    code = "FIXTURE_%s_MEASURE_FAILED" % label.upper().replace("-", "_")
+    record: Dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "label": label,
+        "path": str(path),
+        "repository": NOT_APPLICABLE,
+        "linked_worktree": NOT_APPLICABLE,
+        "branch": NOT_APPLICABLE,
+        "head": NOT_APPLICABLE,
+        "staged_paths": NOT_APPLICABLE,
+        "unstaged_paths": NOT_APPLICABLE,
+        "untracked_paths": NOT_APPLICABLE,
+        "unmerged_paths": NOT_APPLICABLE,
+        "ahead": NOT_APPLICABLE,
+        "behind": NOT_APPLICABLE,
+        "stash_count": NOT_APPLICABLE,
+        "measured_at": utc_now(),
+    }
+    probe = git_run(git_path, ["rev-parse", "--is-inside-work-tree"], path, environment, code, allow_failure=True)
+    if probe.returncode != 0 or probe.stdout.strip() != "true":
+        record["repository"] = "none"
+        return record
+    record["repository"] = "work-tree"
+    git_dir = git_run(git_path, ["rev-parse", "--git-dir"], path, environment, code).stdout.strip()
+    common_dir = git_run(git_path, ["rev-parse", "--git-common-dir"], path, environment, code).stdout.strip()
+    record["linked_worktree"] = os.path.realpath(os.path.join(str(path), git_dir)) != os.path.realpath(
+        os.path.join(str(path), common_dir)
+    )
+    symbolic = git_run(git_path, ["symbolic-ref", "-q", "--short", "HEAD"], path, environment, code, allow_failure=True)
+    record["branch"] = symbolic.stdout.strip() if symbolic.returncode == 0 else None
+    record["head"] = git_head(git_path, path, environment, code)
+    staged, unstaged, untracked, unmerged = parse_porcelain(git_porcelain_status(git_path, path, environment, code))
+    record["staged_paths"] = staged
+    record["unstaged_paths"] = unstaged
+    record["untracked_paths"] = untracked
+    record["unmerged_paths"] = unmerged
+    upstream = git_run(
+        git_path,
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        path,
+        environment,
+        code,
+        allow_failure=True,
+    )
+    if upstream.returncode == 0:
+        counts = git_run(
+            git_path,
+            ["rev-list", "--left-right", "--count", "%s...HEAD" % upstream.stdout.strip()],
+            path,
+            environment,
+            code,
+        ).stdout.split()
+        if len(counts) != 2:
+            raise PlaygroundError(code, "could not measure ahead/behind counts")
+        record["behind"] = int(counts[0])
+        record["ahead"] = int(counts[1])
+    stash_lines = [
+        line for line in git_run(git_path, ["stash", "list"], path, environment, code).stdout.splitlines() if line
+    ]
+    record["stash_count"] = len(stash_lines)
+    return record
+
+
+def build_checkout_clean_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    init_simple_repository(git_path, path, environment, "FIXTURE_CHECKOUT_CLEAN_INIT_FAILED")
+    (path / "README.md").write_text("herdr playground checkout-clean fixture\n", encoding="utf-8")
+    git_run(git_path, ["add", "README.md"], path, environment, "FIXTURE_CHECKOUT_CLEAN_ADD_FAILED")
+    git_run(
+        git_path,
+        ["commit", "--quiet", "-m", "checkout-clean fixture"],
+        path,
+        environment,
+        "FIXTURE_CHECKOUT_CLEAN_COMMIT_FAILED",
+    )
+    status = git_porcelain_status(git_path, path, environment, "FIXTURE_CHECKOUT_CLEAN_STATUS_FAILED")
+    if status:
+        raise PlaygroundError("FIXTURE_CHECKOUT_CLEAN_DIRTY", "expected a clean checkout, found %r" % status)
+    return {
+        "repository": "work-tree",
+        "linked_worktree": False,
+        "branch": "main",
+        "head": git_head(git_path, path, environment, "FIXTURE_CHECKOUT_CLEAN_HEAD_FAILED"),
+        "staged_paths": [],
+        "unstaged_paths": [],
+        "untracked_paths": [],
+        "unmerged_paths": [],
+    }
+
+
+def make_dirty_working_tree(
+    git_path: str, path: Path, environment: Dict[str, str], code_prefix: str
+) -> Dict[str, Any]:
+    (path / "tracked.txt").write_text("modified\n", encoding="utf-8")
+    (path / "staged.txt").write_text("staged\n", encoding="utf-8")
+    git_run(git_path, ["add", "staged.txt"], path, environment, "%s_ADD_FAILED" % code_prefix)
+    if test_failpoint() != "sabotage-dirty":
+        (path / "untracked.txt").write_text("untracked\n", encoding="utf-8")
+    status = git_porcelain_status(git_path, path, environment, "%s_STATUS_FAILED" % code_prefix)
+    staged, unstaged, untracked, unmerged = parse_porcelain(status)
+    if staged != ["staged.txt"] or unstaged != ["tracked.txt"] or untracked != ["untracked.txt"] or unmerged:
+        raise PlaygroundError(
+            "%s_INCOMPLETE" % code_prefix,
+            "expected one staged, one unstaged, and one untracked path, found %r" % status,
+        )
+    return {"staged_paths": staged, "unstaged_paths": unstaged, "untracked_paths": untracked, "unmerged_paths": []}
+
+
+def build_checkout_dirty_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    init_simple_repository(git_path, path, environment, "FIXTURE_CHECKOUT_DIRTY_INIT_FAILED")
+    (path / "tracked.txt").write_text("original\n", encoding="utf-8")
+    git_run(git_path, ["add", "tracked.txt"], path, environment, "FIXTURE_CHECKOUT_DIRTY_ADD_FAILED")
+    git_run(
+        git_path,
+        ["commit", "--quiet", "-m", "checkout-dirty base"],
+        path,
+        environment,
+        "FIXTURE_CHECKOUT_DIRTY_COMMIT_FAILED",
+    )
+    ground_truth = make_dirty_working_tree(git_path, path, environment, "FIXTURE_CHECKOUT_DIRTY")
+    ground_truth.update(
+        {
+            "repository": "work-tree",
+            "linked_worktree": False,
+            "branch": "main",
+            "head": git_head(git_path, path, environment, "FIXTURE_CHECKOUT_DIRTY_HEAD_FAILED"),
+        }
+    )
+    return ground_truth
+
+
+def worktree_base_repository(git_path: str, fixtures_root: Path, environment: Dict[str, str]) -> Path:
+    base = fixtures_root / ".worktree-base"
+    if not base.exists():
+        init_simple_repository(git_path, base, environment, "FIXTURE_WORKTREE_BASE_INIT_FAILED")
+        (base / "README.md").write_text("herdr playground worktree base\n", encoding="utf-8")
+        (base / "tracked.txt").write_text("original\n", encoding="utf-8")
+        git_run(
+            git_path, ["add", "README.md", "tracked.txt"], base, environment, "FIXTURE_WORKTREE_BASE_ADD_FAILED"
+        )
+        git_run(
+            git_path,
+            ["commit", "--quiet", "-m", "worktree base"],
+            base,
+            environment,
+            "FIXTURE_WORKTREE_BASE_COMMIT_FAILED",
+        )
+    else:
+        git_run(git_path, ["worktree", "prune"], base, environment, "FIXTURE_WORKTREE_BASE_PRUNE_FAILED")
+    return base
+
+
+def add_linked_worktree(
+    git_path: str,
+    fixtures_root: Path,
+    path: Path,
+    environment: Dict[str, str],
+    branch: str,
+) -> None:
+    base = worktree_base_repository(git_path, fixtures_root, environment)
+    git_run(
+        git_path,
+        ["worktree", "add", "--quiet", "-b", branch, str(path), "main"],
+        base,
+        environment,
+        "FIXTURE_WORKTREE_ADD_FAILED",
+    )
+
+
+def build_worktree_clean_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    add_linked_worktree(git_path, path.parent, path, environment, "worktree-clean")
+    status = git_porcelain_status(git_path, path, environment, "FIXTURE_WORKTREE_CLEAN_STATUS_FAILED")
+    if status:
+        raise PlaygroundError("FIXTURE_WORKTREE_CLEAN_DIRTY", "expected a clean worktree, found %r" % status)
+    return {
+        "repository": "work-tree",
+        "linked_worktree": True,
+        "branch": "worktree-clean",
+        "head": git_head(git_path, path, environment, "FIXTURE_WORKTREE_CLEAN_HEAD_FAILED"),
+        "staged_paths": [],
+        "unstaged_paths": [],
+        "untracked_paths": [],
+        "unmerged_paths": [],
+    }
+
+
+def build_worktree_dirty_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    add_linked_worktree(git_path, path.parent, path, environment, "worktree-dirty")
+    ground_truth = make_dirty_working_tree(git_path, path, environment, "FIXTURE_WORKTREE_DIRTY")
+    ground_truth.update(
+        {
+            "repository": "work-tree",
+            "linked_worktree": True,
+            "branch": "worktree-dirty",
+            "head": git_head(git_path, path, environment, "FIXTURE_WORKTREE_DIRTY_HEAD_FAILED"),
+        }
+    )
+    return ground_truth
+
+
+def build_conflict_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    init_simple_repository(git_path, path, environment, "FIXTURE_CONFLICT_INIT_FAILED")
+    (path / "contested.txt").write_text("line1\n", encoding="utf-8")
+    git_run(git_path, ["add", "contested.txt"], path, environment, "FIXTURE_CONFLICT_ADD_FAILED")
+    git_run(
+        git_path, ["commit", "--quiet", "-m", "conflict base"], path, environment, "FIXTURE_CONFLICT_COMMIT_FAILED"
+    )
+    git_run(git_path, ["branch", "incoming"], path, environment, "FIXTURE_CONFLICT_BRANCH_FAILED")
+    (path / "contested.txt").write_text("ours\n", encoding="utf-8")
+    git_run(git_path, ["commit", "--quiet", "-am", "ours"], path, environment, "FIXTURE_CONFLICT_OURS_FAILED")
+    git_run(git_path, ["checkout", "--quiet", "incoming"], path, environment, "FIXTURE_CONFLICT_CHECKOUT_FAILED")
+    if test_failpoint() == "sabotage-conflict":
+        # Touch a different file so the merge succeeds and the premise gate must refuse.
+        (path / "unrelated.txt").write_text("theirs\n", encoding="utf-8")
+        git_run(git_path, ["add", "unrelated.txt"], path, environment, "FIXTURE_CONFLICT_THEIRS_FAILED")
+        git_run(git_path, ["commit", "--quiet", "-m", "theirs"], path, environment, "FIXTURE_CONFLICT_THEIRS_FAILED")
+    else:
+        (path / "contested.txt").write_text("theirs\n", encoding="utf-8")
+        git_run(git_path, ["commit", "--quiet", "-am", "theirs"], path, environment, "FIXTURE_CONFLICT_THEIRS_FAILED")
+    git_run(git_path, ["checkout", "--quiet", "main"], path, environment, "FIXTURE_CONFLICT_RETURN_FAILED")
+    merge = git_run(git_path, ["merge", "--no-edit", "incoming"], path, environment, "", allow_failure=True)
+    unmerged = git_run(
+        git_path, ["diff", "--name-only", "--diff-filter=U"], path, environment, "FIXTURE_CONFLICT_UNMERGED_FAILED"
+    ).stdout.split()
+    if merge.returncode == 0 or not unmerged:
+        raise PlaygroundError("FIXTURE_CONFLICT_MISSING", "merge did not produce unmerged index entries")
+    return {
+        "repository": "work-tree",
+        "linked_worktree": False,
+        "branch": "main",
+        "unmerged_paths": unmerged,
+        "untracked_paths": [],
+    }
+
+
+def build_diverged_stash_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    origin = path.parent / (path.name + "-origin.git")
+    peer = path.parent / (path.name + "-peer")
+    git_run(
+        git_path,
+        ["init", "--quiet", "--bare", "--initial-branch=main", str(origin)],
+        path.parent,
+        environment,
+        "FIXTURE_DIVERGED_ORIGIN_FAILED",
+    )
+    git_run(
+        git_path, ["clone", "--quiet", str(origin), str(peer)], path.parent, environment, "FIXTURE_DIVERGED_PEER_FAILED"
+    )
+    # A clone of an empty bare repository may name its unborn branch from local
+    # defaults; pin it to main so the push below targets the measured branch.
+    git_run(git_path, ["symbolic-ref", "HEAD", "refs/heads/main"], peer, environment, "FIXTURE_DIVERGED_PEER_FAILED")
+    set_repository_identity(git_path, peer, environment)
+    (peer / "shared.txt").write_text("base\n", encoding="utf-8")
+    git_run(git_path, ["add", "shared.txt"], peer, environment, "FIXTURE_DIVERGED_BASE_ADD_FAILED")
+    git_run(git_path, ["commit", "--quiet", "-m", "base"], peer, environment, "FIXTURE_DIVERGED_BASE_COMMIT_FAILED")
+    git_run(git_path, ["push", "--quiet", "origin", "main"], peer, environment, "FIXTURE_DIVERGED_BASE_PUSH_FAILED")
+
+    git_run(
+        git_path, ["clone", "--quiet", str(origin), str(path)], path.parent, environment, "FIXTURE_DIVERGED_CLONE_FAILED"
+    )
+    set_repository_identity(git_path, path, environment)
+
+    (peer / "shared.txt").write_text("remote-only\n", encoding="utf-8")
+    git_run(
+        git_path, ["commit", "--quiet", "-am", "remote-only commit"], peer, environment, "FIXTURE_DIVERGED_REMOTE_COMMIT_FAILED"
+    )
+    git_run(git_path, ["push", "--quiet", "origin", "main"], peer, environment, "FIXTURE_DIVERGED_REMOTE_PUSH_FAILED")
+
+    if test_failpoint() != "sabotage-diverged":
+        (path / "local-only.txt").write_text("local-only\n", encoding="utf-8")
+        git_run(git_path, ["add", "local-only.txt"], path, environment, "FIXTURE_DIVERGED_LOCAL_ADD_FAILED")
+        git_run(
+            git_path, ["commit", "--quiet", "-m", "local-only commit"], path, environment, "FIXTURE_DIVERGED_LOCAL_COMMIT_FAILED"
+        )
+
+    git_run(git_path, ["fetch", "--quiet", "origin"], path, environment, "FIXTURE_DIVERGED_FETCH_FAILED")
+    counts = git_run(
+        git_path,
+        ["rev-list", "--left-right", "--count", "origin/main...HEAD"],
+        path,
+        environment,
+        "FIXTURE_DIVERGED_COUNT_FAILED",
+    ).stdout.split()
+    if len(counts) != 2:
+        raise PlaygroundError("FIXTURE_DIVERGENCE_MISSING", "could not measure ahead/behind counts")
+    behind, ahead = int(counts[0]), int(counts[1])
+
+    (path / "uncommitted.txt").write_text("uncommitted\n", encoding="utf-8")
+    git_run(git_path, ["add", "uncommitted.txt"], path, environment, "FIXTURE_DIVERGED_STASH_ADD_FAILED")
+    git_run(
+        git_path,
+        ["stash", "push", "--quiet", "-m", "diverged-stash fixture"],
+        path,
+        environment,
+        "FIXTURE_DIVERGED_STASH_PUSH_FAILED",
+    )
+    stash_lines = [
+        line
+        for line in git_run(
+            git_path, ["stash", "list"], path, environment, "FIXTURE_DIVERGED_STASH_LIST_FAILED"
+        ).stdout.splitlines()
+        if line
+    ]
+    if ahead < 1 or behind < 1 or not stash_lines:
+        raise PlaygroundError(
+            "FIXTURE_DIVERGENCE_MISSING",
+            "expected positive ahead/behind counts and a nonempty stash, found ahead=%d behind=%d stash=%r"
+            % (ahead, behind, stash_lines),
+        )
+    return {
+        "repository": "work-tree",
+        "linked_worktree": False,
+        "branch": "main",
+        "head": git_head(git_path, path, environment, "FIXTURE_DIVERGED_HEAD_FAILED"),
+        "ahead": ahead,
+        "behind": behind,
+        "stash_count": len(stash_lines),
+        "staged_paths": [],
+        "unstaged_paths": [],
+        "untracked_paths": [],
+        "unmerged_paths": [],
+    }
+
+
+def build_detached_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    init_simple_repository(git_path, path, environment, "FIXTURE_DETACHED_INIT_FAILED")
+    (path / "first.txt").write_text("first\n", encoding="utf-8")
+    git_run(git_path, ["add", "first.txt"], path, environment, "FIXTURE_DETACHED_ADD_FIRST_FAILED")
+    git_run(
+        git_path, ["commit", "--quiet", "-m", "first commit"], path, environment, "FIXTURE_DETACHED_COMMIT_FIRST_FAILED"
+    )
+    target = git_head(git_path, path, environment, "FIXTURE_DETACHED_HEAD_FAILED")
+    (path / "second.txt").write_text("second\n", encoding="utf-8")
+    git_run(git_path, ["add", "second.txt"], path, environment, "FIXTURE_DETACHED_ADD_SECOND_FAILED")
+    git_run(
+        git_path,
+        ["commit", "--quiet", "-m", "second commit"],
+        path,
+        environment,
+        "FIXTURE_DETACHED_COMMIT_SECOND_FAILED",
+    )
+    if test_failpoint() != "sabotage-detached":
+        git_run(
+            git_path, ["checkout", "--quiet", "--detach", target], path, environment, "FIXTURE_DETACHED_CHECKOUT_FAILED"
+        )
+    symbolic = git_run(git_path, ["symbolic-ref", "-q", "HEAD"], path, environment, "", allow_failure=True)
+    current = git_head(git_path, path, environment, "FIXTURE_DETACHED_VERIFY_HEAD_FAILED")
+    if symbolic.returncode == 0 or current != target:
+        raise PlaygroundError("FIXTURE_DETACHED_INVALID", "expected a detached HEAD at the recorded commit")
+    return {
+        "repository": "work-tree",
+        "linked_worktree": False,
+        "branch": None,
+        "head": target,
+        "staged_paths": [],
+        "unstaged_paths": [],
+        "untracked_paths": [],
+        "unmerged_paths": [],
+    }
+
+
+def build_non_git_fixture(git_path: str, path: Path, environment: Dict[str, str]) -> Dict[str, Any]:
+    path.mkdir(parents=True)
+    if test_failpoint() == "sabotage-non-git":
+        # Plant repository metadata one level above so the contamination gate must refuse.
+        git_run(git_path, ["init", "--quiet", str(path.parent)], path.parent, environment, "FIXTURE_NON_GIT_SABOTAGE_FAILED")
+    probe = git_run(git_path, ["rev-parse", "--show-toplevel"], path, environment, "", allow_failure=True)
+    if probe.returncode == 0:
+        raise PlaygroundError("FIXTURE_NON_GIT_CONTAMINATED", "expected no Git parent within the disposable root")
+    return {"repository": "none"}
+
+
+LOCAL_FIXTURE_BUILDERS = {
+    "checkout-clean": build_checkout_clean_fixture,
+    "checkout-dirty": build_checkout_dirty_fixture,
+    "worktree-clean": build_worktree_clean_fixture,
+    "worktree-dirty": build_worktree_dirty_fixture,
+    "conflict": build_conflict_fixture,
+    "diverged-stash": build_diverged_stash_fixture,
+    "detached": build_detached_fixture,
+    "non-git": build_non_git_fixture,
+}
+
+
+def build_local_fixture_catalog(
+    mutation: Mutation,
+    environments: Dict[str, Dict[str, str]],
+    executable_paths: Dict[str, str],
+) -> None:
+    manifest = mutation.manifest
+    assert manifest is not None
+    run_dir = mutation.run_dir
+    git_path = executable_paths["git"]
+    environment = environments["local-fixtures"]
+    fixtures_root = local_fixtures_root(run_dir)
+    ensure_private_directory(fixtures_root)
+    manifest["local_fixtures"] = {}
+
+    for name in LOCAL_FIXTURES:
+        if test_failpoint() == "fixture-%s" % name:
+            raise PlaygroundError(
+                "INJECTED_FIXTURE_%s" % name.upper().replace("-", "_"),
+                "injected crash at the %s fixture-construction boundary" % name,
+            )
+        fixture_path = fixtures_root / name
+        expected = LOCAL_FIXTURE_BUILDERS[name](git_path, fixture_path, environment)
+        record = measure_fixture_ground_truth(git_path, name, fixture_path, environment)
+        for key, value in expected.items():
+            if record.get(key) != value:
+                raise PlaygroundError(
+                    "FIXTURE_%s_PREMISE_DRIFT" % name.upper().replace("-", "_"),
+                    "measured %s=%r, expected %r" % (key, record.get(key), value),
+                )
+        atomic_write_json(ground_truth_directory(run_dir) / ("%s.json" % name), record, "ground-truth")
+        manifest["local_fixtures"][name] = {
+            "path": str(fixture_path),
+            "ground_truth": "ground-truth/%s.json" % name,
+            "built_at": record["measured_at"],
+        }
+        mutation.persist("local-fixture-%s" % name)
+
+    catalog = [
+        {"label": name, "path": str(fixtures_root / name), "ground_truth": "ground-truth/%s.json" % name}
+        for name in LOCAL_FIXTURES
+    ]
+    manifest["fixture_assignments"] = {
+        profile_id: catalog for profile_id in PROFILE_IDS if profile_id != "viewer"
+    }
+    viewer_workspace = run_dir / "runtime" / "profiles" / "viewer" / "comparison"
+    ensure_private_directory(viewer_workspace)
+    manifest["viewer_workspace"] = str(viewer_workspace)
+    mutation.persist("fixture-assignments")
+
+
 def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
     try:
         executable_paths, fixture, audit_digest, herdr_identity = preflight(arguments, source)
@@ -953,6 +1496,7 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
         with Mutation(root, run_id) as mutation:
             manifest = mutation.manifest
             assert manifest is not None
+            build_local_fixture_catalog(mutation, environments, executable_paths)
             target = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_PROCESS") if test_mode() else None
             if not target:
                 manifest["lifecycle_state"] = "startup-failed-cleaned"

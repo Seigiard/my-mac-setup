@@ -52,8 +52,28 @@ hgsp_setup() {
   : > "$HGSP_CALL_LOG"
   : > "$HGSP_ENV_LOG"
 
+  # Fixture construction needs real Git behavior; the stub answers preflight's
+  # --version probe itself and delegates fixture operations (identified by the
+  # fixtures environment's GIT_CEILING_DIRECTORIES) to the real binary, logging
+  # them under a distinct prefix so mutation-guard greps stay meaningful.
+  local real_git
+  real_git="$(command -v git)"
+  cat > "$HGSP_STUB/git" <<SH
+#!/bin/sh
+if [ -n "\${GIT_CEILING_DIRECTORIES:-}" ]; then
+  printf 'git-fixture|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+  exec "$real_git" "\$@"
+fi
+printf 'git|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+case "\$1" in
+  --version) printf 'git version 2.45.0\n'; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$HGSP_STUB/git"
+
   local tool
-  for tool in cargo git gh jq node; do
+  for tool in cargo gh jq node; do
     cat > "$HGSP_STUB/$tool" <<'SH'
 #!/bin/sh
 tool=${0##*/}
