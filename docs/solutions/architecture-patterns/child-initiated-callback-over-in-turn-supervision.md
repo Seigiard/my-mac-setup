@@ -70,6 +70,12 @@ Any orchestration where the orchestrator is itself an LLM with turn-based execut
 
 In-turn blocking is not a third option, no matter how the wait is spelled.
 
+### Update: external per-child supervision is the backstop
+
+The later detached-supervision work preserves this rule while closing the non-cooperative settlement gap. The rejected design was supervision performed by the parent inside its own turn. `herdr-child start --detach` now starts a separate per-child watcher process that survives that turn, closes inherited descriptors, binds terminal plus `agent_session` identity, and requires a lifecycle sequence newer than the prompt baseline.
+
+The watcher sends generation-and-event markers for fresh settlement, native blockage, timeout, or unplanned child disappearance. Timeout wakes once without killing the child, then the watcher continues until later settlement. `herdr-child ask` remains the primary decision callback and records confirmed delivery so the watcher can suppress its known ordinary duplicate. `reply` and pair-addressed `prompt --detach` advance generation and rearm; attached `prompt --wait` waits for its own newer sequence. This is an external process backstop, not a return to parent-turn polling, a global daemon, or a claim that lifecycle state proves task success.
+
 The second principle compounds this: a stall in an unwatched pane is silent — "a stalled child holds a worktree, a model session, and the user's attention budget, and nothing in the sidebar or the parent's transcript says so" (plan:42). Detection would require exactly the supervisor process the turn model forbids. Measuring the real stall causes (two, both enumerable) and deleting them at launch is strictly cheaper than building runtime detection for them — and the measurement kept the fix honest: only the two causes with data behind them were removed; claude's dialog removal is explicitly noted as preventive, since no claude stall was ever measured (plan:224).
 
 ## When to Apply
@@ -94,7 +100,7 @@ The second principle compounds this: a stall in an unwatched pane is silent — 
 - Consciously accepted risks, filed as open issues rather than left implicit:
   - `docs/issues/2026-08-18-002-sandbox-a-child-agents-filesystem-access.md` — the `"*": "allow"` external-directory grant is machine-wide, covering the user's own sessions; the sandbox that will contain it is the named next piece of work (decision at plan:51).
   - `docs/issues/2026-08-18-001-launch-time-permission-mode-for-child-agents.md` — children inherit the shared permission mode (bypassPermissions); read-only withholds tools without enforcing a write boundary (decision at plan:55).
-  - `docs/issues/2026-08-17-001-herdr-event-subscription-supervisor.md` — a child that hangs without ever calling back stays uncovered until a process that outlives the parent's turn exists (plan:208).
+  - `docs/issues/2026-08-17-001-herdr-event-subscription-supervisor.md` — the per-child watcher now covers ordinary lifecycle wakes; this issue remains for crash/restart resilience and a global event subscriber.
   - `docs/issues/2026-08-18-021-harden-child-agent-ownership-and-launch-cleanup.md` — no ownership enforcement: any parent-side session can `reply`/`reap` any child; the callback markers and env are coordination data, not credentials.
   - `docs/issues/2026-08-18-003-headless-peer-consult-outside-herdr.md` — a capability the contract deleted (headless peer consult) with no replacement; tracked, not overlooked.
 - `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md` — sibling pattern for the case a durable engine CAN supervise; its guidance 2 (pin the harness env at dispatch because prose is measurably insufficient) is the same design-out-the-stall move made there.

@@ -157,7 +157,7 @@ case "$agent_status" in
       'If another turn may have run, read its current output before reaping.' \
       'If no follow-up is needed, run:' \
       "herdr-child reap --pane $pane $started_name" \
-      "If you need a follow-up, leave the pane open and prompt $started_name."
+      "If you need a follow-up, run: herdr-child prompt --to $started_name --pane $pane --wait '<task>'."
     if ! herdr agent prompt "$HERDR_PANE_ID" "$reminder" >/dev/null 2>&1; then
       printf 'ask.sh: warning: could not queue the cleanup reminder for %s in pane %s\n' "$started_name" "$pane" >&2
     fi

@@ -5,7 +5,7 @@ description: "Start a live claude, opencode, or pi peer in a herdr pane and retu
 
 # ask-in-herdr — consult a live peer agent
 
-This skill works only inside herdr. It starts a live child through `herdr-child`, waits for the initial answer, prints the answer on stdout, and leaves the pane open for follow-up. After a settled answer is read, it queues a `[child-settled v1 ...]` reminder to the parent so an unneeded pane is reaped instead of forgotten.
+This skill works only inside herdr. It starts a live child through the attached `herdr-child start ... --wait` path, waits for the initial answer, prints the answer on stdout, and leaves the pane open for follow-up. It does not use detached supervision or change timeout classification. After a settled answer is read, it queues a `[child-settled v1 ...]` reminder to the parent so an unneeded pane is reaped instead of forgotten.
 
 Read `~/.claude/shared/child-agent-contract.md` before handling a callback from the child.
 
@@ -52,7 +52,7 @@ The answer or partial answer is on stdout. The last stderr line is always one of
 | `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. |
 | `ask.sh: status=refused` | 2 | Arguments or the requested posture are invalid. |
 
-The script prints a close hint on stderr before the status line. Keep the pane for follow-up, or close it with the reported `herdr-child reap --pane <pane-id> <agent-name>` command. The expected pane prevents a delayed reminder from reaping a different child after name reuse.
+The script prints a close hint on stderr before the status line. Keep the pane for a managed follow-up, or close it with the reported `herdr-child reap --pane <pane-id> <agent-name>` command. The expected pane prevents a delayed reminder from reaping a different child after name reuse. Use `herdr-child prompt --to <agent-name> --pane <pane-id> --wait '<task>'` for that attached follow-up.
 
 For `status=answered`, the script also submits a cleanup reminder to the parent agent's pane. Herdr queues that prompt while the parent is working. The reminder is best effort: a delivery failure prints a warning but does not discard or downgrade the answer already read.
 
