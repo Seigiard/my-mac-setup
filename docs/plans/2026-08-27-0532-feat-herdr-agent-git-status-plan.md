@@ -43,7 +43,7 @@ The user runs multiple agents (Claude Code, OpenCode, pi) and reads the agents s
 - R1. Each live agent's sidebar row shows the branch or worktree identity **and** git status counts (dirty, ahead, behind) of the checkout that agent is actually working in.
 - R2. Rendering is compact, in the spirit of the user's example `cc:agent main (dirty, 2pull, 1push)`: identity token plus counts token on the existing rows; exact glyphs follow the existing `$git_ref` icon conventions.
 - R3. When an agent's effective working directory changes mid-session (it created or entered a worktree), the row reflects the new location within one sweep cycle (≤ ~10 s).
-- R4. A directory that is not a git checkout shows identity only (existing folder rendering); no counts, no error noise.
+- R4. A directory that is not a git checkout shows no location at all: the row's second line stays empty, with no counts and no error noise. This restates the requirement to match the engine, which clears every location token on its `non_git` outcome; the earlier wording promised a folder name that no code path has ever produced. The sidebar's first line already carries the workspace and the pane label, so a folder name on the second would repeat what is on screen.
 - R5. Every cell of the acceptance matrix (AE1) is verified by direct observation of the live sidebar — once as a baseline before changes (U1) and once after (U3).
 - R6. `herdr-task-sync` remains the only pane/tab label and location-token writer; no new writer process is introduced.
 
@@ -53,7 +53,7 @@ The user runs multiple agents (Claude Code, OpenCode, pi) and reads the agents s
 
 | Agent | Folder without git | Branch + status | Worktree + status |
 |---|---|---|---|
-| claude code (`cc:`) | identity = folder name, no counts | branch name + dirty/ahead/behind counts | worktree identity + counts for the worktree checkout |
+| claude code (`cc:`) | empty location line, no counts | branch name + dirty/ahead/behind counts | worktree identity + counts for the worktree checkout |
 | opencode | same | same | same |
 | pi | same | same | same |
 
@@ -71,12 +71,25 @@ The user runs multiple agents (Claude Code, OpenCode, pi) and reads the agents s
 | pi | same — no location tokens | same — branch and repo correct, no counts | correct when the worktree is the launch directory; pi has no worktree concept at all |
 
   - **The stale worktree cell is persistent, not a sweep lag.** The moved Claude pane sat in `done` for several minutes, far past the 5 s sweep, and its token never changed.
-  - **Divergence from AE1's own expectation, carried into U2.** AE1 predicts "identity = folder name" for a directory that is not a git checkout. Observed: the engine's `non_git` outcome **clears every location token** (`home/dot_local/bin/executable_herdr-task-sync:1294`), leaving the second sidebar row blank rather than showing a folder name. R4's "identity only (existing folder rendering)" describes a rendering that does not exist today. U2 either adds it or R4 is restated; no other part of the plan depends on which.
+  - **This is where the plan's own expectation was wrong, and the requirement moved rather than the code.** AE1 first predicted "identity = folder name" for a directory that is not a git checkout. Observed: the engine's `non_git` outcome **clears every location token** (`home/dot_local/bin/executable_herdr-task-sync:1294`), leaving the second sidebar row blank. The formatter can render a lone folder name, but only when identity is retained and the ref is momentarily missing — nothing feeds it in the non-git case, and nothing ever has. R4 now says what the engine does; folder-name rendering is listed as follow-up work instead.
   - **`foreground_cwd` is not a usable signal on an agent pane**, and not for the reason the plan assumed. It does not merely equal the launch directory — it wanders into unrelated trees: a freshly started pi pane reported `/opt/homebrew/Library/Taps/schpet/homebrew-tap` and later `/opt/homebrew`, and the user's live opencode pane reported a private `/T` temp directory, all while their sessions were elsewhere. On the moved Claude pane it did happen to name the worktree. It tracks whichever child process currently holds the terminal, so it is right only by coincidence.
+
+- AE1-after. **After observed (U3, 2026-08-27, herdr 0.8.2, live sidebar).** Same scratch checkout as the baseline: 1 modified file, 1 untracked file, 1 commit ahead and 1 behind a local bare remote, so the expected counts are dirty 2, ahead 1, behind 1. Glyphs are written here as names because the tokens carry Private Use Area codepoints.
+
+| Agent | Folder without git | Branch + status | Worktree + status |
+|---|---|---|---|
+| claude code (`cc:`) | no location tokens, `git_status` among them — no counts, no error output | `<branch> main <folder> scratch-repo` + `<dirty>2 <ahead>1 <behind>1` | **green** — after `EnterWorktree` the row reads `<worktree> worktree-u3-probe <folder> u3-probe` + `<dirty>1`, the worktree's own count, while the pane cwd still names the launch checkout |
+| opencode | same | same | `<worktree> worktree-u3-probe <folder> u3-probe` + `<dirty>1` when launched in the worktree |
+| pi | same | same | same as opencode |
+
+  - **The one cell that changed behavior rather than gaining counts** is claude's worktree cell. Its baseline read `<branch> main <folder> scratch-repo` indefinitely; it now follows the session. Verified independently on a second live pane: a Claude session working in `.claude/worktrees/feat+herdr-agent-git-status` while its pane cwd stayed at the base checkout published `worktree-feat+herdr-agent-git-status`, where before the change it published `main`.
+  - **Counts belong to the effective checkout, not the launch one.** The moved pane reported `<dirty>1` for the worktree at the same moment the launch checkout stood at 2 dirty, 1 ahead, 1 behind — the two are not confused.
+  - **The no-git column shows an empty location line, which is what R4 now asks for.** `git_status` is absent along with the identity tokens, and the pass produced no error output.
+  - Method: throwaway panes in one tab, one agent kind per cell, reading each pane's published tokens through `herdr pane get`. Every pane, the tab and the scratch checkout were removed afterwards.
 
 ### Scope Boundaries
 
-- **Deferred to Follow-Up Work:** stash/conflict indicators; per-workspace (spaces-section) status rows; any reuse of the retired playground CLI. The playground PR #84 stays closed; nothing here depends on it.
+- **Deferred to Follow-Up Work:** rendering a folder name for a pane parked outside any checkout (the formatter already has the arm; nothing feeds it on the `non_git` path, and R4 was restated rather than the code changed); stash/conflict indicators; per-workspace (spaces-section) status rows; any reuse of the retired playground CLI. The playground PR #84 stays closed; nothing here depends on it.
 - **Out of scope:** new standalone plugin directory; changes to other herdr plugins; opencode/pi-side integrations beyond what observation in U1 proves necessary.
 
 ---
@@ -214,6 +227,7 @@ stateDiagram-v2
   - No agent report recorded (reporter never ran, file missing or unreadable) → falls back to the existing pane-cwd behavior, no error noise.
   - Source flapping between two dirs within one sweep → last-read value wins; no token churn beyond one update per sweep.
 - **Verification:** All 9 AE1 cells observed green in the live sidebar; bats scenarios green; no regression in existing `$git_ref` tests.
+- **Status: done (2026-08-27).** The "After observed" table sits under AE1. Nine cells observed on the live sidebar after the user applied the change and the sweep daemon was restarted, all matching the acceptance text. One of them matches because the text moved: the no-git column asked for a folder name that no code path has ever produced, so R4 was restated to describe the engine and folder-name rendering became follow-up work.
 
 ---
 
