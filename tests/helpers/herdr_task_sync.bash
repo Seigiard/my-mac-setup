@@ -919,6 +919,40 @@ hts_process_pane_json() {
       | if $mode == "absent" then . else .foreground_cwd = $fg end'
 }
 
+# An agent pane. herdr carries the agent kind and its session id, and that
+# session id is the key an agent's own directory report is filed under.
+hts_agent_pane_json() {
+  local id="$1" tab="$2" cwd="$3" agent="$4" session="$5"
+  jq -cn --arg id "$id" --arg tab "$tab" --arg cwd "$cwd" \
+    --arg agent "$agent" --arg session "$session" '
+      {pane_id:$id,tab_id:$tab,workspace_id:"ws-1",terminal_id:("term-" + $id),
+       agent:$agent,
+       agent_session:{source:("herdr:" + $agent),agent:$agent,kind:"id",value:$session},
+       label:"",tokens:{},cwd:$cwd,foreground_cwd:$cwd}'
+}
+
+# Files a directory report directly, for cases that need a body no real
+# reporter would write.
+hts_write_agent_cwd_record() {
+  local root="$HTS_STATE/agent-cwd" key
+  mkdir -p "$root"
+  key="$(LC_ALL=C printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-64)"
+  printf '%s\n' "$2" > "$root/$key"
+}
+
+# Drives the shipped Claude statusline the way Claude Code does, so the record
+# under test is the one the real reporter writes rather than an imitation.
+hts_run_claude_statusline() {
+  local dir="$1" session="$2"
+  jq -cn --arg dir "$dir" --arg session "$session" '
+    {session_id:$session,workspace:{current_dir:$dir},
+     model:{display_name:"test"},cost:{},context_window:{}}' |
+    env HERDR_ENV=1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+      PATH="$HTS_STUB:/usr/bin:/bin" HOME="$HTS_WORK" \
+      bash "$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh" \
+      >/dev/null 2>&1
+}
+
 hts_set_process_label() {
   hts_proc_info "$1" "$(jq -cn --arg command "$2" '{result:{process_info:{shell_pid:1,foreground_process_group_id:2,foreground_processes:[{pid:2,argv:[$command]}]}}}')"
 }

@@ -5061,6 +5061,85 @@ EOF
   assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
 }
 
+@test "herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local launch="$HTS_WORK/repo" worktree="$HTS_WORK/wt-feature" common="$HTS_WORK/repo.git" state
+  mkdir -p "$launch/.git" "$worktree" "$common"
+  # given: an agent pane launched in the main checkout, and a linked worktree
+  # the agent's session will move into
+  hts_mark_linked_worktree "$worktree" "$common/worktrees/wt-feature"
+  hts_git_location_fixture "$launch" "$launch" "$common" refs/heads/main
+  hts_git_location_fixture "$worktree" "$worktree" "$common" refs/heads/feature
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_agent_pane_json pane-1 tab-1 "$launch" claude sess-1)"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+
+  # when: no report exists yet
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=5000 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the pane cwd still decides, which is the unchanged fallback
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main"
+
+  # when: the session moves and its own statusline records the new directory,
+  # while the pane cwd stays at the launch checkout
+  hts_run_claude_statusline "$worktree" sess-1
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=5001 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the row names the worktree the agent actually works in
+  assert_equal "$(jq -r '.panes[0].cwd' "$state")" "$launch"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_FOLDER wt-feature"
+  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
+}
+
+@test "herdr-task-sync ignores an agent directory report that is not an absolute path" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local launch="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  mkdir -p "$launch/.git" "$common"
+  # given: a report whose body could never name a checkout
+  hts_git_location_fixture "$launch" "$launch" "$common" refs/heads/main
+  hts_write_agent_cwd_record sess-1 'not-a-path'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_agent_pane_json pane-1 tab-1 "$launch" claude sess-1)"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+
+  # when: the pass runs
+  run hts_location_pass
+
+  # then: the pane falls back to its own cwd without noise
+  assert_success
+  refute_output --partial "dropped"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_BRANCH main"
+}
+
+@test "herdr-task-sync reads the newest agent directory report when a session moves twice before a sweep" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local launch="$HTS_WORK/repo" first="$HTS_WORK/wt-one" second="$HTS_WORK/wt-two"
+  local common="$HTS_WORK/repo.git"
+  mkdir -p "$launch/.git" "$first" "$second" "$common"
+  # given: two worktrees the session passes through between sweeps
+  hts_mark_linked_worktree "$first" "$common/worktrees/wt-one"
+  hts_mark_linked_worktree "$second" "$common/worktrees/wt-two"
+  hts_git_location_fixture "$launch" "$launch" "$common" refs/heads/main
+  hts_git_location_fixture "$first" "$first" "$common" refs/heads/one
+  hts_git_location_fixture "$second" "$second" "$common" refs/heads/two
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_agent_pane_json pane-1 tab-1 "$launch" claude sess-1)"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+
+  # when: both moves are reported before a single pass runs
+  hts_run_claude_statusline "$first" sess-1
+  hts_run_claude_statusline "$second" sess-1
+  hts_location_pass
+
+  # then: the sweep publishes the last reported directory, not the first
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER wt-two"
+}
+
 @test "herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations" {
   local manifest="$HTS_PLUGIN_DIR/herdr-plugin.toml"
   run awk '
