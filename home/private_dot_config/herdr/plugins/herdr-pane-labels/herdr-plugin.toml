@@ -54,6 +54,17 @@ command = ["sh", "ensure.sh", "--event"]
 on = "tab.renamed"
 command = ["sh", "ensure.sh", "--event"]
 
+# A worktree opened through herdr invalidates the pass immediately. An agent
+# that creates its own worktree emits no herdr event, so that case still waits
+# for the daemon's own sweep.
+[[events]]
+on = "worktree.created"
+command = ["sh", "ensure.sh", "--event"]
+
+[[events]]
+on = "worktree.opened"
+command = ["sh", "ensure.sh", "--event"]
+
 [[actions]]
 id = "sweep"
 title = "Pane labels: refresh now"
