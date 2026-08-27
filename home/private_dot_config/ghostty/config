@@ -23,7 +23,7 @@ macos-option-as-alt = right
 
 quit-after-last-window-closed=true
 window-save-state = always
-macos-titlebar-style = tabs
+macos-titlebar-style = hidden
 window-colorspace = "display-p3"
 window-new-tab-position = "end"
 window-padding-balance = true
