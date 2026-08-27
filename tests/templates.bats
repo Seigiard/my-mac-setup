@@ -224,7 +224,7 @@ PROBE
 @test "opencode skill symlinks target canonical claude skills" {
   local skill
 
-  for skill in ask-in-herdr markdown-new vector-prime work-summary writing-for-agents; do
+  for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
     run render_template "$SOURCE_ROOT/private_dot_config/opencode/skills/symlink_${skill}.tmpl"
     assert_success
     assert_output "$HOME/.claude/skills/$skill"

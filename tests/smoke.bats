@@ -343,7 +343,7 @@ PY
 @test "opencode exposes curated claude skills through canonical symlinks" {
   local skill
 
-  for skill in ask-in-herdr markdown-new vector-prime work-summary writing-for-agents; do
+  for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.config/opencode/skills/$skill"
     assert_success
     assert_output "$HOME/.claude/skills/$skill"
@@ -413,6 +413,9 @@ PY
     skills/pf-build/references/direct-build.md
     skills/pf-build/references/implementer-prompt.md
     skills/pf-build/references/demo.md
+    skills/plan-explainer/SKILL.md
+    skills/plan-explainer/references/sections.md
+    skills/plan-explainer/references/page-craft.md
   )
   local f missing=""
   for f in "${files[@]}"; do
