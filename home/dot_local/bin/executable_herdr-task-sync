@@ -639,8 +639,6 @@ admin_checkout_for_path() {
   return 1
 }
 
-# The budget is the caller's: identity and status probes cost different
-# amounts and must fail independently.
 # Where the agent says its session is working, as opposed to where its
 # process stands. No agent kind moves its process cwd when its work moves into
 # a worktree, so an OS-level probe cannot follow that move by design; the agent
@@ -674,6 +672,8 @@ cleanup_old_agent_cwd_records() {
   find "$root" -type f -mtime "+$STATE_MAX_AGE_DAYS" -delete 2>/dev/null || true
 }
 
+# The budget is the caller's: identity and status probes cost different
+# amounts and must fail independently.
 run_budgeted_command() {
   local budget="$1" outfile="$2" errfile="$3"
   shift 3

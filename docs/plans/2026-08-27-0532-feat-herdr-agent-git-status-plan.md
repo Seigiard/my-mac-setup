@@ -246,6 +246,7 @@ stateDiagram-v2
 
 - All 9 AE1 cells verified green in the live sidebar (U3), with the baseline recorded (U1).
 - `make lint` and `bats tests/scripts.bats` green; `make test-ubuntu` green once before merge.
+  - **Met, 2026-08-27, on the branch head carrying the cross-model review fixes.** `make lint` clean; `bats tests/scripts.bats` 254/254; `bats tests/smoke.bats` 74/74; `make test-ubuntu` 400/400, which is the run that applies the checkout and so is the only one that covers the managed statusline hook and the sidebar config.
 - `$git_ref` behavior and its existing tests unchanged (R6, KTD2).
 - The status probe carries the three outcome names `fresh` / `stale` / `absent`, resolved in one place and mapped to the token at one call site (KTD5).
 - No leftover experiment panes, sessions, or scratch repos; no abandoned-approach code in the diff.
