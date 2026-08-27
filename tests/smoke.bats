@@ -840,8 +840,11 @@ se_fixture_repo() {
   python_bin="$(command -v python3)"
   restricted_path="$(dirname "$python_bin")"
 
-  # #then --help succeeds with only python3 on PATH: no herdr, gh, cargo, git, jq
-  run env -i PATH="$restricted_path" HOME="$HOME" "$python_bin" "$bin" --help
+  # #then --help succeeds with only python3 on PATH: no herdr, gh, cargo, git,
+  # jq. Invoke the deployed entrypoint directly (its own #!/usr/bin/env
+  # python3 shebang resolves the interpreter) so the restricted PATH governs
+  # the actual command, not an interpreter path resolved outside it.
+  run env -i PATH="$restricted_path" HOME="$HOME" "$bin" --help
   assert_success
   assert_output --partial "usage:"
   assert_output --partial "bootstrap"
@@ -849,7 +852,7 @@ se_fixture_repo() {
   assert_output --partial "snapshot"
 
   # #and a missing subcommand fails on usage alone, before any preflight runs
-  run env -i PATH="$restricted_path" HOME="$HOME" "$python_bin" "$bin"
+  run env -i PATH="$restricted_path" HOME="$HOME" "$bin"
   assert_failure 2
   assert_output --partial "usage:"
 }

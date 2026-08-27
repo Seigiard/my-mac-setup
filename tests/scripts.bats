@@ -33,6 +33,18 @@ teardown() {
   assert_file_not_exists "$HGSP_STATE_ROOT"
 }
 
+@test "herdr-git-status-playground turns an unmodeled internal error into well-formed JSON, not a bare traceback" {
+  hgsp_setup
+
+  # #then a genuine bug (not a modeled PlaygroundError) still yields parseable
+  # JSON on stdout with an INTERNAL_ERROR code, never a raw traceback
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT=internal-error run hgsp_env status --all
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" error.code)" INTERNAL_ERROR
+  assert_output --partial "injected internal error for INTERNAL_ERROR boundary coverage"
+  refute_output --partial "Traceback"
+}
+
 @test "herdr-git-status-playground isolates profiles and child environments" {
   hgsp_setup
   run hgsp_start
@@ -277,7 +289,7 @@ PY
 
 @test "herdr-git-status-playground crash boundaries preserve recoverable intents" {
   hgsp_setup
-  local point run_id manifest
+  local point run_id manifest claim_path wrapper_pid
   for point in before-spawn after-spawn before-identity-commit; do
     HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="$point" run hgsp_start
     assert_failure 1
@@ -294,6 +306,18 @@ assert next(iter(manifest["launch_intents"].values()))["phase"] in {"intent-comm
 PY
     assert_success
 
+    # #then after-spawn and before-identity-commit leave a real launch-wrapper
+    # process parked on its unclaimed gate; capture its PID from the claim
+    # before stop so we can prove it was actually reaped, not just forgotten.
+    wrapper_pid=""
+    if [[ "$point" != before-spawn ]]; then
+      claim_path="$HGSP_STATE_ROOT/runs/$run_id/runtime/launch/foundation-supervisor/claim.json"
+      [[ -f "$claim_path" ]] || fail "expected a wrapper claim at $claim_path for $point"
+      wrapper_pid="$("$HGSP_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["pid"])' "$claim_path")"
+      run kill -0 "$wrapper_pid"
+      assert_success
+    fi
+
     run hgsp_env status "$run_id"
     assert_success
     assert_equal "$(hgsp_json_field "$output" run_id)" "$run_id"
@@ -304,6 +328,12 @@ PY
       assert_success
     fi
     assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+
+    # #then stop actually reaped the forgotten wrapper, not merely marked it done
+    if [[ -n "$wrapper_pid" ]]; then
+      run kill -0 "$wrapper_pid"
+      assert_failure
+    fi
   done
 }
 
@@ -701,7 +731,10 @@ PY
     assert_file_exists "$HGSP_STATE_ROOT/runs/$HGSP_LAST_RUN_ID/ground-truth/$control.json"
     run hgsp_env stop "$HGSP_LAST_RUN_ID"
     assert_success
-    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+    # A sabotaged start now cleans itself up (startup-failed-cleaned is the
+    # terminal state per the automatic-cleanup contract); stop stays
+    # idempotent on that terminal state instead of converting it to stopped.
+    assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
   done
 }
 
@@ -1926,6 +1959,106 @@ PY
     assert_failure
   done
   run hgsp_env stop "$run_id"
+  assert_success
+}
+
+@test "herdr-git-status-playground survives a teardown-time quarantine failure instead of wedging in stopping" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  run hgsp_candidate_start
+  assert_success
+  hgsp_capture_run_id
+  local run_id="$HGSP_LAST_RUN_ID"
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" active-ready
+
+  # #then an injected quarantine failure for ezcorp still reaches
+  # cleanup-incomplete (not a hang stuck in "stopping"), and records the
+  # injected code among the unresolved teardown conditions.
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="quarantine-teardown-ezcorp" run hgsp_env stop "$run_id"
+  assert_failure 1
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" cleanup-incomplete
+  assert_equal "$(hgsp_json_field "$output" error.code)" INJECTED_QUARANTINE_TEARDOWN_FAILURE
+  assert_equal \
+    "$(hgsp_manifest_query "$run_id" 'manifest["candidate_teardown"]["ezcorp"]["pid_record_quarantined"]')" \
+    false
+
+  # #then a later stop, without the injected failure, still settles the run
+  run hgsp_env stop "$run_id"
+  assert_success
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" stopped
+}
+
+@test "herdr-git-status-playground bounds a hung external command with a timeout instead of blocking forever" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then a herdr call that hangs past the (injected, tiny) subprocess timeout
+  # fails with a timeout diagnostic instead of blocking the command forever
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_SUBPROCESS_TIMEOUT_SECONDS=1 \
+    HGSP_HERDR_HANG_ARGS="sidebar snapshot" \
+    HGSP_HERDR_HANG_SECONDS=5 \
+    run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" SIDEBAR_SNAPSHOT_FAILED
+  assert_regex "$(hgsp_json_field "$output" error.message)" "timed out after"
+  assert_equal "$(hgsp_json_field "$output" lifecycle_state)" startup-failed-cleaned
+
+  # #then teardown itself never hung on the timeout: the run already settled
+  run hgsp_env stop "$HGSP_LAST_RUN_ID"
+  assert_success
+}
+
+@test "herdr-git-status-playground routes a local fixture catalog failure through startup cleanup, not a silent provisioning ghost" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then a non-injected fixture-build failure is wrapped like the remote
+  # provisioning failure just below it: automatic cleanup runs and the run
+  # reaches a terminal state instead of a silent, uncleaned "provisioning" ghost
+  HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT="sabotage-dirty" run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" FIXTURE_CHECKOUT_DIRTY_INCOMPLETE
+  local lifecycle_state
+  lifecycle_state="$(hgsp_json_field "$output" lifecycle_state)"
+  [[ "$lifecycle_state" == startup-failed-cleaned || "$lifecycle_state" == cleanup-incomplete ]] \
+    || fail "expected a terminal cleanup state, got $lifecycle_state"
+
+  # #then the error is durably persisted, not left for the caller to lose
+  assert_equal \
+    "$(hgsp_manifest_query "$HGSP_LAST_RUN_ID" 'manifest["error"]["code"]')" \
+    FIXTURE_CHECKOUT_DIRTY_INCOMPLETE
+}
+
+@test "herdr-git-status-playground redacts a leaked credential from a candidate-activation failure in the durable manifest" {
+  hgsp_setup
+  hgsp_remote_ready
+
+  # #then a `gh api` failure during candidate auth probing that echoes the
+  # candidate credential into its own stderr never reaches manifest.json
+  # unredacted (KTD17)
+  HGSP_GH_API_FAIL=1 run hgsp_candidate_start
+  assert_failure 1
+  hgsp_capture_run_id
+  assert_equal "$(hgsp_json_field "$output" error.code)" CANDIDATE_AUTH_UNPROVED
+
+  run grep -r candidate-canary "$HGSP_STATE_ROOT"
+  assert_failure
+
+  assert_equal \
+    "$(hgsp_manifest_query "$HGSP_LAST_RUN_ID" 'manifest["candidate_diagnostics"]["krystof"]["code"]')" \
+    CANDIDATE_AUTH_UNPROVED
+  run "$HGSP_PYTHON" - "$(hgsp_manifest "$HGSP_LAST_RUN_ID")" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+message = manifest["candidate_diagnostics"]["krystof"]["message"]
+assert "candidate-canary" not in message, message
+assert "<redacted>" in message, message
+PY
   assert_success
 }
 

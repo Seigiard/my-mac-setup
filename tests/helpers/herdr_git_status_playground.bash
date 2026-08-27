@@ -135,6 +135,15 @@ SH
   cat > "$HGSP_STUB/gh" <<SH
 #!/bin/sh
 printf 'gh|%s\n' "\$*" >> "\$HGSP_CALL_LOG"
+if [ "\$1" = api ] && [ -n "\${HGSP_GH_API_FAIL:-}" ] && [ "\$GH_TOKEN" = candidate-canary ]; then
+  # F4 redaction knob: model a candidate-activation `gh api` call (scoped to
+  # the candidate token, never the controller token) that fails and echoes
+  # the credential it was handed into its own diagnostic stderr, so a
+  # regression test can prove the failure never reaches manifest.json
+  # unredacted (KTD17).
+  printf 'gh: api request failed for token %s\n' "\${GH_TOKEN:-}" >&2
+  exit 1
+fi
 if [ "\$1" = api ] && [ -f "\${0%/*}/gh-api-sim.py" ]; then
   exec "$HGSP_PYTHON" "\${0%/*}/gh-api-sim.py" "\$@"
 fi
@@ -169,6 +178,14 @@ case "\$profile" in
   *) profile=controller ;;
 esac
 printf 'herdr|%s|%s\n' "\$profile" "\$*" >> "\$HGSP_CALL_LOG"
+# F2 subprocess-timeout knob: sleep past the injected test-mode timeout
+# instead of returning, so a regression test can prove a hung herdr call
+# resolves through the timeout diagnostic rather than blocking forever.
+if [ -n "\${HGSP_HERDR_HANG_ARGS:-}" ]; then
+  case " \$* " in
+    *" \$HGSP_HERDR_HANG_ARGS "*) sleep "\${HGSP_HERDR_HANG_SECONDS:-5}" ;;
+  esac
+fi
 if [ "\$1" = --version ]; then
   printf '%s\n' "\${HGSP_HERDR_VERSION:-herdr 0.8.2}"
   exit 0

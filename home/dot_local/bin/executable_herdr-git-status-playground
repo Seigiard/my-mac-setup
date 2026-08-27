@@ -40,6 +40,11 @@ CANDIDATE_REVISIONS = {
     "jmarbutt": "8a56c5dce0bd65e47eddc9a1d862ddae870cddc3",
 }
 SAFE_INHERITED = ("LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "NO_COLOR")
+# Every subprocess.run/check_output call in the controller shares this bound
+# (see subprocess_timeout_seconds()) so a hung external tool fails through the
+# normal PlaygroundError path instead of wedging start/teardown indefinitely.
+SUBPROCESS_TIMEOUT_SECONDS = 120
+SUBPROCESS_TIMEOUT_SECONDS_TEST_MODE = 30
 SECRET_NAMES = ("TOKEN", "PASSWORD", "CREDENTIAL", "SECRET")
 NOT_APPLICABLE = "not applicable"
 FIXTURE_AUTHOR_NAME = "Herdr Playground Fixture"
@@ -152,6 +157,24 @@ def test_mode() -> bool:
 
 def test_failpoint() -> str:
     return os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_FAILPOINT", "") if test_mode() else ""
+
+
+def subprocess_timeout_seconds() -> float:
+    """One shared bound for every controller-launched subprocess.run/
+    check_output call: a hung external tool (git, gh, herdr, a candidate
+    watcher script) must resolve through the normal PlaygroundError path
+    instead of blocking start/teardown forever. Shrunk in test mode, and
+    shrunk further by an HGSP knob so a regression test can force the
+    timeout to fire without waiting on SUBPROCESS_TIMEOUT_SECONDS for real."""
+    if not test_mode():
+        return SUBPROCESS_TIMEOUT_SECONDS
+    override = os.environ.get("HERDR_GIT_STATUS_PLAYGROUND_TEST_SUBPROCESS_TIMEOUT_SECONDS")
+    if override:
+        try:
+            return float(override)
+        except ValueError:
+            pass
+    return SUBPROCESS_TIMEOUT_SECONDS_TEST_MODE
 
 
 def source_environment() -> Dict[str, str]:
@@ -293,8 +316,9 @@ def process_start_identity(pid: int) -> Optional[str]:
             ["/bin/ps", "-o", "lstart=", "-p", str(pid)],
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=subprocess_timeout_seconds(),
         ).strip()
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
     return output or None
 
@@ -312,8 +336,9 @@ def process_command(pid: int) -> Optional[str]:
             ["/bin/ps", "-ww", "-o", "command=", "-p", str(pid)],
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=subprocess_timeout_seconds(),
         ).strip()
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
     return output or None
 
@@ -411,6 +436,7 @@ def minimal_environment(source: Dict[str, str], executable_paths: Dict[str, str]
 
 
 def run_checked(arguments: List[str], environment: Dict[str, str], code: str) -> str:
+    timeout = subprocess_timeout_seconds()
     try:
         completed = subprocess.run(
             arguments,
@@ -419,7 +445,10 @@ def run_checked(arguments: List[str], environment: Dict[str, str], code: str) ->
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        raise PlaygroundError(code, "timed out after %ss" % timeout)
     except OSError as error:
         raise PlaygroundError(code, str(error))
     if completed.returncode != 0:
@@ -1183,6 +1212,7 @@ def git_run(
     code: str,
     allow_failure: bool = False,
 ) -> "subprocess.CompletedProcess":
+    timeout = subprocess_timeout_seconds()
     try:
         completed = subprocess.run(
             [git_path] + arguments,
@@ -1192,7 +1222,10 @@ def git_run(
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        raise PlaygroundError(code, "timed out after %ss" % timeout)
     except OSError as error:
         raise PlaygroundError(code, str(error))
     if completed.returncode != 0 and not allow_failure:
@@ -1817,6 +1850,7 @@ def gh_api(
         arguments.extend(["--method", method])
     for flag, pair in fields or []:
         arguments.extend([flag, pair])
+    timeout = subprocess_timeout_seconds()
     try:
         completed = subprocess.run(
             arguments,
@@ -1826,7 +1860,10 @@ def gh_api(
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        raise PlaygroundError(code, "timed out after %ss" % timeout)
     except OSError as error:
         raise PlaygroundError(code, str(error))
     if completed.returncode != 0:
@@ -3591,6 +3628,10 @@ def quarantine_plugin_record(
     Returns the removed contents so discovery can still verify them."""
     manifest = mutation.manifest
     assert manifest is not None
+    if reason == "teardown" and test_failpoint() == "quarantine-teardown-%s" % name:
+        raise PlaygroundError(
+            "INJECTED_QUARANTINE_TEARDOWN_FAILURE", "injected teardown quarantine failure for %s" % name
+        )
     try:
         contents = record_path.read_bytes()
     except FileNotFoundError:
@@ -3818,6 +3859,7 @@ def sfroment_traced_once(
     script = profile_data_dir(profiles, name) / adapter["watcher_script"]
     once_environment = dict(environment)
     once_environment["PATH"] = str(shim_dir) + os.pathsep + environment["PATH"]
+    once_timeout = subprocess_timeout_seconds()
     try:
         completed = subprocess.run(
             [str(script), "once"],
@@ -3826,7 +3868,10 @@ def sfroment_traced_once(
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=once_timeout,
         )
+    except subprocess.TimeoutExpired:
+        raise PlaygroundError("SFROMENT_ONCE_FAILED", "timed out after %ss" % once_timeout)
     except OSError as error:
         raise PlaygroundError("SFROMENT_ONCE_FAILED", str(error))
 
@@ -4175,7 +4220,7 @@ def provision_candidates(
         except PlaygroundError as error:
             manifest.setdefault("candidate_diagnostics", {})[name] = {
                 "code": error.code,
-                "message": error.message,
+                "message": redact_text(error.message),
                 "at": utc_now(),
             }
             mutation.persist("candidate-%s-diagnostics" % name)
@@ -4202,8 +4247,10 @@ def provision_candidates(
 
 def process_group_members(pgid: int) -> List[int]:
     try:
-        output = subprocess.check_output(["/bin/ps", "-axo", "pid=,pgid="], text=True)
-    except (OSError, subprocess.CalledProcessError):
+        output = subprocess.check_output(
+            ["/bin/ps", "-axo", "pid=,pgid="], text=True, timeout=subprocess_timeout_seconds()
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return []
     members: List[int] = []
     for line in output.splitlines():
@@ -4273,13 +4320,24 @@ def teardown_candidates(mutation: Mutation, source: Dict[str, str], unresolved: 
 
         daemon = settle_detached_intent(mutation, name, adapter, candidate_unresolved, result)
         # Atomically quarantine the plugin-owned PID record before any native
-        # action could reread signal-capable state.
+        # action could reread signal-capable state. Guarded like the
+        # metadata_cleanup_action/restore_labels steps below: an unguarded
+        # raise here (PlaygroundError from an unreadable record, or a raw
+        # OSError from the directory/rename calls quarantine_plugin_record
+        # does not itself wrap) would abort the whole teardown loop and wedge
+        # the run in "stopping" with the repository lease never released.
         if adapter["pid_record"] and state_dir.exists():
-            quarantined = quarantine_plugin_record(
-                mutation, name, state_dir / adapter["pid_record"], "teardown"
-            )
-            if quarantined is not None:
-                result["pid_record_quarantined"] = True
+            try:
+                quarantined = quarantine_plugin_record(
+                    mutation, name, state_dir / adapter["pid_record"], "teardown"
+                )
+                if quarantined is not None:
+                    result["pid_record_quarantined"] = True
+            except (PlaygroundError, OSError) as error:
+                result["pid_record_quarantined"] = False
+                candidate_unresolved.append(
+                    error.code if isinstance(error, PlaygroundError) else "PLUGIN_RECORD_QUARANTINE_FAILED"
+                )
 
         if adapter["daemon_ends_with_socket"]:
             # Closing the profile socket should end the daemon: stop this
@@ -5284,7 +5342,13 @@ def command_start(arguments: argparse.Namespace, source: Dict[str, str]) -> int:
         with Mutation(root, run_id) as mutation:
             manifest = mutation.manifest
             assert manifest is not None
-            build_local_fixture_catalog(mutation, environments, executable_paths)
+            fixture_error: Optional[PlaygroundError] = None
+            try:
+                build_local_fixture_catalog(mutation, environments, executable_paths)
+            except PlaygroundError as error:
+                fixture_error = error
+            if fixture_error is not None:
+                return handle_startup_failure(mutation, root, run_dir, run_id, fixture_error, source)
 
             remote_error: Optional[PlaygroundError] = None
             try:
@@ -5682,8 +5746,11 @@ def main() -> int:
         return launch_wrapper(sys.argv[2:])
     parser = build_parser()
     arguments = parser.parse_args()
+    source: Optional[Dict[str, str]] = None
     try:
         source = source_environment()
+        if test_failpoint() == "internal-error":
+            raise RuntimeError("injected internal error for INTERNAL_ERROR boundary coverage")
         if arguments.command == "start":
             return command_start(arguments, source)
         if arguments.command == "status":
@@ -5699,6 +5766,22 @@ def main() -> int:
         return command_not_implemented(arguments.command, arguments, source)
     except PlaygroundError as error:
         return error_result(error)
+    except Exception as error:
+        # Last-resort boundary for a genuine bug, not a modeled PlaygroundError:
+        # emit well-formed JSON instead of a bare traceback so the caller can
+        # still parse the result. KeyboardInterrupt derives from BaseException,
+        # not Exception, so it is never caught here and keeps propagating with
+        # its existing exit semantics.
+        run_id = getattr(arguments, "run_id", None)
+        manifest = None
+        if run_id and source is not None:
+            try:
+                manifest = read_manifest(state_root(source), run_id)
+            except PlaygroundError:
+                manifest = None
+        next_command = ("stop %s" % run_id) if run_id else None
+        print_json(output_record(manifest, "INTERNAL_ERROR", str(error), next_command))
+        return 1
 
 
 if __name__ == "__main__":
