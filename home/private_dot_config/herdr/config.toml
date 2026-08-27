@@ -59,7 +59,7 @@ sidebar_min_width = 32
 # from the labels of its panes. The second sidebar row renders the combined Git
 # location token without adding Git information back to tab labels.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace", "pane"], ["$git_ref"]]
+rows = [["state_icon", "workspace", "pane"], ["$git_ref", "$git_status"]]
 
 # Native agent-status toasts are off: the herdr-focus-notify plugin sends its
 # own clickable notification (with `herdr agent focus` on click), and the two

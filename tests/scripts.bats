@@ -4865,6 +4865,11 @@ EOF
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/plain"
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/plain
+  # Counts are dirty and diverged both ways so the guard sees every icon the
+  # formatters can emit, not just the identity ones.
+  hts_git_status_fixture "$root" "$(printf '%s\n%s' \
+    '# branch.ab +3 -4' \
+    '1 .M N... 100644 100644 100644 1111111 1111111 one.txt')"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_process_label pane-1 plain-task
@@ -4874,15 +4879,186 @@ EOF
   assert_failure
   # After removing every approved codicon glyph, only plain ASCII (plus the
   # label separator and ellipsis) may remain in published labels and tokens.
-  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE" '
-    [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree, .panes[0].tokens.git_ref]
+  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE$HTS_ICON_DIRTY$HTS_ICON_AHEAD$HTS_ICON_BEHIND" '
+    [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree,
+     .panes[0].tokens.git_ref, .panes[0].tokens.git_status]
     | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026-]*$"))
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain $HTS_ICON_FOLDER plain-worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1 ${HTS_ICON_AHEAD}3 ${HTS_ICON_BEHIND}4"
   # pane_inline stays deferred per the label-system plan: no pass publishes it.
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
+}
+
+@test "herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  # given: a branch checkout whose status probe reports two changed paths and
+  # one commit each way against its upstream
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s\n%s\n%s' \
+    '# branch.oid 1111111111111111111111111111111111111111' \
+    '# branch.head topic' \
+    '# branch.upstream origin/topic' \
+    '# branch.ab +1 -2' \
+    '1 .M N... 100644 100644 100644 1111111 1111111 one.txt' \
+    '1 M. N... 100644 100644 100644 2222222 2222222 two.txt')"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+
+  # when: the location pass runs
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the counts render in the fixed order and identity is untouched
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" \
+    "${HTS_ICON_DIRTY}2 ${HTS_ICON_AHEAD}1 ${HTS_ICON_BEHIND}2"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+}
+
+@test "herdr-task-sync clean checkout carries no counts token and republishes when only the counts change" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  # given: a branch checkout whose status probe reports nothing at all
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+
+  # when: a clean pass runs
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=2000 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: no counts token is published
+  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+
+  # when: a file goes dirty and nothing about the identity changes
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=2001 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the counts-only change still triggers a republish
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+}
+
+@test "herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  # given: one staged path, one unstaged path, one that is both, one untracked
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s' \
+    '1 M. N... 100644 100644 100644 1111111 1111111 staged.txt' \
+    '1 .M N... 100644 100644 100644 2222222 2222222 unstaged.txt' \
+    '1 MM N... 100644 100644 100644 3333333 3333333 both.txt' \
+    '? untracked.txt')"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+
+  # when: the location pass runs
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: four paths, and the partially staged one is not double counted
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}4"
+}
+
+@test "herdr-task-sync omits ahead and behind when the branch has no upstream" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  # given: a status probe with no `# branch.ab` line, which is what git emits
+  # for a branch that tracks nothing
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s' \
+    '# branch.oid 1111111111111111111111111111111111111111' \
+    '# branch.head topic' \
+    '1 .M N... 100644 100644 100644 1111111 1111111 one.txt')"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+
+  # when: the location pass runs
+  run hts_location_pass
+
+  # then: the dirty count stands alone and the pass stays quiet
+  assert_success
+  refute_output --partial "dropped"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+}
+
+@test "herdr-task-sync clears the counts token when a pane leaves a Git checkout" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" plain="$HTS_WORK/plain" state
+  mkdir -p "$root/.git" "$common" "$plain"
+  # given: a pane that has already published counts
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_git_fixture "$plain" "" 1 ready 'fatal: not a git repository'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=3000 hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+
+  # when: the pane moves to a directory that is not a checkout
+  hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$plain" "$plain"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=3001 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the counts go with the rest of the location tokens
+  run jq -e '.panes[0].tokens | (.git_status == null and .git_ref == null and .repo == null)' "$state"
+  assert_success
+}
+
+@test "herdr-task-sync status probe over budget drops the counts and leaves git_ref intact" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" fixture state
+  mkdir -p "$root/.git" "$common"
+  # given: an identity probe that answers in budget and a status probe stalled
+  # past its own
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_block_git_status "$root"
+  fixture="$(hts_git_fixture_dir "$root")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+
+  # when: the pass runs while the status probe hangs
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=4000 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: identity survives and no count is invented
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+
+  # when: the probe answers again
+  : > "$fixture/release"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=4001 hts_location_pass
+
+  # then: the counts appear without manual repair
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
 }
 
 @test "herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations" {
