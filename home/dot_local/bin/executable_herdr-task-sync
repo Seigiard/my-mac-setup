@@ -84,13 +84,30 @@ case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
 esac
 FIELD_SEPARATOR=$'\037'
 WORKTREE_TOKEN_MAX_LEN=18
+# A budget is handed straight to `sleep` in the probe watchdog. A `sleep` that
+# rejects its argument returns immediately, so the watchdog would kill every
+# probe the instant it started and the daemon would report the whole machine
+# stale — a silent, total failure from one typo in an override. Accept only a
+# positive decimal; anything else takes the documented default.
+positive_decimal() {
+  case "$1" in
+    '' | . | *[!0-9.]* | *.*.*) return 1 ;;
+  esac
+  # A numerically zero budget kills the probe as surely as a malformed one.
+  case "$1" in
+    *[1-9]*) return 0 ;;
+  esac
+  return 1
+}
 LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"
+positive_decimal "$LOCATION_GIT_BUDGET" || LOCATION_GIT_BUDGET=0.075
 # The status probe scans the working tree, so it cannot share the identity
 # probe's bound. Measured warm on this machine: rev-parse ~14 ms against
 # ~36 ms on this repository and ~60 ms on a larger one for
 # `status --porcelain=v2`. This keeps roughly the headroom the identity
 # budget has, and a timeout costs the counts only.
 STATUS_GIT_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-0.3}"
+positive_decimal "$STATUS_GIT_BUDGET" || STATUS_GIT_BUDGET=0.3
 STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}"
 case "$STATE_MAX_AGE_DAYS" in '' | *[!0-9]*) STATE_MAX_AGE_DAYS=14 ;; esac
 # Seconds between two sweeps of the daemon. Five keeps a finished command
@@ -639,8 +656,14 @@ agent_reported_cwd() {
   [ -f "$file" ] || return 0
   value="$(head -n 1 "$file" 2>/dev/null)"
   case "$value" in
-    /*) printf '%s' "$value" ;;
+    /*) ;;
+    *) return 0 ;;
   esac
+  # A report that no longer resolves must not win over the pane's own cwd.
+  # Deleting an agent's worktree would otherwise pin the pane to a directory
+  # nothing can probe, when the launch directory is still perfectly readable.
+  ( cd "$value" 2>/dev/null ) || return 0
+  printf '%s' "$value"
 }
 
 # Records outlive the sessions that wrote them, so they age out on the same
@@ -849,8 +872,15 @@ resolve_pane_git_status() {
   errfile="$outfile.err"
   # One call answers both halves: the changed paths and, as `# branch.ab`,
   # the ahead/behind pair. Two probes would cost a second process launch.
+  #
+  # `--untracked-files=all` is what makes the count mean the same thing on
+  # every machine: without it `status.showUntrackedFiles` can hide untracked
+  # paths entirely, or collapse a new directory to a single entry while
+  # tracked edits still count one per file. Measured on this repository at
+  # 32.4ms against 32.5ms for the default, so the guarantee is free.
   if run_budgeted_command "$STATUS_GIT_BUDGET" "$outfile" "$errfile" \
-    env LC_ALL=C git -C "$root" --no-optional-locks status --porcelain=v2 --branch; then
+    env LC_ALL=C git -C "$root" --no-optional-locks status --porcelain=v2 --branch \
+    --untracked-files=all; then
     status=0
   else
     status=$?
@@ -1525,8 +1555,14 @@ EOF
     # The one place an outcome becomes a token decision: `fresh` publishes
     # its counts, and both `stale` and `absent` publish nothing, because a
     # count that might be wrong is worse than no count at all.
+    #
+    # The root, not the identity outcome, is what gates this. A transient
+    # identity probe still carries the retained root, and that root was
+    # probed for counts with everything else — so a 75ms identity hiccup
+    # must not blank counts that were measured successfully. A confirmed
+    # non-Git pane carries no root and falls out here on its own.
     _git_status=""
-    if [ "$_location_outcome" = "git" ] && [ -n "$_checkout_root" ]; then
+    if [ -n "$_checkout_root" ]; then
       status_row="$(table_row_for "$_checkout_root" "$root_statuses")"
       IFS="$FIELD_SEPARATOR" read -r _status_outcome _status_counts <<EOF
 $status_row

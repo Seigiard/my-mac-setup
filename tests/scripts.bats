@@ -5034,22 +5034,26 @@ EOF
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" fixture state
   mkdir -p "$root/.git" "$common"
-  # given: an identity probe that answers in budget and a status probe stalled
-  # past its own
+  # given: an identity probe that answers in budget and a status probe that
+  # does too, so a real count reaches the pane before anything is blocked
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
   hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
-  hts_block_git_status "$root"
   fixture="$(hts_git_fixture_dir "$root")"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
 
-  # when: the pass runs while the status probe hangs
+  # given: that count is published, so the next assertion has something to lose
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=3999 hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+
+  # when: the status probe stalls past its own budget on the next pass
+  hts_block_git_status "$root"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=4000 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: identity survives and no count is invented
+  # then: identity survives and the published count is cleared, not retained
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
   assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
 
@@ -5092,6 +5096,107 @@ EOF
   assert_equal "$(jq -r '.panes[0].cwd' "$state")" "$launch"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_FOLDER wt-feature"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
+}
+
+@test "herdr-task-sync keeps the counts when only the identity probe misses its budget" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  # given: a checkout whose counts are published from a healthy pass
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=6000 hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+
+  # when: the identity probe stalls past its budget while the status probe
+  # still answers for the retained root
+  hts_block_git_location "$root"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=6001 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the ref is marked stale, and the counts measured this pass survive
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_STALE"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
+}
+
+@test "herdr-task-sync counts untracked paths its way, not the user git config's way" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" fixture
+  mkdir -p "$root/.git" "$common"
+  # given: an ordinary checkout with one changed path
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  fixture="$(hts_git_fixture_dir "$root")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+
+  # when: the pass runs
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=6100 hts_location_pass
+
+  # then: the probe forced every untracked path to be listed, so no user-level
+  # status.showUntrackedFiles setting can silently shrink the count
+  assert_equal "$(grep -c -- '--untracked-files=all' "$fixture/calls")" 1
+}
+
+@test "herdr-task-sync writer and reader agree on the record name for an awkward session id" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local launch="$HTS_WORK/repo" worktree="$HTS_WORK/wt-feature" common="$HTS_WORK/repo.git"
+  local session='../../escape me' state
+  mkdir -p "$launch/.git" "$worktree" "$common"
+  # given: a session id carrying separators and spaces, so the filename the
+  # reporter writes and the one the daemon reads back are only equal if both
+  # transforms still match. They live in three separate files with nothing but
+  # this test holding them together, and divergence would fail silently.
+  hts_mark_linked_worktree "$worktree" "$common/worktrees/wt-feature"
+  hts_git_location_fixture "$launch" "$launch" "$common" refs/heads/main
+  hts_git_location_fixture "$worktree" "$worktree" "$common" refs/heads/feature
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_agent_pane_json pane-1 tab-1 "$launch" claude "$session")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+
+  # when: the shipped reporter records the move and a pass reads it back
+  hts_run_claude_statusline "$worktree" "$session"
+  HERDR_TASK_SYNC_TEST_NOW_SEQ=6200 hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: the pane followed the report, which only happens when all three
+  # copies of the transform agree
+  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
+
+  # then: the separators were flattened, so no record can be written outside
+  # the directory that holds them
+  assert_equal "$(find "$HTS_STATE/agent-cwd" -type f | wc -l | tr -d ' ')" 1
+  assert [ ! -e "$HTS_STATE/escape me" ]
+}
+
+@test "herdr-task-sync falls back to the pane cwd when the reported directory is gone" {
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local launch="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
+  mkdir -p "$launch/.git" "$common"
+  # given: an absolute report naming a worktree that has since been deleted,
+  # while the pane's own checkout is still perfectly readable
+  hts_git_location_fixture "$launch" "$launch" "$common" refs/heads/main
+  hts_write_agent_cwd_record sess-1 "$HTS_WORK/wt-deleted"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_agent_pane_json pane-1 tab-1 "$launch" claude sess-1)"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+
+  # when: the pass runs
+  run hts_location_pass
+
+  # then: the pane names the checkout it can still see instead of freezing
+  assert_success
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_BRANCH main"
 }
 
 @test "herdr-task-sync ignores an agent directory report that is not an absolute path" {

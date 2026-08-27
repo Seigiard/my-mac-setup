@@ -344,6 +344,11 @@ if [ -d "$fixture" ]; then
         while [ ! -f "$fixture/release" ]; do sleep 0.01; done
       fi
       ;;
+    *"--show-toplevel"*)
+      if [ -f "$fixture/block.location" ]; then
+        while [ ! -f "$fixture/release" ]; do sleep 0.01; done
+      fi
+      ;;
   esac
   : > "$fixture/completed"
   cat "$fixture/stderr" >&2
@@ -899,6 +904,16 @@ hts_block_git_status() {
   : > "$fixture/block.status"
 }
 
+# The mirror image: stalls only the identity probe and leaves the status probe
+# inside budget, which is how a transient location outcome is reached while
+# real counts are still measurable for the retained root.
+hts_block_git_location() {
+  local fixture
+  fixture="$(hts_git_fixture_dir "$1")"
+  [[ -n "$fixture" ]] || return 1
+  : > "$fixture/block.location"
+}
+
 # A linked worktree carries a .git FILE at its root; the main checkout has a
 # .git directory. The resolver's is_linked check reads only this marker.
 hts_mark_linked_worktree() {
@@ -972,10 +987,6 @@ hts_location_pass() {
   HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" \
     HERDR_TASK_SYNC_STATUS_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-$HTS_STATUS_BUDGET}" hts_event_run
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-}
-
-hts_location_source_tokens() {
-  jq -c --arg pane "$2" '.metadata[$pane]["location-sync"].tokens // {}' "$(hts_socket_state "$1")"
 }
 
 hts_location_source_seq() {
