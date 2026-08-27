@@ -441,6 +441,23 @@ PY
 # macOS-only configs (skipped on Linux)
 # ===========================================
 
+@test "executor CLI resolves on PATH through ~/.local/bin (macOS only)" {
+  is_macos || skip "Not on macOS"
+  # The symlink deploys on every macOS apply, but MMS_CI_MINIMAL renders
+  # Brewfile.macos to zero bytes, so CI never installs the cask that provides
+  # the target. Guard on the app bundle rather than on the link, which is
+  # present-but-dangling there.
+  [ -e /Applications/Executor.app ] || skip "Executor.app not installed (CI-minimal render omits the cask)"
+  # The target lives inside the app bundle, so running the binary is what proves
+  # the link resolves -- an existence check alone would pass against a dangling
+  # link after the app is moved or removed.
+  local link="$HOME/.local/bin/executor"
+  assert_file_exists "$link"
+  run "$link" --version
+  assert_success
+  assert_output --partial "executor v"
+}
+
 @test "kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)" {
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/kitty.conf"

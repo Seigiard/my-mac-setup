@@ -216,9 +216,10 @@ PROBE
   assert_success
   assert_output "allow"
 
-  run jq -r '[.mcp.fff.command[0], (.provider.openrouter.models | has("qwen/qwen3-coder:free")), .plugin[0]] | @tsv' "$BATS_TEST_TMPFILE"
+  run jq -r '[.mcp.fff.command[0], (.mcp.executor.command | join(" ")), .mcp.executor.enabled, (.provider.openrouter.models | has("qwen/qwen3-coder:free")), .plugin[0]] | @tsv' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output $'fff-mcp\ttrue\tcompound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git'
+  # `executor mcp` speaks stdio, so OpenCode never holds the daemon's rotating token.
+  assert_output $'fff-mcp\texecutor mcp\ttrue\ttrue\tcompound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git'
 }
 
 @test "opencode skill symlinks target canonical claude skills" {

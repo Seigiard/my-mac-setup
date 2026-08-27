@@ -5876,6 +5876,57 @@ se_fake_runtime() {
 }
 
 # ===========================================
+# Claude settings modifier
+# ===========================================
+
+@test "Claude settings modifier registers the executor MCP server over stdio" {
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-bin"
+
+  # The modifier only rewrites .mcpServers when both `op` and `jq` resolve, so a
+  # run without a 1Password stub would pass its input straight through and prove
+  # nothing about the executor entry.
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/op" <<'STUB'
+#!/bin/sh
+echo "stub-credential"
+STUB
+  chmod +x "$stub_bin/op"
+
+  run env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+
+  assert_success
+  # stdio rather than the daemon's HTTP endpoint: the CLI resolves the scope and
+  # token from ~/.executor itself, so no rotating secret lands in a tracked file.
+  run jq -e '
+    (.mcpServers.executor == {
+      "type": "stdio",
+      "command": "/stub/home/.local/bin/executor",
+      "args": ["mcp"],
+      "env": {}
+    })
+    and (.mcpServers | has("stale") | not)
+    and (.other == "preserved")
+  ' <<< "$output"
+  assert_success
+}
+
+@test "Claude settings modifier passes settings through untouched without 1Password" {
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
+
+  # Control for the test above, and the documented cost of the `op` gate: on a
+  # machine without 1Password the modifier drops *every* server, executor
+  # included, rather than registering the ones that need no credential.
+  run env PATH="$PATH_WITHOUT_OP" bash "$modifier" <<< "$input"
+
+  assert_success
+  run jq -e '.mcpServers == {"kept":{"type":"stdio"}}' <<< "$output"
+  assert_success
+}
+
+# ===========================================
 # Pi settings modifier
 # ===========================================
 
