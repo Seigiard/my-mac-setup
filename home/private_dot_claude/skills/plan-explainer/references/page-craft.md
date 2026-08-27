@@ -31,6 +31,8 @@ Define the full light palette on bare `:root`, then redefine the same tokens twi
 </style>
 ```
 
+Wrap every block of page content in a `<section id="…">`, the opening one included. The capture script walks `<section>` elements and names each file after its id, falling back to `section-1`, `section-2` for an unnamed one. Content outside a section never reaches a screenshot.
+
 Typography carries the "few words" feel: headings at `clamp(25px,4.4vw,40px)`, one lead sentence per section at `clamp(17px,2.2vw,20px)` in `--muted`, capped near `52ch`.
 
 ## Class names to keep consistent
@@ -41,7 +43,7 @@ Reuse one vocabulary across sections so the page stays editable: `.card`, `.grid
 
 ## Wide content
 
-Tables, boards, and diagrams go inside `<div class="scroll">` with `overflow-x:auto`, and the inner grid may set `min-width`. The page body must never scroll horizontally.
+Keep the page body's width fixed: route every wide table, scoreboard or diagram into its own `<div class="scroll">` with `overflow-x:auto`, where the inner grid may set `min-width`.
 
 ## Mermaid
 
@@ -61,37 +63,68 @@ There is no publish step: the HTML file is the deliverable. Write it where it wi
 
 - When the plan lives in a repository, put the page beside it: `docs/explainers/<date>-<slug>-explainer.html`. That keeps the page reviewable in the same diff as the plan.
 - Otherwise write to a path the user names, and say the full absolute path in the report.
-- Offer to open it: `open <path>` on macOS.
 - Rewrite the same path on later passes so an existing link or bookmark keeps working.
+
+Three actions get confused here; keep them apart:
+
+| Action | When |
+|---|---|
+| Open headlessly through `agent-browser` | Always, for verification |
+| Launch the user's visible browser | Only when the user asks for it |
+| Put a copyable `open "<absolute-path>"` line in the report | Always, whenever there is no Artifact URL |
 
 Keep the page self-contained in both modes — inline every style and script, embed images as `data:` URIs. A local page may load remote assets, but then it breaks the moment it is moved, mailed, or published later.
 
 ## Verifying the page
 
-The published page renders inside an iframe on claude.ai. Browser-automation tools cannot scroll it or run JavaScript in it, so **verify the local file instead** — the wrapper adds nothing that changes layout.
+The published page renders inside an iframe on claude.ai, where browser tools cannot scroll it or run JavaScript. Verify the local file instead — the wrapper adds nothing that changes layout.
+
+One command captures the whole page:
 
 ```bash
-D=/abs/path/to/scratchpad
-npx -y agent-browser open "file://$D/page.html"
-npx -y agent-browser eval "document.querySelector('.route').scrollIntoView({block:'center'}); 'ok'"
-npx -y agent-browser screenshot "$D/shot-route.png"
+bash ~/.claude/skills/plan-explainer/scripts/capture-sections.sh <html-file> <out-dir>
+```
+
+Read every PNG it lists — the script removes the repetition, never the looking. Its header comment carries the rest of the contract: what it prints, what makes it exit nonzero, and the fact that a section taller than four viewports is captured only that far down.
+
+### What has to be checked
+
+| Check | Standing |
+|---|---|
+| Every section captured in the default theme | required |
+| Manifest line count reconciled against the page's `<section>` count | required |
+| Every capture read | required |
+| Page-level horizontal overflow | required (the script prints it) |
+| Sections changed after review recaptured and reread | required |
+| Browser console output | recommended |
+| A dark-theme sample | required when the page ships a dark theme |
+| Narrow screens | report as unverified — `agent-browser` has no resize command |
+
+That table is the stopping condition. Checks beyond it are optional.
+
+### Driving agent-browser by hand
+
+When the script cannot run, the same loop by hand is `open`, then per section `eval` with `scrollIntoView`, then `screenshot`:
+
+```bash
+npx -y agent-browser open "file:///abs/path/page.html"
+npx -y agent-browser eval "(() => { document.querySelector('#route').scrollIntoView({block:'center'}); return 'ok'; })()"
+npx -y agent-browser screenshot "/abs/path/shot-route.png"
 npx -y agent-browser close
 ```
 
-Then read each PNG and look at it. Checking that a file exists is not checking that it renders.
+Two traps that cost real time:
 
-Details that matter:
+- **One javascript scope is shared by every `eval` in a session.** A second `const el` fails with "Identifier 'el' has already been declared" and the call returns nothing, which reads as a missing element rather than a scope error. Wrap each body in an IIFE, as above.
+- **Scroll, then capture.** `screenshot` takes a viewport frame; passing a selector to it captures whatever the viewport currently holds, which for an off-screen section is blank background — evidence that looks real and is not.
 
-- **Pass an absolute path to `screenshot`.** A relative path silently lands somewhere else.
-- `agent-browser` has **no `resize` command**, so narrow-screen layout cannot be verified this way. Report it as unverified rather than claiming it works.
-- `eval` plus `scrollIntoView` is the reliable way to reach a section; whole-page screenshots of a long page are unreadable.
-- A quick overflow check: `document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth`.
+Also: pass `screenshot` an absolute path, or the file lands somewhere unpredictable.
 
 ## Reporting
 
-Name each section and the plan content behind it. Then split the claims:
+Split the claims:
 
-- **Checked:** rendered locally and read the screenshots; which sections.
-- **Not checked:** narrow screens, dark theme, anything skipped.
+- **Verified:** rendered locally and read the screenshots; which sections.
+- **Not verified:** narrow screens, dark theme, anything skipped.
 
-Never report a section as verified because the HTML was written without an error.
+Call a section verified once its screenshot has been read — an error-free write says nothing about how it renders.

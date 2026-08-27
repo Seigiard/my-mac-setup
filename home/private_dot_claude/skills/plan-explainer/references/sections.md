@@ -1,6 +1,6 @@
 # Section catalogue
 
-Each entry names the plan content that feeds it, the visual form, and a markup sketch. Build only the sections the plan can actually fill.
+Each entry names the plan content that feeds it, the visual form, and a markup sketch. A section ships when a plan passage feeds it.
 
 Classes referenced here are defined in `page-craft.md`.
 
@@ -20,7 +20,7 @@ Classes referenced here are defined in `page-craft.md`.
 
 **Feeds on:** every domain term the page is about to use.
 
-**Form:** a grid of small cards. Each card is one term: a big glyph or mock on top, one sentence under it. Four to six cards, no more.
+**Form:** a grid of small cards. Each card is one term: a big glyph or mock on top, one sentence under it. Four to six cards carry the non-obvious reader-facing terms; a further specialist term gets defined inline where it first appears.
 
 ```html
 <div class="grid g2">
@@ -28,7 +28,7 @@ Classes referenced here are defined in `page-craft.md`.
 </div>
 ```
 
-**Rule:** a term that appears later and is not on this list is a hole. Walk the finished page and check.
+**Rule:** a later term is a hole when a reader with zero context cannot infer it from the sentence around it. Ordinary plan labels and command names are not holes. Walk the finished page and check.
 
 ---
 
@@ -101,11 +101,11 @@ stateDiagram-v2
 
 ---
 
-## 7. The board
+## 7. The scoreboard
 
 **Feeds on:** acceptance examples, matrices, checklists, definition of done, verification gates.
 
-**Form:** the plan's own acceptance table, drawn large. Tint each cell by the stage that closes it, and add a legend for the tints. Under the board, a strip of gate pills — the commands that must be green — with any human-only step in a distinct colour.
+**Form:** the plan's own acceptance table, drawn large. Tint each cell by the stage that closes it, and add a legend for the tints. Under the scoreboard, a strip of gate pills — the commands that must be green — with any human-only step in a distinct colour.
 
 **Why it works:** it is the plan's own artifact rather than a retelling, and it converts "done" into a countable thing.
 
@@ -152,13 +152,17 @@ State the cleanup obligation once, above the cards.
 
 **Why it works:** a reader who cannot see the holes assumes there are none, then discovers them mid-execution. A plan that names its unknowns is stronger, not weaker — showing them makes the honesty visible.
 
-**Rule:** never invent an open question, and never quietly resolve one. A pending placeholder in the plan stays pending on the page.
+**Rule:** carry each open question exactly as the plan states it. A pending placeholder in the plan stays pending on the page.
 
 ---
 
-## Sections to refuse
+## Framing devices that fail groundedness
 
-- **A difficulty scale.** Dots, stars, t-shirt sizes: all invented. Section 6 answers the same question with material.
-- **A generic risk or trap list.** Unless the plan names a risk, it is not on the page.
-- **Time estimates** absent from the plan.
-- **A summary of the summary.** The pictures are the summary.
+Each of these looks like content and carries none, because the plan never stated it. The grounded move is given beside it.
+
+| Tempting device | The grounded move |
+|---|---|
+| A difficulty scale — dots, stars, t-shirt sizes | Section 6: let the mass of refused work carry the scale |
+| A generic risk or trap list | Name the risks the plan names, and stop there |
+| A time estimate the plan never gives | Report the duration as unstated |
+| A prose summary of the pictures | Let the pictures be the summary |

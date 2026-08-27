@@ -59,6 +59,7 @@ https://ccsafetynet.com/docs/installation
 | linear            | `gh:schpet/linear-cli`              | chezmoi-ext |
 | markdown-new      | `repo`                              | repo        |
 | open-questions    | `repo`                              | repo        |
+| plan-explainer    | `repo`                              | repo        |
 | se-code-review    | `repo` (local CE wrapper)           | repo        |
 | se-doc-review     | `repo` (local CE wrapper)           | repo        |
 | se-plan           | `repo` (local CE wrapper)           | repo        |
@@ -95,7 +96,8 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 - `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
 - Own: `lfg`.
 - Canonical Claude skills exposed through managed symlinks: `ask-in-herdr`,
-  `markdown-new`, `vector-prime`, `work-summary`, `writing-for-agents`.
+  `markdown-new`, `plan-explainer`, `vector-prime`, `work-summary`,
+  `writing-for-agents`.
 
 ### Commands (`~/.config/opencode/commands/`)
 

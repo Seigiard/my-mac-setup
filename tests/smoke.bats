@@ -416,6 +416,8 @@ PY
     skills/plan-explainer/SKILL.md
     skills/plan-explainer/references/sections.md
     skills/plan-explainer/references/page-craft.md
+    skills/plan-explainer/references/edge-cases.md
+    skills/plan-explainer/scripts/capture-sections.sh
   )
   local f missing=""
   for f in "${files[@]}"; do
