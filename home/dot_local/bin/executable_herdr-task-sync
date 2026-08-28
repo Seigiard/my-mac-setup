@@ -550,27 +550,29 @@ location_state_file() {
 
 write_location_state() {
   local file="$1" pane_id="$2" root="$3" anchor="$4" repo="$5" branch="$6"
-  local is_linked="$7" sha="$8" content
+  local is_linked="$7" sha="$8" folder="$9" content
   content="pane=$(encode_value "$pane_id")
 checkout_root=$(encode_value "$root")
 repository_anchor=$(encode_value "$anchor")
 repo=$(encode_value "$repo")
 branch=$(encode_value "$branch")
 is_linked=$(encode_value "$is_linked")
-sha=$(encode_value "$sha")"
+sha=$(encode_value "$sha")
+folder=$(encode_value "$folder")"
   atomic_write "$file" "$content"
 }
 
 location_state_matches() {
   local file="$1" pane_id="$2" root="$3" anchor="$4" repo="$5" branch="$6"
-  local is_linked="$7" sha="$8"
+  local is_linked="$7" sha="$8" folder="$9"
   [ "$(read_state_field "$file" pane)" = "$pane_id" ] &&
     [ "$(read_state_field "$file" checkout_root)" = "$root" ] &&
     [ "$(read_state_field "$file" repository_anchor)" = "$anchor" ] &&
     [ "$(read_state_field "$file" repo)" = "$repo" ] &&
     [ "$(read_state_field "$file" branch)" = "$branch" ] &&
     [ "$(read_state_field "$file" is_linked)" = "$is_linked" ] &&
-    [ "$(read_state_field "$file" sha)" = "$sha" ]
+    [ "$(read_state_field "$file" sha)" = "$sha" ] &&
+    [ "$(read_state_field "$file" folder)" = "$folder" ]
 }
 
 cleanup_old_task_context() {
@@ -706,7 +708,7 @@ repository_name() {
 }
 
 transient_location_result() {
-  printf 'transient\037%s\037%s\037%s\037%s\037%s\037%s' "$1" "$2" "$3" "$4" "$5" "$6"
+  printf 'transient\037%s\037%s\037%s\037%s\037%s\037%s\037%s' "$1" "$2" "$3" "$4" "$5" "$6" "$7"
 }
 
 authoritative_worktree_deleted() {
@@ -730,19 +732,20 @@ authoritative_worktree_deleted() {
 }
 
 # Prints outcome, canonical checkout root, common Git directory, repository,
-# symbolic branch, linked-worktree flag, and detached short SHA separated by
-# unit separators. A transient result carries retained evidence when one
-# exists; confirmed non-Git carries empty evidence.
+# symbolic branch, linked-worktree flag, detached short SHA, and non-Git folder
+# separated by unit separators. A transient result carries whichever identity
+# was last confirmed.
 resolve_pane_location() {
   local pane_json="$1" state_file="$2" has_agent has_foreground cwd reported prior_root prior_anchor
-  local prior_repo prior_branch prior_is_linked prior_sha candidate outfile errfile status
-  local root anchor branch repo lines is_linked sha sha_outfile sha_errfile
+  local prior_repo prior_branch prior_is_linked prior_sha prior_folder candidate outfile errfile status
+  local root anchor branch repo lines is_linked sha folder sha_outfile sha_errfile
   prior_root="$(read_state_field "$state_file" checkout_root)"
   prior_anchor="$(read_state_field "$state_file" repository_anchor)"
   prior_repo="$(read_state_field "$state_file" repo)"
   prior_branch="$(read_state_field "$state_file" branch)"
   prior_is_linked="$(read_state_field "$state_file" is_linked)"
   prior_sha="$(read_state_field "$state_file" sha)"
+  prior_folder="$(read_state_field "$state_file" folder)"
   has_agent="$(printf '%s' "$pane_json" | jq -r '(.agent // "") != ""' 2>/dev/null)"
   has_foreground="$(printf '%s' "$pane_json" | jq -r 'has("foreground_cwd")' 2>/dev/null)"
   reported=""
@@ -760,9 +763,9 @@ resolve_pane_location() {
 
   if [ -z "$cwd" ] || ! (cd "$cwd" 2>/dev/null); then
     if authoritative_worktree_deleted "$prior_root" "$prior_anchor"; then
-      printf 'non_git\037\037\037\037\037\037'
+      printf 'non_git\037\037\037\037\037\037\037'
     else
-      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
     fi
     return 0
   fi
@@ -771,17 +774,17 @@ resolve_pane_location() {
   case "$cwd" in
     */.git | */.git/*)
       candidate="$(admin_checkout_for_path "$cwd" 2>/dev/null)" || {
-        transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+        transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
         return 0
       }
       ;;
   esac
   command -v git >/dev/null 2>&1 || {
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
     return 0
   }
   outfile="$(mktemp "$(namespace_dir)/.git-location.XXXXXX" 2>/dev/null)" || {
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
     return 0
   }
   errfile="$outfile.err"
@@ -795,10 +798,13 @@ resolve_pane_location() {
     if { [ "$status" -eq 1 ] || [ "$status" -eq 128 ]; } && \
       grep -Eqi 'not a git repository|not inside a work tree' "$errfile" 2>/dev/null; then
       rm -f "$outfile" "$errfile"
-      printf 'non_git\037\037\037\037\037\037'
+      folder="${cwd%/}"
+      folder="${folder##*/}"
+      [ -n "$folder" ] || folder=/
+      printf 'non_git\037\037\037\037\037\037\037%s' "$folder"
     else
       rm -f "$outfile" "$errfile"
-      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
     fi
     return 0
   fi
@@ -825,7 +831,7 @@ resolve_pane_location() {
   sha="$(sed -n '4p' "$outfile")"
   rm -f "$outfile" "$errfile"
   if [ -z "$root" ] || [ -z "$anchor" ] || [ -z "$branch" ]; then
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
     return 0
   fi
   case "$branch" in
@@ -840,19 +846,19 @@ resolve_pane_location() {
       branch=""
       case "$sha" in
         *[!0-9a-f]* | '')
-          transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+          transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
           return 0
           ;;
       esac
       ;;
     *)
-      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+      transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
       return 0
       ;;
   esac
   repo="$(repository_name "$anchor")"
   [ -n "$repo" ] || {
-    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha"
+    transient_location_result "$prior_root" "$prior_anchor" "$prior_repo" "$prior_branch" "$prior_is_linked" "$prior_sha" "$prior_folder"
     return 0
   }
   # A linked worktree carries a .git FILE at the checkout root; the main
@@ -861,7 +867,7 @@ resolve_pane_location() {
   # not in the main checkout.
   is_linked=""
   [ ! -f "$root/.git" ] || is_linked=1
-  printf 'git\037%s\037%s\037%s\037%s\037%s\037%s' "$root" "$anchor" "$repo" "$branch" "$is_linked" "$sha"
+  printf 'git\037%s\037%s\037%s\037%s\037%s\037%s\037' "$root" "$anchor" "$repo" "$branch" "$is_linked" "$sha"
 }
 
 # Counts are volatile where identity is stable, so they get their own probe,
@@ -1095,12 +1101,11 @@ filter_records_of_width() {
   '
 }
 
-# One formatter for every surface:
-#   $git_ref = <place-icon> <ref> [<folder-icon> <folder>] [<stale-icon>]
+# One formatter for every location surface:
+#   Git:     $git_ref = <place-icon> <ref> [<stale-icon>]
+#   non-Git: $git_ref = <folder-icon> <folder> [<stale-icon>]
 # place is "branch" (main checkout), "worktree" (linked worktree), or
 # "commit" (detached HEAD); ref is the branch name or the detached short SHA.
-# The caller decides folder-qualifier suppression — it knows the pane's
-# workspace name. Ref-less retained evidence renders as folder icon + token.
 git_ref_for() {
   local place="$1" ref="$2" folder="$3" status="$4" label=""
   if [ -n "$ref" ]; then
@@ -1109,7 +1114,6 @@ git_ref_for() {
       commit) label="$ICON_COMMIT $ref" ;;
       *) label="$ICON_BRANCH $ref" ;;
     esac
-    [ -z "$folder" ] || label="$label $ICON_FOLDER $folder"
   elif [ -n "$folder" ]; then
     label="$ICON_FOLDER $folder"
   else
@@ -1286,7 +1290,7 @@ compose_tab_intents() {
   local tab_rows tab_id workspace current index parts named
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
   local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
-  local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha
+  local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha _location_folder
   local _git_ref _worktree_token _git_status
   tab_rows="$(printf '%s' "$snapshot" | jq -r '
     reduce .result.snapshot.tabs[]? as $t ({counts: {}, out: []};
@@ -1298,7 +1302,7 @@ compose_tab_intents() {
     [ -n "$tab_id" ] || continue
     parts=""
     named=0
-    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _git_ref _worktree_token _git_status; do
+    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_folder _location_status _git_ref _worktree_token _git_status; do
       [ "$pane_tab" = "$tab_id" ] || continue
       [ -n "$pane_intended" ] || continue
       [ "$pane_intended" = "$IDLE_PANE_LABEL" ] || named=1
@@ -1322,11 +1326,11 @@ reconcile_presentation_pass() {
   local current_repo current_worktree current_branch current_location_status current_git_ref current_git_status pane_json_encoded pane_json
   local intended slug metadata_seq control active_agent active_session generation committed task_file
   local saved_pane="$pane" saved_agent="$agent" saved_session="$session"
-  local location_file location_result location_outcome checkout_root repository_anchor repo branch location_status is_linked sha
+  local location_file location_result location_outcome checkout_root repository_anchor repo branch location_status is_linked sha folder
   local roots root_tokens root_statuses worktree_token git_ref git_status location_seq location_changed
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
   local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
-  local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha
+  local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha _location_folder
   local _current_worktree _worktree_token _git_ref _git_status status_row _status_outcome _status_counts
   local _ref _place _folder _workspace_name
   local final_payload final_label final_task final_tokens
@@ -1389,8 +1393,7 @@ reconcile_presentation_pass() {
     | select(((.tokens.location_label // "") != "") or ((.tokens.git_status // "") != ""))
     | (.pane_id // "")' 2>/dev/null)"
 
-  # Workspace names suppress the $git_ref folder qualifier when the worktree
-  # token merely repeats the pane's workspace name. Live herdr 0.8 snapshots
+  # Workspace names feed the aggregate agent line. Live herdr 0.8 snapshots
   # carry the display name as `label`; `name` stays as a fallback for older
   # snapshot shapes.
   workspace_rows="$(printf '%s' "$snapshot" | jq -r '
@@ -1482,29 +1485,35 @@ EOF
       location_probe_results="${location_probe_results#*$'\n'}"
     fi
     location_file="$(location_state_file "$id")"
-    IFS="$FIELD_SEPARATOR" read -r location_outcome checkout_root repository_anchor repo branch is_linked sha <<EOF
+    IFS="$FIELD_SEPARATOR" read -r location_outcome checkout_root repository_anchor repo branch is_linked sha folder <<EOF
 $location_result
 EOF
     location_status=""
     case "$location_outcome" in
       git)
         if ! location_state_matches "$location_file" "$id" "$checkout_root" \
-          "$repository_anchor" "$repo" "$branch" "$is_linked" "$sha"; then
+          "$repository_anchor" "$repo" "$branch" "$is_linked" "$sha" ""; then
           write_location_state "$location_file" "$id" "$checkout_root" \
-            "$repository_anchor" "$repo" "$branch" "$is_linked" "$sha" || return 1
+            "$repository_anchor" "$repo" "$branch" "$is_linked" "$sha" "" || return 1
         fi
         ;;
       non_git)
-        rm -f "$location_file" 2>/dev/null || return 1
         checkout_root=""
         repository_anchor=""
         repo=""
         branch=""
         is_linked=""
         sha=""
+        if [ -n "$folder" ]; then
+          if ! location_state_matches "$location_file" "$id" "" "" "" "" "" "" "$folder"; then
+            write_location_state "$location_file" "$id" "" "" "" "" "" "" "$folder" || return 1
+          fi
+        else
+          rm -f "$location_file" 2>/dev/null || return 1
+        fi
         ;;
       transient)
-        if [ -n "$checkout_root" ]; then
+        if [ -n "$checkout_root" ] || [ -n "$folder" ]; then
           location_status="stale"
         elif [ -n "$current_repo" ] && [ -n "$current_worktree" ]; then
           # Fresh snapshot tokens are weaker than canonical evidence, but they
@@ -1552,16 +1561,16 @@ EOF
       [ -n "$intended" ] || intended="$IDLE_PANE_LABEL"
     fi
     pane_intents="${pane_intents}${pane_intents:+
-}${id}${FIELD_SEPARATOR}${terminal}${FIELD_SEPARATOR}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${agent_of}${FIELD_SEPARATOR}${native_session}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${intended}${FIELD_SEPARATOR}${current_task}${FIELD_SEPARATOR}${slug}${FIELD_SEPARATOR}${metadata_seq}${FIELD_SEPARATOR}${location_outcome}${FIELD_SEPARATOR}${checkout_root}${FIELD_SEPARATOR}${repository_anchor}${FIELD_SEPARATOR}${repo}${FIELD_SEPARATOR}${branch}${FIELD_SEPARATOR}${is_linked}${FIELD_SEPARATOR}${sha}${FIELD_SEPARATOR}${location_status}"
+}${id}${FIELD_SEPARATOR}${terminal}${FIELD_SEPARATOR}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${agent_of}${FIELD_SEPARATOR}${native_session}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${intended}${FIELD_SEPARATOR}${current_task}${FIELD_SEPARATOR}${slug}${FIELD_SEPARATOR}${metadata_seq}${FIELD_SEPARATOR}${location_outcome}${FIELD_SEPARATOR}${checkout_root}${FIELD_SEPARATOR}${repository_anchor}${FIELD_SEPARATOR}${repo}${FIELD_SEPARATOR}${branch}${FIELD_SEPARATOR}${is_linked}${FIELD_SEPARATOR}${sha}${FIELD_SEPARATOR}${folder}${FIELD_SEPARATOR}${location_status}"
   done <<EOF
 $pane_rows
 EOF
   pane="$saved_pane"
   agent="$saved_agent"
   session="$saved_session"
-  pane_intents="$(printf '%s\n' "$pane_intents" | filter_records_of_width 19)"
+  pane_intents="$(printf '%s\n' "$pane_intents" | filter_records_of_width 20)"
 
-  roots="$(while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status; do
+  roots="$(while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_folder _location_status; do
     [ -z "$_checkout_root" ] || printf '%s\n' "$_checkout_root"
   done <<EOF
 $pane_intents
@@ -1570,7 +1579,7 @@ EOF
   roots="$(printf '%s\n' "$roots" | sed '/^$/d' | LC_ALL=C sort -u)"
   root_tokens="$(build_worktree_tokens "$roots")"
   root_statuses="$(build_root_statuses "$roots")"
-  while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status; do
+  while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_folder _location_status; do
     [ -n "$_pane_id" ] || continue
     _worktree_token=""
     if [ -n "$_checkout_root" ]; then
@@ -1594,15 +1603,10 @@ EOF
     elif [ "$_is_linked" = "1" ]; then
       _place="worktree"
     fi
-    _folder="$_worktree_token"
-    if [ -n "$_ref" ]; then
-      # The folder qualifier earns its place only when it disagrees with both
-      # the ref and the pane's herdr workspace name.
-      _workspace_name="$(table_value_for "$_pane_workspace" "$workspace_rows")"
-      if [ "$_worktree_token" = "$_ref" ] || [ "$_worktree_token" = "$_workspace_name" ]; then
-        _folder=""
-      fi
-    fi
+    _folder="$_location_folder"
+    # Legacy transient token-only evidence can lack a ref and durable state.
+    # In that one fallback, its prior worktree token remains a folder identity.
+    if [ -z "$_ref" ] && [ -z "$_folder" ]; then _folder="$_worktree_token"; fi
     _git_ref="$(git_ref_for "$_place" "$_ref" "$_folder" "$_location_status")"
     # The one place an outcome becomes a token decision: `fresh` publishes
     # its count tokens, and both `stale` and `absent` publish nothing, because a
@@ -1622,11 +1626,11 @@ EOF
       [ "$_status_outcome" != "fresh" ] || _git_status="$_status_counts"
     fi
     pane_presentations="${pane_presentations}${pane_presentations:+
-}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}${FIELD_SEPARATOR}${_git_status}"
+}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_folder}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}${FIELD_SEPARATOR}${_git_status}"
   done <<EOF
 $pane_intents
 EOF
-  pane_presentations="$(printf '%s\n' "$pane_presentations" | filter_records_of_width 22)"
+  pane_presentations="$(printf '%s\n' "$pane_presentations" | filter_records_of_width 23)"
 
   # A complete snapshot authoritatively deletes evidence for panes that no
   # longer exist. No label policy or applied-label copy is retained.
@@ -1643,7 +1647,7 @@ EOF
   # Herdr 0.8 has no rename compare-and-swap. A target can change after the
   # final get and briefly receive stale intent; the next pass repairs it.
   presentation_generation_valid "$pass" || return 2
-  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch is_linked sha location_status git_ref worktree_token git_status; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch is_linked sha folder location_status git_ref worktree_token git_status; do
     [ -n "$id" ] || continue
     # The published-token baseline this pane is diffed against lives in the
     # keyed table, not in the record.
@@ -1678,10 +1682,10 @@ EOF
     # A transient pass with no evidence publishes nothing: location tokens
     # retain as-is. Same gate as the publish arms below, so such a pass also
     # keeps the legacy token for now.
-    if { [ -n "$repo" ] && [ -n "$worktree_token" ]; } || [ "$location_outcome" = "non_git" ]; then
+    if [ -n "$git_ref" ] || [ "$location_outcome" = "non_git" ]; then
       ! list_contains_line "$id" "$legacy_token_panes" || location_changed=1
     fi
-    if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
+    if [ -n "$git_ref" ]; then
       [ "$current_repo" = "$repo" ] || location_changed=1
       [ "$current_worktree" = "$worktree_token" ] || location_changed=1
       [ "$current_branch" = "$branch" ] || location_changed=1
@@ -1718,11 +1722,11 @@ EOF
 $final_tokens
 EOF
       location_changed=0
-      if { [ -n "$repo" ] && [ -n "$worktree_token" ]; } || [ "$location_outcome" = "non_git" ]; then
+      if [ -n "$git_ref" ] || [ "$location_outcome" = "non_git" ]; then
         [ -z "$final_location_label" ] || location_changed=1
         [ -z "$final_legacy_tokens" ] || location_changed=1
       fi
-      if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
+      if [ -n "$git_ref" ]; then
         [ "$final_repo" = "$repo" ] || location_changed=1
         [ "$final_worktree" = "$worktree_token" ] || location_changed=1
         [ "$final_branch" = "$branch" ] || location_changed=1
@@ -1756,6 +1760,9 @@ EOF
           if [ -n "$git_staged" ]; then set -- "$@" --token "git_staged=$git_staged"; else set -- "$@" --clear-token git_staged; fi
           if [ -n "$git_unstaged" ]; then set -- "$@" --token "git_unstaged=$git_unstaged"; else set -- "$@" --clear-token git_unstaged; fi
           if [ -n "$git_untracked" ]; then set -- "$@" --token "git_untracked=$git_untracked"; else set -- "$@" --clear-token git_untracked; fi
+        elif [ -n "$git_ref" ]; then
+          set -- "$@" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token git_status --clear-token git_pull --clear-token git_push --clear-token git_conflicts --clear-token git_staged --clear-token git_unstaged --clear-token git_untracked --clear-token location_label
+          if [ -n "$location_status" ]; then set -- "$@" --token "location_status=$location_status"; else set -- "$@" --clear-token location_status; fi
         else
           set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token git_status --clear-token git_pull --clear-token git_push --clear-token git_conflicts --clear-token git_staged --clear-token git_unstaged --clear-token git_untracked --clear-token location_label
         fi

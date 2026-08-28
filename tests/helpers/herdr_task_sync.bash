@@ -531,9 +531,8 @@ hts_set_tab() {
   hts_upsert "$1" tabs tab_id "$2"
 }
 
-# Workspace names come from the snapshot's workspaces array; the formatter
-# suppresses the $git_ref folder qualifier when the worktree token equals
-# the pane's workspace name.
+# Workspace names come from the snapshot's workspaces array and feed the
+# aggregate agent line independently of location identity.
 hts_set_workspace() {
   hts_upsert "$1" workspaces workspace_id "$2"
 }

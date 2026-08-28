@@ -4050,17 +4050,18 @@ EOF
 
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.repo' "$state" | sort -u)" repository
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
-  # Main checkout: branch icon; folder qualifier suppressed because the
-  # worktree token equals the workspace name.
+  # Main checkout: Git identity is only the branch.
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
-  # Linked worktree (.git file at root): worktree icon; folder qualifier
-  # suppressed because the worktree token equals the branch.
+  # Linked worktree (.git file at root): Git identity is only the branch.
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.branch' "$state")" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.worktree' "$state")" feature
-  run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == null)' "$state"
+  run jq -e --arg ref "$HTS_ICON_FOLDER outside" '
+    .panes[] | select(.pane_id == "foreground-wins")
+    | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == $ref)
+  ' "$state"
   assert_success
   assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
 }
@@ -4091,7 +4092,7 @@ EOF
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_STALE"
 }
 
-@test "herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water" {
+@test "herdr-task-sync location detached and non-Git identities persist across transient probes" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
@@ -4125,10 +4126,19 @@ EOF
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  # pane_inline is deferred by the plan and never published; the non-Git arm
-  # clears every Git token while the task and aggregate agent label survive.
-  assert_equal "$(jq -cS '.panes[0].tokens' "$state")" '{"agent_line":"repo worker","task":"kept-task"}'
+  # Confirmed non-Git clears Git-specific metadata but publishes the cwd
+  # basename as the durable location identity.
+  assert_equal "$(jq -cS '.panes[0].tokens' "$state")" \
+    "{\"agent_line\":\"repo worker\",\"git_line\":\"$HTS_ICON_FOLDER non-git$HTS_SIDEBAR_PADDING\",\"git_ref\":\"$HTS_ICON_FOLDER non-git\",\"task\":\"kept-task\"}"
   [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]] || fail "non-Git location sequence did not advance"
+
+  # A later probe failure retains the prior folder identity instead of
+  # reverting to the older Git identity or clearing the location.
+  printf '%s' 127 > "$(hts_git_fixture_dir "$nongit")/status"
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_FOLDER non-git $HTS_ICON_STALE"
+  assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
 }
 
 @test "herdr-task-sync location real probe shape pays the second sha call only when detached" {
@@ -4259,8 +4269,10 @@ EOF
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label == null' "$state"
   assert_success
-  # then: the non-Git clear path sheds it alongside the other location tokens
-  run jq -e '.panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == null)' "$state"
+  # then: the non-Git path sheds it while publishing its folder identity
+  run jq -e --arg ref "$HTS_ICON_FOLDER non-git" '
+    .panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == $ref)
+  ' "$state"
   assert_success
 }
 
@@ -4393,8 +4405,8 @@ EOF
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.branch == "initial-1" and .tokens.location_status == "stale"' "$state"
   assert_success
   for i in $(seq 2 8); do
-    run jq -e --arg pane "pane-$i" \
-      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == null)' "$state"
+    run jq -e --arg pane "pane-$i" --arg ref "$HTS_ICON_FOLDER work" \
+      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == $ref)' "$state"
     assert_success
     fixture="$(hts_git_fixture_dir "$HTS_WORK/repos/repo-$i/work")"
     assert_file_exists "$fixture/started"
@@ -4455,10 +4467,9 @@ EOF
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   # Token-only evidence carries no is_linked proof, so the place icon falls
-  # back to the branch icon; without any ref evidence the folder icon plus
-  # worktree token is the whole $git_ref.
+  # back to the branch icon. A ref-less prior identity remains a folder.
   run jq -e \
-    --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
+    --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_STALE" \
     --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
     --arg pad "$HTS_SIDEBAR_PADDING" '
     (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one,agent_line:"one",git_line:($ref_one + $pad)})
@@ -4572,7 +4583,7 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "~ 1"
   assert_equal "$(jq -r '.panes[] | .label' "$state" | sort -u)" "~"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main"
 }
 
 @test "herdr-task-sync Git-only location changes do not rename a names-only tab" {
@@ -4598,13 +4609,11 @@ EOF
   assert_failure
 }
 
-@test "herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder" {
+@test "herdr-task-sync formatter never qualifies a Git branch with its folder" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  # Plan decision 5 describes the typical main checkout, whose folder repeats
-  # the branch or the workspace name. When the folder differs from BOTH it is
-  # real location information, so the sidebar qualifier stays — the same
-  # suppression rule as every other checkout, no main-checkout special case.
+  # Git identity is the branch regardless of the checkout folder or workspace
+  # name. Folder identity belongs exclusively to confirmed non-Git locations.
   local root="$HTS_WORK/setup-copy" state
   mkdir -p "$root/.git"
   hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
@@ -4614,16 +4623,15 @@ EOF
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER setup-copy"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-@test "herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent" {
+@test "herdr-task-sync formatter reads the workspace display name from the legacy name field" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  # Older snapshot shapes carry the workspace display name as `name`; the
-  # (.label // .name // "") read must still suppress the folder qualifier when
-  # the worktree token merely repeats that name.
+  # Older snapshot shapes carry the workspace display name as `name`; it still
+  # feeds the aggregate agent line independently of the Git identity.
   local root="$HTS_WORK/legacy-ws" state
   mkdir -p "$root/.git"
   hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/topic
@@ -4633,6 +4641,7 @@ EOF
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$state")" "legacy-ws task"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 }
 
@@ -4640,8 +4649,7 @@ EOF
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   # The commit place deliberately wins over the worktree place: the detached
-  # short SHA locates the pane more precisely than worktree-ness does, and the
-  # folder qualifier still names the linked worktree in the sidebar.
+  # short SHA is the complete Git identity.
   local root="$HTS_WORK/wt-detached" common="$HTS_WORK/repository/.git" state
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/wt-detached"
@@ -4652,15 +4660,15 @@ EOF
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d $HTS_ICON_FOLDER wt-detached"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-@test "herdr-task-sync formatter qualifies a divergent worktree folder in metadata only" {
+@test "herdr-task-sync formatter never qualifies a linked worktree branch with its folder" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  # A divergent folder remains useful in the sidebar while the tab stays
-  # limited to the two pane labels.
+  # The worktree icon and branch are the complete Git identity even when the
+  # checkout folder has a different name.
   local root="$HTS_WORK/wt-hotfix" common="$HTS_WORK/repository/.git" state
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/wt-hotfix"
@@ -4673,7 +4681,7 @@ EOF
   hts_set_process_label pane-2 beta
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE fix-login $HTS_ICON_FOLDER wt-hotfix"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE fix-login"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
@@ -4746,9 +4754,9 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" team/feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")" release/feature
-  # The slash-suffix folder token appears only in the sidebar qualifier.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE one $HTS_ICON_FOLDER team/feature"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER release/feature"
+  # Worktree tokens remain independently available but never qualify Git refs.
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE one"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE two"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
@@ -4824,7 +4832,7 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" "$long_ref"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref $HTS_ICON_FOLDER worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref"
 }
 
 @test "herdr-task-sync long repository names do not alter a multi-repo tab label" {
@@ -4860,7 +4868,7 @@ EOF
   # given: one pass has already published every current token
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
   assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
   # given: a stale daemon of the retired version puts both aggregate tokens
@@ -4880,7 +4888,7 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
   assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
   assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
@@ -4920,7 +4928,7 @@ EOF
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain $HTS_ICON_FOLDER plain-worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain"
   assert_equal "$(jq -r '[.panes[0].tokens | .git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | map(select(. != null)) | join(" ")' "$state")" \
     "${HTS_GIT_BEHIND}4 ${HTS_GIT_AHEAD}3 ${HTS_GIT_CONFLICT}1 ${HTS_GIT_STAGED}1 ${HTS_GIT_UNSTAGED}1 ${HTS_GIT_UNTRACKED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
@@ -5092,8 +5100,12 @@ EOF
   HERDR_TASK_SYNC_TEST_NOW_SEQ=3001 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: the counts go with the rest of the location tokens
-  run jq -e '.panes[0].tokens | ([.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)) and (.git_ref == null and .git_line == null and .repo == null)' "$state"
+  # then: Git counts and metadata clear while the non-Git folder takes over
+  run jq -e --arg ref "$HTS_ICON_FOLDER plain" --arg line "$HTS_ICON_FOLDER plain$HTS_SIDEBAR_PADDING" '
+    .panes[0].tokens
+    | ([.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null))
+      and (.git_ref == $ref and .git_line == $line and .repo == null)
+  ' "$state"
   assert_success
 }
 
@@ -5163,7 +5175,7 @@ EOF
 
   # then: the row names the worktree the agent actually works in
   assert_equal "$(jq -r '.panes[0].cwd' "$state")" "$launch"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_FOLDER wt-feature"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
 }
 
@@ -5311,7 +5323,7 @@ EOF
   hts_location_pass
 
   # then: the sweep publishes the last reported directory, not the first
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER wt-two"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two"
 }
 
 @test "herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations" {
