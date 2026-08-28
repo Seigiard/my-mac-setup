@@ -47,10 +47,14 @@ convert() { # dest-dir [--serial]
     --manifest "$1/manifest.tsv" "$FIX/control.bats" >/dev/null
   # Converted fixtures live outside tests/bashunit; point them at the shim
   # and the original fixture explicitly.
-  sed -i '' \
-    -e "s|\$(dirname \"\${BASH_SOURCE\[0\]}\")/bats-compat.bash|$ROOT/tests/bashunit/bats-compat.bash|" \
-    -e "s|\$(dirname \"\${BASH_SOURCE\[0\]}\")/../control.bats|$FIX/control.bats|" \
-    "$1/control_test.sh"
+  python3 - "$1/control_test.sh" "$ROOT" "$FIX" <<'PYEOF'
+import sys
+p, root, fix = sys.argv[1:4]
+s = open(p).read()
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash', root + '/tests/bashunit/bats-compat.bash')
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/../control.bats', fix + '/control.bats')
+open(p, 'w').write(s)
+PYEOF
 }
 
 run_compare() { # dir logfile
@@ -125,10 +129,14 @@ expect "skip reason drift is rejected" 1 "MISMATCH-SKIP-REASON" "$d/log" "$rc"
 d="$WORK/leak"; mkdir -p "$d"
 python3 "$ROOT/scripts/bats2bashunit.py" --out-dir "$d" \
   --manifest "$d/manifest.tsv" "$FIX/leak.bats" >/dev/null
-sed -i '' \
-  -e "s|\$(dirname \"\${BASH_SOURCE\[0\]}\")/bats-compat.bash|$ROOT/tests/bashunit/bats-compat.bash|" \
-  -e "s|\$(dirname \"\${BASH_SOURCE\[0\]}\")/../leak.bats|$FIX/leak.bats|" \
-  "$d/leak_test.sh"
+python3 - "$d/leak_test.sh" "$ROOT" "$FIX" <<'PYEOF'
+import sys
+p, root, fix = sys.argv[1:4]
+s = open(p).read()
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash', root + '/tests/bashunit/bats-compat.bash')
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/../leak.bats', fix + '/leak.bats')
+open(p, 'w').write(s)
+PYEOF
 python3 - "$d/leak_test.sh" <<'EOF'
 import sys
 p = sys.argv[1]
