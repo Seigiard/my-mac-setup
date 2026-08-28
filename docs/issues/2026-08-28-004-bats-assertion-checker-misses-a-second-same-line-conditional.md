@@ -1,12 +1,13 @@
 ---
 title: "Bats assertion checker misses a second same-line conditional"
-short_description: "scripts/check_bats_assertions.py stops after the first recognized compound conditional on a physical line, so a later bare [[...]] or ((...)) command after a semicolon can bypass make lint."
+short_description: "The checker now resumes after each handled compound conditional and rejects later bare [[...]] or ((...)) commands on the same physical line without regressing accepted shell syntax."
 type: "bug"
 category: "testing-ci"
 tags: ["test-integrity","linting"]
 date: "2026-08-28"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -29,3 +30,7 @@ Running `python3 scripts/check_bats_assertions.py` against this fixture exits ze
 ## Open decisions
 
 None.
+
+## Resolution
+
+Changed the checker to resume scanning after each compound conditional closing token, added calibrated rejection fixtures for later same-line [[...]] and ((...)) commands plus an accepted handled control, and verified make test-issues and make lint.

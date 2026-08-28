@@ -9,6 +9,14 @@ HEREDOC = re.compile(
     r"(?<!<)<<(?P<strip_tabs>-?)(?!<)\s*"
     r"(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)"
 )
+CONTROL_FLOW = {"if": "then", "elif": "then", "while": "do", "until": "do"}
+
+
+def shell_word_at(line, index, word):
+    end = index + len(word)
+    return line.startswith(word, index) and (
+        end == len(line) or line[end].isspace() or line[end] == ";"
+    )
 
 
 def line_state_after(line, state=None, arithmetic_depth=0):
@@ -51,12 +59,13 @@ def line_state_after(line, state=None, arithmetic_depth=0):
     return state, arithmetic_depth, heredocs
 
 
-def conditional_command(line):
+def conditional_command(line, start=0):
     state = None
     escaped = False
     arithmetic_depth = 0
-    command_start = True
-    index = 0
+    control_terminator = None
+    command_start = start == 0
+    index = start
 
     while index < len(line):
         character = line[index]
@@ -74,23 +83,42 @@ def conditional_command(line):
             break
         elif character in ("'", '"'):
             state = character
+        elif command_start and control_terminator and shell_word_at(
+            line, index, control_terminator
+        ):
+            index += len(control_terminator) - 1
+            control_terminator = None
+        elif command_start and any(
+            shell_word_at(line, index, word) for word in CONTROL_FLOW
+        ):
+            word = next(
+                word for word in CONTROL_FLOW if shell_word_at(line, index, word)
+            )
+            control_terminator = CONTROL_FLOW[word]
+            index += len(word) - 1
         elif line.startswith("$((", index):
             arithmetic_depth += 1
             command_start = False
             index += 2
         elif line.startswith("((", index):
-            if command_start:
+            if command_start and not control_terminator:
                 return index, "((", "))"
             arithmetic_depth += 1
             index += 1
         elif arithmetic_depth and line.startswith("))", index):
             arithmetic_depth -= 1
             index += 1
+        elif not arithmetic_depth and line.startswith(("&&", "||"), index):
+            command_start = True
+            index += 1
         elif not arithmetic_depth and character == ";":
             command_start = True
         elif not character.isspace():
-            if command_start and line.startswith("[[", index) and (
-                index + 2 == len(line) or line[index + 2].isspace()
+            if (
+                command_start
+                and not control_terminator
+                and line.startswith("[[", index)
+                and (index + 2 == len(line) or line[index + 2].isspace())
             ):
                 return index, "[[", "]]"
             command_start = False
@@ -148,10 +176,12 @@ def find_violations(path):
             continue
 
         conditional = conditional_command(line)
-
-        if conditional:
+        command_end = index
+        scan_line = index
+        while conditional:
             start_column, opening, closing = conditional
-            command_end = index
+            conditional_line = scan_line
+            command_end = scan_line
             condition_quote = None
             closing_column, condition_quote = unquoted_closing(
                 lines[command_end], start_column + len(opening), closing
@@ -169,7 +199,15 @@ def find_violations(path):
             if tail == "\\" and command_end + 1 < len(lines):
                 handled = lines[command_end + 1].lstrip().startswith(("||", "&&"))
             if not handled:
-                violations.append((index + 1, opening, closing))
+                violations.append((conditional_line + 1, opening, closing))
+
+            if closing_column < 0:
+                break
+            scan_line = command_end
+            scan_column = closing_column + len(closing)
+            conditional = conditional_command(lines[scan_line], scan_column)
+
+        if command_end > index:
             for command_line in lines[index : command_end + 1]:
                 quote_state, arithmetic_depth, found_heredocs = line_state_after(
                     command_line, quote_state, arithmetic_depth
