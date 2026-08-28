@@ -1,30 +1,53 @@
 #!/bin/bash
-# Modify ~/.claude.json to inject MCP server API keys from 1Password.
-# Requires: jq, op (1Password CLI)
+# Modify ~/.claude.json to register the MCP servers, injecting the API keys the
+# credentialed ones need from 1Password.
+# Requires: jq. Optional: op (1Password CLI).
 
 existing=$(cat)
 
-if ! command -v op &>/dev/null || ! command -v jq &>/dev/null; then
+# Every server entry is built with jq, so without it there is no way to write
+# the file at all and stdin is the only safe answer.
+if ! command -v jq &>/dev/null; then
   echo "$existing"
   exit 0
 fi
 
-JINA_KEY=$(op read "op://Private/Jina API Key/credential" --account my.1password.com 2>/dev/null || echo "")
-TAVILY_KEY=$(op read "op://Private/Tavily API Key/credential" --account my.1password.com 2>/dev/null || echo "")
+# Empty means "do not register that server". A machine with no `op` at all is a
+# deliberate configuration (CI, Docker) and stays quiet; `op` present but
+# answering nothing is a missing sign-in, which is worth a word on stderr. It is
+# not worth a non-zero exit: chezmoi aborts the whole apply on one, which would
+# cost the user every other managed file over a single MCP server.
+read_credential() {
+  command -v op &>/dev/null || return 0
 
-if [ -z "$JINA_KEY" ] || [ -z "$TAVILY_KEY" ]; then
-  echo "$existing"
-  exit 0
-fi
+  local value
+  value=$(op read "op://Private/$1/credential" --account my.1password.com 2>/dev/null || echo "")
+  if [ -z "$value" ]; then
+    echo "modify_dot_claude.json: 1Password returned no $1; skipping its MCP server" >&2
+    return 0
+  fi
 
+  printf '%s' "$value"
+}
+
+JINA_KEY=$(read_credential "Jina API Key")
+TAVILY_KEY=$(read_credential "Tavily API Key")
+
+# deepwiki, fff, and executor carry no credential, so they are registered
+# unconditionally. jina and tavily-mcp are added per key, independently of each
+# other: one absent credential is no reason to withhold the other's server.
 echo "$existing" | jq \
   --arg jina_key "$JINA_KEY" \
   --arg tavily_key "$TAVILY_KEY" \
   --arg home "$HOME" \
-  '.mcpServers = {
+  '.mcpServers = ({
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
-    "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } },
-    "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) },
     "fff": { "type": "stdio", "command": ($home + "/.local/bin/fff-mcp"), "args": [], "env": {} },
     "executor": { "type": "stdio", "command": ($home + "/.local/bin/executor"), "args": ["mcp"], "env": {} }
-  }'
+  }
+  + (if $jina_key == "" then {} else {
+      "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } }
+    } end)
+  + (if $tavily_key == "" then {} else {
+      "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) }
+    } end))'
