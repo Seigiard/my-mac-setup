@@ -8,7 +8,7 @@ argument-hint: "[mode:agent] [PR URL/number | branch | base:<ref>] [plan:<path>]
 
 Run the same `compound-engineering:ce-code-review` workflow through two fresh peer sessions.
 
-Both peers review the same current checkout independently in `mode:agent`. They return reports and never edit the checkout. After collecting their reports, close both panes before synthesis. Never resume or reuse either peer, and never retain one for another phase.
+Both peers review the same current checkout independently in `mode:agent`. They return reports and never edit the checkout. After collecting their reports, close both tabs before synthesis. Never resume or reuse either peer, and never retain one for another phase.
 
 ## Resolve arguments
 
@@ -25,43 +25,56 @@ Empty target arguments review the current branch against its detected base. Reco
 
 ## Dispatch fresh peers
 
-Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for tab creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
 
 Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
 
+### Shared review contract
+
+Append this block verbatim to both peer prompts:
+
+```text
+This is an independent report-only review. Do not edit repository files, stage
+changes, commit, push, switch branches, or ask interactive questions. The shared
+lifecycle's report transport file is the only permitted write.
+
+Use static inspection and non-test read-only tooling only. Do not run test suites
+or individual tests, directly or through persona/reviewer subagents. Append this
+test restriction to every persona/reviewer subagent prompt. The parent review
+owner runs tests after report synthesis and any accepted fixes.
+
+When the `testing` persona is selected, append this criterion to its prompt:
+"Tautological tests considered harmful. Flag tests that merely mirror newly added
+source, prompt, config, or fixture text and would stay green while the intended
+behavior is broken. Require behavioral replacement or removal. Exact-text
+assertions are valid only when they exercise an externally consumed literal
+contract."
+
+Run the complete reviewer selection, persona dispatch, validation, merge, and
+JSON output flow. Return the final raw JSON report.
+```
+
 ### Claude prompt
 
-Send Claude this prompt:
+Send Claude this invocation line, then the shared review contract verbatim:
 
 ```text
 Invoke `/compound-engineering:ce-code-review` with these exact arguments:
 
 mode:agent <resolved arguments>
-
-This is an independent report-only review. Do not edit repository files, stage
-changes, commit, push, switch branches, or ask interactive questions. The shared
-lifecycle's report transport file is the only permitted write.
-
-Run the complete reviewer selection, persona dispatch, validation, merge, and
-JSON output flow. Return the final raw JSON report.
 ```
 
 ### OpenCode prompt
+
+Send OpenCode this invocation line, then the shared review contract verbatim:
 
 ```text
 Use the `ce-code-review` skill with these exact arguments:
 
 mode:agent <resolved arguments>
-
-This is an independent report-only review. Do not edit repository files, stage
-changes, commit, push, switch branches, or ask interactive questions. The shared
-lifecycle's report transport file is the only permitted write.
-
-Run the complete reviewer selection, persona dispatch, validation, merge, and
-JSON output flow. Return the final raw JSON report.
 ```
 
-Execute the shared lifecycle through pane closure. Require a complete parseable JSON report from each peer. One failed or malformed peer degrades coverage; two failed peers fail the review. Do not pass peer context into `se-simplify`.
+Execute the shared lifecycle through tab closure. Require a complete parseable JSON report from each peer. One failed or malformed peer degrades coverage; two failed peers fail the review. Do not pass peer context into `se-simplify`.
 
 ## Synthesize reports
 

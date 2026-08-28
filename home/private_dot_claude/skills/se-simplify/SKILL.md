@@ -8,7 +8,7 @@ argument-hint: "[scope description]"
 
 Launch two fresh peer sessions to inspect the same simplification scope.
 
-Each peer uses the `ce-simplify-code` rubric to produce findings without editing. After collecting both reports, close both panes before synthesis. The parent applies the accepted set exactly once and verifies behavior.
+Each peer uses the `ce-simplify-code` rubric to produce findings without editing. After collecting both reports, close both tabs before synthesis. The parent applies the accepted set exactly once and verifies behavior.
 
 ## Resolve scope
 
@@ -23,7 +23,7 @@ Capture the pre-apply worktree state so simplify-owned edits can be distinguishe
 
 ## Dispatch fresh peers
 
-Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for tab creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
 
 Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
 
@@ -77,7 +77,7 @@ Write `Findings: none` when no item survives. End with the exact line:
 Simplify review complete
 ```
 
-Execute the shared lifecycle through pane closure. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
+Execute the shared lifecycle through tab closure. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
 
 ## Synthesize findings
 

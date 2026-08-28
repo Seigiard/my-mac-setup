@@ -57,6 +57,13 @@ Every skill's own description already carries its triggers. These four lines res
 
 </important>
 
+<important if="you are adding or reviewing tests">
+
+- **Tautological tests considered harmful.** A test must change verdict when the protected behavior breaks. A test that mirrors newly added source, prompt, config, or fixture text cannot.
+- Replace a tautological test with behavioral coverage, or omit it when no regression is protected. Exact-text assertions are valid only against an externally consumed literal contract.
+
+</important>
+
 <important if="you encounter conflicting patterns or conventions in the codebase">
 
 Pick one (more recent / more tested), state why in one line, and flag the other for cleanup. Every site you touch in this task follows the one you picked.
