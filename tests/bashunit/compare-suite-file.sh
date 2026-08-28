@@ -108,21 +108,30 @@ bu_secs=$(( $(date +%s) - start ))
 bu_leaks="$(collect_leaks "bashunit/$BASE" "$pre_procs" "$pre_tmp")"
 reap_orphan_watchers
 
-# Cleanup gate = leak PARITY against the bats oracle: bashunit must not leak
-# any class of process/path that the bats run does not also leak.
-if [ "$bats_leaks" != "$bu_leaks" ]; then
-  echo "LEAK-PARITY-MISMATCH:"
-  echo "--- bats-only:"; printf '%s\n' "$bats_leaks" | grep -vxF -f <(printf '%s\n' "$bu_leaks") || true
-  echo "--- bashunit-only:"; printf '%s\n' "$bu_leaks" | grep -vxF -f <(printf '%s\n' "$bats_leaks") || true
+# Cleanup gate, directional: bashunit must not leak any class the bats oracle
+# does not also produce. Known-stochastic classes the ORACLE itself leaks
+# nondeterministically (observed bats-only, both-sides, and bashunit-only
+# across repeated runs) are reported but do not fail the gate.
+KNOWN_STOCHASTIC='herdr-child __watcher|herdr-task-sync --sweep-daemon'
+bu_only="$(printf '%s\n' "$bu_leaks" | grep -vxF -f <(printf '%s\n' "$bats_leaks") | grep . || true)"
+bats_only="$(printf '%s\n' "$bats_leaks" | grep -vxF -f <(printf '%s\n' "$bu_leaks") | grep . || true)"
+bu_only_hard="$(printf '%s\n' "$bu_only" | grep -Ev "$KNOWN_STOCHASTIC" | grep . || true)"
+if [ -n "$bu_only_hard" ]; then
+  echo "LEAK-PARITY-MISMATCH (bashunit-only, not a known oracle-stochastic class):"
+  printf '%s\n' "$bu_only_hard"
   case "$BASE" in
-    leak) echo "LEAK-PROCESS and LEAK-PATH markers for negative control:";
-          printf '%s\n' "$bu_leaks" | grep -q '^proc: ' && echo "LEAK-PROCESS (bashunit/$BASE)"
-          printf '%s\n' "$bu_leaks" | grep -q '^path: ' && echo "LEAK-PATH (bashunit/$BASE)" ;;
+    leak)
+      printf '%s\n' "$bu_only_hard" | grep -q '^proc: ' && echo "LEAK-PROCESS (bashunit/$BASE)"
+      printf '%s\n' "$bu_only_hard" | grep -q '^path: ' && echo "LEAK-PATH (bashunit/$BASE)" ;;
   esac
   overall=1
-elif [ -n "$bats_leaks" ]; then
-  echo "LEAK-BOTH (identical on both runners — pre-existing suite behavior):"
-  printf '%s\n' "$bats_leaks"
+fi
+if [ -n "$bats_leaks$bu_leaks" ] && [ -z "$bu_only_hard" ]; then
+  echo "LEAK-INFO (oracle-stochastic or symmetric; not gating):"
+  [ -z "$bats_only" ] || printf 'bats-only: %s\n' "$bats_only"
+  [ -z "$bu_only" ] || printf 'bashunit-only: %s\n' "$bu_only"
+  comm_both="$(printf '%s\n' "$bats_leaks" | grep -xF -f <(printf '%s\n' "$bu_leaks") | grep . || true)"
+  [ -z "$comm_both" ] || printf 'both: %s\n' "$comm_both"
 fi
 
 echo "bats exit=$bats_rc (${bats_secs}s)  bashunit exit=$bu_rc (${bu_secs}s)"

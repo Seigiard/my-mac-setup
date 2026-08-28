@@ -94,3 +94,19 @@ Re-read this file before every batch. Update after every batch.
 3. Exclusive benchmark window (announce): tests/bashunit/bench-bats-vs-bashunit.sh host-safe 3+ on macOS; full mode inside docker.
 4. Review subagents (parity/cleanup/coverage), fix findings, rerun.
 5. Verdict + fill docs/benchmarks/bashunit-full-suite-experiment.md.
+
+
+## Ubuntu/Docker results (2026-08-28, container quiet)
+
+- FULL-MODE PARITY: 400/400 all five files incl. real chezmoi-apply idempotent scenarios.
+- FULL-suite paired bench (3 reps, in-container, pre-errtrace shim): bats median 77065ms (CV 1.6%) vs bashunit 60449ms (CV 0.2%) → **-21.6%, beyond noise**, all exits 0.
+- scripts x2 rerun: run1 LEAK-BOTH identical watcher class (symmetric, pre-existing). run2: (a) bats-only sweep-daemon leak → gate must be directional (fail only on bashunit-only leaks) — FIX PENDING; (b) FLAKE: "herdr-child reap invalidates before close while spontaneous loss wakes the parent" failed under bashunit run2 only (passed run1 + all host runs) — needs flake-rate measurement under BOTH runners in docker before parity claim is final.
+
+## Parity review resolution (review-parity.md)
+
+- HIGH-1 helper-depth failures: FIXED via set -E + bashunit-frame-filtered ERR handler; probe matrix re-verified (bare body fail, helper partial fail, fail-call all red on both runners).
+- HIGH-2 bash-5 trap semantics: to be confirmed by final docker pass with NEW shim (staged copies in earlier docker runs used the pre-errtrace shim).
+- MEDIUM run() late-write divergence: documented deviation (bats would hang on stdout-holding daemon; shim returns at child exit).
+- MEDIUM zero-arg assert_output inversion: zero call sites in suite; documented, not churned.
+- MEDIUM setup_file ':' masking: fixed in converter. MEDIUM leak paths: TMPDIR globs added.
+- Coverage review: manifest exact both directions; function names now file-prefixed (collision fixed); 3 scenarios keep runtime bats dependency (scripts #101-103; #103 also requires tests/scripts.bats to remain) — verdict-relevant; orphaned probe file tests/herdr_child_descriptor_probe.bats = pre-existing dead coverage (issue to file).
