@@ -46,6 +46,24 @@ class TestBatsAssertionContract(unittest.TestCase):
   run true; [[ 1 == 2 ]]
   :
 }
+""",
+                "nested/second-conditional.bats": """@test "second conditional" {
+  [[ 1 == 1 ]] || fail "first"; [[ 1 == 2 ]]
+  :
+}
+""",
+                "nested/second-arithmetic.bats": """@test "second arithmetic" {
+  (( 1 )) || fail "first"; (( 0 ))
+  :
+}
+""",
+                "nested/second-and.bats": """@test "second after and" {
+  [[ 1 == 1 ]] || fail "first" && [[ 1 == 2 ]]; :
+}
+""",
+                "nested/second-or.bats": """@test "second after or" {
+  (( 0 )) && fail "first" || (( 0 )); :
+}
 """
             }
         )
@@ -54,6 +72,10 @@ class TestBatsAssertionContract(unittest.TestCase):
         self.assertIn("unsafe.bats:8: bare [[...]]", result.stdout)
         self.assertIn("nested/unsafe.bats:2: bare ((...))", result.stdout)
         self.assertIn("nested/semicolon.bats:2: bare [[...]]", result.stdout)
+        self.assertIn("nested/second-conditional.bats:2: bare [[...]]", result.stdout)
+        self.assertIn("nested/second-arithmetic.bats:2: bare ((...))", result.stdout)
+        self.assertIn("nested/second-and.bats:2: bare [[...]]", result.stdout)
+        self.assertIn("nested/second-or.bats:2: bare ((...))", result.stdout)
 
     def test_accepts_explicit_handlers_control_flow_and_heredocs(self):
         result = self.run_checker(
@@ -65,10 +87,19 @@ class TestBatsAssertionContract(unittest.TestCase):
     || fail "expected multiline equality"
   [[ -e /tmp/ready ]] && break
   (( count > 0 )) || fail "expected a positive count"
+  [[ 1 == 1 ]] || fail "first"; [[ 2 == 2 ]] || fail "second"
+  [[ 1 == 1 ]] || fail "first" && [[ 2 == 2 ]] || fail "second"
+  (( 0 )) && fail "first" || (( 1 )) || fail "second"
   if [[ -e /tmp/optional ]]; then
     :
   fi
+  if true && [[ -e /tmp/optional ]]; then
+    :
+  fi
   while (( count > 0 )); do
+    break
+  done
+  while true && (( count > 0 )); do
     break
   done
   cat <<'SCRIPT'

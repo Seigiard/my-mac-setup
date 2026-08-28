@@ -77,7 +77,7 @@ Arithmetic assertions follow the same rule:
 
 PR [#91](https://github.com/Seigiard/my-mac-setup/pull/91) converted all 29 first-party standalone checks and added `scripts/check_bats_assertions.py` to `make lint`. The checker recursively inspects first-party `.bats` files and rejects covered `[[ ... ]]` and `(( ... ))` command shapes without explicit status handling. It excludes vendored Bats libraries and distinguishes executable conditionals from quoted text, comments, heredocs, here-strings, arithmetic expansions, multiline conditionals, and normal `if` or `while` control flow.
 
-The current checker stops after the first recognized compound conditional on each physical line. [`2026-08-28-004`](../../issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md) tracks extending it to inspect a later same-line conditional rather than overstating the guard as a complete shell parser.
+The checker resumes after each recognized compound conditional and inspects later same-line command segments. [`2026-08-28-004`](../../issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md) records the regression coverage that prevents an explicitly handled first conditional from hiding a later bare conditional.
 
 Behavioral tests in `tests/test_bats_assertion_contract.py` prove both sides of the checker contract. Unsafe fixtures return nonzero with file and line diagnostics, while explicit handlers, control flow, shell payloads, and vendored fixtures remain accepted. Each converted assertion was also calibrated with an always-false mutation and observed failing at its new handler before its real condition was restored.
 
@@ -124,6 +124,6 @@ Verification for the fix completed successfully:
 ## Related Issues
 
 - [`docs/issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md`](../../issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md) records the repository issue and resolution.
-- [`docs/issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md`](../../issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md) tracks the checker's known same-line false negative.
+- [`docs/issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md`](../../issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md) records the resolved same-line false negative.
 - [PR #91: Enforce Bats conditional assertions](https://github.com/Seigiard/my-mac-setup/pull/91) contains the implementation and verification evidence.
 - [`semantic-regression-tests-over-source-shape.md`](../design-patterns/semantic-regression-tests-over-source-shape.md) defines the broader red/green calibration and behavioral-control pattern used here.
