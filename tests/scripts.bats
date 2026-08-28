@@ -1892,10 +1892,10 @@ PY
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
-  [[ "$call1" == agent\ list* ]]
-  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
-  [[ "$call3" == agent\ start* ]]
-  [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
+  [[ "$call1" == agent\ list* ]] || fail "unexpected first herdr-child call: $call1"
+  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]] || fail "unexpected second herdr-child call: $call2"
+  [[ "$call3" == agent\ start* ]] || fail "unexpected third herdr-child call: $call3"
+  [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]] || fail "unexpected fourth herdr-child call: $call4"
 }
 
 @test "herdr-child tab mode records ownership before starting an attached child" {
@@ -1910,11 +1910,11 @@ PY
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
   call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
-  [[ "$call1" == agent\ list* ]]
-  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]]
-  [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab*child-tab=wT:tA* ]]
-  [[ "$call4" == agent\ start* ]]
-  [[ "$call5" == agent\ prompt*--wait* ]]
+  [[ "$call1" == agent\ list* ]] || fail "unexpected first tab-mode call: $call1"
+  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]] || fail "unexpected second tab-mode call: $call2"
+  [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab*child-tab=wT:tA* ]] || fail "unexpected third tab-mode call: $call3"
+  [[ "$call4" == agent\ start* ]] || fail "unexpected fourth tab-mode call: $call4"
+  [[ "$call5" == agent\ prompt*--wait* ]] || fail "unexpected fifth tab-mode call: $call5"
 }
 
 @test "herdr-child tab launch signal closes a parsed creation before ownership publication" {
@@ -2014,8 +2014,8 @@ PY
   local start_call prompt_call
   start_call="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   prompt_call="$(sed -n '4p' "$CHILD_STUB/calls.log")"
-  [[ "$start_call" == *--timeout\ 300000* ]]
-  [[ "$prompt_call" == *--timeout\ 1800000* ]]
+  [[ "$start_call" == *--timeout\ 300000* ]] || fail "startup timeout was not capped: $start_call"
+  [[ "$prompt_call" == *--timeout\ 1800000* ]] || fail "prompt timeout was not preserved: $prompt_call"
 }
 
 @test "herdr-child retries only the pane-readiness start failure" {
@@ -2820,7 +2820,7 @@ PY
   assert_equal "$sanitized_one" "$sanitized_two"
   dir_one="$(hts_socket_dir "$socket_one")"
   dir_two="$(hts_socket_dir "$socket_two")"
-  [[ "$dir_one" != "$dir_two" ]]
+  [[ "$dir_one" != "$dir_two" ]] || fail "colliding socket names shared one harness directory: $dir_one"
   hts_set_pane "$socket_one" '{"pane_id":"pane-1","label":"one","tokens":{}}'
   hts_set_pane "$socket_two" '{"pane_id":"pane-1","label":"two","tokens":{}}'
 
@@ -2982,7 +2982,7 @@ PY
     hts_wait_for_quiescence "$control"
     assert_equal "$(hts_record_number "$control" generation)" \
       "$(hts_record_number "$control" committed_generation)"
-    [[ "$(hts_record_number "$control" presentation_generation)" -gt 0 ]]
+    [[ "$(hts_record_number "$control" presentation_generation)" -gt 0 ]] || fail "presentation generation was not positive for $mode"
   done
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)"
   assert_equal "$(hts_record_text "$task" first_prompt)" "transcript first"
@@ -3125,7 +3125,7 @@ PY
 
   HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session restart-s <<< 'restart request'
   [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
+    "$(hts_record_number "$control" committed_generation)" ]] || fail "restart fixture had no pending generation"
   hts_worker_run &
   first_worker=$!
   hts_wait_for_file "$HTS_WORK/models/pi/1/started"
@@ -3165,7 +3165,7 @@ PY
   HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_WORKER=1 \
     hts_run --agent pi --session clock-s --set second-clock < /dev/null
   second_generation="$(hts_record_number "$control" generation)"
-  [[ "$second_generation" -gt "$first_generation" ]]
+  [[ "$second_generation" -gt "$first_generation" ]] || fail "generation did not advance after clock rollback"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_worker_run
   assert_equal "$(hts_record_number "$control" committed_generation)" "$second_generation"
   assert_equal "$(hts_record_number "$task" generation)" "$second_generation"
@@ -3179,7 +3179,7 @@ PY
     fail "task metadata sequence did not advance: first=$first_task_metadata second=$second_task_metadata generation=$second_generation"
   [[ "$second_presentation" -gt "$first_presentation" ]] || \
     fail "presentation generation did not advance: first=$first_presentation second=$second_presentation generation=$second_generation"
-  [[ "$second_high_water" -ge "$second_generation" ]]
+  [[ "$second_high_water" -ge "$second_generation" ]] || fail "task metadata high-water fell below generation"
 }
 
 @test "herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions" {
@@ -3188,7 +3188,7 @@ PY
   local task_one task_two namespace_one namespace_two
   namespace_one="$(hts_namespace "$socket_one")"
   namespace_two="$(hts_namespace "$socket_two")"
-  [[ "$namespace_one" != "$namespace_two" ]]
+  [[ "$namespace_one" != "$namespace_two" ]] || fail "exact socket paths shared one namespace: $namespace_one"
 
   # This test owns task namespace isolation only. A successful task commit normally
   # starts a detached presentation pass, and that pass legitimately advances the
@@ -3207,9 +3207,9 @@ PY
   assert_equal "$(hts_record_text "$task_two" slug)" socket-two
   assert_equal "$(hts_record_text "$namespace_one/socket.state" socket_path)" "$socket_one"
   assert_equal "$(hts_record_text "$namespace_two/socket.state" socket_path)" "$socket_two"
-  [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]]
+  [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]] || fail "first socket task high-water was not positive"
   assert_equal "$(hts_record_number "$namespace_one/reconcile.state" location_metadata_high_water)" 0
-  [[ "$(hts_record_number "$namespace_two/reconcile.state" task_metadata_high_water)" -gt 0 ]]
+  [[ "$(hts_record_number "$namespace_two/reconcile.state" task_metadata_high_water)" -gt 0 ]] || fail "second socket task high-water was not positive"
   assert_equal "$(hts_record_number "$namespace_two/reconcile.state" location_metadata_high_water)" 0
   grep -q '^checkout_root=' "$namespace_one/reconcile.state"
   grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
@@ -3321,7 +3321,7 @@ PY
   run hts_run_fail_open_guard hts_worker_run
   assert_success
   [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
+    "$(hts_record_number "$control" committed_generation)" ]] || fail "worker write failure committed its pending generation"
 
   hts_setup
   HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
@@ -3342,7 +3342,7 @@ PY
   run hts_run_fail_open_guard hts_worker_run
   assert_success
   [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
+    "$(hts_record_number "$control" committed_generation)" ]] || fail "task write failure committed its pending generation"
   assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"
 
   hts_setup
@@ -3384,7 +3384,7 @@ PY
   wait "$first_pid"
   hts_wait_for_task_slug "$task" invoked-first-committed-second
   hts_wait_for_quiescence "$control"
-  [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]]
+  [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]] || fail "later inbox commit did not advance generation"
 }
 
 @test "herdr-task-sync adapters return when a direct engine hangs" {
@@ -3886,7 +3886,7 @@ SH
   hts_wait_for_presentation_quiescence "$socket_two"
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$socket_one")")" one
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$socket_two")")" two
-  [[ "$(hts_namespace "$socket_one")" != "$(hts_namespace "$socket_two")" ]]
+  [[ "$(hts_namespace "$socket_one")" != "$(hts_namespace "$socket_two")" ]] || fail "presentation sockets shared one namespace"
 }
 
 @test "herdr-task-sync presentation recovers stale and half-created owner claims" {
@@ -4011,7 +4011,7 @@ EOF
   HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run --agent pi --session restart-presentation --set restart-task < /dev/null
   local reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
   hts_wait_for_record_number "$reconcile" pending_generation 1
-  [[ "$(hts_record_number "$reconcile" pending_generation)" -gt "$(hts_record_number "$reconcile" completed_generation 2>/dev/null || printf 0)" ]]
+  [[ "$(hts_record_number "$reconcile" pending_generation)" -gt "$(hts_record_number "$reconcile" completed_generation 2>/dev/null || printf 0)" ]] || fail "presentation restart fixture had no pending intent"
   run hts_presentation_run
   assert_success
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
@@ -4110,7 +4110,7 @@ EOF
   HERDR_TASK_SYNC_TEST_NOW_SEQ=1 hts_location_pass
   second_seq="$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)"
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  [[ "$second_seq" -gt "$first_seq" ]]
+  [[ "$second_seq" -gt "$first_seq" ]] || fail "detached location sequence did not advance"
   assert_equal "$(jq -r '.panes[0].tokens.repo' "$state")" repo.git
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" repo
   # Detached HEAD keeps the location: commit icon plus 7-char short SHA, no
@@ -4126,7 +4126,7 @@ EOF
   # pane_inline is deferred by the plan and never published; the non-Git arm
   # clears any stale copy, so only the task token survives.
   assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
-  [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
+  [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]] || fail "non-Git location sequence did not advance"
 }
 
 @test "herdr-task-sync location real probe shape pays the second sha call only when detached" {
@@ -4773,9 +4773,9 @@ EOF
   assert_success
   token_one="$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")"
   token_two="$(jq -r '.panes[] | select(.pane_id == "pane-3") | .tokens.worktree' "$state")"
-  [[ "$token_one" != "$token_two" ]]
-  [[ "$token_one" = *abcdef || "$token_two" = *abcdef ]]
-  [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]]
+  [[ "$token_one" != "$token_two" ]] || fail "colliding worktree digests produced the same token: $token_one"
+  [[ "$token_one" = *abcdef || "$token_two" = *abcdef ]] || fail "neither worktree token retained the six-character digest"
+  [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]] || fail "colliding digest prefixes were not extended"
 }
 
 @test "herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering" {

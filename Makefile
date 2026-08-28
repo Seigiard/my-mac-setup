@@ -81,6 +81,7 @@ lint:
 	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "*/node_modules/*" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
+	python3 scripts/check_bats_assertions.py tests
 
 clean:
 	docker compose -f docker/docker-compose.yml down --rmi local --volumes --remove-orphans 2>/dev/null || true
