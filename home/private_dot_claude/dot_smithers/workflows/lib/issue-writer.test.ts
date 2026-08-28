@@ -266,23 +266,21 @@ printf 'docs/issues/2026-08-13-001-reviewer-leg-died-mid-stream.md\\n'
     expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
   });
 
-  test(
-    "fails closed when the target CLI version probe times out",
-    () => {
-      const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
-      const scripts = path.join(repo, "scripts");
-      fs.mkdirSync(scripts, { recursive: true });
-      fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nexec sleep 10\n", { mode: 0o755 });
+  test("fails closed when the target CLI version probe times out", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+    const scripts = path.join(repo, "scripts");
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nexec sleep 10\n", { mode: 0o755 });
 
-      const result = publishIssue(repo, fields());
+    // A short injected timeout exercises the same ETIMEDOUT fail-closed
+    // path as the production default without spending 5s of wall clock.
+    const result = publishIssue(repo, fields(), 300);
 
-      expect(result.mode).toBe("cli-failed");
-      expect(result.path).toBeNull();
-      expect(result.error).toContain("ETIMEDOUT");
-      expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
-    },
-    7_000,
-  );
+    expect(result.mode).toBe("cli-failed");
+    expect(result.path).toBeNull();
+    expect(result.error).toContain("ETIMEDOUT");
+    expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
+  });
 
   test("records a compatible CLI publication failure without a legacy direct-write fallback", () => {
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
@@ -352,14 +350,14 @@ exec sleep 10
         { mode: 0o755 },
       );
 
-      const result = publishIssue(repo, fields());
+      // Same injected-timeout rationale as the version-probe test above.
+      const result = publishIssue(repo, fields(), 300);
 
       expect(result.mode).toBe("cli-failed");
       expect(result.path).toBeNull();
       expect(result.error).toContain("ETIMEDOUT");
       expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
     },
-    7_000,
   );
 
   for (const [name, output, createTarget] of [
