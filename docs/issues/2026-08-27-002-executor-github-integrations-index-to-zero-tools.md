@@ -5,8 +5,9 @@ type: "bug"
 category: "agent-platform"
 tags: ["executor","mcp","github"]
 date: "2026-08-27"
-status: "open"
+status: "wontfix"
 priority: "medium"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -43,3 +44,7 @@ read-only `GET` tool returns live data. Decide separately whether
 
 Whether to keep both GitHub integrations or drop `github_graphql` and rely on
 `github_rest` alone.
+
+## Resolution
+
+The github_rest and github_graphql integrations were removed from Executor rather than repaired: the gh CLI already covers GitHub access with existing auth, so proxying it through Executor added a layer without adding capability. Executor now carries chrome_devtools, linear_mcp and posthog, all indexing tools normally, so the zero-tool symptom has no remaining instance to diagnose.
