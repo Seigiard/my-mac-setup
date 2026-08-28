@@ -25,6 +25,7 @@ snapshot_procs() {
   pgrep -lf "$LEAK_PATTERNS" 2>/dev/null \
     | grep -v -e "compare-suite-file" -e "/usr/bin/login" -e "exec -l /bin/zsh" \
     | grep -v -e '^[0-9][0-9]* h[e]rdr$' -e 'p[g]rep' -e 'g[r]ep -v' \
+    | grep -v -e '\.local/bin/h[e]rdr-task-sync --sweep-daemon' \
     || true
 }
 snapshot_tmp() {

@@ -83,12 +83,13 @@ run() {
   # semantics: a daemon left running by the command inherits a writable file,
   # not a pipe that closes when capture ends — a command-substitution capture
   # SIGPIPEs detached continuations that write after run returns.
-  local _bats_run_out
-  _bats_run_out=$(mktemp "${TMPDIR:-/tmp}/bats-run-out.XXXXXX")
+  # No external commands here: tests legitimately empty PATH before `run`
+  # (e.g. palette's missing-python3 scenario), so capture must be pure bash.
+  _BATS_RUN_SEQ=$((${_BATS_RUN_SEQ:-0} + 1))
+  local _bats_run_out="$BATS_TEST_TMPDIR/.bats-run-out.$$.$_BATS_RUN_SEQ"
   ( "$@" ) > "$_bats_run_out" 2>&1
   status=$?
-  output=$(cat "$_bats_run_out")
-  rm -f "$_bats_run_out"
+  output=$(< "$_bats_run_out")
   _bats_split_lines
   trap "$_BATS_ERR_TRAP" ERR
   return 0
