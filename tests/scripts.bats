@@ -1,5 +1,10 @@
 #!/usr/bin/env bats
 
+# `run --separate-stderr` needs bats 1.5. Both CI jobs already assert that floor
+# before running this suite, so the declaration records the requirement rather
+# than raising it.
+bats_require_minimum_version 1.5.0
+
 load 'helpers/common'
 load 'helpers/herdr_task_sync'
 
@@ -6293,9 +6298,9 @@ se_fake_runtime() {
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-bin"
 
-  # The modifier only rewrites .mcpServers when both `op` and `jq` resolve, so a
-  # run without a 1Password stub would pass its input straight through and prove
-  # nothing about the executor entry.
+  # executor registers with or without 1Password; the stub is here so one run
+  # also covers the credentialed servers, whose entries exist only when `op`
+  # answers.
   mkdir -p "$stub_bin"
   cat > "$stub_bin/op" <<'STUB'
 #!/bin/sh
@@ -6316,24 +6321,91 @@ STUB
       "args": ["mcp"],
       "env": {}
     })
+    and (.mcpServers["tavily-mcp"].url ==
+      "https://mcp.tavily.com/mcp/?tavilyApiKey=stub-credential")
     and (.mcpServers | has("stale") | not)
     and (.other == "preserved")
   ' <<< "$output"
   assert_success
 }
 
-@test "Claude settings modifier passes settings through untouched without 1Password" {
+@test "Claude settings modifier registers the credential-free MCP servers without 1Password" {
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local jq_bin="$BATS_TEST_TMPDIR/claude-modifier-jq-bin"
+
+  # Control for the test above. deepwiki, fff, and executor carry no credential,
+  # so a machine where `op` never resolves must still get them; only jina and
+  # tavily-mcp depend on 1Password and stay out rather than registering with an
+  # empty key. A bare `op` absence is how CI and Docker run, so it stays silent.
+  #
+  # PATH_WITHOUT_OP drops every directory that holds an `op`, jq included when
+  # the two share one. Re-front jq so this lands in the credential-free branch
+  # rather than the no-jq guard the test below owns.
+  mkdir -p "$jq_bin"
+  ln -s "$(command -v jq)" "$jq_bin/jq"
+
+  run --separate-stderr env PATH="$jq_bin:$PATH_WITHOUT_OP" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+
+  assert_success
+  assert_stderr ""
+  run jq -e '
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])
+    and (.mcpServers.executor.command == "/stub/home/.local/bin/executor")
+    and (.other == "preserved")
+  ' <<< "$output"
+  assert_success
+}
+
+@test "Claude settings modifier registers each credentialed MCP server independently" {
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-partial-bin"
+
+  # One key resolves and the other comes back empty. The two servers must not
+  # share a fate: the credential that exists is no reason to withhold its server
+  # because the other one is missing.
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/op" <<'STUB'
+#!/bin/sh
+case "$2" in
+  *Jina*) echo "jina-credential" ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$stub_bin/op"
+
+  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{}}'
+
+  assert_success
+  # `op` is installed yet answered nothing, which is a missing sign-in rather
+  # than a deliberately credential-free machine. Say so without failing the
+  # apply, and name the credential so the cause is readable.
+  assert_stderr --partial "Tavily API Key"
+  refute_stderr --partial "Jina API Key"
+  run jq -e '
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","jina"])
+    and (.mcpServers.jina.headers.Authorization == "Bearer jina-credential")
+  ' <<< "$output"
+  assert_success
+}
+
+@test "Claude settings modifier passes settings through untouched without jq" {
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-nojq-bin"
 
-  # Control for the test above, and the documented cost of the `op` gate: on a
-  # machine without 1Password the modifier drops *every* server, executor
-  # included, rather than registering the ones that need no credential.
-  run env PATH="$PATH_WITHOUT_OP" bash "$modifier" <<< "$input"
+  # The modifier builds every server entry with jq, so a machine without it has
+  # no way to write the file. Echoing stdin unchanged is the only safe answer,
+  # and it is the one guard that must survive the credential-free split above.
+  mkdir -p "$stub_bin"
+  ln -s "$(command -v cat)" "$stub_bin/cat"
+  ln -s "$(command -v bash)" "$stub_bin/bash"
+
+  run env PATH="$stub_bin" bash "$modifier" <<< "$input"
 
   assert_success
-  run jq -e '.mcpServers == {"kept":{"type":"stdio"}}' <<< "$output"
-  assert_success
+  assert_output "$input"
 }
 
 # ===========================================

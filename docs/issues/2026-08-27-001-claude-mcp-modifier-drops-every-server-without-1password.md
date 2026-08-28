@@ -5,8 +5,9 @@ type: "bug"
 category: "agent-platform"
 tags: ["mcp","chezmoi","onepassword"]
 date: "2026-08-27"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -47,3 +48,7 @@ instead of the current all-or-nothing behavior.
 Whether a machine with `op` present but not signed in should register the
 credential-free servers and skip the rest, or fail loudly so the missing
 sign-in is noticed.
+
+## Resolution
+
+Split the guard in home/modify_dot_claude.json: only a missing jq still passes stdin through, while deepwiki, fff, and executor are registered unconditionally and jina and tavily-mcp are added per credential, independently of each other. op present but answering nothing warns on stderr and skips that one server rather than failing the apply, so a missing sign-in stays visible without costing the rest of the apply. Covered in tests/scripts.bats by three cases: credential-free registration without op, per-credential independence with the stderr warning, and the surviving no-jq pass-through.
