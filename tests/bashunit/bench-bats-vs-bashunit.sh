@@ -30,6 +30,19 @@ done
 
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
 
+# The suite leaks orphaned herdr-child watchers (pre-existing behavior, both
+# runners); each polls at 10ms, so back-to-back repetitions accumulate load
+# and poison the timings. Reap dead-launcher orphans between halves so every
+# half starts from the same floor.
+reap_orphans() {
+  pgrep -f "herdr-child __watcher" 2>/dev/null | while read -r pid; do
+    lp=$(ps -o command= -p "$pid" 2>/dev/null | sed -n 's/.*--launcher-pid \([0-9]*\).*/\1/p')
+    [ -n "$lp" ] || continue
+    kill -0 "$lp" 2>/dev/null || kill "$pid" 2>/dev/null
+  done
+  sleep 1
+}
+
 echo "runner,rep,ms,exit" > "$OUT"
 rep=1
 while [ "$rep" -le "$REPS" ]; do
@@ -40,6 +53,7 @@ while [ "$rep" -le "$REPS" ]; do
   rc=$?
   e=$(now_ms)
   echo "bats,$rep,$((e - s)),$rc" >> "$OUT"
+  reap_orphans
 
   # bashunit half: one invocation per file, sequential across files,
   # -j within a file (mirrors --no-parallelize-across-files).
@@ -52,6 +66,7 @@ while [ "$rep" -le "$REPS" ]; do
   done
   e=$(now_ms)
   echo "bashunit,$rep,$((e - s)),$burc" >> "$OUT"
+  reap_orphans
 
   rep=$((rep + 1))
 done
