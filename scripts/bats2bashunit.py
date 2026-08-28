@@ -92,7 +92,8 @@ def convert(src: Path, out_dir: Path, serial: bool):
     out.append("function set_up_before_script() {")
     if has_setup_file:
         out.append("  setup_file")
-    out.append("  :")
+    else:
+        out.append("  :")
     out.append("}")
     out.append("")
     out.append("function tear_down_after_script() {")

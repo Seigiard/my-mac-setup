@@ -38,7 +38,9 @@ snapshot_procs() {
     || true
 }
 snapshot_tmp() {
-  ls -d /tmp/htspwn* /tmp/bats-compat-run.* /tmp/bats-run-* 2>/dev/null || true
+  ls -d /tmp/htspwn* /tmp/bats-compat-run.* /tmp/bats-run-* \
+    "${TMPDIR:-/tmp}"/bats-compat-run.* "${TMPDIR:-/tmp}"/bats-run-* \
+    2>/dev/null | sort -u || true
 }
 
 # Normalize a leak line to its CLASS: strip pid, hex generations, tmp names,

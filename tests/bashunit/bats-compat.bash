@@ -4,9 +4,10 @@
 # that @test bodies can run under bashunit verbatim (see
 # .context/bashunit-full-suite/ for the measured semantics matrix):
 #
-# - Failure detection is a bare ERR trap (no errexit, no set -E) plus the body's
-#   final exit status. This matches bats on the same interpreter, including the
-#   bash-3.2 quirk where a mid-body `[[ ]]`/`(( ))` false is inert
+# - Failure detection is an ERR trap with errtrace (set -E, no errexit) plus
+#   the body's final exit status. This matches bats' set -eET on the same
+#   interpreter — helper-depth command failures fail the test, while the
+#   bash-3.2 quirk stays: a mid-body `[[ ]]`/`(( ))` false is inert
 #   (docs/issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md).
 # - `run` executes in a command substitution (subshell), captures merged
 #   stdout+stderr with trailing newlines stripped, and splits $lines on
@@ -27,8 +28,12 @@ _BATS_ERR_TRAP='_bats_err_trap "$?" "$BASH_COMMAND"'
 
 _bats_err_trap() {
   # Mirrors bats' "`cmd' failed [with status N]" diagnostic for a failing
-  # top-level command, then ends the test with that status.
+  # command, then ends the test with that status. errtrace (set -E in
+  # _bats_test_init) extends coverage into helper functions, matching bats'
+  # set -eET; failures inside bashunit's own runner internals are not test
+  # failures and are ignored.
   local st="$1" cmd="$2"
+  case "${FUNCNAME[1]:-}" in bashunit::*) return 0 ;; esac
   trap - ERR
   if [ "$st" -eq 1 ]; then
     printf "\`%s' failed\n" "$cmd" >&2
@@ -396,6 +401,10 @@ _bats_test_init() {
   BATS_TEST_TMPDIR="$_BATS_FILE_TMPROOT/test-$1"
   mkdir -p "$BATS_TEST_TMPDIR"
   export BATS_TEST_NUMBER BATS_TEST_DESCRIPTION BATS_TEST_NAME BATS_TEST_TMPDIR
+  # -E: inherit the ERR trap into helper functions (bats runs tests with
+  # set -eET; without this a helper failing mid-way but returning 0 is green
+  # here and red under bats).
+  set -E
   trap "$_BATS_ERR_TRAP" ERR
   if declare -F setup >/dev/null; then
     setup
@@ -424,8 +433,12 @@ _bats_file_cleanup() {
 
 # Generated tear_down wrapper body: run the original teardown with the ERR trap
 # off; a failing teardown fails the test through the hook's exit status.
+# (Known deviation: bats aborts a teardown at its first failing inner command;
+# here only teardown's final status counts. The suite's teardowns are
+# ||-guarded cleanup, where the two agree.)
 _bats_run_teardown() {
   trap - ERR
+  set +E
   if declare -F teardown >/dev/null; then
     teardown
   fi
