@@ -24,7 +24,14 @@ snapshot_procs() {
   # activity that is not test debris: the interactive herdr session, ALL
   # deployed ~/.local/bin/herdr-task-sync workers (live-session hooks), and
   # this pipeline itself.
-  pgrep -lf "$LEAK_PATTERNS" 2>/dev/null \
+  # Linux procps: -l lists only the program name; -a lists the full command
+  # line (needed for classification). macOS -lf already prints full args, and
+  # BSD -a means "include ancestors", so branch on OS rather than probing.
+  if [ "$(uname -s)" = Darwin ]; then
+    pgrep -lf "$LEAK_PATTERNS" 2>/dev/null
+  else
+    pgrep -af "$LEAK_PATTERNS" 2>/dev/null
+  fi \
     | grep -v -e "compare-suite-file" -e "/usr/bin/login" -e "exec -l /bin/zsh" \
     | grep -v -e '^[0-9][0-9]* h[e]rdr$' -e 'p[g]rep' -e 'g[r]ep -v' \
     | grep -v -e '\.local/bin/h[e]rdr-task-sync' \
