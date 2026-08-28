@@ -46,7 +46,7 @@ teardown() {
 
 # First, so a missing or too-old interpreter states its own cause instead of
 # leaving the bare `python3` call sites below to fail without naming it.
-function test_001_python3_is_present_and_at_least_3_9_the_floor_re() {
+function test_scripts_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
   assert_python3_available
 }
@@ -55,7 +55,7 @@ function test_001_python3_is_present_and_at_least_3_9_the_floor_re() {
 # Repository linting
 # ===========================================
 
-function test_002_lint_target_propagates_shellcheck_failures() {
+function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   _bats_test_init 2 'lint target propagates shellcheck failures'
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
@@ -91,7 +91,7 @@ render_install_packages() {
     < "$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
 }
 
-function test_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
+function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
   _bats_test_init 3 'CI-minimal Linux render skips Homebrew but keeps the remaining setup'
   skip_if_no_chezmoi
   local cfg="$BATS_TEST_TMPDIR/minimal-linux.yaml"
@@ -106,7 +106,7 @@ function test_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
   assert_output --partial 'Installing fff-mcp'
 }
 
-function test_004_full_linux_render_keeps_homebrew_package_install() {
+function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
   _bats_test_init 4 'full Linux render keeps Homebrew package installation'
   skip_if_no_chezmoi
   local cfg="$BATS_TEST_TMPDIR/full-linux.yaml"
@@ -119,7 +119,7 @@ function test_004_full_linux_render_keeps_homebrew_package_install() {
   assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
-function test_005_ci_minimal_non_linux_render_keeps_homebrew_packa() {
+function test_scripts_005_ci_minimal_non_linux_render_keeps_homebrew_packa() {
   _bats_test_init 5 'CI-minimal non-Linux render keeps Homebrew package installation'
   skip_if_no_chezmoi
   local cfg="$BATS_TEST_TMPDIR/minimal-non-linux.yaml"
@@ -132,7 +132,7 @@ function test_005_ci_minimal_non_linux_render_keeps_homebrew_packa() {
   assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
-function test_006_install_packages_script_renders_as_valid_bash() {
+function test_scripts_006_install_packages_script_renders_as_valid_bash() {
   _bats_test_init 6 'install-packages script renders as valid bash'
   skip_if_no_chezmoi
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/install-packages.sh"
@@ -145,14 +145,14 @@ function test_006_install_packages_script_renders_as_valid_bash() {
 # macOS tunes script
 # ===========================================
 
-function test_007_macos_tunes_script_is_valid_bash() {
+function test_scripts_007_macos_tunes_script_is_valid_bash() {
   _bats_test_init 7 'macos-tunes script is valid bash'
   local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
   run bash -n "$script"
   assert_success
 }
 
-function test_008_darwin_scripts_excluded_from_managed_list_on_lin() {
+function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   _bats_test_init 8 'darwin scripts excluded from managed list on Linux'
   is_linux || skip "Only relevant on Linux"
   skip_if_no_chezmoi
@@ -206,7 +206,7 @@ SH
   chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr"
 }
 
-function test_009_ask_in_herdr_script_requires_arguments() {
+function test_scripts_009_ask_in_herdr_script_requires_arguments() {
   _bats_test_init 9 'ask-in-herdr script requires arguments'
   run bash "$ASK_HERDR_DIR/ask.sh"
   assert_failure 2
@@ -214,7 +214,7 @@ function test_009_ask_in_herdr_script_requires_arguments() {
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 }
 
-function test_010_ask_sh_rejects_unknown_agents_and_the_removed_he() {
+function test_scripts_010_ask_sh_rejects_unknown_agents_and_the_removed_he() {
   _bats_test_init 10 'ask.sh rejects unknown agents and the removed headless flag'
   run bash "$ASK_HERDR_DIR/ask.sh" bogus question
   assert_failure 2
@@ -235,7 +235,7 @@ function test_010_ask_sh_rejects_unknown_agents_and_the_removed_he() {
   [ ! -f "$CHILD_STUB/child.log" ]
 }
 
-function test_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
+function test_scripts_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
   _bats_test_init 11 'ask.sh refuses outside herdr and when herdr-child is absent'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
@@ -254,7 +254,7 @@ function test_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
   rm -rf "$no_child"
 }
 
-function test_012_ask_sh_starts_a_read_only_live_child_and_returns() {
+function test_scripts_012_ask_sh_starts_a_read_only_live_child_and_returns() {
   _bats_test_init 12 'ask.sh starts a read-only live child and returns its answer'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -276,7 +276,7 @@ function test_012_ask_sh_starts_a_read_only_live_child_and_returns() {
   assert_file_contains "$CHILD_STUB/herdr.log" '^agent prompt wT:p0 '
 }
 
-function test_013_ask_sh_keeps_a_settled_answer_when_the_parent_re() {
+function test_scripts_013_ask_sh_keeps_a_settled_answer_when_the_parent_re() {
   _bats_test_init 13 'ask.sh keeps a settled answer when the parent reminder cannot be queued'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=done STUB_PARENT_PROMPT_FAIL=1 \
@@ -288,7 +288,7 @@ function test_013_ask_sh_keeps_a_settled_answer_when_the_parent_re() {
   assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
-function test_014_ask_sh_forwards_posture_and_every_native_caller() {
+function test_scripts_014_ask_sh_forwards_posture_and_every_native_caller() {
   _bats_test_init 14 'ask.sh forwards posture and every native caller option'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -308,7 +308,7 @@ function test_014_ask_sh_forwards_posture_and_every_native_caller() {
   assert_failure
 }
 
-function test_015_ask_sh_retries_a_colliding_derived_name_with_a_v() {
+function test_scripts_015_ask_sh_retries_a_colliding_derived_name_with_a_v() {
   _bats_test_init 15 'ask.sh retries a colliding derived name with a valid suffix'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_NAME_COLLISION=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -318,7 +318,7 @@ function test_015_ask_sh_retries_a_colliding_derived_name_with_a_v() {
   assert_success
 }
 
-function test_016_ask_sh_reports_blocked_children_after_printing_t() {
+function test_scripts_016_ask_sh_reports_blocked_children_after_printing_t() {
   _bats_test_init 16 'ask.sh reports blocked children after printing their answer'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=blocked HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -338,7 +338,7 @@ function test_016_ask_sh_reports_blocked_children_after_printing_t() {
   assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
-function test_017_ask_sh_reports_undelivered_when_child_output_can() {
+function test_scripts_017_ask_sh_reports_undelivered_when_child_output_can() {
   _bats_test_init 17 'ask.sh reports undelivered when child output cannot be read'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_READ_FAIL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -348,7 +348,7 @@ function test_017_ask_sh_reports_undelivered_when_child_output_can() {
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
 
-function test_018_ask_sh_reports_a_still_working_child_with_exit_1() {
+function test_scripts_018_ask_sh_reports_a_still_working_child_with_exit_1() {
   _bats_test_init 18 'ask.sh reports a still-working child with exit 124'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -359,7 +359,7 @@ function test_018_ask_sh_reports_a_still_working_child_with_exit_1() {
   assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
-function test_019_ask_sh_classifies_successful_waits_with_working() {
+function test_scripts_019_ask_sh_classifies_successful_waits_with_working() {
   _bats_test_init 19 'ask.sh classifies successful waits with working, unknown, and fallback statuses'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=working HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -383,7 +383,7 @@ function test_019_ask_sh_classifies_successful_waits_with_working() {
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
 
-function test_020_ask_sh_maps_child_start_failures_to_refused_or_u() {
+function test_scripts_020_ask_sh_maps_child_start_failures_to_refused_or_u() {
   _bats_test_init 20 'ask.sh maps child start failures to refused or undelivered'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -802,7 +802,7 @@ child_wait_for_file() {
   return 1
 }
 
-function test_021_herdr_child_requires_a_subcommand_and_herdr_envi() {
+function test_scripts_021_herdr_child_requires_a_subcommand_and_herdr_envi() {
   _bats_test_init 21 'herdr-child requires a subcommand and herdr environment'
   run bash "$HERDR_CHILD"
   assert_failure 2
@@ -815,7 +815,7 @@ function test_021_herdr_child_requires_a_subcommand_and_herdr_envi() {
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
-function test_022_herdr_child_refuses_pi_read_only_before_splittin() {
+function test_scripts_022_herdr_child_refuses_pi_read_only_before_splittin() {
   _bats_test_init 22 'herdr-child refuses pi read-only before splitting a pane'
   child_stub_herdr
   run child_start --kind pi --name child-pi --posture ro --wait
@@ -824,7 +824,7 @@ function test_022_herdr_child_refuses_pi_read_only_before_splittin() {
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
-function test_023_herdr_child_start_requires_exactly_one_explicit() {
+function test_scripts_023_herdr_child_start_requires_exactly_one_explicit() {
   _bats_test_init 23 'herdr-child start requires exactly one explicit mode before Herdr mutation'
   child_stub_herdr
 
@@ -849,7 +849,7 @@ function test_023_herdr_child_start_requires_exactly_one_explicit() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
-function test_024_herdr_child_validates_tab_placement_before_herdr() {
+function test_scripts_024_herdr_child_validates_tab_placement_before_herdr() {
   _bats_test_init 24 'herdr-child validates tab placement before Herdr mutation'
   child_stub_herdr
 
@@ -869,7 +869,7 @@ function test_024_herdr_child_validates_tab_placement_before_herdr() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
-function test_025_herdr_child_validates_launch_and_supervision_tim() {
+function test_scripts_025_herdr_child_validates_launch_and_supervision_tim() {
   _bats_test_init 25 'herdr-child validates launch and supervision timeouts before Herdr mutation'
   child_stub_herdr
 
@@ -904,7 +904,7 @@ function test_025_herdr_child_validates_launch_and_supervision_tim() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
-function test_026_herdr_child_attached_mode_starts_no_watcher() {
+function test_scripts_026_herdr_child_attached_mode_starts_no_watcher() {
   _bats_test_init 26 'herdr-child attached mode starts no watcher'
   child_stub_herdr
   run child_start --kind claude --name child-attached --wait
@@ -918,7 +918,7 @@ function test_026_herdr_child_attached_mode_starts_no_watcher() {
   assert_failure
 }
 
-function test_027_herdr_child_detached_mode_fails_closed_without_a() {
+function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
   _bats_test_init 27 'herdr-child detached mode fails closed without a parent session'
   child_stub_herdr
   STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --name child-a --detach
@@ -929,7 +929,7 @@ function test_027_herdr_child_detached_mode_fails_closed_without_a() {
   assert_failure
 }
 
-function test_028_herdr_child_detached_mode_closes_only_its_new_pa() {
+function test_scripts_028_herdr_child_detached_mode_closes_only_its_new_pa() {
   _bats_test_init 28 'herdr-child detached mode closes only its new pane without a child session'
   child_stub_herdr
   STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --name child-a --detach
@@ -941,7 +941,7 @@ function test_028_herdr_child_detached_mode_closes_only_its_new_pa() {
   assert_file_not_exists "$CHILD_STUB/watcher.pid"
 }
 
-function test_029_herdr_child_detached_mode_returns_only_after_liv() {
+function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   _bats_test_init 29 'herdr-child detached mode returns only after liveness and causal watcher arming'
   child_stub_herdr
   run child_start --kind claude --name child-detached --detach --supervision-timeout 60000
@@ -961,7 +961,7 @@ function test_029_herdr_child_detached_mode_returns_only_after_liv() {
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token child_session=child-session'
 }
 
-function test_030_herdr_child_detached_arm_failure_preserves_the_c() {
+function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   _bats_test_init 30 'herdr-child detached arm failure preserves the child and returns recovery JSON'
   child_stub_herdr
   HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --name child-a --detach
@@ -978,7 +978,7 @@ function test_030_herdr_child_detached_arm_failure_preserves_the_c() {
   assert_failure
 }
 
-function test_031_herdr_child_signal_before_prompt_submission_clos() {
+function test_scripts_031_herdr_child_signal_before_prompt_submission_clos() {
   _bats_test_init 31 'herdr-child signal before prompt submission closes owned state and pane'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
@@ -1033,7 +1033,7 @@ PY
   assert_success
 }
 
-function test_032_herdr_child_catchable_launch_signals_preserve_ow() {
+function test_scripts_032_herdr_child_catchable_launch_signals_preserve_ow() {
   _bats_test_init 32 'herdr-child catchable launch signals preserve ownership after prompt submission'
   local signal signal_name calls
   for signal in HUP INT TERM; do
@@ -1099,7 +1099,7 @@ PY
   done
 }
 
-function test_033_herdr_child_signal_and_arm_handshake_resolves_ab() {
+function test_scripts_033_herdr_child_signal_and_arm_handshake_resolves_ab() {
   _bats_test_init 33 'herdr-child signal and arm handshake resolves abort before reporting supervision'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
@@ -1176,7 +1176,7 @@ PY
   assert_success
 }
 
-function test_034_herdr_child_detached_watcher_ignores_stale_settl() {
+function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
   _bats_test_init 34 'herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome'
   child_lifecycle_stub_herdr
   printf 'idle 10\n' > "$CHILD_STUB/child-state"
@@ -1197,7 +1197,7 @@ function test_034_herdr_child_detached_watcher_ignores_stale_settl() {
   assert_failure
 }
 
-function test_035_herdr_child_detached_timeout_wakes_once_and_late() {
+function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
   _bats_test_init 35 'herdr-child detached timeout wakes once and later settlement wakes the same generation'
   child_lifecycle_stub_herdr
 
@@ -1219,7 +1219,7 @@ function test_035_herdr_child_detached_timeout_wakes_once_and_late() {
   assert_output 2
 }
 
-function test_036_herdr_child_detached_delivery_follows_parent_ter() {
+function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
   _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity and fails closed on session replacement'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1242,7 +1242,7 @@ function test_036_herdr_child_detached_delivery_follows_parent_ter() {
   assert_failure
 }
 
-function test_037_herdr_child_detached_delivery_retries_temporary() {
+function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
   _bats_test_init 37 'herdr-child detached delivery retries temporary parent blockage and prompt transport failure'
   child_lifecycle_stub_herdr
   printf 'blocked\n' > "$CHILD_STUB/parent-status"
@@ -1281,7 +1281,7 @@ function test_037_herdr_child_detached_delivery_retries_temporary() {
   assert_output 1
 }
 
-function test_038_herdr_child_detached_delivery_uses_capped_increa() {
+function test_scripts_038_herdr_child_detached_delivery_uses_capped_increa() {
   _bats_test_init 38 'herdr-child detached delivery uses capped increasing retry backoff and one terminal failure'
   child_lifecycle_stub_herdr
   export HERDR_CHILD_MAX_DELIVERY_RETRIES=4
@@ -1300,7 +1300,7 @@ function test_038_herdr_child_detached_delivery_uses_capped_increa() {
   assert_output 1
 }
 
-function test_039_herdr_child_transient_pane_reads_never_become_ch() {
+function test_scripts_039_herdr_child_transient_pane_reads_never_become_ch() {
   _bats_test_init 39 'herdr-child transient pane reads never become child-gone and delivery continues'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1320,7 +1320,7 @@ function test_039_herdr_child_transient_pane_reads_never_become_ch() {
   assert_output 1
 }
 
-function test_040_herdr_child_superseded_watcher_cannot_publish_fa() {
+function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
   _bats_test_init 40 'herdr-child superseded watcher cannot publish failure metadata over a new generation'
   child_lifecycle_stub_herdr
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
@@ -1348,7 +1348,7 @@ function test_040_herdr_child_superseded_watcher_cannot_publish_fa() {
   assert_failure
 }
 
-function test_041_herdr_child_watcher_switches_from_fresh_polling() {
+function test_scripts_041_herdr_child_watcher_switches_from_fresh_polling() {
   _bats_test_init 41 'herdr-child watcher switches from fresh polling to sliced agent wait'
   child_lifecycle_stub_herdr
   : > "$CHILD_STUB/wait-block"
@@ -1369,7 +1369,7 @@ function test_041_herdr_child_watcher_switches_from_fresh_polling() {
   [ "$refresh_line" -gt "$wait_line" ]
 }
 
-function test_042_herdr_child_sliced_wait_revalidates_generation_b() {
+function test_scripts_042_herdr_child_sliced_wait_revalidates_generation_b() {
   _bats_test_init 42 'herdr-child sliced wait revalidates generation before liveness refresh'
   child_lifecycle_stub_herdr
   : > "$CHILD_STUB/wait-block"
@@ -1396,7 +1396,7 @@ function test_042_herdr_child_sliced_wait_revalidates_generation_b() {
   assert_success
 }
 
-function test_043_herdr_child_sliced_wait_publishes_one_typed_non() {
+function test_scripts_043_herdr_child_sliced_wait_publishes_one_typed_non() {
   _bats_test_init 43 'herdr-child sliced wait publishes one typed non-timeout failure'
   child_lifecycle_stub_herdr
   : > "$CHILD_STUB/wait-error"
@@ -1411,7 +1411,7 @@ function test_043_herdr_child_sliced_wait_publishes_one_typed_non() {
   assert_output 1
 }
 
-function test_044_herdr_child_detached_watcher_rejects_malformed_s() {
+function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   _bats_test_init 44 'herdr-child detached watcher rejects malformed state and child identity replacement'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1438,7 +1438,7 @@ function test_044_herdr_child_detached_watcher_rejects_malformed_s() {
   assert_failure
 }
 
-function test_045_herdr_child_reap_invalidates_before_close_while() {
+function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
   _bats_test_init 45 'herdr-child reap invalidates before close while spontaneous loss wakes the parent'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1467,7 +1467,7 @@ function test_045_herdr_child_reap_invalidates_before_close_while() {
   assert_output 1
 }
 
-function test_046_herdr_child_failed_reap_restores_supervision_for() {
+function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   _bats_test_init 46 'herdr-child failed reap restores supervision for the kept child'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1501,7 +1501,7 @@ function test_046_herdr_child_failed_reap_restores_supervision_for() {
   assert_failure
 }
 
-function test_047_herdr_child_detached_ask_follows_parent_identity() {
+function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   _bats_test_init 47 'herdr-child detached ask follows parent identity and suppresses its ordinary blocked wake'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1530,7 +1530,7 @@ function test_047_herdr_child_detached_ask_follows_parent_identity() {
   assert_failure
 }
 
-function test_048_herdr_child_attached_ask_follows_captured_parent() {
+function test_scripts_048_herdr_child_attached_ask_follows_captured_parent() {
   _bats_test_init 48 'herdr-child attached ask follows captured parent identity after the parent moves'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p7","terminal_id":"term-parent","agent_session":{"value":"parent-session"}}]}}'
@@ -1545,7 +1545,7 @@ function test_048_herdr_child_attached_ask_follows_captured_parent() {
   assert_failure
 }
 
-function test_049_herdr_child_callback_intent_suppresses_blocked_w() {
+function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
   _bats_test_init 49 'herdr-child callback intent suppresses blocked wake until confirmed receipt'
   child_lifecycle_stub_herdr
   export HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER="$CHILD_STUB/callback-receipt"
@@ -1583,7 +1583,7 @@ function test_049_herdr_child_callback_intent_suppresses_blocked_w() {
   assert_failure
 }
 
-function test_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
+function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
   _bats_test_init 50 'herdr-child callback delivery exhaustion keeps decision waiting and blocks reap'
   local generation run_dir
   child_lifecycle_stub_herdr
@@ -1618,7 +1618,7 @@ function test_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
   assert_file_not_exists "$CHILD_STUB/pane-closed"
 }
 
-function test_051_herdr_child_detached_callbacks_fail_closed_when() {
+function test_scripts_051_herdr_child_detached_callbacks_fail_closed_when() {
   _bats_test_init 51 'herdr-child detached callbacks fail closed when supervision metadata is unreadable'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1650,7 +1650,7 @@ function test_051_herdr_child_detached_callbacks_fail_closed_when() {
   assert_output "$prompts_before"
 }
 
-function test_052_herdr_child_detached_reply_advances_generation_a() {
+function test_scripts_052_herdr_child_detached_reply_advances_generation_a() {
   _bats_test_init 52 'herdr-child detached reply advances generation and rearms later settlement'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1675,7 +1675,7 @@ function test_052_herdr_child_detached_reply_advances_generation_a() {
   assert_file_contains "$CHILD_STUB/calls.log" "generation=$new_generation.*event=settled-12"
 }
 
-function test_053_herdr_child_managed_prompt_requires_a_mode_and_a() {
+function test_scripts_053_herdr_child_managed_prompt_requires_a_mode_and_a() {
   _bats_test_init 53 'herdr-child managed prompt requires a mode and attached wait observes a newer sequence'
   child_lifecycle_stub_herdr
   printf 'child-life' > "$CHILD_STUB/started-name"
@@ -1698,7 +1698,7 @@ function test_053_herdr_child_managed_prompt_requires_a_mode_and_a() {
   assert_file_not_exists "$CHILD_STUB/watcher.pid"
 }
 
-function test_054_herdr_child_attached_prompt_wait_rejects_the_fir() {
+function test_scripts_054_herdr_child_attached_prompt_wait_rejects_the_fir() {
   _bats_test_init 54 'herdr-child attached prompt wait rejects the first one-step settlement after a working baseline'
   child_lifecycle_stub_herdr
   printf 'child-life' > "$CHILD_STUB/started-name"
@@ -1720,7 +1720,7 @@ function test_054_herdr_child_attached_prompt_wait_rejects_the_fir() {
   assert_file_contains "$CHILD_STUB/prompt.out" 'Prompt completed for child-life in wT:p9.'
 }
 
-function test_055_herdr_child_managed_detached_prompt_advances_gen() {
+function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   _bats_test_init 55 'herdr-child managed detached prompt advances generation and preserves the child on rearm failure'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
@@ -1764,7 +1764,7 @@ function test_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_file_not_exists "$CHILD_STUB/pane-closed"
 }
 
-function test_056_herdr_child_continuation_preflight_failures_pres() {
+function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   _bats_test_init 56 'herdr-child continuation preflight failures preserve the prior generation'
   local old_generation old_run old_watcher
 
@@ -1821,7 +1821,7 @@ function test_056_herdr_child_continuation_preflight_failures_pres() {
   kill -0 "$old_watcher"
 }
 
-function test_057_herdr_child_attached_child_promoted_to_detach_as() {
+function test_scripts_057_herdr_child_attached_child_promoted_to_detach_as() {
   _bats_test_init 57 'herdr-child attached child promoted to detach asks through validated metadata'
   child_lifecycle_stub_herdr
   printf 'child-life' > "$CHILD_STUB/started-name"
@@ -1846,7 +1846,7 @@ function test_057_herdr_child_attached_child_promoted_to_detach_as() {
   assert_file_contains "$CHILD_STUB/successful-prompts.log" 'child-ask v2'
 }
 
-function test_058_herdr_child_source_contracts_document_attached_a() {
+function test_scripts_058_herdr_child_source_contracts_document_attached_a() {
   _bats_test_init 58 'herdr child source contracts document attached and detached lifecycle boundaries'
   local contract="$SOURCE_ROOT/private_dot_claude/shared/child-agent-contract.md"
   local skill="$SOURCE_ROOT/private_dot_claude/skills/herdr/SKILL.md"
@@ -1870,7 +1870,7 @@ function test_058_herdr_child_source_contracts_document_attached_a() {
   assert_file_contains "$consult" 'attached.*--wait'
 }
 
-function test_059_herdr_child_rejects_invalid_and_live_names_befor() {
+function test_scripts_059_herdr_child_rejects_invalid_and_live_names_befor() {
   _bats_test_init 59 'herdr-child rejects invalid and live names before splitting'
   child_stub_herdr
   run child_start --kind claude --name Invalid --wait
@@ -1885,7 +1885,7 @@ function test_059_herdr_child_rejects_invalid_and_live_names_befor() {
   assert_failure
 }
 
-function test_060_herdr_child_maps_claude_postures_and_skill_direc() {
+function test_scripts_060_herdr_child_maps_claude_postures_and_skill_direc() {
   _bats_test_init 60 'herdr-child maps claude postures and skill directories'
   child_stub_herdr
   run child_start --kind claude --name child-ro --skills A --skills B --wait
@@ -1901,7 +1901,7 @@ function test_060_herdr_child_maps_claude_postures_and_skill_direc() {
   assert_failure
 }
 
-function test_061_herdr_child_maps_opencode_permissions_model_and() {
+function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
   _bats_test_init 61 'herdr-child maps opencode permissions, model, and configured agent'
   child_stub_herdr
   run child_start --kind opencode --name child-open --agent reviewer --wait
@@ -1917,7 +1917,7 @@ function test_061_herdr_child_maps_opencode_permissions_model_and() {
   assert_failure
 }
 
-function test_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
+function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
   _bats_test_init 62 'herdr-child maps pi model, effort, skills, and question exclusion'
   child_stub_herdr
   run child_start --kind pi --name child-pi --posture rw --skills A --skills B --wait
@@ -1930,7 +1930,7 @@ function test_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --thinking high'
 }
 
-function test_063_herdr_child_rejects_native_options_that_the_sele() {
+function test_scripts_063_herdr_child_rejects_native_options_that_the_sele() {
   _bats_test_init 63 'herdr-child rejects native options that the selected kind cannot map'
   child_stub_herdr
   run child_start --kind claude --name child-a --effort high --wait
@@ -1945,7 +1945,7 @@ function test_063_herdr_child_rejects_native_options_that_the_sele() {
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
-function test_064_herdr_child_splits_starts_and_prompts_in_order_w() {
+function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   _bats_test_init 64 'herdr-child splits, starts, and prompts in order with both coordinates'
   child_stub_herdr
   STUB_REQUIRE_SPLIT=1 run child_start --kind claude --name child-a --wait --timeout 5000
@@ -1961,7 +1961,7 @@ function test_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
 }
 
-function test_065_herdr_child_tab_mode_records_ownership_before_st() {
+function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   _bats_test_init 65 'herdr-child tab mode records ownership before starting an attached child'
   child_stub_herdr
   STUB_REQUIRE_SPLIT=1 HERDR_WORKSPACE_ID=w1 run child_start \
@@ -1981,7 +1981,7 @@ function test_065_herdr_child_tab_mode_records_ownership_before_st() {
   [[ "$call5" == agent\ prompt*--wait* ]]
 }
 
-function test_066_herdr_child_tab_launch_signal_closes_a_parsed_cr() {
+function test_scripts_066_herdr_child_tab_launch_signal_closes_a_parsed_cr() {
   _bats_test_init 66 'herdr-child tab launch signal closes a parsed creation before ownership publication'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -2021,7 +2021,7 @@ PY
   assert_success
 }
 
-function test_067_herdr_child_tab_mode_composes_with_detached_supe() {
+function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
   _bats_test_init 67 'herdr-child tab mode composes with detached supervision'
   child_lifecycle_stub_herdr
   HERDR_WORKSPACE_ID=w1 run child_lifecycle_start --tab --supervision-timeout 5000
@@ -2033,7 +2033,7 @@ function test_067_herdr_child_tab_mode_composes_with_detached_supe() {
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent.*child_mode=detach'
 }
 
-function test_068_herdr_child_tab_mode_preserves_malformed_creatio() {
+function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   _bats_test_init 68 'herdr-child tab mode preserves malformed creations and cleans owned failures'
   child_stub_herdr
   STUB_TAB_CREATE_MALFORMED=1 HERDR_WORKSPACE_ID=w1 run child_start \
@@ -2055,7 +2055,7 @@ function test_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_failure
 }
 
-function test_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
+function test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
   _bats_test_init 69 'herdr-child tab mode reports the tab on timeout and names it on launch failure'
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 HERDR_WORKSPACE_ID=w1 run child_start \
@@ -2075,7 +2075,7 @@ function test_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
-function test_070_herdr_child_caps_startup_timeout_while_preservin() {
+function test_scripts_070_herdr_child_caps_startup_timeout_while_preservin() {
   _bats_test_init 70 'herdr-child caps startup timeout while preserving a long prompt wait'
   child_stub_herdr
   run child_start --kind claude --name child-a --wait --timeout 1800000
@@ -2087,7 +2087,7 @@ function test_070_herdr_child_caps_startup_timeout_while_preservin() {
   [[ "$prompt_call" == *--timeout\ 1800000* ]]
 }
 
-function test_071_herdr_child_retries_only_the_pane_readiness_star() {
+function test_scripts_071_herdr_child_retries_only_the_pane_readiness_star() {
   _bats_test_init 71 'herdr-child retries only the pane-readiness start failure'
   child_stub_herdr
   STUB_START_MODE=busy-once run child_start --kind claude --name child-a --wait
@@ -2104,7 +2104,7 @@ function test_071_herdr_child_retries_only_the_pane_readiness_star() {
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
-function test_072_herdr_child_closes_its_pane_after_three_readines() {
+function test_scripts_072_herdr_child_closes_its_pane_after_three_readines() {
   _bats_test_init 72 'herdr-child closes its pane after three readiness failures'
   child_stub_herdr
   STUB_START_MODE=busy run child_start --kind claude --name child-a --wait
@@ -2115,7 +2115,7 @@ function test_072_herdr_child_closes_its_pane_after_three_readines() {
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
-function test_073_herdr_child_distinguishes_a_stalled_initial_prom() {
+function test_scripts_073_herdr_child_distinguishes_a_stalled_initial_prom() {
   _bats_test_init 73 'herdr-child distinguishes a stalled initial prompt'
   child_stub_herdr
   STUB_PROMPT_FAIL=1 run child_start --kind claude --name child-a --wait
@@ -2124,7 +2124,7 @@ function test_073_herdr_child_distinguishes_a_stalled_initial_prom() {
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
-function test_074_herdr_child_preserves_a_working_pane_when_the_wa() {
+function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
   _bats_test_init 74 'herdr-child preserves a working pane when the wait times out'
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --name child-a --wait
@@ -2135,7 +2135,7 @@ function test_074_herdr_child_preserves_a_working_pane_when_the_wa() {
   assert_failure
 }
 
-function test_075_herdr_child_ask_requires_every_injected_child_co() {
+function test_scripts_075_herdr_child_ask_requires_every_injected_child_co() {
   _bats_test_init 75 'herdr-child ask requires every injected child coordinate'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
@@ -2145,7 +2145,7 @@ function test_075_herdr_child_ask_requires_every_injected_child_co() {
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
-function test_076_herdr_child_ask_publishes_before_delivery_and_us() {
+function test_scripts_076_herdr_child_ask_publishes_before_delivery_and_us() {
   _bats_test_init 76 'herdr-child ask publishes before delivery and uses the versioned marker'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
@@ -2165,7 +2165,7 @@ function test_076_herdr_child_ask_publishes_before_delivery_and_us() {
   [[ "$call4" != *--wait* ]] || fail "callback delivery unexpectedly waited: $call4"
 }
 
-function test_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
+function test_scripts_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
   _bats_test_init 77 'herdr-child ask leaves the label when parent lookup or delivery fails'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
@@ -2185,7 +2185,7 @@ function test_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
   assert_output --partial "waiting label remains published"
 }
 
-function test_078_herdr_child_reply_validates_the_live_pair_delive() {
+function test_scripts_078_herdr_child_reply_validates_the_live_pair_delive() {
   _bats_test_init 78 'herdr-child reply validates the live pair, delivers, then clears'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
@@ -2216,7 +2216,7 @@ function test_078_herdr_child_reply_validates_the_live_pair_delive() {
   assert_failure
 }
 
-function test_079_herdr_child_ask_and_reply_publish_strictly_incre() {
+function test_scripts_079_herdr_child_ask_and_reply_publish_strictly_incre() {
   _bats_test_init 79 'herdr-child ask and reply publish strictly increasing label sequences'
   child_stub_herdr
   local parent_agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
@@ -2233,7 +2233,7 @@ function test_079_herdr_child_ask_and_reply_publish_strictly_incre() {
   [ "$second_seq" -gt "$first_seq" ]
 }
 
-function test_080_herdr_child_reply_keeps_the_label_when_delivery() {
+function test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery() {
   _bats_test_init 80 'herdr-child reply keeps the label when delivery fails and refuses child callers'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
@@ -2249,7 +2249,7 @@ function test_080_herdr_child_reply_keeps_the_label_when_delivery() {
   assert_output --partial "parent-side"
 }
 
-function test_081_herdr_child_reap_closes_only_settled_unfocused_n() {
+function test_scripts_081_herdr_child_reap_closes_only_settled_unfocused_n() {
   _bats_test_init 81 'herdr-child reap closes only settled, unfocused, non-waiting panes'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"done-a","pane_id":"wT:p1","agent_status":"done","focused":false},{"name":"work-a","pane_id":"wT:p2","agent_status":"working","focused":false},{"name":"focus-a","pane_id":"wT:p3","agent_status":"idle","focused":true}]}}'
@@ -2266,7 +2266,7 @@ function test_081_herdr_child_reap_closes_only_settled_unfocused_n() {
   assert_output 1
 }
 
-function test_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
+function test_scripts_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
   _bats_test_init 82 'herdr-child reap closes an unfocused idle pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2279,7 +2279,7 @@ function test_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
   assert_output 1
 }
 
-function test_083_herdr_child_reap_rejects_an_empty_expected_pane() {
+function test_scripts_083_herdr_child_reap_rejects_an_empty_expected_pane() {
   _bats_test_init 83 'herdr-child reap rejects an empty expected pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2290,7 +2290,7 @@ function test_083_herdr_child_reap_rejects_an_empty_expected_pane() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
-function test_084_herdr_child_reap_preserves_a_reused_name_outside() {
+function test_scripts_084_herdr_child_reap_preserves_a_reused_name_outside() {
   _bats_test_init 84 'herdr-child reap preserves a reused name outside the expected pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"reused-a","pane_id":"wT:p2","agent_status":"idle","focused":false}]}}'
@@ -2302,7 +2302,7 @@ function test_084_herdr_child_reap_preserves_a_reused_name_outside() {
   assert_failure
 }
 
-function test_085_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
+function test_scripts_085_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
   _bats_test_init 85 'herdr-child reap preserves a pane when fresh state no longer matches'
   child_stub_herdr
   local initial='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p1","agent_status":"done","focused":false}]}}'
@@ -2315,7 +2315,7 @@ function test_085_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
   assert_failure
 }
 
-function test_086_herdr_child_reap_refuses_outside_herdr_and_from() {
+function test_scripts_086_herdr_child_reap_refuses_outside_herdr_and_from() {
   _bats_test_init 86 'herdr-child reap refuses outside herdr and from a child pane'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
@@ -2327,7 +2327,7 @@ function test_086_herdr_child_reap_refuses_outside_herdr_and_from() {
   assert_output --partial "parent-side"
 }
 
-function test_087_herdr_child_reap_preserves_a_settled_pane_with_a() {
+function test_scripts_087_herdr_child_reap_preserves_a_settled_pane_with_a() {
   _bats_test_init 87 'herdr-child reap preserves a settled pane with a waiting label'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"wait-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2339,7 +2339,7 @@ function test_087_herdr_child_reap_preserves_a_settled_pane_with_a() {
   assert_failure
 }
 
-function test_088_herdr_child_reap_preserves_a_settled_pane_when_p() {
+function test_scripts_088_herdr_child_reap_preserves_a_settled_pane_when_p() {
   _bats_test_init 88 'herdr-child reap preserves a settled pane when pane metadata is malformed'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"bad-meta-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2351,7 +2351,7 @@ function test_088_herdr_child_reap_preserves_a_settled_pane_when_p() {
   assert_failure
 }
 
-function test_089_herdr_child_reap_closes_a_positively_owned_one_p() {
+function test_scripts_089_herdr_child_reap_closes_a_positively_owned_one_p() {
   _bats_test_init 89 'herdr-child reap closes a positively owned one-pane tab'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2363,7 +2363,7 @@ function test_089_herdr_child_reap_closes_a_positively_owned_one_p() {
   assert_file_contains "$CHILD_STUB/calls.log" '^tab get wT:tA'
 }
 
-function test_090_herdr_child_reap_closes_the_child_pane_but_repor() {
+function test_scripts_090_herdr_child_reap_closes_the_child_pane_but_repor() {
   _bats_test_init 90 'herdr-child reap closes the child pane but reports a surviving multi-pane tab'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2373,7 +2373,7 @@ function test_090_herdr_child_reap_closes_the_child_pane_but_repor() {
   assert_output --partial "tab-a: closed pane wT:p1; tab wT:tA kept with 2 panes"
 }
 
-function test_091_herdr_child_reap_preserves_ambiguous_tab_ownersh() {
+function test_scripts_091_herdr_child_reap_preserves_ambiguous_tab_ownersh() {
   _bats_test_init 91 'herdr-child reap preserves ambiguous tab ownership'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"tab-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
@@ -2386,7 +2386,7 @@ function test_091_herdr_child_reap_preserves_ambiguous_tab_ownersh() {
   assert_failure
 }
 
-function test_092_herdr_child_tab_reap_invalidates_detached_superv() {
+function test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv() {
   _bats_test_init 92 'herdr-child tab reap invalidates detached supervision before close'
   child_lifecycle_stub_herdr
   HERDR_WORKSPACE_ID=w1 run child_lifecycle_start --tab --supervision-timeout 5000
@@ -2409,7 +2409,7 @@ function test_092_herdr_child_tab_reap_invalidates_detached_superv() {
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 
-function test_093_herdr_integrations_script_exits_0_and_skips_when() {
+function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   _bats_test_init 93 'herdr-integrations script exits 0 and skips when herdr is absent'
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
@@ -2428,7 +2428,7 @@ HOOKS_DIR="$SOURCE_ROOT/private_dot_claude/hooks"
 FFF_GUARD="$HOOKS_DIR/executable_fff-grep-guard.sh"
 WEBFETCH_HINT="$HOOKS_DIR/executable_webfetch-markdown-hint.sh"
 
-function test_094_fff_grep_guard_denies_a_query_of_several_bare_wo() {
+function test_scripts_094_fff_grep_guard_denies_a_query_of_several_bare_wo() {
   _bats_test_init 94 'fff-grep-guard denies a query of several bare words'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$FFF_GUARD" <<'EOF'
@@ -2439,7 +2439,7 @@ EOF
   assert_output --partial "mcp__fff__multi_grep"
 }
 
-function test_095_fff_grep_guard_stays_silent_on_a_single_identifi() {
+function test_scripts_095_fff_grep_guard_stays_silent_on_a_single_identifi() {
   _bats_test_init 95 'fff-grep-guard stays silent on a single identifier'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$FFF_GUARD" <<'EOF'
@@ -2451,7 +2451,7 @@ EOF
 
 # Path-scoped and glob-scoped queries were the multi-token calls that actually
 # returned hits, so the guard must let them through.
-function test_096_fff_grep_guard_stays_silent_on_a_path_scoped_or() {
+function test_scripts_096_fff_grep_guard_stays_silent_on_a_path_scoped_or() {
   _bats_test_init 96 'fff-grep-guard stays silent on a path-scoped or glob-scoped query'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$FFF_GUARD" <<'EOF'
@@ -2466,14 +2466,14 @@ EOF
   assert_output ""
 }
 
-function test_097_fff_grep_guard_fails_open_on_malformed_input() {
+function test_scripts_097_fff_grep_guard_fails_open_on_malformed_input() {
   _bats_test_init 97 'fff-grep-guard fails open on malformed input'
   run bash "$FFF_GUARD" <<<'not json at all'
   assert_success
   assert_output ""
 }
 
-function test_098_webfetch_markdown_hint_adds_context_for_a_plain() {
+function test_scripts_098_webfetch_markdown_hint_adds_context_for_a_plain() {
   _bats_test_init 98 'webfetch-markdown-hint adds context for a plain URL'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$WEBFETCH_HINT" <<'EOF'
@@ -2485,7 +2485,7 @@ EOF
   refute_output --partial "permissionDecision"
 }
 
-function test_099_webfetch_markdown_hint_stays_silent_when_the_url() {
+function test_scripts_099_webfetch_markdown_hint_stays_silent_when_the_url() {
   _bats_test_init 99 'webfetch-markdown-hint stays silent when the URL already uses markdown.new'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$WEBFETCH_HINT" <<'EOF'
@@ -2495,7 +2495,7 @@ EOF
   assert_output ""
 }
 
-function test_100_settings_template_registers_both_pretooluse_hook() {
+function test_scripts_100_settings_template_registers_both_pretooluse_hook() {
   _bats_test_init 100 'settings template registers both PreToolUse hooks with their matchers'
   skip_if_no_chezmoi
   local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
@@ -2517,7 +2517,7 @@ PY
 # herdr-task-sync engine
 # ===========================================
 
-function test_101_herdr_task_sync_descriptor_probe_lives_in_a_one() {
+function test_scripts_101_herdr_task_sync_descriptor_probe_lives_in_a_one() {
   _bats_test_init 101 'herdr-task-sync descriptor probe lives in a one-test Bats file'
   local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_task_sync_descriptor_probe.bats"
   assert_file_exists "$descriptor_probe_file"
@@ -2526,7 +2526,7 @@ function test_101_herdr_task_sync_descriptor_probe_lives_in_a_one() {
   assert_output "1"
 }
 
-function test_102_herdr_task_sync_bounded_bats_invocation_exits_af() {
+function test_scripts_102_herdr_task_sync_bounded_bats_invocation_exits_af() {
   _bats_test_init 102 'herdr-task-sync bounded Bats invocation exits after detached work'
   # No python3 skip guard: it is a declared requirement (README.md,
   # Requirements), a deliberate exception to the skip convention in
@@ -2839,7 +2839,7 @@ PY
 # costs one extra nested Bats run, which is the expensive thing in this file
 # (docs/issues/2026-08-21-021), and it buys the one property no other test here
 # can assert: that the guard above still fails when it should.
-function test_103_herdr_task_sync_bounded_bats_invocation_refuses() {
+function test_scripts_103_herdr_task_sync_bounded_bats_invocation_refuses() {
   _bats_test_init 103 'herdr-task-sync bounded Bats invocation refuses a vacuous run'
   local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
@@ -2860,7 +2860,7 @@ function test_103_herdr_task_sync_bounded_bats_invocation_refuses() {
   assert_output --partial "this run proved nothing"
 }
 
-function test_104_herdr_task_sync_harness_fresh_reads_follow_pane() {
+function test_scripts_104_herdr_task_sync_harness_fresh_reads_follow_pane() {
   _bats_test_init 104 'herdr-task-sync harness fresh reads follow pane and tab mutations'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2889,7 +2889,7 @@ function test_104_herdr_task_sync_harness_fresh_reads_follow_pane() {
   refute_output --partial '"tabs"'
 }
 
-function test_105_herdr_task_sync_harness_controls_reverse_model_c() {
+function test_scripts_105_herdr_task_sync_harness_controls_reverse_model_c() {
   _bats_test_init 105 'herdr-task-sync harness controls reverse model completion by generation'
   hts_setup
   hts_stub_controlled_engine pi
@@ -2914,7 +2914,7 @@ function test_105_herdr_task_sync_harness_controls_reverse_model_c() {
   assert_equal "$(cat "$HTS_WORK/model-2.out")" newer
 }
 
-function test_106_herdr_task_sync_harness_isolates_colliding_sanit() {
+function test_scripts_106_herdr_task_sync_harness_isolates_colliding_sanit() {
   _bats_test_init 106 'herdr-task-sync harness isolates colliding sanitized socket names'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2948,7 +2948,7 @@ function test_106_herdr_task_sync_harness_isolates_colliding_sanit() {
   assert_equal "$(wc -l < "$(hts_socket_log "$socket_two")" | tr -d ' ')" 1
 }
 
-function test_107_herdr_task_sync_harness_applies_source_metadata() {
+function test_scripts_107_herdr_task_sync_harness_applies_source_metadata() {
   _bats_test_init 107 'herdr-task-sync harness applies source metadata sequence and clear rules'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -2968,7 +2968,7 @@ function test_107_herdr_task_sync_harness_applies_source_metadata() {
   assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" review
 }
 
-function test_108_herdr_task_sync_harness_models_target_loss_move() {
+function test_scripts_108_herdr_task_sync_harness_models_target_loss_move() {
   _bats_test_init 108 'herdr-task-sync harness models target loss move reuse and final-read change'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3003,7 +3003,7 @@ function test_108_herdr_task_sync_harness_models_target_loss_move() {
   assert_output --partial '"label":"converged"'
 }
 
-function test_109_herdr_task_sync_latest_committed_request_survive() {
+function test_scripts_109_herdr_task_sync_latest_committed_request_survive() {
   _bats_test_init 109 'herdr-task-sync latest committed request survives stale completion and a third request'
   hts_setup
   hts_stub_controlled_engine pi
@@ -3039,7 +3039,7 @@ function test_109_herdr_task_sync_latest_committed_request_survive() {
   assert_output "1"
 }
 
-function test_110_herdr_task_sync_active_native_session_fences_reu() {
+function test_scripts_110_herdr_task_sync_active_native_session_fences_reu() {
   _bats_test_init 110 'herdr-task-sync active native session fences reused pane and session identifiers'
   hts_setup
   hts_stub_controlled_engine pi
@@ -3064,7 +3064,7 @@ function test_110_herdr_task_sync_active_native_session_fences_reu() {
   assert_output "1"
 }
 
-function test_111_herdr_task_sync_prompt_transcript_and_direct_set() {
+function test_scripts_111_herdr_task_sync_prompt_transcript_and_direct_set() {
   _bats_test_init 111 'herdr-task-sync prompt transcript and direct set share one committed-generation contract'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3099,7 +3099,7 @@ function test_111_herdr_task_sync_prompt_transcript_and_direct_set() {
   assert_equal "$(hts_record_text "$task" latest_prompt)" "transcript latest"
 }
 
-function test_112_herdr_task_sync_failed_latest_model_retains_newe() {
+function test_scripts_112_herdr_task_sync_failed_latest_model_retains_newe() {
   _bats_test_init 112 'herdr-task-sync failed latest model retains newest context and prior slug'
   hts_setup
   hts_run --agent claude --session s1 --set baseline-task < /dev/null
@@ -3127,7 +3127,7 @@ function test_112_herdr_task_sync_failed_latest_model_retains_newe() {
   assert_output --partial "request after failure"
 }
 
-function test_113_herdr_task_sync_atomic_records_never_expose_trun() {
+function test_scripts_113_herdr_task_sync_atomic_records_never_expose_trun() {
   _bats_test_init 113 'herdr-task-sync atomic records never expose truncation or mixed fields'
   hts_setup
   local task control reconcile stop="$HTS_WORK/stop-reader" bad="$HTS_WORK/bad-reader" reader i poll
@@ -3190,7 +3190,7 @@ function test_113_herdr_task_sync_atomic_records_never_expose_trun() {
   assert_file_not_exists "$bad"
 }
 
-function test_114_herdr_task_sync_one_way_legacy_import_is_atomic() {
+function test_scripts_114_herdr_task_sync_one_way_legacy_import_is_atomic() {
   _bats_test_init 114 'herdr-task-sync one-way legacy import is atomic idempotent and ignores late legacy writes'
   hts_setup
   local legacy task marker task_two marker_two malformed task_three marker_three
@@ -3227,7 +3227,7 @@ function test_114_herdr_task_sync_one_way_legacy_import_is_atomic() {
   assert_file_not_exists "$task_three"
 }
 
-function test_115_herdr_task_sync_restart_recovers_accepted_and_in() {
+function test_scripts_115_herdr_task_sync_restart_recovers_accepted_and_in() {
   _bats_test_init 115 'herdr-task-sync restart recovers accepted and interrupted worker generations'
   hts_setup
   hts_stub_controlled_engine pi
@@ -3259,7 +3259,7 @@ function test_115_herdr_task_sync_restart_recovers_accepted_and_in() {
   assert_equal "$(hts_record_text "$task" slug)" recovered-result
 }
 
-function test_116_herdr_task_sync_clock_rollback_and_restart_canno() {
+function test_scripts_116_herdr_task_sync_clock_rollback_and_restart_canno() {
   _bats_test_init 116 'herdr-task-sync clock rollback and restart cannot lower generation or task high-water'
   hts_setup
   local control task first_generation first_high_water first_task_metadata first_presentation
@@ -3297,7 +3297,7 @@ function test_116_herdr_task_sync_clock_rollback_and_restart_canno() {
   [[ "$second_high_water" -ge "$second_generation" ]]
 }
 
-function test_117_herdr_task_sync_exact_socket_namespaces_survive() {
+function test_scripts_117_herdr_task_sync_exact_socket_namespaces_survive() {
   _bats_test_init 117 'herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions'
   hts_setup
   local socket_one="$HTS_WORK/a-b.sock" socket_two="$HTS_WORK/a_b.sock"
@@ -3331,7 +3331,7 @@ function test_117_herdr_task_sync_exact_socket_namespaces_survive() {
   grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
 }
 
-function test_118_herdr_task_sync_fail_open_guard_ignores_terminal() {
+function test_scripts_118_herdr_task_sync_fail_open_guard_ignores_terminal() {
   _bats_test_init 118 'herdr-task-sync fail-open guard ignores terminal input and preserves redirected input'
   hts_setup
   local helper="$BATS_TEST_DIRNAME/helpers/herdr_task_sync.bash"
@@ -3382,7 +3382,7 @@ PY
   assert_output 'redirected payload'
 }
 
-function test_119_herdr_task_sync_fail_open_deadline_rejects_late() {
+function test_scripts_119_herdr_task_sync_fail_open_deadline_rejects_late() {
   _bats_test_init 119 'herdr-task-sync fail-open deadline rejects late success before the hang guard'
   hts_setup
   local HTS_FAIL_OPEN_BEHAVIOR_SECONDS=1
@@ -3395,7 +3395,7 @@ function test_119_herdr_task_sync_fail_open_deadline_rejects_late() {
   assert_output --partial "exceeded fail-open behavioral deadline"
 }
 
-function test_120_herdr_task_sync_fail_open_guard_uses_the_greater() {
+function test_scripts_120_herdr_task_sync_fail_open_guard_uses_the_greater() {
   _bats_test_init 120 'herdr-task-sync fail-open guard uses the greater baseline'
   run hts_fail_open_behavior_baseline_ms 200 8 1000
   assert_success
@@ -3406,7 +3406,7 @@ function test_120_herdr_task_sync_fail_open_guard_uses_the_greater() {
   assert_output 1000
 }
 
-function test_121_herdr_task_sync_fails_open_for_missing_tools_con() {
+function test_scripts_121_herdr_task_sync_fails_open_for_missing_tools_con() {
   _bats_test_init 121 'herdr-task-sync fails open for missing tools contention write failure and malformed input'
   hts_setup
   local pane_dir namespace control task_file
@@ -3478,7 +3478,7 @@ function test_121_herdr_task_sync_fails_open_for_missing_tools_con() {
   assert_file_not_exists "$HTS_WORK/pi-stdin.txt"
 }
 
-function test_122_herdr_task_sync_orders_adapter_calls_by_inbox_co() {
+function test_scripts_122_herdr_task_sync_orders_adapter_calls_by_inbox_co() {
   _bats_test_init 122 'herdr-task-sync orders adapter calls by inbox commit rather than invocation start'
   hts_setup
   local fifo="$HTS_WORK/delayed-input" release="$HTS_WORK/delayed-input-release"
@@ -3508,7 +3508,7 @@ function test_122_herdr_task_sync_orders_adapter_calls_by_inbox_co() {
   [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]]
 }
 
-function test_123_herdr_task_sync_adapters_return_when_a_direct_en() {
+function test_scripts_123_herdr_task_sync_adapters_return_when_a_direct_en() {
   _bats_test_init 123 'herdr-task-sync adapters return when a direct engine hangs'
   command -v bun >/dev/null || skip "bun not available"
   local pi_adapter="$SOURCE_ROOT/dot_pi/agent/extensions/herdr-task-sync.ts"
@@ -3602,7 +3602,7 @@ PY
   assert_file_exists "$home/opencode.terminated"
 }
 
-function test_124_herdr_task_sync_opencode_forgets_a_deleted_child() {
+function test_scripts_124_herdr_task_sync_opencode_forgets_a_deleted_child() {
   _bats_test_init 124 'herdr-task-sync opencode forgets a deleted child session'
   command -v bun >/dev/null || skip "bun not available"
   local adapter="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-task-sync.ts"
@@ -3632,7 +3632,7 @@ SH
   assert_output "--agent opencode --session child-1"
 }
 
-function test_125_herdr_task_sync_presentation_coordinates_concurr() {
+function test_scripts_125_herdr_task_sync_presentation_coordinates_concurr() {
   _bats_test_init 125 'herdr-task-sync presentation coordinates concurrent panes in one shared tab'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3654,7 +3654,7 @@ function test_125_herdr_task_sync_presentation_coordinates_concurr() {
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.task' "$state")" second-task
 }
 
-function test_126_herdr_task_sync_presentation_accepts_pi_jsonl_pa() {
+function test_scripts_126_herdr_task_sync_presentation_accepts_pi_jsonl_pa() {
   _bats_test_init 126 'herdr-task-sync presentation accepts pi jsonl path sessions that end with the active session id'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3673,7 +3673,7 @@ function test_126_herdr_task_sync_presentation_accepts_pi_jsonl_pa() {
   assert_equal "$(jq -r '.panes[0].label' "$state")" pi:session-path-task
 }
 
-function test_127_herdr_task_sync_presentation_labels_a_detected_a() {
+function test_scripts_127_herdr_task_sync_presentation_labels_a_detected_a() {
   _bats_test_init 127 'herdr-task-sync presentation labels a detected agent without task state'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3689,7 +3689,7 @@ function test_127_herdr_task_sync_presentation_labels_a_detected_a() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" cc
 }
 
-function test_128_herdr_task_sync_presentation_publishes_only_the() {
+function test_scripts_128_herdr_task_sync_presentation_publishes_only_the() {
   _bats_test_init 128 'herdr-task-sync presentation publishes only the newest accepted generation'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3718,7 +3718,7 @@ function test_128_herdr_task_sync_presentation_publishes_only_the() {
   assert_output "1"
 }
 
-function test_129_herdr_task_sync_presentation_coalesces_event_bur() {
+function test_scripts_129_herdr_task_sync_presentation_coalesces_event_bur() {
   _bats_test_init 129 'herdr-task-sync presentation coalesces event bursts into an active pass and rerun'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3742,7 +3742,7 @@ function test_129_herdr_task_sync_presentation_coalesces_event_bur() {
   assert_output "1"
 }
 
-function test_130_herdr_task_sync_presentation_retries_a_newer_inv() {
+function test_scripts_130_herdr_task_sync_presentation_retries_a_newer_inv() {
   _bats_test_init 130 'herdr-task-sync presentation retries a newer invalidation after transient pass failure'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3762,7 +3762,7 @@ function test_130_herdr_task_sync_presentation_retries_a_newer_inv() {
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
 }
 
-function test_131_herdr_task_sync_presentation_release_recheck_doe() {
+function test_scripts_131_herdr_task_sync_presentation_release_recheck_doe() {
   _bats_test_init 131 'herdr-task-sync presentation release recheck does not lose a pending invalidation'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3784,7 +3784,7 @@ function test_131_herdr_task_sync_presentation_release_recheck_doe() {
   assert_output "2"
 }
 
-function test_132_herdr_task_sync_event_presentation_leaves_the_ho() {
+function test_scripts_132_herdr_task_sync_event_presentation_leaves_the_ho() {
   _bats_test_init 132 'herdr-task-sync event presentation leaves the hook process group'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3806,7 +3806,7 @@ function test_132_herdr_task_sync_event_presentation_leaves_the_ho() {
   [ "$worker_pgid" != "$hook_pgid" ]
 }
 
-function test_133_herdr_task_sync_presentation_automatically_corre() {
+function test_scripts_133_herdr_task_sync_presentation_automatically_corre() {
   _bats_test_init 133 'herdr-task-sync presentation automatically corrects divergent pane and tab labels'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3832,7 +3832,7 @@ function test_133_herdr_task_sync_presentation_automatically_corre() {
   assert_failure
 }
 
-function test_134_herdr_task_sync_presentation_drops_a_malformed_w() {
+function test_scripts_134_herdr_task_sync_presentation_drops_a_malformed_w() {
   _bats_test_init 134 'herdr-task-sync presentation drops a malformed-width record and keeps labeling the rest'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3853,7 +3853,7 @@ function test_134_herdr_task_sync_presentation_drops_a_malformed_w() {
   assert_file_contains "$HTS_LOG" '^tab rename tab-1 btop$'
 }
 
-function test_135_herdr_task_sync_presentation_skips_pre_read_dele() {
+function test_scripts_135_herdr_task_sync_presentation_skips_pre_read_dele() {
   _bats_test_init 135 'herdr-task-sync presentation skips pre-read deletion and repairs the post-read race next pass'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3882,7 +3882,7 @@ function test_135_herdr_task_sync_presentation_skips_pre_read_dele() {
   assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
 }
 
-function test_136_herdr_task_sync_presentation_skips_reused_pane_a() {
+function test_scripts_136_herdr_task_sync_presentation_skips_reused_pane_a() {
   _bats_test_init 136 'herdr-task-sync presentation skips reused pane and tab identities at the final read'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3912,7 +3912,7 @@ function test_136_herdr_task_sync_presentation_skips_reused_pane_a() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" btop
 }
 
-function test_137_herdr_task_sync_age_cleanup_removes_only_inactiv() {
+function test_scripts_137_herdr_task_sync_age_cleanup_removes_only_inactiv() {
   _bats_test_init 137 'herdr-task-sync age cleanup removes only inactive task payloads'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3941,7 +3941,7 @@ function test_137_herdr_task_sync_age_cleanup_removes_only_inactiv() {
   assert_file_exists "$active_high_water"
 }
 
-function test_138_herdr_task_sync_presentation_preserves_state_on() {
+function test_scripts_138_herdr_task_sync_presentation_preserves_state_on() {
   _bats_test_init 138 'herdr-task-sync presentation preserves state on incomplete and transient snapshots'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -3966,7 +3966,7 @@ function test_138_herdr_task_sync_presentation_preserves_state_on() {
   assert_failure
 }
 
-function test_139_herdr_task_sync_naming_worker_never_age_cleans_t() {
+function test_scripts_139_herdr_task_sync_naming_worker_never_age_cleans_t() {
   _bats_test_init 139 'herdr-task-sync naming worker never age-cleans tasks without safe snapshot ownership'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4008,7 +4008,7 @@ function test_139_herdr_task_sync_naming_worker_never_age_cleans_t() {
   assert_equal "$(hts_record_text "$active_task" slug)" active-two
 }
 
-function test_140_herdr_task_sync_presentation_isolates_exact_coll() {
+function test_scripts_140_herdr_task_sync_presentation_isolates_exact_coll() {
   _bats_test_init 140 'herdr-task-sync presentation isolates exact colliding socket identities'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4028,7 +4028,7 @@ function test_140_herdr_task_sync_presentation_isolates_exact_coll() {
   [[ "$(hts_namespace "$socket_one")" != "$(hts_namespace "$socket_two")" ]]
 }
 
-function test_141_herdr_task_sync_presentation_recovers_stale_and() {
+function test_scripts_141_herdr_task_sync_presentation_recovers_stale_and() {
   _bats_test_init 141 'herdr-task-sync presentation recovers stale and half-created owner claims'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4098,7 +4098,7 @@ EOF
   assert_equal "$(hts_record_text "$claim/owner" owner_id)" live-owner
 }
 
-function test_142_herdr_task_sync_presentation_resumes_safely_acro() {
+function test_scripts_142_herdr_task_sync_presentation_resumes_safely_acro() {
   _bats_test_init 142 'herdr-task-sync presentation resumes safely across durable crash boundaries'
   command -v jq >/dev/null || skip "jq not available"
   local boundary
@@ -4118,7 +4118,7 @@ function test_142_herdr_task_sync_presentation_resumes_safely_acro() {
   done
 }
 
-function test_143_herdr_task_sync_presentation_self_events_converg() {
+function test_scripts_143_herdr_task_sync_presentation_self_events_converg() {
   _bats_test_init 143 'herdr-task-sync presentation self-events converge to a no-op'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4133,7 +4133,7 @@ function test_143_herdr_task_sync_presentation_self_events_converg() {
   assert_output "1"
 }
 
-function test_144_herdr_task_sync_presentation_fails_closed_withou() {
+function test_scripts_144_herdr_task_sync_presentation_fails_closed_withou() {
   _bats_test_init 144 'herdr-task-sync presentation fails closed without an exact socket'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4148,7 +4148,7 @@ function test_144_herdr_task_sync_presentation_fails_closed_withou() {
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" unchanged
 }
 
-function test_145_herdr_task_sync_presentation_restart_recomputes() {
+function test_scripts_145_herdr_task_sync_presentation_restart_recomputes() {
   _bats_test_init 145 'herdr-task-sync presentation restart recomputes durable pending intent without a label ledger'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4164,7 +4164,7 @@ function test_145_herdr_task_sync_presentation_restart_recomputes() {
   assert_failure
 }
 
-function test_146_herdr_task_sync_location_resolves_main_linked_ne() {
+function test_scripts_146_herdr_task_sync_location_resolves_main_linked_ne() {
   _bats_test_init 146 'herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4208,7 +4208,7 @@ function test_146_herdr_task_sync_location_resolves_main_linked_ne() {
   assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
 }
 
-function test_147_herdr_task_sync_dangling_administrative_gitdir_r() {
+function test_scripts_147_herdr_task_sync_dangling_administrative_gitdir_r() {
   _bats_test_init 147 'herdr-task-sync dangling administrative gitdir retains stale location'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4235,7 +4235,7 @@ function test_147_herdr_task_sync_dangling_administrative_gitdir_r() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_STALE"
 }
 
-function test_148_herdr_task_sync_location_detached_publishes_a_co() {
+function test_scripts_148_herdr_task_sync_location_detached_publishes_a_co() {
   _bats_test_init 148 'herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4276,7 +4276,7 @@ function test_148_herdr_task_sync_location_detached_publishes_a_co() {
   [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
 }
 
-function test_149_herdr_task_sync_location_real_probe_shape_pays_t() {
+function test_scripts_149_herdr_task_sync_location_real_probe_shape_pays_t() {
   _bats_test_init 149 'herdr-task-sync location real probe shape pays the second sha call only when detached'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4314,7 +4314,7 @@ function test_149_herdr_task_sync_location_real_probe_shape_pays_t() {
   assert_equal "$(grep -c -- '--short=7' "$detached_fixture/calls")" 1
 }
 
-function test_150_herdr_task_sync_location_detached_sha_failure_re() {
+function test_scripts_150_herdr_task_sync_location_detached_sha_failure_re() {
   _bats_test_init 150 'herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4351,7 +4351,7 @@ function test_150_herdr_task_sync_location_detached_sha_failure_re() {
   done
 }
 
-function test_151_herdr_task_sync_location_detached_sha_budget_fai() {
+function test_scripts_151_herdr_task_sync_location_detached_sha_budget_fai() {
   _bats_test_init 151 'herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4385,7 +4385,7 @@ function test_151_herdr_task_sync_location_detached_sha_budget_fai() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_COMMIT e4f5a6b"
 }
 
-function test_152_herdr_task_sync_location_clears_the_retired_loca() {
+function test_scripts_152_herdr_task_sync_location_clears_the_retired_loca() {
   _bats_test_init 152 'herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4413,7 +4413,7 @@ function test_152_herdr_task_sync_location_clears_the_retired_loca() {
   assert_success
 }
 
-function test_153_herdr_task_sync_location_transient_modes_retain() {
+function test_scripts_153_herdr_task_sync_location_transient_modes_retain() {
   _bats_test_init 153 'herdr-task-sync location transient modes retain identity as stale without foreground fallback'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4460,7 +4460,7 @@ function test_153_herdr_task_sync_location_transient_modes_retain() {
   assert_success
 }
 
-function test_154_herdr_task_sync_coordinator_resolves_eight_pane() {
+function test_scripts_154_herdr_task_sync_coordinator_resolves_eight_pane() {
   _bats_test_init 154 'herdr-task-sync coordinator resolves eight pane locations concurrently within one event envelope'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4555,7 +4555,7 @@ function test_154_herdr_task_sync_coordinator_resolves_eight_pane() {
   assert_file_not_exists "$blocked_fixture/completed"
 }
 
-function test_155_herdr_task_sync_no_op_location_event_preserves_t() {
+function test_scripts_155_herdr_task_sync_no_op_location_event_preserves_t() {
   _bats_test_init 155 'herdr-task-sync no-op location event preserves the state file'
   command -v jq >/dev/null || skip "jq not available"
   command -v perl >/dev/null || skip "perl not available"
@@ -4581,7 +4581,7 @@ function test_155_herdr_task_sync_no_op_location_event_preserves_t() {
   assert_equal "$after_mtime" "$before_mtime"
 }
 
-function test_156_herdr_task_sync_transient_location_preserves_liv() {
+function test_scripts_156_herdr_task_sync_transient_location_preserves_liv() {
   _bats_test_init 156 'herdr-task-sync transient location preserves live token-only identity when retained state is unavailable'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4622,7 +4622,7 @@ function test_156_herdr_task_sync_transient_location_preserves_liv() {
   assert_equal "$(cat "$location_two")" not-a-location-record
 }
 
-function test_157_herdr_task_sync_location_authoritative_worktree() {
+function test_scripts_157_herdr_task_sync_location_authoritative_worktree() {
   _bats_test_init 157 'herdr-task-sync location authoritative worktree deletion clears retained evidence'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4642,7 +4642,7 @@ function test_157_herdr_task_sync_location_authoritative_worktree() {
   assert_success
 }
 
-function test_158_herdr_task_sync_formatter_keeps_git_refs_in_meta() {
+function test_scripts_158_herdr_task_sync_formatter_keeps_git_refs_in_meta() {
   _bats_test_init 158 'herdr-task-sync formatter keeps Git refs in metadata and tab labels names-only'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4674,7 +4674,7 @@ function test_158_herdr_task_sync_formatter_keeps_git_refs_in_meta() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
-function test_159_herdr_task_sync_formatter_renders_a_main_checkou() {
+function test_scripts_159_herdr_task_sync_formatter_renders_a_main_checkou() {
   _bats_test_init 159 'herdr-task-sync formatter renders a main checkout ref in metadata only'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4693,7 +4693,7 @@ function test_159_herdr_task_sync_formatter_renders_a_main_checkou() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-function test_160_herdr_task_sync_formatter_renders_a_worktree_ref() {
+function test_scripts_160_herdr_task_sync_formatter_renders_a_worktree_ref() {
   _bats_test_init 160 'herdr-task-sync formatter renders a worktree ref in metadata only'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4713,7 +4713,7 @@ function test_160_herdr_task_sync_formatter_renders_a_worktree_ref() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-function test_161_herdr_task_sync_formatter_keeps_a_git_backed_all() {
+function test_scripts_161_herdr_task_sync_formatter_keeps_a_git_backed_all() {
   _bats_test_init 161 'herdr-task-sync formatter keeps a Git-backed all-idle tab names-only'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4732,7 +4732,7 @@ function test_161_herdr_task_sync_formatter_keeps_a_git_backed_all() {
   assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER repository"
 }
 
-function test_162_herdr_task_sync_git_only_location_changes_do_not() {
+function test_scripts_162_herdr_task_sync_git_only_location_changes_do_not() {
   _bats_test_init 162 'herdr-task-sync Git-only location changes do not rename a names-only tab'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4756,7 +4756,7 @@ function test_162_herdr_task_sync_git_only_location_changes_do_not() {
   assert_failure
 }
 
-function test_163_herdr_task_sync_formatter_keeps_the_folder_quali() {
+function test_scripts_163_herdr_task_sync_formatter_keeps_the_folder_quali() {
   _bats_test_init 163 'herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4777,7 +4777,7 @@ function test_163_herdr_task_sync_formatter_keeps_the_folder_quali() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-function test_164_herdr_task_sync_formatter_reads_the_workspace_di() {
+function test_scripts_164_herdr_task_sync_formatter_reads_the_workspace_di() {
   _bats_test_init 164 'herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4796,7 +4796,7 @@ function test_164_herdr_task_sync_formatter_reads_the_workspace_di() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 }
 
-function test_165_herdr_task_sync_formatter_gives_a_detached_head() {
+function test_scripts_165_herdr_task_sync_formatter_gives_a_detached_head() {
   _bats_test_init 165 'herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4817,7 +4817,7 @@ function test_165_herdr_task_sync_formatter_gives_a_detached_head() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-function test_166_herdr_task_sync_formatter_qualifies_a_divergent() {
+function test_scripts_166_herdr_task_sync_formatter_qualifies_a_divergent() {
   _bats_test_init 166 'herdr-task-sync formatter qualifies a divergent worktree folder in metadata only'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4839,7 +4839,7 @@ function test_166_herdr_task_sync_formatter_qualifies_a_divergent() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
-function test_167_herdr_task_sync_formatter_keeps_mixed_git_identi() {
+function test_scripts_167_herdr_task_sync_formatter_keeps_mixed_git_identi() {
   _bats_test_init 167 'herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4871,7 +4871,7 @@ function test_167_herdr_task_sync_formatter_keeps_mixed_git_identi() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
 }
 
-function test_168_herdr_task_sync_formatter_joins_only_pane_labels() {
+function test_scripts_168_herdr_task_sync_formatter_joins_only_pane_labels() {
   _bats_test_init 168 'herdr-task-sync formatter joins only pane labels when three panes span two repositories'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4892,7 +4892,7 @@ function test_168_herdr_task_sync_formatter_joins_only_pane_labels() {
     "one · two · three"
 }
 
-function test_169_herdr_task_sync_worktree_tokens_use_shortest_uni() {
+function test_scripts_169_herdr_task_sync_worktree_tokens_use_shortest_uni() {
   _bats_test_init 169 'herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4917,7 +4917,7 @@ function test_169_herdr_task_sync_worktree_tokens_use_shortest_uni() {
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
-function test_170_herdr_task_sync_worktree_tokens_digest_overlong() {
+function test_scripts_170_herdr_task_sync_worktree_tokens_digest_overlong() {
   _bats_test_init 170 'herdr-task-sync worktree tokens digest overlong roots and extend colliding digest prefixes'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4947,7 +4947,7 @@ function test_170_herdr_task_sync_worktree_tokens_digest_overlong() {
   [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]]
 }
 
-function test_171_herdr_task_sync_worktree_token_ordinal_fallback() {
+function test_scripts_171_herdr_task_sync_worktree_token_ordinal_fallback() {
   _bats_test_init 171 'herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4976,7 +4976,7 @@ function test_171_herdr_task_sync_worktree_token_ordinal_fallback() {
   assert_equal "$after" "$before"
 }
 
-function test_172_herdr_task_sync_long_branch_refs_stay_in_metadat() {
+function test_scripts_172_herdr_task_sync_long_branch_refs_stay_in_metadat() {
   _bats_test_init 172 'herdr-task-sync long branch refs stay in metadata and do not alter the tab label'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -4995,7 +4995,7 @@ function test_172_herdr_task_sync_long_branch_refs_stay_in_metadat() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref $HTS_ICON_FOLDER worktree"
 }
 
-function test_173_herdr_task_sync_long_repository_names_do_not_alt() {
+function test_scripts_173_herdr_task_sync_long_repository_names_do_not_alt() {
   _bats_test_init 173 'herdr-task-sync long repository names do not alter a multi-repo tab label'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5016,7 +5016,7 @@ function test_173_herdr_task_sync_long_repository_names_do_not_alt() {
   assert_equal "$(jq -r '.panes[] | .tokens.repo' "$state" | sort)" $'integration-platform-connectors\ninternal-developer-tooling'
 }
 
-function test_174_herdr_task_sync_location_clears_a_retired_locati() {
+function test_scripts_174_herdr_task_sync_location_clears_a_retired_locati() {
   _bats_test_init 174 'herdr-task-sync location clears a retired location_label even when every published token already matches'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5050,7 +5050,7 @@ function test_174_herdr_task_sync_location_clears_a_retired_locati() {
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
 
-function test_175_herdr_task_sync_location_and_formatter_add_only() {
+function test_scripts_175_herdr_task_sync_location_and_formatter_add_only() {
   _bats_test_init 175 'herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5085,7 +5085,7 @@ function test_175_herdr_task_sync_location_and_formatter_add_only() {
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
-function test_176_herdr_task_sync_publishes_dirty_ahead_and_behind() {
+function test_scripts_176_herdr_task_sync_publishes_dirty_ahead_and_behind() {
   _bats_test_init 176 'herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5116,7 +5116,7 @@ function test_176_herdr_task_sync_publishes_dirty_ahead_and_behind() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 }
 
-function test_177_herdr_task_sync_clean_checkout_carries_no_counts() {
+function test_scripts_177_herdr_task_sync_clean_checkout_carries_no_counts() {
   _bats_test_init 177 'herdr-task-sync clean checkout carries no counts token and republishes when only the counts change'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5147,7 +5147,7 @@ function test_177_herdr_task_sync_clean_checkout_carries_no_counts() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 }
 
-function test_178_herdr_task_sync_counts_every_changed_path_once_w() {
+function test_scripts_178_herdr_task_sync_counts_every_changed_path_once_w() {
   _bats_test_init 178 'herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5173,7 +5173,7 @@ function test_178_herdr_task_sync_counts_every_changed_path_once_w() {
   assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}4"
 }
 
-function test_179_herdr_task_sync_omits_ahead_and_behind_when_the() {
+function test_scripts_179_herdr_task_sync_omits_ahead_and_behind_when_the() {
   _bats_test_init 179 'herdr-task-sync omits ahead and behind when the branch has no upstream'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5200,7 +5200,7 @@ function test_179_herdr_task_sync_omits_ahead_and_behind_when_the() {
   assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
 }
 
-function test_180_herdr_task_sync_clears_the_counts_token_when_a_p() {
+function test_scripts_180_herdr_task_sync_clears_the_counts_token_when_a_p() {
   _bats_test_init 180 'herdr-task-sync clears the counts token when a pane leaves a Git checkout'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5227,7 +5227,7 @@ function test_180_herdr_task_sync_clears_the_counts_token_when_a_p() {
   assert_success
 }
 
-function test_181_herdr_task_sync_status_probe_over_budget_drops_t() {
+function test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t() {
   _bats_test_init 181 'herdr-task-sync status probe over budget drops the counts and leaves git_ref intact'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5264,7 +5264,7 @@ function test_181_herdr_task_sync_status_probe_over_budget_drops_t() {
   assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
 }
 
-function test_182_herdr_task_sync_agent_pane_follows_the_directory() {
+function test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory() {
   _bats_test_init 182 'herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5298,7 +5298,7 @@ function test_182_herdr_task_sync_agent_pane_follows_the_directory() {
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
 }
 
-function test_183_herdr_task_sync_keeps_the_counts_when_only_the_i() {
+function test_scripts_183_herdr_task_sync_keeps_the_counts_when_only_the_i() {
   _bats_test_init 183 'herdr-task-sync keeps the counts when only the identity probe misses its budget'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5325,7 +5325,7 @@ function test_183_herdr_task_sync_keeps_the_counts_when_only_the_i() {
   assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
 }
 
-function test_184_herdr_task_sync_counts_untracked_paths_its_way_n() {
+function test_scripts_184_herdr_task_sync_counts_untracked_paths_its_way_n() {
   _bats_test_init 184 'herdr-task-sync counts untracked paths its way, not the user git config'\''s way'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5348,7 +5348,7 @@ function test_184_herdr_task_sync_counts_untracked_paths_its_way_n() {
   assert_equal "$(grep -c -- '--untracked-files=all' "$fixture/calls")" 1
 }
 
-function test_185_herdr_task_sync_writer_and_reader_agree_on_the_r() {
+function test_scripts_185_herdr_task_sync_writer_and_reader_agree_on_the_r() {
   _bats_test_init 185 'herdr-task-sync writer and reader agree on the record name for an awkward session id'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5381,7 +5381,7 @@ function test_185_herdr_task_sync_writer_and_reader_agree_on_the_r() {
   assert [ ! -e "$HTS_STATE/escape me" ]
 }
 
-function test_186_herdr_task_sync_falls_back_to_the_pane_cwd_when() {
+function test_scripts_186_herdr_task_sync_falls_back_to_the_pane_cwd_when() {
   _bats_test_init 186 'herdr-task-sync falls back to the pane cwd when the reported directory is gone'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5403,7 +5403,7 @@ function test_186_herdr_task_sync_falls_back_to_the_pane_cwd_when() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_BRANCH main"
 }
 
-function test_187_herdr_task_sync_ignores_an_agent_directory_repor() {
+function test_scripts_187_herdr_task_sync_ignores_an_agent_directory_repor() {
   _bats_test_init 187 'herdr-task-sync ignores an agent directory report that is not an absolute path'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5425,7 +5425,7 @@ function test_187_herdr_task_sync_ignores_an_agent_directory_repor() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_BRANCH main"
 }
 
-function test_188_herdr_task_sync_reads_the_newest_agent_directory() {
+function test_scripts_188_herdr_task_sync_reads_the_newest_agent_directory() {
   _bats_test_init 188 'herdr-task-sync reads the newest agent directory report when a session moves twice before a sweep'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5451,7 +5451,7 @@ function test_188_herdr_task_sync_reads_the_newest_agent_directory() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER wt-two"
 }
 
-function test_189_herdr_task_sync_plugin_exposes_only_the_approved() {
+function test_scripts_189_herdr_task_sync_plugin_exposes_only_the_approved() {
   _bats_test_init 189 'herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations'
   local manifest="$HTS_PLUGIN_DIR/herdr-plugin.toml"
   run awk '
@@ -5478,7 +5478,7 @@ function test_189_herdr_task_sync_plugin_exposes_only_the_approved() {
   assert_failure
 }
 
-function test_190_herdr_task_sync_plugin_wrappers_invoke_one_engin() {
+function test_scripts_190_herdr_task_sync_plugin_wrappers_invoke_one_engin() {
   _bats_test_init 190 'herdr-task-sync plugin wrappers invoke one engine mode and isolate failures'
   local home="$BATS_TEST_TMPDIR/home" engine_log="$BATS_TEST_TMPDIR/plugin-engine.log"
   mkdir -p "$home/.local/bin"
@@ -5511,7 +5511,7 @@ SH
   assert_output $'startup|--ensure-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
 }
 
-function test_191_herdr_task_sync_event_requests_reconciliation_an() {
+function test_scripts_191_herdr_task_sync_event_requests_reconciliation_an() {
   _bats_test_init 191 'herdr-task-sync event requests reconciliation and ensures the daemon fail-open'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5545,7 +5545,7 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
 
 }
 
-function test_192_herdr_task_sync_sweep_repairs_an_external_pane_r() {
+function test_scripts_192_herdr_task_sync_sweep_repairs_an_external_pane_r() {
   _bats_test_init 192 'herdr-task-sync sweep repairs an external pane rename without pane.updated'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5561,7 +5561,7 @@ function test_192_herdr_task_sync_sweep_repairs_an_external_pane_r() {
   assert_file_contains "$HTS_LOG" '^pane rename pane-1 cc:automatic-task$'
 }
 
-function test_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch() {
+function test_scripts_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch() {
   _bats_test_init 193 'herdr-task-sync sweep repairs process and CWD changes through the presentation coordinator'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5592,7 +5592,7 @@ function test_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch() {
   assert_file_contains "$HTS_LOG" '^pane rename pane-1 cargo test$'
 }
 
-function test_194_herdr_task_sync_stays_silent_outside_herdr() {
+function test_scripts_194_herdr_task_sync_stays_silent_outside_herdr() {
   _bats_test_init 194 'herdr-task-sync stays silent outside herdr'
   hts_setup
   hts_stub_engine pi never-used 0 0
@@ -5604,7 +5604,7 @@ function test_194_herdr_task_sync_stays_silent_outside_herdr() {
   assert_equal "$(cat "$HTS_LOG")" ""
 }
 
-function test_195_herdr_task_sync_publishes_the_engine_slug_and_st() {
+function test_scripts_195_herdr_task_sync_publishes_the_engine_slug_and_st() {
   _bats_test_init 195 'herdr-task-sync publishes the engine slug and stores it (R4, R7)'
   hts_setup
   hts_stub_engine pi cache-review 0 0
@@ -5620,7 +5620,7 @@ function test_195_herdr_task_sync_publishes_the_engine_slug_and_st() {
 
 # AE1: a continuation prompt must not rename the session. The model decides
 # stability (KTD6), so the stub stands in for a model that repeats the name.
-function test_196_herdr_task_sync_keeps_the_slug_on_a_continuation() {
+function test_scripts_196_herdr_task_sync_keeps_the_slug_on_a_continuation() {
   _bats_test_init 196 'herdr-task-sync keeps the slug on a continuation prompt (AE1)'
   hts_setup
   hts_stub_engine pi cache-review 0 0
@@ -5645,7 +5645,7 @@ function test_196_herdr_task_sync_keeps_the_slug_on_a_continuation() {
 }
 
 # AE3: with no usable naming engine the pane keeps whatever it had.
-function test_197_herdr_task_sync_publishes_nothing_when_no_engine() {
+function test_scripts_197_herdr_task_sync_publishes_nothing_when_no_engine() {
   _bats_test_init 197 'herdr-task-sync publishes nothing when no engine is usable (AE3, R5)'
   hts_setup
   hts_stub_engine pi cache-review 0 0
@@ -5669,7 +5669,7 @@ function test_197_herdr_task_sync_publishes_nothing_when_no_engine() {
   assert_equal "$(hts_record_text "$state" latest_prompt)" "now fix the flaky login test"
 }
 
-function test_198_herdr_task_sync_resets_the_stored_context_on_a_n() {
+function test_scripts_198_herdr_task_sync_resets_the_stored_context_on_a_n() {
   _bats_test_init 198 'herdr-task-sync resets the stored context on a new session id'
   hts_setup
   hts_stub_engine pi cache-review 0 0
@@ -5699,7 +5699,7 @@ function test_198_herdr_task_sync_resets_the_stored_context_on_a_n() {
 # against a wall-clock bound while the stub slept a fixed 4 s, which only
 # discriminates while the bound stays under 4 s; once the bound moved to the
 # suite's load-tolerant ceiling a synchronous wait passed it comfortably.
-function test_199_herdr_task_sync_returns_before_the_naming_engine() {
+function test_scripts_199_herdr_task_sync_returns_before_the_naming_engine() {
   _bats_test_init 199 'herdr-task-sync returns before the naming engine finishes (R8)'
   hts_setup
   hts_stub_controlled_engine pi
@@ -5719,7 +5719,7 @@ function test_199_herdr_task_sync_returns_before_the_naming_engine() {
 # returns — no shell metacharacters, no ANSI escapes, no newlines. The stub's
 # output normalizes to five hyphen-separated words, the engine's cap for a
 # published slug; wordier output is treated as a failed naming call instead.
-function test_200_herdr_task_sync_normalizes_a_hostile_engine_slug() {
+function test_scripts_200_herdr_task_sync_normalizes_a_hostile_engine_slug() {
   _bats_test_init 200 'herdr-task-sync normalizes a hostile engine slug (KTD8)'
   hts_setup
   # Unique per test so concurrent tests cannot collide, and deliberately a
@@ -5744,7 +5744,7 @@ SH
 }
 
 # KTD7: a naming call that fires the agent's own hooks must not recurse.
-function test_201_herdr_task_sync_exits_under_the_recursion_guard() {
+function test_scripts_201_herdr_task_sync_exits_under_the_recursion_guard() {
   _bats_test_init 201 'herdr-task-sync exits under the recursion guard (KTD7)'
   hts_setup
   hts_stub_engine pi never-used 0 0
@@ -5757,7 +5757,7 @@ function test_201_herdr_task_sync_exits_under_the_recursion_guard() {
 }
 
 # KTD1 chain order: pi first, claude second, then nothing.
-function test_202_herdr_task_sync_falls_back_to_claude_when_pi_fai() {
+function test_scripts_202_herdr_task_sync_falls_back_to_claude_when_pi_fai() {
   _bats_test_init 202 'herdr-task-sync falls back to claude when pi fails (KTD1)'
   hts_setup
   hts_stub_engine pi '' 1 0
@@ -5767,7 +5767,7 @@ function test_202_herdr_task_sync_falls_back_to_claude_when_pi_fai() {
   assert_equal "$(hts_token)" "flaky-login-test"
 }
 
-function test_203_herdr_task_sync_publishes_nothing_when_both_engi() {
+function test_scripts_203_herdr_task_sync_publishes_nothing_when_both_engi() {
   _bats_test_init 203 'herdr-task-sync publishes nothing when both engines time out (KTD1)'
   hts_setup
   hts_stub_engine pi slow-one 0 5
@@ -5777,7 +5777,7 @@ function test_203_herdr_task_sync_publishes_nothing_when_both_engi() {
   assert_equal "$(cat "$HTS_LOG")" ""
 }
 
-function test_204_herdr_task_sync_creates_its_state_directory_with() {
+function test_scripts_204_herdr_task_sync_creates_its_state_directory_with() {
   _bats_test_init 204 'herdr-task-sync creates its state directory with mode 700 (KTD3)'
   hts_setup
   rmdir "$HTS_STATE"
@@ -5790,7 +5790,7 @@ function test_204_herdr_task_sync_creates_its_state_directory_with() {
 
 # AE5: a resumed Claude Code session is named from its transcript, before any
 # prompt arrives.
-function test_205_herdr_task_sync_names_a_session_from_its_transcr() {
+function test_scripts_205_herdr_task_sync_names_a_session_from_its_transcr() {
   _bats_test_init 205 'herdr-task-sync names a session from its transcript (AE5)'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5810,7 +5810,7 @@ function test_205_herdr_task_sync_names_a_session_from_its_transcr() {
   refute_output --partial "<command-name>"
 }
 
-function test_206_herdr_task_sync_publishes_nothing_for_an_empty_p() {
+function test_scripts_206_herdr_task_sync_publishes_nothing_for_an_empty_p() {
   _bats_test_init 206 'herdr-task-sync publishes nothing for an empty prompt without a transcript'
   hts_setup
   hts_stub_engine pi never-used 0 0
@@ -5821,7 +5821,7 @@ function test_206_herdr_task_sync_publishes_nothing_for_an_empty_p() {
 }
 
 # AE6: the pi session-name seed path publishes without a model call.
-function test_207_herdr_task_sync_set_publishes_a_normalized_name() {
+function test_scripts_207_herdr_task_sync_set_publishes_a_normalized_name() {
   _bats_test_init 207 'herdr-task-sync --set publishes a normalized name with no engine call (AE6)'
   hts_setup
   hts_stub_engine pi never-used 0 0
@@ -5835,7 +5835,7 @@ function test_207_herdr_task_sync_set_publishes_a_normalized_name() {
 
 # The pane label opens with a short ASCII prefix for the agent, so it renders
 # the same on any terminal, patched font or not.
-function test_208_herdr_task_sync_names_the_pane_with_the_agent_pr() {
+function test_scripts_208_herdr_task_sync_names_the_pane_with_the_agent_pr() {
   _bats_test_init 208 'herdr-task-sync names the pane with the agent prefix'
   hts_setup
   hts_stub_engine pi cache-review 0 0
@@ -5845,7 +5845,7 @@ function test_208_herdr_task_sync_names_the_pane_with_the_agent_pr() {
 }
 
 # An agent outside the known set still gets a readable label: its first letter.
-function test_209_herdr_task_sync_falls_back_to_a_letter_prefix_fo() {
+function test_scripts_209_herdr_task_sync_falls_back_to_a_letter_prefix_fo() {
   _bats_test_init 209 'herdr-task-sync falls back to a letter prefix for an unknown agent'
   hts_setup
   hts_stub_engine pi cache-review 0 0
@@ -5856,7 +5856,7 @@ function test_209_herdr_task_sync_falls_back_to_a_letter_prefix_fo() {
 
 # Herdr keeps one label per tab and composes nothing itself. The engine joins
 # normalized labels for the tab's own agent panes; another tab's panes stay out.
-function test_210_herdr_task_sync_rebuilds_the_tab_label_from_the() {
+function test_scripts_210_herdr_task_sync_rebuilds_the_tab_label_from_the() {
   _bats_test_init 210 'herdr-task-sync rebuilds the tab label from the pane labels'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5875,7 +5875,7 @@ function test_210_herdr_task_sync_rebuilds_the_tab_label_from_the() {
 # A pane with no agent is named after its command. The name belongs to the
 # leader of the foreground process group (pid 200 here), not to the `node`
 # child that `bun run dev` spawns and that the payload lists first.
-function test_211_herdr_task_sync_names_a_command_pane_after_the_p() {
+function test_scripts_211_herdr_task_sync_names_a_command_pane_after_the_p() {
   _bats_test_init 211 'herdr-task-sync names a command pane after the process group leader'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5896,7 +5896,7 @@ function test_211_herdr_task_sync_names_a_command_pane_after_the_p() {
 
 # A pane whose foreground process group is its own shell runs nothing. It keeps
 # its slot in the tab label under a placeholder instead of disappearing.
-function test_212_herdr_task_sync_names_an_idle_pane_with_the_plac() {
+function test_scripts_212_herdr_task_sync_names_an_idle_pane_with_the_plac() {
   _bats_test_init 212 'herdr-task-sync names an idle pane with the placeholder'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5916,7 +5916,7 @@ function test_212_herdr_task_sync_names_an_idle_pane_with_the_plac() {
 
 # The session coordinator knows tab position, so task invalidation and sweeps
 # use the same numbered placeholder for an all-idle tab.
-function test_213_herdr_task_sync_presentation_numbers_an_all_idle() {
+function test_scripts_213_herdr_task_sync_presentation_numbers_an_all_idle() {
   _bats_test_init 213 'herdr-task-sync presentation numbers an all-idle tab'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5933,7 +5933,7 @@ function test_213_herdr_task_sync_presentation_numbers_an_all_idle() {
 
 # One pane must not eat the whole tab label, so a long command name is cut to
 # 24 characters with a trailing ellipsis. Flags and paths drop out entirely.
-function test_214_herdr_task_sync_truncates_a_long_command_name() {
+function test_scripts_214_herdr_task_sync_truncates_a_long_command_name() {
   _bats_test_init 214 'herdr-task-sync truncates a long command name'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5953,7 +5953,7 @@ function test_214_herdr_task_sync_truncates_a_long_command_name() {
 # A naming call refreshes only its own tab, so a command that ends and an agent
 # that quits leave a stale label behind. The sweep is the observer for both: it
 # walks every tab herdr knows, not just the one that triggered it.
-function test_215_herdr_task_sync_sweep_relabels_every_tab() {
+function test_scripts_215_herdr_task_sync_sweep_relabels_every_tab() {
   _bats_test_init 215 'herdr-task-sync --sweep relabels every tab'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5976,7 +5976,7 @@ function test_215_herdr_task_sync_sweep_relabels_every_tab() {
 
 # The daemon sweeps every few seconds. Renaming a tab to the label it already
 # carries would churn the tab row and the socket for nothing.
-function test_216_herdr_task_sync_sweep_leaves_an_unchanged_tab_la() {
+function test_scripts_216_herdr_task_sync_sweep_leaves_an_unchanged_tab_la() {
   _bats_test_init 216 'herdr-task-sync --sweep leaves an unchanged tab label alone'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -5996,7 +5996,7 @@ function test_216_herdr_task_sync_sweep_leaves_an_unchanged_tab_la() {
 # An all-idle tab is numbered instead of skipped, or its last composed label
 # would outlive the pane that produced it. The number counts tabs inside one
 # workspace, because a tab row shows one workspace at a time.
-function test_217_herdr_task_sync_sweep_numbers_all_idle_tabs_per() {
+function test_scripts_217_herdr_task_sync_sweep_numbers_all_idle_tabs_per() {
   _bats_test_init 217 'herdr-task-sync --sweep numbers all-idle tabs per workspace'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6027,7 +6027,7 @@ function test_217_herdr_task_sync_sweep_numbers_all_idle_tabs_per() {
 
 # herdr fires the plugin hook on every agent state change, so the guard has to
 # be cheap and exact: one daemon per machine, however often it is called.
-function test_218_herdr_task_sync_ensure_daemon_keeps_a_single_dae() {
+function test_scripts_218_herdr_task_sync_ensure_daemon_keeps_a_single_dae() {
   _bats_test_init 218 'herdr-task-sync --ensure-daemon keeps a single daemon'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6043,7 +6043,7 @@ function test_218_herdr_task_sync_ensure_daemon_keeps_a_single_dae() {
 
 # A daemon killed with its herdr session leaves the lock behind. The next hook
 # must clear it and start a new daemon, or labels stay frozen until a restart.
-function test_219_herdr_task_sync_ensure_daemon_replaces_a_dead_da() {
+function test_scripts_219_herdr_task_sync_ensure_daemon_replaces_a_dead_da() {
   _bats_test_init 219 'herdr-task-sync --ensure-daemon replaces a dead daemon'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6062,7 +6062,7 @@ function test_219_herdr_task_sync_ensure_daemon_replaces_a_dead_da() {
   kill "$pid" 2>/dev/null || true
 }
 
-function test_220_herdr_task_sync_restart_daemon_replaces_a_live_d() {
+function test_scripts_220_herdr_task_sync_restart_daemon_replaces_a_live_d() {
   _bats_test_init 220 'herdr-task-sync --restart-daemon replaces a live daemon'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6088,7 +6088,7 @@ function test_220_herdr_task_sync_restart_daemon_replaces_a_live_d() {
   kill "$new_pid" 2>/dev/null || true
 }
 
-function test_221_herdr_task_sync_restart_daemon_refuses_an_unrela() {
+function test_scripts_221_herdr_task_sync_restart_daemon_refuses_an_unrela() {
   _bats_test_init 221 'herdr-task-sync --restart-daemon refuses an unrelated lock owner'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6105,7 +6105,7 @@ function test_221_herdr_task_sync_restart_daemon_refuses_an_unrela() {
   kill "$live" 2>/dev/null || true
 }
 
-function test_222_herdr_task_sync_sweep_daemon_exits_after_three_u() {
+function test_scripts_222_herdr_task_sync_sweep_daemon_exits_after_three_u() {
   _bats_test_init 222 'herdr-task-sync sweep daemon exits after three unreachable snapshots'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6153,7 +6153,7 @@ hts_hook_run() {
 # Claude Code injects a UserPromptSubmit hook's stdout into the conversation,
 # so the hook must stay silent on every path. This one drives the real engine
 # with HERDR_ENV unset: the guard lives there, not in the hook.
-function test_223_herdr_task_sync_hook_stays_silent_and_publishes() {
+function test_scripts_223_herdr_task_sync_hook_stays_silent_and_publishes() {
   _bats_test_init 223 'herdr-task-sync hook stays silent and publishes nothing outside herdr'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
@@ -6172,7 +6172,7 @@ EOF
   assert_equal "$(cat "$HTS_LOG")" ""
 }
 
-function test_224_herdr_task_sync_hook_writes_nothing_to_stdout_wh() {
+function test_scripts_224_herdr_task_sync_hook_writes_nothing_to_stdout_wh() {
   _bats_test_init 224 'herdr-task-sync hook writes nothing to stdout when the engine runs'
   command -v jq >/dev/null || skip "jq not available"
   hts_hook_setup
@@ -6183,7 +6183,7 @@ EOF
   assert_output ""
 }
 
-function test_225_herdr_task_sync_hook_forwards_the_prompt_session() {
+function test_scripts_225_herdr_task_sync_hook_forwards_the_prompt_session() {
   _bats_test_init 225 'herdr-task-sync hook forwards the prompt, session, and transcript'
   command -v jq >/dev/null || skip "jq not available"
   hts_hook_setup
@@ -6197,7 +6197,7 @@ EOF
 
 # KTD9: session start and pre-compact name the session from the transcript,
 # with no prompt on stdin.
-function test_226_herdr_task_sync_hook_calls_transcript_mode_on_se() {
+function test_scripts_226_herdr_task_sync_hook_calls_transcript_mode_on_se() {
   _bats_test_init 226 'herdr-task-sync hook calls transcript mode on session start and compact'
   command -v jq >/dev/null || skip "jq not available"
   hts_hook_setup
@@ -6215,7 +6215,7 @@ EOF
 
 # agent_id is present only when a hook fires inside a subagent call, so the
 # pane's task name never follows subagent traffic (R3).
-function test_227_herdr_task_sync_hook_drops_subagent_traffic_r3() {
+function test_scripts_227_herdr_task_sync_hook_drops_subagent_traffic_r3() {
   _bats_test_init 227 'herdr-task-sync hook drops subagent traffic (R3)'
   command -v jq >/dev/null || skip "jq not available"
   hts_hook_setup
@@ -6226,7 +6226,7 @@ EOF
   assert_file_not_exists "$HTS_WORK/engine.log"
 }
 
-function test_228_herdr_task_sync_hook_survives_malformed_stdin() {
+function test_scripts_228_herdr_task_sync_hook_survives_malformed_stdin() {
   _bats_test_init 228 'herdr-task-sync hook survives malformed stdin'
   hts_hook_setup
   run hts_hook_run prompt <<< 'not json at all'
@@ -6234,7 +6234,7 @@ function test_228_herdr_task_sync_hook_survives_malformed_stdin() {
   assert_output ""
 }
 
-function test_229_se_pipeline_setup_cmd_lands_in_the_workflow_inpu() {
+function test_scripts_229_se_pipeline_setup_cmd_lands_in_the_workflow_inpu() {
   _bats_test_init 229 'se pipeline --setup-cmd lands in the workflow input JSON'
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local plan
@@ -6245,7 +6245,7 @@ function test_229_se_pipeline_setup_cmd_lands_in_the_workflow_inpu() {
   assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
 }
 
-function test_230_se_flow_dry_run_lands_spec_path_budget_and_setup() {
+function test_scripts_230_se_flow_dry_run_lands_spec_path_budget_and_setup() {
   _bats_test_init 230 'se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON'
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
@@ -6260,7 +6260,7 @@ function test_230_se_flow_dry_run_lands_spec_path_budget_and_setup() {
   assert_output --partial 'se-flow-spec.json'
 }
 
-function test_231_se_flow_validate_cmd_lands_the_operator_s_comman() {
+function test_scripts_231_se_flow_validate_cmd_lands_the_operator_s_comman() {
   _bats_test_init 231 'se flow --validate-cmd lands the operator'\''s command in the workflow input JSON'
   # The run-validate block and the simplify subflow read the command from the
   # run, never from the spec. Without this flag the workflow default is empty
@@ -6274,7 +6274,7 @@ function test_231_se_flow_validate_cmd_lands_the_operator_s_comman() {
   assert_output --partial '"validateCmd":"bun test"'
 }
 
-function test_232_se_flow_without_validate_cmd_sends_an_empty_comm() {
+function test_scripts_232_se_flow_without_validate_cmd_sends_an_empty_comm() {
   _bats_test_init 232 'se flow without --validate-cmd sends an empty command, not a missing key'
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
@@ -6285,7 +6285,7 @@ function test_232_se_flow_without_validate_cmd_sends_an_empty_comm() {
   assert_output --partial '"validateCmd":""'
 }
 
-function test_233_se_flow_dry_run_prints_the_composed_flow_with_a() {
+function test_scripts_233_se_flow_dry_run_prints_the_composed_flow_with_a() {
   _bats_test_init 233 'se flow --dry-run prints the composed flow with a cost estimate (R10)'
   # The operator sees what a launch will run and what it may cost before it
   # starts. A bare command line does not carry that.
@@ -6305,7 +6305,7 @@ JSON
   assert_output --partial 'scan'
 }
 
-function test_234_se_flow_refuses_a_spec_the_validator_rejects_bef() {
+function test_scripts_234_se_flow_refuses_a_spec_the_validator_rejects_bef() {
   _bats_test_init 234 'se flow refuses a spec the validator rejects, before launching'
   # A publish with no secret-scan ancestor must stop at the CLI, not at the
   # interpreter's gate-0 after a run has already been created.
@@ -6322,7 +6322,7 @@ JSON
   assert_output --partial 'scan-before-external'
 }
 
-function test_235_se_flow_rejects_a_non_numeric_budget() {
+function test_scripts_235_se_flow_rejects_a_non_numeric_budget() {
   _bats_test_init 235 'se flow rejects a non-numeric budget'
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   local spec
@@ -6356,7 +6356,7 @@ se_fake_runtime() {
   printf '%s' "$dir"
 }
 
-function test_236_se_show_prints_the_pending_approval_s_title_and() {
+function test_scripts_236_se_show_prints_the_pending_approval_s_title_and() {
   _bats_test_init 236 'se show prints the pending approval'\''s title and reasons, not just a status word'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   command -v jq >/dev/null 2>&1 || skip "jq is required"
@@ -6372,7 +6372,7 @@ function test_236_se_show_prints_the_pending_approval_s_title_and() {
   assert_output --partial 'validate-cmd exited with code 1'
 }
 
-function test_237_se_approve_prints_what_is_being_decided_before_r() {
+function test_scripts_237_se_approve_prints_what_is_being_decided_before_r() {
   _bats_test_init 237 'se approve prints what is being decided before recording the decision'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   command -v jq >/dev/null 2>&1 || skip "jq is required"
@@ -6386,7 +6386,7 @@ function test_237_se_approve_prints_what_is_being_decided_before_r() {
   assert_output --partial 'approve stops the run WITH a report'
 }
 
-function test_238_se_show_on_a_run_with_no_pending_approval_prints() {
+function test_scripts_238_se_show_on_a_run_with_no_pending_approval_prints() {
   _bats_test_init 238 'se show on a run with no pending approval prints no decision block'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
@@ -6400,7 +6400,7 @@ function test_238_se_show_on_a_run_with_no_pending_approval_prints() {
   refute_output --partial 'DECISION REQUIRED'
 }
 
-function test_239_se_approve_resumes_a_parked_run_that_nothing_is() {
+function test_scripts_239_se_approve_resumes_a_parked_run_that_nothing_is() {
   _bats_test_init 239 'se approve resumes a parked run that nothing is driving'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   command -v jq >/dev/null 2>&1 || skip "jq is required"
@@ -6418,7 +6418,7 @@ function test_239_se_approve_resumes_a_parked_run_that_nothing_is() {
   assert_file_contains "$dir/calls.log" 'resume true'
 }
 
-function test_240_se_approve_no_resume_records_the_decision_withou() {
+function test_scripts_240_se_approve_no_resume_records_the_decision_withou() {
   _bats_test_init 240 'se approve --no-resume records the decision without driving the run'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   command -v jq >/dev/null 2>&1 || skip "jq is required"
@@ -6434,7 +6434,7 @@ function test_240_se_approve_no_resume_records_the_decision_withou() {
   assert_failure
 }
 
-function test_241_se_approve_refuses_to_resume_a_run_a_live_proces() {
+function test_scripts_241_se_approve_refuses_to_resume_a_run_a_live_proces() {
   _bats_test_init 241 'se approve refuses to resume a run a live process already owns'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   command -v jq >/dev/null 2>&1 || skip "jq is required"
@@ -6454,7 +6454,7 @@ function test_241_se_approve_refuses_to_resume_a_run_a_live_proces() {
   assert_failure
 }
 
-function test_242_se_approve_does_not_resume_a_run_that_already_fi() {
+function test_scripts_242_se_approve_does_not_resume_a_run_that_already_fi() {
   _bats_test_init 242 'se approve does not resume a run that already finished'
   command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
   command -v jq >/dev/null 2>&1 || skip "jq is required"
@@ -6470,7 +6470,7 @@ function test_242_se_approve_does_not_resume_a_run_that_already_fi() {
   assert_failure
 }
 
-function test_243_se_approve_usage_does_not_promise_that_approve_c() {
+function test_scripts_243_se_approve_usage_does_not_promise_that_approve_c() {
   _bats_test_init 243 'se approve usage does not promise that approve continues the run'
   local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
   run env "$se_bin" --help
@@ -6479,7 +6479,7 @@ function test_243_se_approve_usage_does_not_promise_that_approve_c() {
   assert_output --partial 'ONE more attempt'
 }
 
-function test_244_se_blocks_json_emits_the_composable_block_catalo() {
+function test_scripts_244_se_blocks_json_emits_the_composable_block_catalo() {
   _bats_test_init 244 'se blocks --json emits the composable block catalog'
   local smithers_dir="$SOURCE_ROOT/private_dot_claude/dot_smithers"
   local se_bin="$smithers_dir/bin/executable_se"
@@ -6501,7 +6501,7 @@ function test_244_se_blocks_json_emits_the_composable_block_catalo() {
 # Claude settings modifier
 # ===========================================
 
-function test_245_claude_settings_modifier_registers_the_executor() {
+function test_scripts_245_claude_settings_modifier_registers_the_executor() {
   _bats_test_init 245 'Claude settings modifier registers the executor MCP server over stdio'
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-bin"
@@ -6535,7 +6535,7 @@ STUB
   assert_success
 }
 
-function test_246_claude_settings_modifier_passes_settings_through() {
+function test_scripts_246_claude_settings_modifier_passes_settings_through() {
   _bats_test_init 246 'Claude settings modifier passes settings through untouched without 1Password'
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
@@ -6554,7 +6554,7 @@ function test_246_claude_settings_modifier_passes_settings_through() {
 # Pi settings modifier
 # ===========================================
 
-function test_247_pi_settings_modifier_selects_the_terminal_theme() {
+function test_scripts_247_pi_settings_modifier_selects_the_terminal_theme() {
   _bats_test_init 247 'Pi settings modifier selects the terminal theme and exact extension packages'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:obsolete-extension","npm:unexpected-extension"],"skills":["~/custom/skills"]}'
@@ -6583,7 +6583,7 @@ function test_247_pi_settings_modifier_selects_the_terminal_theme() {
   assert_success
 }
 
-function test_248_pi_settings_modifier_is_idempotent() {
+function test_scripts_248_pi_settings_modifier_is_idempotent() {
   _bats_test_init 248 'Pi settings modifier is idempotent'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/.claude/skills"]}'
@@ -6610,7 +6610,7 @@ function test_248_pi_settings_modifier_is_idempotent() {
   assert_success
 }
 
-function test_249_pi_terminal_theme_uses_only_terminal_palette_col() {
+function test_scripts_249_pi_terminal_theme_uses_only_terminal_palette_col() {
   _bats_test_init 249 'Pi terminal theme uses only terminal palette colors'
   local theme="$SOURCE_ROOT/dot_pi/agent/themes/terminal.json"
 
@@ -6624,7 +6624,7 @@ function test_249_pi_terminal_theme_uses_only_terminal_palette_col() {
   assert_success
 }
 
-function test_250_claude_code_daltonized_theme_extends_light_ansi() {
+function test_scripts_250_claude_code_daltonized_theme_extends_light_ansi() {
   _bats_test_init 250 'Claude Code daltonized theme extends light ANSI with terminal colors'
   local theme="$SOURCE_ROOT/private_dot_claude/themes/light-ansi-daltonized.json"
 
@@ -6640,7 +6640,7 @@ function test_250_claude_code_daltonized_theme_extends_light_ansi() {
 # morning-cleanup script
 # ===========================================
 
-function test_251_morning_cleanup_trashes_stale_omc_state_and_stam() {
+function test_scripts_251_morning_cleanup_trashes_stale_omc_state_and_stam() {
   _bats_test_init 251 'morning-cleanup trashes stale .omc state and stamps the day'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home"
@@ -6654,7 +6654,7 @@ function test_251_morning_cleanup_trashes_stale_omc_state_and_stam() {
   [ -f "$fake_home/.local/state/morning-cleanup/last-run" ]
 }
 
-function test_252_morning_cleanup_keeps_a_recently_active_omc_dir() {
+function test_scripts_252_morning_cleanup_keeps_a_recently_active_omc_dir() {
   _bats_test_init 252 'morning-cleanup keeps a recently active .omc dir'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home-live"
@@ -6666,7 +6666,7 @@ function test_252_morning_cleanup_keeps_a_recently_active_omc_dir() {
   [ -d "$fake_home/Projects/demo/.omc" ]
 }
 
-function test_253_morning_cleanup_is_a_no_op_on_its_second_run_of() {
+function test_scripts_253_morning_cleanup_is_a_no_op_on_its_second_run_of() {
   _bats_test_init 253 'morning-cleanup is a no-op on its second run of the day'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home-stamp"
@@ -6682,7 +6682,7 @@ function test_253_morning_cleanup_is_a_no_op_on_its_second_run_of() {
   [ -d "$fake_home/Projects/late/.omc" ]
 }
 
-function test_254_morning_cleanup_keeps_fresh_trash_entries() {
+function test_scripts_254_morning_cleanup_keeps_fresh_trash_entries() {
   _bats_test_init 254 'morning-cleanup keeps fresh trash entries'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home-trash"

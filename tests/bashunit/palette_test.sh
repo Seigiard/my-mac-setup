@@ -41,12 +41,12 @@ teardown() {
 
 # First, so a missing or too-old interpreter states its own cause instead of
 # leaving a wall of identical `python3: command not found` failures below.
-function test_001_python3_is_present_and_at_least_3_9_the_floor_re() {
+function test_palette_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
   assert_python3_available
 }
 
-function test_002_a_missing_python3_is_rejected() {
+function test_palette_002_a_missing_python3_is_rejected() {
   _bats_test_init 2 'a missing python3 is rejected'
   local stub="$PALETTE_WORK/nopython" saved="$PATH"
   mkdir -p "$stub"
@@ -64,7 +64,7 @@ function test_002_a_missing_python3_is_rejected() {
 # "8.1", which is an arithmetic syntax error -- (( )) returned non-zero, the
 # too-old branch was skipped, and a Python 3.8 stub passed the 3.9 floor.
 # Stubbed on PATH the same way the missing-fzf test further down this file does.
-function test_003_a_python3_below_the_floor_or_one_answering_with() {
+function test_palette_003_a_python3_below_the_floor_or_one_answering_with() {
   _bats_test_init 3 'a python3 below the floor, or one answering with junk, is rejected'
   local stub="$PALETTE_WORK/badpy" saved="$PATH"
   mkdir -p "$stub"
@@ -100,7 +100,7 @@ function test_003_a_python3_below_the_floor_or_one_answering_with() {
 # U1 -- the source-tree seam itself
 # ===========================================
 
-function test_004_palette_sources_under_source_root_compile() {
+function test_palette_004_palette_sources_under_source_root_compile() {
   _bats_test_init 4 'palette sources under SOURCE_ROOT compile'
   run python3 -m py_compile \
     "$PALETTE_DIR/palette.py" \
@@ -110,7 +110,7 @@ function test_004_palette_sources_under_source_root_compile() {
   assert_success
 }
 
-function test_005_open_in_zed_resolves_a_nested_repository_directo() {
+function test_palette_005_open_in_zed_resolves_a_nested_repository_directo() {
   _bats_test_init 5 'Open in Zed resolves a nested repository directory and reuses the Zed window'
   local repository="$PALETTE_WORK/repository"
   local nested="$repository/packages/app"
@@ -135,7 +135,7 @@ SH
   assert_line --index 1 "$repository"
 }
 
-function test_006_open_in_zed_falls_back_to_a_valid_non_git_direct() {
+function test_palette_006_open_in_zed_falls_back_to_a_valid_non_git_direct() {
   _bats_test_init 6 'Open in Zed falls back to a valid non-Git directory'
   local directory="$PALETTE_WORK/plain-directory"
   local fake_zed="$PALETTE_WORK/zed"
@@ -157,7 +157,7 @@ SH
   assert_line --index 1 "$directory"
 }
 
-function test_007_open_in_zed_rejects_an_empty_directory_before_st() {
+function test_palette_007_open_in_zed_rejects_an_empty_directory_before_st() {
   _bats_test_init 7 'Open in Zed rejects an empty directory before starting Zed'
   local fake_zed="$PALETTE_WORK/zed"
   local calls="$PALETTE_WORK/zed.calls"
@@ -174,7 +174,7 @@ SH
   [ ! -e "$calls" ]
 }
 
-function test_008_open_in_zed_rejects_a_missing_directory_before_s() {
+function test_palette_008_open_in_zed_rejects_a_missing_directory_before_s() {
   _bats_test_init 8 'Open in Zed rejects a missing directory before starting Zed'
   local fake_zed="$PALETTE_WORK/zed"
   local calls="$PALETTE_WORK/zed.calls"
@@ -191,7 +191,7 @@ SH
   [ ! -e "$calls" ]
 }
 
-function test_009_open_in_zed_resolves_zed_from_path_and_returns_i() {
+function test_palette_009_open_in_zed_resolves_zed_from_path_and_returns_i() {
   _bats_test_init 9 'Open in Zed resolves Zed from PATH and returns its exit status'
   local directory="$PALETTE_WORK/plain-directory"
   local bin="$PALETTE_WORK/bin"
@@ -207,7 +207,7 @@ SH
   assert_equal "$status" 7
 }
 
-function test_010_open_in_zed_rejects_an_invalid_configured_execut() {
+function test_palette_010_open_in_zed_rejects_an_invalid_configured_execut() {
   _bats_test_init 10 'Open in Zed rejects an invalid configured executable'
   local directory="$PALETTE_WORK/plain-directory"
   mkdir -p "$directory"
@@ -217,7 +217,7 @@ function test_010_open_in_zed_rejects_an_invalid_configured_execut() {
   assert_output --partial "ZED_BIN is not executable"
 }
 
-function test_011_open_in_zed_reports_its_bounded_timeout() {
+function test_palette_011_open_in_zed_reports_its_bounded_timeout() {
   _bats_test_init 11 'Open in Zed reports its bounded timeout'
   local directory="$PALETTE_WORK/plain-directory"
   local fake_zed="$PALETTE_WORK/zed"
@@ -245,7 +245,7 @@ PY
   assert_output --partial "Zed did not respond"
 }
 
-function test_012_open_in_zed_uses_the_standard_macos_cli_fallback() {
+function test_palette_012_open_in_zed_uses_the_standard_macos_cli_fallback() {
   _bats_test_init 12 'Open in Zed uses the standard macOS CLI fallback'
   local fake_zed="$PALETTE_WORK/zed"
   touch "$fake_zed"
@@ -270,14 +270,14 @@ PY
   assert_success
 }
 
-function test_013_validate_accepts_the_real_commands_toml_and_name() {
+function test_palette_013_validate_accepts_the_real_commands_toml_and_name() {
   _bats_test_init 13 '--validate accepts the real commands.toml and names the command count'
   run python3 "$PALETTE_DIR/palette.py" --validate "$REAL_COMMANDS"
   assert_success
   assert_output --partial "commands)"
 }
 
-function test_014_validate_rejects_an_unsupported_command_type() {
+function test_palette_014_validate_rejects_an_unsupported_command_type() {
   _bats_test_init 14 '--validate rejects an unsupported command type'
   cat > "$PALETTE_WORK/bad.toml" <<'TOML'
 name = "Broken"
@@ -290,7 +290,7 @@ TOML
   assert_output --partial "unsupported type"
 }
 
-function test_015_load_commands_reads_a_fixture_config_from_the_so() {
+function test_palette_015_load_commands_reads_a_fixture_config_from_the_so() {
   _bats_test_init 15 'load_commands reads a fixture config from the source tree'
   cat > "$PALETTE_WORK/commands.toml" <<'TOML'
 [[commands]]
@@ -334,28 +334,28 @@ rank_real() {
   rank_in "$REAL_COMMANDS" "$1"
 }
 
-function test_016_r1_lg_ranks_lazygit_in_popup_first() {
+function test_palette_016_r1_lg_ranks_lazygit_in_popup_first() {
   _bats_test_init 16 'R1: lg ranks Lazygit in popup first'
   run rank_real lg
   assert_success
   assert_line --index 0 "Lazygit in popup"
 }
 
-function test_017_r1_ws_ranks_switch_workspace_first() {
+function test_palette_017_r1_ws_ranks_switch_workspace_first() {
   _bats_test_init 17 'R1: ws ranks Switch workspace first'
   run rank_real ws
   assert_success
   assert_line --index 0 "Switch workspace"
 }
 
-function test_018_r1_edit_ranks_edit_command_palette_config_first() {
+function test_palette_018_r1_edit_ranks_edit_command_palette_config_first() {
   _bats_test_init 18 'R1: edit ranks Edit command palette config first'
   run rank_real edit
   assert_success
   assert_line --index 0 "Edit command palette config"
 }
 
-function test_019_r1_zed_ranks_open_in_zed_first_and_returns_only() {
+function test_palette_019_r1_zed_ranks_open_in_zed_first_and_returns_only() {
   _bats_test_init 19 'R1: zed ranks Open in Zed first, and returns only it'
   run rank_real zed
   assert_success
@@ -363,21 +363,21 @@ function test_019_r1_zed_ranks_open_in_zed_first_and_returns_only() {
   assert_equal "${#lines[@]}" 1
 }
 
-function test_020_r1_main_ranks_merge_main_branch_first() {
+function test_palette_020_r1_main_ranks_merge_main_branch_first() {
   _bats_test_init 20 'R1: main ranks Merge main branch first'
   run rank_real main
   assert_success
   assert_line --index 0 "Merge main branch"
 }
 
-function test_021_r1_lazy_ranks_lazygit_in_popup_first() {
+function test_palette_021_r1_lazy_ranks_lazygit_in_popup_first() {
   _bats_test_init 21 'R1: lazy ranks Lazygit in popup first'
   run rank_real lazy
   assert_success
   assert_line --index 0 "Lazygit in popup"
 }
 
-function test_022_r10_the_cyrillic_shortcuts_rank_their_command_fi() {
+function test_palette_022_r10_the_cyrillic_shortcuts_rank_their_command_fi() {
   _bats_test_init 22 'R10: the Cyrillic shortcuts rank their command first'
   run rank_real "дп"
   assert_success
@@ -404,7 +404,7 @@ function test_022_r10_the_cyrillic_shortcuts_rank_their_command_fi() {
 
 # fzf defaults to smart case, so an uppercase letter would switch the title tier
 # to case-sensitive matching while the shortcut tier keeps case-folding.
-function test_023_r1_the_title_tier_is_case_insensitive() {
+function test_palette_023_r1_the_title_tier_is_case_insensitive() {
   _bats_test_init 23 'R1: the title tier is case-insensitive'
   local upper lower
   for lower in main config workspace lazy; do
@@ -420,21 +420,21 @@ function test_023_r1_the_title_tier_is_case_insensitive() {
   done
 }
 
-function test_024_r10_a_half_typed_shortcut_still_matches_by_prefi() {
+function test_palette_024_r10_a_half_typed_shortcut_still_matches_by_prefi() {
   _bats_test_init 24 'R10: a half-typed shortcut still matches by prefix'
   run rank_real "дфя"
   assert_success
   assert_line --index 0 "Lazygit in popup"
 }
 
-function test_025_r10_shortcut_matching_is_case_insensitive() {
+function test_palette_025_r10_shortcut_matching_is_case_insensitive() {
   _bats_test_init 25 'R10: shortcut matching is case-insensitive'
   run rank_real "LG"
   assert_success
   assert_line --index 0 "Lazygit in popup"
 }
 
-function test_026_r10_a_decoy_title_cannot_displace_a_shortcut_hit() {
+function test_palette_026_r10_a_decoy_title_cannot_displace_a_shortcut_hit() {
   _bats_test_init 26 'R10: a decoy title cannot displace a shortcut hit'
   cp "$REAL_COMMANDS" "$PALETTE_WORK/commands.toml"
   cat >> "$PALETTE_WORK/commands.toml" <<'TOML'
@@ -451,14 +451,14 @@ TOML
   assert_line --index 0 "Lazygit in popup"
 }
 
-function test_027_r2_a_query_matching_no_title_and_no_shortcut_ret() {
+function test_palette_027_r2_a_query_matching_no_title_and_no_shortcut_ret() {
   _bats_test_init 27 'R2: a query matching no title and no shortcut returns nothing'
   run rank_real "qqzzxx"
   assert_success
   assert_output ""
 }
 
-function test_028_r2_an_empty_query_returns_every_command_in_group() {
+function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   _bats_test_init 28 'R2: an empty query returns every command in group order'
   run rank_real ""
   assert_success
@@ -466,7 +466,7 @@ function test_028_r2_an_empty_query_returns_every_command_in_group() {
   assert_equal "${#lines[@]}" 10
 }
 
-function test_029_a_command_with_no_shortcuts_still_matches_by_tit() {
+function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
   _bats_test_init 29 'a command with no shortcuts still matches by title'
   cat > "$PALETTE_WORK/commands.toml" <<'TOML'
 [[commands]]
@@ -481,7 +481,7 @@ TOML
   assert_line --index 0 "Deploy the widget"
 }
 
-function test_030_a_title_containing_a_tab_does_not_corrupt_the_in() {
+function test_palette_030_a_title_containing_a_tab_does_not_corrupt_the_in() {
   _bats_test_init 30 'a title containing a tab does not corrupt the index mapping'
   cat > "$PALETTE_WORK/commands.toml" <<'TOML'
 [[commands]]
@@ -503,7 +503,7 @@ TOML
   assert_output --partial "Tabbed"
 }
 
-function test_031_validate_rejects_a_malformed_shortcuts_value() {
+function test_palette_031_validate_rejects_a_malformed_shortcuts_value() {
   _bats_test_init 31 '--validate rejects a malformed shortcuts value'
   local bad
   for bad in 'shortcuts = "lg"' 'shortcuts = ["lg", 7]' 'shortcuts = [""]' 'shortcuts = ["l g"]'; do
@@ -524,7 +524,7 @@ TOML
 
 # Ubuntu CI runs python 3.10, where tomllib does not exist and palette.py falls
 # back to its own tiny TOML parser. A shortcuts list must survive that path too.
-function test_032_the_fallback_toml_parser_reads_a_shortcuts_array() {
+function test_palette_032_the_fallback_toml_parser_reads_a_shortcuts_array() {
   _bats_test_init 32 'the fallback TOML parser reads a shortcuts array'
   run python3 - "$REAL_COMMANDS" <<'PY'
 import builtins
@@ -552,7 +552,7 @@ PY
   assert_success
 }
 
-function test_033_select_options_rank_through_the_same_scorer() {
+function test_palette_033_select_options_rank_through_the_same_scorer() {
   _bats_test_init 33 'select options rank through the same scorer'
   run python3 - <<'PY'
 import palette_boot
@@ -622,7 +622,7 @@ print("flat_last_visible", int(start <= 40 < start + max_visible))
 PY
 }
 
-function test_034_r3_every_command_is_reachable_at_40_commands_in() {
+function test_palette_034_r3_every_command_is_reachable_at_40_commands_in() {
   _bats_test_init 34 'R3: every command is reachable at 40 commands in 8 groups'
   run scroll_fixture
   assert_success
@@ -630,7 +630,7 @@ function test_034_r3_every_command_is_reachable_at_40_commands_in() {
   assert_line "reachable 40"
 }
 
-function test_035_r3_the_last_drawn_row_never_reaches_the_descript() {
+function test_palette_035_r3_the_last_drawn_row_never_reaches_the_descript() {
   _bats_test_init 35 'R3: the last drawn row never reaches the description line'
   run scroll_fixture
   assert_success
@@ -640,7 +640,7 @@ function test_035_r3_the_last_drawn_row_never_reaches_the_descript() {
   [ "$lowest" -lt "$detail" ]
 }
 
-function test_036_r3_ten_commands_still_render_unscrolled() {
+function test_palette_036_r3_ten_commands_still_render_unscrolled() {
   _bats_test_init 36 'R3: ten commands still render unscrolled'
   run scroll_fixture
   assert_success
@@ -648,7 +648,7 @@ function test_036_r3_ten_commands_still_render_unscrolled() {
   assert_line "ten_fits 1"
 }
 
-function test_037_r3_a_single_group_with_no_extra_headers_still_sc() {
+function test_palette_037_r3_a_single_group_with_no_extra_headers_still_sc() {
   _bats_test_init 37 'R3: a single group with no extra headers still scrolls'
   run scroll_fixture
   assert_success
@@ -732,7 +732,7 @@ run_pane_run() {
   run_kind "$1" pane_run
 }
 
-function test_038_r4_pane_run_refuses_a_pane_an_agent_owns_and_say() {
+function test_palette_038_r4_pane_run_refuses_a_pane_an_agent_owns_and_say() {
   _bats_test_init 38 'R4: pane_run refuses a pane an agent owns and says why'
   stub_herdr "$PALETTE_WORK/agent" '"claude"'
   run run_pane_run "$PALETTE_WORK/agent"
@@ -747,7 +747,7 @@ function test_038_r4_pane_run_refuses_a_pane_an_agent_owns_and_say() {
   assert_output --partial "notification show"
 }
 
-function test_039_r4_pane_run_proceeds_when_no_agent_owns_the_pane() {
+function test_palette_039_r4_pane_run_proceeds_when_no_agent_owns_the_pane() {
   _bats_test_init 39 'R4: pane_run proceeds when no agent owns the pane'
   stub_herdr "$PALETTE_WORK/free" 'null'
   run run_pane_run "$PALETTE_WORK/free"
@@ -760,7 +760,7 @@ function test_039_r4_pane_run_proceeds_when_no_agent_owns_the_pane() {
   refute_output --partial "notification show"
 }
 
-function test_040_r4_a_failed_pane_lookup_is_reported_not_treated() {
+function test_palette_040_r4_a_failed_pane_lookup_is_reported_not_treated() {
   _bats_test_init 40 'R4: a failed pane lookup is reported, not treated as a free pane'
   stub_herdr "$PALETTE_WORK/broken" 'unreachable'
   run run_pane_run "$PALETTE_WORK/broken"
@@ -775,7 +775,7 @@ function test_040_r4_a_failed_pane_lookup_is_reported_not_treated() {
 
 # The guard follows the argv, not the command kind: `herdr pane run` reaches a
 # pane's shell whether it is spelled as a pane_run command or a herdr one.
-function test_041_r4_a_herdr_argv_pane_run_is_refused_for_an_agent() {
+function test_palette_041_r4_a_herdr_argv_pane_run_is_refused_for_an_agent() {
   _bats_test_init 41 'R4: a herdr argv pane run is refused for an agent-owned pane too'
   stub_herdr "$PALETTE_WORK/argv-agent" '"claude"'
   run run_kind "$PALETTE_WORK/argv-agent" herdr
@@ -790,7 +790,7 @@ function test_041_r4_a_herdr_argv_pane_run_is_refused_for_an_agent() {
   assert_output --partial "notification show"
 }
 
-function test_042_r4_a_herdr_argv_pane_run_proceeds_when_no_agent() {
+function test_palette_042_r4_a_herdr_argv_pane_run_proceeds_when_no_agent() {
   _bats_test_init 42 'R4: a herdr argv pane run proceeds when no agent owns the pane'
   stub_herdr "$PALETTE_WORK/argv-free" 'null'
   run run_kind "$PALETTE_WORK/argv-free" herdr
@@ -802,7 +802,7 @@ function test_042_r4_a_herdr_argv_pane_run_proceeds_when_no_agent() {
   assert_output --partial "pane run w1:p1 vi"
 }
 
-function test_043_r4_tab_run_creates_a_tab_and_never_consults_the() {
+function test_palette_043_r4_tab_run_creates_a_tab_and_never_consults_the() {
   _bats_test_init 43 'R4: tab_run creates a tab and never consults the agent guard'
   stub_herdr "$PALETTE_WORK/tabrun" '"claude"'
   run run_kind "$PALETTE_WORK/tabrun" tab_run
@@ -863,7 +863,7 @@ run_opener() {
   env HERDR_BIN_PATH="$dir/herdr" HERDR_PANE_ID="w1:p1" python3 "$PALETTE_DIR/open.py"
 }
 
-function test_044_r6_an_open_palette_is_found_and_focused_instead() {
+function test_palette_044_r6_an_open_palette_is_found_and_focused_instead() {
   _bats_test_init 44 'R6: an open palette is found and focused instead of opening a second'
   stub_opener_herdr "$PALETTE_WORK/token" token
   run run_opener "$PALETTE_WORK/token"
@@ -875,7 +875,7 @@ function test_044_r6_an_open_palette_is_found_and_focused_instead() {
   refute_output --partial "plugin pane open"
 }
 
-function test_045_r6_a_pane_that_merely_mentions_palette_py_is_not() {
+function test_palette_045_r6_a_pane_that_merely_mentions_palette_py_is_not() {
   _bats_test_init 45 'R6: a pane that merely mentions palette.py is not the palette'
   stub_opener_herdr "$PALETTE_WORK/argv" argv
   run run_opener "$PALETTE_WORK/argv"
@@ -887,7 +887,7 @@ function test_045_r6_a_pane_that_merely_mentions_palette_py_is_not() {
   refute_output --partial "plugin pane focus"
 }
 
-function test_046_r6_with_no_palette_pane_present_one_is_opened_an() {
+function test_palette_046_r6_with_no_palette_pane_present_one_is_opened_an() {
   _bats_test_init 46 'R6: with no palette pane present, one is opened and marked'
   stub_opener_herdr "$PALETTE_WORK/none" none
   run run_opener "$PALETTE_WORK/none"
@@ -902,7 +902,7 @@ function test_046_r6_with_no_palette_pane_present_one_is_opened_an() {
 
 # The pane outlives the palette process when an overlay_shell command execs a
 # shell over it. A token left behind makes the next keypress focus that shell.
-function test_047_r6_overlay_shell_clears_the_palette_token_before() {
+function test_palette_047_r6_overlay_shell_clears_the_palette_token_before() {
   _bats_test_init 47 'R6: overlay_shell clears the palette token before it execs'
   stub_herdr "$PALETTE_WORK/overlay" 'null'
   run env HERDR_BIN_PATH="$PALETTE_WORK/overlay/herdr" HERDR_PANE_ID="w1:pP" \
@@ -921,7 +921,7 @@ PY
   assert_output --partial "--clear-token command_palette"
 }
 
-function test_048_r6_the_lookup_costs_one_pane_list_and_no_process() {
+function test_palette_048_r6_the_lookup_costs_one_pane_list_and_no_process() {
   _bats_test_init 48 'R6: the lookup costs one pane list and no process-info calls'
   stub_opener_herdr "$PALETTE_WORK/count" token
   run run_opener "$PALETTE_WORK/count"
@@ -944,7 +944,7 @@ validate_fixture() {
   python3 "$PALETTE_DIR/palette.py" --validate "$PALETTE_WORK/fixture.toml"
 }
 
-function test_049_r7_a_bare_value_in_a_shell_command_is_rejected_n() {
+function test_palette_049_r7_a_bare_value_in_a_shell_command_is_rejected_n() {
   _bats_test_init 49 'R7: a bare {value} in a shell command is rejected, naming {value_q}'
   run validate_fixture <<'TOML'
 name = "Search"
@@ -959,7 +959,7 @@ TOML
   assert_output --partial "Search"
 }
 
-function test_050_r7_value_q_and_value_url_are_accepted() {
+function test_palette_050_r7_value_q_and_value_url_are_accepted() {
   _bats_test_init 50 'R7: {value_q} and {value_url} are accepted'
   run validate_fixture <<'TOML'
 name = "Quoted"
@@ -982,7 +982,7 @@ TOML
   assert_success
 }
 
-function test_051_r7_a_bare_value_in_a_herdr_argv_array_is_accepte() {
+function test_palette_051_r7_a_bare_value_in_a_herdr_argv_array_is_accepte() {
   _bats_test_init 51 'R7: a bare {value} in a herdr argv array is accepted'
   run validate_fixture <<'TOML'
 name = "Rename"
@@ -996,7 +996,7 @@ TOML
   assert_success
 }
 
-function test_052_r7_a_bare_value_in_a_herdr_argv_array_that_runs() {
+function test_palette_052_r7_a_bare_value_in_a_herdr_argv_array_that_runs() {
   _bats_test_init 52 'R7: a bare {value} in a herdr argv array that runs a shell is rejected'
   run validate_fixture <<'TOML'
 name = "Run there"
@@ -1011,7 +1011,7 @@ TOML
   assert_output --partial "{value_q}"
 }
 
-function test_053_r7_a_bare_value_in_a_nested_run_table_is_rejecte() {
+function test_palette_053_r7_a_bare_value_in_a_nested_run_table_is_rejecte() {
   _bats_test_init 53 'R7: a bare {value} in a nested [run] table is rejected'
   run validate_fixture <<'TOML'
 name = "Nested"
@@ -1029,7 +1029,7 @@ TOML
   assert_output --partial "{value_q}"
 }
 
-function test_054_r9_a_missing_fzf_fails_loudly_naming_fzf_the_bre() {
+function test_palette_054_r9_a_missing_fzf_fails_loudly_naming_fzf_the_bre() {
   _bats_test_init 54 'R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH'
   local stub="$PALETTE_WORK/nofzf"
   mkdir -p "$stub"
@@ -1051,7 +1051,7 @@ function test_054_r9_a_missing_fzf_fails_loudly_naming_fzf_the_bre() {
 
 # The only path that could raise out of the curses loop. A traceback there is a
 # popup pane that flashes and vanishes, so it must degrade like the timeout does.
-function test_055_r9_an_fzf_that_fails_leaves_the_palette_alive_an() {
+function test_palette_055_r9_an_fzf_that_fails_leaves_the_palette_alive_an() {
   _bats_test_init 55 'R9: an fzf that fails leaves the palette alive and says so'
   local stub="$PALETTE_WORK/brokenfzf"
   mkdir -p "$stub"
@@ -1082,7 +1082,7 @@ PY
   refute_output --partial "Traceback"
 }
 
-function test_056_r9_a_config_the_validator_rejects_is_reported_no() {
+function test_palette_056_r9_a_config_the_validator_rejects_is_reported_no() {
   _bats_test_init 56 'R9: a config the validator rejects is reported, not raised'
   cat > "$PALETTE_WORK/commands.toml" <<'TOML'
 [[commands]]
@@ -1100,7 +1100,7 @@ TOML
   refute_output --partial "Traceback"
 }
 
-function test_057_r9_an_fzf_that_never_answers_leaves_the_palette() {
+function test_palette_057_r9_an_fzf_that_never_answers_leaves_the_palette() {
   _bats_test_init 57 'R9: an fzf that never answers leaves the palette alive and empty'
   local stub="$PALETTE_WORK/slowfzf"
   mkdir -p "$stub"

@@ -27,9 +27,11 @@ def shell_squote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def slugify(name: str, index: int) -> str:
+def slugify(name: str, index: int, base: str) -> str:
+    # base prefix keeps function names unique across generated files (two
+    # files may contain identically-named scenarios).
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:48].rstrip("_")
-    return f"test_{index:03d}_{slug}"
+    return f"test_{base}_{index:03d}_{slug}"
 
 
 def convert(src: Path, out_dir: Path, serial: bool):
@@ -59,7 +61,7 @@ def convert(src: Path, out_dir: Path, serial: bool):
             if name in names_seen:
                 sys.exit(f"{src}: duplicate @test name: {name!r}")
             names_seen[name] = index
-            fn = slugify(name, index)
+            fn = slugify(name, index, base)
             body_lines.append(f"function {fn}() {{")
             body_lines.append(f"  _bats_test_init {index} {shell_squote(name)}")
             tests.append((index, name))
@@ -105,7 +107,7 @@ def convert(src: Path, out_dir: Path, serial: bool):
 
     manifest_rows = []
     for index, name in tests:
-        fn = slugify(name, index)
+        fn = slugify(name, index, base)
         manifest_rows.append((src.name, str(index), name, fn, out_path.name))
 
     out_path.write_text("\n".join(out) + "\n")

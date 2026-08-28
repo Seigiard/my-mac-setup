@@ -75,7 +75,7 @@ python3 - "$d/control_test.sh" <<'EOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-s = re.sub(r'function test_004_control_second_passing_scenario\(\) \{.*?\n\}\n',
+s = re.sub(r'function test_control_004_control_second_passing_scenario\(\) \{.*?\n\}\n',
            '', s, flags=re.S)
 open(p, 'w').write(s)
 EOF

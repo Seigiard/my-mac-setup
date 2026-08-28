@@ -1,400 +1,400 @@
-platform.bats	1	chezmoiignore filters macOS files on Linux	test_001_chezmoiignore_filters_macos_files_on_linux	platform_test.sh
-platform.bats	2	chezmoiignore includes macOS files on macOS	test_002_chezmoiignore_includes_macos_files_on_macos	platform_test.sh
-palette.bats	1	python3 is present and at least 3.9, the floor README.md declares	test_001_python3_is_present_and_at_least_3_9_the_floor_re	palette_test.sh
-palette.bats	2	a missing python3 is rejected	test_002_a_missing_python3_is_rejected	palette_test.sh
-palette.bats	3	a python3 below the floor, or one answering with junk, is rejected	test_003_a_python3_below_the_floor_or_one_answering_with	palette_test.sh
-palette.bats	4	palette sources under SOURCE_ROOT compile	test_004_palette_sources_under_source_root_compile	palette_test.sh
-palette.bats	5	Open in Zed resolves a nested repository directory and reuses the Zed window	test_005_open_in_zed_resolves_a_nested_repository_directo	palette_test.sh
-palette.bats	6	Open in Zed falls back to a valid non-Git directory	test_006_open_in_zed_falls_back_to_a_valid_non_git_direct	palette_test.sh
-palette.bats	7	Open in Zed rejects an empty directory before starting Zed	test_007_open_in_zed_rejects_an_empty_directory_before_st	palette_test.sh
-palette.bats	8	Open in Zed rejects a missing directory before starting Zed	test_008_open_in_zed_rejects_a_missing_directory_before_s	palette_test.sh
-palette.bats	9	Open in Zed resolves Zed from PATH and returns its exit status	test_009_open_in_zed_resolves_zed_from_path_and_returns_i	palette_test.sh
-palette.bats	10	Open in Zed rejects an invalid configured executable	test_010_open_in_zed_rejects_an_invalid_configured_execut	palette_test.sh
-palette.bats	11	Open in Zed reports its bounded timeout	test_011_open_in_zed_reports_its_bounded_timeout	palette_test.sh
-palette.bats	12	Open in Zed uses the standard macOS CLI fallback	test_012_open_in_zed_uses_the_standard_macos_cli_fallback	palette_test.sh
-palette.bats	13	--validate accepts the real commands.toml and names the command count	test_013_validate_accepts_the_real_commands_toml_and_name	palette_test.sh
-palette.bats	14	--validate rejects an unsupported command type	test_014_validate_rejects_an_unsupported_command_type	palette_test.sh
-palette.bats	15	load_commands reads a fixture config from the source tree	test_015_load_commands_reads_a_fixture_config_from_the_so	palette_test.sh
-palette.bats	16	R1: lg ranks Lazygit in popup first	test_016_r1_lg_ranks_lazygit_in_popup_first	palette_test.sh
-palette.bats	17	R1: ws ranks Switch workspace first	test_017_r1_ws_ranks_switch_workspace_first	palette_test.sh
-palette.bats	18	R1: edit ranks Edit command palette config first	test_018_r1_edit_ranks_edit_command_palette_config_first	palette_test.sh
-palette.bats	19	R1: zed ranks Open in Zed first, and returns only it	test_019_r1_zed_ranks_open_in_zed_first_and_returns_only	palette_test.sh
-palette.bats	20	R1: main ranks Merge main branch first	test_020_r1_main_ranks_merge_main_branch_first	palette_test.sh
-palette.bats	21	R1: lazy ranks Lazygit in popup first	test_021_r1_lazy_ranks_lazygit_in_popup_first	palette_test.sh
-palette.bats	22	R10: the Cyrillic shortcuts rank their command first	test_022_r10_the_cyrillic_shortcuts_rank_their_command_fi	palette_test.sh
-palette.bats	23	R1: the title tier is case-insensitive	test_023_r1_the_title_tier_is_case_insensitive	palette_test.sh
-palette.bats	24	R10: a half-typed shortcut still matches by prefix	test_024_r10_a_half_typed_shortcut_still_matches_by_prefi	palette_test.sh
-palette.bats	25	R10: shortcut matching is case-insensitive	test_025_r10_shortcut_matching_is_case_insensitive	palette_test.sh
-palette.bats	26	R10: a decoy title cannot displace a shortcut hit	test_026_r10_a_decoy_title_cannot_displace_a_shortcut_hit	palette_test.sh
-palette.bats	27	R2: a query matching no title and no shortcut returns nothing	test_027_r2_a_query_matching_no_title_and_no_shortcut_ret	palette_test.sh
-palette.bats	28	R2: an empty query returns every command in group order	test_028_r2_an_empty_query_returns_every_command_in_group	palette_test.sh
-palette.bats	29	a command with no shortcuts still matches by title	test_029_a_command_with_no_shortcuts_still_matches_by_tit	palette_test.sh
-palette.bats	30	a title containing a tab does not corrupt the index mapping	test_030_a_title_containing_a_tab_does_not_corrupt_the_in	palette_test.sh
-palette.bats	31	--validate rejects a malformed shortcuts value	test_031_validate_rejects_a_malformed_shortcuts_value	palette_test.sh
-palette.bats	32	the fallback TOML parser reads a shortcuts array	test_032_the_fallback_toml_parser_reads_a_shortcuts_array	palette_test.sh
-palette.bats	33	select options rank through the same scorer	test_033_select_options_rank_through_the_same_scorer	palette_test.sh
-palette.bats	34	R3: every command is reachable at 40 commands in 8 groups	test_034_r3_every_command_is_reachable_at_40_commands_in	palette_test.sh
-palette.bats	35	R3: the last drawn row never reaches the description line	test_035_r3_the_last_drawn_row_never_reaches_the_descript	palette_test.sh
-palette.bats	36	R3: ten commands still render unscrolled	test_036_r3_ten_commands_still_render_unscrolled	palette_test.sh
-palette.bats	37	R3: a single group with no extra headers still scrolls	test_037_r3_a_single_group_with_no_extra_headers_still_sc	palette_test.sh
-palette.bats	38	R4: pane_run refuses a pane an agent owns and says why	test_038_r4_pane_run_refuses_a_pane_an_agent_owns_and_say	palette_test.sh
-palette.bats	39	R4: pane_run proceeds when no agent owns the pane	test_039_r4_pane_run_proceeds_when_no_agent_owns_the_pane	palette_test.sh
-palette.bats	40	R4: a failed pane lookup is reported, not treated as a free pane	test_040_r4_a_failed_pane_lookup_is_reported_not_treated	palette_test.sh
-palette.bats	41	R4: a herdr argv pane run is refused for an agent-owned pane too	test_041_r4_a_herdr_argv_pane_run_is_refused_for_an_agent	palette_test.sh
-palette.bats	42	R4: a herdr argv pane run proceeds when no agent owns the pane	test_042_r4_a_herdr_argv_pane_run_proceeds_when_no_agent	palette_test.sh
-palette.bats	43	R4: tab_run creates a tab and never consults the agent guard	test_043_r4_tab_run_creates_a_tab_and_never_consults_the	palette_test.sh
-palette.bats	44	R6: an open palette is found and focused instead of opening a second	test_044_r6_an_open_palette_is_found_and_focused_instead	palette_test.sh
-palette.bats	45	R6: a pane that merely mentions palette.py is not the palette	test_045_r6_a_pane_that_merely_mentions_palette_py_is_not	palette_test.sh
-palette.bats	46	R6: with no palette pane present, one is opened and marked	test_046_r6_with_no_palette_pane_present_one_is_opened_an	palette_test.sh
-palette.bats	47	R6: overlay_shell clears the palette token before it execs	test_047_r6_overlay_shell_clears_the_palette_token_before	palette_test.sh
-palette.bats	48	R6: the lookup costs one pane list and no process-info calls	test_048_r6_the_lookup_costs_one_pane_list_and_no_process	palette_test.sh
-palette.bats	49	R7: a bare {value} in a shell command is rejected, naming {value_q}	test_049_r7_a_bare_value_in_a_shell_command_is_rejected_n	palette_test.sh
-palette.bats	50	R7: {value_q} and {value_url} are accepted	test_050_r7_value_q_and_value_url_are_accepted	palette_test.sh
-palette.bats	51	R7: a bare {value} in a herdr argv array is accepted	test_051_r7_a_bare_value_in_a_herdr_argv_array_is_accepte	palette_test.sh
-palette.bats	52	R7: a bare {value} in a herdr argv array that runs a shell is rejected	test_052_r7_a_bare_value_in_a_herdr_argv_array_that_runs	palette_test.sh
-palette.bats	53	R7: a bare {value} in a nested [run] table is rejected	test_053_r7_a_bare_value_in_a_nested_run_table_is_rejecte	palette_test.sh
-palette.bats	54	R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH	test_054_r9_a_missing_fzf_fails_loudly_naming_fzf_the_bre	palette_test.sh
-palette.bats	55	R9: an fzf that fails leaves the palette alive and says so	test_055_r9_an_fzf_that_fails_leaves_the_palette_alive_an	palette_test.sh
-palette.bats	56	R9: a config the validator rejects is reported, not raised	test_056_r9_a_config_the_validator_rejects_is_reported_no	palette_test.sh
-palette.bats	57	R9: an fzf that never answers leaves the palette alive and empty	test_057_r9_an_fzf_that_never_answers_leaves_the_palette	palette_test.sh
-smoke.bats	1	python3 is present and at least 3.9, the floor README.md declares	test_001_python3_is_present_and_at_least_3_9_the_floor_re	smoke_test.sh
-smoke.bats	2	repository issues CLI exposes its contract and reads checkout issues	test_002_repository_issues_cli_exposes_its_contract_and_r	smoke_test.sh
-smoke.bats	3	post-apply suite wrapper rejects an unknown mode with usage	test_003_post_apply_suite_wrapper_rejects_an_unknown_mode	smoke_test.sh
-smoke.bats	4	critical managed files are deployed and still managed	test_004_critical_managed_files_are_deployed_and_still_ma	smoke_test.sh
-smoke.bats	5	.gitignore ignores the agent trash directory	test_005_gitignore_ignores_the_agent_trash_directory	smoke_test.sh
-smoke.bats	6	herdr command palette keybinding is configured	test_006_herdr_command_palette_keybinding_is_configured	smoke_test.sh
-smoke.bats	7	obsolete zed-herdr removal accepts formatted plugin JSON	test_007_obsolete_zed_herdr_removal_accepts_formatted_plu	smoke_test.sh
-smoke.bats	8	obsolete zed-herdr removal reports malformed plugin JSON	test_008_obsolete_zed_herdr_removal_reports_malformed_plu	smoke_test.sh
-smoke.bats	9	herdr plugin updates are automatic and owner-restricted	test_009_herdr_plugin_updates_are_automatic_and_owner_res	smoke_test.sh
-smoke.bats	10	herdr lazygit popup entrypoint is configured	test_010_herdr_lazygit_popup_entrypoint_is_configured	smoke_test.sh
-smoke.bats	11	herdr command palette sources are valid	test_011_herdr_command_palette_sources_are_valid	smoke_test.sh
-smoke.bats	12	herdr command palette opener detects active palette pane	test_012_herdr_command_palette_opener_detects_active_pale	smoke_test.sh
-smoke.bats	13	herdr command palette loads TOML and project-local commands	test_013_herdr_command_palette_loads_toml_and_project_loc	smoke_test.sh
-smoke.bats	14	writing-style output style is deployed and enabled in settings	test_014_writing_style_output_style_is_deployed_and_enabl	smoke_test.sh
-smoke.bats	15	pi APPEND_SYSTEM.md is deployed	test_015_pi_append_system_md_is_deployed	smoke_test.sh
-smoke.bats	16	pi settings include all managed packages	test_016_pi_settings_include_all_managed_packages	smoke_test.sh
-smoke.bats	17	coding agents use terminal color palettes	test_017_coding_agents_use_terminal_color_palettes	smoke_test.sh
-smoke.bats	18	opencode reads the shared writing-style file via instructions	test_018_opencode_reads_the_shared_writing_style_file_via	smoke_test.sh
-smoke.bats	19	opencode exposes curated claude skills through canonical symlinks	test_019_opencode_exposes_curated_claude_skills_through_c	smoke_test.sh
-smoke.bats	20	explicit-only workflows keep manual invocation boundaries	test_020_explicit_only_workflows_keep_manual_invocation_b	smoke_test.sh
-smoke.bats	21	agent skills are deployed with their scripts and references	test_021_agent_skills_are_deployed_with_their_scripts_and	smoke_test.sh
-smoke.bats	22	shared references are deployed	test_022_shared_references_are_deployed	smoke_test.sh
-smoke.bats	23	executor CLI resolves on PATH through ~/.local/bin (macOS only)	test_023_executor_cli_resolves_on_path_through_local_bin	smoke_test.sh
-smoke.bats	24	kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)	test_024_kitty_includes_its_herdr_bindings_and_keeps_the	smoke_test.sh
-smoke.bats	25	kitty font family is one kitty accepts as monospaced (macOS only)	test_025_kitty_font_family_is_one_kitty_accepts_as_monosp	smoke_test.sh
-smoke.bats	26	kitty auto-launches herdr without exec'ing it (macOS only)	test_026_kitty_auto_launches_herdr_without_exec_ing_it_ma	smoke_test.sh
-smoke.bats	27	kitty sends the herdr prefix for macOS-style shortcuts (macOS only)	test_027_kitty_sends_the_herdr_prefix_for_macos_style_sho	smoke_test.sh
-smoke.bats	28	kitty herdr bindings survive a non-Latin keyboard layout (macOS only)	test_028_kitty_herdr_bindings_survive_a_non_latin_keyboar	smoke_test.sh
-smoke.bats	29	kitty carries command-palette hints for the herdr plugin (macOS only)	test_029_kitty_carries_command_palette_hints_for_the_herd	smoke_test.sh
-smoke.bats	30	lazygit config keeps Russian-layout keybindings and popup exit (macOS only)	test_030_lazygit_config_keeps_russian_layout_keybindings	smoke_test.sh
-smoke.bats	31	herdr caffeinate plugin scripts are valid sh (macOS only)	test_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac	smoke_test.sh
-smoke.bats	32	focus-notify plugin compiles and declares its runtime entrypoint	test_032_focus_notify_plugin_compiles_and_declares_its_ru	smoke_test.sh
-smoke.bats	33	focus-notify builds a safely quoted click command	test_033_focus_notify_builds_a_safely_quoted_click_comman	smoke_test.sh
-smoke.bats	34	focus-notify stays quiet for non-actionable statuses and missing pane id	test_034_focus_notify_stays_quiet_for_non_actionable_stat	smoke_test.sh
-smoke.bats	35	focus-notify uses one notification group per pane for duplicate replacement	test_035_focus_notify_uses_one_notification_group_per_pan	smoke_test.sh
-smoke.bats	36	fzf is installed and meets the command palette's version floor	test_036_fzf_is_installed_and_meets_the_command_palette_s	smoke_test.sh
-smoke.bats	37	se source script exists and passes bash syntax check	test_037_se_source_script_exists_and_passes_bash_syntax_c	smoke_test.sh
-smoke.bats	38	se --help prints usage	test_038_se_help_prints_usage	smoke_test.sh
-smoke.bats	39	se pipeline dry-run assembles smithers command with env and input JSON	test_039_se_pipeline_dry_run_assembles_smithers_command_w	smoke_test.sh
-smoke.bats	40	se pipeline forwards the single doc-review key: absent=false, --doc-review=true	test_040_se_pipeline_forwards_the_single_doc_review_key_a	smoke_test.sh
-smoke.bats	41	se pipeline dry-run honors --until=pr and --attach (no --detach)	test_041_se_pipeline_dry_run_honors_until_pr_and_attach_n	smoke_test.sh
-smoke.bats	42	se pipeline fails on nonexistent plan with reason	test_042_se_pipeline_fails_on_nonexistent_plan_with_reaso	smoke_test.sh
-smoke.bats	43	se pipeline fails on invalid --until value	test_043_se_pipeline_fails_on_invalid_until_value	smoke_test.sh
-smoke.bats	44	se pipeline without --validate-cmd succeeds (derived from plan at gate-0)	test_044_se_pipeline_without_validate_cmd_succeeds_derive	smoke_test.sh
-smoke.bats	45	se resume without runId fails with usage	test_045_se_resume_without_runid_fails_with_usage	smoke_test.sh
-smoke.bats	46	se abort dry-run maps to smithers cancel	test_046_se_abort_dry_run_maps_to_smithers_cancel	smoke_test.sh
-smoke.bats	47	se list dry-run exits 0 and maps to smithers ps	test_047_se_list_dry_run_exits_0_and_maps_to_smithers_ps	smoke_test.sh
-smoke.bats	48	se approve/deny/logs/chat dry-run pass through to smithers verbatim	test_048_se_approve_deny_logs_chat_dry_run_pass_through_t	smoke_test.sh
-smoke.bats	49	se approve without runId fails with usage	test_049_se_approve_without_runid_fails_with_usage	smoke_test.sh
-smoke.bats	50	se with unknown command fails with usage	test_050_se_with_unknown_command_fails_with_usage	smoke_test.sh
-smoke.bats	51	se symlink source for ~/.local/bin exists in dotfiles	test_051_se_symlink_source_for_local_bin_exists_in_dotfil	smoke_test.sh
-smoke.bats	52	chezmoiignore excludes smithers runtime state from management	test_052_chezmoiignore_excludes_smithers_runtime_state_fr	smoke_test.sh
-smoke.bats	53	se list --json dry-run maps to smithers ps --format json	test_053_se_list_json_dry_run_maps_to_smithers_ps_format	smoke_test.sh
-smoke.bats	54	se show dry-run maps to smithers inspect --format json	test_054_se_show_dry_run_maps_to_smithers_inspect_format	smoke_test.sh
-smoke.bats	55	se show without runId fails with usage	test_055_se_show_without_runid_fails_with_usage	smoke_test.sh
-smoke.bats	56	se show rejects run ids with shell/sql metacharacters	test_056_se_show_rejects_run_ids_with_shell_sql_metachara	smoke_test.sh
-smoke.bats	57	se usage documents list --json and show	test_057_se_usage_documents_list_json_and_show	smoke_test.sh
-smoke.bats	58	se db-path walks up past an empty runtime smithers.db (0.28 state layout)	test_058_se_db_path_walks_up_past_an_empty_runtime_smithe	smoke_test.sh
-smoke.bats	59	herdr task and child engines are deployed and executable	test_059_herdr_task_and_child_engines_are_deployed_and_ex	smoke_test.sh
-smoke.bats	60	deployed herdr child contracts expose managed supervision modes	test_060_deployed_herdr_child_contracts_expose_managed_su	smoke_test.sh
-smoke.bats	61	herdr-task-sync Claude Code hook is deployed and executable	test_061_herdr_task_sync_claude_code_hook_is_deployed_and	smoke_test.sh
-smoke.bats	62	claude settings wire the task-sync hook to prompt, session, and compact	test_062_claude_settings_wire_the_task_sync_hook_to_promp	smoke_test.sh
-smoke.bats	63	herdr-task-sync pi extension is deployed beside herdr's own	test_063_herdr_task_sync_pi_extension_is_deployed_beside	smoke_test.sh
-smoke.bats	64	Pi local private instructions focused tests pass	test_064_pi_local_private_instructions_focused_tests_pass	smoke_test.sh
-smoke.bats	65	Pi brew auto updater is deployed	test_065_pi_brew_auto_updater_is_deployed	smoke_test.sh
-smoke.bats	66	Pi brew auto updater focused tests pass	test_066_pi_brew_auto_updater_focused_tests_pass	smoke_test.sh
-smoke.bats	67	herdr-task-sync opencode plugin is deployed	test_067_herdr_task_sync_opencode_plugin_is_deployed	smoke_test.sh
-smoke.bats	68	herdr managed source preserves the U6 sidebar and ownership boundaries	test_068_herdr_managed_source_preserves_the_u6_sidebar_an	smoke_test.sh
-smoke.bats	69	herdr deployed files preserve the U6 sidebar and ownership boundaries	test_069_herdr_deployed_files_preserve_the_u6_sidebar_and	smoke_test.sh
-smoke.bats	70	herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs	test_070_herdr_pane_label_plugin_deploys_the_approved_her	smoke_test.sh
-smoke.bats	71	herdr pane-label plugin keeps startup sweep and relink deployment wiring	test_071_herdr_pane_label_plugin_keeps_startup_sweep_and	smoke_test.sh
-smoke.bats	72	starship init output embeds no absolute PATH export	test_072_starship_init_output_embeds_no_absolute_path_exp	smoke_test.sh
-smoke.bats	73	zoxide init output embeds no absolute PATH export	test_073_zoxide_init_output_embeds_no_absolute_path_expor	smoke_test.sh
-smoke.bats	74	rgrc aliases output embeds no absolute PATH export	test_074_rgrc_aliases_output_embeds_no_absolute_path_expo	smoke_test.sh
-scripts.bats	1	python3 is present and at least 3.9, the floor README.md declares	test_001_python3_is_present_and_at_least_3_9_the_floor_re	scripts_test.sh
-scripts.bats	2	lint target propagates shellcheck failures	test_002_lint_target_propagates_shellcheck_failures	scripts_test.sh
-scripts.bats	3	CI-minimal Linux render skips Homebrew but keeps the remaining setup	test_003_ci_minimal_linux_render_skips_homebrew_but_keeps	scripts_test.sh
-scripts.bats	4	full Linux render keeps Homebrew package installation	test_004_full_linux_render_keeps_homebrew_package_install	scripts_test.sh
-scripts.bats	5	CI-minimal non-Linux render keeps Homebrew package installation	test_005_ci_minimal_non_linux_render_keeps_homebrew_packa	scripts_test.sh
-scripts.bats	6	install-packages script renders as valid bash	test_006_install_packages_script_renders_as_valid_bash	scripts_test.sh
-scripts.bats	7	macos-tunes script is valid bash	test_007_macos_tunes_script_is_valid_bash	scripts_test.sh
-scripts.bats	8	darwin scripts excluded from managed list on Linux	test_008_darwin_scripts_excluded_from_managed_list_on_lin	scripts_test.sh
-scripts.bats	9	ask-in-herdr script requires arguments	test_009_ask_in_herdr_script_requires_arguments	scripts_test.sh
-scripts.bats	10	ask.sh rejects unknown agents and the removed headless flag	test_010_ask_sh_rejects_unknown_agents_and_the_removed_he	scripts_test.sh
-scripts.bats	11	ask.sh refuses outside herdr and when herdr-child is absent	test_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil	scripts_test.sh
-scripts.bats	12	ask.sh starts a read-only live child and returns its answer	test_012_ask_sh_starts_a_read_only_live_child_and_returns	scripts_test.sh
-scripts.bats	13	ask.sh keeps a settled answer when the parent reminder cannot be queued	test_013_ask_sh_keeps_a_settled_answer_when_the_parent_re	scripts_test.sh
-scripts.bats	14	ask.sh forwards posture and every native caller option	test_014_ask_sh_forwards_posture_and_every_native_caller	scripts_test.sh
-scripts.bats	15	ask.sh retries a colliding derived name with a valid suffix	test_015_ask_sh_retries_a_colliding_derived_name_with_a_v	scripts_test.sh
-scripts.bats	16	ask.sh reports blocked children after printing their answer	test_016_ask_sh_reports_blocked_children_after_printing_t	scripts_test.sh
-scripts.bats	17	ask.sh reports undelivered when child output cannot be read	test_017_ask_sh_reports_undelivered_when_child_output_can	scripts_test.sh
-scripts.bats	18	ask.sh reports a still-working child with exit 124	test_018_ask_sh_reports_a_still_working_child_with_exit_1	scripts_test.sh
-scripts.bats	19	ask.sh classifies successful waits with working, unknown, and fallback statuses	test_019_ask_sh_classifies_successful_waits_with_working	scripts_test.sh
-scripts.bats	20	ask.sh maps child start failures to refused or undelivered	test_020_ask_sh_maps_child_start_failures_to_refused_or_u	scripts_test.sh
-scripts.bats	21	herdr-child requires a subcommand and herdr environment	test_021_herdr_child_requires_a_subcommand_and_herdr_envi	scripts_test.sh
-scripts.bats	22	herdr-child refuses pi read-only before splitting a pane	test_022_herdr_child_refuses_pi_read_only_before_splittin	scripts_test.sh
-scripts.bats	23	herdr-child start requires exactly one explicit mode before Herdr mutation	test_023_herdr_child_start_requires_exactly_one_explicit	scripts_test.sh
-scripts.bats	24	herdr-child validates tab placement before Herdr mutation	test_024_herdr_child_validates_tab_placement_before_herdr	scripts_test.sh
-scripts.bats	25	herdr-child validates launch and supervision timeouts before Herdr mutation	test_025_herdr_child_validates_launch_and_supervision_tim	scripts_test.sh
-scripts.bats	26	herdr-child attached mode starts no watcher	test_026_herdr_child_attached_mode_starts_no_watcher	scripts_test.sh
-scripts.bats	27	herdr-child detached mode fails closed without a parent session	test_027_herdr_child_detached_mode_fails_closed_without_a	scripts_test.sh
-scripts.bats	28	herdr-child detached mode closes only its new pane without a child session	test_028_herdr_child_detached_mode_closes_only_its_new_pa	scripts_test.sh
-scripts.bats	29	herdr-child detached mode returns only after liveness and causal watcher arming	test_029_herdr_child_detached_mode_returns_only_after_liv	scripts_test.sh
-scripts.bats	30	herdr-child detached arm failure preserves the child and returns recovery JSON	test_030_herdr_child_detached_arm_failure_preserves_the_c	scripts_test.sh
-scripts.bats	31	herdr-child signal before prompt submission closes owned state and pane	test_031_herdr_child_signal_before_prompt_submission_clos	scripts_test.sh
-scripts.bats	32	herdr-child catchable launch signals preserve ownership after prompt submission	test_032_herdr_child_catchable_launch_signals_preserve_ow	scripts_test.sh
-scripts.bats	33	herdr-child signal and arm handshake resolves abort before reporting supervision	test_033_herdr_child_signal_and_arm_handshake_resolves_ab	scripts_test.sh
-scripts.bats	34	herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome	test_034_herdr_child_detached_watcher_ignores_stale_settl	scripts_test.sh
-scripts.bats	35	herdr-child detached timeout wakes once and later settlement wakes the same generation	test_035_herdr_child_detached_timeout_wakes_once_and_late	scripts_test.sh
-scripts.bats	36	herdr-child detached delivery follows parent terminal identity and fails closed on session replacement	test_036_herdr_child_detached_delivery_follows_parent_ter	scripts_test.sh
-scripts.bats	37	herdr-child detached delivery retries temporary parent blockage and prompt transport failure	test_037_herdr_child_detached_delivery_retries_temporary	scripts_test.sh
-scripts.bats	38	herdr-child detached delivery uses capped increasing retry backoff and one terminal failure	test_038_herdr_child_detached_delivery_uses_capped_increa	scripts_test.sh
-scripts.bats	39	herdr-child transient pane reads never become child-gone and delivery continues	test_039_herdr_child_transient_pane_reads_never_become_ch	scripts_test.sh
-scripts.bats	40	herdr-child superseded watcher cannot publish failure metadata over a new generation	test_040_herdr_child_superseded_watcher_cannot_publish_fa	scripts_test.sh
-scripts.bats	41	herdr-child watcher switches from fresh polling to sliced agent wait	test_041_herdr_child_watcher_switches_from_fresh_polling	scripts_test.sh
-scripts.bats	42	herdr-child sliced wait revalidates generation before liveness refresh	test_042_herdr_child_sliced_wait_revalidates_generation_b	scripts_test.sh
-scripts.bats	43	herdr-child sliced wait publishes one typed non-timeout failure	test_043_herdr_child_sliced_wait_publishes_one_typed_non	scripts_test.sh
-scripts.bats	44	herdr-child detached watcher rejects malformed state and child identity replacement	test_044_herdr_child_detached_watcher_rejects_malformed_s	scripts_test.sh
-scripts.bats	45	herdr-child reap invalidates before close while spontaneous loss wakes the parent	test_045_herdr_child_reap_invalidates_before_close_while	scripts_test.sh
-scripts.bats	46	herdr-child failed reap restores supervision for the kept child	test_046_herdr_child_failed_reap_restores_supervision_for	scripts_test.sh
-scripts.bats	47	herdr-child detached ask follows parent identity and suppresses its ordinary blocked wake	test_047_herdr_child_detached_ask_follows_parent_identity	scripts_test.sh
-scripts.bats	48	herdr-child attached ask follows captured parent identity after the parent moves	test_048_herdr_child_attached_ask_follows_captured_parent	scripts_test.sh
-scripts.bats	49	herdr-child callback intent suppresses blocked wake until confirmed receipt	test_049_herdr_child_callback_intent_suppresses_blocked_w	scripts_test.sh
-scripts.bats	50	herdr-child callback delivery exhaustion keeps decision waiting and blocks reap	test_050_herdr_child_callback_delivery_exhaustion_keeps_d	scripts_test.sh
-scripts.bats	51	herdr-child detached callbacks fail closed when supervision metadata is unreadable	test_051_herdr_child_detached_callbacks_fail_closed_when	scripts_test.sh
-scripts.bats	52	herdr-child detached reply advances generation and rearms later settlement	test_052_herdr_child_detached_reply_advances_generation_a	scripts_test.sh
-scripts.bats	53	herdr-child managed prompt requires a mode and attached wait observes a newer sequence	test_053_herdr_child_managed_prompt_requires_a_mode_and_a	scripts_test.sh
-scripts.bats	54	herdr-child attached prompt wait rejects the first one-step settlement after a working baseline	test_054_herdr_child_attached_prompt_wait_rejects_the_fir	scripts_test.sh
-scripts.bats	55	herdr-child managed detached prompt advances generation and preserves the child on rearm failure	test_055_herdr_child_managed_detached_prompt_advances_gen	scripts_test.sh
-scripts.bats	56	herdr-child continuation preflight failures preserve the prior generation	test_056_herdr_child_continuation_preflight_failures_pres	scripts_test.sh
-scripts.bats	57	herdr-child attached child promoted to detach asks through validated metadata	test_057_herdr_child_attached_child_promoted_to_detach_as	scripts_test.sh
-scripts.bats	58	herdr child source contracts document attached and detached lifecycle boundaries	test_058_herdr_child_source_contracts_document_attached_a	scripts_test.sh
-scripts.bats	59	herdr-child rejects invalid and live names before splitting	test_059_herdr_child_rejects_invalid_and_live_names_befor	scripts_test.sh
-scripts.bats	60	herdr-child maps claude postures and skill directories	test_060_herdr_child_maps_claude_postures_and_skill_direc	scripts_test.sh
-scripts.bats	61	herdr-child maps opencode permissions, model, and configured agent	test_061_herdr_child_maps_opencode_permissions_model_and	scripts_test.sh
-scripts.bats	62	herdr-child maps pi model, effort, skills, and question exclusion	test_062_herdr_child_maps_pi_model_effort_skills_and_ques	scripts_test.sh
-scripts.bats	63	herdr-child rejects native options that the selected kind cannot map	test_063_herdr_child_rejects_native_options_that_the_sele	scripts_test.sh
-scripts.bats	64	herdr-child splits, starts, and prompts in order with both coordinates	test_064_herdr_child_splits_starts_and_prompts_in_order_w	scripts_test.sh
-scripts.bats	65	herdr-child tab mode records ownership before starting an attached child	test_065_herdr_child_tab_mode_records_ownership_before_st	scripts_test.sh
-scripts.bats	66	herdr-child tab launch signal closes a parsed creation before ownership publication	test_066_herdr_child_tab_launch_signal_closes_a_parsed_cr	scripts_test.sh
-scripts.bats	67	herdr-child tab mode composes with detached supervision	test_067_herdr_child_tab_mode_composes_with_detached_supe	scripts_test.sh
-scripts.bats	68	herdr-child tab mode preserves malformed creations and cleans owned failures	test_068_herdr_child_tab_mode_preserves_malformed_creatio	scripts_test.sh
-scripts.bats	69	herdr-child tab mode reports the tab on timeout and names it on launch failure	test_069_herdr_child_tab_mode_reports_the_tab_on_timeout	scripts_test.sh
-scripts.bats	70	herdr-child caps startup timeout while preserving a long prompt wait	test_070_herdr_child_caps_startup_timeout_while_preservin	scripts_test.sh
-scripts.bats	71	herdr-child retries only the pane-readiness start failure	test_071_herdr_child_retries_only_the_pane_readiness_star	scripts_test.sh
-scripts.bats	72	herdr-child closes its pane after three readiness failures	test_072_herdr_child_closes_its_pane_after_three_readines	scripts_test.sh
-scripts.bats	73	herdr-child distinguishes a stalled initial prompt	test_073_herdr_child_distinguishes_a_stalled_initial_prom	scripts_test.sh
-scripts.bats	74	herdr-child preserves a working pane when the wait times out	test_074_herdr_child_preserves_a_working_pane_when_the_wa	scripts_test.sh
-scripts.bats	75	herdr-child ask requires every injected child coordinate	test_075_herdr_child_ask_requires_every_injected_child_co	scripts_test.sh
-scripts.bats	76	herdr-child ask publishes before delivery and uses the versioned marker	test_076_herdr_child_ask_publishes_before_delivery_and_us	scripts_test.sh
-scripts.bats	77	herdr-child ask leaves the label when parent lookup or delivery fails	test_077_herdr_child_ask_leaves_the_label_when_parent_loo	scripts_test.sh
-scripts.bats	78	herdr-child reply validates the live pair, delivers, then clears	test_078_herdr_child_reply_validates_the_live_pair_delive	scripts_test.sh
-scripts.bats	79	herdr-child ask and reply publish strictly increasing label sequences	test_079_herdr_child_ask_and_reply_publish_strictly_incre	scripts_test.sh
-scripts.bats	80	herdr-child reply keeps the label when delivery fails and refuses child callers	test_080_herdr_child_reply_keeps_the_label_when_delivery	scripts_test.sh
-scripts.bats	81	herdr-child reap closes only settled, unfocused, non-waiting panes	test_081_herdr_child_reap_closes_only_settled_unfocused_n	scripts_test.sh
-scripts.bats	82	herdr-child reap closes an unfocused idle pane	test_082_herdr_child_reap_closes_an_unfocused_idle_pane	scripts_test.sh
-scripts.bats	83	herdr-child reap rejects an empty expected pane	test_083_herdr_child_reap_rejects_an_empty_expected_pane	scripts_test.sh
-scripts.bats	84	herdr-child reap preserves a reused name outside the expected pane	test_084_herdr_child_reap_preserves_a_reused_name_outside	scripts_test.sh
-scripts.bats	85	herdr-child reap preserves a pane when fresh state no longer matches	test_085_herdr_child_reap_preserves_a_pane_when_fresh_sta	scripts_test.sh
-scripts.bats	86	herdr-child reap refuses outside herdr and from a child pane	test_086_herdr_child_reap_refuses_outside_herdr_and_from	scripts_test.sh
-scripts.bats	87	herdr-child reap preserves a settled pane with a waiting label	test_087_herdr_child_reap_preserves_a_settled_pane_with_a	scripts_test.sh
-scripts.bats	88	herdr-child reap preserves a settled pane when pane metadata is malformed	test_088_herdr_child_reap_preserves_a_settled_pane_when_p	scripts_test.sh
-scripts.bats	89	herdr-child reap closes a positively owned one-pane tab	test_089_herdr_child_reap_closes_a_positively_owned_one_p	scripts_test.sh
-scripts.bats	90	herdr-child reap closes the child pane but reports a surviving multi-pane tab	test_090_herdr_child_reap_closes_the_child_pane_but_repor	scripts_test.sh
-scripts.bats	91	herdr-child reap preserves ambiguous tab ownership	test_091_herdr_child_reap_preserves_ambiguous_tab_ownersh	scripts_test.sh
-scripts.bats	92	herdr-child tab reap invalidates detached supervision before close	test_092_herdr_child_tab_reap_invalidates_detached_superv	scripts_test.sh
-scripts.bats	93	herdr-integrations script exits 0 and skips when herdr is absent	test_093_herdr_integrations_script_exits_0_and_skips_when	scripts_test.sh
-scripts.bats	94	fff-grep-guard denies a query of several bare words	test_094_fff_grep_guard_denies_a_query_of_several_bare_wo	scripts_test.sh
-scripts.bats	95	fff-grep-guard stays silent on a single identifier	test_095_fff_grep_guard_stays_silent_on_a_single_identifi	scripts_test.sh
-scripts.bats	96	fff-grep-guard stays silent on a path-scoped or glob-scoped query	test_096_fff_grep_guard_stays_silent_on_a_path_scoped_or	scripts_test.sh
-scripts.bats	97	fff-grep-guard fails open on malformed input	test_097_fff_grep_guard_fails_open_on_malformed_input	scripts_test.sh
-scripts.bats	98	webfetch-markdown-hint adds context for a plain URL	test_098_webfetch_markdown_hint_adds_context_for_a_plain	scripts_test.sh
-scripts.bats	99	webfetch-markdown-hint stays silent when the URL already uses markdown.new	test_099_webfetch_markdown_hint_stays_silent_when_the_url	scripts_test.sh
-scripts.bats	100	settings template registers both PreToolUse hooks with their matchers	test_100_settings_template_registers_both_pretooluse_hook	scripts_test.sh
-scripts.bats	101	herdr-task-sync descriptor probe lives in a one-test Bats file	test_101_herdr_task_sync_descriptor_probe_lives_in_a_one	scripts_test.sh
-scripts.bats	102	herdr-task-sync bounded Bats invocation exits after detached work	test_102_herdr_task_sync_bounded_bats_invocation_exits_af	scripts_test.sh
-scripts.bats	103	herdr-task-sync bounded Bats invocation refuses a vacuous run	test_103_herdr_task_sync_bounded_bats_invocation_refuses	scripts_test.sh
-scripts.bats	104	herdr-task-sync harness fresh reads follow pane and tab mutations	test_104_herdr_task_sync_harness_fresh_reads_follow_pane	scripts_test.sh
-scripts.bats	105	herdr-task-sync harness controls reverse model completion by generation	test_105_herdr_task_sync_harness_controls_reverse_model_c	scripts_test.sh
-scripts.bats	106	herdr-task-sync harness isolates colliding sanitized socket names	test_106_herdr_task_sync_harness_isolates_colliding_sanit	scripts_test.sh
-scripts.bats	107	herdr-task-sync harness applies source metadata sequence and clear rules	test_107_herdr_task_sync_harness_applies_source_metadata	scripts_test.sh
-scripts.bats	108	herdr-task-sync harness models target loss move reuse and final-read change	test_108_herdr_task_sync_harness_models_target_loss_move	scripts_test.sh
-scripts.bats	109	herdr-task-sync latest committed request survives stale completion and a third request	test_109_herdr_task_sync_latest_committed_request_survive	scripts_test.sh
-scripts.bats	110	herdr-task-sync active native session fences reused pane and session identifiers	test_110_herdr_task_sync_active_native_session_fences_reu	scripts_test.sh
-scripts.bats	111	herdr-task-sync prompt transcript and direct set share one committed-generation contract	test_111_herdr_task_sync_prompt_transcript_and_direct_set	scripts_test.sh
-scripts.bats	112	herdr-task-sync failed latest model retains newest context and prior slug	test_112_herdr_task_sync_failed_latest_model_retains_newe	scripts_test.sh
-scripts.bats	113	herdr-task-sync atomic records never expose truncation or mixed fields	test_113_herdr_task_sync_atomic_records_never_expose_trun	scripts_test.sh
-scripts.bats	114	herdr-task-sync one-way legacy import is atomic idempotent and ignores late legacy writes	test_114_herdr_task_sync_one_way_legacy_import_is_atomic	scripts_test.sh
-scripts.bats	115	herdr-task-sync restart recovers accepted and interrupted worker generations	test_115_herdr_task_sync_restart_recovers_accepted_and_in	scripts_test.sh
-scripts.bats	116	herdr-task-sync clock rollback and restart cannot lower generation or task high-water	test_116_herdr_task_sync_clock_rollback_and_restart_canno	scripts_test.sh
-scripts.bats	117	herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions	test_117_herdr_task_sync_exact_socket_namespaces_survive	scripts_test.sh
-scripts.bats	118	herdr-task-sync fail-open guard ignores terminal input and preserves redirected input	test_118_herdr_task_sync_fail_open_guard_ignores_terminal	scripts_test.sh
-scripts.bats	119	herdr-task-sync fail-open deadline rejects late success before the hang guard	test_119_herdr_task_sync_fail_open_deadline_rejects_late	scripts_test.sh
-scripts.bats	120	herdr-task-sync fail-open guard uses the greater baseline	test_120_herdr_task_sync_fail_open_guard_uses_the_greater	scripts_test.sh
-scripts.bats	121	herdr-task-sync fails open for missing tools contention write failure and malformed input	test_121_herdr_task_sync_fails_open_for_missing_tools_con	scripts_test.sh
-scripts.bats	122	herdr-task-sync orders adapter calls by inbox commit rather than invocation start	test_122_herdr_task_sync_orders_adapter_calls_by_inbox_co	scripts_test.sh
-scripts.bats	123	herdr-task-sync adapters return when a direct engine hangs	test_123_herdr_task_sync_adapters_return_when_a_direct_en	scripts_test.sh
-scripts.bats	124	herdr-task-sync opencode forgets a deleted child session	test_124_herdr_task_sync_opencode_forgets_a_deleted_child	scripts_test.sh
-scripts.bats	125	herdr-task-sync presentation coordinates concurrent panes in one shared tab	test_125_herdr_task_sync_presentation_coordinates_concurr	scripts_test.sh
-scripts.bats	126	herdr-task-sync presentation accepts pi jsonl path sessions that end with the active session id	test_126_herdr_task_sync_presentation_accepts_pi_jsonl_pa	scripts_test.sh
-scripts.bats	127	herdr-task-sync presentation labels a detected agent without task state	test_127_herdr_task_sync_presentation_labels_a_detected_a	scripts_test.sh
-scripts.bats	128	herdr-task-sync presentation publishes only the newest accepted generation	test_128_herdr_task_sync_presentation_publishes_only_the	scripts_test.sh
-scripts.bats	129	herdr-task-sync presentation coalesces event bursts into an active pass and rerun	test_129_herdr_task_sync_presentation_coalesces_event_bur	scripts_test.sh
-scripts.bats	130	herdr-task-sync presentation retries a newer invalidation after transient pass failure	test_130_herdr_task_sync_presentation_retries_a_newer_inv	scripts_test.sh
-scripts.bats	131	herdr-task-sync presentation release recheck does not lose a pending invalidation	test_131_herdr_task_sync_presentation_release_recheck_doe	scripts_test.sh
-scripts.bats	132	herdr-task-sync event presentation leaves the hook process group	test_132_herdr_task_sync_event_presentation_leaves_the_ho	scripts_test.sh
-scripts.bats	133	herdr-task-sync presentation automatically corrects divergent pane and tab labels	test_133_herdr_task_sync_presentation_automatically_corre	scripts_test.sh
-scripts.bats	134	herdr-task-sync presentation drops a malformed-width record and keeps labeling the rest	test_134_herdr_task_sync_presentation_drops_a_malformed_w	scripts_test.sh
-scripts.bats	135	herdr-task-sync presentation skips pre-read deletion and repairs the post-read race next pass	test_135_herdr_task_sync_presentation_skips_pre_read_dele	scripts_test.sh
-scripts.bats	136	herdr-task-sync presentation skips reused pane and tab identities at the final read	test_136_herdr_task_sync_presentation_skips_reused_pane_a	scripts_test.sh
-scripts.bats	137	herdr-task-sync age cleanup removes only inactive task payloads	test_137_herdr_task_sync_age_cleanup_removes_only_inactiv	scripts_test.sh
-scripts.bats	138	herdr-task-sync presentation preserves state on incomplete and transient snapshots	test_138_herdr_task_sync_presentation_preserves_state_on	scripts_test.sh
-scripts.bats	139	herdr-task-sync naming worker never age-cleans tasks without safe snapshot ownership	test_139_herdr_task_sync_naming_worker_never_age_cleans_t	scripts_test.sh
-scripts.bats	140	herdr-task-sync presentation isolates exact colliding socket identities	test_140_herdr_task_sync_presentation_isolates_exact_coll	scripts_test.sh
-scripts.bats	141	herdr-task-sync presentation recovers stale and half-created owner claims	test_141_herdr_task_sync_presentation_recovers_stale_and	scripts_test.sh
-scripts.bats	142	herdr-task-sync presentation resumes safely across durable crash boundaries	test_142_herdr_task_sync_presentation_resumes_safely_acro	scripts_test.sh
-scripts.bats	143	herdr-task-sync presentation self-events converge to a no-op	test_143_herdr_task_sync_presentation_self_events_converg	scripts_test.sh
-scripts.bats	144	herdr-task-sync presentation fails closed without an exact socket	test_144_herdr_task_sync_presentation_fails_closed_withou	scripts_test.sh
-scripts.bats	145	herdr-task-sync presentation restart recomputes durable pending intent without a label ledger	test_145_herdr_task_sync_presentation_restart_recomputes	scripts_test.sh
-scripts.bats	146	herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics	test_146_herdr_task_sync_location_resolves_main_linked_ne	scripts_test.sh
-scripts.bats	147	herdr-task-sync dangling administrative gitdir retains stale location	test_147_herdr_task_sync_dangling_administrative_gitdir_r	scripts_test.sh
-scripts.bats	148	herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water	test_148_herdr_task_sync_location_detached_publishes_a_co	scripts_test.sh
-scripts.bats	149	herdr-task-sync location real probe shape pays the second sha call only when detached	test_149_herdr_task_sync_location_real_probe_shape_pays_t	scripts_test.sh
-scripts.bats	150	herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref	test_150_herdr_task_sync_location_detached_sha_failure_re	scripts_test.sh
-scripts.bats	151	herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals	test_151_herdr_task_sync_location_detached_sha_budget_fai	scripts_test.sh
-scripts.bats	152	herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths	test_152_herdr_task_sync_location_clears_the_retired_loca	scripts_test.sh
-scripts.bats	153	herdr-task-sync location transient modes retain identity as stale without foreground fallback	test_153_herdr_task_sync_location_transient_modes_retain	scripts_test.sh
-scripts.bats	154	herdr-task-sync coordinator resolves eight pane locations concurrently within one event envelope	test_154_herdr_task_sync_coordinator_resolves_eight_pane	scripts_test.sh
-scripts.bats	155	herdr-task-sync no-op location event preserves the state file	test_155_herdr_task_sync_no_op_location_event_preserves_t	scripts_test.sh
-scripts.bats	156	herdr-task-sync transient location preserves live token-only identity when retained state is unavailable	test_156_herdr_task_sync_transient_location_preserves_liv	scripts_test.sh
-scripts.bats	157	herdr-task-sync location authoritative worktree deletion clears retained evidence	test_157_herdr_task_sync_location_authoritative_worktree	scripts_test.sh
-scripts.bats	158	herdr-task-sync formatter keeps Git refs in metadata and tab labels names-only	test_158_herdr_task_sync_formatter_keeps_git_refs_in_meta	scripts_test.sh
-scripts.bats	159	herdr-task-sync formatter renders a main checkout ref in metadata only	test_159_herdr_task_sync_formatter_renders_a_main_checkou	scripts_test.sh
-scripts.bats	160	herdr-task-sync formatter renders a worktree ref in metadata only	test_160_herdr_task_sync_formatter_renders_a_worktree_ref	scripts_test.sh
-scripts.bats	161	herdr-task-sync formatter keeps a Git-backed all-idle tab names-only	test_161_herdr_task_sync_formatter_keeps_a_git_backed_all	scripts_test.sh
-scripts.bats	162	herdr-task-sync Git-only location changes do not rename a names-only tab	test_162_herdr_task_sync_git_only_location_changes_do_not	scripts_test.sh
-scripts.bats	163	herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder	test_163_herdr_task_sync_formatter_keeps_the_folder_quali	scripts_test.sh
-scripts.bats	164	herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent	test_164_herdr_task_sync_formatter_reads_the_workspace_di	scripts_test.sh
-scripts.bats	165	herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon	test_165_herdr_task_sync_formatter_gives_a_detached_head	scripts_test.sh
-scripts.bats	166	herdr-task-sync formatter qualifies a divergent worktree folder in metadata only	test_166_herdr_task_sync_formatter_qualifies_a_divergent	scripts_test.sh
-scripts.bats	167	herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels	test_167_herdr_task_sync_formatter_keeps_mixed_git_identi	scripts_test.sh
-scripts.bats	168	herdr-task-sync formatter joins only pane labels when three panes span two repositories	test_168_herdr_task_sync_formatter_joins_only_pane_labels	scripts_test.sh
-scripts.bats	169	herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions	test_169_herdr_task_sync_worktree_tokens_use_shortest_uni	scripts_test.sh
-scripts.bats	170	herdr-task-sync worktree tokens digest overlong roots and extend colliding digest prefixes	test_170_herdr_task_sync_worktree_tokens_digest_overlong	scripts_test.sh
-scripts.bats	171	herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering	test_171_herdr_task_sync_worktree_token_ordinal_fallback	scripts_test.sh
-scripts.bats	172	herdr-task-sync long branch refs stay in metadata and do not alter the tab label	test_172_herdr_task_sync_long_branch_refs_stay_in_metadat	scripts_test.sh
-scripts.bats	173	herdr-task-sync long repository names do not alter a multi-repo tab label	test_173_herdr_task_sync_long_repository_names_do_not_alt	scripts_test.sh
-scripts.bats	174	herdr-task-sync location clears a retired location_label even when every published token already matches	test_174_herdr_task_sync_location_clears_a_retired_locati	scripts_test.sh
-scripts.bats	175	herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state	test_175_herdr_task_sync_location_and_formatter_add_only	scripts_test.sh
-scripts.bats	176	herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref	test_176_herdr_task_sync_publishes_dirty_ahead_and_behind	scripts_test.sh
-scripts.bats	177	herdr-task-sync clean checkout carries no counts token and republishes when only the counts change	test_177_herdr_task_sync_clean_checkout_carries_no_counts	scripts_test.sh
-scripts.bats	178	herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked	test_178_herdr_task_sync_counts_every_changed_path_once_w	scripts_test.sh
-scripts.bats	179	herdr-task-sync omits ahead and behind when the branch has no upstream	test_179_herdr_task_sync_omits_ahead_and_behind_when_the	scripts_test.sh
-scripts.bats	180	herdr-task-sync clears the counts token when a pane leaves a Git checkout	test_180_herdr_task_sync_clears_the_counts_token_when_a_p	scripts_test.sh
-scripts.bats	181	herdr-task-sync status probe over budget drops the counts and leaves git_ref intact	test_181_herdr_task_sync_status_probe_over_budget_drops_t	scripts_test.sh
-scripts.bats	182	herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory	test_182_herdr_task_sync_agent_pane_follows_the_directory	scripts_test.sh
-scripts.bats	183	herdr-task-sync keeps the counts when only the identity probe misses its budget	test_183_herdr_task_sync_keeps_the_counts_when_only_the_i	scripts_test.sh
-scripts.bats	184	herdr-task-sync counts untracked paths its way, not the user git config's way	test_184_herdr_task_sync_counts_untracked_paths_its_way_n	scripts_test.sh
-scripts.bats	185	herdr-task-sync writer and reader agree on the record name for an awkward session id	test_185_herdr_task_sync_writer_and_reader_agree_on_the_r	scripts_test.sh
-scripts.bats	186	herdr-task-sync falls back to the pane cwd when the reported directory is gone	test_186_herdr_task_sync_falls_back_to_the_pane_cwd_when	scripts_test.sh
-scripts.bats	187	herdr-task-sync ignores an agent directory report that is not an absolute path	test_187_herdr_task_sync_ignores_an_agent_directory_repor	scripts_test.sh
-scripts.bats	188	herdr-task-sync reads the newest agent directory report when a session moves twice before a sweep	test_188_herdr_task_sync_reads_the_newest_agent_directory	scripts_test.sh
-scripts.bats	189	herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations	test_189_herdr_task_sync_plugin_exposes_only_the_approved	scripts_test.sh
-scripts.bats	190	herdr-task-sync plugin wrappers invoke one engine mode and isolate failures	test_190_herdr_task_sync_plugin_wrappers_invoke_one_engin	scripts_test.sh
-scripts.bats	191	herdr-task-sync event requests reconciliation and ensures the daemon fail-open	test_191_herdr_task_sync_event_requests_reconciliation_an	scripts_test.sh
-scripts.bats	192	herdr-task-sync sweep repairs an external pane rename without pane.updated	test_192_herdr_task_sync_sweep_repairs_an_external_pane_r	scripts_test.sh
-scripts.bats	193	herdr-task-sync sweep repairs process and CWD changes through the presentation coordinator	test_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch	scripts_test.sh
-scripts.bats	194	herdr-task-sync stays silent outside herdr	test_194_herdr_task_sync_stays_silent_outside_herdr	scripts_test.sh
-scripts.bats	195	herdr-task-sync publishes the engine slug and stores it (R4, R7)	test_195_herdr_task_sync_publishes_the_engine_slug_and_st	scripts_test.sh
-scripts.bats	196	herdr-task-sync keeps the slug on a continuation prompt (AE1)	test_196_herdr_task_sync_keeps_the_slug_on_a_continuation	scripts_test.sh
-scripts.bats	197	herdr-task-sync publishes nothing when no engine is usable (AE3, R5)	test_197_herdr_task_sync_publishes_nothing_when_no_engine	scripts_test.sh
-scripts.bats	198	herdr-task-sync resets the stored context on a new session id	test_198_herdr_task_sync_resets_the_stored_context_on_a_n	scripts_test.sh
-scripts.bats	199	herdr-task-sync returns before the naming engine finishes (R8)	test_199_herdr_task_sync_returns_before_the_naming_engine	scripts_test.sh
-scripts.bats	200	herdr-task-sync normalizes a hostile engine slug (KTD8)	test_200_herdr_task_sync_normalizes_a_hostile_engine_slug	scripts_test.sh
-scripts.bats	201	herdr-task-sync exits under the recursion guard (KTD7)	test_201_herdr_task_sync_exits_under_the_recursion_guard	scripts_test.sh
-scripts.bats	202	herdr-task-sync falls back to claude when pi fails (KTD1)	test_202_herdr_task_sync_falls_back_to_claude_when_pi_fai	scripts_test.sh
-scripts.bats	203	herdr-task-sync publishes nothing when both engines time out (KTD1)	test_203_herdr_task_sync_publishes_nothing_when_both_engi	scripts_test.sh
-scripts.bats	204	herdr-task-sync creates its state directory with mode 700 (KTD3)	test_204_herdr_task_sync_creates_its_state_directory_with	scripts_test.sh
-scripts.bats	205	herdr-task-sync names a session from its transcript (AE5)	test_205_herdr_task_sync_names_a_session_from_its_transcr	scripts_test.sh
-scripts.bats	206	herdr-task-sync publishes nothing for an empty prompt without a transcript	test_206_herdr_task_sync_publishes_nothing_for_an_empty_p	scripts_test.sh
-scripts.bats	207	herdr-task-sync --set publishes a normalized name with no engine call (AE6)	test_207_herdr_task_sync_set_publishes_a_normalized_name	scripts_test.sh
-scripts.bats	208	herdr-task-sync names the pane with the agent prefix	test_208_herdr_task_sync_names_the_pane_with_the_agent_pr	scripts_test.sh
-scripts.bats	209	herdr-task-sync falls back to a letter prefix for an unknown agent	test_209_herdr_task_sync_falls_back_to_a_letter_prefix_fo	scripts_test.sh
-scripts.bats	210	herdr-task-sync rebuilds the tab label from the pane labels	test_210_herdr_task_sync_rebuilds_the_tab_label_from_the	scripts_test.sh
-scripts.bats	211	herdr-task-sync names a command pane after the process group leader	test_211_herdr_task_sync_names_a_command_pane_after_the_p	scripts_test.sh
-scripts.bats	212	herdr-task-sync names an idle pane with the placeholder	test_212_herdr_task_sync_names_an_idle_pane_with_the_plac	scripts_test.sh
-scripts.bats	213	herdr-task-sync presentation numbers an all-idle tab	test_213_herdr_task_sync_presentation_numbers_an_all_idle	scripts_test.sh
-scripts.bats	214	herdr-task-sync truncates a long command name	test_214_herdr_task_sync_truncates_a_long_command_name	scripts_test.sh
-scripts.bats	215	herdr-task-sync --sweep relabels every tab	test_215_herdr_task_sync_sweep_relabels_every_tab	scripts_test.sh
-scripts.bats	216	herdr-task-sync --sweep leaves an unchanged tab label alone	test_216_herdr_task_sync_sweep_leaves_an_unchanged_tab_la	scripts_test.sh
-scripts.bats	217	herdr-task-sync --sweep numbers all-idle tabs per workspace	test_217_herdr_task_sync_sweep_numbers_all_idle_tabs_per	scripts_test.sh
-scripts.bats	218	herdr-task-sync --ensure-daemon keeps a single daemon	test_218_herdr_task_sync_ensure_daemon_keeps_a_single_dae	scripts_test.sh
-scripts.bats	219	herdr-task-sync --ensure-daemon replaces a dead daemon	test_219_herdr_task_sync_ensure_daemon_replaces_a_dead_da	scripts_test.sh
-scripts.bats	220	herdr-task-sync --restart-daemon replaces a live daemon	test_220_herdr_task_sync_restart_daemon_replaces_a_live_d	scripts_test.sh
-scripts.bats	221	herdr-task-sync --restart-daemon refuses an unrelated lock owner	test_221_herdr_task_sync_restart_daemon_refuses_an_unrela	scripts_test.sh
-scripts.bats	222	herdr-task-sync sweep daemon exits after three unreachable snapshots	test_222_herdr_task_sync_sweep_daemon_exits_after_three_u	scripts_test.sh
-scripts.bats	223	herdr-task-sync hook stays silent and publishes nothing outside herdr	test_223_herdr_task_sync_hook_stays_silent_and_publishes	scripts_test.sh
-scripts.bats	224	herdr-task-sync hook writes nothing to stdout when the engine runs	test_224_herdr_task_sync_hook_writes_nothing_to_stdout_wh	scripts_test.sh
-scripts.bats	225	herdr-task-sync hook forwards the prompt, session, and transcript	test_225_herdr_task_sync_hook_forwards_the_prompt_session	scripts_test.sh
-scripts.bats	226	herdr-task-sync hook calls transcript mode on session start and compact	test_226_herdr_task_sync_hook_calls_transcript_mode_on_se	scripts_test.sh
-scripts.bats	227	herdr-task-sync hook drops subagent traffic (R3)	test_227_herdr_task_sync_hook_drops_subagent_traffic_r3	scripts_test.sh
-scripts.bats	228	herdr-task-sync hook survives malformed stdin	test_228_herdr_task_sync_hook_survives_malformed_stdin	scripts_test.sh
-scripts.bats	229	se pipeline --setup-cmd lands in the workflow input JSON	test_229_se_pipeline_setup_cmd_lands_in_the_workflow_inpu	scripts_test.sh
-scripts.bats	230	se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON	test_230_se_flow_dry_run_lands_spec_path_budget_and_setup	scripts_test.sh
-scripts.bats	231	se flow --validate-cmd lands the operator's command in the workflow input JSON	test_231_se_flow_validate_cmd_lands_the_operator_s_comman	scripts_test.sh
-scripts.bats	232	se flow without --validate-cmd sends an empty command, not a missing key	test_232_se_flow_without_validate_cmd_sends_an_empty_comm	scripts_test.sh
-scripts.bats	233	se flow --dry-run prints the composed flow with a cost estimate (R10)	test_233_se_flow_dry_run_prints_the_composed_flow_with_a	scripts_test.sh
-scripts.bats	234	se flow refuses a spec the validator rejects, before launching	test_234_se_flow_refuses_a_spec_the_validator_rejects_bef	scripts_test.sh
-scripts.bats	235	se flow rejects a non-numeric budget	test_235_se_flow_rejects_a_non_numeric_budget	scripts_test.sh
-scripts.bats	236	se show prints the pending approval's title and reasons, not just a status word	test_236_se_show_prints_the_pending_approval_s_title_and	scripts_test.sh
-scripts.bats	237	se approve prints what is being decided before recording the decision	test_237_se_approve_prints_what_is_being_decided_before_r	scripts_test.sh
-scripts.bats	238	se show on a run with no pending approval prints no decision block	test_238_se_show_on_a_run_with_no_pending_approval_prints	scripts_test.sh
-scripts.bats	239	se approve resumes a parked run that nothing is driving	test_239_se_approve_resumes_a_parked_run_that_nothing_is	scripts_test.sh
-scripts.bats	240	se approve --no-resume records the decision without driving the run	test_240_se_approve_no_resume_records_the_decision_withou	scripts_test.sh
-scripts.bats	241	se approve refuses to resume a run a live process already owns	test_241_se_approve_refuses_to_resume_a_run_a_live_proces	scripts_test.sh
-scripts.bats	242	se approve does not resume a run that already finished	test_242_se_approve_does_not_resume_a_run_that_already_fi	scripts_test.sh
-scripts.bats	243	se approve usage does not promise that approve continues the run	test_243_se_approve_usage_does_not_promise_that_approve_c	scripts_test.sh
-scripts.bats	244	se blocks --json emits the composable block catalog	test_244_se_blocks_json_emits_the_composable_block_catalo	scripts_test.sh
-scripts.bats	245	Claude settings modifier registers the executor MCP server over stdio	test_245_claude_settings_modifier_registers_the_executor	scripts_test.sh
-scripts.bats	246	Claude settings modifier passes settings through untouched without 1Password	test_246_claude_settings_modifier_passes_settings_through	scripts_test.sh
-scripts.bats	247	Pi settings modifier selects the terminal theme and exact extension packages	test_247_pi_settings_modifier_selects_the_terminal_theme	scripts_test.sh
-scripts.bats	248	Pi settings modifier is idempotent	test_248_pi_settings_modifier_is_idempotent	scripts_test.sh
-scripts.bats	249	Pi terminal theme uses only terminal palette colors	test_249_pi_terminal_theme_uses_only_terminal_palette_col	scripts_test.sh
-scripts.bats	250	Claude Code daltonized theme extends light ANSI with terminal colors	test_250_claude_code_daltonized_theme_extends_light_ansi	scripts_test.sh
-scripts.bats	251	morning-cleanup trashes stale .omc state and stamps the day	test_251_morning_cleanup_trashes_stale_omc_state_and_stam	scripts_test.sh
-scripts.bats	252	morning-cleanup keeps a recently active .omc dir	test_252_morning_cleanup_keeps_a_recently_active_omc_dir	scripts_test.sh
-scripts.bats	253	morning-cleanup is a no-op on its second run of the day	test_253_morning_cleanup_is_a_no_op_on_its_second_run_of	scripts_test.sh
-scripts.bats	254	morning-cleanup keeps fresh trash entries	test_254_morning_cleanup_keeps_fresh_trash_entries	scripts_test.sh
-idempotent.bats	1	chezmoi apply is idempotent and leaves no pending diff	test_001_chezmoi_apply_is_idempotent_and_leaves_no_pendin	idempotent_test.sh
-idempotent.bats	2	chezmoi verify succeeds	test_002_chezmoi_verify_succeeds	idempotent_test.sh
-idempotent.bats	3	guard: MMS_DISPOSABLE_HOME=1 yields the run verdict	test_003_guard_mms_disposable_home_1_yields_the_run_verdi	idempotent_test.sh
-idempotent.bats	4	guard: no marker and no platform fact yields the skip verdict	test_004_guard_no_marker_and_no_platform_fact_yields_the	idempotent_test.sh
-idempotent.bats	5	guard: an empty marker does not yield run	test_005_guard_an_empty_marker_does_not_yield_run	idempotent_test.sh
-idempotent.bats	6	guard: MMS_DISPOSABLE_HOME=0 does not yield run	test_006_guard_mms_disposable_home_0_does_not_yield_run	idempotent_test.sh
-idempotent.bats	7	guard: MMS_DISPOSABLE_HOME=true does not yield run	test_007_guard_mms_disposable_home_true_does_not_yield_ru	idempotent_test.sh
-idempotent.bats	8	guard: an exported CI does not yield run	test_008_guard_an_exported_ci_does_not_yield_run	idempotent_test.sh
-idempotent.bats	9	guard: GITHUB_ACTIONS without the marker yields misconfigured	test_009_guard_github_actions_without_the_marker_yields_m	idempotent_test.sh
-idempotent.bats	10	guard: every disposable environment declares the marker	test_010_guard_every_disposable_environment_declares_the	idempotent_test.sh
-idempotent.bats	11	guard: the marker's claim covers chezmoi's real destination	test_011_guard_the_marker_s_claim_covers_chezmoi_s_real_d	idempotent_test.sh
-idempotent.bats	12	guard: the skip message names make test-ubuntu and the marker	test_012_guard_the_skip_message_names_make_test_ubuntu_an	idempotent_test.sh
-idempotent.bats	13	guard: the misconfigured message names the marker's write sites	test_013_guard_the_misconfigured_message_names_the_marker	idempotent_test.sh
+platform.bats	1	chezmoiignore filters macOS files on Linux	test_platform_001_chezmoiignore_filters_macos_files_on_linux	platform_test.sh
+platform.bats	2	chezmoiignore includes macOS files on macOS	test_platform_002_chezmoiignore_includes_macos_files_on_macos	platform_test.sh
+palette.bats	1	python3 is present and at least 3.9, the floor README.md declares	test_palette_001_python3_is_present_and_at_least_3_9_the_floor_re	palette_test.sh
+palette.bats	2	a missing python3 is rejected	test_palette_002_a_missing_python3_is_rejected	palette_test.sh
+palette.bats	3	a python3 below the floor, or one answering with junk, is rejected	test_palette_003_a_python3_below_the_floor_or_one_answering_with	palette_test.sh
+palette.bats	4	palette sources under SOURCE_ROOT compile	test_palette_004_palette_sources_under_source_root_compile	palette_test.sh
+palette.bats	5	Open in Zed resolves a nested repository directory and reuses the Zed window	test_palette_005_open_in_zed_resolves_a_nested_repository_directo	palette_test.sh
+palette.bats	6	Open in Zed falls back to a valid non-Git directory	test_palette_006_open_in_zed_falls_back_to_a_valid_non_git_direct	palette_test.sh
+palette.bats	7	Open in Zed rejects an empty directory before starting Zed	test_palette_007_open_in_zed_rejects_an_empty_directory_before_st	palette_test.sh
+palette.bats	8	Open in Zed rejects a missing directory before starting Zed	test_palette_008_open_in_zed_rejects_a_missing_directory_before_s	palette_test.sh
+palette.bats	9	Open in Zed resolves Zed from PATH and returns its exit status	test_palette_009_open_in_zed_resolves_zed_from_path_and_returns_i	palette_test.sh
+palette.bats	10	Open in Zed rejects an invalid configured executable	test_palette_010_open_in_zed_rejects_an_invalid_configured_execut	palette_test.sh
+palette.bats	11	Open in Zed reports its bounded timeout	test_palette_011_open_in_zed_reports_its_bounded_timeout	palette_test.sh
+palette.bats	12	Open in Zed uses the standard macOS CLI fallback	test_palette_012_open_in_zed_uses_the_standard_macos_cli_fallback	palette_test.sh
+palette.bats	13	--validate accepts the real commands.toml and names the command count	test_palette_013_validate_accepts_the_real_commands_toml_and_name	palette_test.sh
+palette.bats	14	--validate rejects an unsupported command type	test_palette_014_validate_rejects_an_unsupported_command_type	palette_test.sh
+palette.bats	15	load_commands reads a fixture config from the source tree	test_palette_015_load_commands_reads_a_fixture_config_from_the_so	palette_test.sh
+palette.bats	16	R1: lg ranks Lazygit in popup first	test_palette_016_r1_lg_ranks_lazygit_in_popup_first	palette_test.sh
+palette.bats	17	R1: ws ranks Switch workspace first	test_palette_017_r1_ws_ranks_switch_workspace_first	palette_test.sh
+palette.bats	18	R1: edit ranks Edit command palette config first	test_palette_018_r1_edit_ranks_edit_command_palette_config_first	palette_test.sh
+palette.bats	19	R1: zed ranks Open in Zed first, and returns only it	test_palette_019_r1_zed_ranks_open_in_zed_first_and_returns_only	palette_test.sh
+palette.bats	20	R1: main ranks Merge main branch first	test_palette_020_r1_main_ranks_merge_main_branch_first	palette_test.sh
+palette.bats	21	R1: lazy ranks Lazygit in popup first	test_palette_021_r1_lazy_ranks_lazygit_in_popup_first	palette_test.sh
+palette.bats	22	R10: the Cyrillic shortcuts rank their command first	test_palette_022_r10_the_cyrillic_shortcuts_rank_their_command_fi	palette_test.sh
+palette.bats	23	R1: the title tier is case-insensitive	test_palette_023_r1_the_title_tier_is_case_insensitive	palette_test.sh
+palette.bats	24	R10: a half-typed shortcut still matches by prefix	test_palette_024_r10_a_half_typed_shortcut_still_matches_by_prefi	palette_test.sh
+palette.bats	25	R10: shortcut matching is case-insensitive	test_palette_025_r10_shortcut_matching_is_case_insensitive	palette_test.sh
+palette.bats	26	R10: a decoy title cannot displace a shortcut hit	test_palette_026_r10_a_decoy_title_cannot_displace_a_shortcut_hit	palette_test.sh
+palette.bats	27	R2: a query matching no title and no shortcut returns nothing	test_palette_027_r2_a_query_matching_no_title_and_no_shortcut_ret	palette_test.sh
+palette.bats	28	R2: an empty query returns every command in group order	test_palette_028_r2_an_empty_query_returns_every_command_in_group	palette_test.sh
+palette.bats	29	a command with no shortcuts still matches by title	test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit	palette_test.sh
+palette.bats	30	a title containing a tab does not corrupt the index mapping	test_palette_030_a_title_containing_a_tab_does_not_corrupt_the_in	palette_test.sh
+palette.bats	31	--validate rejects a malformed shortcuts value	test_palette_031_validate_rejects_a_malformed_shortcuts_value	palette_test.sh
+palette.bats	32	the fallback TOML parser reads a shortcuts array	test_palette_032_the_fallback_toml_parser_reads_a_shortcuts_array	palette_test.sh
+palette.bats	33	select options rank through the same scorer	test_palette_033_select_options_rank_through_the_same_scorer	palette_test.sh
+palette.bats	34	R3: every command is reachable at 40 commands in 8 groups	test_palette_034_r3_every_command_is_reachable_at_40_commands_in	palette_test.sh
+palette.bats	35	R3: the last drawn row never reaches the description line	test_palette_035_r3_the_last_drawn_row_never_reaches_the_descript	palette_test.sh
+palette.bats	36	R3: ten commands still render unscrolled	test_palette_036_r3_ten_commands_still_render_unscrolled	palette_test.sh
+palette.bats	37	R3: a single group with no extra headers still scrolls	test_palette_037_r3_a_single_group_with_no_extra_headers_still_sc	palette_test.sh
+palette.bats	38	R4: pane_run refuses a pane an agent owns and says why	test_palette_038_r4_pane_run_refuses_a_pane_an_agent_owns_and_say	palette_test.sh
+palette.bats	39	R4: pane_run proceeds when no agent owns the pane	test_palette_039_r4_pane_run_proceeds_when_no_agent_owns_the_pane	palette_test.sh
+palette.bats	40	R4: a failed pane lookup is reported, not treated as a free pane	test_palette_040_r4_a_failed_pane_lookup_is_reported_not_treated	palette_test.sh
+palette.bats	41	R4: a herdr argv pane run is refused for an agent-owned pane too	test_palette_041_r4_a_herdr_argv_pane_run_is_refused_for_an_agent	palette_test.sh
+palette.bats	42	R4: a herdr argv pane run proceeds when no agent owns the pane	test_palette_042_r4_a_herdr_argv_pane_run_proceeds_when_no_agent	palette_test.sh
+palette.bats	43	R4: tab_run creates a tab and never consults the agent guard	test_palette_043_r4_tab_run_creates_a_tab_and_never_consults_the	palette_test.sh
+palette.bats	44	R6: an open palette is found and focused instead of opening a second	test_palette_044_r6_an_open_palette_is_found_and_focused_instead	palette_test.sh
+palette.bats	45	R6: a pane that merely mentions palette.py is not the palette	test_palette_045_r6_a_pane_that_merely_mentions_palette_py_is_not	palette_test.sh
+palette.bats	46	R6: with no palette pane present, one is opened and marked	test_palette_046_r6_with_no_palette_pane_present_one_is_opened_an	palette_test.sh
+palette.bats	47	R6: overlay_shell clears the palette token before it execs	test_palette_047_r6_overlay_shell_clears_the_palette_token_before	palette_test.sh
+palette.bats	48	R6: the lookup costs one pane list and no process-info calls	test_palette_048_r6_the_lookup_costs_one_pane_list_and_no_process	palette_test.sh
+palette.bats	49	R7: a bare {value} in a shell command is rejected, naming {value_q}	test_palette_049_r7_a_bare_value_in_a_shell_command_is_rejected_n	palette_test.sh
+palette.bats	50	R7: {value_q} and {value_url} are accepted	test_palette_050_r7_value_q_and_value_url_are_accepted	palette_test.sh
+palette.bats	51	R7: a bare {value} in a herdr argv array is accepted	test_palette_051_r7_a_bare_value_in_a_herdr_argv_array_is_accepte	palette_test.sh
+palette.bats	52	R7: a bare {value} in a herdr argv array that runs a shell is rejected	test_palette_052_r7_a_bare_value_in_a_herdr_argv_array_that_runs	palette_test.sh
+palette.bats	53	R7: a bare {value} in a nested [run] table is rejected	test_palette_053_r7_a_bare_value_in_a_nested_run_table_is_rejecte	palette_test.sh
+palette.bats	54	R9: a missing fzf fails loudly, naming fzf, the Brewfile and PATH	test_palette_054_r9_a_missing_fzf_fails_loudly_naming_fzf_the_bre	palette_test.sh
+palette.bats	55	R9: an fzf that fails leaves the palette alive and says so	test_palette_055_r9_an_fzf_that_fails_leaves_the_palette_alive_an	palette_test.sh
+palette.bats	56	R9: a config the validator rejects is reported, not raised	test_palette_056_r9_a_config_the_validator_rejects_is_reported_no	palette_test.sh
+palette.bats	57	R9: an fzf that never answers leaves the palette alive and empty	test_palette_057_r9_an_fzf_that_never_answers_leaves_the_palette	palette_test.sh
+smoke.bats	1	python3 is present and at least 3.9, the floor README.md declares	test_smoke_001_python3_is_present_and_at_least_3_9_the_floor_re	smoke_test.sh
+smoke.bats	2	repository issues CLI exposes its contract and reads checkout issues	test_smoke_002_repository_issues_cli_exposes_its_contract_and_r	smoke_test.sh
+smoke.bats	3	post-apply suite wrapper rejects an unknown mode with usage	test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode	smoke_test.sh
+smoke.bats	4	critical managed files are deployed and still managed	test_smoke_004_critical_managed_files_are_deployed_and_still_ma	smoke_test.sh
+smoke.bats	5	.gitignore ignores the agent trash directory	test_smoke_005_gitignore_ignores_the_agent_trash_directory	smoke_test.sh
+smoke.bats	6	herdr command palette keybinding is configured	test_smoke_006_herdr_command_palette_keybinding_is_configured	smoke_test.sh
+smoke.bats	7	obsolete zed-herdr removal accepts formatted plugin JSON	test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu	smoke_test.sh
+smoke.bats	8	obsolete zed-herdr removal reports malformed plugin JSON	test_smoke_008_obsolete_zed_herdr_removal_reports_malformed_plu	smoke_test.sh
+smoke.bats	9	herdr plugin updates are automatic and owner-restricted	test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res	smoke_test.sh
+smoke.bats	10	herdr lazygit popup entrypoint is configured	test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured	smoke_test.sh
+smoke.bats	11	herdr command palette sources are valid	test_smoke_011_herdr_command_palette_sources_are_valid	smoke_test.sh
+smoke.bats	12	herdr command palette opener detects active palette pane	test_smoke_012_herdr_command_palette_opener_detects_active_pale	smoke_test.sh
+smoke.bats	13	herdr command palette loads TOML and project-local commands	test_smoke_013_herdr_command_palette_loads_toml_and_project_loc	smoke_test.sh
+smoke.bats	14	writing-style output style is deployed and enabled in settings	test_smoke_014_writing_style_output_style_is_deployed_and_enabl	smoke_test.sh
+smoke.bats	15	pi APPEND_SYSTEM.md is deployed	test_smoke_015_pi_append_system_md_is_deployed	smoke_test.sh
+smoke.bats	16	pi settings include all managed packages	test_smoke_016_pi_settings_include_all_managed_packages	smoke_test.sh
+smoke.bats	17	coding agents use terminal color palettes	test_smoke_017_coding_agents_use_terminal_color_palettes	smoke_test.sh
+smoke.bats	18	opencode reads the shared writing-style file via instructions	test_smoke_018_opencode_reads_the_shared_writing_style_file_via	smoke_test.sh
+smoke.bats	19	opencode exposes curated claude skills through canonical symlinks	test_smoke_019_opencode_exposes_curated_claude_skills_through_c	smoke_test.sh
+smoke.bats	20	explicit-only workflows keep manual invocation boundaries	test_smoke_020_explicit_only_workflows_keep_manual_invocation_b	smoke_test.sh
+smoke.bats	21	agent skills are deployed with their scripts and references	test_smoke_021_agent_skills_are_deployed_with_their_scripts_and	smoke_test.sh
+smoke.bats	22	shared references are deployed	test_smoke_022_shared_references_are_deployed	smoke_test.sh
+smoke.bats	23	executor CLI resolves on PATH through ~/.local/bin (macOS only)	test_smoke_023_executor_cli_resolves_on_path_through_local_bin	smoke_test.sh
+smoke.bats	24	kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)	test_smoke_024_kitty_includes_its_herdr_bindings_and_keeps_the	smoke_test.sh
+smoke.bats	25	kitty font family is one kitty accepts as monospaced (macOS only)	test_smoke_025_kitty_font_family_is_one_kitty_accepts_as_monosp	smoke_test.sh
+smoke.bats	26	kitty auto-launches herdr without exec'ing it (macOS only)	test_smoke_026_kitty_auto_launches_herdr_without_exec_ing_it_ma	smoke_test.sh
+smoke.bats	27	kitty sends the herdr prefix for macOS-style shortcuts (macOS only)	test_smoke_027_kitty_sends_the_herdr_prefix_for_macos_style_sho	smoke_test.sh
+smoke.bats	28	kitty herdr bindings survive a non-Latin keyboard layout (macOS only)	test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar	smoke_test.sh
+smoke.bats	29	kitty carries command-palette hints for the herdr plugin (macOS only)	test_smoke_029_kitty_carries_command_palette_hints_for_the_herd	smoke_test.sh
+smoke.bats	30	lazygit config keeps Russian-layout keybindings and popup exit (macOS only)	test_smoke_030_lazygit_config_keeps_russian_layout_keybindings	smoke_test.sh
+smoke.bats	31	herdr caffeinate plugin scripts are valid sh (macOS only)	test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac	smoke_test.sh
+smoke.bats	32	focus-notify plugin compiles and declares its runtime entrypoint	test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru	smoke_test.sh
+smoke.bats	33	focus-notify builds a safely quoted click command	test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman	smoke_test.sh
+smoke.bats	34	focus-notify stays quiet for non-actionable statuses and missing pane id	test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat	smoke_test.sh
+smoke.bats	35	focus-notify uses one notification group per pane for duplicate replacement	test_smoke_035_focus_notify_uses_one_notification_group_per_pan	smoke_test.sh
+smoke.bats	36	fzf is installed and meets the command palette's version floor	test_smoke_036_fzf_is_installed_and_meets_the_command_palette_s	smoke_test.sh
+smoke.bats	37	se source script exists and passes bash syntax check	test_smoke_037_se_source_script_exists_and_passes_bash_syntax_c	smoke_test.sh
+smoke.bats	38	se --help prints usage	test_smoke_038_se_help_prints_usage	smoke_test.sh
+smoke.bats	39	se pipeline dry-run assembles smithers command with env and input JSON	test_smoke_039_se_pipeline_dry_run_assembles_smithers_command_w	smoke_test.sh
+smoke.bats	40	se pipeline forwards the single doc-review key: absent=false, --doc-review=true	test_smoke_040_se_pipeline_forwards_the_single_doc_review_key_a	smoke_test.sh
+smoke.bats	41	se pipeline dry-run honors --until=pr and --attach (no --detach)	test_smoke_041_se_pipeline_dry_run_honors_until_pr_and_attach_n	smoke_test.sh
+smoke.bats	42	se pipeline fails on nonexistent plan with reason	test_smoke_042_se_pipeline_fails_on_nonexistent_plan_with_reaso	smoke_test.sh
+smoke.bats	43	se pipeline fails on invalid --until value	test_smoke_043_se_pipeline_fails_on_invalid_until_value	smoke_test.sh
+smoke.bats	44	se pipeline without --validate-cmd succeeds (derived from plan at gate-0)	test_smoke_044_se_pipeline_without_validate_cmd_succeeds_derive	smoke_test.sh
+smoke.bats	45	se resume without runId fails with usage	test_smoke_045_se_resume_without_runid_fails_with_usage	smoke_test.sh
+smoke.bats	46	se abort dry-run maps to smithers cancel	test_smoke_046_se_abort_dry_run_maps_to_smithers_cancel	smoke_test.sh
+smoke.bats	47	se list dry-run exits 0 and maps to smithers ps	test_smoke_047_se_list_dry_run_exits_0_and_maps_to_smithers_ps	smoke_test.sh
+smoke.bats	48	se approve/deny/logs/chat dry-run pass through to smithers verbatim	test_smoke_048_se_approve_deny_logs_chat_dry_run_pass_through_t	smoke_test.sh
+smoke.bats	49	se approve without runId fails with usage	test_smoke_049_se_approve_without_runid_fails_with_usage	smoke_test.sh
+smoke.bats	50	se with unknown command fails with usage	test_smoke_050_se_with_unknown_command_fails_with_usage	smoke_test.sh
+smoke.bats	51	se symlink source for ~/.local/bin exists in dotfiles	test_smoke_051_se_symlink_source_for_local_bin_exists_in_dotfil	smoke_test.sh
+smoke.bats	52	chezmoiignore excludes smithers runtime state from management	test_smoke_052_chezmoiignore_excludes_smithers_runtime_state_fr	smoke_test.sh
+smoke.bats	53	se list --json dry-run maps to smithers ps --format json	test_smoke_053_se_list_json_dry_run_maps_to_smithers_ps_format	smoke_test.sh
+smoke.bats	54	se show dry-run maps to smithers inspect --format json	test_smoke_054_se_show_dry_run_maps_to_smithers_inspect_format	smoke_test.sh
+smoke.bats	55	se show without runId fails with usage	test_smoke_055_se_show_without_runid_fails_with_usage	smoke_test.sh
+smoke.bats	56	se show rejects run ids with shell/sql metacharacters	test_smoke_056_se_show_rejects_run_ids_with_shell_sql_metachara	smoke_test.sh
+smoke.bats	57	se usage documents list --json and show	test_smoke_057_se_usage_documents_list_json_and_show	smoke_test.sh
+smoke.bats	58	se db-path walks up past an empty runtime smithers.db (0.28 state layout)	test_smoke_058_se_db_path_walks_up_past_an_empty_runtime_smithe	smoke_test.sh
+smoke.bats	59	herdr task and child engines are deployed and executable	test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex	smoke_test.sh
+smoke.bats	60	deployed herdr child contracts expose managed supervision modes	test_smoke_060_deployed_herdr_child_contracts_expose_managed_su	smoke_test.sh
+smoke.bats	61	herdr-task-sync Claude Code hook is deployed and executable	test_smoke_061_herdr_task_sync_claude_code_hook_is_deployed_and	smoke_test.sh
+smoke.bats	62	claude settings wire the task-sync hook to prompt, session, and compact	test_smoke_062_claude_settings_wire_the_task_sync_hook_to_promp	smoke_test.sh
+smoke.bats	63	herdr-task-sync pi extension is deployed beside herdr's own	test_smoke_063_herdr_task_sync_pi_extension_is_deployed_beside	smoke_test.sh
+smoke.bats	64	Pi local private instructions focused tests pass	test_smoke_064_pi_local_private_instructions_focused_tests_pass	smoke_test.sh
+smoke.bats	65	Pi brew auto updater is deployed	test_smoke_065_pi_brew_auto_updater_is_deployed	smoke_test.sh
+smoke.bats	66	Pi brew auto updater focused tests pass	test_smoke_066_pi_brew_auto_updater_focused_tests_pass	smoke_test.sh
+smoke.bats	67	herdr-task-sync opencode plugin is deployed	test_smoke_067_herdr_task_sync_opencode_plugin_is_deployed	smoke_test.sh
+smoke.bats	68	herdr managed source preserves the U6 sidebar and ownership boundaries	test_smoke_068_herdr_managed_source_preserves_the_u6_sidebar_an	smoke_test.sh
+smoke.bats	69	herdr deployed files preserve the U6 sidebar and ownership boundaries	test_smoke_069_herdr_deployed_files_preserve_the_u6_sidebar_and	smoke_test.sh
+smoke.bats	70	herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs	test_smoke_070_herdr_pane_label_plugin_deploys_the_approved_her	smoke_test.sh
+smoke.bats	71	herdr pane-label plugin keeps startup sweep and relink deployment wiring	test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and	smoke_test.sh
+smoke.bats	72	starship init output embeds no absolute PATH export	test_smoke_072_starship_init_output_embeds_no_absolute_path_exp	smoke_test.sh
+smoke.bats	73	zoxide init output embeds no absolute PATH export	test_smoke_073_zoxide_init_output_embeds_no_absolute_path_expor	smoke_test.sh
+smoke.bats	74	rgrc aliases output embeds no absolute PATH export	test_smoke_074_rgrc_aliases_output_embeds_no_absolute_path_expo	smoke_test.sh
+scripts.bats	1	python3 is present and at least 3.9, the floor README.md declares	test_scripts_001_python3_is_present_and_at_least_3_9_the_floor_re	scripts_test.sh
+scripts.bats	2	lint target propagates shellcheck failures	test_scripts_002_lint_target_propagates_shellcheck_failures	scripts_test.sh
+scripts.bats	3	CI-minimal Linux render skips Homebrew but keeps the remaining setup	test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps	scripts_test.sh
+scripts.bats	4	full Linux render keeps Homebrew package installation	test_scripts_004_full_linux_render_keeps_homebrew_package_install	scripts_test.sh
+scripts.bats	5	CI-minimal non-Linux render keeps Homebrew package installation	test_scripts_005_ci_minimal_non_linux_render_keeps_homebrew_packa	scripts_test.sh
+scripts.bats	6	install-packages script renders as valid bash	test_scripts_006_install_packages_script_renders_as_valid_bash	scripts_test.sh
+scripts.bats	7	macos-tunes script is valid bash	test_scripts_007_macos_tunes_script_is_valid_bash	scripts_test.sh
+scripts.bats	8	darwin scripts excluded from managed list on Linux	test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin	scripts_test.sh
+scripts.bats	9	ask-in-herdr script requires arguments	test_scripts_009_ask_in_herdr_script_requires_arguments	scripts_test.sh
+scripts.bats	10	ask.sh rejects unknown agents and the removed headless flag	test_scripts_010_ask_sh_rejects_unknown_agents_and_the_removed_he	scripts_test.sh
+scripts.bats	11	ask.sh refuses outside herdr and when herdr-child is absent	test_scripts_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil	scripts_test.sh
+scripts.bats	12	ask.sh starts a read-only live child and returns its answer	test_scripts_012_ask_sh_starts_a_read_only_live_child_and_returns	scripts_test.sh
+scripts.bats	13	ask.sh keeps a settled answer when the parent reminder cannot be queued	test_scripts_013_ask_sh_keeps_a_settled_answer_when_the_parent_re	scripts_test.sh
+scripts.bats	14	ask.sh forwards posture and every native caller option	test_scripts_014_ask_sh_forwards_posture_and_every_native_caller	scripts_test.sh
+scripts.bats	15	ask.sh retries a colliding derived name with a valid suffix	test_scripts_015_ask_sh_retries_a_colliding_derived_name_with_a_v	scripts_test.sh
+scripts.bats	16	ask.sh reports blocked children after printing their answer	test_scripts_016_ask_sh_reports_blocked_children_after_printing_t	scripts_test.sh
+scripts.bats	17	ask.sh reports undelivered when child output cannot be read	test_scripts_017_ask_sh_reports_undelivered_when_child_output_can	scripts_test.sh
+scripts.bats	18	ask.sh reports a still-working child with exit 124	test_scripts_018_ask_sh_reports_a_still_working_child_with_exit_1	scripts_test.sh
+scripts.bats	19	ask.sh classifies successful waits with working, unknown, and fallback statuses	test_scripts_019_ask_sh_classifies_successful_waits_with_working	scripts_test.sh
+scripts.bats	20	ask.sh maps child start failures to refused or undelivered	test_scripts_020_ask_sh_maps_child_start_failures_to_refused_or_u	scripts_test.sh
+scripts.bats	21	herdr-child requires a subcommand and herdr environment	test_scripts_021_herdr_child_requires_a_subcommand_and_herdr_envi	scripts_test.sh
+scripts.bats	22	herdr-child refuses pi read-only before splitting a pane	test_scripts_022_herdr_child_refuses_pi_read_only_before_splittin	scripts_test.sh
+scripts.bats	23	herdr-child start requires exactly one explicit mode before Herdr mutation	test_scripts_023_herdr_child_start_requires_exactly_one_explicit	scripts_test.sh
+scripts.bats	24	herdr-child validates tab placement before Herdr mutation	test_scripts_024_herdr_child_validates_tab_placement_before_herdr	scripts_test.sh
+scripts.bats	25	herdr-child validates launch and supervision timeouts before Herdr mutation	test_scripts_025_herdr_child_validates_launch_and_supervision_tim	scripts_test.sh
+scripts.bats	26	herdr-child attached mode starts no watcher	test_scripts_026_herdr_child_attached_mode_starts_no_watcher	scripts_test.sh
+scripts.bats	27	herdr-child detached mode fails closed without a parent session	test_scripts_027_herdr_child_detached_mode_fails_closed_without_a	scripts_test.sh
+scripts.bats	28	herdr-child detached mode closes only its new pane without a child session	test_scripts_028_herdr_child_detached_mode_closes_only_its_new_pa	scripts_test.sh
+scripts.bats	29	herdr-child detached mode returns only after liveness and causal watcher arming	test_scripts_029_herdr_child_detached_mode_returns_only_after_liv	scripts_test.sh
+scripts.bats	30	herdr-child detached arm failure preserves the child and returns recovery JSON	test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c	scripts_test.sh
+scripts.bats	31	herdr-child signal before prompt submission closes owned state and pane	test_scripts_031_herdr_child_signal_before_prompt_submission_clos	scripts_test.sh
+scripts.bats	32	herdr-child catchable launch signals preserve ownership after prompt submission	test_scripts_032_herdr_child_catchable_launch_signals_preserve_ow	scripts_test.sh
+scripts.bats	33	herdr-child signal and arm handshake resolves abort before reporting supervision	test_scripts_033_herdr_child_signal_and_arm_handshake_resolves_ab	scripts_test.sh
+scripts.bats	34	herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome	test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl	scripts_test.sh
+scripts.bats	35	herdr-child detached timeout wakes once and later settlement wakes the same generation	test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late	scripts_test.sh
+scripts.bats	36	herdr-child detached delivery follows parent terminal identity and fails closed on session replacement	test_scripts_036_herdr_child_detached_delivery_follows_parent_ter	scripts_test.sh
+scripts.bats	37	herdr-child detached delivery retries temporary parent blockage and prompt transport failure	test_scripts_037_herdr_child_detached_delivery_retries_temporary	scripts_test.sh
+scripts.bats	38	herdr-child detached delivery uses capped increasing retry backoff and one terminal failure	test_scripts_038_herdr_child_detached_delivery_uses_capped_increa	scripts_test.sh
+scripts.bats	39	herdr-child transient pane reads never become child-gone and delivery continues	test_scripts_039_herdr_child_transient_pane_reads_never_become_ch	scripts_test.sh
+scripts.bats	40	herdr-child superseded watcher cannot publish failure metadata over a new generation	test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa	scripts_test.sh
+scripts.bats	41	herdr-child watcher switches from fresh polling to sliced agent wait	test_scripts_041_herdr_child_watcher_switches_from_fresh_polling	scripts_test.sh
+scripts.bats	42	herdr-child sliced wait revalidates generation before liveness refresh	test_scripts_042_herdr_child_sliced_wait_revalidates_generation_b	scripts_test.sh
+scripts.bats	43	herdr-child sliced wait publishes one typed non-timeout failure	test_scripts_043_herdr_child_sliced_wait_publishes_one_typed_non	scripts_test.sh
+scripts.bats	44	herdr-child detached watcher rejects malformed state and child identity replacement	test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s	scripts_test.sh
+scripts.bats	45	herdr-child reap invalidates before close while spontaneous loss wakes the parent	test_scripts_045_herdr_child_reap_invalidates_before_close_while	scripts_test.sh
+scripts.bats	46	herdr-child failed reap restores supervision for the kept child	test_scripts_046_herdr_child_failed_reap_restores_supervision_for	scripts_test.sh
+scripts.bats	47	herdr-child detached ask follows parent identity and suppresses its ordinary blocked wake	test_scripts_047_herdr_child_detached_ask_follows_parent_identity	scripts_test.sh
+scripts.bats	48	herdr-child attached ask follows captured parent identity after the parent moves	test_scripts_048_herdr_child_attached_ask_follows_captured_parent	scripts_test.sh
+scripts.bats	49	herdr-child callback intent suppresses blocked wake until confirmed receipt	test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w	scripts_test.sh
+scripts.bats	50	herdr-child callback delivery exhaustion keeps decision waiting and blocks reap	test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d	scripts_test.sh
+scripts.bats	51	herdr-child detached callbacks fail closed when supervision metadata is unreadable	test_scripts_051_herdr_child_detached_callbacks_fail_closed_when	scripts_test.sh
+scripts.bats	52	herdr-child detached reply advances generation and rearms later settlement	test_scripts_052_herdr_child_detached_reply_advances_generation_a	scripts_test.sh
+scripts.bats	53	herdr-child managed prompt requires a mode and attached wait observes a newer sequence	test_scripts_053_herdr_child_managed_prompt_requires_a_mode_and_a	scripts_test.sh
+scripts.bats	54	herdr-child attached prompt wait rejects the first one-step settlement after a working baseline	test_scripts_054_herdr_child_attached_prompt_wait_rejects_the_fir	scripts_test.sh
+scripts.bats	55	herdr-child managed detached prompt advances generation and preserves the child on rearm failure	test_scripts_055_herdr_child_managed_detached_prompt_advances_gen	scripts_test.sh
+scripts.bats	56	herdr-child continuation preflight failures preserve the prior generation	test_scripts_056_herdr_child_continuation_preflight_failures_pres	scripts_test.sh
+scripts.bats	57	herdr-child attached child promoted to detach asks through validated metadata	test_scripts_057_herdr_child_attached_child_promoted_to_detach_as	scripts_test.sh
+scripts.bats	58	herdr child source contracts document attached and detached lifecycle boundaries	test_scripts_058_herdr_child_source_contracts_document_attached_a	scripts_test.sh
+scripts.bats	59	herdr-child rejects invalid and live names before splitting	test_scripts_059_herdr_child_rejects_invalid_and_live_names_befor	scripts_test.sh
+scripts.bats	60	herdr-child maps claude postures and skill directories	test_scripts_060_herdr_child_maps_claude_postures_and_skill_direc	scripts_test.sh
+scripts.bats	61	herdr-child maps opencode permissions, model, and configured agent	test_scripts_061_herdr_child_maps_opencode_permissions_model_and	scripts_test.sh
+scripts.bats	62	herdr-child maps pi model, effort, skills, and question exclusion	test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques	scripts_test.sh
+scripts.bats	63	herdr-child rejects native options that the selected kind cannot map	test_scripts_063_herdr_child_rejects_native_options_that_the_sele	scripts_test.sh
+scripts.bats	64	herdr-child splits, starts, and prompts in order with both coordinates	test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w	scripts_test.sh
+scripts.bats	65	herdr-child tab mode records ownership before starting an attached child	test_scripts_065_herdr_child_tab_mode_records_ownership_before_st	scripts_test.sh
+scripts.bats	66	herdr-child tab launch signal closes a parsed creation before ownership publication	test_scripts_066_herdr_child_tab_launch_signal_closes_a_parsed_cr	scripts_test.sh
+scripts.bats	67	herdr-child tab mode composes with detached supervision	test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe	scripts_test.sh
+scripts.bats	68	herdr-child tab mode preserves malformed creations and cleans owned failures	test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio	scripts_test.sh
+scripts.bats	69	herdr-child tab mode reports the tab on timeout and names it on launch failure	test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout	scripts_test.sh
+scripts.bats	70	herdr-child caps startup timeout while preserving a long prompt wait	test_scripts_070_herdr_child_caps_startup_timeout_while_preservin	scripts_test.sh
+scripts.bats	71	herdr-child retries only the pane-readiness start failure	test_scripts_071_herdr_child_retries_only_the_pane_readiness_star	scripts_test.sh
+scripts.bats	72	herdr-child closes its pane after three readiness failures	test_scripts_072_herdr_child_closes_its_pane_after_three_readines	scripts_test.sh
+scripts.bats	73	herdr-child distinguishes a stalled initial prompt	test_scripts_073_herdr_child_distinguishes_a_stalled_initial_prom	scripts_test.sh
+scripts.bats	74	herdr-child preserves a working pane when the wait times out	test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa	scripts_test.sh
+scripts.bats	75	herdr-child ask requires every injected child coordinate	test_scripts_075_herdr_child_ask_requires_every_injected_child_co	scripts_test.sh
+scripts.bats	76	herdr-child ask publishes before delivery and uses the versioned marker	test_scripts_076_herdr_child_ask_publishes_before_delivery_and_us	scripts_test.sh
+scripts.bats	77	herdr-child ask leaves the label when parent lookup or delivery fails	test_scripts_077_herdr_child_ask_leaves_the_label_when_parent_loo	scripts_test.sh
+scripts.bats	78	herdr-child reply validates the live pair, delivers, then clears	test_scripts_078_herdr_child_reply_validates_the_live_pair_delive	scripts_test.sh
+scripts.bats	79	herdr-child ask and reply publish strictly increasing label sequences	test_scripts_079_herdr_child_ask_and_reply_publish_strictly_incre	scripts_test.sh
+scripts.bats	80	herdr-child reply keeps the label when delivery fails and refuses child callers	test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery	scripts_test.sh
+scripts.bats	81	herdr-child reap closes only settled, unfocused, non-waiting panes	test_scripts_081_herdr_child_reap_closes_only_settled_unfocused_n	scripts_test.sh
+scripts.bats	82	herdr-child reap closes an unfocused idle pane	test_scripts_082_herdr_child_reap_closes_an_unfocused_idle_pane	scripts_test.sh
+scripts.bats	83	herdr-child reap rejects an empty expected pane	test_scripts_083_herdr_child_reap_rejects_an_empty_expected_pane	scripts_test.sh
+scripts.bats	84	herdr-child reap preserves a reused name outside the expected pane	test_scripts_084_herdr_child_reap_preserves_a_reused_name_outside	scripts_test.sh
+scripts.bats	85	herdr-child reap preserves a pane when fresh state no longer matches	test_scripts_085_herdr_child_reap_preserves_a_pane_when_fresh_sta	scripts_test.sh
+scripts.bats	86	herdr-child reap refuses outside herdr and from a child pane	test_scripts_086_herdr_child_reap_refuses_outside_herdr_and_from	scripts_test.sh
+scripts.bats	87	herdr-child reap preserves a settled pane with a waiting label	test_scripts_087_herdr_child_reap_preserves_a_settled_pane_with_a	scripts_test.sh
+scripts.bats	88	herdr-child reap preserves a settled pane when pane metadata is malformed	test_scripts_088_herdr_child_reap_preserves_a_settled_pane_when_p	scripts_test.sh
+scripts.bats	89	herdr-child reap closes a positively owned one-pane tab	test_scripts_089_herdr_child_reap_closes_a_positively_owned_one_p	scripts_test.sh
+scripts.bats	90	herdr-child reap closes the child pane but reports a surviving multi-pane tab	test_scripts_090_herdr_child_reap_closes_the_child_pane_but_repor	scripts_test.sh
+scripts.bats	91	herdr-child reap preserves ambiguous tab ownership	test_scripts_091_herdr_child_reap_preserves_ambiguous_tab_ownersh	scripts_test.sh
+scripts.bats	92	herdr-child tab reap invalidates detached supervision before close	test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv	scripts_test.sh
+scripts.bats	93	herdr-integrations script exits 0 and skips when herdr is absent	test_scripts_093_herdr_integrations_script_exits_0_and_skips_when	scripts_test.sh
+scripts.bats	94	fff-grep-guard denies a query of several bare words	test_scripts_094_fff_grep_guard_denies_a_query_of_several_bare_wo	scripts_test.sh
+scripts.bats	95	fff-grep-guard stays silent on a single identifier	test_scripts_095_fff_grep_guard_stays_silent_on_a_single_identifi	scripts_test.sh
+scripts.bats	96	fff-grep-guard stays silent on a path-scoped or glob-scoped query	test_scripts_096_fff_grep_guard_stays_silent_on_a_path_scoped_or	scripts_test.sh
+scripts.bats	97	fff-grep-guard fails open on malformed input	test_scripts_097_fff_grep_guard_fails_open_on_malformed_input	scripts_test.sh
+scripts.bats	98	webfetch-markdown-hint adds context for a plain URL	test_scripts_098_webfetch_markdown_hint_adds_context_for_a_plain	scripts_test.sh
+scripts.bats	99	webfetch-markdown-hint stays silent when the URL already uses markdown.new	test_scripts_099_webfetch_markdown_hint_stays_silent_when_the_url	scripts_test.sh
+scripts.bats	100	settings template registers both PreToolUse hooks with their matchers	test_scripts_100_settings_template_registers_both_pretooluse_hook	scripts_test.sh
+scripts.bats	101	herdr-task-sync descriptor probe lives in a one-test Bats file	test_scripts_101_herdr_task_sync_descriptor_probe_lives_in_a_one	scripts_test.sh
+scripts.bats	102	herdr-task-sync bounded Bats invocation exits after detached work	test_scripts_102_herdr_task_sync_bounded_bats_invocation_exits_af	scripts_test.sh
+scripts.bats	103	herdr-task-sync bounded Bats invocation refuses a vacuous run	test_scripts_103_herdr_task_sync_bounded_bats_invocation_refuses	scripts_test.sh
+scripts.bats	104	herdr-task-sync harness fresh reads follow pane and tab mutations	test_scripts_104_herdr_task_sync_harness_fresh_reads_follow_pane	scripts_test.sh
+scripts.bats	105	herdr-task-sync harness controls reverse model completion by generation	test_scripts_105_herdr_task_sync_harness_controls_reverse_model_c	scripts_test.sh
+scripts.bats	106	herdr-task-sync harness isolates colliding sanitized socket names	test_scripts_106_herdr_task_sync_harness_isolates_colliding_sanit	scripts_test.sh
+scripts.bats	107	herdr-task-sync harness applies source metadata sequence and clear rules	test_scripts_107_herdr_task_sync_harness_applies_source_metadata	scripts_test.sh
+scripts.bats	108	herdr-task-sync harness models target loss move reuse and final-read change	test_scripts_108_herdr_task_sync_harness_models_target_loss_move	scripts_test.sh
+scripts.bats	109	herdr-task-sync latest committed request survives stale completion and a third request	test_scripts_109_herdr_task_sync_latest_committed_request_survive	scripts_test.sh
+scripts.bats	110	herdr-task-sync active native session fences reused pane and session identifiers	test_scripts_110_herdr_task_sync_active_native_session_fences_reu	scripts_test.sh
+scripts.bats	111	herdr-task-sync prompt transcript and direct set share one committed-generation contract	test_scripts_111_herdr_task_sync_prompt_transcript_and_direct_set	scripts_test.sh
+scripts.bats	112	herdr-task-sync failed latest model retains newest context and prior slug	test_scripts_112_herdr_task_sync_failed_latest_model_retains_newe	scripts_test.sh
+scripts.bats	113	herdr-task-sync atomic records never expose truncation or mixed fields	test_scripts_113_herdr_task_sync_atomic_records_never_expose_trun	scripts_test.sh
+scripts.bats	114	herdr-task-sync one-way legacy import is atomic idempotent and ignores late legacy writes	test_scripts_114_herdr_task_sync_one_way_legacy_import_is_atomic	scripts_test.sh
+scripts.bats	115	herdr-task-sync restart recovers accepted and interrupted worker generations	test_scripts_115_herdr_task_sync_restart_recovers_accepted_and_in	scripts_test.sh
+scripts.bats	116	herdr-task-sync clock rollback and restart cannot lower generation or task high-water	test_scripts_116_herdr_task_sync_clock_rollback_and_restart_canno	scripts_test.sh
+scripts.bats	117	herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions	test_scripts_117_herdr_task_sync_exact_socket_namespaces_survive	scripts_test.sh
+scripts.bats	118	herdr-task-sync fail-open guard ignores terminal input and preserves redirected input	test_scripts_118_herdr_task_sync_fail_open_guard_ignores_terminal	scripts_test.sh
+scripts.bats	119	herdr-task-sync fail-open deadline rejects late success before the hang guard	test_scripts_119_herdr_task_sync_fail_open_deadline_rejects_late	scripts_test.sh
+scripts.bats	120	herdr-task-sync fail-open guard uses the greater baseline	test_scripts_120_herdr_task_sync_fail_open_guard_uses_the_greater	scripts_test.sh
+scripts.bats	121	herdr-task-sync fails open for missing tools contention write failure and malformed input	test_scripts_121_herdr_task_sync_fails_open_for_missing_tools_con	scripts_test.sh
+scripts.bats	122	herdr-task-sync orders adapter calls by inbox commit rather than invocation start	test_scripts_122_herdr_task_sync_orders_adapter_calls_by_inbox_co	scripts_test.sh
+scripts.bats	123	herdr-task-sync adapters return when a direct engine hangs	test_scripts_123_herdr_task_sync_adapters_return_when_a_direct_en	scripts_test.sh
+scripts.bats	124	herdr-task-sync opencode forgets a deleted child session	test_scripts_124_herdr_task_sync_opencode_forgets_a_deleted_child	scripts_test.sh
+scripts.bats	125	herdr-task-sync presentation coordinates concurrent panes in one shared tab	test_scripts_125_herdr_task_sync_presentation_coordinates_concurr	scripts_test.sh
+scripts.bats	126	herdr-task-sync presentation accepts pi jsonl path sessions that end with the active session id	test_scripts_126_herdr_task_sync_presentation_accepts_pi_jsonl_pa	scripts_test.sh
+scripts.bats	127	herdr-task-sync presentation labels a detected agent without task state	test_scripts_127_herdr_task_sync_presentation_labels_a_detected_a	scripts_test.sh
+scripts.bats	128	herdr-task-sync presentation publishes only the newest accepted generation	test_scripts_128_herdr_task_sync_presentation_publishes_only_the	scripts_test.sh
+scripts.bats	129	herdr-task-sync presentation coalesces event bursts into an active pass and rerun	test_scripts_129_herdr_task_sync_presentation_coalesces_event_bur	scripts_test.sh
+scripts.bats	130	herdr-task-sync presentation retries a newer invalidation after transient pass failure	test_scripts_130_herdr_task_sync_presentation_retries_a_newer_inv	scripts_test.sh
+scripts.bats	131	herdr-task-sync presentation release recheck does not lose a pending invalidation	test_scripts_131_herdr_task_sync_presentation_release_recheck_doe	scripts_test.sh
+scripts.bats	132	herdr-task-sync event presentation leaves the hook process group	test_scripts_132_herdr_task_sync_event_presentation_leaves_the_ho	scripts_test.sh
+scripts.bats	133	herdr-task-sync presentation automatically corrects divergent pane and tab labels	test_scripts_133_herdr_task_sync_presentation_automatically_corre	scripts_test.sh
+scripts.bats	134	herdr-task-sync presentation drops a malformed-width record and keeps labeling the rest	test_scripts_134_herdr_task_sync_presentation_drops_a_malformed_w	scripts_test.sh
+scripts.bats	135	herdr-task-sync presentation skips pre-read deletion and repairs the post-read race next pass	test_scripts_135_herdr_task_sync_presentation_skips_pre_read_dele	scripts_test.sh
+scripts.bats	136	herdr-task-sync presentation skips reused pane and tab identities at the final read	test_scripts_136_herdr_task_sync_presentation_skips_reused_pane_a	scripts_test.sh
+scripts.bats	137	herdr-task-sync age cleanup removes only inactive task payloads	test_scripts_137_herdr_task_sync_age_cleanup_removes_only_inactiv	scripts_test.sh
+scripts.bats	138	herdr-task-sync presentation preserves state on incomplete and transient snapshots	test_scripts_138_herdr_task_sync_presentation_preserves_state_on	scripts_test.sh
+scripts.bats	139	herdr-task-sync naming worker never age-cleans tasks without safe snapshot ownership	test_scripts_139_herdr_task_sync_naming_worker_never_age_cleans_t	scripts_test.sh
+scripts.bats	140	herdr-task-sync presentation isolates exact colliding socket identities	test_scripts_140_herdr_task_sync_presentation_isolates_exact_coll	scripts_test.sh
+scripts.bats	141	herdr-task-sync presentation recovers stale and half-created owner claims	test_scripts_141_herdr_task_sync_presentation_recovers_stale_and	scripts_test.sh
+scripts.bats	142	herdr-task-sync presentation resumes safely across durable crash boundaries	test_scripts_142_herdr_task_sync_presentation_resumes_safely_acro	scripts_test.sh
+scripts.bats	143	herdr-task-sync presentation self-events converge to a no-op	test_scripts_143_herdr_task_sync_presentation_self_events_converg	scripts_test.sh
+scripts.bats	144	herdr-task-sync presentation fails closed without an exact socket	test_scripts_144_herdr_task_sync_presentation_fails_closed_withou	scripts_test.sh
+scripts.bats	145	herdr-task-sync presentation restart recomputes durable pending intent without a label ledger	test_scripts_145_herdr_task_sync_presentation_restart_recomputes	scripts_test.sh
+scripts.bats	146	herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics	test_scripts_146_herdr_task_sync_location_resolves_main_linked_ne	scripts_test.sh
+scripts.bats	147	herdr-task-sync dangling administrative gitdir retains stale location	test_scripts_147_herdr_task_sync_dangling_administrative_gitdir_r	scripts_test.sh
+scripts.bats	148	herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water	test_scripts_148_herdr_task_sync_location_detached_publishes_a_co	scripts_test.sh
+scripts.bats	149	herdr-task-sync location real probe shape pays the second sha call only when detached	test_scripts_149_herdr_task_sync_location_real_probe_shape_pays_t	scripts_test.sh
+scripts.bats	150	herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref	test_scripts_150_herdr_task_sync_location_detached_sha_failure_re	scripts_test.sh
+scripts.bats	151	herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals	test_scripts_151_herdr_task_sync_location_detached_sha_budget_fai	scripts_test.sh
+scripts.bats	152	herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths	test_scripts_152_herdr_task_sync_location_clears_the_retired_loca	scripts_test.sh
+scripts.bats	153	herdr-task-sync location transient modes retain identity as stale without foreground fallback	test_scripts_153_herdr_task_sync_location_transient_modes_retain	scripts_test.sh
+scripts.bats	154	herdr-task-sync coordinator resolves eight pane locations concurrently within one event envelope	test_scripts_154_herdr_task_sync_coordinator_resolves_eight_pane	scripts_test.sh
+scripts.bats	155	herdr-task-sync no-op location event preserves the state file	test_scripts_155_herdr_task_sync_no_op_location_event_preserves_t	scripts_test.sh
+scripts.bats	156	herdr-task-sync transient location preserves live token-only identity when retained state is unavailable	test_scripts_156_herdr_task_sync_transient_location_preserves_liv	scripts_test.sh
+scripts.bats	157	herdr-task-sync location authoritative worktree deletion clears retained evidence	test_scripts_157_herdr_task_sync_location_authoritative_worktree	scripts_test.sh
+scripts.bats	158	herdr-task-sync formatter keeps Git refs in metadata and tab labels names-only	test_scripts_158_herdr_task_sync_formatter_keeps_git_refs_in_meta	scripts_test.sh
+scripts.bats	159	herdr-task-sync formatter renders a main checkout ref in metadata only	test_scripts_159_herdr_task_sync_formatter_renders_a_main_checkou	scripts_test.sh
+scripts.bats	160	herdr-task-sync formatter renders a worktree ref in metadata only	test_scripts_160_herdr_task_sync_formatter_renders_a_worktree_ref	scripts_test.sh
+scripts.bats	161	herdr-task-sync formatter keeps a Git-backed all-idle tab names-only	test_scripts_161_herdr_task_sync_formatter_keeps_a_git_backed_all	scripts_test.sh
+scripts.bats	162	herdr-task-sync Git-only location changes do not rename a names-only tab	test_scripts_162_herdr_task_sync_git_only_location_changes_do_not	scripts_test.sh
+scripts.bats	163	herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder	test_scripts_163_herdr_task_sync_formatter_keeps_the_folder_quali	scripts_test.sh
+scripts.bats	164	herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent	test_scripts_164_herdr_task_sync_formatter_reads_the_workspace_di	scripts_test.sh
+scripts.bats	165	herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon	test_scripts_165_herdr_task_sync_formatter_gives_a_detached_head	scripts_test.sh
+scripts.bats	166	herdr-task-sync formatter qualifies a divergent worktree folder in metadata only	test_scripts_166_herdr_task_sync_formatter_qualifies_a_divergent	scripts_test.sh
+scripts.bats	167	herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels	test_scripts_167_herdr_task_sync_formatter_keeps_mixed_git_identi	scripts_test.sh
+scripts.bats	168	herdr-task-sync formatter joins only pane labels when three panes span two repositories	test_scripts_168_herdr_task_sync_formatter_joins_only_pane_labels	scripts_test.sh
+scripts.bats	169	herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions	test_scripts_169_herdr_task_sync_worktree_tokens_use_shortest_uni	scripts_test.sh
+scripts.bats	170	herdr-task-sync worktree tokens digest overlong roots and extend colliding digest prefixes	test_scripts_170_herdr_task_sync_worktree_tokens_digest_overlong	scripts_test.sh
+scripts.bats	171	herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering	test_scripts_171_herdr_task_sync_worktree_token_ordinal_fallback	scripts_test.sh
+scripts.bats	172	herdr-task-sync long branch refs stay in metadata and do not alter the tab label	test_scripts_172_herdr_task_sync_long_branch_refs_stay_in_metadat	scripts_test.sh
+scripts.bats	173	herdr-task-sync long repository names do not alter a multi-repo tab label	test_scripts_173_herdr_task_sync_long_repository_names_do_not_alt	scripts_test.sh
+scripts.bats	174	herdr-task-sync location clears a retired location_label even when every published token already matches	test_scripts_174_herdr_task_sync_location_clears_a_retired_locati	scripts_test.sh
+scripts.bats	175	herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state	test_scripts_175_herdr_task_sync_location_and_formatter_add_only	scripts_test.sh
+scripts.bats	176	herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref	test_scripts_176_herdr_task_sync_publishes_dirty_ahead_and_behind	scripts_test.sh
+scripts.bats	177	herdr-task-sync clean checkout carries no counts token and republishes when only the counts change	test_scripts_177_herdr_task_sync_clean_checkout_carries_no_counts	scripts_test.sh
+scripts.bats	178	herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked	test_scripts_178_herdr_task_sync_counts_every_changed_path_once_w	scripts_test.sh
+scripts.bats	179	herdr-task-sync omits ahead and behind when the branch has no upstream	test_scripts_179_herdr_task_sync_omits_ahead_and_behind_when_the	scripts_test.sh
+scripts.bats	180	herdr-task-sync clears the counts token when a pane leaves a Git checkout	test_scripts_180_herdr_task_sync_clears_the_counts_token_when_a_p	scripts_test.sh
+scripts.bats	181	herdr-task-sync status probe over budget drops the counts and leaves git_ref intact	test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t	scripts_test.sh
+scripts.bats	182	herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory	test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory	scripts_test.sh
+scripts.bats	183	herdr-task-sync keeps the counts when only the identity probe misses its budget	test_scripts_183_herdr_task_sync_keeps_the_counts_when_only_the_i	scripts_test.sh
+scripts.bats	184	herdr-task-sync counts untracked paths its way, not the user git config's way	test_scripts_184_herdr_task_sync_counts_untracked_paths_its_way_n	scripts_test.sh
+scripts.bats	185	herdr-task-sync writer and reader agree on the record name for an awkward session id	test_scripts_185_herdr_task_sync_writer_and_reader_agree_on_the_r	scripts_test.sh
+scripts.bats	186	herdr-task-sync falls back to the pane cwd when the reported directory is gone	test_scripts_186_herdr_task_sync_falls_back_to_the_pane_cwd_when	scripts_test.sh
+scripts.bats	187	herdr-task-sync ignores an agent directory report that is not an absolute path	test_scripts_187_herdr_task_sync_ignores_an_agent_directory_repor	scripts_test.sh
+scripts.bats	188	herdr-task-sync reads the newest agent directory report when a session moves twice before a sweep	test_scripts_188_herdr_task_sync_reads_the_newest_agent_directory	scripts_test.sh
+scripts.bats	189	herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations	test_scripts_189_herdr_task_sync_plugin_exposes_only_the_approved	scripts_test.sh
+scripts.bats	190	herdr-task-sync plugin wrappers invoke one engine mode and isolate failures	test_scripts_190_herdr_task_sync_plugin_wrappers_invoke_one_engin	scripts_test.sh
+scripts.bats	191	herdr-task-sync event requests reconciliation and ensures the daemon fail-open	test_scripts_191_herdr_task_sync_event_requests_reconciliation_an	scripts_test.sh
+scripts.bats	192	herdr-task-sync sweep repairs an external pane rename without pane.updated	test_scripts_192_herdr_task_sync_sweep_repairs_an_external_pane_r	scripts_test.sh
+scripts.bats	193	herdr-task-sync sweep repairs process and CWD changes through the presentation coordinator	test_scripts_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch	scripts_test.sh
+scripts.bats	194	herdr-task-sync stays silent outside herdr	test_scripts_194_herdr_task_sync_stays_silent_outside_herdr	scripts_test.sh
+scripts.bats	195	herdr-task-sync publishes the engine slug and stores it (R4, R7)	test_scripts_195_herdr_task_sync_publishes_the_engine_slug_and_st	scripts_test.sh
+scripts.bats	196	herdr-task-sync keeps the slug on a continuation prompt (AE1)	test_scripts_196_herdr_task_sync_keeps_the_slug_on_a_continuation	scripts_test.sh
+scripts.bats	197	herdr-task-sync publishes nothing when no engine is usable (AE3, R5)	test_scripts_197_herdr_task_sync_publishes_nothing_when_no_engine	scripts_test.sh
+scripts.bats	198	herdr-task-sync resets the stored context on a new session id	test_scripts_198_herdr_task_sync_resets_the_stored_context_on_a_n	scripts_test.sh
+scripts.bats	199	herdr-task-sync returns before the naming engine finishes (R8)	test_scripts_199_herdr_task_sync_returns_before_the_naming_engine	scripts_test.sh
+scripts.bats	200	herdr-task-sync normalizes a hostile engine slug (KTD8)	test_scripts_200_herdr_task_sync_normalizes_a_hostile_engine_slug	scripts_test.sh
+scripts.bats	201	herdr-task-sync exits under the recursion guard (KTD7)	test_scripts_201_herdr_task_sync_exits_under_the_recursion_guard	scripts_test.sh
+scripts.bats	202	herdr-task-sync falls back to claude when pi fails (KTD1)	test_scripts_202_herdr_task_sync_falls_back_to_claude_when_pi_fai	scripts_test.sh
+scripts.bats	203	herdr-task-sync publishes nothing when both engines time out (KTD1)	test_scripts_203_herdr_task_sync_publishes_nothing_when_both_engi	scripts_test.sh
+scripts.bats	204	herdr-task-sync creates its state directory with mode 700 (KTD3)	test_scripts_204_herdr_task_sync_creates_its_state_directory_with	scripts_test.sh
+scripts.bats	205	herdr-task-sync names a session from its transcript (AE5)	test_scripts_205_herdr_task_sync_names_a_session_from_its_transcr	scripts_test.sh
+scripts.bats	206	herdr-task-sync publishes nothing for an empty prompt without a transcript	test_scripts_206_herdr_task_sync_publishes_nothing_for_an_empty_p	scripts_test.sh
+scripts.bats	207	herdr-task-sync --set publishes a normalized name with no engine call (AE6)	test_scripts_207_herdr_task_sync_set_publishes_a_normalized_name	scripts_test.sh
+scripts.bats	208	herdr-task-sync names the pane with the agent prefix	test_scripts_208_herdr_task_sync_names_the_pane_with_the_agent_pr	scripts_test.sh
+scripts.bats	209	herdr-task-sync falls back to a letter prefix for an unknown agent	test_scripts_209_herdr_task_sync_falls_back_to_a_letter_prefix_fo	scripts_test.sh
+scripts.bats	210	herdr-task-sync rebuilds the tab label from the pane labels	test_scripts_210_herdr_task_sync_rebuilds_the_tab_label_from_the	scripts_test.sh
+scripts.bats	211	herdr-task-sync names a command pane after the process group leader	test_scripts_211_herdr_task_sync_names_a_command_pane_after_the_p	scripts_test.sh
+scripts.bats	212	herdr-task-sync names an idle pane with the placeholder	test_scripts_212_herdr_task_sync_names_an_idle_pane_with_the_plac	scripts_test.sh
+scripts.bats	213	herdr-task-sync presentation numbers an all-idle tab	test_scripts_213_herdr_task_sync_presentation_numbers_an_all_idle	scripts_test.sh
+scripts.bats	214	herdr-task-sync truncates a long command name	test_scripts_214_herdr_task_sync_truncates_a_long_command_name	scripts_test.sh
+scripts.bats	215	herdr-task-sync --sweep relabels every tab	test_scripts_215_herdr_task_sync_sweep_relabels_every_tab	scripts_test.sh
+scripts.bats	216	herdr-task-sync --sweep leaves an unchanged tab label alone	test_scripts_216_herdr_task_sync_sweep_leaves_an_unchanged_tab_la	scripts_test.sh
+scripts.bats	217	herdr-task-sync --sweep numbers all-idle tabs per workspace	test_scripts_217_herdr_task_sync_sweep_numbers_all_idle_tabs_per	scripts_test.sh
+scripts.bats	218	herdr-task-sync --ensure-daemon keeps a single daemon	test_scripts_218_herdr_task_sync_ensure_daemon_keeps_a_single_dae	scripts_test.sh
+scripts.bats	219	herdr-task-sync --ensure-daemon replaces a dead daemon	test_scripts_219_herdr_task_sync_ensure_daemon_replaces_a_dead_da	scripts_test.sh
+scripts.bats	220	herdr-task-sync --restart-daemon replaces a live daemon	test_scripts_220_herdr_task_sync_restart_daemon_replaces_a_live_d	scripts_test.sh
+scripts.bats	221	herdr-task-sync --restart-daemon refuses an unrelated lock owner	test_scripts_221_herdr_task_sync_restart_daemon_refuses_an_unrela	scripts_test.sh
+scripts.bats	222	herdr-task-sync sweep daemon exits after three unreachable snapshots	test_scripts_222_herdr_task_sync_sweep_daemon_exits_after_three_u	scripts_test.sh
+scripts.bats	223	herdr-task-sync hook stays silent and publishes nothing outside herdr	test_scripts_223_herdr_task_sync_hook_stays_silent_and_publishes	scripts_test.sh
+scripts.bats	224	herdr-task-sync hook writes nothing to stdout when the engine runs	test_scripts_224_herdr_task_sync_hook_writes_nothing_to_stdout_wh	scripts_test.sh
+scripts.bats	225	herdr-task-sync hook forwards the prompt, session, and transcript	test_scripts_225_herdr_task_sync_hook_forwards_the_prompt_session	scripts_test.sh
+scripts.bats	226	herdr-task-sync hook calls transcript mode on session start and compact	test_scripts_226_herdr_task_sync_hook_calls_transcript_mode_on_se	scripts_test.sh
+scripts.bats	227	herdr-task-sync hook drops subagent traffic (R3)	test_scripts_227_herdr_task_sync_hook_drops_subagent_traffic_r3	scripts_test.sh
+scripts.bats	228	herdr-task-sync hook survives malformed stdin	test_scripts_228_herdr_task_sync_hook_survives_malformed_stdin	scripts_test.sh
+scripts.bats	229	se pipeline --setup-cmd lands in the workflow input JSON	test_scripts_229_se_pipeline_setup_cmd_lands_in_the_workflow_inpu	scripts_test.sh
+scripts.bats	230	se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON	test_scripts_230_se_flow_dry_run_lands_spec_path_budget_and_setup	scripts_test.sh
+scripts.bats	231	se flow --validate-cmd lands the operator's command in the workflow input JSON	test_scripts_231_se_flow_validate_cmd_lands_the_operator_s_comman	scripts_test.sh
+scripts.bats	232	se flow without --validate-cmd sends an empty command, not a missing key	test_scripts_232_se_flow_without_validate_cmd_sends_an_empty_comm	scripts_test.sh
+scripts.bats	233	se flow --dry-run prints the composed flow with a cost estimate (R10)	test_scripts_233_se_flow_dry_run_prints_the_composed_flow_with_a	scripts_test.sh
+scripts.bats	234	se flow refuses a spec the validator rejects, before launching	test_scripts_234_se_flow_refuses_a_spec_the_validator_rejects_bef	scripts_test.sh
+scripts.bats	235	se flow rejects a non-numeric budget	test_scripts_235_se_flow_rejects_a_non_numeric_budget	scripts_test.sh
+scripts.bats	236	se show prints the pending approval's title and reasons, not just a status word	test_scripts_236_se_show_prints_the_pending_approval_s_title_and	scripts_test.sh
+scripts.bats	237	se approve prints what is being decided before recording the decision	test_scripts_237_se_approve_prints_what_is_being_decided_before_r	scripts_test.sh
+scripts.bats	238	se show on a run with no pending approval prints no decision block	test_scripts_238_se_show_on_a_run_with_no_pending_approval_prints	scripts_test.sh
+scripts.bats	239	se approve resumes a parked run that nothing is driving	test_scripts_239_se_approve_resumes_a_parked_run_that_nothing_is	scripts_test.sh
+scripts.bats	240	se approve --no-resume records the decision without driving the run	test_scripts_240_se_approve_no_resume_records_the_decision_withou	scripts_test.sh
+scripts.bats	241	se approve refuses to resume a run a live process already owns	test_scripts_241_se_approve_refuses_to_resume_a_run_a_live_proces	scripts_test.sh
+scripts.bats	242	se approve does not resume a run that already finished	test_scripts_242_se_approve_does_not_resume_a_run_that_already_fi	scripts_test.sh
+scripts.bats	243	se approve usage does not promise that approve continues the run	test_scripts_243_se_approve_usage_does_not_promise_that_approve_c	scripts_test.sh
+scripts.bats	244	se blocks --json emits the composable block catalog	test_scripts_244_se_blocks_json_emits_the_composable_block_catalo	scripts_test.sh
+scripts.bats	245	Claude settings modifier registers the executor MCP server over stdio	test_scripts_245_claude_settings_modifier_registers_the_executor	scripts_test.sh
+scripts.bats	246	Claude settings modifier passes settings through untouched without 1Password	test_scripts_246_claude_settings_modifier_passes_settings_through	scripts_test.sh
+scripts.bats	247	Pi settings modifier selects the terminal theme and exact extension packages	test_scripts_247_pi_settings_modifier_selects_the_terminal_theme	scripts_test.sh
+scripts.bats	248	Pi settings modifier is idempotent	test_scripts_248_pi_settings_modifier_is_idempotent	scripts_test.sh
+scripts.bats	249	Pi terminal theme uses only terminal palette colors	test_scripts_249_pi_terminal_theme_uses_only_terminal_palette_col	scripts_test.sh
+scripts.bats	250	Claude Code daltonized theme extends light ANSI with terminal colors	test_scripts_250_claude_code_daltonized_theme_extends_light_ansi	scripts_test.sh
+scripts.bats	251	morning-cleanup trashes stale .omc state and stamps the day	test_scripts_251_morning_cleanup_trashes_stale_omc_state_and_stam	scripts_test.sh
+scripts.bats	252	morning-cleanup keeps a recently active .omc dir	test_scripts_252_morning_cleanup_keeps_a_recently_active_omc_dir	scripts_test.sh
+scripts.bats	253	morning-cleanup is a no-op on its second run of the day	test_scripts_253_morning_cleanup_is_a_no_op_on_its_second_run_of	scripts_test.sh
+scripts.bats	254	morning-cleanup keeps fresh trash entries	test_scripts_254_morning_cleanup_keeps_fresh_trash_entries	scripts_test.sh
+idempotent.bats	1	chezmoi apply is idempotent and leaves no pending diff	test_idempotent_001_chezmoi_apply_is_idempotent_and_leaves_no_pendin	idempotent_test.sh
+idempotent.bats	2	chezmoi verify succeeds	test_idempotent_002_chezmoi_verify_succeeds	idempotent_test.sh
+idempotent.bats	3	guard: MMS_DISPOSABLE_HOME=1 yields the run verdict	test_idempotent_003_guard_mms_disposable_home_1_yields_the_run_verdi	idempotent_test.sh
+idempotent.bats	4	guard: no marker and no platform fact yields the skip verdict	test_idempotent_004_guard_no_marker_and_no_platform_fact_yields_the	idempotent_test.sh
+idempotent.bats	5	guard: an empty marker does not yield run	test_idempotent_005_guard_an_empty_marker_does_not_yield_run	idempotent_test.sh
+idempotent.bats	6	guard: MMS_DISPOSABLE_HOME=0 does not yield run	test_idempotent_006_guard_mms_disposable_home_0_does_not_yield_run	idempotent_test.sh
+idempotent.bats	7	guard: MMS_DISPOSABLE_HOME=true does not yield run	test_idempotent_007_guard_mms_disposable_home_true_does_not_yield_ru	idempotent_test.sh
+idempotent.bats	8	guard: an exported CI does not yield run	test_idempotent_008_guard_an_exported_ci_does_not_yield_run	idempotent_test.sh
+idempotent.bats	9	guard: GITHUB_ACTIONS without the marker yields misconfigured	test_idempotent_009_guard_github_actions_without_the_marker_yields_m	idempotent_test.sh
+idempotent.bats	10	guard: every disposable environment declares the marker	test_idempotent_010_guard_every_disposable_environment_declares_the	idempotent_test.sh
+idempotent.bats	11	guard: the marker's claim covers chezmoi's real destination	test_idempotent_011_guard_the_marker_s_claim_covers_chezmoi_s_real_d	idempotent_test.sh
+idempotent.bats	12	guard: the skip message names make test-ubuntu and the marker	test_idempotent_012_guard_the_skip_message_names_make_test_ubuntu_an	idempotent_test.sh
+idempotent.bats	13	guard: the misconfigured message names the marker's write sites	test_idempotent_013_guard_the_misconfigured_message_names_the_marker	idempotent_test.sh
