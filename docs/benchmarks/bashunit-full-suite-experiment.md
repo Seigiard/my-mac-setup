@@ -47,13 +47,16 @@ TBD — one of `bashunit-full-suite-win | -neutral | -rejected | -inconclusive`.
 
 ## Scenario coverage
 
-| file | scenarios | parity status |
-|---|---|---|
-| platform.bats | 2 | OK (macOS) |
-| palette.bats | 57 | OK (macOS) |
-| smoke.bats | 74 | OK (macOS) |
-| scripts.bats | 254 | 252/254 — 2 herdr-child scenarios under diagnosis |
-| idempotent.bats | 13 | pending |
+| file | scenarios | macOS parity | Ubuntu parity (full mode) |
+|---|---|---|---|
+| platform.bats | 2 | OK | OK |
+| palette.bats | 57 | OK | OK |
+| smoke.bats | 74 | OK | OK |
+| scripts.bats | 254 | OK | OK (one scenario flake-rate under measurement) |
+| idempotent.bats | 13 | OK (guard/skip mode) | OK (real chezmoi apply) |
+
+Independent coverage review reconciled the manifest exactly in both
+directions (400/400, verbatim skip messages, no duplicates).
 
 ## Compatibility findings
 
@@ -69,8 +72,29 @@ TBD — one of `bashunit-full-suite-win | -neutral | -rejected | -inconclusive`.
 - bashunit "risky" (zero recorded assertions, exit 0) maps to Bats "pass" —
   tests whose checks are bare commands + `fail()` are ordinary passes in Bats.
 - Bats `run` captures to files, not pipes: a `$(…)`-based shim SIGPIPEs
-  detached daemons that outlive the test command. (Root-cause analysis of the
-  herdr-child scenarios is ongoing; see status.md.)
+  detached daemons that outlive the test command. The shim captures via
+  subshell + tempfile with zero external commands (tests legitimately empty
+  PATH before `run`).
+- bats-file's `assert_file_not_exists` tests `-f` (regular file): asserting
+  absence of a path that is a DIRECTORY is vacuously green. Two herdr-child
+  scenarios depend on this — the superseded watcher's run directory in fact
+  survives on both runners (the watcher dies to herdr-child's own `set -e`
+  before its cleanup). Filed as
+  docs/issues/2026-08-28-001-assert-file-not-exists-on-a-directory-is-vacuously-green-in-bats-file.md.
+- Bats failure detection is `set -eET`-shaped and bash-version-dependent
+  (mid-body `[[ ]]`/`(( ))` false is inert on bash 3.2 — existing issue
+  2026-08-27-002). The shim reproduces it with an errtrace ERR trap running
+  under the same interpreter; helper-depth failures are red on both runners
+  (probe-verified).
+- Three scripts.bats scenarios execute `bats` at runtime (nested-runner
+  self-tests); one of them re-runs a filter against tests/scripts.bats itself.
+  A full migration therefore keeps bats installed and keeps that .bats file
+  present, or must change what those scenarios test.
+- The suite itself leaks orphaned herdr-child watchers nondeterministically
+  under BOTH runners (observed bats-only, both-sides, and bashunit-only across
+  repeated runs); the cleanup gate treats this class as oracle-stochastic and
+  gates only on bashunit-only leaks outside it. This experiment's diagnosis
+  also found 12 accumulated orphans on the host machine from earlier runs.
 
 ## Platform results
 
