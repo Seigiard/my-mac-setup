@@ -934,7 +934,7 @@ assert_herdr_sidebar_deployment_contract() {
   # Tab labels stay names-only, while the sidebar keeps Git location on its
   # own row so branch/worktree context never competes with the agent name.
   # Identity and counts are separate tokens sharing that row.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref", "\$git_status"\]\]$'
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref", "\$git_pull", "\$git_push", "\$git_conflicts", "\$git_staged", "\$git_unstaged", "\$git_untracked"\]\]$'
   run grep -E '\$location_label|\$location_status' "$config"
   assert_failure
   width="$(awk '
