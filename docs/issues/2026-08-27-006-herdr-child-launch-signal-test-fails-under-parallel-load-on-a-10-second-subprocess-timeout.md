@@ -1,12 +1,13 @@
 ---
 title: "herdr-child launch signal test fails under parallel load on a 10 second subprocess timeout"
-short_description: "The test 'herdr-child catchable launch signals preserve ownership after prompt submission' times out and fails when the suite runs in parallel, and passes when run alone."
+short_description: "Parallel Bats workers inherit SIGINT=SIG_IGN into the launch subprocess while callback coverage reads waiting-label before failure publication completes; the tests must normalize signal disposition and wait on failed.state."
 type: "bug"
 category: "testing-ci"
 tags: ["flaky-test"]
 date: "2026-08-27"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -24,3 +25,7 @@ Treat the whole herdr-child suite, not just the launch-signal test, as the unit 
 ## Open decisions
 
 None.
+
+## Resolution
+
+Normalized each tested signal disposition before spawning Bash so parallel Bats workers exercise the launcher traps, turned the post-barrier timeout into a 30-second cleanup hang guard, and waited for failed.state before asserting the preserved waiting label. Verified both scenarios with repeated --jobs 8 runs, three complete 254-test parallel runs, make test-suite, make lint, and make test-issues.
