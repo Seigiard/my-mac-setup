@@ -56,7 +56,7 @@ convert() { # dest-dir [--serial]
 run_compare() { # dir logfile
   ( cd "$ROOT" && \
     OUT_DIR="$1" BATS_PATH="$FIX/control.bats" BU_PATH="$1/control_test.sh" \
-    MANIFEST="$1/manifest.tsv" bash scripts/compare-suite-file.sh control 4 ) \
+    MANIFEST="$1/manifest.tsv" bash tests/bashunit/compare-suite-file.sh control 4 ) \
     > "$2" 2>&1
 }
 
@@ -144,7 +144,7 @@ open(p, 'w').write(s)
 EOF
 ( cd "$ROOT" && \
   OUT_DIR="$d" BATS_PATH="$FIX/leak.bats" BU_PATH="$d/leak_test.sh" \
-  MANIFEST="$d/manifest.tsv" bash scripts/compare-suite-file.sh leak 4 ) \
+  MANIFEST="$d/manifest.tsv" bash tests/bashunit/compare-suite-file.sh leak 4 ) \
   > "$d/log" 2>&1
 rc=$?
 grep -q "LEAK-PROCESS" "$d/log" && grep -q "LEAK-PATH" "$d/log" && [ $rc -ne 0 ] \

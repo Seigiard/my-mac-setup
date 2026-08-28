@@ -8,7 +8,7 @@ set -u
 
 BASE="${1:?usage: compare-suite-file.sh <base e.g. palette> [jobs]}"
 JOBS="${2:-8}"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/.context/bashunit-full-suite/compare}"
 # Overridable for fixtures (negative controls) living outside tests/.
 BATS_PATH="${BATS_PATH:-$ROOT/tests/$BASE.bats}"
@@ -68,7 +68,7 @@ if [ "$bats_rc" -ne "$bu_rc" ] && { [ "$bats_rc" -eq 0 ] || [ "$bu_rc" -eq 0 ]; 
   overall=1
 fi
 
-python3 "$ROOT/scripts/verify_bats_bashunit.py" \
+python3 "$ROOT/tests/bashunit/verify_bats_bashunit.py" \
   --manifest "$MANIFEST" \
   --bats-file "$BASE.bats" \
   --bats-tap "$OUT_DIR/bats-$BASE.tap" \

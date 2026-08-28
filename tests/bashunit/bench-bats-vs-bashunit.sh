@@ -12,7 +12,7 @@ set -u
 MODE="${1:?usage: bench-bats-vs-bashunit.sh <host-safe|full> [reps] [jobs]}"
 REPS="${2:-3}"
 JOBS="${3:-8}"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${OUT:-$ROOT/.context/bashunit-full-suite/bench-$MODE.csv}"
 
 case "$MODE" in
