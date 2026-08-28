@@ -1,0 +1,2 @@
+platform.bats	1	chezmoiignore filters macOS files on Linux	test_001_chezmoiignore_filters_macos_files_on_linux	platform_test.sh
+platform.bats	2	chezmoiignore includes macOS files on macOS	test_002_chezmoiignore_includes_macos_files_on_macos	platform_test.sh
