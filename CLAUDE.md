@@ -130,8 +130,6 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 <important if="you are adding, changing, or reviewing tests">
 
 - Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`; it defines semantic regression tests, control fixtures, coverage ownership, and honest verification.
-- A regression test is complete only when it goes red for the intended regression and green for the corrected behavior.
-- Assert externally observable behavior. Assert literal source or rendered text only when consumers depend on that exact shape.
 - Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
 - Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/smoke.bats` for deployed cross-component behavior.
 - Run the smallest canonical `make` target that covers the change instead of reconstructing its component commands. Smithers changes use `make test-smithers`.

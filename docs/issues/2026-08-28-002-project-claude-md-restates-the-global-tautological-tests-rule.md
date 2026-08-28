@@ -5,8 +5,9 @@ type: "chore"
 category: "repository-maintenance"
 tags: ["claude-md","duplication"]
 date: "2026-08-28"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Trim the overlapping lines from the project CLAUDE.md test block, keeping its re
 ## Open decisions
 
 Whether the solutions doc or the global CLAUDE.md should be the single authority once the project restatement is removed.
+
+## Resolution
+
+Removed the two duplicated lines from the project CLAUDE.md test block (regression red/green completion, externally-observable assertion scope); the global home/private_dot_claude/CLAUDE.md test block now owns both rules. Open decision resolved in favor of the global CLAUDE.md: docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md is repo-local and undeployed, so it cannot be the cross-repo authority; it stays the depth layer with rationale and examples, not a third rule copy.
