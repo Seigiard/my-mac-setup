@@ -1,0 +1,4 @@
+TAP version 13
+ok 1 - chezmoiignore filters macOS files on Linux # SKIP Only relevant on Linux
+ok 1 - chezmoiignore includes macOS files on macOS
+1..0

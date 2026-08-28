@@ -1,0 +1,11 @@
+SKIP: chezmoiignore includes macOS files on macOS # skip Only relevant on macOS
+SKIP: executor CLI resolves on PATH through ~/.local/bin (macOS only) # skip Not on macOS
+SKIP: guard: no marker and no platform fact yields the skip verdict # skip /.dockerenv exists here
+SKIP: herdr caffeinate plugin scripts are valid sh (macOS only) # skip Not on macOS
+SKIP: kitty auto-launches herdr without exec'ing it (macOS only) # skip Not on macOS
+SKIP: kitty carries command-palette hints for the herdr plugin (macOS only) # skip Not on macOS
+SKIP: kitty font family is one kitty accepts as monospaced (macOS only) # skip Not on macOS
+SKIP: kitty herdr bindings survive a non-Latin keyboard layout (macOS only) # skip Not on macOS
+SKIP: kitty includes its herdr bindings and keeps the Alabaster theme (macOS only) # skip Not on macOS
+SKIP: kitty sends the herdr prefix for macOS-style shortcuts (macOS only) # skip Not on macOS
+SKIP: lazygit config keeps Russian-layout keybindings and popup exit (macOS only) # skip Not on macOS

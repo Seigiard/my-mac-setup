@@ -14,16 +14,6 @@ setup() {
 # .chezmoiignore platform filtering
 # ===========================================
 
-
-
-function set_up_before_script() {
-  :
-}
-
-function tear_down_after_script() {
-  _bats_file_cleanup
-}
-
 function test_001_chezmoiignore_filters_macos_files_on_linux() {
   _bats_test_init 1 'chezmoiignore filters macOS files on Linux'
   is_linux || skip "Only relevant on Linux"
@@ -47,5 +37,13 @@ function test_002_chezmoiignore_includes_macos_files_on_macos() {
   assert_output --partial ".config/kitty"
   assert_output --partial ".config/karabiner"
   assert_output --partial ".config/zed"
+}
+
+function set_up_before_script() {
+  :
+}
+
+function tear_down_after_script() {
+  _bats_file_cleanup
 }
 

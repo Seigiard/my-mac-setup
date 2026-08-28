@@ -1,0 +1,15 @@
+{
+  "full_suite_wall_seconds": 207,
+  "host_suite_wall_seconds": 222,
+  "suite_passed": 1,
+  "docker_test_count": 0,
+  "docker_fail_count": 0,
+  "docker_skip_count": 0,
+  "host_test_count": 0,
+  "host_fail_count": 0,
+  "host_skip_count": 0,
+  "test_issues_seconds": 5,
+  "docker_build_seconds": 4,
+  "docker_suite_seconds": 198,
+  "log_dir": "/Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/.context/compound-engineering/ce-optimize/test-suite-time/logs/20260828T055940"
+}

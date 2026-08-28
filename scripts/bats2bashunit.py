@@ -37,17 +37,21 @@ def convert(src: Path, out_dir: Path, serial: bool):
     base = src.stem  # e.g. "platform" from tests/platform.bats
     out_path = out_dir / f"{base}_test.sh"
 
-    passthrough: list[str] = []
-    tests: list[tuple[int, str, list[str]]] = []  # (index, name, body)
+    # Transform ONLY the @test lines, in place; every other byte stays
+    # verbatim so heredocs, nested braces, and quoting survive untouched —
+    # bash itself owns the closing braces, exactly as under Bats.
+    body_lines: list[str] = []
+    tests: list[tuple[int, str]] = []  # (index, name)
     names_seen = {}
     has_setup_file = False
     has_teardown_file = False
     has_teardown = False
 
-    i = 0
+    if lines and lines[0].startswith("#!"):
+        lines = lines[1:]  # only the file's own shebang — heredocs keep theirs
+
     index = 0
-    while i < len(lines):
-        line = lines[i]
+    for line in lines:
         m = TEST_RE.match(line)
         if m:
             index += 1
@@ -55,27 +59,18 @@ def convert(src: Path, out_dir: Path, serial: bool):
             if name in names_seen:
                 sys.exit(f"{src}: duplicate @test name: {name!r}")
             names_seen[name] = index
-            body = []
-            i += 1
-            while i < len(lines) and lines[i] != "}":
-                body.append(lines[i])
-                i += 1
-            if i >= len(lines):
-                sys.exit(f"{src}: unterminated @test {name!r}")
-            i += 1  # closing brace
-            tests.append((index, name, body))
-        else:
-            if line.startswith("#!"):
-                i += 1
-                continue
-            if re.match(r"^(function )?setup_file\s*\(\)", line):
-                has_setup_file = True
-            if re.match(r"^(function )?teardown_file\s*\(\)", line):
-                has_teardown_file = True
-            if re.match(r"^(function )?teardown\s*\(\)", line):
-                has_teardown = True
-            passthrough.append(line)
-            i += 1
+            fn = slugify(name, index)
+            body_lines.append(f"function {fn}() {{")
+            body_lines.append(f"  _bats_test_init {index} {shell_squote(name)}")
+            tests.append((index, name))
+            continue
+        if re.match(r"^(function )?setup_file\s*\(\)", line):
+            has_setup_file = True
+        if re.match(r"^(function )?teardown_file\s*\(\)", line):
+            has_teardown_file = True
+        if re.match(r"^(function )?teardown\s*\(\)", line):
+            has_teardown = True
+        body_lines.append(line)
 
     if not tests:
         sys.exit(f"{src}: no @test blocks found")
@@ -90,7 +85,7 @@ def convert(src: Path, out_dir: Path, serial: bool):
         f'_bats_file_init "$(dirname "${{BASH_SOURCE[0]}}")/../{src.name}"'
     )
     out.append("")
-    out.extend(passthrough)
+    out.extend(body_lines)
     out.append("")
     out.append("function set_up_before_script() {")
     if has_setup_file:
@@ -109,13 +104,8 @@ def convert(src: Path, out_dir: Path, serial: bool):
     out.append("")
 
     manifest_rows = []
-    for index, name, body in tests:
+    for index, name in tests:
         fn = slugify(name, index)
-        out.append(f"function {fn}() {{")
-        out.append(f"  _bats_test_init {index} {shell_squote(name)}")
-        out.extend(body)
-        out.append("}")
-        out.append("")
         manifest_rows.append((src.name, str(index), name, fn, out_path.name))
 
     out_path.write_text("\n".join(out) + "\n")

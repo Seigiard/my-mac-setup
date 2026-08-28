@@ -1,0 +1,108 @@
+Initializing bats-libs submodules...
+Submodule 'tests/helpers/bats-libs/bats-assert' (https://github.com/bats-core/bats-assert.git) registered for path 'tests/helpers/bats-libs/bats-assert'
+Submodule 'tests/helpers/bats-libs/bats-file' (https://github.com/bats-core/bats-file.git) registered for path 'tests/helpers/bats-libs/bats-file'
+Submodule 'tests/helpers/bats-libs/bats-support' (https://github.com/bats-core/bats-support.git) registered for path 'tests/helpers/bats-libs/bats-support'
+Cloning into '/Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/helpers/bats-libs/bats-assert'...
+Cloning into '/Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/helpers/bats-libs/bats-file'...
+Cloning into '/Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/helpers/bats-libs/bats-support'...
+Submodule path 'tests/helpers/bats-libs/bats-assert': checked out '697471b7a89d3ab38571f38c6c7c4b460d1f5e35'
+Submodule path 'tests/helpers/bats-libs/bats-file': checked out '6bee58bec7c2f4aed1a7425ccd4bdc42b4a84599'
+Submodule path 'tests/helpers/bats-libs/bats-support': checked out '0954abb9925cad550424cebca2b99255d4eabe96'
+docker compose -f docker/docker-compose.yml build
+ Image docker-test-full Building 
+ Image docker-test-ubuntu Building 
+ Image docker-ubuntu Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.73kB done
+#1 DONE 0.0s
+
+#2 [test-full internal] load build definition from Dockerfile.ubuntu
+#2 transferring dockerfile: 3.99kB done
+#2 DONE 0.1s
+
+#3 [test-full internal] load metadata for docker.io/library/ubuntu:24.04
+#3 DONE 0.0s
+
+#4 [test-ubuntu internal] load .dockerignore
+#4 transferring context: 243B done
+#4 DONE 0.1s
+
+#5 [test-ubuntu  1/15] FROM docker.io/library/ubuntu:24.04
+#5 DONE 0.0s
+
+#6 [test-ubuntu internal] load build context
+#6 transferring context: 3.99kB done
+#6 DONE 0.1s
+
+#7 [ubuntu 14/15] COPY --chown=testuser home/private_dot_config/brewfiles/Brewfile.tmpl /tmp/Brewfile.tmpl
+#7 CACHED
+
+#8 [ubuntu 12/15] RUN brew install fzf
+#8 CACHED
+
+#9 [ubuntu  6/15] WORKDIR /home/testuser
+#9 CACHED
+
+#10 [ubuntu  7/15] RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+#10 CACHED
+
+#11 [ubuntu  8/15] RUN brew --version
+#11 CACHED
+
+#12 [ubuntu  9/15] RUN mkdir -p /home/testuser/.local/bin /home/testuser/.local/share/chezmoi /home/testuser/.config
+#12 CACHED
+
+#13 [ubuntu  2/15] RUN apt-get update && apt-get install -y     curl     git     sudo     zsh     locales     ca-certificates     build-essential     procps     file     python3     && rm -rf /var/lib/apt/lists/*
+#13 CACHED
+
+#14 [ubuntu  4/15] RUN locale-gen en_US.UTF-8
+#14 CACHED
+
+#15 [ubuntu 13/15] RUN brew install oven-sh/bun/bun
+#15 CACHED
+
+#16 [ubuntu 11/15] RUN brew install bats-core
+#16 CACHED
+
+#17 [ubuntu  3/15] RUN set -eu;     assert_git_version_at_least() {       required="$1.$2";       found="$(git --version | awk '{print $3}')";       if ! dpkg --compare-versions "$found" ge "$required"; then         echo "apt git $found is older than $required; merge.conflictStyle=zdiff3 requires git 2.35 or newer" >&2;         exit 1;       fi;     };     assert_git_version_at_least 2 35;     command -v python3 >/dev/null || { echo "python3 is required before chezmoi apply" >&2; exit 1; };     git --version;     python3 --version
+#17 CACHED
+
+#18 [ubuntu 10/15] RUN brew install chezmoi
+#18 CACHED
+
+#19 [ubuntu  5/15] RUN useradd -m -s /bin/zsh testuser &&     echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+#19 CACHED
+
+#20 [ubuntu 15/15] RUN chezmoi execute-template --file /tmp/Brewfile.tmpl > /tmp/Brewfile &&     grep -Fq 'brew "lazywalker/tap/rgrc"' /tmp/Brewfile &&     brew bundle --file=/tmp/Brewfile &&     rm -rf "$(brew --cache)"
+#20 CACHED
+
+#21 [ubuntu] exporting to image
+#21 exporting layers done
+#21 writing image sha256:dccfda06776e55fab1d21a06168e21f1a7c8865d6b415281e11179c6eaa06471 0.0s done
+#21 naming to docker.io/library/docker-ubuntu
+#21 naming to docker.io/library/docker-ubuntu 0.0s done
+#21 DONE 0.2s
+
+#22 [test-ubuntu] exporting to image
+#22 exporting layers done
+#22 writing image sha256:8486750ebbd09041eeae4573ef714317f8109c82f8cf9ea1258ef8193dd659e0 done
+#22 naming to docker.io/library/docker-test-ubuntu done
+#22 DONE 0.1s
+
+#23 [test-full] exporting to image
+#23 exporting layers done
+#23 writing image sha256:177e5678f453c2a1ae95213ccecc8bbfb2f39cbdeba79996c408f8078e8e778f 0.0s done
+#23 naming to docker.io/library/docker-test-full 0.0s done
+#23 DONE 0.1s
+
+#24 [test-ubuntu] resolving provenance for metadata file
+#24 DONE 0.0s
+
+#25 [test-full] resolving provenance for metadata file
+#25 DONE 0.0s
+
+#26 [ubuntu] resolving provenance for metadata file
+#26 DONE 0.0s
+ Image docker-test-full Built 
+ Image docker-test-ubuntu Built 
+ Image docker-ubuntu Built 

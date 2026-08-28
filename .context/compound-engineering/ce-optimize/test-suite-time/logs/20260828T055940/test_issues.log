@@ -1,0 +1,7 @@
+python3 scripts/issues validate
+python3 -m unittest discover -s tests -p 'test_*.py'
+.........................................
+----------------------------------------------------------------------
+Ran 41 tests in 4.895s
+
+OK

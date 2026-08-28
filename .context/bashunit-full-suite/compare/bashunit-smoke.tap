@@ -1,0 +1,76 @@
+TAP version 13
+ok 1 - .gitignore ignores the agent trash directory # RISKY no assertions
+ok 1 - herdr command palette keybinding is configured
+ok 1 - post-apply suite wrapper rejects an unknown mode with usage
+ok 1 - python3 is present and at least 3.9, the floor README.md declares # RISKY no assertions
+ok 1 - herdr lazygit popup entrypoint is configured
+ok 1 - herdr plugin updates are automatic and owner-restricted
+ok 1 - herdr command palette opener detects active palette pane
+ok 1 - critical managed files are deployed and still managed # RISKY no assertions
+ok 1 - writing-style output style is deployed and enabled in settings
+ok 1 - repository issues CLI exposes its contract and reads checkout issues
+ok 1 - pi APPEND_SYSTEM.md is deployed
+ok 1 - obsolete zed-herdr removal reports malformed plugin JSON
+ok 1 - pi settings include all managed packages
+ok 1 - herdr command palette loads TOML and project-local commands
+ok 1 - coding agents use terminal color palettes
+ok 1 - opencode reads the shared writing-style file via instructions
+ok 1 - obsolete zed-herdr removal accepts formatted plugin JSON
+ok 1 - agent skills are deployed with their scripts and references
+ok 1 - shared references are deployed
+ok 1 - opencode exposes curated claude skills through canonical symlinks
+ok 1 - explicit-only workflows keep manual invocation boundaries
+ok 1 - herdr command palette sources are valid
+ok 1 - kitty font family is one kitty accepts as monospaced (macOS only)
+ok 1 - kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)
+ok 1 - kitty auto-launches herdr without exec'ing it (macOS only)
+ok 1 - kitty sends the herdr prefix for macOS-style shortcuts (macOS only)
+ok 1 - kitty herdr bindings survive a non-Latin keyboard layout (macOS only)
+ok 1 - kitty carries command-palette hints for the herdr plugin (macOS only)
+ok 1 - lazygit config keeps Russian-layout keybindings and popup exit (macOS only)
+ok 1 - herdr caffeinate plugin scripts are valid sh (macOS only) # RISKY no assertions
+ok 1 - se source script exists and passes bash syntax check
+ok 1 - focus-notify stays quiet for non-actionable statuses and missing pane id
+ok 1 - fzf is installed and meets the command palette's version floor
+ok 1 - se --help prints usage
+ok 1 - focus-notify uses one notification group per pane for duplicate replacement
+ok 1 - se pipeline fails on nonexistent plan with reason
+ok 1 - se pipeline dry-run assembles smithers command with env and input JSON
+ok 1 - focus-notify builds a safely quoted click command
+ok 1 - se pipeline forwards the single doc-review key: absent=false, --doc-review=true
+ok 1 - se pipeline dry-run honors --until=pr and --attach (no --detach)
+ok 1 - se pipeline fails on invalid --until value
+ok 1 - se resume without runId fails with usage
+ok 1 - se abort dry-run maps to smithers cancel
+ok 1 - se list dry-run exits 0 and maps to smithers ps
+ok 1 - se pipeline without --validate-cmd succeeds (derived from plan at gate-0)
+ok 1 - se approve without runId fails with usage
+ok 1 - focus-notify plugin compiles and declares its runtime entrypoint
+ok 1 - se with unknown command fails with usage
+ok 1 - se symlink source for ~/.local/bin exists in dotfiles
+ok 1 - chezmoiignore excludes smithers runtime state from management
+ok 1 - se list --json dry-run maps to smithers ps --format json
+ok 1 - se show dry-run maps to smithers inspect --format json
+ok 1 - se usage documents list --json and show
+ok 1 - se show without runId fails with usage
+ok 1 - se show rejects run ids with shell/sql metacharacters
+ok 1 - herdr task and child engines are deployed and executable
+ok 1 - se db-path walks up past an empty runtime smithers.db (0.28 state layout)
+ok 1 - herdr-task-sync Claude Code hook is deployed and executable
+ok 1 - herdr-task-sync pi extension is deployed beside herdr's own
+ok 1 - deployed herdr child contracts expose managed supervision modes
+ok 1 - claude settings wire the task-sync hook to prompt, session, and compact
+ok 1 - Pi brew auto updater is deployed
+ok 1 - herdr-task-sync opencode plugin is deployed
+ok 1 - herdr managed source preserves the U6 sidebar and ownership boundaries
+ok 1 - herdr deployed files preserve the U6 sidebar and ownership boundaries
+ok 1 - herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs
+ok 1 - Pi local private instructions focused tests pass
+ok 1 - starship init output embeds no absolute PATH export
+ok 1 - herdr pane-label plugin keeps startup sweep and relink deployment wiring
+ok 1 - rgrc aliases output embeds no absolute PATH export
+ok 1 - zoxide init output embeds no absolute PATH export
+ok 1 - Pi brew auto updater focused tests pass
+ok 1 - executor CLI resolves on PATH through ~/.local/bin (macOS only)
+ok 1 - se approve/deny/logs/chat dry-run pass through to smithers verbatim
+1..0
