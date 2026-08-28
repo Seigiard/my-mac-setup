@@ -79,8 +79,16 @@ run() {
   status=0
   output=""
   lines=()
-  output=$("$@" 2>&1)
+  # Subshell for bats-like state isolation, FILE capture for bats-like fd
+  # semantics: a daemon left running by the command inherits a writable file,
+  # not a pipe that closes when capture ends — a command-substitution capture
+  # SIGPIPEs detached continuations that write after run returns.
+  local _bats_run_out
+  _bats_run_out=$(mktemp "${TMPDIR:-/tmp}/bats-run-out.XXXXXX")
+  ( "$@" ) > "$_bats_run_out" 2>&1
   status=$?
+  output=$(cat "$_bats_run_out")
+  rm -f "$_bats_run_out"
   _bats_split_lines
   trap "$_BATS_ERR_TRAP" ERR
   return 0
@@ -114,6 +122,17 @@ fail() {
 # ---------------------------------------------------------------------------
 # bats-assert subset used by this suite
 # ---------------------------------------------------------------------------
+
+assert() {
+  # bats-assert generic form: fail unless the given command succeeds.
+  if "$@"; then
+    _bats_assert_pass
+  else
+    _bats_assert_fail "-- assertion failed --
+command : $*
+--"
+  fi
+}
 
 assert_success() {
   if [ "$status" -ne 0 ]; then

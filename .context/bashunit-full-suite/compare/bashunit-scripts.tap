@@ -1,0 +1,259 @@
+TAP version 13
+ok 1 - python3 is present and at least 3.9, the floor README.md declares # RISKY no assertions
+ok 1 - macos-tunes script is valid bash
+ok 1 - darwin scripts excluded from managed list on Linux # SKIP Only relevant on Linux
+ok 1 - install-packages script renders as valid bash
+ok 1 - ask-in-herdr script requires arguments
+ok 1 - lint target propagates shellcheck failures
+ok 1 - CI-minimal non-Linux render keeps Homebrew package installation
+ok 1 - ask.sh rejects unknown agents and the removed headless flag
+ok 1 - full Linux render keeps Homebrew package installation
+ok 1 - CI-minimal Linux render skips Homebrew but keeps the remaining setup
+ok 1 - ask.sh refuses outside herdr and when herdr-child is absent
+ok 1 - ask.sh starts a read-only live child and returns its answer
+ok 1 - ask.sh keeps a settled answer when the parent reminder cannot be queued
+ok 1 - herdr-child requires a subcommand and herdr environment
+ok 1 - ask.sh retries a colliding derived name with a valid suffix
+ok 1 - herdr-child refuses pi read-only before splitting a pane
+ok 1 - ask.sh reports undelivered when child output cannot be read
+ok 1 - herdr-child validates tab placement before Herdr mutation
+ok 1 - herdr-child start requires exactly one explicit mode before Herdr mutation
+ok 1 - ask.sh reports a still-working child with exit
+ok 1 - herdr-child validates launch and supervision timeouts before Herdr mutation
+ok 1 - herdr-child detached mode fails closed without a parent session
+ok 1 - herdr-child attached mode starts no watcher
+ok 1 - herdr-child detached mode closes only its new pane without a child session
+ok 1 - ask.sh forwards posture and every native caller option
+ok 1 - ask.sh reports blocked children after printing their answer
+ok 1 - herdr-child detached mode returns only after liveness and causal watcher arming
+ok 1 - herdr-child detached arm failure preserves the child and returns recovery JSON
+ok 1 - ask.sh maps child start failures to refused or undelivered
+ok 1 - ask.sh classifies successful waits with working, unknown, and fallback statuses
+ok 1 - herdr-child signal before prompt submission closes owned state and pane
+ok 1 - herdr-child signal and arm handshake resolves abort before reporting supervision
+ok 1 - herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome
+ok 1 - herdr-child detached timeout wakes once and later settlement wakes the same generation
+ok 1 - herdr-child catchable launch signals preserve ownership after prompt submission
+ok 1 - herdr-child detached delivery follows parent terminal identity and fails closed on session replacement
+ok 1 - herdr-child transient pane reads never become child-gone and delivery continues
+ok 1 - herdr-child detached delivery uses capped increasing retry backoff and one terminal failure
+ok 1 - herdr-child sliced wait publishes one typed non-timeout failure
+ok 1 - herdr-child watcher switches from fresh polling to sliced agent wait
+ok 1 - herdr-child detached delivery retries temporary parent blockage and prompt transport failure
+ok 1 - herdr-child attached ask follows captured parent identity after the parent moves
+ok 1 - herdr-child detached ask follows parent identity and suppresses its ordinary blocked wake
+ok 1 - herdr-child failed reap restores supervision for the kept child
+ok 1 - herdr-child callback intent suppresses blocked wake until confirmed receipt
+ok 1 - herdr-child detached watcher rejects malformed state and child identity replacement
+ok 1 - herdr-child reap invalidates before close while spontaneous loss wakes the parent
+ok 1 - herdr-child managed prompt requires a mode and attached wait observes a newer sequence
+ok 1 - herdr-child detached callbacks fail closed when supervision metadata is unreadable
+ok 1 - herdr child source contracts document attached and detached lifecycle boundaries
+ok 1 - herdr-child rejects invalid and live names before splitting
+ok 1 - herdr-child attached prompt wait rejects the first one-step settlement after a working baseline
+ok 1 - herdr-child detached reply advances generation and rearms later settlement
+ok 1 - herdr-child rejects native options that the selected kind cannot map
+ok 1 - herdr-child maps claude postures and skill directories
+ok 1 - herdr-child callback delivery exhaustion keeps decision waiting and blocks reap
+ok 1 - herdr-child maps opencode permissions, model, and configured agent
+ok 1 - herdr-child maps pi model, effort, skills, and question exclusion
+ok 1 - herdr-child splits, starts, and prompts in order with both coordinates
+ok 1 - herdr-child tab launch signal closes a parsed creation before ownership publication
+ok 1 - herdr-child attached child promoted to detach asks through validated metadata
+ok 1 - herdr-child tab mode records ownership before starting an attached child
+ok 1 - herdr-child caps startup timeout while preserving a long prompt wait
+ok 1 - herdr-child tab mode preserves malformed creations and cleans owned failures
+ok 1 - herdr-child tab mode composes with detached supervision
+ok 1 - herdr-child distinguishes a stalled initial prompt
+ok 1 - herdr-child ask requires every injected child coordinate
+ok 1 - herdr-child preserves a working pane when the wait times out
+ok 1 - herdr-child ask publishes before delivery and uses the versioned marker
+ok 1 - herdr-child retries only the pane-readiness start failure
+ok 1 - herdr-child closes its pane after three readiness failures
+ok 1 - herdr-child reply keeps the label when delivery fails and refuses child callers
+ok 1 - herdr-child ask and reply publish strictly increasing label sequences # RISKY no assertions
+ok 1 - herdr-child ask leaves the label when parent lookup or delivery fails
+ok 1 - herdr-child reap rejects an empty expected pane
+ok 1 - herdr-child tab mode reports the tab on timeout and names it on launch failure
+ok 1 - herdr-child managed detached prompt advances generation and preserves the child on rearm failure
+ok 1 - herdr-child reap preserves a reused name outside the expected pane
+ok 1 - herdr-child reap closes only settled, unfocused, non-waiting panes
+ok 1 - herdr-child reap refuses outside herdr and from a child pane
+ok 1 - herdr-child reply validates the live pair, delivers, then clears
+ok 1 - herdr-child continuation preflight failures preserve the prior generation
+ok 1 - herdr-child reap closes an unfocused idle pane
+ok 1 - herdr-child reap preserves a pane when fresh state no longer matches
+ok 1 - herdr-child reap preserves a settled pane when pane metadata is malformed
+ok 1 - fff-grep-guard denies a query of several bare words
+ok 1 - herdr-child reap preserves a settled pane with a waiting label
+ok 1 - fff-grep-guard stays silent on a single identifier
+ok 1 - herdr-integrations script exits 0 and skips when herdr is absent
+ok 1 - fff-grep-guard stays silent on a path-scoped or glob-scoped query
+ok 1 - fff-grep-guard fails open on malformed input
+ok 1 - webfetch-markdown-hint adds context for a plain URL
+ok 1 - webfetch-markdown-hint stays silent when the URL already uses markdown.new
+ok 1 - herdr-child reap closes a positively owned one-pane tab
+ok 1 - herdr-child reap closes the child pane but reports a surviving multi-pane tab
+ok 1 - herdr-child reap preserves ambiguous tab ownership
+ok 1 - settings template registers both PreToolUse hooks with their matchers
+ok 1 - herdr-task-sync descriptor probe lives in a one-test Bats file
+ok 1 - herdr-task-sync harness fresh reads follow pane and tab mutations
+ok 1 - herdr-task-sync harness controls reverse model completion by generation
+ok 1 - herdr-task-sync harness isolates colliding sanitized socket names
+ok 1 - herdr-task-sync harness applies source metadata sequence and clear rules
+ok 1 - herdr-child tab reap invalidates detached supervision before close
+ok 1 - herdr-task-sync harness models target loss move reuse and final-read change
+inner Bats exit phase took 0.192s
+ok 1 - herdr-task-sync bounded Bats invocation exits after detached work
+ok 1 - herdr-task-sync active native session fences reused pane and session identifiers
+ok 1 - herdr-task-sync one-way legacy import is atomic idempotent and ignores late legacy writes
+ok 1 - herdr-task-sync latest committed request survives stale completion and a third request
+ok 1 - herdr-task-sync failed latest model retains newest context and prior slug
+ok 1 - herdr-task-sync prompt transcript and direct set share one committed-generation contract
+ok 1 - herdr-task-sync fail-open guard uses the greater baseline
+ok 1 - herdr-task-sync restart recovers accepted and interrupted worker generations
+ok 1 - herdr-task-sync fail-open deadline rejects late success before the hang guard
+ok 1 - herdr-task-sync exact socket namespaces survive legacy sanitized-name collisions
+ok 1 - herdr-task-sync opencode forgets a deleted child session
+ok 1 - herdr-task-sync bounded Bats invocation refuses a vacuous run
+ok 1 - herdr-task-sync adapters return when a direct engine hangs
+ok 1 - herdr-task-sync clock rollback and restart cannot lower generation or task high-water
+ok 1 - herdr-task-sync presentation labels a detected agent without task state
+ok 1 - herdr-task-sync fail-open guard ignores terminal input and preserves redirected input
+ok 1 - herdr-task-sync orders adapter calls by inbox commit rather than invocation start # RISKY no assertions
+ok 1 - herdr-task-sync presentation coordinates concurrent panes in one shared tab
+ok 1 - herdr-task-sync presentation retries a newer invalidation after transient pass failure
+ok 1 - herdr-task-sync presentation accepts pi jsonl path sessions that end with the active session id
+ok 1 - herdr-task-sync presentation publishes only the newest accepted generation
+ok 1 - herdr-task-sync presentation release recheck does not lose a pending invalidation
+ok 1 - herdr-task-sync presentation coalesces event bursts into an active pass and rerun
+ok 1 - herdr-task-sync event presentation leaves the hook process group # RISKY no assertions
+ok 1 - herdr-task-sync presentation drops a malformed-width record and keeps labeling the rest
+ok 1 - herdr-task-sync fails open for missing tools contention write failure and malformed input
+ok 1 - herdr-task-sync presentation skips reused pane and tab identities at the final read
+ok 1 - herdr-task-sync presentation preserves state on incomplete and transient snapshots
+ok 1 - herdr-task-sync presentation isolates exact colliding socket identities
+ok 1 - herdr-task-sync presentation skips pre-read deletion and repairs the post-read race next pass
+ok 1 - herdr-task-sync presentation fails closed without an exact socket
+ok 1 - herdr-task-sync age cleanup removes only inactive task payloads
+ok 1 - herdr-task-sync presentation automatically corrects divergent pane and tab labels
+ok 1 - herdr-task-sync presentation restart recomputes durable pending intent without a label ledger
+ok 1 - herdr-task-sync naming worker never age-cleans tasks without safe snapshot ownership
+ok 1 - herdr-task-sync presentation self-events converge to a no-op
+ok 1 - herdr-task-sync atomic records never expose truncation or mixed fields
+ok 1 - herdr-task-sync dangling administrative gitdir retains stale location
+ok 1 - herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics
+ok 1 - herdr-task-sync presentation recovers stale and half-created owner claims
+ok 1 - herdr-task-sync location real probe shape pays the second sha call only when detached
+ok 1 - herdr-task-sync location clears the retired location_label token on both publish and non-git clear paths
+ok 1 - herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water
+ok 1 - herdr-task-sync presentation resumes safely across durable crash boundaries
+ok 1 - herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref
+ok 1 - herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals
+ok 1 - herdr-task-sync transient location preserves live token-only identity when retained state is unavailable
+ok 1 - herdr-task-sync no-op location event preserves the state file
+ok 1 - herdr-task-sync formatter renders a main checkout ref in metadata only
+ok 1 - herdr-task-sync formatter renders a worktree ref in metadata only
+ok 1 - herdr-task-sync location authoritative worktree deletion clears retained evidence
+ok 1 - herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder
+ok 1 - herdr-task-sync formatter keeps a Git-backed all-idle tab names-only
+ok 1 - herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent
+ok 1 - herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon
+ok 1 - herdr-task-sync Git-only location changes do not rename a names-only tab
+ok 1 - herdr-task-sync formatter keeps Git refs in metadata and tab labels names-only
+ok 1 - herdr-task-sync formatter qualifies a divergent worktree folder in metadata only
+ok 1 - herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions
+ok 1 - herdr-task-sync formatter joins only pane labels when three panes span two repositories
+ok 1 - herdr-task-sync worktree tokens digest overlong roots and extend colliding digest prefixes
+ok 1 - herdr-task-sync long branch refs stay in metadata and do not alter the tab label
+ok 1 - herdr-task-sync long repository names do not alter a multi-repo tab label
+ok 1 - herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels
+ok 1 - herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state
+ok 1 - herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref
+ok 1 - herdr-task-sync location clears a retired location_label even when every published token already matches
+ok 1 - herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked
+ok 1 - herdr-task-sync omits ahead and behind when the branch has no upstream
+ok 1 - herdr-task-sync location transient modes retain identity as stale without foreground fallback
+ok 1 - herdr-task-sync clean checkout carries no counts token and republishes when only the counts change
+ok 1 - herdr-task-sync clears the counts token when a pane leaves a Git checkout
+ok 1 - herdr-task-sync counts untracked paths its way, not the user git config's way
+ok 1 - herdr-task-sync coordinator resolves eight pane locations concurrently within one event envelope
+not ok 1 - 185 herdr task sync writer and reader agree on the r
+  ---
+  line 5381: assert: command not found    Output:      /Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/bashunit/scripts_test.sh: line 5381: assert: command not found      `assert [ ! -e "$HTS_STATE/escape me" ]' failed with status 127      
+  at /Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/bashunit/scripts_test.sh:5351
+  ...
+ok 1 - herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory
+ok 1 - herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations
+ok 1 - herdr-task-sync plugin wrappers invoke one engine mode and isolate failures
+ok 1 - herdr-task-sync falls back to the pane cwd when the reported directory is gone
+ok 1 - herdr-task-sync ignores an agent directory report that is not an absolute path
+ok 1 - herdr-task-sync keeps the counts when only the identity probe misses its budget
+ok 1 - herdr-task-sync status probe over budget drops the counts and leaves git_ref intact
+ok 1 - herdr-task-sync event requests reconciliation and ensures the daemon fail-open
+ok 1 - herdr-task-sync reads the newest agent directory report when a session moves twice before a sweep
+ok 1 - herdr-task-sync stays silent outside herdr
+ok 1 - herdr-task-sync publishes the engine slug and stores it (R4, R7)
+ok 1 - herdr-task-sync sweep repairs an external pane rename without pane.updated
+ok 1 - herdr-task-sync returns before the naming engine finishes (R8)
+ok 1 - herdr-task-sync sweep repairs process and CWD changes through the presentation coordinator
+ok 1 - herdr-task-sync publishes nothing when no engine is usable (AE3, R5)
+ok 1 - herdr-task-sync exits under the recursion guard (KTD7)
+ok 1 - herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering
+ok 1 - herdr-task-sync keeps the slug on a continuation prompt (AE1)
+ok 1 - herdr-task-sync normalizes a hostile engine slug (KTD8)
+ok 1 - herdr-task-sync resets the stored context on a new session id
+ok 1 - herdr-task-sync falls back to claude when pi fails (KTD1)
+ok 1 - herdr-task-sync creates its state directory with mode 700 (KTD3)
+ok 1 - herdr-task-sync publishes nothing for an empty prompt without a transcript
+ok 1 - herdr-task-sync names a session from its transcript (AE5)
+ok 1 - herdr-task-sync --set publishes a normalized name with no engine call (AE6)
+ok 1 - herdr-task-sync names the pane with the agent prefix
+ok 1 - herdr-task-sync publishes nothing when both engines time out (KTD1)
+ok 1 - herdr-task-sync falls back to a letter prefix for an unknown agent
+ok 1 - herdr-task-sync --sweep leaves an unchanged tab label alone
+ok 1 - herdr-task-sync rebuilds the tab label from the pane labels
+ok 1 - herdr-task-sync names a command pane after the process group leader
+ok 1 - herdr-task-sync names an idle pane with the placeholder
+ok 1 - herdr-task-sync --ensure-daemon keeps a single daemon
+ok 1 - herdr-task-sync presentation numbers an all-idle tab
+ok 1 - herdr-task-sync --sweep relabels every tab
+ok 1 - herdr-task-sync --restart-daemon refuses an unrelated lock owner
+ok 1 - herdr-task-sync truncates a long command name
+ok 1 - herdr-task-sync --restart-daemon replaces a live daemon
+ok 1 - herdr-task-sync hook writes nothing to stdout when the engine runs
+ok 1 - herdr-task-sync --sweep numbers all-idle tabs per workspace
+ok 1 - se pipeline --setup-cmd lands in the workflow input JSON
+ok 1 - herdr-task-sync hook drops subagent traffic (R3)
+ok 1 - herdr-task-sync hook survives malformed stdin
+ok 1 - herdr-task-sync hook forwards the prompt, session, and transcript
+ok 1 - herdr-task-sync hook calls transcript mode on session start and compact
+ok 1 - herdr-task-sync --ensure-daemon replaces a dead daemon
+ok 1 - se flow rejects a non-numeric budget
+ok 1 - herdr-task-sync hook stays silent and publishes nothing outside herdr
+ok 1 - se show prints the pending approval's title and reasons, not just a status word
+ok 1 - se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON
+ok 1 - se flow --validate-cmd lands the operator's command in the workflow input JSON
+ok 1 - se flow without --validate-cmd sends an empty command, not a missing key
+ok 1 - se show on a run with no pending approval prints no decision block
+ok 1 - herdr-task-sync sweep daemon exits after three unreachable snapshots
+ok 1 - se flow --dry-run prints the composed flow with a cost estimate (R10)
+ok 1 - se approve usage does not promise that approve continues the run
+ok 1 - se blocks --json emits the composable block catalog # SKIP smithers deps not installed (run bun install in /Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/home/private_dot_claude/dot_smithers)
+ok 1 - se flow refuses a spec the validator rejects, before launching
+ok 1 - se approve --no-resume records the decision without driving the run
+ok 1 - Claude settings modifier passes settings through untouched without 1Password
+ok 1 - Pi settings modifier is idempotent
+ok 1 - Pi settings modifier selects the terminal theme and exact extension packages
+ok 1 - Pi terminal theme uses only terminal palette colors
+ok 1 - Claude Code daltonized theme extends light ANSI with terminal colors
+ok 1 - morning-cleanup keeps a recently active .omc dir
+ok 1 - morning-cleanup trashes stale .omc state and stamps the day
+ok 1 - Claude settings modifier registers the executor MCP server over stdio
+ok 1 - morning-cleanup is a no-op on its second run of the day
+ok 1 - morning-cleanup keeps fresh trash entries
+ok 1 - se approve prints what is being decided before recording the decision
+ok 1 - se approve resumes a parked run that nothing is driving
+ok 1 - se approve refuses to resume a run a live process already owns
+ok 1 - se approve does not resume a run that already finished
+1..0

@@ -10,6 +10,10 @@ BASE="${1:?usage: compare-suite-file.sh <base e.g. palette> [jobs]}"
 JOBS="${2:-8}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/.context/bashunit-full-suite/compare}"
+# Overridable for fixtures (negative controls) living outside tests/.
+BATS_PATH="${BATS_PATH:-$ROOT/tests/$BASE.bats}"
+BU_PATH="${BU_PATH:-$ROOT/tests/bashunit/${BASE}_test.sh}"
+MANIFEST="${MANIFEST:-$ROOT/tests/bashunit/manifest.tsv}"
 mkdir -p "$OUT_DIR"
 
 # Daemon/process patterns this suite is known to spawn.
@@ -44,7 +48,7 @@ overall=0
 pre_procs="$(snapshot_procs)"; pre_tmp="$(snapshot_tmp)"
 start=$(date +%s)
 bats --jobs "$JOBS" --no-parallelize-across-files --tap \
-  "$ROOT/tests/$BASE.bats" > "$OUT_DIR/bats-$BASE.tap" 2>&1
+  "$BATS_PATH" > "$OUT_DIR/bats-$BASE.tap" 2>&1
 bats_rc=$?
 bats_secs=$(( $(date +%s) - start ))
 leak_check "bats/$BASE" "$pre_procs" "$pre_tmp" || overall=1
@@ -53,7 +57,7 @@ pre_procs="$(snapshot_procs)"; pre_tmp="$(snapshot_tmp)"
 start=$(date +%s)
 "$ROOT/tests/lib/bashunit" -j "$JOBS" --output tap \
   --report-json "$OUT_DIR/bashunit-$BASE.json" \
-  "$ROOT/tests/bashunit/${BASE}_test.sh" > "$OUT_DIR/bashunit-$BASE.tap" 2>&1
+  "$BU_PATH" > "$OUT_DIR/bashunit-$BASE.tap" 2>&1
 bu_rc=$?
 bu_secs=$(( $(date +%s) - start ))
 leak_check "bashunit/$BASE" "$pre_procs" "$pre_tmp" || overall=1
@@ -65,7 +69,7 @@ if [ "$bats_rc" -ne "$bu_rc" ] && { [ "$bats_rc" -eq 0 ] || [ "$bu_rc" -eq 0 ]; 
 fi
 
 python3 "$ROOT/scripts/verify_bats_bashunit.py" \
-  --manifest "$ROOT/tests/bashunit/manifest.tsv" \
+  --manifest "$MANIFEST" \
   --bats-file "$BASE.bats" \
   --bats-tap "$OUT_DIR/bats-$BASE.tap" \
   --bashunit-json "$OUT_DIR/bashunit-$BASE.json" \

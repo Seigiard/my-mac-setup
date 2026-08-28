@@ -44,7 +44,23 @@ Re-read this file before every batch. Update after every batch.
 
 ## Failures / risks
 
-(none yet)
+### Peer-session coordination (2026-08-28)
+- Another session (ce-optimize timing) shared this worktree, switched branches under us; now relocated to `.claude/worktrees/optimize-test-suite-timing`. This worktree stays on `optimize/test-suite-time`. Rule agreed: mutual pings before CPU-heavy/measurement windows; no docker overlap. HOLD all test execution until peer pings "window closed".
+- My commit 5a20263 accidentally swept peer's `.context` files (harmless). Only stage `.context/bashunit-full-suite/` from now on.
+
+### scripts.bats: 3 failing scenarios after first comparison (251/254 parity)
+1. "herdr-task-sync writer and reader agree on the record name for an awkward session id" — missing generic `assert` in shim → FIXED (added `assert`), not yet re-verified.
+2+3. "herdr-child superseded watcher cannot publish failure metadata over a new generation" and "herdr-child sliced wait revalidates generation before liveness refresh" — deterministic fails under shim, pass under bats. Deep diagnosis so far:
+   - Reproduces under plain bash driver (no bashunit) → environment semantics, not bashunit runtime.
+   - NOT caused by: run-in-subshell (bats also subshells), shell opts (bats has -eET+functrace; enabling them doesn't fix), SHELLOPTS export (not exported by bats), rm/glob.
+   - BASH_ENV+xtrace of ALL child bash procs shows IDENTICAL process behavior in bats vs shim: watcher dies at `return 20` (errexit at watcher_generation_current return, herdr-child's own set -e), run dir runs/<armed-gen> NEVER removed in either env (PATH rm/rmdir spy over a PASSING bats run proves no deletion).
+   - Therefore in bats `old_generation=$(cat $CHILD_STUB/generation)` must read a value ≠ armed-gen (assert_file_not_exists passes on a never-created path). In shim it reads armed-gen (= watcher run dir → exists → fail).
+   - In shim run, calls.log shows exactly 2 report-metadata calls, generation file = armed-gen at read time. Open question: what does bats read there?
+   - NEXT DECISIVE STEP (when peer window closes): BASH_ENV trace gated on BATS env (trace bats-exec-test itself) to capture the expanded `cat generation` value and report-metadata ordering under bats.
+   - Changed run() from $(…) capture to subshell+tempfile capture (bats-like fd semantics; prevents SIGPIPE of detached continuations) — kept regardless; not yet re-verified against full scripts file.
+
+### Baseline contended failure
+- test 195 (fail-open deadline) failed in the contended rough baseline; load-sensitive.
 
 ## Baseline timings
 
