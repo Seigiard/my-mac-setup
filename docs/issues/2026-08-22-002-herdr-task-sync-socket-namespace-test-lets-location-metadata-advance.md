@@ -5,9 +5,10 @@ type: "bug"
 category: "herdr"
 tags: ["herdr","ci-flake"]
 date: "2026-08-22"
-status: "open"
+status: "done"
 priority: "medium"
 external-id: "https://github.com/Seigiard/my-mac-setup/actions/runs/32557342258/job/96993615579"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -39,3 +40,7 @@ The root cause is not confirmed because the CI log did not dump `namespace_one/r
 
 - Whether the assertion at `tests/scripts.bats:1703` is still a valid contract after presentation/location metadata was added.
 - Whether the fix belongs in the test harness, by disabling or waiting for presentation in this task-only namespace test, or in `home/dot_local/bin/executable_herdr-task-sync`, by preventing an empty/no-location presentation pass from advancing location metadata.
+
+## Resolution
+
+Fixed by commit e3d388b: the task namespace test disables detached presentation, which legitimately advances location_metadata_high_water, before asserting task-only state. Verified with the focused Bats regression test on 2026-08-28.

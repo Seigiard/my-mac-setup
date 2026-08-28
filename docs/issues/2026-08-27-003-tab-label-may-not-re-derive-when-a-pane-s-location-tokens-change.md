@@ -5,8 +5,9 @@ type: "follow-up"
 category: "herdr"
 tags: ["herdr-task-sync","labels","worktree"]
 date: "2026-08-27"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Determine whether a composed tab label re-derives after only its panes' location
 ## Open decisions
 
 None.
+
+## Resolution
+
+Confirmed as intended names-only behavior: Git location changes update pane metadata without renaming the tab. The existing focused Bats regression test covers this contract and passed on 2026-08-28.
