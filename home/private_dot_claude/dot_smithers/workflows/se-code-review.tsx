@@ -170,7 +170,11 @@ ${consultHardRules({
   noChangesRules: [
     "NO CHANGES, JUST REPORT: mode:agent is report-only. Do not create, edit, or delete ANY file, never commit, never push, never switch branches. The snapshot and the repo are read-only context.",
   ],
-  extraRules: [REVIEWER_BREVITY_RULE],
+  extraRules: [
+    REVIEWER_BREVITY_RULE,
+    "Use static inspection and non-test read-only tooling only. Do not run test suites or individual tests, directly or through persona/reviewer subagents. Append this test restriction to every persona/reviewer subagent prompt. The parent review owner runs tests after report synthesis and any accepted fixes.",
+    "When the `testing` persona is selected, append this criterion to its prompt: Tautological tests considered harmful. Flag tests that merely mirror newly added source, prompt, config, or fixture text and would stay green while the intended behavior is broken. Require behavioral replacement or removal. Exact-text assertions are valid only when they exercise an externally consumed literal contract.",
+  ],
   finalOutput: {
     kind: "rawObject",
     objectDescription: "the plugin's full mode:agent JSON review (status/verdict/findings/...)",

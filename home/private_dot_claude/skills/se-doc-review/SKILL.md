@@ -10,7 +10,7 @@ Run three independent `ce-doc-review` passes from one pre-review document state:
 
 - The local pass runs headless on the real document and may apply `safe_auto` fixes.
 - Two fresh peers run headless on an immutable copy and return report-only envelopes.
-- The parent synthesizes all available envelopes after both peer panes close.
+- The parent synthesizes all available envelopes after both peer tabs close.
 
 ## Resolve the document
 
@@ -24,7 +24,7 @@ Record whether the wrapper was invoked with `mode:headless`; delivery uses that 
 
 ## Scan and freeze peer input
 
-The external payload is the document itself. Unless `SE_SKIP_SECRET_SCAN` is set to a non-empty value other than `0`, require `gitleaks` and run this fail-closed scan before creating panes:
+The external payload is the document itself. Unless `SE_SKIP_SECRET_SCAN` is set to a non-empty value other than `0`, require `gitleaks` and run this fail-closed scan before creating tabs:
 
 ```bash
 gitleaks dir --no-banner --redact --exit-code 2 "$DOC_PATH"
@@ -44,7 +44,7 @@ Peers review `DOC_COPY`; the local pass reviews `DOC_PATH`. This keeps both peer
 
 ## Dispatch fresh peers
 
-Read `~/.claude/shared/herdr-peer-launch.md` in full. It owns pane creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It owns tab creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
 
 Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
 
@@ -102,11 +102,11 @@ canonical schema. An empty review still includes Coverage with explicit zero
 counts. End with the exact line: Review complete
 ```
 
-After the shared lifecycle submits both prompts and before it waits, invoke the local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and pane closure.
+After the shared lifecycle submits both prompts and before it waits, invoke the local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and tab closure.
 
 Accept an envelope only when Coverage accounts for every attempted persona, its counts reconcile, every surviving finding is routed once with its required fields, and the terminal line is exact. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. If all three passes fail, fail the review without modifying the document further.
 
-Remove the temporary document copy and its empty staging directory after pane closure or any earlier failure.
+Remove the temporary document copy and its empty staging directory after tab closure or any earlier failure.
 
 ## Synthesize envelopes
 
