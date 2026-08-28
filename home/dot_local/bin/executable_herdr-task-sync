@@ -61,12 +61,15 @@ ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
 ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
-# Counts glyphs of the $git_status grammar. Same codicon family and the
-# same octal rule as above; each was verified present in the installed
-# Nerd Font before being chosen.
-ICON_DIRTY="$(printf '\356\252\260')"    # nf-cod-diff_modified U+EAB0
-ICON_AHEAD="$(printf '\356\252\241')"    # nf-cod-arrow_up U+EAA1
-ICON_BEHIND="$(printf '\356\252\232')"   # nf-cod-arrow_down U+EA9A
+# Each Git count has its own metadata token, so sidebar rows can choose and
+# reorder them independently. Keep the arrows as octal UTF-8: literal glyphs
+# are too easy to damage when this script passes through tooling.
+ICON_PULL="$(printf '\342\207\243')" # U+21E3 DOWNWARDS DASHED ARROW
+ICON_PUSH="$(printf '\342\207\241')" # U+21E1 UPWARDS DASHED ARROW
+ICON_CONFLICT='~'
+ICON_STAGED='+'
+ICON_UNSTAGED='!'
+ICON_UNTRACKED='?'
 # Worktree-token width math (text_length's `wc -m`, text_prefix's `cut -c`)
 # must count codepoints: under a non-UTF-8 locale both count bytes, so a cap
 # can split a multibyte path component.
@@ -83,6 +86,7 @@ case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
     ;;
 esac
 FIELD_SEPARATOR=$'\037'
+STATUS_SEPARATOR=$'\036'
 WORKTREE_TOKEN_MAX_LEN=18
 # A budget is handed straight to `sleep` in the probe watchdog. A `sleep` that
 # rejects its argument returns immediately, so the watchdog would kill every
@@ -858,11 +862,11 @@ resolve_pane_location() {
 
 # Counts are volatile where identity is stable, so they get their own probe,
 # their own budget and their own outcome: a status timeout must never make
-# $git_ref lie. Outcomes are the chart's states — `fresh` carries the counts
-# string (empty when the checkout is clean), `stale` means the probe did not
-# answer in budget, `absent` means there is nothing to count.
+# $git_ref lie. Outcomes are the chart's states — `fresh` carries the internal
+# bundle of independent count tokens (empty when clean), `stale` means the
+# probe did not answer in budget, `absent` means there is nothing to count.
 resolve_pane_git_status() {
-  local root="$1" outfile errfile status dirty ahead behind
+  local root="$1" outfile errfile status counts pull push conflicts staged unstaged untracked
   [ -n "$root" ] || { printf 'absent\037'; return 0; }
   command -v git >/dev/null 2>&1 || { printf 'stale\037'; return 0; }
   outfile="$(mktemp "$(namespace_dir)/.git-status.XXXXXX" 2>/dev/null)" || {
@@ -890,15 +894,24 @@ resolve_pane_git_status() {
     printf 'stale\037'
     return 0
   fi
-  # porcelain v2 prints one line per path, so a path that is both staged and
-  # modified counts once. Header lines start with '#'.
-  dirty="$(grep -c -v '^#' "$outfile" 2>/dev/null || true)"
-  # `# branch.ab` is emitted only when the branch has an upstream; without one
-  # both counts stay empty and the formatter drops them.
-  ahead="$(sed -n 's/^# branch\.ab +\([0-9][0-9]*\) -[0-9][0-9]*$/\1/p' "$outfile" 2>/dev/null)"
-  behind="$(sed -n 's/^# branch\.ab +[0-9][0-9]* -\([0-9][0-9]*\)$/\1/p' "$outfile" 2>/dev/null)"
+  # Parse every category in one pass. For ordinary and renamed records, X is
+  # the staged state and Y is the unstaged state. A partially staged path
+  # intentionally increments both; unmerged paths get their own count only.
+  counts="$(awk '
+    /^# branch\.ab / { push = substr($3, 2) + 0; pull = substr($4, 2) + 0; next }
+    $1 == "u" { conflicts++; next }
+    $1 == "?" { untracked++; next }
+    $1 == "1" || $1 == "2" {
+      if (substr($2, 1, 1) != ".") staged++
+      if (substr($2, 2, 1) != ".") unstaged++
+    }
+    END { print pull + 0, push + 0, conflicts + 0, staged + 0, unstaged + 0, untracked + 0 }
+  ' "$outfile" 2>/dev/null)"
   rm -f "$outfile" "$errfile"
-  printf 'fresh\037%s' "$(git_status_for "$dirty" "$ahead" "$behind")"
+  IFS=' ' read -r pull push conflicts staged unstaged untracked <<EOF
+$counts
+EOF
+  printf 'fresh\037%s' "$(git_status_tokens_for "$pull" "$push" "$conflicts" "$staged" "$unstaged" "$untracked")"
 }
 
 # Panes routinely share a checkout, so the probe runs once per distinct root
@@ -1102,21 +1115,27 @@ git_ref_for() {
   printf '%s' "$label"
 }
 
-# The counts half of the grammar:
-#   $git_status = [<dirty-icon><n>] [<ahead-icon><n>] [<behind-icon><n>]
-# Order is fixed so cells of the acceptance matrix are judged consistently,
-# and a zero renders as nothing at all rather than as "0". A clean checkout
-# with no divergence therefore produces the empty string, which the publish
-# arm turns into a cleared token.
-git_status_for() {
-  local dirty="$1" ahead="$2" behind="$3" label=""
-  case "$dirty" in '' | *[!0-9]*) dirty=0 ;; esac
-  case "$ahead" in '' | *[!0-9]*) ahead=0 ;; esac
-  case "$behind" in '' | *[!0-9]*) behind=0 ;; esac
-  [ "$dirty" -eq 0 ] || label="$ICON_DIRTY$dirty"
-  [ "$ahead" -eq 0 ] || label="${label}${label:+ }$ICON_AHEAD$ahead"
-  [ "$behind" -eq 0 ] || label="${label}${label:+ }$ICON_BEHIND$behind"
-  printf '%s' "$label"
+# Internal transport for six independent metadata tokens. The record
+# separator preserves empty positions without turning the published values
+# back into one user-facing string. An all-zero status stays wholly empty.
+git_status_tokens_for() {
+  local pull="$1" push="$2" conflicts="$3" staged="$4" unstaged="$5" untracked="$6"
+  local git_pull="" git_push="" git_conflicts="" git_staged="" git_unstaged="" git_untracked=""
+  case "$pull" in '' | *[!0-9]*) pull=0 ;; esac
+  case "$push" in '' | *[!0-9]*) push=0 ;; esac
+  case "$conflicts" in '' | *[!0-9]*) conflicts=0 ;; esac
+  case "$staged" in '' | *[!0-9]*) staged=0 ;; esac
+  case "$unstaged" in '' | *[!0-9]*) unstaged=0 ;; esac
+  case "$untracked" in '' | *[!0-9]*) untracked=0 ;; esac
+  [ "$pull" -eq 0 ] || git_pull="$ICON_PULL$pull"
+  [ "$push" -eq 0 ] || git_push="$ICON_PUSH$push"
+  [ "$conflicts" -eq 0 ] || git_conflicts="$ICON_CONFLICT$conflicts"
+  [ "$staged" -eq 0 ] || git_staged="$ICON_STAGED$staged"
+  [ "$unstaged" -eq 0 ] || git_unstaged="$ICON_UNSTAGED$unstaged"
+  [ "$untracked" -eq 0 ] || git_untracked="$ICON_UNTRACKED$untracked"
+  [ -n "$git_pull$git_push$git_conflicts$git_staged$git_unstaged$git_untracked" ] || return 0
+  printf '%s\036%s\036%s\036%s\036%s\036%s' \
+    "$git_pull" "$git_push" "$git_conflicts" "$git_staged" "$git_unstaged" "$git_untracked"
 }
 
 native_session_matches_active() {
@@ -1288,12 +1307,13 @@ reconcile_presentation_pass() {
   local _current_worktree _worktree_token _git_ref _git_status status_row _status_outcome _status_counts
   local _ref _place _folder _workspace_name
   local final_payload final_label final_task final_tokens
-  local final_repo final_worktree final_branch final_location_status final_git_ref final_git_status
+  local git_pull git_push git_conflicts git_staged git_unstaged git_untracked
+  local final_repo final_worktree final_branch final_location_status final_git_ref final_git_status final_legacy_tokens
   local pane_baselines baseline_row
   local state_file retained_pane presented_pane_ids
   local location_pids="" location_results="" location_result_file location_pid
   local location_probe_results="" location_child_failed=0
-  local legacy_label_panes final_location_label
+  local legacy_token_panes final_location_label
   command -v jq >/dev/null 2>&1 || return 1
   snapshot="$(herdr api snapshot 2>/dev/null)" || return 1
   printf '%s' "$snapshot" | jq -e '
@@ -1310,12 +1330,16 @@ reconcile_presentation_pass() {
 
   pane_rows="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.panes[]?
+    | (.tokens // {}) as $t
+    | [$t.git_pull // "", $t.git_push // "", $t.git_conflicts // "",
+       $t.git_staged // "", $t.git_unstaged // "", $t.git_untracked // ""] as $status
     | [(.pane_id // ""), (.terminal_id // ""), (.tab_id // ""),
-        (.workspace_id // ""), (.agent // ""), (.agent_session.agent // ""),
-       (.agent_session.value // ""), (.label // ""), (.tokens.task // ""),
-       (.tokens.repo // ""), (.tokens.worktree // ""), (.tokens.branch // ""),
-       (.tokens.location_status // ""), (.tokens.git_ref // ""),
-       (.tokens.git_status // ""), (@base64)]
+       (.workspace_id // ""), (.agent // ""), (.agent_session.agent // ""),
+       (.agent_session.value // ""), (.label // ""), ($t.task // ""),
+       ($t.repo // ""), ($t.worktree // ""), ($t.branch // ""),
+       ($t.location_status // ""), ($t.git_ref // ""),
+       (if any($status[]; . != "") then ($status | join("\u001e")) else "" end),
+       (@base64)]
     | join("\u001f")' 2>/dev/null | filter_records_of_width 16)"
 
   # The current_* baseline tokens are consumed only where a pane's newly
@@ -1332,9 +1356,9 @@ reconcile_presentation_pass() {
   # Naming those panes off the snapshot schedules the write without widening
   # the record. A stale sweep daemon of the old version rewriting its own
   # tokens after an upgrade is exactly how a pane reaches that state.
-  legacy_label_panes="$(printf '%s' "$snapshot" | jq -r '
+  legacy_token_panes="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.panes[]?
-    | select((.tokens.location_label // "") != "")
+    | select(((.tokens.location_label // "") != "") or ((.tokens.git_status // "") != ""))
     | (.pane_id // "")' 2>/dev/null)"
 
   # Workspace names suppress the $git_ref folder qualifier when the worktree
@@ -1553,7 +1577,7 @@ EOF
     fi
     _git_ref="$(git_ref_for "$_place" "$_ref" "$_folder" "$_location_status")"
     # The one place an outcome becomes a token decision: `fresh` publishes
-    # its counts, and both `stale` and `absent` publish nothing, because a
+    # its count tokens, and both `stale` and `absent` publish nothing, because a
     # count that might be wrong is worse than no count at all.
     #
     # The root, not the identity outcome, is what gates this. A transient
@@ -1616,7 +1640,7 @@ EOF
     # retain as-is. Same gate as the publish arms below, so such a pass also
     # keeps the legacy token for now.
     if { [ -n "$repo" ] && [ -n "$worktree_token" ]; } || [ "$location_outcome" = "non_git" ]; then
-      ! list_contains_line "$id" "$legacy_label_panes" || location_changed=1
+      ! list_contains_line "$id" "$legacy_token_panes" || location_changed=1
     fi
     if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
       [ "$current_repo" = "$repo" ] || location_changed=1
@@ -1639,17 +1663,23 @@ EOF
       # on every location change.
       final_tokens="$(printf '%s' "$final_payload" | jq -r '
         .result.pane.tokens
-        | [(.repo // ""), (.worktree // ""), (.branch // ""),
-           (.location_status // ""), (.git_ref // ""), (.git_status // ""),
-           (.location_label // "")]
+        | . as $t
+        | [$t.git_pull // "", $t.git_push // "", $t.git_conflicts // "",
+           $t.git_staged // "", $t.git_unstaged // "", $t.git_untracked // ""] as $status
+        | [($t.repo // ""), ($t.worktree // ""), ($t.branch // ""),
+           ($t.location_status // ""), ($t.git_ref // ""),
+           (if any($status[]; . != "") then ($status | join("\u001e")) else "" end),
+           (if (($t.git_status // "") != "") or (($t.location_label // "") != "") then "1" else "" end),
+           ($t.location_label // "")]
         | join("\u001f")' 2>/dev/null)"
       IFS="$FIELD_SEPARATOR" read -r final_repo final_worktree final_branch \
-        final_location_status final_git_ref final_git_status final_location_label <<EOF
+        final_location_status final_git_ref final_git_status final_legacy_tokens final_location_label <<EOF
 $final_tokens
 EOF
       location_changed=0
       if { [ -n "$repo" ] && [ -n "$worktree_token" ]; } || [ "$location_outcome" = "non_git" ]; then
         [ -z "$final_location_label" ] || location_changed=1
+        [ -z "$final_legacy_tokens" ] || location_changed=1
       fi
       if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
         [ "$final_repo" = "$repo" ] || location_changed=1
@@ -1673,12 +1703,20 @@ EOF
         # once despite being deferred by the plan; the clear can be dropped a
         # release after no deployed version writes it anymore.
         if [ -n "$repo" ] && [ -n "$worktree_token" ]; then
-          set -- "$@" --token "repo=$repo" --token "worktree=$worktree_token" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token location_label
+          set -- "$@" --token "repo=$repo" --token "worktree=$worktree_token" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token location_label --clear-token git_status
           if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
           if [ -n "$location_status" ]; then set -- "$@" --token "location_status=$location_status"; else set -- "$@" --clear-token location_status; fi
-          if [ -n "$git_status" ]; then set -- "$@" --token "git_status=$git_status"; else set -- "$@" --clear-token git_status; fi
+          IFS="$STATUS_SEPARATOR" read -r git_pull git_push git_conflicts git_staged git_unstaged git_untracked <<EOF
+$git_status
+EOF
+          if [ -n "$git_pull" ]; then set -- "$@" --token "git_pull=$git_pull"; else set -- "$@" --clear-token git_pull; fi
+          if [ -n "$git_push" ]; then set -- "$@" --token "git_push=$git_push"; else set -- "$@" --clear-token git_push; fi
+          if [ -n "$git_conflicts" ]; then set -- "$@" --token "git_conflicts=$git_conflicts"; else set -- "$@" --clear-token git_conflicts; fi
+          if [ -n "$git_staged" ]; then set -- "$@" --token "git_staged=$git_staged"; else set -- "$@" --clear-token git_staged; fi
+          if [ -n "$git_unstaged" ]; then set -- "$@" --token "git_unstaged=$git_unstaged"; else set -- "$@" --clear-token git_unstaged; fi
+          if [ -n "$git_untracked" ]; then set -- "$@" --token "git_untracked=$git_untracked"; else set -- "$@" --clear-token git_untracked; fi
         else
-          set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token git_status --clear-token location_label
+          set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token git_status --clear-token git_pull --clear-token git_push --clear-token git_conflicts --clear-token git_staged --clear-token git_unstaged --clear-token git_untracked --clear-token location_label
         fi
         "$@" >/dev/null 2>&1 || continue
       fi

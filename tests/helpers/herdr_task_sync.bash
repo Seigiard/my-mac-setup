@@ -32,12 +32,20 @@ HTS_ICON_COMMIT="$(hts_icon COMMIT)"
 HTS_ICON_FOLDER="$(hts_icon FOLDER)"
 # shellcheck disable=SC2034
 HTS_ICON_STALE="$(hts_icon STALE)"
+# Git status symbols are the user-facing contract, so tests define them
+# independently instead of inheriting whatever the engine happens to render.
 # shellcheck disable=SC2034
-HTS_ICON_DIRTY="$(hts_icon DIRTY)"
+HTS_GIT_BEHIND="$(printf '\342\207\243')"
 # shellcheck disable=SC2034
-HTS_ICON_AHEAD="$(hts_icon AHEAD)"
+HTS_GIT_AHEAD="$(printf '\342\207\241')"
 # shellcheck disable=SC2034
-HTS_ICON_BEHIND="$(hts_icon BEHIND)"
+HTS_GIT_CONFLICT='~'
+# shellcheck disable=SC2034
+HTS_GIT_STAGED='+'
+# shellcheck disable=SC2034
+HTS_GIT_UNSTAGED='!'
+# shellcheck disable=SC2034
+HTS_GIT_UNTRACKED='?'
 
 hts_teardown() {
   # Reap a background reader a failed test left running BEFORE deleting its

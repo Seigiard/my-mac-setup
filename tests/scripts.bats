@@ -4839,12 +4839,13 @@ EOF
   assert_equal "$(jq -r '.panes[] | .tokens.repo' "$state" | sort)" $'integration-platform-connectors\ninternal-developer-tooling'
 }
 
-@test "herdr-task-sync location clears a retired location_label even when every published token already matches" {
+@test "herdr-task-sync clears retired aggregate tokens even when every published token already matches" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repository" common="$HTS_WORK/repository/.git" state
   mkdir -p "$common"
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_process_label pane-1 worker
@@ -4852,23 +4853,27 @@ EOF
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  # given: a stale daemon of the retired version puts location_label back while
-  # leaving every token this version compares untouched. It reports under the
-  # same source at the sequence the last pass used, which is what an old daemon
-  # sharing the generation counter does.
+  # given: a stale daemon of the retired version puts both aggregate tokens
+  # back while leaving every current token untouched. It reports under the same
+  # source at the sequence the last pass used, as a sharing old daemon would.
   local legacy_seq
   legacy_seq="$(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state")"
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 \
-    --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic'
+    --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic' \
+    --token 'git_status=old-dirty-1'
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label' "$state")" repository/topic
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" old-dirty-1
   # when: the next pass computes identical tokens and would otherwise skip
   hts_location_pass
   # then: the legacy token is gone and the live tokens are unharmed
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
+  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
 
@@ -4879,11 +4884,14 @@ EOF
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/plain"
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/plain
-  # Counts are dirty and diverged both ways so the guard sees every icon the
-  # formatters can emit, not just the identity ones.
-  hts_git_status_fixture "$root" "$(printf '%s\n%s' \
+  # Exercise every status symbol so the character guard covers the complete
+  # formatter rather than only identity and divergence.
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s\n%s' \
     '# branch.ab +3 -4' \
-    '1 .M N... 100644 100644 100644 1111111 1111111 one.txt')"
+    'u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 conflict.txt' \
+    '1 M. N... 100644 100644 100644 1111111 1111111 staged.txt' \
+    '1 .M N... 100644 100644 100644 2222222 2222222 unstaged.txt' \
+    '? untracked.txt')"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_process_label pane-1 plain-task
@@ -4893,20 +4901,25 @@ EOF
   assert_failure
   # After removing every approved codicon glyph, only plain ASCII (plus the
   # label separator and ellipsis) may remain in published labels and tokens.
-  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE$HTS_ICON_DIRTY$HTS_ICON_AHEAD$HTS_ICON_BEHIND" '
+  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE$HTS_GIT_BEHIND$HTS_GIT_AHEAD$HTS_GIT_CONFLICT$HTS_GIT_STAGED$HTS_GIT_UNSTAGED$HTS_GIT_UNTRACKED" '
     [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree,
-     .panes[0].tokens.git_ref, .panes[0].tokens.git_status]
+     .panes[0].tokens.git_ref, .panes[0].tokens.git_pull,
+     .panes[0].tokens.git_push, .panes[0].tokens.git_conflicts,
+     .panes[0].tokens.git_staged, .panes[0].tokens.git_unstaged,
+     .panes[0].tokens.git_untracked]
     | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026-]*$"))
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain $HTS_ICON_FOLDER plain-worktree"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1 ${HTS_ICON_AHEAD}3 ${HTS_ICON_BEHIND}4"
+  assert_equal "$(jq -r '[.panes[0].tokens | .git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | map(select(. != null)) | join(" ")' "$state")" \
+    "${HTS_GIT_BEHIND}4 ${HTS_GIT_AHEAD}3 ${HTS_GIT_CONFLICT}1 ${HTS_GIT_STAGED}1 ${HTS_GIT_UNSTAGED}1 ${HTS_GIT_UNTRACKED}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
   # pane_inline stays deferred per the label-system plan: no pass publishes it.
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
-@test "herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref" {
+@test "herdr-task-sync publishes staged unstaged ahead and behind counts beside an unchanged git_ref" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
@@ -4931,12 +4944,25 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
   # then: the counts render in the fixed order and identity is untouched
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" \
-    "${HTS_ICON_DIRTY}2 ${HTS_ICON_AHEAD}1 ${HTS_ICON_BEHIND}2"
+  assert_equal "$(jq -r '[.panes[0].tokens | .git_pull, .git_push, .git_staged, .git_unstaged] | map(select(. != null)) | join(" ")' "$state")" \
+    "${HTS_GIT_BEHIND}2 ${HTS_GIT_AHEAD}1 ${HTS_GIT_STAGED}1 ${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+
+  # when: only one new untracked path remains on the next pass
+  hts_git_status_fixture "$root" '? later.txt'
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: every independently published stale category is cleared
+  run jq -e --arg untracked "${HTS_GIT_UNTRACKED}1" '
+    .panes[0].tokens
+    | (.git_pull == null and .git_push == null and .git_staged == null and
+       .git_unstaged == null and .git_untracked == $untracked)
+  ' "$state"
+  assert_success
 }
 
-@test "herdr-task-sync clean checkout carries no counts token and republishes when only the counts change" {
+@test "herdr-task-sync clean checkout carries no count tokens and republishes when only the counts change" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
@@ -4952,8 +4978,9 @@ EOF
   HERDR_TASK_SYNC_TEST_NOW_SEQ=2000 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: no counts token is published
-  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+  # then: no count tokens are published
+  run jq -e '.panes[0].tokens | [.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)' "$state"
+  assert_success
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 
   # when: a file goes dirty and nothing about the identity changes
@@ -4962,22 +4989,25 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
   # then: the counts-only change still triggers a republish
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 }
 
-@test "herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked" {
+@test "herdr-task-sync separates conflicts staged unstaged and untracked paths" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
   mkdir -p "$root/.git" "$common"
-  # given: one staged path, one unstaged path, one that is both, one untracked
+  # given: one staged path, one unstaged path, one ordinary path that is both,
+  # one renamed path that is both, one untracked, and one unmerged path
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
-  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s' \
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s\n%s\n%s' \
     '1 M. N... 100644 100644 100644 1111111 1111111 staged.txt' \
     '1 .M N... 100644 100644 100644 2222222 2222222 unstaged.txt' \
     '1 MM N... 100644 100644 100644 3333333 3333333 both.txt' \
-    '? untracked.txt')"
+    "$(printf '2 MM N... 100644 100644 100644 4444444 4444444 R100 renamed.txt\told.txt')" \
+    '? untracked.txt' \
+    'u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 conflict.txt')"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
@@ -4987,8 +5017,10 @@ EOF
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: four paths, and the partially staged one is not double counted
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}4"
+  # then: the partially staged path belongs to both actionable categories,
+  # while the unmerged path is reported only as a conflict
+  assert_equal "$(jq -r '[.panes[0].tokens | .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | map(select(. != null)) | join(" ")' "$state")" \
+    "${HTS_GIT_CONFLICT}1 ${HTS_GIT_STAGED}3 ${HTS_GIT_UNSTAGED}3 ${HTS_GIT_UNTRACKED}1"
 }
 
 @test "herdr-task-sync omits ahead and behind when the branch has no upstream" {
@@ -5011,13 +5043,16 @@ EOF
   # when: the location pass runs
   run hts_location_pass
 
-  # then: the dirty count stands alone and the pass stays quiet
+  # then: the unstaged count stands alone and the pass stays quiet
   assert_success
   refute_output --partial "dropped"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+  run jq -e '.panes[0].tokens | (.git_pull == null and .git_push == null)' "$state"
+  assert_success
 }
 
-@test "herdr-task-sync clears the counts token when a pane leaves a Git checkout" {
+@test "herdr-task-sync clears the count tokens when a pane leaves a Git checkout" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" plain="$HTS_WORK/plain" state
@@ -5031,7 +5066,7 @@ EOF
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   HERDR_TASK_SYNC_TEST_NOW_SEQ=3000 hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 
   # when: the pane moves to a directory that is not a checkout
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$plain" "$plain"
@@ -5039,11 +5074,11 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
   # then: the counts go with the rest of the location tokens
-  run jq -e '.panes[0].tokens | (.git_status == null and .git_ref == null and .repo == null)' "$state"
+  run jq -e '.panes[0].tokens | ([.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)) and (.git_ref == null and .repo == null)' "$state"
   assert_success
 }
 
-@test "herdr-task-sync status probe over budget drops the counts and leaves git_ref intact" {
+@test "herdr-task-sync status probe over budget drops the count tokens and leaves git_ref intact" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" fixture state
@@ -5060,7 +5095,7 @@ EOF
 
   # given: that count is published, so the next assertion has something to lose
   HERDR_TASK_SYNC_TEST_NOW_SEQ=3999 hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 
   # when: the status probe stalls past its own budget on the next pass
   hts_block_git_status "$root"
@@ -5069,14 +5104,15 @@ EOF
 
   # then: identity survives and the published count is cleared, not retained
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+  run jq -e '.panes[0].tokens | [.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)' "$state"
+  assert_success
 
   # when: the probe answers again
   : > "$fixture/release"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=4001 hts_location_pass
 
   # then: the counts appear without manual repair
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 }
 
 @test "herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory" {
@@ -5125,7 +5161,7 @@ EOF
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   HERDR_TASK_SYNC_TEST_NOW_SEQ=6000 hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 
   # when: the identity probe stalls past its budget while the status probe
   # still answers for the retained root
@@ -5135,7 +5171,7 @@ EOF
 
   # then: the ref is marked stale, and the counts measured this pass survive
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_STALE"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
 }
 
 @test "herdr-task-sync counts untracked paths its way, not the user git config's way" {
