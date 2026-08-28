@@ -1016,14 +1016,20 @@ import subprocess
 import time
 
 stub = Path(os.environ["CHILD_STUB"])
-proc = subprocess.Popen(
-    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--name",
-     "child-" + os.environ["CHILD_SIGNAL_NAME"], "--detach", "--prompt", "test task"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    env=os.environ.copy(),
-)
+child_signal = getattr(signal, "SIG" + os.environ["CHILD_SIGNAL"])
+# Parallel Bats workers ignore SIGINT; reset it while spawning so Bash can install the trap.
+previous_handler = signal.signal(child_signal, signal.SIG_DFL)
+try:
+    proc = subprocess.Popen(
+        ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--name",
+         "child-" + os.environ["CHILD_SIGNAL_NAME"], "--detach", "--prompt", "test task"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+finally:
+    signal.signal(child_signal, previous_handler)
 for _ in range(1000):
     if (stub / "prompt-seen").exists():
         break
@@ -1032,13 +1038,14 @@ else:
     proc.kill()
     raise AssertionError("prompt submission never reached its barrier")
 
-proc.send_signal(getattr(signal, "SIG" + os.environ["CHILD_SIGNAL"]))
+proc.send_signal(child_signal)
 try:
-    stdout, stderr = proc.communicate(timeout=10)
+    # prompt-seen proves signal ordering; this only guards a stuck cleanup/exit path.
+    stdout, stderr = proc.communicate(timeout=30)
 except subprocess.TimeoutExpired:
     proc.kill()
     proc.wait()
-    raise AssertionError("launcher did not handle the catchable signal")
+    raise AssertionError("launcher exceeded the 30-second cleanup hang guard")
 if proc.returncode == 0:
     raise AssertionError("signaled launcher returned success")
 expected = '"supervision":{"status":"failed","reason":"launch-signal-' + os.environ["CHILD_SIGNAL"]
@@ -1524,11 +1531,16 @@ PY
 }
 
 @test "herdr-child callback delivery exhaustion keeps decision waiting and blocks reap" {
+  local generation run_dir
   child_lifecycle_stub_herdr
   export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
   printf '20\n' > "$CHILD_STUB/prompt-fail-count"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  run cat "$CHILD_STUB/generation"
+  assert_success
+  generation="$output"
+  run_dir="$CHILD_STUB/state/runs/$generation"
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=child-life \
@@ -1539,7 +1551,9 @@ PY
   assert_file_exists "$CHILD_STUB/waiting-label"
 
   printf 'blocked 11\n' > "$CHILD_STUB/child-state"
-  child_wait_for_log 'supervision_failure_reason=prompt-error'
+  child_wait_for_file "$run_dir/failed.state"
+  run grep -qx 'reason=prompt-error' "$run_dir/failed.state"
+  assert_success
   assert_file_exists "$CHILD_STUB/waiting-label"
   printf 'done\n' > "$CHILD_STUB/child-list-status"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
