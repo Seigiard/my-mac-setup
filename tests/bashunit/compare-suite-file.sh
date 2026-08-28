@@ -20,7 +20,12 @@ mkdir -p "$OUT_DIR"
 LEAK_PATTERNS='htspwn|herdr|sweep-daemon|chezmoi-test'
 
 snapshot_procs() {
-  pgrep -lf -E "$LEAK_PATTERNS" 2>/dev/null | grep -v "compare-suite-file" || true
+  # macOS pgrep has no -E; its patterns are ERE already. Filter to test debris:
+  # exclude the interactive herdr session and this script itself.
+  pgrep -lf "$LEAK_PATTERNS" 2>/dev/null \
+    | grep -v -e "compare-suite-file" -e "/usr/bin/login" -e "exec -l /bin/zsh" \
+    | grep -v -e '^[0-9][0-9]* h[e]rdr$' -e 'p[g]rep' -e 'g[r]ep -v' \
+    || true
 }
 snapshot_tmp() {
   ls -d /tmp/htspwn* /tmp/bats-compat-run.* /tmp/bats-run-* 2>/dev/null || true

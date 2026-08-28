@@ -135,8 +135,9 @@ p = sys.argv[1]
 s = open(p).read()
 marker = "run echo clean"
 inject = (
-  'bash -c "exec -a htspwn-negctl-sleep sleep 300" >/dev/null 2>&1 &\n'
-  '  echo $! > /tmp/htspwn-negctl-pid\n'
+  # Double-fork so bashunit's runner cannot wait on the daemon; fds closed so
+  # nothing holds the capture open. PID via pgrep at cleanup time.
+  '( bash -c "exec -a htspwn-negctl-sleep sleep 45" </dev/null >/dev/null 2>&1 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- & )\n'
   '  : > /tmp/htspwn-negctl-leak\n'
   '  ' + marker)
 s = s.replace(marker, inject)
@@ -151,10 +152,7 @@ grep -q "LEAK-PROCESS" "$d/log" && grep -q "LEAK-PATH" "$d/log" && [ $rc -ne 0 ]
   && echo "NEGCTL PASS: leaked process and path are rejected" \
   || { echo "NEGCTL FAIL: leak control"; sed -n '1,15p' "$d/log" | sed 's/^/    /'; failures=$((failures+1)); }
 # Clean the deliberate leak.
-if [ -f /tmp/htspwn-negctl-pid ]; then
-  kill "$(cat /tmp/htspwn-negctl-pid)" 2>/dev/null
-  command rm -f /tmp/htspwn-negctl-pid
-fi
+pkill -f htspwn-negctl-sleep 2>/dev/null
 command rm -f /tmp/htspwn-negctl-leak
 
 if [ "$failures" -eq 0 ]; then

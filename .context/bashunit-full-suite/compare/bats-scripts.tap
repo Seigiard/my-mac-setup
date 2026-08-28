@@ -100,7 +100,7 @@ ok 98 webfetch-markdown-hint adds context for a plain URL
 ok 99 webfetch-markdown-hint stays silent when the URL already uses markdown.new
 ok 100 settings template registers both PreToolUse hooks with their matchers
 ok 101 herdr-task-sync descriptor probe lives in a one-test Bats file
-inner Bats exit phase took 0.175s
+inner Bats exit phase took 0.039s
 ok 102 herdr-task-sync bounded Bats invocation exits after detached work
 ok 103 herdr-task-sync bounded Bats invocation refuses a vacuous run
 ok 104 herdr-task-sync harness fresh reads follow pane and tab mutations
@@ -218,11 +218,11 @@ ok 215 herdr-task-sync --sweep relabels every tab
 ok 216 herdr-task-sync --sweep leaves an unchanged tab label alone
 ok 217 herdr-task-sync --sweep numbers all-idle tabs per workspace
 ok 218 herdr-task-sync --ensure-daemon keeps a single daemon
-/opt/homebrew/Cellar/bats-core/1.14.0/lib/bats-core/tracing.bash: line 312: 25494 Terminated: 15          sleep 30
+/opt/homebrew/Cellar/bats-core/1.14.0/libexec/bats-core/bats-exec-test: line 92: 69316 Terminated: 15          sleep 30
 ok 219 herdr-task-sync --ensure-daemon replaces a dead daemon
 ok 220 herdr-task-sync --restart-daemon replaces a live daemon
 ok 221 herdr-task-sync --restart-daemon refuses an unrelated lock owner
-/opt/homebrew/Cellar/bats-core/1.14.0/lib/bats-core/tracing.bash: line 312: 27173 Terminated: 15          sleep 30
+/opt/homebrew/Cellar/bats-core/1.14.0/libexec/bats-core/bats-exec-test: line 366: 75006 Terminated: 15          sleep 30
 ok 222 herdr-task-sync sweep daemon exits after three unreachable snapshots
 ok 223 herdr-task-sync hook stays silent and publishes nothing outside herdr
 ok 224 herdr-task-sync hook writes nothing to stdout when the engine runs

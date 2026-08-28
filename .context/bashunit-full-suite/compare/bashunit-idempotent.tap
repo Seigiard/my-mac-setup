@@ -1,0 +1,15 @@
+TAP version 13
+ok 1 - chezmoi apply is idempotent and leaves no pending diff # SKIP would run a real chezmoi apply against this $HOME, not a sandbox, so on a workstation it overwrites your live dotfiles and runs the install scripts -- use 'make test-ubuntu' for this coverage, or set MMS_DISPOSABLE_HOME=1 to declare this $HOME disposable (that opt-in applies --source=$CHEZMOI_SOURCE, the separate chezmoi clone, not this checkout)
+ok 2 - chezmoi verify succeeds # SKIP would run a real chezmoi apply against this $HOME, not a sandbox, so on a workstation it overwrites your live dotfiles and runs the install scripts -- use 'make test-ubuntu' for this coverage, or set MMS_DISPOSABLE_HOME=1 to declare this $HOME disposable (that opt-in applies --source=$CHEZMOI_SOURCE, the separate chezmoi clone, not this checkout)
+ok 3 - guard: MMS_DISPOSABLE_HOME=1 yields the run verdict
+ok 4 - guard: no marker and no platform fact yields the skip verdict
+ok 5 - guard: an empty marker does not yield run
+ok 6 - guard: MMS_DISPOSABLE_HOME=0 does not yield run
+ok 7 - guard: MMS_DISPOSABLE_HOME=true does not yield run
+ok 8 - guard: an exported CI does not yield run
+ok 9 - guard: GITHUB_ACTIONS without the marker yields misconfigured
+ok 10 - guard: every disposable environment declares the marker # RISKY no assertions
+ok 11 - guard: the marker's claim covers chezmoi's real destination # SKIP marker unset, nothing claims this $HOME is disposable
+ok 12 - guard: the skip message names make test-ubuntu and the marker
+ok 13 - guard: the misconfigured message names the marker's write sites
+1..0
