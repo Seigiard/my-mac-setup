@@ -278,7 +278,7 @@ scripts.bats	144	herdr-task-sync presentation fails closed without an exact sock
 scripts.bats	145	herdr-task-sync presentation restart recomputes durable pending intent without a label ledger	test_scripts_145_herdr_task_sync_presentation_restart_recomputes	scripts_test.sh
 scripts.bats	146	herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics	test_scripts_146_herdr_task_sync_location_resolves_main_linked_ne	scripts_test.sh
 scripts.bats	147	herdr-task-sync dangling administrative gitdir retains stale location	test_scripts_147_herdr_task_sync_dangling_administrative_gitdir_r	scripts_test.sh
-scripts.bats	148	herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water	test_scripts_148_herdr_task_sync_location_detached_publishes_a_co	scripts_test.sh
+scripts.bats	148	herdr-task-sync location detached and non-Git identities persist across transient probes	test_scripts_148_herdr_task_sync_location_detached_and_non_git_id	scripts_test.sh
 scripts.bats	149	herdr-task-sync location real probe shape pays the second sha call only when detached	test_scripts_149_herdr_task_sync_location_real_probe_shape_pays_t	scripts_test.sh
 scripts.bats	150	herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref	test_scripts_150_herdr_task_sync_location_detached_sha_failure_re	scripts_test.sh
 scripts.bats	151	herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals	test_scripts_151_herdr_task_sync_location_detached_sha_budget_fai	scripts_test.sh
@@ -293,10 +293,10 @@ scripts.bats	159	herdr-task-sync formatter renders a main checkout ref in metada
 scripts.bats	160	herdr-task-sync formatter renders a worktree ref in metadata only	test_scripts_160_herdr_task_sync_formatter_renders_a_worktree_ref	scripts_test.sh
 scripts.bats	161	herdr-task-sync formatter keeps a Git-backed all-idle tab names-only	test_scripts_161_herdr_task_sync_formatter_keeps_a_git_backed_all	scripts_test.sh
 scripts.bats	162	herdr-task-sync Git-only location changes do not rename a names-only tab	test_scripts_162_herdr_task_sync_git_only_location_changes_do_not	scripts_test.sh
-scripts.bats	163	herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder	test_scripts_163_herdr_task_sync_formatter_keeps_the_folder_quali	scripts_test.sh
-scripts.bats	164	herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent	test_scripts_164_herdr_task_sync_formatter_reads_the_workspace_di	scripts_test.sh
+scripts.bats	163	herdr-task-sync formatter never qualifies a Git branch with its folder	test_scripts_163_herdr_task_sync_formatter_never_qualifies_a_git	scripts_test.sh
+scripts.bats	164	herdr-task-sync formatter reads the workspace display name from the legacy name field	test_scripts_164_herdr_task_sync_formatter_reads_the_workspace_di	scripts_test.sh
 scripts.bats	165	herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon	test_scripts_165_herdr_task_sync_formatter_gives_a_detached_head	scripts_test.sh
-scripts.bats	166	herdr-task-sync formatter qualifies a divergent worktree folder in metadata only	test_scripts_166_herdr_task_sync_formatter_qualifies_a_divergent	scripts_test.sh
+scripts.bats	166	herdr-task-sync formatter never qualifies a linked worktree branch with its folder	test_scripts_166_herdr_task_sync_formatter_never_qualifies_a_link	scripts_test.sh
 scripts.bats	167	herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels	test_scripts_167_herdr_task_sync_formatter_keeps_mixed_git_identi	scripts_test.sh
 scripts.bats	168	herdr-task-sync formatter joins only pane labels when three panes span two repositories	test_scripts_168_herdr_task_sync_formatter_joins_only_pane_labels	scripts_test.sh
 scripts.bats	169	herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions	test_scripts_169_herdr_task_sync_worktree_tokens_use_shortest_uni	scripts_test.sh
@@ -304,14 +304,14 @@ scripts.bats	170	herdr-task-sync worktree tokens digest overlong roots and exten
 scripts.bats	171	herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering	test_scripts_171_herdr_task_sync_worktree_token_ordinal_fallback	scripts_test.sh
 scripts.bats	172	herdr-task-sync long branch refs stay in metadata and do not alter the tab label	test_scripts_172_herdr_task_sync_long_branch_refs_stay_in_metadat	scripts_test.sh
 scripts.bats	173	herdr-task-sync long repository names do not alter a multi-repo tab label	test_scripts_173_herdr_task_sync_long_repository_names_do_not_alt	scripts_test.sh
-scripts.bats	174	herdr-task-sync location clears a retired location_label even when every published token already matches	test_scripts_174_herdr_task_sync_location_clears_a_retired_locati	scripts_test.sh
+scripts.bats	174	herdr-task-sync clears retired aggregate tokens even when every published token already matches	test_scripts_174_herdr_task_sync_clears_retired_aggregate_tokens	scripts_test.sh
 scripts.bats	175	herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state	test_scripts_175_herdr_task_sync_location_and_formatter_add_only	scripts_test.sh
-scripts.bats	176	herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref	test_scripts_176_herdr_task_sync_publishes_dirty_ahead_and_behind	scripts_test.sh
-scripts.bats	177	herdr-task-sync clean checkout carries no counts token and republishes when only the counts change	test_scripts_177_herdr_task_sync_clean_checkout_carries_no_counts	scripts_test.sh
-scripts.bats	178	herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked	test_scripts_178_herdr_task_sync_counts_every_changed_path_once_w	scripts_test.sh
+scripts.bats	176	herdr-task-sync publishes separator-free sidebar lines in display order	test_scripts_176_herdr_task_sync_publishes_separator_free_sidebar	scripts_test.sh
+scripts.bats	177	herdr-task-sync clean checkout carries no count tokens and republishes when only the counts change	test_scripts_177_herdr_task_sync_clean_checkout_carries_no_count	scripts_test.sh
+scripts.bats	178	herdr-task-sync separates conflicts staged unstaged and untracked paths	test_scripts_178_herdr_task_sync_separates_conflicts_staged_unsta	scripts_test.sh
 scripts.bats	179	herdr-task-sync omits ahead and behind when the branch has no upstream	test_scripts_179_herdr_task_sync_omits_ahead_and_behind_when_the	scripts_test.sh
-scripts.bats	180	herdr-task-sync clears the counts token when a pane leaves a Git checkout	test_scripts_180_herdr_task_sync_clears_the_counts_token_when_a_p	scripts_test.sh
-scripts.bats	181	herdr-task-sync status probe over budget drops the counts and leaves git_ref intact	test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t	scripts_test.sh
+scripts.bats	180	herdr-task-sync clears the count tokens when a pane leaves a Git checkout	test_scripts_180_herdr_task_sync_clears_the_count_tokens_when_a_p	scripts_test.sh
+scripts.bats	181	herdr-task-sync status probe over budget drops the count tokens and leaves git_ref intact	test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t	scripts_test.sh
 scripts.bats	182	herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory	test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory	scripts_test.sh
 scripts.bats	183	herdr-task-sync keeps the counts when only the identity probe misses its budget	test_scripts_183_herdr_task_sync_keeps_the_counts_when_only_the_i	scripts_test.sh
 scripts.bats	184	herdr-task-sync counts untracked paths its way, not the user git config's way	test_scripts_184_herdr_task_sync_counts_untracked_paths_its_way_n	scripts_test.sh
@@ -376,15 +376,18 @@ scripts.bats	242	se approve does not resume a run that already finished	test_scr
 scripts.bats	243	se approve usage does not promise that approve continues the run	test_scripts_243_se_approve_usage_does_not_promise_that_approve_c	scripts_test.sh
 scripts.bats	244	se blocks --json emits the composable block catalog	test_scripts_244_se_blocks_json_emits_the_composable_block_catalo	scripts_test.sh
 scripts.bats	245	Claude settings modifier registers the executor MCP server over stdio	test_scripts_245_claude_settings_modifier_registers_the_executor	scripts_test.sh
-scripts.bats	246	Claude settings modifier passes settings through untouched without 1Password	test_scripts_246_claude_settings_modifier_passes_settings_through	scripts_test.sh
-scripts.bats	247	Pi settings modifier selects the terminal theme and exact extension packages	test_scripts_247_pi_settings_modifier_selects_the_terminal_theme	scripts_test.sh
-scripts.bats	248	Pi settings modifier is idempotent	test_scripts_248_pi_settings_modifier_is_idempotent	scripts_test.sh
-scripts.bats	249	Pi terminal theme uses only terminal palette colors	test_scripts_249_pi_terminal_theme_uses_only_terminal_palette_col	scripts_test.sh
-scripts.bats	250	Claude Code daltonized theme extends light ANSI with terminal colors	test_scripts_250_claude_code_daltonized_theme_extends_light_ansi	scripts_test.sh
-scripts.bats	251	morning-cleanup trashes stale .omc state and stamps the day	test_scripts_251_morning_cleanup_trashes_stale_omc_state_and_stam	scripts_test.sh
-scripts.bats	252	morning-cleanup keeps a recently active .omc dir	test_scripts_252_morning_cleanup_keeps_a_recently_active_omc_dir	scripts_test.sh
-scripts.bats	253	morning-cleanup is a no-op on its second run of the day	test_scripts_253_morning_cleanup_is_a_no_op_on_its_second_run_of	scripts_test.sh
-scripts.bats	254	morning-cleanup keeps fresh trash entries	test_scripts_254_morning_cleanup_keeps_fresh_trash_entries	scripts_test.sh
+scripts.bats	246	Claude settings modifier registers the credential-free MCP servers without 1Password	test_scripts_246_claude_settings_modifier_registers_the_credentia	scripts_test.sh
+scripts.bats	247	Claude settings modifier registers each credentialed MCP server independently	test_scripts_247_claude_settings_modifier_registers_each_credenti	scripts_test.sh
+scripts.bats	248	Claude settings modifier registers tavily-mcp when only its credential resolves	test_scripts_248_claude_settings_modifier_registers_tavily_mcp_wh	scripts_test.sh
+scripts.bats	249	Claude settings modifier passes settings through untouched without jq	test_scripts_249_claude_settings_modifier_passes_settings_through	scripts_test.sh
+scripts.bats	250	Pi settings modifier selects the terminal theme and exact extension packages	test_scripts_250_pi_settings_modifier_selects_the_terminal_theme	scripts_test.sh
+scripts.bats	251	Pi settings modifier is idempotent	test_scripts_251_pi_settings_modifier_is_idempotent	scripts_test.sh
+scripts.bats	252	Pi terminal theme uses only terminal palette colors	test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col	scripts_test.sh
+scripts.bats	253	Claude Code daltonized theme extends light ANSI with terminal colors	test_scripts_253_claude_code_daltonized_theme_extends_light_ansi	scripts_test.sh
+scripts.bats	254	morning-cleanup trashes stale .omc state and stamps the day	test_scripts_254_morning_cleanup_trashes_stale_omc_state_and_stam	scripts_test.sh
+scripts.bats	255	morning-cleanup keeps a recently active .omc dir	test_scripts_255_morning_cleanup_keeps_a_recently_active_omc_dir	scripts_test.sh
+scripts.bats	256	morning-cleanup is a no-op on its second run of the day	test_scripts_256_morning_cleanup_is_a_no_op_on_its_second_run_of	scripts_test.sh
+scripts.bats	257	morning-cleanup keeps fresh trash entries	test_scripts_257_morning_cleanup_keeps_fresh_trash_entries	scripts_test.sh
 idempotent.bats	1	chezmoi apply is idempotent and leaves no pending diff	test_idempotent_001_chezmoi_apply_is_idempotent_and_leaves_no_pendin	idempotent_test.sh
 idempotent.bats	2	chezmoi verify succeeds	test_idempotent_002_chezmoi_verify_succeeds	idempotent_test.sh
 idempotent.bats	3	guard: MMS_DISPOSABLE_HOME=1 yields the run verdict	test_idempotent_003_guard_mms_disposable_home_1_yields_the_run_verdi	idempotent_test.sh

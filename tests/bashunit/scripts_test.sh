@@ -4,6 +4,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash"
 _bats_file_init "$(dirname "${BASH_SOURCE[0]}")/../scripts.bats"
 
 
+# `run --separate-stderr` needs bats 1.5. Both CI jobs already assert that floor
+# before running this suite, so the declaration records the requirement rather
+# than raising it.
+bats_require_minimum_version 1.5.0
+
 load 'helpers/common'
 load 'helpers/herdr_task_sync'
 
@@ -1955,10 +1960,10 @@ function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
-  [[ "$call1" == agent\ list* ]]
-  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]]
-  [[ "$call3" == agent\ start* ]]
-  [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]]
+  [[ "$call1" == agent\ list* ]] || fail "unexpected first herdr-child call: $call1"
+  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0* ]] || fail "unexpected second herdr-child call: $call2"
+  [[ "$call3" == agent\ start* ]] || fail "unexpected third herdr-child call: $call3"
+  [[ "$call4" == agent\ prompt*child-a*wT:p9*wT:p0*--wait*--timeout\ 5000* ]] || fail "unexpected fourth herdr-child call: $call4"
 }
 
 function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
@@ -1974,11 +1979,11 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   call4="$(sed -n '4p' "$CHILD_STUB/calls.log")"
   call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
-  [[ "$call1" == agent\ list* ]]
-  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]]
-  [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab*child-tab=wT:tA* ]]
-  [[ "$call4" == agent\ start* ]]
-  [[ "$call5" == agent\ prompt*--wait* ]]
+  [[ "$call1" == agent\ list* ]] || fail "unexpected first tab-mode call: $call1"
+  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME=child-a*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]] || fail "unexpected second tab-mode call: $call2"
+  [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab*child-tab=wT:tA* ]] || fail "unexpected third tab-mode call: $call3"
+  [[ "$call4" == agent\ start* ]] || fail "unexpected fourth tab-mode call: $call4"
+  [[ "$call5" == agent\ prompt*--wait* ]] || fail "unexpected fifth tab-mode call: $call5"
 }
 
 function test_scripts_066_herdr_child_tab_launch_signal_closes_a_parsed_cr() {
@@ -2083,8 +2088,8 @@ function test_scripts_070_herdr_child_caps_startup_timeout_while_preservin() {
   local start_call prompt_call
   start_call="$(sed -n '3p' "$CHILD_STUB/calls.log")"
   prompt_call="$(sed -n '4p' "$CHILD_STUB/calls.log")"
-  [[ "$start_call" == *--timeout\ 300000* ]]
-  [[ "$prompt_call" == *--timeout\ 1800000* ]]
+  [[ "$start_call" == *--timeout\ 300000* ]] || fail "startup timeout was not capped: $start_call"
+  [[ "$prompt_call" == *--timeout\ 1800000* ]] || fail "prompt timeout was not preserved: $prompt_call"
 }
 
 function test_scripts_071_herdr_child_retries_only_the_pane_readiness_star() {
@@ -2925,7 +2930,7 @@ function test_scripts_106_herdr_task_sync_harness_isolates_colliding_sanit() {
   assert_equal "$sanitized_one" "$sanitized_two"
   dir_one="$(hts_socket_dir "$socket_one")"
   dir_two="$(hts_socket_dir "$socket_two")"
-  [[ "$dir_one" != "$dir_two" ]]
+  [[ "$dir_one" != "$dir_two" ]] || fail "colliding socket names shared one harness directory: $dir_one"
   hts_set_pane "$socket_one" '{"pane_id":"pane-1","label":"one","tokens":{}}'
   hts_set_pane "$socket_two" '{"pane_id":"pane-1","label":"two","tokens":{}}'
 
@@ -3092,7 +3097,7 @@ function test_scripts_111_herdr_task_sync_prompt_transcript_and_direct_set() {
     hts_wait_for_quiescence "$control"
     assert_equal "$(hts_record_number "$control" generation)" \
       "$(hts_record_number "$control" committed_generation)"
-    [[ "$(hts_record_number "$control" presentation_generation)" -gt 0 ]]
+    [[ "$(hts_record_number "$control" presentation_generation)" -gt 0 ]] || fail "presentation generation was not positive for $mode"
   done
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)"
   assert_equal "$(hts_record_text "$task" first_prompt)" "transcript first"
@@ -3239,7 +3244,7 @@ function test_scripts_115_herdr_task_sync_restart_recovers_accepted_and_in() {
 
   HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run --agent claude --session restart-s <<< 'restart request'
   [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
+    "$(hts_record_number "$control" committed_generation)" ]] || fail "restart fixture had no pending generation"
   hts_worker_run &
   first_worker=$!
   hts_wait_for_file "$HTS_WORK/models/pi/1/started"
@@ -3280,7 +3285,7 @@ function test_scripts_116_herdr_task_sync_clock_rollback_and_restart_canno() {
   HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_WORKER=1 \
     hts_run --agent pi --session clock-s --set second-clock < /dev/null
   second_generation="$(hts_record_number "$control" generation)"
-  [[ "$second_generation" -gt "$first_generation" ]]
+  [[ "$second_generation" -gt "$first_generation" ]] || fail "generation did not advance after clock rollback"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=100 HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_worker_run
   assert_equal "$(hts_record_number "$control" committed_generation)" "$second_generation"
   assert_equal "$(hts_record_number "$task" generation)" "$second_generation"
@@ -3294,7 +3299,7 @@ function test_scripts_116_herdr_task_sync_clock_rollback_and_restart_canno() {
     fail "task metadata sequence did not advance: first=$first_task_metadata second=$second_task_metadata generation=$second_generation"
   [[ "$second_presentation" -gt "$first_presentation" ]] || \
     fail "presentation generation did not advance: first=$first_presentation second=$second_presentation generation=$second_generation"
-  [[ "$second_high_water" -ge "$second_generation" ]]
+  [[ "$second_high_water" -ge "$second_generation" ]] || fail "task metadata high-water fell below generation"
 }
 
 function test_scripts_117_herdr_task_sync_exact_socket_namespaces_survive() {
@@ -3304,7 +3309,7 @@ function test_scripts_117_herdr_task_sync_exact_socket_namespaces_survive() {
   local task_one task_two namespace_one namespace_two
   namespace_one="$(hts_namespace "$socket_one")"
   namespace_two="$(hts_namespace "$socket_two")"
-  [[ "$namespace_one" != "$namespace_two" ]]
+  [[ "$namespace_one" != "$namespace_two" ]] || fail "exact socket paths shared one namespace: $namespace_one"
 
   # This test owns task namespace isolation only. A successful task commit normally
   # starts a detached presentation pass, and that pass legitimately advances the
@@ -3323,9 +3328,9 @@ function test_scripts_117_herdr_task_sync_exact_socket_namespaces_survive() {
   assert_equal "$(hts_record_text "$task_two" slug)" socket-two
   assert_equal "$(hts_record_text "$namespace_one/socket.state" socket_path)" "$socket_one"
   assert_equal "$(hts_record_text "$namespace_two/socket.state" socket_path)" "$socket_two"
-  [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]]
+  [[ "$(hts_record_number "$namespace_one/reconcile.state" task_metadata_high_water)" -gt 0 ]] || fail "first socket task high-water was not positive"
   assert_equal "$(hts_record_number "$namespace_one/reconcile.state" location_metadata_high_water)" 0
-  [[ "$(hts_record_number "$namespace_two/reconcile.state" task_metadata_high_water)" -gt 0 ]]
+  [[ "$(hts_record_number "$namespace_two/reconcile.state" task_metadata_high_water)" -gt 0 ]] || fail "second socket task high-water was not positive"
   assert_equal "$(hts_record_number "$namespace_two/reconcile.state" location_metadata_high_water)" 0
   grep -q '^checkout_root=' "$namespace_one/reconcile.state"
   grep -q '^repository_anchor=' "$namespace_one/reconcile.state"
@@ -3441,7 +3446,7 @@ function test_scripts_121_herdr_task_sync_fails_open_for_missing_tools_con() {
   run hts_run_fail_open_guard hts_worker_run
   assert_success
   [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
+    "$(hts_record_number "$control" committed_generation)" ]] || fail "worker write failure committed its pending generation"
 
   hts_setup
   HERDR_TASK_SYNC_TEST_NO_WORKER=1 hts_run \
@@ -3462,7 +3467,7 @@ function test_scripts_121_herdr_task_sync_fails_open_for_missing_tools_con() {
   run hts_run_fail_open_guard hts_worker_run
   assert_success
   [[ "$(hts_record_number "$control" generation)" -gt \
-    "$(hts_record_number "$control" committed_generation)" ]]
+    "$(hts_record_number "$control" committed_generation)" ]] || fail "task write failure committed its pending generation"
   assert_dir_not_exists "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim"
 
   hts_setup
@@ -3505,7 +3510,7 @@ function test_scripts_122_herdr_task_sync_orders_adapter_calls_by_inbox_co() {
   wait "$first_pid"
   hts_wait_for_task_slug "$task" invoked-first-committed-second
   hts_wait_for_quiescence "$control"
-  [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]]
+  [[ "$(hts_record_number "$control" committed_generation)" -gt "$first_generation" ]] || fail "later inbox commit did not advance generation"
 }
 
 function test_scripts_123_herdr_task_sync_adapters_return_when_a_direct_en() {
@@ -3714,7 +3719,9 @@ function test_scripts_128_herdr_task_sync_presentation_publishes_only_the() {
   assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" newest-second
   assert_equal "$(jq -r '.panes[0].label' "$state")" cc:newest-second
   assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:newest-second
-  run grep -c '^pane report-metadata' "$HTS_LOG"
+  run grep -c -- '--source task-sync' "$HTS_LOG"
+  assert_output "1"
+  run grep -c -- '--source sidebar-sync' "$HTS_LOG"
   assert_output "1"
 }
 
@@ -4025,7 +4032,7 @@ function test_scripts_140_herdr_task_sync_presentation_isolates_exact_coll() {
   hts_wait_for_presentation_quiescence "$socket_two"
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$socket_one")")" one
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$socket_two")")" two
-  [[ "$(hts_namespace "$socket_one")" != "$(hts_namespace "$socket_two")" ]]
+  [[ "$(hts_namespace "$socket_one")" != "$(hts_namespace "$socket_two")" ]] || fail "presentation sockets shared one namespace"
 }
 
 function test_scripts_141_herdr_task_sync_presentation_recovers_stale_and() {
@@ -4155,7 +4162,7 @@ function test_scripts_145_herdr_task_sync_presentation_restart_recomputes() {
   HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run --agent pi --session restart-presentation --set restart-task < /dev/null
   local reconcile="$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state"
   hts_wait_for_record_number "$reconcile" pending_generation 1
-  [[ "$(hts_record_number "$reconcile" pending_generation)" -gt "$(hts_record_number "$reconcile" completed_generation 2>/dev/null || printf 0)" ]]
+  [[ "$(hts_record_number "$reconcile" pending_generation)" -gt "$(hts_record_number "$reconcile" completed_generation 2>/dev/null || printf 0)" ]] || fail "presentation restart fixture had no pending intent"
   run hts_presentation_run
   assert_success
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
@@ -4193,17 +4200,18 @@ function test_scripts_146_herdr_task_sync_location_resolves_main_linked_ne() {
 
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.repo' "$state" | sort -u)" repository
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
-  # Main checkout: branch icon; folder qualifier suppressed because the
-  # worktree token equals the workspace name.
+  # Main checkout: Git identity is only the branch.
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
-  # Linked worktree (.git file at root): worktree icon; folder qualifier
-  # suppressed because the worktree token equals the branch.
+  # Linked worktree (.git file at root): Git identity is only the branch.
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.branch' "$state")" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.worktree' "$state")" feature
-  run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == null)' "$state"
+  run jq -e --arg ref "$HTS_ICON_FOLDER outside" '
+    .panes[] | select(.pane_id == "foreground-wins")
+    | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == $ref)
+  ' "$state"
   assert_success
   assert_equal "$(cat "$(hts_git_fixture_dir "$nongit")/locale")" C
 }
@@ -4235,8 +4243,8 @@ function test_scripts_147_herdr_task_sync_dangling_administrative_gitdir_r() {
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_STALE"
 }
 
-function test_scripts_148_herdr_task_sync_location_detached_publishes_a_co() {
-  _bats_test_init 148 'herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water'
+function test_scripts_148_herdr_task_sync_location_detached_and_non_git_id() {
+  _bats_test_init 148 'herdr-task-sync location detached and non-Git identities persist across transient probes'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git"
@@ -4257,7 +4265,7 @@ function test_scripts_148_herdr_task_sync_location_detached_publishes_a_co() {
   HERDR_TASK_SYNC_TEST_NOW_SEQ=1 hts_location_pass
   second_seq="$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)"
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  [[ "$second_seq" -gt "$first_seq" ]]
+  [[ "$second_seq" -gt "$first_seq" ]] || fail "detached location sequence did not advance"
   assert_equal "$(jq -r '.panes[0].tokens.repo' "$state")" repo.git
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" repo
   # Detached HEAD keeps the location: commit icon plus 7-char short SHA, no
@@ -4270,10 +4278,19 @@ function test_scripts_148_herdr_task_sync_location_detached_publishes_a_co() {
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  # pane_inline is deferred by the plan and never published; the non-Git arm
-  # clears any stale copy, so only the task token survives.
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
-  [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]]
+  # Confirmed non-Git clears Git-specific metadata but publishes the cwd
+  # basename as the durable location identity.
+  assert_equal "$(jq -cS '.panes[0].tokens' "$state")" \
+    "{\"agent_line\":\"repo worker\",\"git_line\":\"$HTS_ICON_FOLDER non-git$HTS_SIDEBAR_PADDING\",\"git_ref\":\"$HTS_ICON_FOLDER non-git\",\"task\":\"kept-task\"}"
+  [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]] || fail "non-Git location sequence did not advance"
+
+  # A later probe failure retains the prior folder identity instead of
+  # reverting to the older Git identity or clearing the location.
+  printf '%s' 127 > "$(hts_git_fixture_dir "$nongit")/status"
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_FOLDER non-git $HTS_ICON_STALE"
+  assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
 }
 
 function test_scripts_149_herdr_task_sync_location_real_probe_shape_pays_t() {
@@ -4408,8 +4425,10 @@ function test_scripts_152_herdr_task_sync_location_clears_the_retired_loca() {
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label == null' "$state"
   assert_success
-  # then: the non-Git clear path sheds it alongside the other location tokens
-  run jq -e '.panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == null)' "$state"
+  # then: the non-Git path sheds it while publishing its folder identity
+  run jq -e --arg ref "$HTS_ICON_FOLDER non-git" '
+    .panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == $ref)
+  ' "$state"
   assert_success
 }
 
@@ -4544,8 +4563,8 @@ function test_scripts_154_herdr_task_sync_coordinator_resolves_eight_pane() {
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.branch == "initial-1" and .tokens.location_status == "stale"' "$state"
   assert_success
   for i in $(seq 2 8); do
-    run jq -e --arg pane "pane-$i" \
-      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == null)' "$state"
+    run jq -e --arg pane "pane-$i" --arg ref "$HTS_ICON_FOLDER work" \
+      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == $ref)' "$state"
     assert_success
     fixture="$(hts_git_fixture_dir "$HTS_WORK/repos/repo-$i/work")"
     assert_file_exists "$fixture/started"
@@ -4608,13 +4627,13 @@ function test_scripts_156_herdr_task_sync_transient_location_preserves_liv() {
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   # Token-only evidence carries no is_linked proof, so the place icon falls
-  # back to the branch icon; without any ref evidence the folder icon plus
-  # worktree token is the whole $git_ref.
+  # back to the branch icon. A ref-less prior identity remains a folder.
   run jq -e \
-    --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
-    --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" '
-    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one})
-    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two})
+    --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_STALE" \
+    --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
+    --arg pad "$HTS_SIDEBAR_PADDING" '
+    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one,agent_line:"one",git_line:($ref_one + $pad)})
+    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two,agent_line:"two",git_line:($ref_two + $pad)})
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "one · two · three"
@@ -4729,7 +4748,7 @@ function test_scripts_161_herdr_task_sync_formatter_keeps_a_git_backed_all() {
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "~ 1"
   assert_equal "$(jq -r '.panes[] | .label' "$state" | sort -u)" "~"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_BRANCH main"
 }
 
 function test_scripts_162_herdr_task_sync_git_only_location_changes_do_not() {
@@ -4756,14 +4775,12 @@ function test_scripts_162_herdr_task_sync_git_only_location_changes_do_not() {
   assert_failure
 }
 
-function test_scripts_163_herdr_task_sync_formatter_keeps_the_folder_quali() {
-  _bats_test_init 163 'herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder'
+function test_scripts_163_herdr_task_sync_formatter_never_qualifies_a_git() {
+  _bats_test_init 163 'herdr-task-sync formatter never qualifies a Git branch with its folder'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  # Plan decision 5 describes the typical main checkout, whose folder repeats
-  # the branch or the workspace name. When the folder differs from BOTH it is
-  # real location information, so the sidebar qualifier stays — the same
-  # suppression rule as every other checkout, no main-checkout special case.
+  # Git identity is the branch regardless of the checkout folder or workspace
+  # name. Folder identity belongs exclusively to confirmed non-Git locations.
   local root="$HTS_WORK/setup-copy" state
   mkdir -p "$root/.git"
   hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
@@ -4773,17 +4790,16 @@ function test_scripts_163_herdr_task_sync_formatter_keeps_the_folder_quali() {
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main $HTS_ICON_FOLDER setup-copy"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH main"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
 function test_scripts_164_herdr_task_sync_formatter_reads_the_workspace_di() {
-  _bats_test_init 164 'herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent'
+  _bats_test_init 164 'herdr-task-sync formatter reads the workspace display name from the legacy name field'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  # Older snapshot shapes carry the workspace display name as `name`; the
-  # (.label // .name // "") read must still suppress the folder qualifier when
-  # the worktree token merely repeats that name.
+  # Older snapshot shapes carry the workspace display name as `name`; it still
+  # feeds the aggregate agent line independently of the Git identity.
   local root="$HTS_WORK/legacy-ws" state
   mkdir -p "$root/.git"
   hts_git_location_fixture "$root" "$root" "$root/.git" refs/heads/topic
@@ -4793,6 +4809,7 @@ function test_scripts_164_herdr_task_sync_formatter_reads_the_workspace_di() {
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$state")" "legacy-ws task"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
 }
 
@@ -4801,8 +4818,7 @@ function test_scripts_165_herdr_task_sync_formatter_gives_a_detached_head() {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   # The commit place deliberately wins over the worktree place: the detached
-  # short SHA locates the pane more precisely than worktree-ness does, and the
-  # folder qualifier still names the linked worktree in the sidebar.
+  # short SHA is the complete Git identity.
   local root="$HTS_WORK/wt-detached" common="$HTS_WORK/repository/.git" state
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/wt-detached"
@@ -4813,16 +4829,16 @@ function test_scripts_165_herdr_task_sync_formatter_gives_a_detached_head() {
   hts_set_process_label pane-1 task
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d $HTS_ICON_FOLDER wt-detached"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_COMMIT a1b2c3d"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
-function test_scripts_166_herdr_task_sync_formatter_qualifies_a_divergent() {
-  _bats_test_init 166 'herdr-task-sync formatter qualifies a divergent worktree folder in metadata only'
+function test_scripts_166_herdr_task_sync_formatter_never_qualifies_a_link() {
+  _bats_test_init 166 'herdr-task-sync formatter never qualifies a linked worktree branch with its folder'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
-  # A divergent folder remains useful in the sidebar while the tab stays
-  # limited to the two pane labels.
+  # The worktree icon and branch are the complete Git identity even when the
+  # checkout folder has a different name.
   local root="$HTS_WORK/wt-hotfix" common="$HTS_WORK/repository/.git" state
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/wt-hotfix"
@@ -4835,7 +4851,7 @@ function test_scripts_166_herdr_task_sync_formatter_qualifies_a_divergent() {
   hts_set_process_label pane-2 beta
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE fix-login $HTS_ICON_FOLDER wt-hotfix"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HTS_ICON_WORKTREE fix-login"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
@@ -4911,9 +4927,9 @@ function test_scripts_169_herdr_task_sync_worktree_tokens_use_shortest_uni() {
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" team/feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")" release/feature
-  # The slash-suffix folder token appears only in the sidebar qualifier.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE one $HTS_ICON_FOLDER team/feature"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER release/feature"
+  # Worktree tokens remain independently available but never qualify Git refs.
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE one"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE two"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
@@ -4942,9 +4958,9 @@ function test_scripts_170_herdr_task_sync_worktree_tokens_digest_overlong() {
   assert_success
   token_one="$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")"
   token_two="$(jq -r '.panes[] | select(.pane_id == "pane-3") | .tokens.worktree' "$state")"
-  [[ "$token_one" != "$token_two" ]]
-  [[ "$token_one" = *abcdef || "$token_two" = *abcdef ]]
-  [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]]
+  [[ "$token_one" != "$token_two" ]] || fail "colliding worktree digests produced the same token: $token_one"
+  [[ "$token_one" = *abcdef || "$token_two" = *abcdef ]] || fail "neither worktree token retained the six-character digest"
+  [[ "$token_one" = *abcdef0 || "$token_two" = *abcdef1 ]] || fail "colliding digest prefixes were not extended"
 }
 
 function test_scripts_171_herdr_task_sync_worktree_token_ordinal_fallback() {
@@ -4992,7 +5008,7 @@ function test_scripts_172_herdr_task_sync_long_branch_refs_stay_in_metadat() {
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" "$long_ref"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref $HTS_ICON_FOLDER worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE $long_ref"
 }
 
 function test_scripts_173_herdr_task_sync_long_repository_names_do_not_alt() {
@@ -5016,37 +5032,42 @@ function test_scripts_173_herdr_task_sync_long_repository_names_do_not_alt() {
   assert_equal "$(jq -r '.panes[] | .tokens.repo' "$state" | sort)" $'integration-platform-connectors\ninternal-developer-tooling'
 }
 
-function test_scripts_174_herdr_task_sync_location_clears_a_retired_locati() {
-  _bats_test_init 174 'herdr-task-sync location clears a retired location_label even when every published token already matches'
+function test_scripts_174_herdr_task_sync_clears_retired_aggregate_tokens() {
+  _bats_test_init 174 'herdr-task-sync clears retired aggregate tokens even when every published token already matches'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repository" common="$HTS_WORK/repository/.git" state
   mkdir -p "$common"
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_process_label pane-1 worker
   # given: one pass has already published every current token
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  # given: a stale daemon of the retired version puts location_label back while
-  # leaving every token this version compares untouched. It reports under the
-  # same source at the sequence the last pass used, which is what an old daemon
-  # sharing the generation counter does.
+  # given: a stale daemon of the retired version puts both aggregate tokens
+  # back while leaving every current token untouched. It reports under the same
+  # source at the sequence the last pass used, as a sharing old daemon would.
   local legacy_seq
   legacy_seq="$(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state")"
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 \
-    --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic'
+    --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic' \
+    --token 'git_status=old-dirty-1'
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label' "$state")" repository/topic
+  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" old-dirty-1
   # when: the next pass computes identical tokens and would otherwise skip
   hts_location_pass
   # then: the legacy token is gone and the live tokens are unharmed
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
 
@@ -5058,11 +5079,14 @@ function test_scripts_175_herdr_task_sync_location_and_formatter_add_only() {
   mkdir -p "$root" "$common"
   hts_mark_linked_worktree "$root" "$common/worktrees/plain"
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/plain
-  # Counts are dirty and diverged both ways so the guard sees every icon the
-  # formatters can emit, not just the identity ones.
-  hts_git_status_fixture "$root" "$(printf '%s\n%s' \
+  # Exercise every status symbol so the character guard covers the complete
+  # formatter rather than only identity and divergence.
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s\n%s' \
     '# branch.ab +3 -4' \
-    '1 .M N... 100644 100644 100644 1111111 1111111 one.txt')"
+    'u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 conflict.txt' \
+    '1 M. N... 100644 100644 100644 1111111 1111111 staged.txt' \
+    '1 .M N... 100644 100644 100644 2222222 2222222 unstaged.txt' \
+    '? untracked.txt')"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_process_label pane-1 plain-task
@@ -5070,23 +5094,29 @@ function test_scripts_175_herdr_task_sync_location_and_formatter_add_only() {
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
   assert_failure
-  # After removing every approved codicon glyph, only plain ASCII (plus the
-  # label separator and ellipsis) may remain in published labels and tokens.
-  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE$HTS_ICON_DIRTY$HTS_ICON_AHEAD$HTS_ICON_BEHIND" '
+  # After removing every approved codicon glyph, only plain ASCII plus the
+  # label separator, ellipsis, and blank-cell padding may remain.
+  run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE$HTS_GIT_BEHIND$HTS_GIT_AHEAD$HTS_GIT_CONFLICT$HTS_GIT_STAGED$HTS_GIT_UNSTAGED$HTS_GIT_UNTRACKED" '
     [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree,
-     .panes[0].tokens.git_ref, .panes[0].tokens.git_status]
-    | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026-]*$"))
+     .panes[0].tokens.agent_line, .panes[0].tokens.git_line,
+     .panes[0].tokens.git_ref, .panes[0].tokens.git_pull,
+     .panes[0].tokens.git_push, .panes[0].tokens.git_conflicts,
+     .panes[0].tokens.git_staged, .panes[0].tokens.git_unstaged,
+     .panes[0].tokens.git_untracked]
+    | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026\u2800-]*$"))
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain $HTS_ICON_FOLDER plain-worktree"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1 ${HTS_ICON_AHEAD}3 ${HTS_ICON_BEHIND}4"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE plain"
+  assert_equal "$(jq -r '[.panes[0].tokens | .git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | map(select(. != null)) | join(" ")' "$state")" \
+    "${HTS_GIT_BEHIND}4 ${HTS_GIT_AHEAD}3 ${HTS_GIT_CONFLICT}1 ${HTS_GIT_STAGED}1 ${HTS_GIT_UNSTAGED}1 ${HTS_GIT_UNTRACKED}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
   # pane_inline stays deferred per the label-system plan: no pass publishes it.
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
-function test_scripts_176_herdr_task_sync_publishes_dirty_ahead_and_behind() {
-  _bats_test_init 176 'herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref'
+function test_scripts_176_herdr_task_sync_publishes_separator_free_sidebar() {
+  _bats_test_init 176 'herdr-task-sync publishes separator-free sidebar lines in display order'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
@@ -5110,14 +5140,35 @@ function test_scripts_176_herdr_task_sync_publishes_dirty_ahead_and_behind() {
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: the counts render in the fixed order and identity is untouched
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" \
-    "${HTS_ICON_DIRTY}2 ${HTS_ICON_AHEAD}1 ${HTS_ICON_BEHIND}2"
+  # then: the aggregate lines render in the fixed order without Herdr inserting
+  # separators, and the final blank cell keeps the count off the panel border
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$state")" "repo worker"
+  assert_equal "$(jq -r '.panes[0].tokens.git_line' "$state")" \
+    "$HTS_ICON_BRANCH topic $HTS_GIT_BEHIND"'2 '"$HTS_GIT_AHEAD"'1 +1 !1'"$HTS_SIDEBAR_PADDING"
+  run jq -e '.panes[0].tokens.git_line | contains("·") | not' "$state"
+  assert_success
+
+  # The independent source tokens remain available for other consumers.
+  assert_equal "$(jq -r '[.panes[0].tokens | .git_pull, .git_push, .git_staged, .git_unstaged] | map(select(. != null)) | join(" ")' "$state")" \
+    "${HTS_GIT_BEHIND}2 ${HTS_GIT_AHEAD}1 ${HTS_GIT_STAGED}1 ${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+
+  # when: only one new untracked path remains on the next pass
+  hts_git_status_fixture "$root" '? later.txt'
+  hts_location_pass
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+
+  # then: every independently published stale category is cleared
+  run jq -e --arg untracked "${HTS_GIT_UNTRACKED}1" '
+    .panes[0].tokens
+    | (.git_pull == null and .git_push == null and .git_staged == null and
+       .git_unstaged == null and .git_untracked == $untracked)
+  ' "$state"
+  assert_success
 }
 
-function test_scripts_177_herdr_task_sync_clean_checkout_carries_no_counts() {
-  _bats_test_init 177 'herdr-task-sync clean checkout carries no counts token and republishes when only the counts change'
+function test_scripts_177_herdr_task_sync_clean_checkout_carries_no_count() {
+  _bats_test_init 177 'herdr-task-sync clean checkout carries no count tokens and republishes when only the counts change'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
@@ -5133,9 +5184,11 @@ function test_scripts_177_herdr_task_sync_clean_checkout_carries_no_counts() {
   HERDR_TASK_SYNC_TEST_NOW_SEQ=2000 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: no counts token is published
-  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+  # then: no count tokens are published
+  run jq -e '.panes[0].tokens | [.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)' "$state"
+  assert_success
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_line' "$state")" "$HTS_ICON_BRANCH topic$HTS_SIDEBAR_PADDING"
 
   # when: a file goes dirty and nothing about the identity changes
   hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
@@ -5143,23 +5196,27 @@ function test_scripts_177_herdr_task_sync_clean_checkout_carries_no_counts() {
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
   # then: the counts-only change still triggers a republish
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_line' "$state")" "$HTS_ICON_BRANCH topic ${HTS_GIT_UNSTAGED}1$HTS_SIDEBAR_PADDING"
 }
 
-function test_scripts_178_herdr_task_sync_counts_every_changed_path_once_w() {
-  _bats_test_init 178 'herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked'
+function test_scripts_178_herdr_task_sync_separates_conflicts_staged_unsta() {
+  _bats_test_init 178 'herdr-task-sync separates conflicts staged unstaged and untracked paths'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
   mkdir -p "$root/.git" "$common"
-  # given: one staged path, one unstaged path, one that is both, one untracked
+  # given: one staged path, one unstaged path, one ordinary path that is both,
+  # one renamed path that is both, one untracked, and one unmerged path
   hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
-  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s' \
+  hts_git_status_fixture "$root" "$(printf '%s\n%s\n%s\n%s\n%s\n%s' \
     '1 M. N... 100644 100644 100644 1111111 1111111 staged.txt' \
     '1 .M N... 100644 100644 100644 2222222 2222222 unstaged.txt' \
     '1 MM N... 100644 100644 100644 3333333 3333333 both.txt' \
-    '? untracked.txt')"
+    "$(printf '2 MM N... 100644 100644 100644 4444444 4444444 R100 renamed.txt\told.txt')" \
+    '? untracked.txt' \
+    'u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 conflict.txt')"
   hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
   hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
@@ -5169,8 +5226,10 @@ function test_scripts_178_herdr_task_sync_counts_every_changed_path_once_w() {
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: four paths, and the partially staged one is not double counted
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}4"
+  # then: the partially staged path belongs to both actionable categories,
+  # while the unmerged path is reported only as a conflict
+  assert_equal "$(jq -r '[.panes[0].tokens | .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | map(select(. != null)) | join(" ")' "$state")" \
+    "${HTS_GIT_CONFLICT}1 ${HTS_GIT_STAGED}3 ${HTS_GIT_UNSTAGED}3 ${HTS_GIT_UNTRACKED}1"
 }
 
 function test_scripts_179_herdr_task_sync_omits_ahead_and_behind_when_the() {
@@ -5194,14 +5253,17 @@ function test_scripts_179_herdr_task_sync_omits_ahead_and_behind_when_the() {
   # when: the location pass runs
   run hts_location_pass
 
-  # then: the dirty count stands alone and the pass stays quiet
+  # then: the unstaged count stands alone and the pass stays quiet
   assert_success
   refute_output --partial "dropped"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+  run jq -e '.panes[0].tokens | (.git_pull == null and .git_push == null)' "$state"
+  assert_success
 }
 
-function test_scripts_180_herdr_task_sync_clears_the_counts_token_when_a_p() {
-  _bats_test_init 180 'herdr-task-sync clears the counts token when a pane leaves a Git checkout'
+function test_scripts_180_herdr_task_sync_clears_the_count_tokens_when_a_p() {
+  _bats_test_init 180 'herdr-task-sync clears the count tokens when a pane leaves a Git checkout'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" plain="$HTS_WORK/plain" state
@@ -5215,20 +5277,24 @@ function test_scripts_180_herdr_task_sync_clears_the_counts_token_when_a_p() {
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   HERDR_TASK_SYNC_TEST_NOW_SEQ=3000 hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 
   # when: the pane moves to a directory that is not a checkout
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$plain" "$plain"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=3001 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: the counts go with the rest of the location tokens
-  run jq -e '.panes[0].tokens | (.git_status == null and .git_ref == null and .repo == null)' "$state"
+  # then: Git counts and metadata clear while the non-Git folder takes over
+  run jq -e --arg ref "$HTS_ICON_FOLDER plain" --arg line "$HTS_ICON_FOLDER plain$HTS_SIDEBAR_PADDING" '
+    .panes[0].tokens
+    | ([.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null))
+      and (.git_ref == $ref and .git_line == $line and .repo == null)
+  ' "$state"
   assert_success
 }
 
 function test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t() {
-  _bats_test_init 181 'herdr-task-sync status probe over budget drops the counts and leaves git_ref intact'
+  _bats_test_init 181 'herdr-task-sync status probe over budget drops the count tokens and leaves git_ref intact'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" fixture state
@@ -5245,7 +5311,7 @@ function test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t() {
 
   # given: that count is published, so the next assertion has something to lose
   HERDR_TASK_SYNC_TEST_NOW_SEQ=3999 hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 
   # when: the status probe stalls past its own budget on the next pass
   hts_block_git_status "$root"
@@ -5254,14 +5320,15 @@ function test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t() {
 
   # then: identity survives and the published count is cleared, not retained
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status // ""' "$state")" ""
+  run jq -e '.panes[0].tokens | [.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)' "$state"
+  assert_success
 
   # when: the probe answers again
   : > "$fixture/release"
   HERDR_TASK_SYNC_TEST_NOW_SEQ=4001 hts_location_pass
 
   # then: the counts appear without manual repair
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 }
 
 function test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory() {
@@ -5294,7 +5361,7 @@ function test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory() {
 
   # then: the row names the worktree the agent actually works in
   assert_equal "$(jq -r '.panes[0].cwd' "$state")" "$launch"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature $HTS_ICON_FOLDER wt-feature"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
 }
 
@@ -5312,7 +5379,7 @@ function test_scripts_183_herdr_task_sync_keeps_the_counts_when_only_the_i() {
   hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
   hts_set_process_label pane-1 worker
   HERDR_TASK_SYNC_TEST_NOW_SEQ=6000 hts_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 
   # when: the identity probe stalls past its budget while the status probe
   # still answers for the retained root
@@ -5322,7 +5389,7 @@ function test_scripts_183_herdr_task_sync_keeps_the_counts_when_only_the_i() {
 
   # then: the ref is marked stale, and the counts measured this pass survive
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic $HTS_ICON_STALE"
-  assert_equal "$(jq -r '.panes[0].tokens.git_status' "$state")" "${HTS_ICON_DIRTY}1"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
 }
 
 function test_scripts_184_herdr_task_sync_counts_untracked_paths_its_way_n() {
@@ -5448,7 +5515,7 @@ function test_scripts_188_herdr_task_sync_reads_the_newest_agent_directory() {
   hts_location_pass
 
   # then: the sweep publishes the last reported directory, not the first
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two $HTS_ICON_FOLDER wt-two"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two"
 }
 
 function test_scripts_189_herdr_task_sync_plugin_exposes_only_the_approved() {
@@ -5577,6 +5644,7 @@ function test_scripts_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch() {
   hts_location_pass
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" old
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
 
   hts_git_location_fixture "$new" "$new" "$common" refs/heads/new-branch
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$new" "$new"
@@ -5588,6 +5656,7 @@ function test_scripts_193_herdr_task_sync_sweep_repairs_process_and_cwd_ch() {
   local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" new-worktree
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$state")" "cargo test"
   assert_file_contains "$HTS_LOG" '^api snapshot$'
   assert_file_contains "$HTS_LOG" '^pane rename pane-1 cargo test$'
 }
@@ -6506,9 +6575,9 @@ function test_scripts_245_claude_settings_modifier_registers_the_executor() {
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-bin"
 
-  # The modifier only rewrites .mcpServers when both `op` and `jq` resolve, so a
-  # run without a 1Password stub would pass its input straight through and prove
-  # nothing about the executor entry.
+  # executor registers with or without 1Password; the stub is here so one run
+  # also covers the credentialed servers, whose entries exist only when `op`
+  # answers.
   mkdir -p "$stub_bin"
   cat > "$stub_bin/op" <<'STUB'
 #!/bin/sh
@@ -6529,33 +6598,134 @@ STUB
       "args": ["mcp"],
       "env": {}
     })
+    and (.mcpServers["tavily-mcp"].url ==
+      "https://mcp.tavily.com/mcp/?tavilyApiKey=stub-credential")
     and (.mcpServers | has("stale") | not)
     and (.other == "preserved")
   ' <<< "$output"
   assert_success
 }
 
-function test_scripts_246_claude_settings_modifier_passes_settings_through() {
-  _bats_test_init 246 'Claude settings modifier passes settings through untouched without 1Password'
+function test_scripts_246_claude_settings_modifier_registers_the_credentia() {
+  _bats_test_init 246 'Claude settings modifier registers the credential-free MCP servers without 1Password'
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local jq_bin="$BATS_TEST_TMPDIR/claude-modifier-jq-bin"
+
+  # Control for the test above. deepwiki, fff, and executor carry no credential,
+  # so a machine where `op` never resolves must still get them; only jina and
+  # tavily-mcp depend on 1Password and stay out rather than registering with an
+  # empty key. A bare `op` absence is how CI and Docker run, so it stays silent.
+  #
+  # PATH_WITHOUT_OP drops every directory that holds an `op`, jq included when
+  # the two share one. Re-front jq so this lands in the credential-free branch
+  # rather than the no-jq guard the test below owns.
+  mkdir -p "$jq_bin"
+  ln -s "$(command -v jq)" "$jq_bin/jq"
+
+  run --separate-stderr env PATH="$jq_bin:$PATH_WITHOUT_OP" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+
+  assert_success
+  assert_stderr ""
+  run jq -e '
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])
+    and (.mcpServers.executor.command == "/stub/home/.local/bin/executor")
+    and (.other == "preserved")
+  ' <<< "$output"
+  assert_success
+}
+
+function test_scripts_247_claude_settings_modifier_registers_each_credenti() {
+  _bats_test_init 247 'Claude settings modifier registers each credentialed MCP server independently'
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-partial-bin"
+
+  # One key resolves and the other comes back empty. The two servers must not
+  # share a fate: the credential that exists is no reason to withhold its server
+  # because the other one is missing.
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/op" <<'STUB'
+#!/bin/sh
+case "$2" in
+  *Jina*) echo "jina-credential" ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$stub_bin/op"
+
+  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{}}'
+
+  assert_success
+  # `op` is installed yet answered nothing, which is a missing sign-in rather
+  # than a deliberately credential-free machine. Say so without failing the
+  # apply, and name the credential so the cause is readable.
+  assert_stderr --partial "Tavily API Key"
+  refute_stderr --partial "Jina API Key"
+  run jq -e '
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","jina"])
+    and (.mcpServers.jina.headers.Authorization == "Bearer jina-credential")
+  ' <<< "$output"
+  assert_success
+}
+
+function test_scripts_248_claude_settings_modifier_registers_tavily_mcp_wh() {
+  _bats_test_init 248 'Claude settings modifier registers tavily-mcp when only its credential resolves'
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-tavily-bin"
+
+  # The mirror of the test above. The two credentialed servers are built by
+  # different jq expressions -- one a headers object, one a URL carrying the key
+  # inline -- so covering one direction does not cover the other.
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/op" <<'STUB'
+#!/bin/sh
+case "$2" in
+  *Tavily*) echo "tavily-credential" ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$stub_bin/op"
+
+  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{}}'
+
+  assert_success
+  assert_stderr --partial "Jina API Key"
+  refute_stderr --partial "Tavily API Key"
+  run jq -e '
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
+    and (.mcpServers["tavily-mcp"].url ==
+      "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-credential")
+  ' <<< "$output"
+  assert_success
+}
+
+function test_scripts_249_claude_settings_modifier_passes_settings_through() {
+  _bats_test_init 249 'Claude settings modifier passes settings through untouched without jq'
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-nojq-bin"
 
-  # Control for the test above, and the documented cost of the `op` gate: on a
-  # machine without 1Password the modifier drops *every* server, executor
-  # included, rather than registering the ones that need no credential.
-  run env PATH="$PATH_WITHOUT_OP" bash "$modifier" <<< "$input"
+  # The modifier builds every server entry with jq, so a machine without it has
+  # no way to write the file. Echoing stdin unchanged is the only safe answer,
+  # and it is the one guard that must survive the credential-free split above.
+  mkdir -p "$stub_bin"
+  ln -s "$(command -v cat)" "$stub_bin/cat"
+  ln -s "$(command -v bash)" "$stub_bin/bash"
+
+  run env PATH="$stub_bin" bash "$modifier" <<< "$input"
 
   assert_success
-  run jq -e '.mcpServers == {"kept":{"type":"stdio"}}' <<< "$output"
-  assert_success
+  assert_output "$input"
 }
 
 # ===========================================
 # Pi settings modifier
 # ===========================================
 
-function test_scripts_247_pi_settings_modifier_selects_the_terminal_theme() {
-  _bats_test_init 247 'Pi settings modifier selects the terminal theme and exact extension packages'
+function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
+  _bats_test_init 250 'Pi settings modifier selects the terminal theme and exact extension packages'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:obsolete-extension","npm:unexpected-extension"],"skills":["~/custom/skills"]}'
 
@@ -6583,8 +6753,8 @@ function test_scripts_247_pi_settings_modifier_selects_the_terminal_theme() {
   assert_success
 }
 
-function test_scripts_248_pi_settings_modifier_is_idempotent() {
-  _bats_test_init 248 'Pi settings modifier is idempotent'
+function test_scripts_251_pi_settings_modifier_is_idempotent() {
+  _bats_test_init 251 'Pi settings modifier is idempotent'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/.claude/skills"]}'
 
@@ -6610,8 +6780,8 @@ function test_scripts_248_pi_settings_modifier_is_idempotent() {
   assert_success
 }
 
-function test_scripts_249_pi_terminal_theme_uses_only_terminal_palette_col() {
-  _bats_test_init 249 'Pi terminal theme uses only terminal palette colors'
+function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
+  _bats_test_init 252 'Pi terminal theme uses only terminal palette colors'
   local theme="$SOURCE_ROOT/dot_pi/agent/themes/terminal.json"
 
   run jq -e '
@@ -6624,8 +6794,8 @@ function test_scripts_249_pi_terminal_theme_uses_only_terminal_palette_col() {
   assert_success
 }
 
-function test_scripts_250_claude_code_daltonized_theme_extends_light_ansi() {
-  _bats_test_init 250 'Claude Code daltonized theme extends light ANSI with terminal colors'
+function test_scripts_253_claude_code_daltonized_theme_extends_light_ansi() {
+  _bats_test_init 253 'Claude Code daltonized theme extends light ANSI with terminal colors'
   local theme="$SOURCE_ROOT/private_dot_claude/themes/light-ansi-daltonized.json"
 
   run jq -e '
@@ -6640,8 +6810,8 @@ function test_scripts_250_claude_code_daltonized_theme_extends_light_ansi() {
 # morning-cleanup script
 # ===========================================
 
-function test_scripts_251_morning_cleanup_trashes_stale_omc_state_and_stam() {
-  _bats_test_init 251 'morning-cleanup trashes stale .omc state and stamps the day'
+function test_scripts_254_morning_cleanup_trashes_stale_omc_state_and_stam() {
+  _bats_test_init 254 'morning-cleanup trashes stale .omc state and stamps the day'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home"
   mkdir -p "$fake_home/Projects/demo/.omc"
@@ -6654,8 +6824,8 @@ function test_scripts_251_morning_cleanup_trashes_stale_omc_state_and_stam() {
   [ -f "$fake_home/.local/state/morning-cleanup/last-run" ]
 }
 
-function test_scripts_252_morning_cleanup_keeps_a_recently_active_omc_dir() {
-  _bats_test_init 252 'morning-cleanup keeps a recently active .omc dir'
+function test_scripts_255_morning_cleanup_keeps_a_recently_active_omc_dir() {
+  _bats_test_init 255 'morning-cleanup keeps a recently active .omc dir'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home-live"
   mkdir -p "$fake_home/Projects/demo/.omc"
@@ -6666,8 +6836,8 @@ function test_scripts_252_morning_cleanup_keeps_a_recently_active_omc_dir() {
   [ -d "$fake_home/Projects/demo/.omc" ]
 }
 
-function test_scripts_253_morning_cleanup_is_a_no_op_on_its_second_run_of() {
-  _bats_test_init 253 'morning-cleanup is a no-op on its second run of the day'
+function test_scripts_256_morning_cleanup_is_a_no_op_on_its_second_run_of() {
+  _bats_test_init 256 'morning-cleanup is a no-op on its second run of the day'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home-stamp"
   mkdir -p "$fake_home/Projects"
@@ -6682,8 +6852,8 @@ function test_scripts_253_morning_cleanup_is_a_no_op_on_its_second_run_of() {
   [ -d "$fake_home/Projects/late/.omc" ]
 }
 
-function test_scripts_254_morning_cleanup_keeps_fresh_trash_entries() {
-  _bats_test_init 254 'morning-cleanup keeps fresh trash entries'
+function test_scripts_257_morning_cleanup_keeps_fresh_trash_entries() {
+  _bats_test_init 257 'morning-cleanup keeps fresh trash entries'
   local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
   local fake_home="$BATS_TEST_TMPDIR/mc-home-trash"
   mkdir -p "$fake_home/Projects" "$fake_home/.scratchpad/fresh-entry"
