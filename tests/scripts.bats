@@ -6390,6 +6390,37 @@ STUB
   assert_success
 }
 
+@test "Claude settings modifier registers tavily-mcp when only its credential resolves" {
+  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
+  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-tavily-bin"
+
+  # The mirror of the test above. The two credentialed servers are built by
+  # different jq expressions -- one a headers object, one a URL carrying the key
+  # inline -- so covering one direction does not cover the other.
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/op" <<'STUB'
+#!/bin/sh
+case "$2" in
+  *Tavily*) echo "tavily-credential" ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$stub_bin/op"
+
+  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
+    <<< '{"mcpServers":{}}'
+
+  assert_success
+  assert_stderr --partial "Jina API Key"
+  refute_stderr --partial "Tavily API Key"
+  run jq -e '
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
+    and (.mcpServers["tavily-mcp"].url ==
+      "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-credential")
+  ' <<< "$output"
+  assert_success
+}
+
 @test "Claude settings modifier passes settings through untouched without jq" {
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
   local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
