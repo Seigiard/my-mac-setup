@@ -3587,7 +3587,9 @@ SH
   assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" newest-second
   assert_equal "$(jq -r '.panes[0].label' "$state")" cc:newest-second
   assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:newest-second
-  run grep -c '^pane report-metadata' "$HTS_LOG"
+  run grep -c -- '--source task-sync' "$HTS_LOG"
+  assert_output "1"
+  run grep -c -- '--source sidebar-sync' "$HTS_LOG"
   assert_output "1"
 }
 
@@ -4124,8 +4126,8 @@ EOF
   HERDR_TASK_SYNC_TEST_NOW_SEQ=0 hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   # pane_inline is deferred by the plan and never published; the non-Git arm
-  # clears any stale copy, so only the task token survives.
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"task":"kept-task"}'
+  # clears every Git token while the task and aggregate agent label survive.
+  assert_equal "$(jq -cS '.panes[0].tokens' "$state")" '{"agent_line":"repo worker","task":"kept-task"}'
   [[ "$(hts_location_source_seq "$HTS_DEFAULT_SOCKET" pane-1)" -gt "$second_seq" ]] || fail "non-Git location sequence did not advance"
 }
 
@@ -4457,9 +4459,10 @@ EOF
   # worktree token is the whole $git_ref.
   run jq -e \
     --arg ref_one "$HTS_ICON_BRANCH topic-one $HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
-    --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" '
-    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one})
-    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two})
+    --arg ref_two "$HTS_ICON_FOLDER live-token $HTS_ICON_STALE" \
+    --arg pad "$HTS_SIDEBAR_PADDING" '
+    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one,agent_line:"one",git_line:($ref_one + $pad)})
+    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two,agent_line:"two",git_line:($ref_two + $pad)})
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "one · two · three"
@@ -4904,15 +4907,16 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hts_namespace "$HTS_DEFAULT_SOCKET")"
   assert_failure
-  # After removing every approved codicon glyph, only plain ASCII (plus the
-  # label separator and ellipsis) may remain in published labels and tokens.
+  # After removing every approved codicon glyph, only plain ASCII plus the
+  # label separator, ellipsis, and blank-cell padding may remain.
   run jq -e --arg icons "$HTS_ICON_BRANCH$HTS_ICON_WORKTREE$HTS_ICON_COMMIT$HTS_ICON_FOLDER$HTS_ICON_STALE$HTS_GIT_BEHIND$HTS_GIT_AHEAD$HTS_GIT_CONFLICT$HTS_GIT_STAGED$HTS_GIT_UNSTAGED$HTS_GIT_UNTRACKED" '
     [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree,
+     .panes[0].tokens.agent_line, .panes[0].tokens.git_line,
      .panes[0].tokens.git_ref, .panes[0].tokens.git_pull,
      .panes[0].tokens.git_push, .panes[0].tokens.git_conflicts,
      .panes[0].tokens.git_staged, .panes[0].tokens.git_unstaged,
      .panes[0].tokens.git_untracked]
-    | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026-]*$"))
+    | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026\u2800-]*$"))
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
@@ -4924,7 +4928,7 @@ EOF
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
-@test "herdr-task-sync publishes staged unstaged ahead and behind counts beside an unchanged git_ref" {
+@test "herdr-task-sync publishes separator-free sidebar lines in display order" {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
@@ -4948,7 +4952,15 @@ EOF
   hts_location_pass
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
-  # then: the counts render in the fixed order and identity is untouched
+  # then: the aggregate lines render in the fixed order without Herdr inserting
+  # separators, and the final blank cell keeps the count off the panel border
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$state")" "repo worker"
+  assert_equal "$(jq -r '.panes[0].tokens.git_line' "$state")" \
+    "$HTS_ICON_BRANCH topic $HTS_GIT_BEHIND"'2 '"$HTS_GIT_AHEAD"'1 +1 !1'"$HTS_SIDEBAR_PADDING"
+  run jq -e '.panes[0].tokens.git_line | contains("·") | not' "$state"
+  assert_success
+
+  # The independent source tokens remain available for other consumers.
   assert_equal "$(jq -r '[.panes[0].tokens | .git_pull, .git_push, .git_staged, .git_unstaged] | map(select(. != null)) | join(" ")' "$state")" \
     "${HTS_GIT_BEHIND}2 ${HTS_GIT_AHEAD}1 ${HTS_GIT_STAGED}1 ${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
@@ -4987,6 +4999,7 @@ EOF
   run jq -e '.panes[0].tokens | [.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)' "$state"
   assert_success
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_line' "$state")" "$HTS_ICON_BRANCH topic$HTS_SIDEBAR_PADDING"
 
   # when: a file goes dirty and nothing about the identity changes
   hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
@@ -4996,6 +5009,7 @@ EOF
   # then: the counts-only change still triggers a republish
   assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HTS_ICON_BRANCH topic"
+  assert_equal "$(jq -r '.panes[0].tokens.git_line' "$state")" "$HTS_ICON_BRANCH topic ${HTS_GIT_UNSTAGED}1$HTS_SIDEBAR_PADDING"
 }
 
 @test "herdr-task-sync separates conflicts staged unstaged and untracked paths" {
@@ -5079,7 +5093,7 @@ EOF
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
 
   # then: the counts go with the rest of the location tokens
-  run jq -e '.panes[0].tokens | ([.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)) and (.git_ref == null and .repo == null)' "$state"
+  run jq -e '.panes[0].tokens | ([.git_pull, .git_push, .git_conflicts, .git_staged, .git_unstaged, .git_untracked] | all(. == null)) and (.git_ref == null and .git_line == null and .repo == null)' "$state"
   assert_success
 }
 
@@ -5421,6 +5435,7 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   hts_location_pass
   assert_equal "$(jq -r '.panes[0].label' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" old
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" btop
 
   hts_git_location_fixture "$new" "$new" "$common" refs/heads/new-branch
   hts_set_pane_location "$HTS_DEFAULT_SOCKET" pane-1 "$new" "$new"
@@ -5432,6 +5447,7 @@ socket_path=$(printf '%s' "$HTS_DEFAULT_SOCKET" | base64 | tr -d '\n')"
   local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
   assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" new-worktree
+  assert_equal "$(jq -r '.panes[0].tokens.agent_line' "$state")" "cargo test"
   assert_file_contains "$HTS_LOG" '^api snapshot$'
   assert_file_contains "$HTS_LOG" '^pane rename pane-1 cargo test$'
 }

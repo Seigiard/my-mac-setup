@@ -38,6 +38,7 @@ PI_MODEL="${HERDR_TASK_SYNC_PI_MODEL:-openai-codex/gpt-5.4-mini}"
 CLAUDE_MODEL="${HERDR_TASK_SYNC_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
 SOURCE_ID="task-sync"
 LOCATION_SOURCE_ID="location-sync"
+SIDEBAR_SOURCE_ID="sidebar-sync"
 SLUG_MAX_LEN=40
 # R4 asks for 2-4 words. A wordier answer is prose, not a name — an engine that
 # explains itself instead of naming the session counts as a failed call, so the
@@ -70,6 +71,9 @@ ICON_CONFLICT='~'
 ICON_STAGED='+'
 ICON_UNSTAGED='!'
 ICON_UNTRACKED='?'
+# Herdr trims ordinary trailing whitespace from metadata values. Braille
+# pattern blank occupies one terminal cell without drawing a visible glyph.
+SIDEBAR_PADDING="$(printf '\342\240\200')" # U+2800 BRAILLE PATTERN BLANK
 # Worktree-token width math (text_length's `wc -m`, text_prefix's `cut -c`)
 # must count codepoints: under a non-UTF-8 locale both count bytes, so a cap
 # can split a multibyte path component.
@@ -1115,9 +1119,9 @@ git_ref_for() {
   printf '%s' "$label"
 }
 
-# Internal transport for six independent metadata tokens. The record
-# separator preserves empty positions without turning the published values
-# back into one user-facing string. An all-zero status stays wholly empty.
+# Internal transport for six Git status values. The record separator preserves
+# empty positions for both independent token publication and $git_line
+# aggregation. An all-zero status stays wholly empty.
 git_status_tokens_for() {
   local pull="$1" push="$2" conflicts="$3" staged="$4" unstaged="$5" untracked="$6"
   local git_pull="" git_push="" git_conflicts="" git_staged="" git_unstaged="" git_untracked=""
@@ -1136,6 +1140,25 @@ git_status_tokens_for() {
   [ -n "$git_pull$git_push$git_conflicts$git_staged$git_unstaged$git_untracked" ] || return 0
   printf '%s\036%s\036%s\036%s\036%s\036%s' \
     "$git_pull" "$git_push" "$git_conflicts" "$git_staged" "$git_unstaged" "$git_untracked"
+}
+
+sidebar_line_for() {
+  local line="" value
+  for value in "$@"; do
+    [ -n "$value" ] || continue
+    if [ -z "$line" ]; then line="$value"; else line="$line $value"; fi
+  done
+  printf '%s' "$line"
+}
+
+git_sidebar_line_for() {
+  local git_ref="$1" status="$2" pull push conflicts staged unstaged untracked line
+  IFS="$STATUS_SEPARATOR" read -r pull push conflicts staged unstaged untracked <<EOF
+$status
+EOF
+  line="$(sidebar_line_for "$git_ref" "$pull" "$push" "$conflicts" "$staged" "$unstaged" "$untracked")"
+  [ -z "$line" ] || line="$line$SIDEBAR_PADDING"
+  printf '%s' "$line"
 }
 
 native_session_matches_active() {
@@ -1257,7 +1280,7 @@ tab_target_matches() {
 }
 
 # Tab labels identify the panes only. Git location remains available through
-# each pane's metadata and the separate $git_ref sidebar row.
+# each pane's independent metadata and its aggregate $git_line sidebar row.
 compose_tab_intents() {
   local snapshot="$1" pane_presentations="$2" tab_intents=""
   local tab_rows tab_id workspace current index parts named
@@ -1309,7 +1332,8 @@ reconcile_presentation_pass() {
   local final_payload final_label final_task final_tokens
   local git_pull git_push git_conflicts git_staged git_unstaged git_untracked
   local final_repo final_worktree final_branch final_location_status final_git_ref final_git_status final_legacy_tokens
-  local pane_baselines baseline_row
+  local pane_baselines sidebar_baselines baseline_row sidebar_row
+  local current_agent_line current_git_line agent_line git_line sidebar_changed
   local state_file retained_pane presented_pane_ids
   local location_pids="" location_results="" location_result_file location_pid
   local location_probe_results="" location_child_failed=0
@@ -1349,6 +1373,10 @@ reconcile_presentation_pass() {
   # record keeps those records narrow.
   pane_baselines="$(printf '%s\n' "$pane_rows" | awk -F "$FIELD_SEPARATOR" \
     -v OFS="$FIELD_SEPARATOR" 'NF { print $1, $10, $11, $12, $13, $14, $15 }')"
+  sidebar_baselines="$(printf '%s' "$snapshot" | jq -r '
+    .result.snapshot.panes[]?
+    | [(.pane_id // ""), (.tokens.agent_line // ""), (.tokens.git_line // "")]
+    | join("\u001f")' 2>/dev/null | filter_records_of_width 3)"
 
   # location_label is the retired predecessor of git_ref. It is deliberately
   # absent from the presentation record, so a pane whose new tokens all match
@@ -1623,6 +1651,17 @@ EOF
     IFS="$FIELD_SEPARATOR" read -r current_repo current_worktree current_branch current_location_status current_git_ref current_git_status <<EOF
 $baseline_row
 EOF
+    sidebar_row="$(table_row_for "$id" "$sidebar_baselines")"
+    IFS="$FIELD_SEPARATOR" read -r current_agent_line current_git_line <<EOF
+$sidebar_row
+EOF
+    _workspace_name="$(table_value_for "$workspace" "$workspace_rows")"
+    agent_line="$(sidebar_line_for "$_workspace_name" "$intended")"
+    git_line="$(git_sidebar_line_for "$git_ref" "$git_status")"
+    sidebar_changed=0
+    if [ "$current_agent_line" != "$agent_line" ] || [ "$current_git_line" != "$git_line" ]; then
+      sidebar_changed=1
+    fi
     if [ -n "$slug" ] && [ "$current_task" != "$slug" ]; then
       presentation_generation_valid "$pass" || return 2
       final_payload="$(herdr pane get "$id" 2>/dev/null)" || continue
@@ -1651,8 +1690,10 @@ EOF
       # Counts move while identity stands still, so they have to join this
       # comparison or the token would freeze after its first write.
       [ "$current_git_status" = "$git_status" ] || location_changed=1
+    # Clear our location source before writing a new sidebar source. Otherwise
+    # Herdr can merge dormant location contributions back into a reused pane.
     elif [ "$location_outcome" = "non_git" ] && \
-      { [ -n "$current_repo" ] || [ -n "$current_worktree" ] || [ -n "$current_branch" ] || [ -n "$current_location_status" ] || [ -n "$current_git_ref" ] || [ -n "$current_git_status" ]; }; then
+      { [ -n "$current_repo" ] || [ -n "$current_worktree" ] || [ -n "$current_branch" ] || [ -n "$current_location_status" ] || [ -n "$current_git_ref" ] || [ -n "$current_git_status" ] || [ "$sidebar_changed" -eq 1 ]; }; then
       location_changed=1
     fi
     if [ "$location_changed" -eq 1 ]; then
@@ -1689,7 +1730,7 @@ EOF
         [ "$final_git_ref" = "$git_ref" ] || location_changed=1
         [ "$final_git_status" = "$git_status" ] || location_changed=1
       elif [ "$location_outcome" = "non_git" ] && \
-        { [ -n "$final_repo" ] || [ -n "$final_worktree" ] || [ -n "$final_branch" ] || [ -n "$final_location_status" ] || [ -n "$final_git_ref" ] || [ -n "$final_git_status" ]; }; then
+        { [ -n "$final_repo" ] || [ -n "$final_worktree" ] || [ -n "$final_branch" ] || [ -n "$final_location_status" ] || [ -n "$final_git_ref" ] || [ -n "$final_git_status" ] || [ "$sidebar_changed" -eq 1 ]; }; then
         location_changed=1
       fi
       if [ "$location_changed" -eq 1 ]; then
@@ -1720,6 +1761,16 @@ EOF
         fi
         "$@" >/dev/null 2>&1 || continue
       fi
+    fi
+    if [ "$sidebar_changed" -eq 1 ]; then
+      presentation_generation_valid "$pass" || return 2
+      final_payload="$(herdr pane get "$id" 2>/dev/null)" || continue
+      pane_target_matches "$final_payload" "$id" "$terminal" "$tab_id" "$agent_of" "$native_session" || continue
+      set -- herdr pane report-metadata "$id" --source "$SIDEBAR_SOURCE_ID" --seq "$pass"
+      if [ -n "$agent_line" ]; then set -- "$@" --token "agent_line=$agent_line"; else set -- "$@" --clear-token agent_line; fi
+      if [ -n "$git_line" ]; then set -- "$@" --token "git_line=$git_line"; else set -- "$@" --clear-token git_line; fi
+      presentation_generation_valid "$pass" || return 2
+      "$@" >/dev/null 2>&1 || continue
     fi
     [ "$current" != "$intended" ] || continue
     presentation_generation_valid "$pass" || return 2

@@ -46,6 +46,10 @@ HTS_GIT_STAGED='+'
 HTS_GIT_UNSTAGED='!'
 # shellcheck disable=SC2034
 HTS_GIT_UNTRACKED='?'
+# Herdr trims ordinary trailing whitespace from metadata. A blank braille cell
+# survives normalization and keeps the final Git count off the sidebar border.
+# shellcheck disable=SC2034
+HTS_SIDEBAR_PADDING="$(printf '\342\240\200')"
 
 hts_teardown() {
   # Reap a background reader a failed test left running BEFORE deleting its
