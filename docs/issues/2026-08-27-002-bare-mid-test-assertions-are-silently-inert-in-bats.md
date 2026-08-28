@@ -1,12 +1,13 @@
 ---
 title: "Bare mid-test [[ ]] assertions are silently inert in bats"
-short_description: "A bare [[ ... ]] check that is not the last statement of a bats test body does not fail the test under the local bash/bats combination (empirically confirmed twice during playground work), so pre-existing mid-test bracket assertions across the suite may be unenforced and need an audit converting them to '[[ ... ]] || fail'."
+short_description: "All 29 first-party standalone [[...]] checks now use explicit failure paths, and a tested lint checker rejects future bare [[...]] and ((...)) commands while excluding vendored suites and shell payloads."
 type: "bug"
 category: "testing-ci"
 tags: ["test-integrity"]
 date: "2026-08-27"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-28"
 ---
 
 ## Why this exists
@@ -25,3 +26,7 @@ Impact: false confidence — assertions that reviewers believe are enforced are 
 ## Open decisions
 
 None.
+
+## Resolution
+
+Converted all 29 first-party standalone double-bracket assertions to explicit failure paths, calibrated every conversion against an always-false mutation, added a recursive quote/heredoc/arithmetic-aware lint checker with behavioral fixtures, and verified make test-issues, make lint, 14 affected Bats tests, and make test-ubuntu (403 cases).
