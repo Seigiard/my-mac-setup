@@ -20,10 +20,10 @@ Re-read this file before every batch. Update after every batch.
 ## Phase status
 
 - [x] 1. Baseline recording (env/versions above; timings pending)
-- [ ] 2. Inventory Bats-specific behavior (subagents) → `.context/bashunit-full-suite/inventory-*.md`
-- [ ] 3. bashunit implementation + 1:1 scenario mapping
-- [ ] 4. Side-by-side per-scenario verifier
-- [ ] 5. Negative controls
+- [x] 2. Inventory Bats-specific behavior (subagents) → `.context/bashunit-full-suite/inventory-*.md`
+- [x] 3. bashunit implementation + 1:1 scenario mapping (400/400)
+- [x] 4. Side-by-side per-scenario verifier
+- [x] 5. Negative controls (all 6 + positive control pass)
 - [ ] 6. Parallelism (8 workers where safe)
 - [ ] 7. macOS + Ubuntu(Docker) verification
 - [ ] 8. Paired timing runs (3+ interleaved reps, host-safe + full)
@@ -76,3 +76,21 @@ Re-read this file before every batch. Update after every batch.
 
 - Phase 1 baseline env + pinned bashunit install (uncommitted yet).
 - Phase 2 inventories: scripts, smoke+palette done; platform/idempotent + capabilities pending.
+
+
+## MILESTONE 2026-08-28 (after peer window 2 closed)
+
+- HOST PARITY COMPLETE: platform 2/2, palette 57/57, smoke 74/74, scripts 254/254, idempotent 13/13 (guard/skip mode) — 400/400 scenarios, skip reasons included.
+- Root cause of herdr-child mismatches: bats-file assert_file_not_exists tests -f; run DIRECTORY survives vacuously in bats. Shim now mirrors -f. Issue filed: docs/issues/2026-08-28-001-*.md.
+- ALL NEGATIVE CONTROLS PASS (incl. leak). Two harness bugs found by controls: macOS pgrep has no -E (leak check was inert); snapshot matched its own pipeline.
+- Machine debris: 12 orphaned herdr-child watchers + 2 stub prompts killed (leaked by bats runs both sessions). Explains peer's ambient drift; both suites re-leak watchers whose launchers die — NOT flagged by per-file leak_check when teardown kills them; the orphans came from ABORTED runs.
+- Stale stub dirs (680) moved to ~/.scratchpad/stale-child-stubs-1787898087 (tell user: rm -rf ~/.scratchpad/* to purge).
+
+## REMAINING
+
+1. Clean 5-file comparison pass with WORKING leak checks (~7 min) — announce to peer.
+2. make test-ubuntu with bashunit comparison inside Docker (full mode incl. real apply idempotent scenarios) — command sketch:
+   `docker compose -f docker/docker-compose.yml run --rm test-ubuntu '<stage worktree>; ...; tests/bashunit/compare-suite-file.sh <each file>'` — simplest: run normal entrypoint but append compare runs; needs bats + bashunit both present in image (bashunit rides in tests/lib).
+3. Exclusive benchmark window (announce): tests/bashunit/bench-bats-vs-bashunit.sh host-safe 3+ on macOS; full mode inside docker.
+4. Review subagents (parity/cleanup/coverage), fix findings, rerun.
+5. Verdict + fill docs/benchmarks/bashunit-full-suite-experiment.md.
