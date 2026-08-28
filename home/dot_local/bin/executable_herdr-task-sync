@@ -61,6 +61,12 @@ ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
 ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
+# Counts glyphs of the $git_status grammar. Same codicon family and the
+# same octal rule as above; each was verified present in the installed
+# Nerd Font before being chosen.
+ICON_DIRTY="$(printf '\356\252\260')"    # nf-cod-diff_modified U+EAB0
+ICON_AHEAD="$(printf '\356\252\241')"    # nf-cod-arrow_up U+EAA1
+ICON_BEHIND="$(printf '\356\252\232')"   # nf-cod-arrow_down U+EA9A
 # Worktree-token width math (text_length's `wc -m`, text_prefix's `cut -c`)
 # must count codepoints: under a non-UTF-8 locale both count bytes, so a cap
 # can split a multibyte path component.
@@ -78,7 +84,30 @@ case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
 esac
 FIELD_SEPARATOR=$'\037'
 WORKTREE_TOKEN_MAX_LEN=18
+# A budget is handed straight to `sleep` in the probe watchdog. A `sleep` that
+# rejects its argument returns immediately, so the watchdog would kill every
+# probe the instant it started and the daemon would report the whole machine
+# stale — a silent, total failure from one typo in an override. Accept only a
+# positive decimal; anything else takes the documented default.
+positive_decimal() {
+  case "$1" in
+    '' | . | *[!0-9.]* | *.*.*) return 1 ;;
+  esac
+  # A numerically zero budget kills the probe as surely as a malformed one.
+  case "$1" in
+    *[1-9]*) return 0 ;;
+  esac
+  return 1
+}
 LOCATION_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-0.075}"
+positive_decimal "$LOCATION_GIT_BUDGET" || LOCATION_GIT_BUDGET=0.075
+# The status probe scans the working tree, so it cannot share the identity
+# probe's bound. Measured warm on this machine: rev-parse ~14 ms against
+# ~36 ms on this repository and ~60 ms on a larger one for
+# `status --porcelain=v2`. This keeps roughly the headroom the identity
+# budget has, and a timeout costs the counts only.
+STATUS_GIT_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-0.3}"
+positive_decimal "$STATUS_GIT_BUDGET" || STATUS_GIT_BUDGET=0.3
 STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}"
 case "$STATE_MAX_AGE_DAYS" in '' | *[!0-9]*) STATE_MAX_AGE_DAYS=14 ;; esac
 # Seconds between two sweeps of the daemon. Five keeps a finished command
@@ -610,12 +639,47 @@ admin_checkout_for_path() {
   return 1
 }
 
+# Where the agent says its session is working, as opposed to where its
+# process stands. No agent kind moves its process cwd when its work moves into
+# a worktree, so an OS-level probe cannot follow that move by design; the agent
+# has to say so itself. Records are keyed by agent session id, which the pane
+# JSON also carries, and live outside the socket namespace because a session id
+# is already unique. Nothing recorded, an unreadable file, or anything but an
+# absolute path all mean "no report", and the pane cwd stands.
+agent_reported_cwd() {
+  local pane_json="$1" session file value
+  session="$(printf '%s' "$pane_json" | jq -r '.agent_session.value // ""' 2>/dev/null)"
+  [ -n "$session" ] || return 0
+  file="$STATE_DIR/agent-cwd/$(sanitize_key "$session")"
+  [ -f "$file" ] || return 0
+  value="$(head -n 1 "$file" 2>/dev/null)"
+  case "$value" in
+    /*) ;;
+    *) return 0 ;;
+  esac
+  # A report that no longer resolves must not win over the pane's own cwd.
+  # Deleting an agent's worktree would otherwise pin the pane to a directory
+  # nothing can probe, when the launch directory is still perfectly readable.
+  ( cd "$value" 2>/dev/null ) || return 0
+  printf '%s' "$value"
+}
+
+# Records outlive the sessions that wrote them, so they age out on the same
+# clock as the task state beside them.
+cleanup_old_agent_cwd_records() {
+  local root="$STATE_DIR/agent-cwd"
+  [ -d "$root" ] || return 0
+  find "$root" -type f -mtime "+$STATE_MAX_AGE_DAYS" -delete 2>/dev/null || true
+}
+
+# The budget is the caller's: identity and status probes cost different
+# amounts and must fail independently.
 run_budgeted_command() {
-  local outfile="$1" errfile="$2"
-  shift 2
+  local budget="$1" outfile="$2" errfile="$3"
+  shift 3
   "$@" </dev/null >"$outfile" 2>"$errfile" &
   local command_pid=$!
-  ( sleep "$LOCATION_GIT_BUDGET"; kill -9 "$command_pid" ) >/dev/null 2>&1 &
+  ( sleep "$budget"; kill -9 "$command_pid" ) >/dev/null 2>&1 &
   local watchdog=$! status=0
   wait "$command_pid" || status=$?
   kill "$watchdog" >/dev/null 2>&1 || true
@@ -642,7 +706,7 @@ authoritative_worktree_deleted() {
   [ -n "$root" ] && [ -n "$anchor" ] && [ -d "$anchor" ] || return 1
   outfile="$(mktemp "$(namespace_dir)/.worktrees.XXXXXX" 2>/dev/null)" || return 1
   errfile="$outfile.err"
-  if run_budgeted_command "$outfile" "$errfile" \
+  if run_budgeted_command "$LOCATION_GIT_BUDGET" "$outfile" "$errfile" \
     env LC_ALL=C git --git-dir="$anchor" worktree list --porcelain; then
     status=0
   else
@@ -662,7 +726,7 @@ authoritative_worktree_deleted() {
 # unit separators. A transient result carries retained evidence when one
 # exists; confirmed non-Git carries empty evidence.
 resolve_pane_location() {
-  local pane_json="$1" state_file="$2" has_agent has_foreground cwd prior_root prior_anchor
+  local pane_json="$1" state_file="$2" has_agent has_foreground cwd reported prior_root prior_anchor
   local prior_repo prior_branch prior_is_linked prior_sha candidate outfile errfile status
   local root anchor branch repo lines is_linked sha sha_outfile sha_errfile
   prior_root="$(read_state_field "$state_file" checkout_root)"
@@ -673,7 +737,14 @@ resolve_pane_location() {
   prior_sha="$(read_state_field "$state_file" sha)"
   has_agent="$(printf '%s' "$pane_json" | jq -r '(.agent // "") != ""' 2>/dev/null)"
   has_foreground="$(printf '%s' "$pane_json" | jq -r 'has("foreground_cwd")' 2>/dev/null)"
-  if [ "$has_agent" != "true" ] && [ "$has_foreground" = "true" ]; then
+  reported=""
+  [ "$has_agent" != "true" ] || reported="$(agent_reported_cwd "$pane_json")"
+  # The report wins wherever it exists, including — especially — when the pane
+  # cwd is present and disagrees with it. A pane cwd that merely exists must
+  # not keep a launch directory authoritative after the session has moved.
+  if [ -n "$reported" ]; then
+    cwd="$reported"
+  elif [ "$has_agent" != "true" ] && [ "$has_foreground" = "true" ]; then
     cwd="$(printf '%s' "$pane_json" | jq -r 'if (.foreground_cwd | type) == "string" then .foreground_cwd else "" end' 2>/dev/null)"
   else
     cwd="$(printf '%s' "$pane_json" | jq -r 'if (.cwd | type) == "string" then .cwd else "" end' 2>/dev/null)"
@@ -706,7 +777,7 @@ resolve_pane_location() {
     return 0
   }
   errfile="$outfile.err"
-  if run_budgeted_command "$outfile" "$errfile" env LC_ALL=C git -C "$candidate" rev-parse \
+  if run_budgeted_command "$LOCATION_GIT_BUDGET" "$outfile" "$errfile" env LC_ALL=C git -C "$candidate" rev-parse \
     --path-format=absolute --show-toplevel --git-common-dir --symbolic-full-name HEAD; then
     status=0
   else
@@ -734,7 +805,7 @@ resolve_pane_location() {
     sha_outfile="$(mktemp "$(namespace_dir)/.git-location.XXXXXX" 2>/dev/null)"
     if [ -n "$sha_outfile" ]; then
       sha_errfile="$sha_outfile.err"
-      if run_budgeted_command "$sha_outfile" "$sha_errfile" \
+      if run_budgeted_command "$LOCATION_GIT_BUDGET" "$sha_outfile" "$sha_errfile" \
         env LC_ALL=C git -C "$candidate" rev-parse --short=7 HEAD; then
         cat "$sha_outfile" >> "$outfile" 2>/dev/null
       fi
@@ -783,6 +854,67 @@ resolve_pane_location() {
   is_linked=""
   [ ! -f "$root/.git" ] || is_linked=1
   printf 'git\037%s\037%s\037%s\037%s\037%s\037%s' "$root" "$anchor" "$repo" "$branch" "$is_linked" "$sha"
+}
+
+# Counts are volatile where identity is stable, so they get their own probe,
+# their own budget and their own outcome: a status timeout must never make
+# $git_ref lie. Outcomes are the chart's states — `fresh` carries the counts
+# string (empty when the checkout is clean), `stale` means the probe did not
+# answer in budget, `absent` means there is nothing to count.
+resolve_pane_git_status() {
+  local root="$1" outfile errfile status dirty ahead behind
+  [ -n "$root" ] || { printf 'absent\037'; return 0; }
+  command -v git >/dev/null 2>&1 || { printf 'stale\037'; return 0; }
+  outfile="$(mktemp "$(namespace_dir)/.git-status.XXXXXX" 2>/dev/null)" || {
+    printf 'stale\037'
+    return 0
+  }
+  errfile="$outfile.err"
+  # One call answers both halves: the changed paths and, as `# branch.ab`,
+  # the ahead/behind pair. Two probes would cost a second process launch.
+  #
+  # `--untracked-files=all` is what makes the count mean the same thing on
+  # every machine: without it `status.showUntrackedFiles` can hide untracked
+  # paths entirely, or collapse a new directory to a single entry while
+  # tracked edits still count one per file. Measured on this repository at
+  # 32.4ms against 32.5ms for the default, so the guarantee is free.
+  if run_budgeted_command "$STATUS_GIT_BUDGET" "$outfile" "$errfile" \
+    env LC_ALL=C git -C "$root" --no-optional-locks status --porcelain=v2 --branch \
+    --untracked-files=all; then
+    status=0
+  else
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    rm -f "$outfile" "$errfile"
+    printf 'stale\037'
+    return 0
+  fi
+  # porcelain v2 prints one line per path, so a path that is both staged and
+  # modified counts once. Header lines start with '#'.
+  dirty="$(grep -c -v '^#' "$outfile" 2>/dev/null || true)"
+  # `# branch.ab` is emitted only when the branch has an upstream; without one
+  # both counts stay empty and the formatter drops them.
+  ahead="$(sed -n 's/^# branch\.ab +\([0-9][0-9]*\) -[0-9][0-9]*$/\1/p' "$outfile" 2>/dev/null)"
+  behind="$(sed -n 's/^# branch\.ab +[0-9][0-9]* -\([0-9][0-9]*\)$/\1/p' "$outfile" 2>/dev/null)"
+  rm -f "$outfile" "$errfile"
+  printf 'fresh\037%s' "$(git_status_for "$dirty" "$ahead" "$behind")"
+}
+
+# Panes routinely share a checkout, so the probe runs once per distinct root
+# rather than once per pane — the dedup build_worktree_tokens already does for
+# worktree tokens.
+build_root_statuses() {
+  local roots="$1" table="" root row
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    row="$(resolve_pane_git_status "$root")"
+    table="${table}${table:+
+}${root}${FIELD_SEPARATOR}${row}"
+  done <<EOF
+$roots
+EOF
+  printf '%s' "$table"
 }
 
 path_suffix() {
@@ -970,6 +1102,23 @@ git_ref_for() {
   printf '%s' "$label"
 }
 
+# The counts half of the grammar:
+#   $git_status = [<dirty-icon><n>] [<ahead-icon><n>] [<behind-icon><n>]
+# Order is fixed so cells of the acceptance matrix are judged consistently,
+# and a zero renders as nothing at all rather than as "0". A clean checkout
+# with no divergence therefore produces the empty string, which the publish
+# arm turns into a cleared token.
+git_status_for() {
+  local dirty="$1" ahead="$2" behind="$3" label=""
+  case "$dirty" in '' | *[!0-9]*) dirty=0 ;; esac
+  case "$ahead" in '' | *[!0-9]*) ahead=0 ;; esac
+  case "$behind" in '' | *[!0-9]*) behind=0 ;; esac
+  [ "$dirty" -eq 0 ] || label="$ICON_DIRTY$dirty"
+  [ "$ahead" -eq 0 ] || label="${label}${label:+ }$ICON_AHEAD$ahead"
+  [ "$behind" -eq 0 ] || label="${label}${label:+ }$ICON_BEHIND$behind"
+  printf '%s' "$label"
+}
+
 native_session_matches_active() {
   local native_session="$1" active_session="$2" base stem
   [ -z "$native_session" ] && return 0
@@ -1096,7 +1245,7 @@ compose_tab_intents() {
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
   local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
   local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha
-  local _git_ref _worktree_token
+  local _git_ref _worktree_token _git_status
   tab_rows="$(printf '%s' "$snapshot" | jq -r '
     reduce .result.snapshot.tabs[]? as $t ({counts: {}, out: []};
       ($t.workspace_id // "") as $ws
@@ -1107,7 +1256,7 @@ compose_tab_intents() {
     [ -n "$tab_id" ] || continue
     parts=""
     named=0
-    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _git_ref _worktree_token; do
+    while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status _git_ref _worktree_token _git_status; do
       [ "$pane_tab" = "$tab_id" ] || continue
       [ -n "$pane_intended" ] || continue
       [ "$pane_intended" = "$IDLE_PANE_LABEL" ] || named=1
@@ -1128,18 +1277,18 @@ EOF
 reconcile_presentation_pass() {
   local pass="$1" snapshot pane_rows workspace_rows pane_intents="" pane_presentations="" tab_intents=""
   local id terminal tab_id workspace agent_of native_agent native_session current current_task
-  local current_repo current_worktree current_branch current_location_status current_git_ref pane_json_encoded pane_json
+  local current_repo current_worktree current_branch current_location_status current_git_ref current_git_status pane_json_encoded pane_json
   local intended slug metadata_seq control active_agent active_session generation committed task_file
   local saved_pane="$pane" saved_agent="$agent" saved_session="$session"
   local location_file location_result location_outcome checkout_root repository_anchor repo branch location_status is_linked sha
-  local roots root_tokens worktree_token git_ref location_seq location_changed
+  local roots root_tokens root_statuses worktree_token git_ref git_status location_seq location_changed
   local _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session
   local _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome
   local _checkout_root _repository_anchor _repo _branch _location_status _is_linked _sha
-  local _current_worktree _worktree_token _git_ref
+  local _current_worktree _worktree_token _git_ref _git_status status_row _status_outcome _status_counts
   local _ref _place _folder _workspace_name
   local final_payload final_label final_task final_tokens
-  local final_repo final_worktree final_branch final_location_status final_git_ref
+  local final_repo final_worktree final_branch final_location_status final_git_ref final_git_status
   local pane_baselines baseline_row
   local state_file retained_pane presented_pane_ids
   local location_pids="" location_results="" location_result_file location_pid
@@ -1157,6 +1306,7 @@ reconcile_presentation_pass() {
       and (.workspaces | type == "array")
   ' >/dev/null 2>&1 || return 1
   cleanup_old_task_context "$snapshot"
+  cleanup_old_agent_cwd_records
 
   pane_rows="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.panes[]?
@@ -1164,16 +1314,17 @@ reconcile_presentation_pass() {
         (.workspace_id // ""), (.agent // ""), (.agent_session.agent // ""),
        (.agent_session.value // ""), (.label // ""), (.tokens.task // ""),
        (.tokens.repo // ""), (.tokens.worktree // ""), (.tokens.branch // ""),
-       (.tokens.location_status // ""), (.tokens.git_ref // ""), (@base64)]
-    | join("\u001f")' 2>/dev/null | filter_records_of_width 15)"
+       (.tokens.location_status // ""), (.tokens.git_ref // ""),
+       (.tokens.git_status // ""), (@base64)]
+    | join("\u001f")' 2>/dev/null | filter_records_of_width 16)"
 
-  # The five current_* baseline tokens are consumed only where a pane's newly
+  # The current_* baseline tokens are consumed only where a pane's newly
   # derived presentation is diffed against what the pane already shows: the
   # final publish loop, plus the transient worktree fallback. Keeping them in
   # one keyed table instead of threading them through every intermediate
   # record keeps those records narrow.
   pane_baselines="$(printf '%s\n' "$pane_rows" | awk -F "$FIELD_SEPARATOR" \
-    -v OFS="$FIELD_SEPARATOR" 'NF { print $1, $10, $11, $12, $13, $14 }')"
+    -v OFS="$FIELD_SEPARATOR" 'NF { print $1, $10, $11, $12, $13, $14, $15 }')"
 
   # location_label is the retired predecessor of git_ref. It is deliberately
   # absent from the presentation record, so a pane whose new tokens all match
@@ -1198,7 +1349,7 @@ reconcile_presentation_pass() {
   # Location probes own no presentation state. Run one bounded probe per pane,
   # reap every child, then let the parent consume immutable results in the
   # snapshot's original order.
-  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status current_git_ref pane_json_encoded; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status current_git_ref current_git_status pane_json_encoded; do
     [ -n "$id" ] || continue
     pane_json="$(printf '%s' "$pane_json_encoded" | base64 -d 2>/dev/null)"
     location_file="$(location_state_file "$id")"
@@ -1269,7 +1420,7 @@ $location_results
 EOF
   [ "$location_child_failed" -eq 0 ] || return 1
 
-  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status current_git_ref pane_json_encoded; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_agent native_session current current_task current_repo current_worktree current_branch current_location_status current_git_ref current_git_status pane_json_encoded; do
     [ -n "$id" ] || continue
     location_result="${location_probe_results%%$'\n'*}"
     [ -n "$location_result" ] || return 1
@@ -1366,6 +1517,7 @@ EOF
 )"
   roots="$(printf '%s\n' "$roots" | sed '/^$/d' | LC_ALL=C sort -u)"
   root_tokens="$(build_worktree_tokens "$roots")"
+  root_statuses="$(build_root_statuses "$roots")"
   while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_status; do
     [ -n "$_pane_id" ] || continue
     _worktree_token=""
@@ -1400,12 +1552,29 @@ EOF
       fi
     fi
     _git_ref="$(git_ref_for "$_place" "$_ref" "$_folder" "$_location_status")"
+    # The one place an outcome becomes a token decision: `fresh` publishes
+    # its counts, and both `stale` and `absent` publish nothing, because a
+    # count that might be wrong is worse than no count at all.
+    #
+    # The root, not the identity outcome, is what gates this. A transient
+    # identity probe still carries the retained root, and that root was
+    # probed for counts with everything else — so a 75ms identity hiccup
+    # must not blank counts that were measured successfully. A confirmed
+    # non-Git pane carries no root and falls out here on its own.
+    _git_status=""
+    if [ -n "$_checkout_root" ]; then
+      status_row="$(table_row_for "$_checkout_root" "$root_statuses")"
+      IFS="$FIELD_SEPARATOR" read -r _status_outcome _status_counts <<EOF
+$status_row
+EOF
+      [ "$_status_outcome" != "fresh" ] || _git_status="$_status_counts"
+    fi
     pane_presentations="${pane_presentations}${pane_presentations:+
-}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}"
+}${_pane_id}${FIELD_SEPARATOR}${_pane_terminal}${FIELD_SEPARATOR}${pane_tab}${FIELD_SEPARATOR}${_pane_workspace}${FIELD_SEPARATOR}${_pane_agent}${FIELD_SEPARATOR}${_pane_native_session}${FIELD_SEPARATOR}${_pane_current}${FIELD_SEPARATOR}${pane_intended}${FIELD_SEPARATOR}${_pane_task}${FIELD_SEPARATOR}${_pane_slug}${FIELD_SEPARATOR}${_pane_metadata}${FIELD_SEPARATOR}${_location_outcome}${FIELD_SEPARATOR}${_checkout_root}${FIELD_SEPARATOR}${_repository_anchor}${FIELD_SEPARATOR}${_repo}${FIELD_SEPARATOR}${_branch}${FIELD_SEPARATOR}${_is_linked}${FIELD_SEPARATOR}${_sha}${FIELD_SEPARATOR}${_location_status}${FIELD_SEPARATOR}${_git_ref}${FIELD_SEPARATOR}${_worktree_token}${FIELD_SEPARATOR}${_git_status}"
   done <<EOF
 $pane_intents
 EOF
-  pane_presentations="$(printf '%s\n' "$pane_presentations" | filter_records_of_width 21)"
+  pane_presentations="$(printf '%s\n' "$pane_presentations" | filter_records_of_width 22)"
 
   # A complete snapshot authoritatively deletes evidence for panes that no
   # longer exist. No label policy or applied-label copy is retained.
@@ -1422,12 +1591,12 @@ EOF
   # Herdr 0.8 has no rename compare-and-swap. A target can change after the
   # final get and briefly receive stale intent; the next pass repairs it.
   presentation_generation_valid "$pass" || return 2
-  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch is_linked sha location_status git_ref worktree_token; do
+  while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace agent_of native_session current intended current_task slug metadata_seq location_outcome checkout_root repository_anchor repo branch is_linked sha location_status git_ref worktree_token git_status; do
     [ -n "$id" ] || continue
     # The published-token baseline this pane is diffed against lives in the
     # keyed table, not in the record.
     baseline_row="$(table_row_for "$id" "$pane_baselines")"
-    IFS="$FIELD_SEPARATOR" read -r current_repo current_worktree current_branch current_location_status current_git_ref <<EOF
+    IFS="$FIELD_SEPARATOR" read -r current_repo current_worktree current_branch current_location_status current_git_ref current_git_status <<EOF
 $baseline_row
 EOF
     if [ -n "$slug" ] && [ "$current_task" != "$slug" ]; then
@@ -1455,8 +1624,11 @@ EOF
       [ "$current_branch" = "$branch" ] || location_changed=1
       [ "$current_location_status" = "$location_status" ] || location_changed=1
       [ "$current_git_ref" = "$git_ref" ] || location_changed=1
+      # Counts move while identity stands still, so they have to join this
+      # comparison or the token would freeze after its first write.
+      [ "$current_git_status" = "$git_status" ] || location_changed=1
     elif [ "$location_outcome" = "non_git" ] && \
-      { [ -n "$current_repo" ] || [ -n "$current_worktree" ] || [ -n "$current_branch" ] || [ -n "$current_location_status" ] || [ -n "$current_git_ref" ]; }; then
+      { [ -n "$current_repo" ] || [ -n "$current_worktree" ] || [ -n "$current_branch" ] || [ -n "$current_location_status" ] || [ -n "$current_git_ref" ] || [ -n "$current_git_status" ]; }; then
       location_changed=1
     fi
     if [ "$location_changed" -eq 1 ]; then
@@ -1468,10 +1640,11 @@ EOF
       final_tokens="$(printf '%s' "$final_payload" | jq -r '
         .result.pane.tokens
         | [(.repo // ""), (.worktree // ""), (.branch // ""),
-           (.location_status // ""), (.git_ref // ""), (.location_label // "")]
+           (.location_status // ""), (.git_ref // ""), (.git_status // ""),
+           (.location_label // "")]
         | join("\u001f")' 2>/dev/null)"
       IFS="$FIELD_SEPARATOR" read -r final_repo final_worktree final_branch \
-        final_location_status final_git_ref final_location_label <<EOF
+        final_location_status final_git_ref final_git_status final_location_label <<EOF
 $final_tokens
 EOF
       location_changed=0
@@ -1484,8 +1657,9 @@ EOF
         [ "$final_branch" = "$branch" ] || location_changed=1
         [ "$final_location_status" = "$location_status" ] || location_changed=1
         [ "$final_git_ref" = "$git_ref" ] || location_changed=1
+        [ "$final_git_status" = "$git_status" ] || location_changed=1
       elif [ "$location_outcome" = "non_git" ] && \
-        { [ -n "$final_repo" ] || [ -n "$final_worktree" ] || [ -n "$final_branch" ] || [ -n "$final_location_status" ] || [ -n "$final_git_ref" ]; }; then
+        { [ -n "$final_repo" ] || [ -n "$final_worktree" ] || [ -n "$final_branch" ] || [ -n "$final_location_status" ] || [ -n "$final_git_ref" ] || [ -n "$final_git_status" ]; }; then
         location_changed=1
       fi
       if [ "$location_changed" -eq 1 ]; then
@@ -1502,8 +1676,9 @@ EOF
           set -- "$@" --token "repo=$repo" --token "worktree=$worktree_token" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token location_label
           if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
           if [ -n "$location_status" ]; then set -- "$@" --token "location_status=$location_status"; else set -- "$@" --clear-token location_status; fi
+          if [ -n "$git_status" ]; then set -- "$@" --token "git_status=$git_status"; else set -- "$@" --clear-token git_status; fi
         else
-          set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token location_label
+          set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token git_status --clear-token location_label
         fi
         "$@" >/dev/null 2>&1 || continue
       fi

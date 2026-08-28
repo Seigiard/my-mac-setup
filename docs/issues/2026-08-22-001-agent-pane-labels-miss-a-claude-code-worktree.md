@@ -5,8 +5,9 @@ type: "bug"
 category: "herdr"
 tags: ["herdr-task-sync","worktree","labels","claude-code"]
 date: "2026-08-22"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-27"
 ---
 
 ## Why this exists
@@ -105,6 +106,13 @@ tokens, so the fix belongs here.
 
 ## Open decisions
 
+Both are settled; kept for the reasoning that led to the fix.
+
+- **Settled: the statusline feeds the engine.** It records the directory to a file the location pass reads; it never publishes a token, so `herdr-task-sync` stays the only writer. The hook-payload alternative was rejected because prompt and session events fire only at turn boundaries, and an agent that enters a worktree mid-turn would keep a stale record until its next prompt.
+- **Moved: the tab-label question is now `2026-08-27-003`.** It was never answered here and does not block this fix, which is about the sidebar row.
+
+### Original wording
+
 - **Where the session directory comes from.** Two candidates, neither tested.
   The statusline hook already receives `.workspace.current_dir` on every render and
   runs in the agent's own process, so it could publish the location directly — but
@@ -118,3 +126,7 @@ tokens, so the fix belongs here.
   observation window. Tab labels are composed separately by `compose_tab_intents`
   (`home/dot_local/bin/executable_herdr-task-sync:1142`). Confirm the composed tab
   label re-derives from the new tokens before treating a token-only fix as complete.
+
+## Resolution
+
+Fixed by sourcing an agent pane's effective directory from the agent itself instead of its process cwd. Claude Code's statusline now records its session's working directory under the session id herdr carries on the pane, and herdr-task-sync's location pass reads that record before falling back to the pane cwd; a report wins when the two disagree. Verified live: a Claude session inside .claude/worktrees/feat+herdr-agent-git-status published that worktree's branch while its pane cwd still named the base checkout. opencode and pi need no reporter - measurement found neither can move a running session into another directory. Shipped in PR #85.

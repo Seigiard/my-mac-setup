@@ -9,16 +9,35 @@ HTS_PLUGIN_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 # the stub directory plus the system directories, so a real `pi` or `claude`
 # outside them can never be reached: a missing engine is then a property of the
 # test, not of the machine that runs it.
+# The engine's icon table is the single source of these sequences: they are
+# extracted from it rather than retyped, so a drifted table fails loudly here
+# instead of quietly asserting a glyph the engine no longer emits.
+hts_icon() {
+  local name="$1" octal
+  octal="$(sed -n "s/^ICON_${name}=.*printf '\\([^']*\\)'.*/\\1/p" "$HTS_ENGINE")"
+  if [[ -z "$octal" ]]; then
+    printf 'missing ICON_%s in %s\n' "$name" "$HTS_ENGINE" >&2
+    return 1
+  fi
+  # shellcheck disable=SC2059 # The extracted octal sequence is itself the format.
+  printf "$octal"
+}
+# shellcheck disable=SC2034 # The loading Bats file reads these shared values.
+HTS_ICON_BRANCH="$(hts_icon BRANCH)"
 # shellcheck disable=SC2034
-HTS_ICON_BRANCH="$(printf '\356\261\257')"     # nf-cod-git_branch U+EC6F
+HTS_ICON_WORKTREE="$(hts_icon WORKTREE)"
 # shellcheck disable=SC2034
-HTS_ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
+HTS_ICON_COMMIT="$(hts_icon COMMIT)"
 # shellcheck disable=SC2034
-HTS_ICON_COMMIT="$(printf '\356\253\274')"     # nf-cod-git_commit U+EAFC
+HTS_ICON_FOLDER="$(hts_icon FOLDER)"
 # shellcheck disable=SC2034
-HTS_ICON_FOLDER="$(printf '\356\252\203')"     # nf-cod-folder U+EA83
+HTS_ICON_STALE="$(hts_icon STALE)"
 # shellcheck disable=SC2034
-HTS_ICON_STALE="$(printf '\356\252\202')"       # nf-cod-history U+EA82
+HTS_ICON_DIRTY="$(hts_icon DIRTY)"
+# shellcheck disable=SC2034
+HTS_ICON_AHEAD="$(hts_icon AHEAD)"
+# shellcheck disable=SC2034
+HTS_ICON_BEHIND="$(hts_icon BEHIND)"
 
 hts_teardown() {
   # Reap a background reader a failed test left running BEFORE deleting its
@@ -320,12 +339,29 @@ if [ -d "$fixture" ]; then
         while [ ! -f "$fixture/release" ]; do sleep 0.01; done
       fi
       ;;
+    *"--porcelain=v2"*)
+      if [ -f "$fixture/block.status" ]; then
+        while [ ! -f "$fixture/release" ]; do sleep 0.01; done
+      fi
+      ;;
+    *"--show-toplevel"*)
+      if [ -f "$fixture/block.location" ]; then
+        while [ ! -f "$fixture/release" ]; do sleep 0.01; done
+      fi
+      ;;
   esac
   : > "$fixture/completed"
   cat "$fixture/stderr" >&2
   out="$fixture/stdout"
   case "$command_args" in
     *"--short=7"*) [ ! -f "$fixture/stdout.short" ] || out="$fixture/stdout.short" ;;
+    # The status probe never falls back to the identity probe's stdout: those
+    # four lines would read as four dirty paths. No canned body means a clean
+    # checkout with no upstream.
+    *"--porcelain=v2"*)
+      out=/dev/null
+      [ ! -f "$fixture/stdout.status" ] || out="$fixture/stdout.status"
+      ;;
   esac
   cat "$out"
   exit "$(cat "$fixture/status")"
@@ -524,6 +560,11 @@ hts_after_call_script() {
 # pass -- the eight-pane coordinator test runs seven -- and a tighter budget
 # would SIGKILL those, which is the failure this value exists to prevent.
 HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
+# The status probe has its own bound in the engine, so the harness gives it
+# its own generous default for the same reason the identity budget is
+# generous here: a stub probe under --jobs load must not lose the race and
+# flake every counts assertion. A test that wants a timeout sets it low.
+HTS_STATUS_BUDGET="${HTS_STATUS_BUDGET:-2}"
 
 # Behavioral budget for the "fails open promptly rather than hanging" assertions.
 # The helper below scales a same-run process-launch baseline before enforcing this,
@@ -841,6 +882,38 @@ hts_git_location_fixture() {
   hts_git_fixture "$1" "$(printf '%s\n%s\n%s\n%s' "$2" "$3" "$branch" "$sha")" "${6:-0}" "${7:-ready}"
 }
 
+# The status probe is a second call against the same checkout, so its canned
+# body lives beside the identity probe's rather than in a fixture of its own.
+# Pass a porcelain v2 body; omit it and the stub answers empty, which is a
+# clean checkout with no upstream.
+hts_git_status_fixture() {
+  local fixture
+  fixture="$(hts_git_fixture_dir "$1")"
+  [[ -n "$fixture" ]] || return 1
+  printf '%s\n' "$2" > "$fixture/stdout.status"
+}
+
+# Stalls only the status probe of a fixture and leaves its identity probe
+# inside budget: the case where the counts must go missing and $git_ref must
+# not. Release it the way the other blocking fixtures are released, by
+# touching $fixture/release.
+hts_block_git_status() {
+  local fixture
+  fixture="$(hts_git_fixture_dir "$1")"
+  [[ -n "$fixture" ]] || return 1
+  : > "$fixture/block.status"
+}
+
+# The mirror image: stalls only the identity probe and leaves the status probe
+# inside budget, which is how a transient location outcome is reached while
+# real counts are still measurable for the retained root.
+hts_block_git_location() {
+  local fixture
+  fixture="$(hts_git_fixture_dir "$1")"
+  [[ -n "$fixture" ]] || return 1
+  : > "$fixture/block.location"
+}
+
 # A linked worktree carries a .git FILE at its root; the main checkout has a
 # .git directory. The resolver's is_linked check reads only this marker.
 hts_mark_linked_worktree() {
@@ -861,6 +934,40 @@ hts_process_pane_json() {
       | if $mode == "absent" then . else .foreground_cwd = $fg end'
 }
 
+# An agent pane. herdr carries the agent kind and its session id, and that
+# session id is the key an agent's own directory report is filed under.
+hts_agent_pane_json() {
+  local id="$1" tab="$2" cwd="$3" agent="$4" session="$5"
+  jq -cn --arg id "$id" --arg tab "$tab" --arg cwd "$cwd" \
+    --arg agent "$agent" --arg session "$session" '
+      {pane_id:$id,tab_id:$tab,workspace_id:"ws-1",terminal_id:("term-" + $id),
+       agent:$agent,
+       agent_session:{source:("herdr:" + $agent),agent:$agent,kind:"id",value:$session},
+       label:"",tokens:{},cwd:$cwd,foreground_cwd:$cwd}'
+}
+
+# Files a directory report directly, for cases that need a body no real
+# reporter would write.
+hts_write_agent_cwd_record() {
+  local root="$HTS_STATE/agent-cwd" key
+  mkdir -p "$root"
+  key="$(LC_ALL=C printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-64)"
+  printf '%s\n' "$2" > "$root/$key"
+}
+
+# Drives the shipped Claude statusline the way Claude Code does, so the record
+# under test is the one the real reporter writes rather than an imitation.
+hts_run_claude_statusline() {
+  local dir="$1" session="$2"
+  jq -cn --arg dir "$dir" --arg session "$session" '
+    {session_id:$session,workspace:{current_dir:$dir},
+     model:{display_name:"test"},cost:{},context_window:{}}' |
+    env HERDR_ENV=1 HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
+      PATH="$HTS_STUB:/usr/bin:/bin" HOME="$HTS_WORK" \
+      bash "$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh" \
+      >/dev/null 2>&1
+}
+
 hts_set_process_label() {
   hts_proc_info "$1" "$(jq -cn --arg command "$2" '{result:{process_info:{shell_pid:1,foreground_process_group_id:2,foreground_processes:[{pid:2,argv:[$command]}]}}}')"
 }
@@ -877,12 +984,9 @@ hts_set_pane_location() {
 }
 
 hts_location_pass() {
-  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" hts_event_run
+  HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" \
+    HERDR_TASK_SYNC_STATUS_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-$HTS_STATUS_BUDGET}" hts_event_run
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
-}
-
-hts_location_source_tokens() {
-  jq -c --arg pane "$2" '.metadata[$pane]["location-sync"].tokens // {}' "$(hts_socket_state "$1")"
 }
 
 hts_location_source_seq() {
@@ -901,6 +1005,7 @@ hts_sweep_run() {
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_SWEEP_INTERVAL="${HTS_SWEEP_INTERVAL:-1}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-$HTS_GIT_BUDGET}" \
+    HERDR_TASK_SYNC_STATUS_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-$HTS_STATUS_BUDGET}" \
     bash "$HTS_ENGINE" "$@"
 }
 
@@ -913,6 +1018,7 @@ hts_event_run() {
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
+    HERDR_TASK_SYNC_STATUS_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-}" \
     HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}" \
     HERDR_TASK_SYNC_TEST_NO_DAEMON="${HERDR_TASK_SYNC_TEST_NO_DAEMON-1}" \
     bash "$HTS_ENGINE" --event
@@ -936,6 +1042,7 @@ hts_presentation_run() {
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_TEST_DIGEST_FILE="${HERDR_TASK_SYNC_TEST_DIGEST_FILE:-}" \
     HERDR_TASK_SYNC_GIT_BUDGET="${HERDR_TASK_SYNC_GIT_BUDGET:-}" \
+    HERDR_TASK_SYNC_STATUS_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-}" \
     HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}" \
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER:-}" \
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT:-}" \

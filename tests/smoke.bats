@@ -933,7 +933,8 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
   # Tab labels stay names-only, while the sidebar keeps Git location on its
   # own row so branch/worktree context never competes with the agent name.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref"\]\]$'
+  # Identity and counts are separate tokens sharing that row.
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_ref", "\$git_status"\]\]$'
   run grep -E '\$location_label|\$location_status' "$config"
   assert_failure
   width="$(awk '
@@ -980,7 +981,7 @@ assert_herdr_sidebar_deployment_contract() {
     }
   ' "$manifest"
   assert_success
-  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]'
+  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]\nworktree.created|["sh", "ensure.sh", "--event"]\nworktree.opened|["sh", "ensure.sh", "--event"]'
   assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
   assert_file_contains "$manifest" '^id = "sweep"$'
   assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
