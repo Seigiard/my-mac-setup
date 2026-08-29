@@ -10,7 +10,18 @@ BASE="${1:?usage: compare-suite-file.sh <base e.g. palette> [jobs]}"
 JOBS="${2:-8}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/.context/bashunit-full-suite/compare}"
-# Overridable for fixtures (negative controls) living outside tests/.
+# Overridable for fixtures (negative controls) living outside tests/. When
+# not overridden, regenerate the (gitignored) converted files first, the same
+# way tests/run-post-apply.sh does.
+if [ -z "${BU_PATH:-}" ]; then
+  python3 "$ROOT/scripts/bats2bashunit.py" \
+    --out-dir "$ROOT/tests/bashunit" --manifest "$ROOT/tests/bashunit/manifest.tsv" \
+    "$ROOT/tests/smoke.bats" "$ROOT/tests/scripts.bats" \
+    "$ROOT/tests/palette.bats" "$ROOT/tests/platform.bats" >/dev/null
+  python3 "$ROOT/scripts/bats2bashunit.py" --serial \
+    --out-dir "$ROOT/tests/bashunit" --manifest "$ROOT/tests/bashunit/manifest.tsv" \
+    --append-manifest "$ROOT/tests/idempotent.bats" >/dev/null
+fi
 BATS_PATH="${BATS_PATH:-$ROOT/tests/$BASE.bats}"
 BU_PATH="${BU_PATH:-$ROOT/tests/bashunit/${BASE}_test.sh}"
 MANIFEST="${MANIFEST:-$ROOT/tests/bashunit/manifest.tsv}"

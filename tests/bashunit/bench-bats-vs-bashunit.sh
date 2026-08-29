@@ -28,6 +28,16 @@ for f in $FILES; do
   bu_files="$bu_files $ROOT/tests/bashunit/${f}_test.sh"
 done
 
+# The converted files are generated artifacts (gitignored); regenerate them
+# the same way tests/run-post-apply.sh does before timing anything.
+python3 "$ROOT/scripts/bats2bashunit.py" \
+  --out-dir "$ROOT/tests/bashunit" --manifest "$ROOT/tests/bashunit/manifest.tsv" \
+  "$ROOT/tests/smoke.bats" "$ROOT/tests/scripts.bats" \
+  "$ROOT/tests/palette.bats" "$ROOT/tests/platform.bats" >/dev/null
+python3 "$ROOT/scripts/bats2bashunit.py" --serial \
+  --out-dir "$ROOT/tests/bashunit" --manifest "$ROOT/tests/bashunit/manifest.tsv" \
+  --append-manifest "$ROOT/tests/idempotent.bats" >/dev/null
+
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
 
 # The suite leaks orphaned herdr-child watchers (pre-existing behavior, both

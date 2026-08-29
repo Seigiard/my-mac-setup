@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
+# Post-apply suite runner. The .bats files remain the single source of truth;
+# they are converted on the fly (deterministic, <1s) and executed with the
+# pinned bashunit at tests/lib/bashunit — measured at ~24% less wall-clock
+# than bats with per-scenario behavioral parity (403/403 on macOS and
+# Ubuntu). Evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+#
+# Execution mirrors the previous `bats --jobs 8 --no-parallelize-across-files`
+# shape: files run sequentially, tests within a file run with up to
+# $MMS_BASHUNIT_JOBS workers (idempotent.bats converts with --serial).
 set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+JOBS="${MMS_BASHUNIT_JOBS:-8}"
+GEN="$ROOT/tests/bashunit"
 
 usage() {
   cat <<'USAGE' >&2
@@ -11,25 +24,21 @@ USAGE
 }
 
 case "${1:-}" in
-  full)
-    set -- \
-      tests/smoke.bats \
-      tests/scripts.bats \
-      tests/palette.bats \
-      tests/platform.bats \
-      tests/idempotent.bats
-    ;;
-  host-safe)
-    set -- \
-      tests/smoke.bats \
-      tests/scripts.bats \
-      tests/palette.bats \
-      tests/platform.bats
-    ;;
-  *)
-    usage
-    exit 2
-    ;;
+  full)      files="smoke scripts palette platform idempotent" ;;
+  host-safe) files="smoke scripts palette platform" ;;
+  *) usage; exit 2 ;;
 esac
 
-exec bats --jobs 8 --no-parallelize-across-files "$@"
+python3 "$ROOT/scripts/bats2bashunit.py" \
+  --out-dir "$GEN" --manifest "$GEN/manifest.tsv" \
+  "$ROOT/tests/smoke.bats" "$ROOT/tests/scripts.bats" \
+  "$ROOT/tests/palette.bats" "$ROOT/tests/platform.bats" >/dev/null
+python3 "$ROOT/scripts/bats2bashunit.py" --serial \
+  --out-dir "$GEN" --manifest "$GEN/manifest.tsv" --append-manifest \
+  "$ROOT/tests/idempotent.bats" >/dev/null
+
+rc=0
+for base in $files; do
+  "$ROOT/tests/lib/bashunit" -j "$JOBS" "$GEN/${base}_test.sh" || rc=$?
+done
+exit "$rc"
