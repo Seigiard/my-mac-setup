@@ -14,8 +14,12 @@ describe("initial block library", () => {
     );
   });
 
-  test("catalog is byte-stable across generations", () => {
-    expect(catalogToJson(registry)).toBe(catalogToJson(registry));
+  test("catalog is byte-stable across independently built registries", () => {
+    // Comparing one registry's JSON to itself could never fail. Two separate
+    // buildRegistry() calls redden this if the catalog ever gains
+    // per-instance or per-generation content (timestamps, ids, unstable
+    // iteration order).
+    expect(catalogToJson(buildRegistry())).toBe(catalogToJson(registry));
   });
 
   test("catalog exposes external and needsWorkspace flags per block", () => {

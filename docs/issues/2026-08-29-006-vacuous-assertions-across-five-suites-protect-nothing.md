@@ -5,7 +5,7 @@ type: "bug"
 category: "testing-ci"
 tags: ["tautological-tests","vacuous-assertions","test-quality"]
 date: "2026-08-29"
-status: "open"
+status: "in-progress"
 priority: "high"
 ---
 

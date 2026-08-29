@@ -1030,14 +1030,16 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$config" '^rows = \[\["state_icon", "\$agent_line"\], \["\$git_line"\]\]$'
   run grep -E '\$location_label|\$location_status' "$config"
   assert_failure
+  # The awk scope proves the key sits inside [ui], which the grep above cannot.
+  # The former follow-ups `width - 4 >= 28` and `width - 4 >= 8` were arithmetic
+  # over the constant just asserted and could never fail independently; no
+  # consumer of a "width - 4" budget exists in ~/.local/bin/herdr-task-sync.
   width="$(awk '
     $0 == "[ui]" { in_ui = 1; next }
     /^\[/ { in_ui = 0 }
     in_ui && /^sidebar_min_width = [0-9]+$/ { print $3 }
   ' "$config")"
   [ "$width" -eq 32 ]
-  [ "$((width - 4))" -ge 28 ]
-  [ "$((width - 4))" -ge 8 ]
 }
 
 function test_smoke_068_herdr_managed_source_preserves_the_u6_sidebar_an() {

@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { codeReviewGate, docReviewGate, emptyCoverageNotes, mainCheckoutEscapeReason, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
+import { appendEscapeAdvisory, codeReviewGate, docReviewGate, emptyCoverageNotes, planGate, rescanGate, workGate, type GateResult, type RescanReport } from "./lib/gates.ts";
 import { mergeReviewReports } from "./lib/review-merge.ts";
 import { severitySchema } from "./lib/severity-summary.ts";
 import { docReviewSeverityStatusNote, docReviewWaiveNote, readDocReviewAdvisory } from "./lib/doc-review-notes.ts";
@@ -677,13 +677,9 @@ export default smithers((ctx) => {
         if (validate !== null && validate.exitCode !== 0) {
           result.reasons.push(`validate-cmd output tail: ${validate.output.slice(-500)}`);
         }
-        // Escape diagnosis, advisory by construction: it appends a reason and
-        // never touches result.state. An operator committing or editing in
-        // their own checkout during a multi-hour run is ordinary, and turning
-        // that into a red gate would buy a second work leg on a false positive.
-        const escaped = mainCheckoutEscapeReason(repoDir, staged.repoDirtyDigest, repoDirtyDigest(repoDir));
-        if (escaped !== undefined) result.reasons.push(escaped);
-        return result;
+        // Escape diagnosis, advisory by contract (see appendEscapeAdvisory in
+        // lib/gates.ts): it appends a reason and never touches result.state.
+        return appendEscapeAdvisory(result, repoDir, staged.repoDirtyDigest, repoDirtyDigest(repoDir));
       };
 
       // docReviewAdvisory was resolved above: the verify-doc advisory when

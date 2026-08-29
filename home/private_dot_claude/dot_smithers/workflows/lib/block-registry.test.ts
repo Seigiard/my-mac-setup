@@ -74,11 +74,21 @@ describe("BlockRegistry catalog", () => {
     expect((scan?.outputSchema as { type?: string }).type).toBe("object");
   });
 
-  test("catalog JSON is byte-stable across two consecutive generations", () => {
-    const registry = new BlockRegistry();
-    registry.register(agentBlock());
-    registry.register(computeBlock());
-    expect(catalogToJson(registry)).toBe(catalogToJson(registry));
+  test("catalog JSON is byte-stable across independently built registries", () => {
+    // #given two registries holding the same blocks registered in opposite
+    // order. Comparing one registry's JSON to itself could never fail — the
+    // claim the test name makes is that generation order does not leak into
+    // the bytes.
+    const first = new BlockRegistry();
+    first.register(agentBlock());
+    first.register(computeBlock());
+
+    const second = new BlockRegistry();
+    second.register(computeBlock());
+    second.register(agentBlock());
+
+    // #then registration order is erased by list()'s sort
+    expect(catalogToJson(first)).toBe(catalogToJson(second));
   });
 });
 
