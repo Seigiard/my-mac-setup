@@ -225,12 +225,22 @@ def find_violations(path):
     return violations
 
 
-def main(argv):
-    tests_dir = Path(argv[1]) if len(argv) > 1 else Path("tests")
-    violations = []
+def scanned_files(tests_dir):
+    # .bats files disappear in a later migration stage; their absence is fine.
     for path in sorted(tests_dir.rglob("*.bats")):
         if path.relative_to(tests_dir).parts[:2] == ("helpers", "bats-libs"):
             continue
+        yield path
+    # The bashunit DSL's ERR trap reproduces the same bash-3.2 quirk: a bare
+    # mid-test [[ ]] or (( )) conditional is silently inert. Scan the whole
+    # file, not only test_* bodies — helpers run in the same test context.
+    yield from sorted(tests_dir.rglob("bashunit/*_test.sh"))
+
+
+def main(argv):
+    tests_dir = Path(argv[1]) if len(argv) > 1 else Path("tests")
+    violations = []
+    for path in scanned_files(tests_dir):
         for line_number, opening, closing in find_violations(path):
             violations.append(
                 f"{path}:{line_number}: bare {opening}...{closing} requires "

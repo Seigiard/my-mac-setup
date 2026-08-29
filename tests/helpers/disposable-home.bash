@@ -1,10 +1,8 @@
 # Answers one question: has this environment declared its $HOME disposable?
 #
-# Deliberately dependency-free. tests/helpers/common.bash calls `load`, which
-# only exists inside bats, so a predicate defined there would have an
-# untestable truth table. This file defines a function and nothing else, so it
-# can be sourced from a plain `bash -c` with a controlled environment -- which
-# is how tests/idempotent.bats proves the table below.
+# Deliberately dependency-free. This file defines a function and nothing else,
+# so it can be sourced from a plain `bash -c` with a controlled environment --
+# which is how tests/bashunit/idempotent_test.sh proves the table below.
 
 # Echoes exactly one of: run, skip, misconfigured.
 #

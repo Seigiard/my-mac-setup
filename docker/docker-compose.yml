@@ -23,10 +23,10 @@ services:
       # unless the caller opts in.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
       # Declares this container's $HOME disposable, which is what lets the
-      # idempotency scenario in tests/idempotent.bats run its real `chezmoi
+      # idempotency scenario in tests/bashunit/idempotent_test.sh run its real `chezmoi
       # apply`. Written literally in all three services, unlike
       # MMS_CI_MINIMAL above, which is read from the host and is deliberately
-      # absent from the test-ubuntu service. tests/idempotent.bats hard-fails when
+      # absent from the test-ubuntu service. tests/bashunit/idempotent_test.sh hard-fails when
       # /.dockerenv exists and this is missing.
       - MMS_DISPOSABLE_HOME=1
     tty: true
@@ -84,7 +84,7 @@ services:
           --promptString email="test@example.com"
 
         echo "=== Running template tests (pre-apply gate) ==="
-        bats tests/templates.bats
+        tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
 
         echo "=== Applying dotfiles (with package installation) ==="
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
@@ -137,7 +137,7 @@ services:
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
-        bats tests/templates.bats
+        tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
         make test-smithers
         tests/run-post-apply.sh full

@@ -1,4 +1,10 @@
-#!/usr/bin/env bats
+#!/usr/bin/env bash
+# smoke post-apply suite — bashunit source. Vocabulary (run, assert_*,
+# skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
+# Migrated from smoke.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
+_bats_file_init "${BASH_SOURCE[0]}"
+
 
 load 'helpers/common'
 
@@ -9,11 +15,13 @@ load 'helpers/common'
 # This file loses no skip guard, but it holds eight of the nine bare `run
 # python3` call sites, so a contributor running it alone still needs the cause
 # named rather than inferred from the failures.
-@test "python3 is present and at least 3.9, the floor README.md declares" {
+function test_smoke_001_python3_is_present_and_at_least_3_9_the_floor_re() {
+  _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
   assert_python3_available
 }
 
-@test "repository issues CLI exposes its contract and reads checkout issues" {
+function test_smoke_002_repository_issues_cli_exposes_its_contract_and_r() {
+  _bats_test_init 2 'repository issues CLI exposes its contract and reads checkout issues'
   local repository_root
   repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   [[ -f "$repository_root/scripts/issues" ]] || skip "repository checkout is not mounted"
@@ -28,7 +36,8 @@ load 'helpers/common'
   assert_success
 }
 
-@test "post-apply suite wrapper rejects an unknown mode with usage" {
+function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
+  _bats_test_init 3 'post-apply suite wrapper rejects an unknown mode with usage'
   local repository_root
   repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   [[ -x "$repository_root/tests/run-post-apply.sh" ]] || skip "repository checkout is not mounted"
@@ -46,7 +55,8 @@ load 'helpers/common'
 # management (a .chezmoiignore edit, a lost dot_ prefix) keeps `chezmoi verify`
 # green — verify only checks what is still managed — so deployment and
 # management membership are both asserted against this curated list.
-@test "critical managed files are deployed and still managed" {
+function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
+  _bats_test_init 4 'critical managed files are deployed and still managed'
   local paths=(
     .zshrc
     .aliases
@@ -103,17 +113,20 @@ load 'helpers/common'
   [ -z "$unmanaged" ] || fail "deployed but no longer chezmoi-managed:$unmanaged"
 }
 
-@test ".gitignore ignores the agent trash directory" {
+function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
+  _bats_test_init 5 '.gitignore ignores the agent trash directory'
   run grep -qx '\.scratchpad/' "$HOME/.gitignore"
   [ "$status" -eq 0 ]
 }
 
-@test "herdr command palette keybinding is configured" {
+function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
+  _bats_test_init 6 'herdr command palette keybinding is configured'
   assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
 }
 
-@test "obsolete zed-herdr removal accepts formatted plugin JSON" {
+function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {
+  _bats_test_init 7 'obsolete zed-herdr removal accepts formatted plugin JSON'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
   local calls="$BATS_TEST_TMPDIR/herdr.calls"
@@ -147,7 +160,8 @@ SH
   assert_success
 }
 
-@test "obsolete zed-herdr removal reports malformed plugin JSON" {
+function test_smoke_008_obsolete_zed_herdr_removal_reports_malformed_plu() {
+  _bats_test_init 8 'obsolete zed-herdr removal reports malformed plugin JSON'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
   mkdir -p "$fake_bin"
@@ -170,7 +184,8 @@ SH
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
 }
 
-@test "herdr plugin updates are automatic and owner-restricted" {
+function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
+  _bats_test_init 9 'herdr plugin updates are automatic and owner-restricted'
   local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
 
   assert_file_exists "$config"
@@ -178,12 +193,14 @@ SH
   assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
 }
 
-@test "herdr lazygit popup entrypoint is configured" {
+function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
+  _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Lazygit in popup"
 }
 
-@test "herdr command palette sources are valid" {
+function test_smoke_011_herdr_command_palette_sources_are_valid() {
+  _bats_test_init 11 'herdr command palette sources are valid'
   run python3 -m py_compile \
     "$HOME/.config/herdr/plugins/command-palette/open.py" \
     "$HOME/.config/herdr/plugins/command-palette/open_in_zed.py" \
@@ -199,7 +216,8 @@ SH
   assert_success
 }
 
-@test "herdr command palette opener detects active palette pane" {
+function test_smoke_012_herdr_command_palette_opener_detects_active_pale() {
+  _bats_test_init 12 'herdr command palette opener detects active palette pane'
   run python3 - <<'PY'
 import importlib.util, os, sys
 path=os.path.expanduser("~/.config/herdr/plugins/command-palette/open.py")
@@ -243,7 +261,8 @@ PY
   assert_success
 }
 
-@test "herdr command palette loads TOML and project-local commands" {
+function test_smoke_013_herdr_command_palette_loads_toml_and_project_loc() {
+  _bats_test_init 13 'herdr command palette loads TOML and project-local commands'
   tmpdir="$(mktemp -d)"
   mkdir -p "$tmpdir/global" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette"
   cat > "$tmpdir/global/commands.toml" <<'TOML'
@@ -295,17 +314,20 @@ PY
 # Claude Code configuration
 # ===========================================
 
-@test "writing-style output style is deployed and enabled in settings" {
+function test_smoke_014_writing_style_output_style_is_deployed_and_enabl() {
+  _bats_test_init 14 'writing-style output style is deployed and enabled in settings'
   assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
   run jq -e '.outputStyle == "writing-style"' "$HOME/.claude/settings.json"
   assert_success
 }
 
-@test "pi APPEND_SYSTEM.md is deployed" {
+function test_smoke_015_pi_append_system_md_is_deployed() {
+  _bats_test_init 15 'pi APPEND_SYSTEM.md is deployed'
   assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
 }
 
-@test "pi settings include all managed packages" {
+function test_smoke_016_pi_settings_include_all_managed_packages() {
+  _bats_test_init 16 'pi settings include all managed packages'
   local settings="$HOME/.pi/agent/settings.json"
   assert_file_exists "$settings"
   run jq -e '
@@ -320,7 +342,8 @@ PY
   assert_success
 }
 
-@test "coding agents use terminal color palettes" {
+function test_smoke_017_coding_agents_use_terminal_color_palettes() {
+  _bats_test_init 17 'coding agents use terminal color palettes'
   run jq -e '.theme == "custom:light-ansi-daltonized"' "$HOME/.claude/settings.json"
   assert_success
   assert_file_exists "$HOME/.claude/themes/light-ansi-daltonized.json"
@@ -334,13 +357,15 @@ PY
   assert_file_not_exists "$HOME/.config/opencode/themes/flexoki-light-forced.json"
 }
 
-@test "opencode reads the shared writing-style file via instructions" {
+function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
+  _bats_test_init 18 'opencode reads the shared writing-style file via instructions'
   assert_file_exists "$HOME/.config/agents/writing-style.md"
   run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$HOME/.config/opencode/opencode.json"
   assert_success
 }
 
-@test "opencode exposes curated claude skills through canonical symlinks" {
+function test_smoke_019_opencode_exposes_curated_claude_skills_through_c() {
+  _bats_test_init 19 'opencode exposes curated claude skills through canonical symlinks'
   local skill
 
   for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
@@ -351,7 +376,8 @@ PY
   done
 }
 
-@test "explicit-only workflows keep manual invocation boundaries" {
+function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
+  _bats_test_init 20 'explicit-only workflows keep manual invocation boundaries'
   local workflow claude_skill opencode_command opencode_skill
 
   for workflow in eli5 open-questions; do
@@ -390,7 +416,8 @@ PY
 
 # One manifest replaces the per-skill existence tests; content-level guards
 # (YAML descriptions, shared-pointer resolution) keep their own tests below.
-@test "agent skills are deployed with their scripts and references" {
+function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
+  _bats_test_init 21 'agent skills are deployed with their scripts and references'
   local files=(
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
@@ -429,7 +456,8 @@ PY
   assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
 }
 
-@test "shared references are deployed" {
+function test_smoke_022_shared_references_are_deployed() {
+  _bats_test_init 22 'shared references are deployed'
   assert_file_exists "$HOME/.claude/shared/README.md"
   assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
   assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
@@ -441,7 +469,8 @@ PY
 # macOS-only configs (skipped on Linux)
 # ===========================================
 
-@test "executor CLI resolves on PATH through ~/.local/bin (macOS only)" {
+function test_smoke_023_executor_cli_resolves_on_path_through_local_bin() {
+  _bats_test_init 23 'executor CLI resolves on PATH through ~/.local/bin (macOS only)'
   is_macos || skip "Not on macOS"
   # The symlink deploys on every macOS apply, but MMS_CI_MINIMAL renders
   # Brewfile.macos to zero bytes, so CI never installs the cask that provides
@@ -458,14 +487,16 @@ PY
   assert_output --partial "executor v"
 }
 
-@test "kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)" {
+function test_smoke_024_kitty_includes_its_herdr_bindings_and_keeps_the() {
+  _bats_test_init 24 'kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/kitty.conf"
   assert_file_contains "$config" "^include herdr.conf$"
   assert_file_contains "$config" "^include Alabaster.conf$"
 }
 
-@test "kitty font family is one kitty accepts as monospaced (macOS only)" {
+function test_smoke_025_kitty_font_family_is_one_kitty_accepts_as_monosp() {
+  _bats_test_init 25 'kitty font family is one kitty accepts as monospaced (macOS only)'
   is_macos || skip "Not on macOS"
   # kitty rejects the non-Mono "IosevkaTerm Nerd Font" that ghostty uses and
   # falls back to Menlo without failing, so pin the Mono family explicitly.
@@ -473,7 +504,8 @@ PY
     "^font_family  *IosevkaTerm Nerd Font Mono$"
 }
 
-@test "kitty auto-launches herdr without exec'ing it (macOS only)" {
+function test_smoke_026_kitty_auto_launches_herdr_without_exec_ing_it_ma() {
+  _bats_test_init 26 'kitty auto-launches herdr without exec'\''ing it (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/herdr.conf"
   # Detaching from herdr must return to a plain login shell, so herdr is run
@@ -482,7 +514,8 @@ PY
   assert_file_contains "$config" "^shell /bin/zsh -lc .*exec /bin/zsh -l"
 }
 
-@test "kitty sends the herdr prefix for macOS-style shortcuts (macOS only)" {
+function test_smoke_027_kitty_sends_the_herdr_prefix_for_macos_style_sho() {
+  _bats_test_init 27 'kitty sends the herdr prefix for macOS-style shortcuts (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/herdr.conf"
   # \x02 is herdr's ctrl+b prefix; these must match the ghostty keybindings.
@@ -493,7 +526,8 @@ PY
   assert_file_contains "$config" '^map shift+alt+left send_text all .x1b\[1;4D$'
 }
 
-@test "kitty herdr bindings survive a non-Latin keyboard layout (macOS only)" {
+function test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar() {
+  _bats_test_init 28 'kitty herdr bindings survive a non-Latin keyboard layout (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/herdr.conf"
   # Without --allow-fallback=shifted,ascii kitty drops a letter-key override
@@ -513,14 +547,16 @@ PY
   [ -z "$risky" ] || fail "bindings missing --allow-fallback: $risky"
 }
 
-@test "kitty carries command-palette hints for the herdr plugin (macOS only)" {
+function test_smoke_029_kitty_carries_command_palette_hints_for_the_herd() {
+  _bats_test_init 29 'kitty carries command-palette hints for the herdr plugin (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/herdr.conf"
   assert_file_contains "$config" "^# palette: Tabs & workspaces | ⌘T | New tab$"
   assert_file_contains "$config" "^# palette: Panes | ⌘D | Split right$"
 }
 
-@test "lazygit config keeps Russian-layout keybindings and popup exit (macOS only)" {
+function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
+  _bats_test_init 30 'lazygit config keeps Russian-layout keybindings and popup exit (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/Library/Application Support/lazygit/config.yml"
   # One -alt binding stands in for the whole Russian-layout section; losing the
@@ -529,7 +565,8 @@ PY
   assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
 }
 
-@test "herdr caffeinate plugin scripts are valid sh (macOS only)" {
+function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
+  _bats_test_init 31 'herdr caffeinate plugin scripts are valid sh (macOS only)'
   is_macos || skip "Not on macOS"
   for f in reconcile.sh lib.sh actions.sh; do
     run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
@@ -561,7 +598,8 @@ SH
     run python3 "$FOCUS_NOTIFY_DIR/notify.py"
 }
 
-@test "focus-notify plugin compiles and declares its runtime entrypoint" {
+function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
+  _bats_test_init 32 'focus-notify plugin compiles and declares its runtime entrypoint'
   run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
     python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
   assert_success
@@ -573,7 +611,8 @@ SH
     '^command = \["python3", "notify.py"\]$'
 }
 
-@test "focus-notify builds a safely quoted click command" {
+function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
+  _bats_test_init 33 'focus-notify builds a safely quoted click command'
   # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
   run_focus_notify '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
   assert_success
@@ -593,7 +632,8 @@ PY
   assert_success
 }
 
-@test "focus-notify stays quiet for non-actionable statuses and missing pane id" {
+function test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat() {
+  _bats_test_init 34 'focus-notify stays quiet for non-actionable statuses and missing pane id'
   run_focus_notify '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
   assert_success
   assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
@@ -603,7 +643,8 @@ PY
   assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
 }
 
-@test "focus-notify uses one notification group per pane for duplicate replacement" {
+function test_smoke_035_focus_notify_uses_one_notification_group_per_pan() {
+  _bats_test_init 35 'focus-notify uses one notification group per pane for duplicate replacement'
   run_focus_notify '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
   assert_success
 
@@ -624,7 +665,8 @@ PY
 # `fzf --filter` as its only scorer and refuses to start without it. So this
 # test asserts rather than skips, and it asserts the version floor. The floor
 # is read from palette.py's own FZF_MIN_VERSION so the two cannot drift.
-@test "fzf is installed and meets the command palette's version floor" {
+function test_smoke_036_fzf_is_installed_and_meets_the_command_palette_s() {
+  _bats_test_init 36 'fzf is installed and meets the command palette'\''s version floor'
   run command -v fzf
   assert_success
 
@@ -659,13 +701,15 @@ se_fixture_repo() {
   echo "$repo"
 }
 
-@test "se source script exists and passes bash syntax check" {
+function test_smoke_037_se_source_script_exists_and_passes_bash_syntax_c() {
+  _bats_test_init 37 'se source script exists and passes bash syntax check'
   assert_file_exists "$SE_SRC"
   run bash -n "$SE_SRC"
   assert_success
 }
 
-@test "se --help prints usage" {
+function test_smoke_038_se_help_prints_usage() {
+  _bats_test_init 38 'se --help prints usage'
   run bash "$SE_SRC" --help
   assert_success
   assert_output --partial "Usage: se"
@@ -673,7 +717,8 @@ se_fixture_repo() {
   assert_output --partial "resume <runId>"
 }
 
-@test "se pipeline dry-run assembles smithers command with env and input JSON" {
+function test_smoke_039_se_pipeline_dry_run_assembles_smithers_command_w() {
+  _bats_test_init 39 'se pipeline dry-run assembles smithers command with env and input JSON'
   local repo
   repo="$(se_fixture_repo)"
   cd "$repo"
@@ -689,7 +734,8 @@ se_fixture_repo() {
   assert_output --partial '"validateCmd":"make test"'
 }
 
-@test "se pipeline forwards the single doc-review key: absent=false, --doc-review=true" {
+function test_smoke_040_se_pipeline_forwards_the_single_doc_review_key_a() {
+  _bats_test_init 40 'se pipeline forwards the single doc-review key: absent=false, --doc-review=true'
   local repo
   repo="$(se_fixture_repo)"
   cd "$repo"
@@ -703,7 +749,8 @@ se_fixture_repo() {
   assert_output --partial '"docReview":true'
 }
 
-@test "se pipeline dry-run honors --until=pr and --attach (no --detach)" {
+function test_smoke_041_se_pipeline_dry_run_honors_until_pr_and_attach_n() {
+  _bats_test_init 41 'se pipeline dry-run honors --until=pr and --attach (no --detach)'
   local repo
   repo="$(se_fixture_repo)"
   cd "$repo"
@@ -713,13 +760,15 @@ se_fixture_repo() {
   refute_output --partial -- "--detach"
 }
 
-@test "se pipeline fails on nonexistent plan with reason" {
+function test_smoke_042_se_pipeline_fails_on_nonexistent_plan_with_reaso() {
+  _bats_test_init 42 'se pipeline fails on nonexistent plan with reason'
   run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline /nonexistent/plan.md --validate-cmd 'make test'
   assert_failure
   assert_output --partial "not found"
 }
 
-@test "se pipeline fails on invalid --until value" {
+function test_smoke_043_se_pipeline_fails_on_invalid_until_value() {
+  _bats_test_init 43 'se pipeline fails on invalid --until value'
   local repo
   repo="$(se_fixture_repo)"
   cd "$repo"
@@ -728,7 +777,8 @@ se_fixture_repo() {
   assert_output --partial "until"
 }
 
-@test "se pipeline without --validate-cmd succeeds (derived from plan at gate-0)" {
+function test_smoke_044_se_pipeline_without_validate_cmd_succeeds_derive() {
+  _bats_test_init 44 'se pipeline without --validate-cmd succeeds (derived from plan at gate-0)'
   # --validate-cmd is optional: omitted => empty validateCmd in the input JSON,
   # and the workflow derives it from the plan's Verification Contract at gate-0.
   local repo
@@ -739,25 +789,29 @@ se_fixture_repo() {
   assert_output --partial '"validateCmd":""'
 }
 
-@test "se resume without runId fails with usage" {
+function test_smoke_045_se_resume_without_runid_fails_with_usage() {
+  _bats_test_init 45 'se resume without runId fails with usage'
   run env SE_DRY_RUN=1 bash "$SE_SRC" resume
   assert_failure
   assert_output --partial "Usage: se"
 }
 
-@test "se abort dry-run maps to smithers cancel" {
+function test_smoke_046_se_abort_dry_run_maps_to_smithers_cancel() {
+  _bats_test_init 46 'se abort dry-run maps to smithers cancel'
   run env SE_DRY_RUN=1 bash "$SE_SRC" abort run-123
   assert_success
   assert_output --partial "smithers cancel run-123"
 }
 
-@test "se list dry-run exits 0 and maps to smithers ps" {
+function test_smoke_047_se_list_dry_run_exits_0_and_maps_to_smithers_ps() {
+  _bats_test_init 47 'se list dry-run exits 0 and maps to smithers ps'
   run env SE_DRY_RUN=1 bash "$SE_SRC" list
   assert_success
   assert_output --partial "smithers ps"
 }
 
-@test "se approve/deny/logs/chat dry-run pass through to smithers verbatim" {
+function test_smoke_048_se_approve_deny_logs_chat_dry_run_pass_through_t() {
+  _bats_test_init 48 'se approve/deny/logs/chat dry-run pass through to smithers verbatim'
   for sub in approve deny logs chat; do
     run env SE_DRY_RUN=1 bash "$SE_SRC" "$sub" run-xyz
     assert_success
@@ -765,26 +819,30 @@ se_fixture_repo() {
   done
 }
 
-@test "se approve without runId fails with usage" {
+function test_smoke_049_se_approve_without_runid_fails_with_usage() {
+  _bats_test_init 49 'se approve without runId fails with usage'
   run env SE_DRY_RUN=1 bash "$SE_SRC" approve
   assert_failure
   assert_output --partial "Usage: se"
 }
 
-@test "se with unknown command fails with usage" {
+function test_smoke_050_se_with_unknown_command_fails_with_usage() {
+  _bats_test_init 50 'se with unknown command fails with usage'
   run bash "$SE_SRC" frobnicate
   assert_failure
   assert_output --partial "Usage: se"
 }
 
-@test "se symlink source for ~/.local/bin exists in dotfiles" {
+function test_smoke_051_se_symlink_source_for_local_bin_exists_in_dotfil() {
+  _bats_test_init 51 'se symlink source for ~/.local/bin exists in dotfiles'
   local link_src="$SE_ROOT/dot_local/bin/symlink_se.tmpl"
   assert_file_exists "$link_src"
   run grep -q '.claude/.smithers/bin/se' "$link_src"
   assert_success
 }
 
-@test "chezmoiignore excludes smithers runtime state from management" {
+function test_smoke_052_chezmoiignore_excludes_smithers_runtime_state_fr() {
+  _bats_test_init 52 'chezmoiignore excludes smithers runtime state from management'
   local ignore="$SE_ROOT/.chezmoiignore"
   for entry in '.claude/.smithers/node_modules' '.claude/.smithers/smithers.db*' '.claude/.smithers/executions'; do
     run grep -qF "$entry" "$ignore"
@@ -792,37 +850,43 @@ se_fixture_repo() {
   done
 }
 
-@test "se list --json dry-run maps to smithers ps --format json" {
+function test_smoke_053_se_list_json_dry_run_maps_to_smithers_ps_format() {
+  _bats_test_init 53 'se list --json dry-run maps to smithers ps --format json'
   run env SE_DRY_RUN=1 bash "$SE_SRC" list --json
   assert_success
   assert_output --partial "smithers ps --format json"
 }
 
-@test "se show dry-run maps to smithers inspect --format json" {
+function test_smoke_054_se_show_dry_run_maps_to_smithers_inspect_format() {
+  _bats_test_init 54 'se show dry-run maps to smithers inspect --format json'
   run env SE_DRY_RUN=1 bash "$SE_SRC" show run-xyz
   assert_success
   assert_output --partial "smithers inspect run-xyz --format json"
 }
 
-@test "se show without runId fails with usage" {
+function test_smoke_055_se_show_without_runid_fails_with_usage() {
+  _bats_test_init 55 'se show without runId fails with usage'
   run env SE_DRY_RUN=1 bash "$SE_SRC" show
   assert_failure
   assert_output --partial "Usage: se"
 }
 
-@test "se show rejects run ids with shell/sql metacharacters" {
+function test_smoke_056_se_show_rejects_run_ids_with_shell_sql_metachara() {
+  _bats_test_init 56 'se show rejects run ids with shell/sql metacharacters'
   run env SE_DRY_RUN=1 bash "$SE_SRC" show "run';drop table summary;--"
   assert_failure
 }
 
-@test "se usage documents list --json and show" {
+function test_smoke_057_se_usage_documents_list_json_and_show() {
+  _bats_test_init 57 'se usage documents list --json and show'
   run bash "$SE_SRC" --help
   assert_success
   assert_output --partial "list [--json]"
   assert_output --partial "show <runId>"
 }
 
-@test "se db-path walks up past an empty runtime smithers.db (0.28 state layout)" {
+function test_smoke_058_se_db_path_walks_up_past_an_empty_runtime_smithe() {
+  _bats_test_init 58 'se db-path walks up past an empty runtime smithers.db (0.28 state layout)'
   local tmp; tmp="$(mktemp -d)"
   mkdir -p "$tmp/parent/.smithers"
   echo x > "$tmp/parent/smithers.db"
@@ -840,7 +904,8 @@ se_fixture_repo() {
 # herdr task sync (engine, adapters, sidebar)
 # ===========================================
 
-@test "herdr task and child engines are deployed and executable" {
+function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
+  _bats_test_init 59 'herdr task and child engines are deployed and executable'
   assert_file_exists "$HOME/.local/bin/herdr-task-sync"
   assert_file_executable "$HOME/.local/bin/herdr-task-sync"
   assert_file_exists "$HOME/.local/bin/herdr-child"
@@ -848,7 +913,8 @@ se_fixture_repo() {
   assert_file_exists "$HOME/.local/lib/herdr-process.sh"
 }
 
-@test "deployed herdr child contracts expose managed supervision modes" {
+function test_smoke_060_deployed_herdr_child_contracts_expose_managed_su() {
+  _bats_test_init 60 'deployed herdr child contracts expose managed supervision modes'
   local contract="$HOME/.claude/shared/child-agent-contract.md"
   local skill="$HOME/.claude/skills/herdr/SKILL.md"
   local consult="$HOME/.claude/skills/ask-in-herdr/SKILL.md"
@@ -871,12 +937,14 @@ se_fixture_repo() {
   assert_file_contains "$consult" 'attached.*--wait'
 }
 
-@test "herdr-task-sync Claude Code hook is deployed and executable" {
+function test_smoke_061_herdr_task_sync_claude_code_hook_is_deployed_and() {
+  _bats_test_init 61 'herdr-task-sync Claude Code hook is deployed and executable'
   assert_file_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
   assert_file_executable "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
 }
 
-@test "claude settings wire the task-sync hook to prompt, session, and compact" {
+function test_smoke_062_claude_settings_wire_the_task_sync_hook_to_promp() {
+  _bats_test_init 62 'claude settings wire the task-sync hook to prompt, session, and compact'
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
   run python3 - "$settings" <<'PY'
@@ -899,28 +967,33 @@ PY
   assert_success
 }
 
-@test "herdr-task-sync pi extension is deployed beside herdr's own" {
+function test_smoke_063_herdr_task_sync_pi_extension_is_deployed_beside() {
+  _bats_test_init 63 'herdr-task-sync pi extension is deployed beside herdr'\''s own'
   local ext="$HOME/.pi/agent/extensions/herdr-task-sync.ts"
   assert_file_exists "$ext"
 }
 
-@test "Pi local private instructions focused tests pass" {
+function test_smoke_064_pi_local_private_instructions_focused_tests_pass() {
+  _bats_test_init 64 'Pi local private instructions focused tests pass'
   run env PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
     bun test "$BATS_TEST_DIRNAME/pi-agents-local-extension.test.ts"
   assert_success
 }
 
-@test "Pi brew auto updater is deployed" {
+function test_smoke_065_pi_brew_auto_updater_is_deployed() {
+  _bats_test_init 65 'Pi brew auto updater is deployed'
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
   assert_file_exists "$ext"
 }
 
-@test "Pi brew auto updater focused tests pass" {
+function test_smoke_066_pi_brew_auto_updater_focused_tests_pass() {
+  _bats_test_init 66 'Pi brew auto updater focused tests pass'
   run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
   assert_success
 }
 
-@test "herdr-task-sync opencode plugin is deployed" {
+function test_smoke_067_herdr_task_sync_opencode_plugin_is_deployed() {
+  _bats_test_init 67 'herdr-task-sync opencode plugin is deployed'
   local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
   assert_file_exists "$plugin"
 }
@@ -946,15 +1019,18 @@ assert_herdr_sidebar_deployment_contract() {
   [ "$((width - 4))" -ge 8 ]
 }
 
-@test "herdr managed source preserves the U6 sidebar and ownership boundaries" {
+function test_smoke_068_herdr_managed_source_preserves_the_u6_sidebar_an() {
+  _bats_test_init 68 'herdr managed source preserves the U6 sidebar and ownership boundaries'
   assert_herdr_sidebar_deployment_contract "$SOURCE_ROOT/private_dot_config/herdr/config.toml"
 }
 
-@test "herdr deployed files preserve the U6 sidebar and ownership boundaries" {
+function test_smoke_069_herdr_deployed_files_preserve_the_u6_sidebar_and() {
+  _bats_test_init 69 'herdr deployed files preserve the U6 sidebar and ownership boundaries'
   assert_herdr_sidebar_deployment_contract "$HOME/.config/herdr/config.toml"
 }
 
-@test "herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs" {
+function test_smoke_070_herdr_pane_label_plugin_deploys_the_approved_her() {
+  _bats_test_init 70 'herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs'
   local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
   local manifest="$plugin/herdr-plugin.toml"
   assert_file_exists "$manifest"
@@ -989,7 +1065,8 @@ assert_herdr_sidebar_deployment_contract() {
   assert_failure
 }
 
-@test "herdr pane-label plugin keeps startup sweep and relink deployment wiring" {
+function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
+  _bats_test_init 71 'herdr pane-label plugin keeps startup sweep and relink deployment wiring'
   local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
   local manifest="$plugin/herdr-plugin.toml"
   local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
@@ -1012,23 +1089,35 @@ assert_herdr_sidebar_deployment_contract() {
 # emits one; these guards keep it that way across tool upgrades.
 # ===========================================
 
-@test "starship init output embeds no absolute PATH export" {
+function test_smoke_072_starship_init_output_embeds_no_absolute_path_exp() {
+  _bats_test_init 72 'starship init output embeds no absolute PATH export'
   command_exists starship || skip "starship not installed"
   run starship init zsh
   assert_success
   refute_line --regexp '^export PATH='
 }
 
-@test "zoxide init output embeds no absolute PATH export" {
+function test_smoke_073_zoxide_init_output_embeds_no_absolute_path_expor() {
+  _bats_test_init 73 'zoxide init output embeds no absolute PATH export'
   command_exists zoxide || skip "zoxide not installed"
   run zoxide init zsh --cmd cd
   assert_success
   refute_line --regexp '^export PATH='
 }
 
-@test "rgrc aliases output embeds no absolute PATH export" {
+function test_smoke_074_rgrc_aliases_output_embeds_no_absolute_path_expo() {
+  _bats_test_init 74 'rgrc aliases output embeds no absolute PATH export'
   command_exists rgrc || skip "rgrc not installed"
   run rgrc --aliases
   assert_success
   refute_line --regexp '^export PATH='
 }
+
+function set_up_before_script() {
+  :
+}
+
+function tear_down_after_script() {
+  _bats_file_cleanup
+}
+

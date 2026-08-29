@@ -5,3 +5,10 @@ config/fish/fish_variables
 .worktrees
 docs/issues/.issues.lock
 home/private_dot_config/private_karabiner/automatic_backups/
+
+
+# bashunit runtime state (last-failed cache)
+.bashunit/
+
+# Session working state (CE skills, experiment scratch) — never PR content
+.context/

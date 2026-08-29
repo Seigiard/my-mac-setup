@@ -32,7 +32,7 @@ class TestDockerContract(unittest.TestCase):
         self.assertRegex(self.compose, r"(?m)^  test-ubuntu:\n", "docker-compose.yml must define the service make test-ubuntu runs")
         self.assertNotRegex(self.compose, r"(?m)^  test-quick:\n", "the full apply suite must not be named test-quick")
         self.assertIn("chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose", self.compose)
-        self.assertIn("tests/idempotent.bats", self.compose)
+        self.assertIn("tests/bashunit/idempotent_test.sh", self.compose)
 
     def test_full_suite_services_stage_issue_cli_and_use_canonical_smithers_gate(self):
         required = [

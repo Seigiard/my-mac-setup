@@ -51,29 +51,6 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 )
                 self.assertIn("path: %s" % cache_path, save)
 
-    def test_macos_post_apply_suite_uses_local_bats_flock_wrapper(self):
-        text = self.workflow_text()
-        job = self.job_block(text, "test-macos")
-        select_wrapper = self.named_step_block(job, "Select the Bats flock wrapper")
-        prerequisites = self.named_step_block(job, "Assert the parallel-run prerequisites")
-
-        self.assertIn(
-            'echo "$GITHUB_WORKSPACE/scripts/ci/macos-bats-flock-bin" >> "$GITHUB_PATH"',
-            select_wrapper,
-            "macOS must put the Bats-only flock wrapper on PATH before the post-apply suite",
-        )
-        self.assertIn(
-            'test "$(command -v flock)" = "$GITHUB_WORKSPACE/scripts/ci/macos-bats-flock-bin/flock"',
-            prerequisites,
-            "macOS must fail before the suite if Bats would still fall back to shlock",
-        )
-        self.assertIn("command -v lockf", prerequisites)
-        self.assertNotIn(
-            "brew install flock",
-            job,
-            "the macOS flock experiment must not add Homebrew install time",
-        )
-
     def test_ubuntu_provisions_gitleaks_outside_skipped_linuxbrew(self):
         text = self.workflow_text()
         job = self.job_block(text, "test-ubuntu")
