@@ -27,8 +27,13 @@ floor: kill each watcher whose `--launcher-pid` process is dead (see
 ## Scope
 
 - Find the escape path: which test paths let a launcher die without its
-  watcher being reaped (teardown reap loop exists at `tests/scripts.bats:6-36`
-  but does not catch everything, e.g. kills mid-test or nested-bats runs).
+  watcher being reaped (the teardown reap loop moved to
+  `tests/bashunit/scripts_test.sh:22-41` in the bashunit migration 051d3de and
+  still does not catch everything, e.g. kills mid-test or nested runs).
+  Candidate escape points in `home/dot_local/bin/executable_herdr-child`: the
+  `HERDR_CHILD_TEST_ARM_BARRIER` wait and the `HERDR_CHILD_TEST_WATCHER_RELEASE`
+  wait both spin without a `kill -0 "$launcher_pid"` check, unlike the
+  takeover/acceptance waits at lines 676 and 688.
 - Make the suite reap its own watchers deterministically (or make watchers
   self-terminate when their launcher pid dies — they already poll it every
   10ms, so exiting on a dead launcher is the natural fix at the source).

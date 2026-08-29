@@ -5,8 +5,9 @@ type: "idea"
 category: "testing-ci"
 tags: ["performance","bats","macos"]
 date: "2026-08-28"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-29"
 ---
 
 ## Why this exists
@@ -37,3 +38,7 @@ adopt the shim if the gain clears the noise floor then.
 ## Open decisions
 
 None.
+
+## Resolution
+
+Obsolete: the post-apply suite no longer runs on bats. Commit 051d3de replaced it with bashunit (tests/run-post-apply.sh invokes tests/lib/bashunit -j) and deleted scripts/ci/macos-bats-flock-bin/flock; .github/workflows/test-dotfiles.yml no longer asserts flock/shlock. bats' within-file semaphore — the only thing the shim accelerated — has no subject in the codebase anymore.

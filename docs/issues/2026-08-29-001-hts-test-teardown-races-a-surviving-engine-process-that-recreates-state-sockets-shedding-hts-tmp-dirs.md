@@ -17,6 +17,12 @@ Unbounded tmp debris accumulation on developer machines and CI; also poisons any
 
 tests/helpers/herdr_task_sync.bash hts_teardown (rm -rf then no re-check), home/dot_local/bin/executable_herdr-task-sync socket-dir mkdir path. Fix direction: make hts_teardown wait for/kill surviving engine pids before removing HTS_WORK, or re-remove after a settle.
 
+Merged in from the duplicate 2026-08-29-003 (closed 2026-08-29):
+
+- Reproduce the teardown race (run a herdr-task-sync-heavy suite file repeatedly and diff the `hts.*` count).
+- One-time cleanup guidance for the existing pile (dirs are safe to delete when no suite run is active).
+- The bashunit migration (051d3de) did not move the leak: `tests/bashunit/test-dsl.bash:490` sets `BATS_TMPDIR="${TMPDIR:-/tmp}"`, so `hts_setup` still mkdtemps into the same `$TMPDIR` pile.
+
 ## Open decisions
 
 None.
