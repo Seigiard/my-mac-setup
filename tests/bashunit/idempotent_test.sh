@@ -1,4 +1,11 @@
-#!/usr/bin/env bats
+#!/usr/bin/env bash
+# bashunit: no-parallel-tests
+# idempotent post-apply suite — bashunit source. Vocabulary (run, assert_*,
+# skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
+# Migrated from idempotent.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
+_bats_file_init "${BASH_SOURCE[0]}"
+
 
 load 'helpers/common'
 
@@ -31,7 +38,8 @@ BATS_NO_PARALLELIZE_WITHIN_FILE=true
 # Idempotency tests
 # ===========================================
 
-@test "chezmoi apply is idempotent and leaves no pending diff" {
+function test_idempotent_001_chezmoi_apply_is_idempotent_and_leaves_no_pendin() {
+  _bats_test_init 1 'chezmoi apply is idempotent and leaves no pending diff'
   require_disposable_home
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" apply --source="$CHEZMOI_SOURCE" --force --verbose
   assert_success
@@ -45,7 +53,8 @@ BATS_NO_PARALLELIZE_WITHIN_FILE=true
   assert_output ""
 }
 
-@test "chezmoi verify succeeds" {
+function test_idempotent_002_chezmoi_verify_succeeds() {
+  _bats_test_init 2 'chezmoi verify succeeds'
   # Read-only, so safe on a host, but it would assert against the chezmoi
   # clone rather than this checkout -- a weaker and different claim. Guarded
   # with the apply scenario so the file has one rule, not two.
@@ -60,8 +69,9 @@ BATS_NO_PARALLELIZE_WITHIN_FILE=true
 #
 # Everything below is unguarded on purpose: it must run on every host, so this
 # file is never fully inert locally. Each test name is prefixed `guard:` so a
-# developer can exercise the guard alone -- `bats --filter 'guard:'
-# tests/idempotent.bats` -- without reaching the chezmoi scenarios above.
+# developer can exercise the guard alone -- `tests/lib/bashunit -f guard
+# tests/bashunit/idempotent_test.sh` -- without reaching the chezmoi scenarios
+# above.
 
 # Answer the predicate in a controlled environment. `env -u` drops whatever the
 # calling shell exported, so a developer who already has CI or the marker set
@@ -73,13 +83,15 @@ predicate_verdict() {
     "$HELPERS_DIR/disposable-home.bash"
 }
 
-@test "guard: MMS_DISPOSABLE_HOME=1 yields the run verdict" {
+function test_idempotent_003_guard_mms_disposable_home_1_yields_the_run_verdi() {
+  _bats_test_init 3 'guard: MMS_DISPOSABLE_HOME=1 yields the run verdict'
   run predicate_verdict MMS_DISPOSABLE_HOME=1
   assert_success
   assert_output "run"
 }
 
-@test "guard: no marker and no platform fact yields the skip verdict" {
+function test_idempotent_004_guard_no_marker_and_no_platform_fact_yields_the() {
+  _bats_test_init 4 'guard: no marker and no platform fact yields the skip verdict'
   # /.dockerenv is written by the container runtime and cannot be unset, so
   # this scenario is only observable outside a container.
   [[ ! -f /.dockerenv ]] || skip "/.dockerenv exists here"
@@ -88,27 +100,31 @@ predicate_verdict() {
   assert_output "skip"
 }
 
-@test "guard: an empty marker does not yield run" {
+function test_idempotent_005_guard_an_empty_marker_does_not_yield_run() {
+  _bats_test_init 5 'guard: an empty marker does not yield run'
   run predicate_verdict MMS_DISPOSABLE_HOME=
   assert_success
   refute_output "run"
 }
 
-@test "guard: MMS_DISPOSABLE_HOME=0 does not yield run" {
-  # MMS_CI_MINIMAL treats any non-empty value as true (tests/templates.bats).
+function test_idempotent_006_guard_mms_disposable_home_0_does_not_yield_run() {
+  _bats_test_init 6 'guard: MMS_DISPOSABLE_HOME=0 does not yield run'
+  # MMS_CI_MINIMAL treats any non-empty value as true (tests/bashunit/templates_test.sh).
   # This guard deliberately diverges: a safety guard fails closed.
   run predicate_verdict MMS_DISPOSABLE_HOME=0
   assert_success
   refute_output "run"
 }
 
-@test "guard: MMS_DISPOSABLE_HOME=true does not yield run" {
+function test_idempotent_007_guard_mms_disposable_home_true_does_not_yield_ru() {
+  _bats_test_init 7 'guard: MMS_DISPOSABLE_HOME=true does not yield run'
   run predicate_verdict MMS_DISPOSABLE_HOME=true
   assert_success
   refute_output "run"
 }
 
-@test "guard: an exported CI does not yield run" {
+function test_idempotent_008_guard_an_exported_ci_does_not_yield_run() {
+  _bats_test_init 8 'guard: an exported CI does not yield run'
   # The developer-exports-CI case. Sniffing CI for permission would re-create
   # the bug this guard exists to stop.
   run predicate_verdict CI=1
@@ -116,13 +132,15 @@ predicate_verdict() {
   refute_output "run"
 }
 
-@test "guard: GITHUB_ACTIONS without the marker yields misconfigured" {
+function test_idempotent_009_guard_github_actions_without_the_marker_yields_m() {
+  _bats_test_init 9 'guard: GITHUB_ACTIONS without the marker yields misconfigured'
   run predicate_verdict GITHUB_ACTIONS=true
   assert_success
   assert_output "misconfigured"
 }
 
-@test "guard: every disposable environment declares the marker" {
+function test_idempotent_010_guard_every_disposable_environment_declares_the() {
+  _bats_test_init 10 'guard: every disposable environment declares the marker'
   # Never skipped. A skip here would be indistinguishable from this file going
   # inert, which is exactly the rot the test exists to catch.
   if [[ -z "${GITHUB_ACTIONS:-}" ]] && [[ ! -f /.dockerenv ]]; then
@@ -138,7 +156,8 @@ predicate_verdict() {
     fail "This environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists), but MMS_DISPOSABLE_HOME is '${MMS_DISPOSABLE_HOME:-<unset>}' instead of 1. The idempotency scenarios in this file would skip here, removing that coverage without turning anything red. Declare the marker at the site that launched this suite: .github/workflows/test-dotfiles.yml (top-level env: block), or docker/docker-compose.yml (services ubuntu, test-ubuntu, test-full)."
 }
 
-@test "guard: the marker's claim covers chezmoi's real destination" {
+function test_idempotent_011_guard_the_marker_s_claim_covers_chezmoi_s_real_d() {
+  _bats_test_init 11 'guard: the marker'\''s claim covers chezmoi'\''s real destination'
   skip_if_no_chezmoi
   [[ "${MMS_DISPOSABLE_HOME:-}" == "1" ]] || skip "marker unset, nothing claims this \$HOME is disposable"
   assert_python3_available
@@ -151,7 +170,8 @@ predicate_verdict() {
   assert_equal "$dest" "$HOME"
 }
 
-@test "guard: the skip message names make test-ubuntu and the marker" {
+function test_idempotent_012_guard_the_skip_message_names_make_test_ubuntu_an() {
+  _bats_test_init 12 'guard: the skip message names make test-ubuntu and the marker'
   # `run` executes in a subshell, so these stubs cannot leak into another test.
   # Stubbing is the only way to read the message: a real skip ends the test
   # before any assertion can run.
@@ -166,7 +186,8 @@ predicate_verdict() {
   assert_output --partial "MMS_DISPOSABLE_HOME"
 }
 
-@test "guard: the misconfigured message names the marker's write sites" {
+function test_idempotent_013_guard_the_misconfigured_message_names_the_marker() {
+  _bats_test_init 13 'guard: the misconfigured message names the marker'\''s write sites'
   captured_fail_message() {
     mms_disposable_home_verdict() { echo "misconfigured"; }
     fail() { printf '%s' "$*"; return 0; }
@@ -178,3 +199,12 @@ predicate_verdict() {
   assert_output --partial "test-dotfiles.yml"
   assert_output --partial "docker-compose.yml"
 }
+
+function set_up_before_script() {
+  :
+}
+
+function tear_down_after_script() {
+  _bats_file_cleanup
+}
+

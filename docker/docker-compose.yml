@@ -18,10 +18,10 @@ services:
       # unless the caller opts in.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
       # Declares this container's $HOME disposable, which is what lets the
-      # idempotency scenario in tests/idempotent.bats run its real `chezmoi
+      # idempotency scenario in tests/bashunit/idempotent_test.sh run its real `chezmoi
       # apply`. Written literally in all three services, unlike
       # MMS_CI_MINIMAL above, which is read from the host and is deliberately
-      # absent from the test-ubuntu service. tests/idempotent.bats hard-fails when
+      # absent from the test-ubuntu service. tests/bashunit/idempotent_test.sh hard-fails when
       # /.dockerenv exists and this is missing.
       - MMS_DISPOSABLE_HOME=1
     tty: true
@@ -35,7 +35,6 @@ services:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
       - ../scripts/issues:/home/testuser/issues-cli:ro
-      - ../scripts/bats2bashunit.py:/home/testuser/bats2bashunit.py:ro
       - ../docs/issues:/home/testuser/issues:ro
       - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
@@ -63,7 +62,6 @@ services:
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
         cp /home/testuser/issues-cli /home/testuser/worktree/scripts/issues
-        cp /home/testuser/bats2bashunit.py /home/testuser/worktree/scripts/bats2bashunit.py
         cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
@@ -79,7 +77,7 @@ services:
           --promptString email="test@example.com"
 
         echo "=== Running template tests (pre-apply gate) ==="
-        bats tests/templates.bats
+        tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
 
         echo "=== Applying dotfiles (with package installation) ==="
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
@@ -101,7 +99,6 @@ services:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
       - ../scripts/issues:/home/testuser/issues-cli:ro
-      - ../scripts/bats2bashunit.py:/home/testuser/bats2bashunit.py:ro
       - ../docs/issues:/home/testuser/issues:ro
       - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
@@ -122,7 +119,6 @@ services:
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
         cp /home/testuser/issues-cli /home/testuser/worktree/scripts/issues
-        cp /home/testuser/bats2bashunit.py /home/testuser/worktree/scripts/bats2bashunit.py
         cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
@@ -132,7 +128,7 @@ services:
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
-        bats tests/templates.bats
+        tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
         make test-smithers
         tests/run-post-apply.sh full

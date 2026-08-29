@@ -1,4 +1,10 @@
-#!/usr/bin/env bats
+#!/usr/bin/env bash
+# templates post-apply suite — bashunit source. Vocabulary (run, assert_*,
+# skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
+# Migrated from templates.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
+_bats_file_init "${BASH_SOURCE[0]}"
+
 
 load 'helpers/common'
 
@@ -18,7 +24,8 @@ teardown() {
 
 # First, so JSON validation below fails with the repository-level requirement
 # message rather than a bare `python3: command not found`.
-@test "python3 is present and at least 3.9, the floor README.md declares" {
+function test_templates_001_python3_is_present_and_at_least_3_9_the_floor_re() {
+  _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
   assert_python3_available
 }
 
@@ -27,13 +34,15 @@ teardown() {
 # uses promptStringOnce which is unavailable in execute-template)
 # ===========================================
 
-@test "chezmoi data contains name from env var" {
+function test_templates_002_chezmoi_data_contains_name_from_env_var() {
+  _bats_test_init 2 'chezmoi data contains name from env var'
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" data --format json
   assert_success
   assert_output --partial '"name"'
 }
 
-@test "chezmoi data contains email from env var" {
+function test_templates_003_chezmoi_data_contains_email_from_env_var() {
+  _bats_test_init 3 'chezmoi data contains email from env var'
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" data --format json
   assert_success
   assert_output --partial '"email"'
@@ -43,17 +52,20 @@ teardown() {
 # dot_gitconfig.tmpl
 # ===========================================
 
-@test "gitconfig template renders successfully" {
+function test_templates_004_gitconfig_template_renders_successfully() {
+  _bats_test_init 4 'gitconfig template renders successfully'
   run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
   assert_success
 }
 
-@test "gitconfig template contains user name" {
+function test_templates_005_gitconfig_template_contains_user_name() {
+  _bats_test_init 5 'gitconfig template contains user name'
   run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
   assert_output --partial "name = "
 }
 
-@test "gitconfig template contains user email" {
+function test_templates_006_gitconfig_template_contains_user_email() {
+  _bats_test_init 6 'gitconfig template contains user email'
   run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
   assert_output --partial "email = "
 }
@@ -62,7 +74,8 @@ teardown() {
 # dot_zshenv.tmpl
 # ===========================================
 
-@test "zshenv template renders without op in PATH" {
+function test_templates_007_zshenv_template_renders_without_op_in_path() {
+  _bats_test_init 7 'zshenv template renders without op in PATH'
   run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
   assert_success
 }
@@ -71,7 +84,8 @@ teardown() {
 # dot_zshrc.tmpl
 # ===========================================
 
-@test "zshrc template renders successfully" {
+function test_templates_008_zshrc_template_renders_successfully() {
+  _bats_test_init 8 'zshrc template renders successfully'
   run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
   assert_success
 }
@@ -87,7 +101,8 @@ teardown() {
 # and every new shell printed "zsh: command not found: ".
 # ===========================================
 
-@test "zshenv mise cache does not freeze the generating shell's PATH into later shells" {
+function test_templates_009_zshenv_mise_cache_does_not_freeze_the_generating() {
+  _bats_test_init 9 'zshenv mise cache does not freeze the generating shell'\''s PATH into later shells'
   command_exists zsh || skip "zsh not installed"
 
   local work="$BATS_TEST_TMPDIR/mise-freeze"
@@ -147,7 +162,8 @@ PROBE
   assert_output --partial "$work/toolbin"
 }
 
-@test "zshrc cached_init never splices two concurrent generators" {
+function test_templates_010_zshrc_cached_init_never_splices_two_concurrent_g() {
+  _bats_test_init 10 'zshrc cached_init never splices two concurrent generators'
   command_exists zsh || skip "zsh not installed"
 
   local work="$BATS_TEST_TMPDIR/cached_init"
@@ -200,14 +216,16 @@ PROBE
 # opencode.json.tmpl
 # ===========================================
 
-@test "opencode.json.tmpl renders valid JSON" {
+function test_templates_011_opencode_json_tmpl_renders_valid_json() {
+  _bats_test_init 11 'opencode.json.tmpl renders valid JSON'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
   run python3 -m json.tool "$BATS_TEST_TMPFILE"
   assert_success
 }
 
-@test "opencode.json.tmpl grants unbounded external-directory reads without changing integrations" {
+function test_templates_012_opencode_json_tmpl_grants_unbounded_external_dir() {
+  _bats_test_init 12 'opencode.json.tmpl grants unbounded external-directory reads without changing integrations'
   command_exists jq || skip "jq is required"
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
@@ -222,7 +240,8 @@ PROBE
   assert_output $'fff-mcp\texecutor mcp\ttrue\ttrue\tcompound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git'
 }
 
-@test "opencode skill symlinks target canonical claude skills" {
+function test_templates_013_opencode_skill_symlinks_target_canonical_claude() {
+  _bats_test_init 13 'opencode skill symlinks target canonical claude skills'
   local skill
 
   for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
@@ -232,7 +251,8 @@ PROBE
   done
 }
 
-@test "opencode instructions point at the shared writing-style file" {
+function test_templates_014_opencode_instructions_point_at_the_shared_writin() {
+  _bats_test_init 14 'opencode instructions point at the shared writing-style file'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
   run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$BATS_TEST_TMPFILE"
@@ -243,7 +263,8 @@ PROBE
 # private_settings.json.tmpl (Claude Code settings)
 # ===========================================
 
-@test "private_settings.json.tmpl renders valid JSON" {
+function test_templates_015_private_settings_json_tmpl_renders_valid_json() {
+  _bats_test_init 15 'private_settings.json.tmpl renders valid JSON'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
   run python3 -m json.tool "$BATS_TEST_TMPFILE"
@@ -254,7 +275,8 @@ PROBE
 # Yazi plugin keymaps
 # ===========================================
 
-@test "every Yazi plugin keymap has a managed plugin entrypoint" {
+function test_templates_016_every_yazi_plugin_keymap_has_a_managed_plugin_en() {
+  _bats_test_init 16 'every Yazi plugin keymap has a managed plugin entrypoint'
   local yazi_dir="$SOURCE_ROOT/private_dot_config/yazi"
   local plugin
   local plugins
@@ -272,7 +294,8 @@ PROBE
 # .chezmoiremove
 # ===========================================
 
-@test ".chezmoiremove entries are absent from the source tree" {
+function test_templates_017_chezmoiremove_entries_are_absent_from_the_source() {
+  _bats_test_init 17 '.chezmoiremove entries are absent from the source tree'
   assert_file_exists "$SOURCE_ROOT/.chezmoiremove"
 
   # A path listed in .chezmoiremove that still exists in the source tree tells
@@ -294,8 +317,9 @@ PROBE
   [[ -z "$conflicts" ]] || fail "listed in .chezmoiremove but still in the source tree:"$'\n'"$conflicts"
 }
 
-@test ".chezmoiremove deletes the retired opencode forced theme" {
-  # smoke.bats asserts the live file is gone; this entry is what makes
+function test_templates_018_chezmoiremove_deletes_the_retired_opencode_force() {
+  _bats_test_init 18 '.chezmoiremove deletes the retired opencode forced theme'
+  # smoke_test.sh asserts the live file is gone; this entry is what makes
   # `chezmoi apply` delete it on machines that deployed the old theme.
   run grep -qx '.config/opencode/themes/flexoki-light-forced.json' \
     "$SOURCE_ROOT/.chezmoiremove"
@@ -353,7 +377,8 @@ assert_minimal_brewfile() {
   refute_line 'brew "bats-core"'
 }
 
-@test "MMS_CI_MINIMAL=1 renders only the entries the test suite resolves from brew" {
+function test_templates_019_mms_ci_minimal_1_renders_only_the_entries_the_te() {
+  _bats_test_init 19 'MMS_CI_MINIMAL=1 renders only the entries the test suite resolves from brew'
   local cfg="$BATS_TEST_TMPDIR/minimal.yaml"
   MMS_CI_MINIMAL=1 write_test_config "$cfg"
 
@@ -362,7 +387,8 @@ assert_minimal_brewfile() {
   assert_minimal_brewfile
 }
 
-@test "MMS_CI_MINIMAL=1 renders Brewfile.macos with no cask and no formula" {
+function test_templates_020_mms_ci_minimal_1_renders_brewfile_macos_with_no() {
+  _bats_test_init 20 'MMS_CI_MINIMAL=1 renders Brewfile.macos with no cask and no formula'
   local cfg="$BATS_TEST_TMPDIR/minimal.yaml"
   MMS_CI_MINIMAL=1 write_test_config "$cfg"
 
@@ -375,7 +401,8 @@ assert_minimal_brewfile() {
   refute_output --partial 'tap "'
 }
 
-@test "an unset MMS_CI_MINIMAL renders the full Brewfiles" {
+function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
+  _bats_test_init 21 'an unset MMS_CI_MINIMAL renders the full Brewfiles'
   local cfg="$BATS_TEST_TMPDIR/full-unset.yaml"
   unset MMS_CI_MINIMAL
   write_test_config "$cfg"
@@ -397,7 +424,8 @@ assert_minimal_brewfile() {
   assert_line --partial 'brew "elio"'
 }
 
-@test "an empty MMS_CI_MINIMAL renders the full Brewfiles" {
+function test_templates_022_an_empty_mms_ci_minimal_renders_the_full_brewfil() {
+  _bats_test_init 22 'an empty MMS_CI_MINIMAL renders the full Brewfiles'
   # This is the state the scheduled and workflow_dispatch runs produce: the
   # workflow-level expression yields '' for every event that is not push or
   # pull_request, so empty must mean full, not minimal.
@@ -414,7 +442,8 @@ assert_minimal_brewfile() {
   assert_line 'cask "spotify"'
 }
 
-@test "MMS_CI_MINIMAL=0 selects the minimal render, because 0 is non-empty" {
+function test_templates_023_mms_ci_minimal_0_selects_the_minimal_render_beca() {
+  _bats_test_init 23 'MMS_CI_MINIMAL=0 selects the minimal render, because 0 is non-empty'
   local cfg="$BATS_TEST_TMPDIR/zero.yaml"
   MMS_CI_MINIMAL=0 write_test_config "$cfg"
 
@@ -423,7 +452,8 @@ assert_minimal_brewfile() {
   assert_minimal_brewfile
 }
 
-@test "a config with no ci_minimal key at all renders the full Brewfiles" {
+function test_templates_024_a_config_with_no_ci_minimal_key_at_all_renders_t() {
+  _bats_test_init 24 'a config with no ci_minimal key at all renders the full Brewfiles'
   # A host whose config was generated before this key existed. chezmoi's
   # default missingkey=error would abort on a bare .ci_minimal reference, so
   # the templates use `get`, which yields "" for a missing key.
@@ -443,7 +473,8 @@ assert_minimal_brewfile() {
   assert_line 'cask "spotify"'
 }
 
-@test "a config initialised with MMS_CI_MINIMAL=1 keeps rendering minimal without it" {
+function test_templates_025_a_config_initialised_with_mms_ci_minimal_1_keeps() {
+  _bats_test_init 25 'a config initialised with MMS_CI_MINIMAL=1 keeps rendering minimal without it'
   # The binding is init-time, so a checkout initialised in CI-minimal mode stays
   # minimal on every later apply, even with the variable gone from the
   # environment. Intended, but surprising enough to pin: this is what a
@@ -458,7 +489,8 @@ assert_minimal_brewfile() {
   assert_minimal_brewfile
 }
 
-@test "no rendered brew, cask or tap entry is indented in either mode" {
+function test_templates_026_no_rendered_brew_cask_or_tap_entry_is_indented_i() {
+  _bats_test_init 26 'no rendered brew, cask or tap entry is indented in either mode'
   # Go template `{{ if }}` blocks do not indent their body, but a hand-indented
   # entry would still render indented, and `brew bundle` would keep working — so
   # without this nothing goes red.
@@ -480,7 +512,8 @@ render_with_source() {
   PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
 }
 
-@test "every hash-trigger include in the install script resolves to a real file" {
+function test_templates_027_every_hash_trigger_include_in_the_install_script() {
+  _bats_test_init 27 'every hash-trigger include in the install script resolves to a real file'
   # Derived from the script rather than hardcoded, so it cannot drift from it.
   # `include` errors on a missing path, so a successful render with a real
   # digest is the proof. Checked for both files on every OS: the macOS include
@@ -500,7 +533,8 @@ render_with_source() {
   done <<< "$paths"
 }
 
-@test "the minimal render deploys Brewfile.macos empty rather than not at all" {
+function test_templates_028_the_minimal_render_deploys_brewfile_macos_empty() {
+  _bats_test_init 28 'the minimal render deploys Brewfile.macos empty rather than not at all'
   # This is the gap that let a green suite ship a broken apply. Every other test
   # in this section checks what `chezmoi execute-template` prints, and for the
   # minimal macOS render that is correctly nothing. What rendering cannot show is
@@ -532,3 +566,14 @@ render_with_source() {
     || fail "Brewfile.macos should be empty in minimal mode"
   assert_file_contains "$dest/.config/brewfiles/Brewfile" '^brew "jq"'
 }
+
+function set_up_before_script() {
+  :
+}
+
+function tear_down_after_script() {
+  _bats_file_cleanup
+}
+
+function tear_down() { _bats_run_teardown; }
+

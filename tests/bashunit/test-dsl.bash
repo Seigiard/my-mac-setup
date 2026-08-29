@@ -1,8 +1,18 @@
-# Bats compatibility layer for bashunit 0.50.1.
+# Test DSL for this repo's bashunit 0.50.1 suites (tests/bashunit/*_test.sh).
 #
-# Reproduces the observable bats-core 1.14 test semantics used by this suite so
-# that @test bodies can run under bashunit verbatim (see
-# .context/bashunit-full-suite/ for the measured semantics matrix):
+# Historically a bats-core 1.14 compatibility layer (the suite migrated from
+# bats with oracle-verified parity — docs/benchmarks/
+# bashunit-full-suite-experiment.md); now the permanent vocabulary the tests
+# are written in. It exists because bashunit natively has neither `run` nor
+# implicit-assertion semantics: without the ERR trap below, a failing bare
+# command (`cd`, `grep -q`, `[ ... ]`) would NOT fail its test.
+#
+# Vocabulary policy (hybrid): keep `run`/`$status`/`$output`/assert_output-
+# style asserts as the house style; when touching a test, native bashunit
+# assert names may replace 1:1 equivalents (assert_equal -> assert_equals),
+# but never replace the `run` capture or the ERR-trap semantics.
+#
+# Semantics this DSL guarantees:
 #
 # - Failure detection is an ERR trap with errtrace (set -E, no errexit) plus
 #   the body's final exit status. This matches bats' set -eET on the same
@@ -467,9 +477,13 @@ _bats_test_init() {
 
 # Called from the generated set_up_before_script wrapper.
 _bats_file_init() {
-  BATS_TEST_FILENAME="$1"
-  BATS_TEST_DIRNAME=$(cd "$(dirname "$1")" && pwd)
-  BATS_TEST_FILENAME="$BATS_TEST_DIRNAME/$(basename "$1")"
+  # Called with the test file itself (tests/bashunit/<name>_test.sh).
+  # BATS_TEST_DIRNAME keeps its historical contract = tests/ — the suite root
+  # where helpers/ and fixture files live — one level above the file's own
+  # directory. Test bodies resolve helpers, fixtures, and the repo root
+  # ($BATS_TEST_DIRNAME/..) through it.
+  BATS_TEST_FILENAME=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+  BATS_TEST_DIRNAME=$(cd "$(dirname "$1")/.." && pwd)
   # bats exports BATS_TMPDIR as $TMPDIR (trailing slash stripped) or /tmp;
   # helpers using ${BATS_TMPDIR:-/tmp} must land in the same place they do
   # under bats, or leak comparisons see the same debris class at two paths.

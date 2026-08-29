@@ -1,8 +1,18 @@
-#!/usr/bin/env bats
+#!/usr/bin/env bash
+# Dedicated one-test file for the herdr-child descriptor probe: proves a
+# detached launch closes the launcher's inherited descriptors and owns its
+# process group, so a watcher can never hold a test runner's pipes open.
+# scripts_test.sh runs it under a nested tests/lib/bashunit invocation
+# (its former life as tests/herdr_child_descriptor_probe.bats was orphaned —
+# docs/issues/2026-08-29-002). Vocabulary (run, assert_*, BATS_* contract)
+# comes from tests/bashunit/test-dsl.bash.
+source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
+_bats_file_init "${BASH_SOURCE[0]}"
 
 load 'helpers/common'
 
-@test "herdr-child detached watcher closes launcher descriptors and owns a process group" {
+function test_herdr_child_detached_watcher_closes_launcher_descriptors() {
+  _bats_test_init 1 'herdr-child detached watcher closes launcher descriptors and owns a process group'
   local work="$BATS_TEST_TMPDIR/herdr-child-descriptor"
   local stub="$work/bin"
   mkdir -p "$stub" "$work/tmp"
@@ -151,3 +161,13 @@ if (work / "pane-closed").exists():
 PY
   assert_success
 }
+
+function set_up_before_script() {
+  :
+}
+
+function tear_down_after_script() {
+  _bats_file_cleanup
+}
+
+function tear_down() { _bats_run_teardown; }
