@@ -30,3 +30,5 @@ None.
 ## Resolution
 
 Converted all 29 first-party standalone double-bracket assertions to explicit failure paths, calibrated every conversion against an always-false mutation, added a recursive quote/heredoc/arithmetic-aware lint checker with behavioral fixtures, and verified make test-issues, make lint, 14 affected Bats tests, and make test-ubuntu (403 cases).
+
+Note (2026-08-29, native bashunit migration): the behavior persists identically under the bashunit house DSL — `tests/bashunit/test-dsl.bash` reproduces the bats ERR-trap failure semantics by design, so a bare mid-test `[[ ... ]]` is exactly as inert in `tests/bashunit/*_test.sh` as it was in `.bats`. The explicit-failure-path convention and the lint checker remain the enforcement.

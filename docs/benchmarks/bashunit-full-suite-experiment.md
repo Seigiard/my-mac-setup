@@ -216,3 +216,15 @@ Post-switch verification: host-safe run rc=0 (390 tests, 0 failures), all
 8 negative controls pass, contract tests and `make test-issues` (45/45)
 green, `make lint` rc=0, and a full `make test-ubuntu` Docker run through
 the switched runner.
+
+## Follow-up: native migration
+
+The on-the-fly conversion stage was retired: `tests/bashunit/*_test.sh`
+became the committed source of truth. The converter
+(`scripts/bats2bashunit.py`), the `tests/*.bats` files, the vendored
+bats-libs, and the oracle-comparison harness (manifest, per-scenario
+verifier, negative controls, side-by-side runner) were all removed.
+`bats-compat.bash` was renamed to `tests/bashunit/test-dsl.bash` and is now
+the permanent house DSL; its header documents the hybrid vocabulary policy.
+The nested-runner scenarios were rewritten to exercise the bashunit runner
+itself, so bats is no longer a dependency anywhere.

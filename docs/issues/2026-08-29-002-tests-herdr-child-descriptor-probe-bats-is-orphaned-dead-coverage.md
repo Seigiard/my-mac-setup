@@ -5,8 +5,9 @@ type: "chore"
 category: "testing-ci"
 tags: ["bashunit-experiment"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-29"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Decide: wire it into a runner or delete it. tests/herdr_child_descriptor_probe.b
 ## Open decisions
 
 None.
+
+## Resolution
+
+Probe converted to tests/bashunit/herdr_child_descriptor_probe_test.sh and wired into the nested-runner scenarios during the native bashunit migration; it is no longer orphaned.
