@@ -6211,7 +6211,22 @@ function bashunit::state::aggregate_parallel_results() {
     for result_file in "${result_files[@]+"${result_files[@]}"}"; do
       local result_line
       result_line=$(<"$result_file")
-      result_line="${result_line##*$'\n'}"
+      # Local patch vs upstream 0.50.1: a test's background child that inherited
+      # the captured stdout can append lines after the ##...## payload, so the
+      # blind "last line" read parsed garbage and counted a phantom failed test
+      # (zero failed assertions, no name). Take the last payload-marked line;
+      # fall back to the last line only when no payload exists at all.
+      local _bashunit_payload_line="" _bashunit_scan_line
+      while IFS= read -r _bashunit_scan_line; do
+        case "$_bashunit_scan_line" in
+        *"##TEST_EXIT_CODE="*) _bashunit_payload_line="$_bashunit_scan_line" ;;
+        esac
+      done <<<"$result_line"
+      if [ -n "$_bashunit_payload_line" ]; then
+        result_line="$_bashunit_payload_line"
+      else
+        result_line="${result_line##*$'\n'}"
+      fi
 
       local failed="${result_line##*##ASSERTIONS_FAILED=}"
       failed="${failed%%##*}"
@@ -16352,7 +16367,20 @@ function bashunit::runner::extract_result_counts() {
   local execution_result=$1
 
   local result_line
-  result_line="${execution_result##*$'\n'}"
+  # Local patch vs upstream 0.50.1 (see aggregate_parallel_results): prefer the
+  # last payload-marked line over the blind last line, so late writes from a
+  # test's background children cannot displace the counters.
+  local _bashunit_payload_line="" _bashunit_scan_line
+  while IFS= read -r _bashunit_scan_line; do
+    case "$_bashunit_scan_line" in
+    *"##TEST_EXIT_CODE="*) _bashunit_payload_line="$_bashunit_scan_line" ;;
+    esac
+  done <<<"$execution_result"
+  if [ -n "$_bashunit_payload_line" ]; then
+    result_line="$_bashunit_payload_line"
+  else
+    result_line="${execution_result##*$'\n'}"
+  fi
 
   local assertions_failed=0
   local assertions_passed=0
