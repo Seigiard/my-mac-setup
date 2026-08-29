@@ -84,6 +84,17 @@ run() {
   status=0
   output=""
   lines=()
+  stderr=""
+  stderr_lines=()
+  local _bats_sep_stderr=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --separate-stderr) _bats_sep_stderr=1; shift ;;
+      --keep-empty-lines) shift ;;  # not used by this suite; ignore
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
   # Subshell for bats-like state isolation, FILE capture for bats-like fd
   # semantics: a daemon left running by the command inherits a writable file,
   # not a pipe that closes when capture ends — a command-substitution capture
@@ -92,12 +103,33 @@ run() {
   # (e.g. palette's missing-python3 scenario), so capture must be pure bash.
   _BATS_RUN_SEQ=$((${_BATS_RUN_SEQ:-0} + 1))
   local _bats_run_out="$BATS_TEST_TMPDIR/.bats-run-out.$$.$_BATS_RUN_SEQ"
-  ( "$@" ) > "$_bats_run_out" 2>&1
-  status=$?
-  output=$(< "$_bats_run_out")
+  if [ "$_bats_sep_stderr" -eq 1 ]; then
+    local _bats_run_err="$BATS_TEST_TMPDIR/.bats-run-err.$$.$_BATS_RUN_SEQ"
+    ( "$@" ) > "$_bats_run_out" 2> "$_bats_run_err"
+    status=$?
+    output=$(< "$_bats_run_out")
+    stderr=$(< "$_bats_run_err")
+    _bats_split_stderr_lines
+  else
+    ( "$@" ) > "$_bats_run_out" 2>&1
+    status=$?
+    output=$(< "$_bats_run_out")
+  fi
   _bats_split_lines
   trap "$_BATS_ERR_TRAP" ERR
   return 0
+}
+
+_bats_split_stderr_lines() {
+  local had_f=0
+  case $- in *f*) had_f=1 ;; esac
+  set -f
+  local IFS=$'\n'
+  # shellcheck disable=SC2206
+  stderr_lines=( $stderr )
+  if [ "$had_f" -eq 0 ]; then
+    set +f
+  fi
 }
 
 _bats_split_lines() {
@@ -226,6 +258,28 @@ refute_output() {
     _bats_assert_fail "-- output should not match ($_bats_mode) --
 unexpected : $_bats_expected
 actual     : $output
+--"
+  fi
+  _bats_assert_pass
+}
+
+assert_stderr() {
+  _bats_output_args "$@"
+  if ! _bats_match "$_bats_mode" "$stderr" "$_bats_expected"; then
+    _bats_assert_fail "-- stderr does not match ($_bats_mode) --
+expected : $_bats_expected
+actual   : $stderr
+--"
+  fi
+  _bats_assert_pass
+}
+
+refute_stderr() {
+  _bats_output_args "$@"
+  if _bats_match "$_bats_mode" "$stderr" "$_bats_expected"; then
+    _bats_assert_fail "-- stderr should not match ($_bats_mode) --
+unexpected : $_bats_expected
+actual     : $stderr
 --"
   fi
   _bats_assert_pass
