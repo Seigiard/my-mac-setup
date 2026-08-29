@@ -266,21 +266,26 @@ printf 'docs/issues/2026-08-13-001-reviewer-leg-died-mid-stream.md\\n'
     expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
   });
 
-  test("fails closed when the target CLI version probe times out", () => {
-    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
-    const scripts = path.join(repo, "scripts");
-    fs.mkdirSync(scripts, { recursive: true });
-    fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nexec sleep 10\n", { mode: 0o755 });
+  test(
+    "fails closed when the target CLI version probe times out",
+    () => {
+      const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));
+      const scripts = path.join(repo, "scripts");
+      fs.mkdirSync(scripts, { recursive: true });
+      fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nexec sleep 10\n", { mode: 0o755 });
 
-    // A short injected timeout exercises the same ETIMEDOUT fail-closed
-    // path as the production default without spending 5s of wall clock.
-    const result = publishIssue(repo, fields(), 300);
+      // Deliberately no injected timeout: this is the one test proving the
+      // production default (ISSUE_CLI_TIMEOUT_MS) is wired and finite
+      // against a hung CLI. It costs ~5s of wall clock by design.
+      const result = publishIssue(repo, fields());
 
-    expect(result.mode).toBe("cli-failed");
-    expect(result.path).toBeNull();
-    expect(result.error).toContain("ETIMEDOUT");
-    expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
-  });
+      expect(result.mode).toBe("cli-failed");
+      expect(result.path).toBeNull();
+      expect(result.error).toContain("ETIMEDOUT");
+      expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
+    },
+    7_000,
+  );
 
   test("records a compatible CLI publication failure without a legacy direct-write fallback", () => {
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), "issue-target-"));

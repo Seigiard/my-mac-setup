@@ -44,6 +44,10 @@ class TestDockerContract(unittest.TestCase):
             "cp -r /home/testuser/issues /home/testuser/worktree/docs/issues",
             "cp /home/testuser/Makefile /home/testuser/worktree/Makefile",
             "make test-smithers",
+            # The container proves dependency presence; upgrading against
+            # upstream drift is not its job and costs ~30s per run. A silent
+            # revert would only surface as wall-clock/network flakiness.
+            "HOMEBREW_BUNDLE_NO_UPGRADE=1",
         ]
 
         for service_name in ("test-full", "test-ubuntu"):
