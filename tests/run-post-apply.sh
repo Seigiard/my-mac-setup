@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Post-apply suite runner. The .bats files remain the single source of truth;
-# they are converted on the fly (deterministic, <1s) and executed with the
-# pinned bashunit at tests/lib/bashunit — measured at ~24% less wall-clock
-# than bats with per-scenario behavioral parity (403/403 on macOS and
-# Ubuntu). Evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+# Post-apply suite runner. tests/bashunit/*_test.sh are the source of truth,
+# written against tests/bashunit/test-dsl.bash, executed with the pinned
+# bashunit at tests/lib/bashunit — measured at ~24% less wall-clock than the
+# previous bats runner with per-scenario behavioral parity (403/403 on macOS
+# and Ubuntu). Evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
 #
-# Execution mirrors the previous `bats --jobs 8 --no-parallelize-across-files`
-# shape: files run sequentially, tests within a file run with up to
-# $MMS_BASHUNIT_JOBS workers (idempotent.bats converts with --serial).
+# Execution shape: files run sequentially, tests within a file run with up to
+# $MMS_BASHUNIT_JOBS workers (idempotent serializes itself via its
+# '# bashunit: no-parallel-tests' marker).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,16 +31,27 @@ case "${1:-}" in
   *) usage; exit 2 ;;
 esac
 
-python3 "$ROOT/scripts/bats2bashunit.py" \
-  --out-dir "$GEN" --manifest "$GEN/manifest.tsv" \
-  "$ROOT/tests/smoke.bats" "$ROOT/tests/scripts.bats" \
-  "$ROOT/tests/palette.bats" "$ROOT/tests/platform.bats" >/dev/null
-python3 "$ROOT/scripts/bats2bashunit.py" --serial \
-  --out-dir "$GEN" --manifest "$GEN/manifest.tsv" --append-manifest \
-  "$ROOT/tests/idempotent.bats" >/dev/null
-
 rc=0
 for base in $files; do
-  "$BASHUNIT_BIN" -j "$JOBS" "$GEN/${base}_test.sh" || rc=$?
+  report=$(mktemp "${TMPDIR:-/tmp}/bashunit-report.XXXXXX")
+  frc=0
+  "$BASHUNIT_BIN" -j "$JOBS" --report-json "$report" "$GEN/${base}_test.sh" || frc=$?
+  if [ "$frc" -ne 0 ]; then
+    rc=$frc
+    # Under -j the per-test failure line can be swallowed by a worker; name
+    # the failed tests explicitly so CI logs stay diagnosable.
+    python3 - "$report" "$base" <<'PYEOF' || true
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+failed = [t.get("name", "?") for t in data.get("tests", [])
+          if t.get("status", "").lower() not in ("passed", "skipped", "risky")]
+for name in failed:
+    print(f"FAILED [{sys.argv[2]}]: {name}", file=sys.stderr)
+PYEOF
+  fi
+  command rm -f "$report"
 done
 exit "$rc"

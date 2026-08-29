@@ -56,7 +56,7 @@ convert() { # dest-dir [--serial]
 import sys
 p, root, fix = sys.argv[1:4]
 s = open(p).read()
-s = s.replace('$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash', root + '/tests/bashunit/bats-compat.bash')
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash', root + '/tests/bashunit/test-dsl.bash')
 s = s.replace('$(dirname "${BASH_SOURCE[0]}")/../control.bats', fix + '/control.bats')
 open(p, 'w').write(s)
 PYEOF
@@ -138,7 +138,7 @@ python3 - "$d/leak_test.sh" "$ROOT" "$FIX" <<'PYEOF'
 import sys
 p, root, fix = sys.argv[1:4]
 s = open(p).read()
-s = s.replace('$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash', root + '/tests/bashunit/bats-compat.bash')
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash', root + '/tests/bashunit/test-dsl.bash')
 s = s.replace('$(dirname "${BASH_SOURCE[0]}")/../leak.bats', fix + '/leak.bats')
 open(p, 'w').write(s)
 PYEOF
@@ -176,7 +176,7 @@ python3 - "$d/leak_test.sh" "$ROOT" "$FIX" <<'PYEOF'
 import sys
 p, root, fix = sys.argv[1:4]
 s = open(p).read()
-s = s.replace('$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash', root + '/tests/bashunit/bats-compat.bash')
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash', root + '/tests/bashunit/test-dsl.bash')
 s = s.replace('$(dirname "${BASH_SOURCE[0]}")/../leak.bats', fix + '/leak.bats')
 open(p, 'w').write(s)
 PYEOF

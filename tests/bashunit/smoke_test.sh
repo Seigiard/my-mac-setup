@@ -1,0 +1,1123 @@
+#!/usr/bin/env bash
+# smoke post-apply suite — bashunit source. Vocabulary (run, assert_*,
+# skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
+# Migrated from smoke.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
+_bats_file_init "${BASH_SOURCE[0]}"
+
+
+load 'helpers/common'
+
+# ===========================================
+# python3 -- the declared interpreter
+# ===========================================
+
+# This file loses no skip guard, but it holds eight of the nine bare `run
+# python3` call sites, so a contributor running it alone still needs the cause
+# named rather than inferred from the failures.
+function test_smoke_001_python3_is_present_and_at_least_3_9_the_floor_re() {
+  _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
+  assert_python3_available
+}
+
+function test_smoke_002_repository_issues_cli_exposes_its_contract_and_r() {
+  _bats_test_init 2 'repository issues CLI exposes its contract and reads checkout issues'
+  local repository_root
+  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  [[ -f "$repository_root/scripts/issues" ]] || skip "repository checkout is not mounted"
+
+  run python3 "$repository_root/scripts/issues" --version
+  assert_success
+  assert_output "repository-issues-contract 2"
+
+  run bash -c 'cd "$1" && python3 scripts/issues list --status open --json' _ "$repository_root"
+  assert_success
+  run python3 -c 'import json, sys; value = json.loads(sys.argv[1]); assert isinstance(value["issues"], list)' "$output"
+  assert_success
+}
+
+function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
+  _bats_test_init 3 'post-apply suite wrapper rejects an unknown mode with usage'
+  local repository_root
+  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  [[ -x "$repository_root/tests/run-post-apply.sh" ]] || skip "repository checkout is not mounted"
+
+  run "$repository_root/tests/run-post-apply.sh" unknown
+  [ "$status" -eq 2 ]
+  assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
+}
+
+# ===========================================
+# Chezmoi-managed files exist
+# ===========================================
+
+# One manifest replaces the per-file existence tests. A file that falls out of
+# management (a .chezmoiignore edit, a lost dot_ prefix) keeps `chezmoi verify`
+# green — verify only checks what is still managed — so deployment and
+# management membership are both asserted against this curated list.
+function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
+  _bats_test_init 4 'critical managed files are deployed and still managed'
+  local paths=(
+    .zshrc
+    .aliases
+    .gitconfig
+    .gitignore
+    .editorconfig
+    .config/starship.toml
+    .config/yazi
+    .claude
+    .claude/CLAUDE.md
+    .pi/agent/extensions/agents-local.ts
+    .config/herdr/config.toml
+    .config/herdr/plugins/command-palette/herdr-plugin.toml
+    .config/herdr/plugins/command-palette/open.py
+    .config/herdr/plugins/command-palette/open_in_zed.py
+    .config/herdr/plugins/command-palette/palette.py
+    .config/herdr/plugins/command-palette/smart_close.py
+    .config/herdr/command-palette/commands.toml
+  )
+  if is_macos; then
+    paths+=(
+      .hammerspoon
+      .config/ghostty
+      .config/kitty/kitty.conf
+      .config/kitty/herdr.conf
+      .config/karabiner
+      .config/zed
+      .config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml
+      .config/herdr/plugins/herdr-caffeinate/reconcile.sh
+      .config/herdr/plugins/herdr-caffeinate/lib.sh
+      .config/herdr/plugins/herdr-caffeinate/actions.sh
+      .config/herdr/plugins/herdr-caffeinate/config.example.sh
+      .config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml
+      .config/herdr/plugins/herdr-focus-notify/notify.py
+    )
+  fi
+
+  local p missing=""
+  for p in "${paths[@]}"; do
+    [ -e "$HOME/$p" ] || missing="$missing $p"
+  done
+  [ -z "$missing" ] || fail "missing from \$HOME:$missing"
+
+  command_exists chezmoi || return 0
+  local managed unmanaged=""
+  managed="$(PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" managed)"
+  for p in "${paths[@]}"; do
+    case $'\n'"$managed"$'\n' in
+      *$'\n'"$p"$'\n'*) ;;
+      *$'\n'"$p"/*) ;;
+      *) unmanaged="$unmanaged $p" ;;
+    esac
+  done
+  [ -z "$unmanaged" ] || fail "deployed but no longer chezmoi-managed:$unmanaged"
+}
+
+function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
+  _bats_test_init 5 '.gitignore ignores the agent trash directory'
+  run grep -qx '\.scratchpad/' "$HOME/.gitignore"
+  [ "$status" -eq 0 ]
+}
+
+function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
+  _bats_test_init 6 'herdr command palette keybinding is configured'
+  assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
+}
+
+function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {
+  _bats_test_init 7 'obsolete zed-herdr removal accepts formatted plugin JSON'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin"
+  local calls="$BATS_TEST_TMPDIR/herdr.calls"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  cat <<'JSON'
+{
+  "result": {
+    "plugins": [
+      { "plugin_id": "artisann.zed-herdr" }
+    ]
+  }
+}
+JSON
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
+  assert_success
+}
+
+function test_smoke_008_obsolete_zed_herdr_removal_reports_malformed_plu() {
+  _bats_test_init 8 'obsolete zed-herdr removal reports malformed plugin JSON'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+if [ "$*" = "plugin list --json" ]; then
+  printf '{malformed}\n'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
+function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
+  _bats_test_init 9 'herdr plugin updates are automatic and owner-restricted'
+  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
+
+  assert_file_exists "$config"
+  assert_file_contains "$config" 'auto_update = true'
+  assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
+}
+
+function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
+  _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
+  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Lazygit in popup"
+}
+
+function test_smoke_011_herdr_command_palette_sources_are_valid() {
+  _bats_test_init 11 'herdr command palette sources are valid'
+  run python3 -m py_compile \
+    "$HOME/.config/herdr/plugins/command-palette/open.py" \
+    "$HOME/.config/herdr/plugins/command-palette/open_in_zed.py" \
+    "$HOME/.config/herdr/plugins/command-palette/palette.py" \
+    "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
+  assert_success
+
+  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); assert len(mod.load_command_data_file(__import__("pathlib").Path(os.path.expanduser("~/.config/herdr/command-palette/commands.toml")))) > 0'
+  assert_success
+
+  run python3 "$HOME/.config/herdr/plugins/command-palette/palette.py" --validate \
+    "$HOME/.config/herdr/command-palette/commands.toml"
+  assert_success
+}
+
+function test_smoke_012_herdr_command_palette_opener_detects_active_pale() {
+  _bats_test_init 12 'herdr command palette opener detects active palette pane'
+  run python3 - <<'PY'
+import importlib.util, os, sys
+path=os.path.expanduser("~/.config/herdr/plugins/command-palette/open.py")
+spec=importlib.util.spec_from_file_location("palette_open", path)
+mod=importlib.util.module_from_spec(spec)
+sys.modules[spec.name]=mod
+spec.loader.exec_module(mod)
+token = {mod.PALETTE_TOKEN: mod.PALETTE_TOKEN_VALUE}
+assert mod.pane_is_palette({"pane_id": "pane-1", "tokens": token})
+assert not mod.pane_is_palette({"pane_id": "pane-2", "tokens": {}})
+assert not mod.pane_is_palette({"pane_id": "pane-3", "label": "nvim palette.py"})
+
+class Result:
+    def __init__(self, stdout=""):
+        self.returncode = 0
+        self.stdout = stdout
+        self.stderr = ""
+
+calls = []
+def fake_run(command, **kwargs):
+    calls.append(command)
+    if command[:3] == ["herdr", "pane", "current"]:
+        return Result('{"result":{"pane":{"pane_id":"pane-1"}}}')
+    if command[:3] == ["herdr", "pane", "get"]:
+        return Result('{"result":{"pane":{"pane_id":"pane-1","workspace_id":"w1","tokens":{"command_palette":"open"}}}}')
+    if command[:4] == ["herdr", "plugin", "pane", "focus"]:
+        return Result()
+    raise AssertionError(command)
+
+mod.subprocess.run = fake_run
+os.environ.pop("HERDR_PLUGIN_CONTEXT_JSON", None)
+os.environ.pop("HERDR_ACTIVE_PANE_ID", None)
+os.environ.pop("HERDR_PANE_ID", None)
+# fake_run matches argv[0] == "herdr", which is open.py's default. A shell
+# inside a herdr pane exports HERDR_BIN_PATH, and the absolute path it carries
+# would miss every branch of the mock and open a second palette instead.
+os.environ.pop("HERDR_BIN_PATH", None)
+assert mod.main() == 0
+assert not any(command[:4] == ["herdr", "plugin", "pane", "open"] for command in calls)
+PY
+  assert_success
+}
+
+function test_smoke_013_herdr_command_palette_loads_toml_and_project_loc() {
+  _bats_test_init 13 'herdr command palette loads TOML and project-local commands'
+  tmpdir="$(mktemp -d)"
+  mkdir -p "$tmpdir/global" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette"
+  cat > "$tmpdir/global/commands.toml" <<'TOML'
+[[commands]]
+title = "Global TOML"
+type = "shell"
+command = "echo global"
+
+[[commands]]
+name = "Search"
+type = "form"
+command = "echo {value_q}"
+
+[commands.form]
+prompt = "Search for"
+TOML
+  cat > "$tmpdir/repo/.herdr/command-palette/project.toml" <<'TOML'
+name = "Project Choice"
+type = "select"
+command = "echo {value_q}"
+
+[[options]]
+label = "One"
+value = "one"
+TOML
+
+  run env HERDR_COMMAND_PALETTE_CONFIG="$tmpdir/global/commands.toml" HERDR_TARGET_CWD="$tmpdir/repo/sub" python3 - <<'PY'
+import importlib.util, os, sys
+path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
+spec=importlib.util.spec_from_file_location("palette", path)
+mod=importlib.util.module_from_spec(spec)
+sys.modules[spec.name]=mod
+spec.loader.exec_module(mod)
+cfg, cmds = mod.load_commands()
+by_title = {cmd.title: cmd for cmd in cmds}
+assert cfg.name == "commands.toml"
+assert by_title["Project Choice"].origin == "Project"
+assert by_title["Project Choice"].kind == "select"
+assert by_title["Search"].kind == "form"
+assert by_title["Global TOML"].origin == "Global"
+assert mod.command_kind({"name": "Default Shell", "command": "echo hi"}) == "shell"
+assert mod.context_vars(cfg)["project_root"].endswith("/repo")
+PY
+  assert_success
+  rm -rf "$tmpdir"
+}
+
+# ===========================================
+# Claude Code configuration
+# ===========================================
+
+function test_smoke_014_writing_style_output_style_is_deployed_and_enabl() {
+  _bats_test_init 14 'writing-style output style is deployed and enabled in settings'
+  assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
+  run jq -e '.outputStyle == "writing-style"' "$HOME/.claude/settings.json"
+  assert_success
+}
+
+function test_smoke_015_pi_append_system_md_is_deployed() {
+  _bats_test_init 15 'pi APPEND_SYSTEM.md is deployed'
+  assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
+}
+
+function test_smoke_016_pi_settings_include_all_managed_packages() {
+  _bats_test_init 16 'pi settings include all managed packages'
+  local settings="$HOME/.pi/agent/settings.json"
+  assert_file_exists "$settings"
+  run jq -e '
+    (.packages | index("npm:pi-subagents") != null) and
+    (.packages | index("npm:pi-agent-browser-native") != null) and
+    (.packages | index("npm:@howaboua/pi-codex-conversion") != null) and
+    (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
+    (.packages | index("npm:pi-web-access") != null) and
+    (.packages | index("npm:pi-context-view") != null) and
+    (.packages | index("npm:@ff-labs/pi-fff") != null)
+  ' "$settings"
+  assert_success
+}
+
+function test_smoke_017_coding_agents_use_terminal_color_palettes() {
+  _bats_test_init 17 'coding agents use terminal color palettes'
+  run jq -e '.theme == "custom:light-ansi-daltonized"' "$HOME/.claude/settings.json"
+  assert_success
+  assert_file_exists "$HOME/.claude/themes/light-ansi-daltonized.json"
+
+  run jq -e '.theme == "terminal"' "$HOME/.pi/agent/settings.json"
+  assert_success
+  assert_file_exists "$HOME/.pi/agent/themes/terminal.json"
+
+  run jq -e '.theme == "system"' "$HOME/.config/opencode/tui.json"
+  assert_success
+  assert_file_not_exists "$HOME/.config/opencode/themes/flexoki-light-forced.json"
+}
+
+function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
+  _bats_test_init 18 'opencode reads the shared writing-style file via instructions'
+  assert_file_exists "$HOME/.config/agents/writing-style.md"
+  run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$HOME/.config/opencode/opencode.json"
+  assert_success
+}
+
+function test_smoke_019_opencode_exposes_curated_claude_skills_through_c() {
+  _bats_test_init 19 'opencode exposes curated claude skills through canonical symlinks'
+  local skill
+
+  for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
+    run readlink "$HOME/.config/opencode/skills/$skill"
+    assert_success
+    assert_output "$HOME/.claude/skills/$skill"
+    assert_file_exists "$HOME/.config/opencode/skills/$skill/SKILL.md"
+  done
+}
+
+function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
+  _bats_test_init 20 'explicit-only workflows keep manual invocation boundaries'
+  local workflow claude_skill opencode_command opencode_skill
+
+  for workflow in eli5 open-questions; do
+    claude_skill="$HOME/.claude/skills/$workflow/SKILL.md"
+    opencode_command="$HOME/.config/opencode/commands/$workflow.md"
+    opencode_skill="$HOME/.config/opencode/skills/$workflow"
+
+    assert_file_exists "$claude_skill"
+    run awk '
+      NR == 1 { if ($0 != "---") exit 1; frontmatter = 1; next }
+      frontmatter && $0 == "---" { frontmatter = 0; closed = 1; next }
+      frontmatter && /^disable-model-invocation:/ { keys++ }
+      frontmatter && $0 == "disable-model-invocation: true" { valid++ }
+      END { exit !(closed && keys == 1 && valid == 1) }
+    ' "$claude_skill"
+    assert_success
+
+    assert_file_exists "$opencode_command"
+    run awk '
+      NR == 1 { if ($0 != "---") exit 1; frontmatter = 1; next }
+      frontmatter && $0 == "---" { frontmatter = 0; closed = 1; next }
+      frontmatter && /^description: ".+"$/ { description = 1 }
+      closed && NF { body = 1 }
+      END { exit !(closed && description && body) }
+    ' "$opencode_command"
+    assert_success
+
+    if [[ -e "$opencode_skill" || -L "$opencode_skill" ]]; then
+      fail "explicit-only workflow exposed as native OpenCode skill: $opencode_skill"
+    fi
+  done
+
+  run zsh -dfc 'unset OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_DISABLE_CLAUDE_CODE_SKILLS; source "$1"; zsh -dfc "$2"' _ "$HOME/.zshenv" '[[ "$OPENCODE_DISABLE_EXTERNAL_SKILLS" == 1 && "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" == 1 ]]'
+  assert_success
+}
+
+# One manifest replaces the per-skill existence tests; content-level guards
+# (YAML descriptions, shared-pointer resolution) keep their own tests below.
+function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
+  _bats_test_init 21 'agent skills are deployed with their scripts and references'
+  local files=(
+    skills/ask-in-herdr/SKILL.md
+    skills/ask-in-herdr/scripts/ask.sh
+    shared/child-agent-contract.md
+    skills/se-flow/SKILL.md
+    skills/se-cleanup/SKILL.md
+    skills/eli5/SKILL.md
+    skills/open-questions/SKILL.md
+    skills/writing-for-agents/SKILL.md
+    skills/writing-for-agents/SKILL-MECHANICS.md
+    skills/work-summary/SKILL.md
+    skills/work-summary/references/update-format.md
+    skills/work-summary/references/report-format.md
+    skills/vector-prime/SKILL.md
+    skills/vector-prime/scripts/vp.sh
+    skills/pf-research/SKILL.md
+    skills/pf-spec/SKILL.md
+    skills/pf-build/SKILL.md
+    shared/pf-cycle.md
+    skills/pf-build/references/direct-build.md
+    skills/pf-build/references/implementer-prompt.md
+    skills/pf-build/references/demo.md
+    skills/plan-explainer/SKILL.md
+    skills/plan-explainer/references/sections.md
+    skills/plan-explainer/references/page-craft.md
+    skills/plan-explainer/references/edge-cases.md
+    skills/plan-explainer/scripts/capture-sections.sh
+  )
+  local f missing=""
+  for f in "${files[@]}"; do
+    [ -f "$HOME/.claude/$f" ] || missing="$missing $f"
+  done
+  [ -z "$missing" ] || fail "missing under ~/.claude:$missing"
+
+  # The retired per-agent scripts directory must stay deleted.
+  assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
+}
+
+function test_smoke_022_shared_references_are_deployed() {
+  _bats_test_init 22 'shared references are deployed'
+  assert_file_exists "$HOME/.claude/shared/README.md"
+  assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
+  assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
+  assert_file_exists "$HOME/.claude/shared/decision-brief.md"
+  assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
+}
+
+# ===========================================
+# macOS-only configs (skipped on Linux)
+# ===========================================
+
+function test_smoke_023_executor_cli_resolves_on_path_through_local_bin() {
+  _bats_test_init 23 'executor CLI resolves on PATH through ~/.local/bin (macOS only)'
+  is_macos || skip "Not on macOS"
+  # The symlink deploys on every macOS apply, but MMS_CI_MINIMAL renders
+  # Brewfile.macos to zero bytes, so CI never installs the cask that provides
+  # the target. Guard on the app bundle rather than on the link, which is
+  # present-but-dangling there.
+  [ -e /Applications/Executor.app ] || skip "Executor.app not installed (CI-minimal render omits the cask)"
+  # The target lives inside the app bundle, so running the binary is what proves
+  # the link resolves -- an existence check alone would pass against a dangling
+  # link after the app is moved or removed.
+  local link="$HOME/.local/bin/executor"
+  assert_file_exists "$link"
+  run "$link" --version
+  assert_success
+  assert_output --partial "executor v"
+}
+
+function test_smoke_024_kitty_includes_its_herdr_bindings_and_keeps_the() {
+  _bats_test_init 24 'kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)'
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/kitty.conf"
+  assert_file_contains "$config" "^include herdr.conf$"
+  assert_file_contains "$config" "^include Alabaster.conf$"
+}
+
+function test_smoke_025_kitty_font_family_is_one_kitty_accepts_as_monosp() {
+  _bats_test_init 25 'kitty font family is one kitty accepts as monospaced (macOS only)'
+  is_macos || skip "Not on macOS"
+  # kitty rejects the non-Mono "IosevkaTerm Nerd Font" that ghostty uses and
+  # falls back to Menlo without failing, so pin the Mono family explicitly.
+  assert_file_contains "$HOME/.config/kitty/kitty.conf" \
+    "^font_family  *IosevkaTerm Nerd Font Mono$"
+}
+
+function test_smoke_026_kitty_auto_launches_herdr_without_exec_ing_it_ma() {
+  _bats_test_init 26 'kitty auto-launches herdr without exec'\''ing it (macOS only)'
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  # Detaching from herdr must return to a plain login shell, so herdr is run
+  # as a normal command and the shell is exec'd afterwards.
+  assert_file_contains "$config" "^shell /bin/zsh -lc .*herdr"
+  assert_file_contains "$config" "^shell /bin/zsh -lc .*exec /bin/zsh -l"
+}
+
+function test_smoke_027_kitty_sends_the_herdr_prefix_for_macos_style_sho() {
+  _bats_test_init 27 'kitty sends the herdr prefix for macOS-style shortcuts (macOS only)'
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  # \x02 is herdr's ctrl+b prefix; these must match the ghostty keybindings.
+  assert_file_contains "$config" 'cmd+t send_text all .x02c$'
+  assert_file_contains "$config" 'cmd+d send_text all .x02v$'
+  assert_file_contains "$config" 'cmd+w send_text all .x02x$'
+  assert_file_contains "$config" 'ctrl+shift+1 send_text all .x1b\[49;6u$'
+  assert_file_contains "$config" '^map shift+alt+left send_text all .x1b\[1;4D$'
+}
+
+function test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar() {
+  _bats_test_init 28 'kitty herdr bindings survive a non-Latin keyboard layout (macOS only)'
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  # Without --allow-fallback=shifted,ascii kitty drops a letter-key override
+  # from the physical-key lookup on a non-Latin layout, and its own built-in
+  # action fires instead: cmd+t would open a kitty tab, not a herdr tab.
+  # This is the kitty counterpart of ghostty's cmd+KeyT physical-key syntax.
+  assert_file_contains "$config" \
+    "^map --allow-fallback=shifted,ascii cmd+t send_text all "
+  assert_file_contains "$config" \
+    "^map --allow-fallback=shifted,ascii ctrl+shift+h send_text all "
+  # Every letter, digit and bracket binding needs the flag. Arrow, Tab and
+  # Enter keys do not, because the keyboard layout does not change them.
+  local risky
+  risky=$(grep '^map [^-]' "$config" \
+    | grep ' send_text ' \
+    | grep -vE '[+ ](enter|tab|left|right|up|down) send_text ' || true)
+  [ -z "$risky" ] || fail "bindings missing --allow-fallback: $risky"
+}
+
+function test_smoke_029_kitty_carries_command_palette_hints_for_the_herd() {
+  _bats_test_init 29 'kitty carries command-palette hints for the herdr plugin (macOS only)'
+  is_macos || skip "Not on macOS"
+  local config="$HOME/.config/kitty/herdr.conf"
+  assert_file_contains "$config" "^# palette: Tabs & workspaces | ⌘T | New tab$"
+  assert_file_contains "$config" "^# palette: Panes | ⌘D | Split right$"
+}
+
+function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
+  _bats_test_init 30 'lazygit config keeps Russian-layout keybindings and popup exit (macOS only)'
+  is_macos || skip "Not on macOS"
+  local config="$HOME/Library/Application Support/lazygit/config.yml"
+  # One -alt binding stands in for the whole Russian-layout section; losing the
+  # section drops them all together, so a single marker catches it.
+  assert_file_contains "$config" "^    prevBlock-alt: р$"
+  assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
+}
+
+function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
+  _bats_test_init 31 'herdr caffeinate plugin scripts are valid sh (macOS only)'
+  is_macos || skip "Not on macOS"
+  for f in reconcile.sh lib.sh actions.sh; do
+    run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
+    [ "$status" -eq 0 ]
+  done
+}
+
+# ===========================================
+# herdr focus-notify plugin (source tree)
+# ===========================================
+
+FOCUS_NOTIFY_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-focus-notify"
+
+# Runs notify.py against a fake notifier that records its argv one line per
+# argument, so tests can assert the exact command terminal-notifier would get.
+# $1: event JSON. Extra env for the run comes via focus_notify_env array.
+run_focus_notify() {
+  local event_json="$1"
+  local fake_bin="$BATS_TEST_TMPDIR/fake-notifier"
+  FOCUS_NOTIFY_ARGV="$BATS_TEST_TMPDIR/notifier.argv"
+  cat > "$fake_bin" <<SH
+#!/bin/sh
+printf '%s\n' "\$@" > "$FOCUS_NOTIFY_ARGV"
+SH
+  chmod +x "$fake_bin"
+  HERDR_PLUGIN_EVENT_JSON="$event_json" \
+    HERDR_FOCUS_NOTIFY_NOTIFIER_BIN="$fake_bin" \
+    HERDR_BIN_PATH="$BATS_TEST_TMPDIR/dir with space/herdr" \
+    run python3 "$FOCUS_NOTIFY_DIR/notify.py"
+}
+
+function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
+  _bats_test_init 32 'focus-notify plugin compiles and declares its runtime entrypoint'
+  run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
+    python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
+  assert_success
+
+  # The manifest wires the status event and the interpreter as argv arrays.
+  assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
+    '^on = "pane.agent_status_changed"$'
+  assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
+    '^command = \["python3", "notify.py"\]$'
+}
+
+function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
+  _bats_test_init 33 'focus-notify builds a safely quoted click command'
+  # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
+  run_focus_notify '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
+  assert_success
+  assert_file_exists "$FOCUS_NOTIFY_ARGV"
+
+  run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
+import shlex, sys
+argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
+execute = argv[argv.index("-execute") + 1]
+# shlex.split proves the string survives sh word-splitting as exactly the
+# intended four tokens -- binary, agent, focus, pane id -- nothing executed.
+assert shlex.split(execute) == [sys.argv[2], "agent", "focus", "w1:p3; $(boom) &"], execute
+assert argv[argv.index("-group") + 1] == "herdr-w1-p3-boom-", argv
+assert argv[argv.index("-title") + 1] == "Codex needs your input", argv
+assert "-activate" in argv, argv
+PY
+  assert_success
+}
+
+function test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat() {
+  _bats_test_init 34 'focus-notify stays quiet for non-actionable statuses and missing pane id'
+  run_focus_notify '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
+  assert_success
+  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+
+  run_focus_notify '{"data":{"agent_status":"blocked","agent":"codex"}}'
+  assert_success
+  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+}
+
+function test_smoke_035_focus_notify_uses_one_notification_group_per_pan() {
+  _bats_test_init 35 'focus-notify uses one notification group per pane for duplicate replacement'
+  run_focus_notify '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
+  assert_success
+
+  run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
+import sys
+argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
+assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
+assert argv[argv.index("-title") + 1] == "claude finished", argv
+PY
+  assert_success
+}
+
+# ===========================================
+# Hard tool dependencies
+# ===========================================
+
+# fzf is a hard dependency of the command palette: palette.py shells out to
+# `fzf --filter` as its only scorer and refuses to start without it. So this
+# test asserts rather than skips, and it asserts the version floor. The floor
+# is read from palette.py's own FZF_MIN_VERSION so the two cannot drift.
+function test_smoke_036_fzf_is_installed_and_meets_the_command_palette_s() {
+  _bats_test_init 36 'fzf is installed and meets the command palette'\''s version floor'
+  run command -v fzf
+  assert_success
+
+  run fzf --version
+  assert_success
+  local version="${output%% *}"
+
+  run python3 - "$version" <<'PY'
+import importlib.util, os, sys
+path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
+spec = importlib.util.spec_from_file_location("palette", path)
+palette = importlib.util.module_from_spec(spec)
+sys.modules["palette"] = palette
+spec.loader.exec_module(palette)
+found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
+assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
+PY
+  assert_success
+}
+
+# ===========================================
+# se CLI wrapper (source tree, SE_DRY_RUN)
+# ===========================================
+
+SE_ROOT="$SOURCE_ROOT"
+SE_SRC="$SE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
+
+se_fixture_repo() {
+  local repo="$BATS_TEST_TMPDIR/target-repo"
+  mkdir -p "$repo/docs/plans"
+  printf '# fixture plan\n' > "$repo/docs/plans/plan.md"
+  echo "$repo"
+}
+
+function test_smoke_037_se_source_script_exists_and_passes_bash_syntax_c() {
+  _bats_test_init 37 'se source script exists and passes bash syntax check'
+  assert_file_exists "$SE_SRC"
+  run bash -n "$SE_SRC"
+  assert_success
+}
+
+function test_smoke_038_se_help_prints_usage() {
+  _bats_test_init 38 'se --help prints usage'
+  run bash "$SE_SRC" --help
+  assert_success
+  assert_output --partial "Usage: se"
+  assert_output --partial "pipeline"
+  assert_output --partial "resume <runId>"
+}
+
+function test_smoke_039_se_pipeline_dry_run_assembles_smithers_command_w() {
+  _bats_test_init 39 'se pipeline dry-run assembles smithers command with env and input JSON'
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  local repo_abs
+  repo_abs="$(pwd -P)"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test'
+  assert_success
+  assert_output --partial "PIPELINE_REPO=$repo_abs"
+  assert_output --partial "DOC_REVIEW_REPO=$repo_abs"
+  assert_output --partial "smithers up workflows/se-pipeline.tsx --detach --input"
+  assert_output --partial "\"planPath\":\"$repo_abs/docs/plans/plan.md\""
+  assert_output --partial '"until":"branch"'
+  assert_output --partial '"validateCmd":"make test"'
+}
+
+function test_smoke_040_se_pipeline_forwards_the_single_doc_review_key_a() {
+  _bats_test_init 40 'se pipeline forwards the single doc-review key: absent=false, --doc-review=true'
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  # se-work path: no flag → docReview:false
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test'
+  assert_success
+  assert_output --partial '"docReview":false'
+  # se-review-and-work path: --doc-review → docReview:true
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test' --doc-review
+  assert_success
+  assert_output --partial '"docReview":true'
+}
+
+function test_smoke_041_se_pipeline_dry_run_honors_until_pr_and_attach_n() {
+  _bats_test_init 41 'se pipeline dry-run honors --until=pr and --attach (no --detach)'
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --until=pr --validate-cmd 'make test' --attach
+  assert_success
+  assert_output --partial '"until":"pr"'
+  refute_output --partial -- "--detach"
+}
+
+function test_smoke_042_se_pipeline_fails_on_nonexistent_plan_with_reaso() {
+  _bats_test_init 42 'se pipeline fails on nonexistent plan with reason'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline /nonexistent/plan.md --validate-cmd 'make test'
+  assert_failure
+  assert_output --partial "not found"
+}
+
+function test_smoke_043_se_pipeline_fails_on_invalid_until_value() {
+  _bats_test_init 43 'se pipeline fails on invalid --until value'
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --until=xyz --validate-cmd 'make test'
+  assert_failure
+  assert_output --partial "until"
+}
+
+function test_smoke_044_se_pipeline_without_validate_cmd_succeeds_derive() {
+  _bats_test_init 44 'se pipeline without --validate-cmd succeeds (derived from plan at gate-0)'
+  # --validate-cmd is optional: omitted => empty validateCmd in the input JSON,
+  # and the workflow derives it from the plan's Verification Contract at gate-0.
+  local repo
+  repo="$(se_fixture_repo)"
+  cd "$repo"
+  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md
+  assert_success
+  assert_output --partial '"validateCmd":""'
+}
+
+function test_smoke_045_se_resume_without_runid_fails_with_usage() {
+  _bats_test_init 45 'se resume without runId fails with usage'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" resume
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+function test_smoke_046_se_abort_dry_run_maps_to_smithers_cancel() {
+  _bats_test_init 46 'se abort dry-run maps to smithers cancel'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" abort run-123
+  assert_success
+  assert_output --partial "smithers cancel run-123"
+}
+
+function test_smoke_047_se_list_dry_run_exits_0_and_maps_to_smithers_ps() {
+  _bats_test_init 47 'se list dry-run exits 0 and maps to smithers ps'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" list
+  assert_success
+  assert_output --partial "smithers ps"
+}
+
+function test_smoke_048_se_approve_deny_logs_chat_dry_run_pass_through_t() {
+  _bats_test_init 48 'se approve/deny/logs/chat dry-run pass through to smithers verbatim'
+  for sub in approve deny logs chat; do
+    run env SE_DRY_RUN=1 bash "$SE_SRC" "$sub" run-xyz
+    assert_success
+    assert_output --partial "smithers $sub run-xyz"
+  done
+}
+
+function test_smoke_049_se_approve_without_runid_fails_with_usage() {
+  _bats_test_init 49 'se approve without runId fails with usage'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" approve
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+function test_smoke_050_se_with_unknown_command_fails_with_usage() {
+  _bats_test_init 50 'se with unknown command fails with usage'
+  run bash "$SE_SRC" frobnicate
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+function test_smoke_051_se_symlink_source_for_local_bin_exists_in_dotfil() {
+  _bats_test_init 51 'se symlink source for ~/.local/bin exists in dotfiles'
+  local link_src="$SE_ROOT/dot_local/bin/symlink_se.tmpl"
+  assert_file_exists "$link_src"
+  run grep -q '.claude/.smithers/bin/se' "$link_src"
+  assert_success
+}
+
+function test_smoke_052_chezmoiignore_excludes_smithers_runtime_state_fr() {
+  _bats_test_init 52 'chezmoiignore excludes smithers runtime state from management'
+  local ignore="$SE_ROOT/.chezmoiignore"
+  for entry in '.claude/.smithers/node_modules' '.claude/.smithers/smithers.db*' '.claude/.smithers/executions'; do
+    run grep -qF "$entry" "$ignore"
+    assert_success
+  done
+}
+
+function test_smoke_053_se_list_json_dry_run_maps_to_smithers_ps_format() {
+  _bats_test_init 53 'se list --json dry-run maps to smithers ps --format json'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" list --json
+  assert_success
+  assert_output --partial "smithers ps --format json"
+}
+
+function test_smoke_054_se_show_dry_run_maps_to_smithers_inspect_format() {
+  _bats_test_init 54 'se show dry-run maps to smithers inspect --format json'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" show run-xyz
+  assert_success
+  assert_output --partial "smithers inspect run-xyz --format json"
+}
+
+function test_smoke_055_se_show_without_runid_fails_with_usage() {
+  _bats_test_init 55 'se show without runId fails with usage'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" show
+  assert_failure
+  assert_output --partial "Usage: se"
+}
+
+function test_smoke_056_se_show_rejects_run_ids_with_shell_sql_metachara() {
+  _bats_test_init 56 'se show rejects run ids with shell/sql metacharacters'
+  run env SE_DRY_RUN=1 bash "$SE_SRC" show "run';drop table summary;--"
+  assert_failure
+}
+
+function test_smoke_057_se_usage_documents_list_json_and_show() {
+  _bats_test_init 57 'se usage documents list --json and show'
+  run bash "$SE_SRC" --help
+  assert_success
+  assert_output --partial "list [--json]"
+  assert_output --partial "show <runId>"
+}
+
+function test_smoke_058_se_db_path_walks_up_past_an_empty_runtime_smithe() {
+  _bats_test_init 58 'se db-path walks up past an empty runtime smithers.db (0.28 state layout)'
+  local tmp; tmp="$(mktemp -d)"
+  mkdir -p "$tmp/parent/.smithers"
+  echo x > "$tmp/parent/smithers.db"
+  : > "$tmp/parent/.smithers/smithers.db"
+  run env SE_SMITHERS_DIR="$tmp/parent/.smithers" bash "$SE_SRC" db-path
+  assert_success
+  assert_output "$tmp/parent/smithers.db"
+  echo y > "$tmp/parent/.smithers/smithers.db"
+  run env SE_SMITHERS_DIR="$tmp/parent/.smithers" bash "$SE_SRC" db-path
+  assert_output "$tmp/parent/.smithers/smithers.db"
+  rm -rf "$tmp"
+}
+
+# ===========================================
+# herdr task sync (engine, adapters, sidebar)
+# ===========================================
+
+function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
+  _bats_test_init 59 'herdr task and child engines are deployed and executable'
+  assert_file_exists "$HOME/.local/bin/herdr-task-sync"
+  assert_file_executable "$HOME/.local/bin/herdr-task-sync"
+  assert_file_exists "$HOME/.local/bin/herdr-child"
+  assert_file_executable "$HOME/.local/bin/herdr-child"
+  assert_file_exists "$HOME/.local/lib/herdr-process.sh"
+}
+
+function test_smoke_060_deployed_herdr_child_contracts_expose_managed_su() {
+  _bats_test_init 60 'deployed herdr child contracts expose managed supervision modes'
+  local contract="$HOME/.claude/shared/child-agent-contract.md"
+  local skill="$HOME/.claude/skills/herdr/SKILL.md"
+  local consult="$HOME/.claude/skills/ask-in-herdr/SKILL.md"
+
+  assert_file_contains "$contract" 'herdr-child start.*--wait'
+  assert_file_contains "$contract" 'herdr-child start.*--detach'
+  assert_file_contains "$contract" 'generation.*event'
+  assert_file_contains "$contract" 'herdr-child prompt.*--wait'
+  assert_file_contains "$contract" 'herdr-child prompt.*--detach'
+  assert_file_contains "$contract" 'not.*task-success verdict'
+  assert_file_contains "$contract" 'start.*prompt.*reply.*nonzero.*recovery JSON'
+  assert_file_contains "$contract" 'Do not retry.*start.*same name'
+  assert_file_contains "$contract" 'herdr agent get.*pane-id'
+  assert_file_contains "$contract" 'managed.*herdr-child prompt.*--detach.*reap'
+  assert_file_contains "$skill" 'cooperative exclusive file scope'
+  assert_file_contains "$skill" 'nonzero recovery JSON.*preserving the child'
+  assert_file_contains "$skill" 'Do not retry.*start.*same name'
+  assert_file_contains "$skill" 'herdr agent get'
+  assert_file_contains "$skill" 'rearm.*managed.*prompt.*--detach.*reap'
+  assert_file_contains "$consult" 'attached.*--wait'
+}
+
+function test_smoke_061_herdr_task_sync_claude_code_hook_is_deployed_and() {
+  _bats_test_init 61 'herdr-task-sync Claude Code hook is deployed and executable'
+  assert_file_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+  assert_file_executable "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+}
+
+function test_smoke_062_claude_settings_wire_the_task_sync_hook_to_promp() {
+  _bats_test_init 62 'claude settings wire the task-sync hook to prompt, session, and compact'
+  local settings="$HOME/.claude/settings.json"
+  assert_file_exists "$settings"
+  run python3 - "$settings" <<'PY'
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]
+for event, action in (("UserPromptSubmit", "prompt"),
+                      ("SessionStart", "session"),
+                      ("PreCompact", "compact")):
+    commands = [h["command"] for entry in hooks[event] for h in entry["hooks"]]
+    matching = [c for c in commands if "herdr-task-sync-hook.sh" in c]
+    assert len(matching) == 1, (event, commands)
+    assert matching[0].endswith(f"' {action}"), (event, matching[0])
+
+# UserPromptSubmit has no matcher support; the herdr agent-state SessionStart
+# hook must stay wired alongside the task-sync one.
+assert all("matcher" not in e for e in hooks["UserPromptSubmit"]), hooks["UserPromptSubmit"]
+session = [h["command"] for entry in hooks["SessionStart"] for h in entry["hooks"]]
+assert any("herdr-agent-state.sh" in c for c in session), session
+PY
+  assert_success
+}
+
+function test_smoke_063_herdr_task_sync_pi_extension_is_deployed_beside() {
+  _bats_test_init 63 'herdr-task-sync pi extension is deployed beside herdr'\''s own'
+  local ext="$HOME/.pi/agent/extensions/herdr-task-sync.ts"
+  assert_file_exists "$ext"
+}
+
+function test_smoke_064_pi_local_private_instructions_focused_tests_pass() {
+  _bats_test_init 64 'Pi local private instructions focused tests pass'
+  run env PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
+    bun test "$BATS_TEST_DIRNAME/pi-agents-local-extension.test.ts"
+  assert_success
+}
+
+function test_smoke_065_pi_brew_auto_updater_is_deployed() {
+  _bats_test_init 65 'Pi brew auto updater is deployed'
+  local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
+  assert_file_exists "$ext"
+}
+
+function test_smoke_066_pi_brew_auto_updater_focused_tests_pass() {
+  _bats_test_init 66 'Pi brew auto updater focused tests pass'
+  run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
+  assert_success
+}
+
+function test_smoke_067_herdr_task_sync_opencode_plugin_is_deployed() {
+  _bats_test_init 67 'herdr-task-sync opencode plugin is deployed'
+  local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
+  assert_file_exists "$plugin"
+}
+
+assert_herdr_sidebar_deployment_contract() {
+  local config="$1"
+  local width
+
+  assert_file_contains "$config" '^sidebar_min_width = 32$'
+  assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
+  # Tab labels stay names-only. Each sidebar row uses one aggregate token so
+  # Herdr cannot inject its hardcoded middle-dot separator between values.
+  assert_file_contains "$config" '^rows = \[\["state_icon", "\$agent_line"\], \["\$git_line"\]\]$'
+  run grep -E '\$location_label|\$location_status' "$config"
+  assert_failure
+  width="$(awk '
+    $0 == "[ui]" { in_ui = 1; next }
+    /^\[/ { in_ui = 0 }
+    in_ui && /^sidebar_min_width = [0-9]+$/ { print $3 }
+  ' "$config")"
+  [ "$width" -eq 32 ]
+  [ "$((width - 4))" -ge 28 ]
+  [ "$((width - 4))" -ge 8 ]
+}
+
+function test_smoke_068_herdr_managed_source_preserves_the_u6_sidebar_an() {
+  _bats_test_init 68 'herdr managed source preserves the U6 sidebar and ownership boundaries'
+  assert_herdr_sidebar_deployment_contract "$SOURCE_ROOT/private_dot_config/herdr/config.toml"
+}
+
+function test_smoke_069_herdr_deployed_files_preserve_the_u6_sidebar_and() {
+  _bats_test_init 69 'herdr deployed files preserve the U6 sidebar and ownership boundaries'
+  assert_herdr_sidebar_deployment_contract "$HOME/.config/herdr/config.toml"
+}
+
+function test_smoke_070_herdr_pane_label_plugin_deploys_the_approved_her() {
+  _bats_test_init 70 'herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs'
+  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
+  local manifest="$plugin/herdr-plugin.toml"
+  assert_file_exists "$manifest"
+  assert_file_exists "$plugin/ensure.sh"
+  assert_file_exists "$plugin/sweep.sh"
+  run sh -n "$plugin/ensure.sh"
+  assert_success
+  run sh -n "$plugin/sweep.sh"
+  assert_success
+
+  run awk '
+    /^on = "/ {
+      event = $0
+      sub(/^on = "/, "", event)
+      sub(/"$/, "", event)
+      next
+    }
+    /^command = / && event != "" {
+      command = $0
+      sub(/^command = /, "", command)
+      print event "|" command
+      event = ""
+    }
+  ' "$manifest"
+  assert_success
+  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]\nworktree.created|["sh", "ensure.sh", "--event"]\nworktree.opened|["sh", "ensure.sh", "--event"]'
+  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
+  assert_file_contains "$manifest" '^id = "sweep"$'
+  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
+  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
+  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
+  assert_failure
+}
+
+function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
+  _bats_test_init 71 'herdr pane-label plugin keeps startup sweep and relink deployment wiring'
+  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
+  local manifest="$plugin/herdr-plugin.toml"
+  local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
+  assert_file_contains "$manifest" '^\[\[startup\]\]$'
+  assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
+  assert_file_contains "$relink" 'include "private_dot_config/herdr/config.toml"'
+  assert_file_contains "$relink" 'include "dot_local/bin/executable_herdr-task-sync"'
+}
+
+# ===========================================
+# zsh cached_init consumers (docs/issues/2026-08-21-001)
+#
+# ~/.zshrc caches the output of these tools via cached_init and sources the
+# cache in every later shell. An absolute `export PATH=...` line in any of
+# them would freeze the generating shell PATH into every shell that sources
+# the cache -- the exact bug mise activate had. As of 2026-08-21 none of them
+# emits one; these guards keep it that way across tool upgrades.
+# ===========================================
+
+function test_smoke_072_starship_init_output_embeds_no_absolute_path_exp() {
+  _bats_test_init 72 'starship init output embeds no absolute PATH export'
+  command_exists starship || skip "starship not installed"
+  run starship init zsh
+  assert_success
+  refute_line --regexp '^export PATH='
+}
+
+function test_smoke_073_zoxide_init_output_embeds_no_absolute_path_expor() {
+  _bats_test_init 73 'zoxide init output embeds no absolute PATH export'
+  command_exists zoxide || skip "zoxide not installed"
+  run zoxide init zsh --cmd cd
+  assert_success
+  refute_line --regexp '^export PATH='
+}
+
+function test_smoke_074_rgrc_aliases_output_embeds_no_absolute_path_expo() {
+  _bats_test_init 74 'rgrc aliases output embeds no absolute PATH export'
+  command_exists rgrc || skip "rgrc not installed"
+  run rgrc --aliases
+  assert_success
+  refute_line --regexp '^export PATH='
+}
+
+function set_up_before_script() {
+  :
+}
+
+function tear_down_after_script() {
+  _bats_file_cleanup
+}
+

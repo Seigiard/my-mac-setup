@@ -2,7 +2,7 @@
 """Deterministically convert a Bats file to a bashunit test file.
 
 The @test bodies are emitted verbatim; all Bats vocabulary is supplied at
-runtime by tests/bashunit/bats-compat.bash. The converter also emits a
+runtime by tests/bashunit/test-dsl.bash. The converter also emits a
 manifest row per scenario so the side-by-side verifier can prove a
 one-to-one mapping (missing or duplicated scenarios fail the conversion).
 
@@ -81,10 +81,12 @@ def convert(src: Path, out_dir: Path, serial: bool):
     out.append("#!/usr/bin/env bash")
     if serial:
         out.append("# bashunit: no-parallel-tests")
-    out.append(f"# Generated from {src} by scripts/bats2bashunit.py — DO NOT EDIT.")
-    out.append('source "$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash"')
+    out.append(f"# {src.stem} post-apply suite — bashunit source. Vocabulary (run, assert_*,")
+    out.append("# skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.")
+    out.append(f"# Migrated from {src.name}; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.")
+    out.append('source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"')
     out.append(
-        f'_bats_file_init "$(dirname "${{BASH_SOURCE[0]}}")/../{src.name}"'
+        '_bats_file_init "${BASH_SOURCE[0]}"'
     )
     out.append("")
     out.extend(body_lines)
