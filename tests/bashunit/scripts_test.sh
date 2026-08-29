@@ -2827,13 +2827,13 @@ if proc.returncode != 0:
     raise SystemExit(EXIT_NESTED_FAILED)
 PY
   unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
-  # `run` captures the driver's measurement into $output, which the runner
-  # discards on a passing test -- so forward it to fd 3, which bashunit leaves
-  # pointing at the console it inherited (guarded: a closed fd 3 is not a test
-  # failure). The number is only useful if a green CI run carries it: it is what
-  # HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against, and reconstructing it
-  # from print-order gaps is what made the previous bound guesswork.
-  { printf '%s\n' "$output" | grep -F 'inner runner exit phase took' >&3; } 2>/dev/null || true
+  # No fd-3 console forward of the driver's exit-phase measurement: bashunit
+  # binds fd 3 to the worker's raw stream (`exec 3>&1` before per-test capture),
+  # and under -j a write there can land as the last line of a worker's .result
+  # file, which the parallel aggregator then cannot parse and counts as a
+  # phantom failed test with zero failed assertions. The measurement stays in
+  # the driver's stderr, which bashunit prints whenever this test fails -- the
+  # only time HTS_INNER_BATS_EXIT_SECONDS needs recalibrating.
   assert_success
   assert_output --partial "Passed: herdr-task-sync descriptor child probe"
 }
