@@ -470,6 +470,12 @@ _bats_file_init() {
   BATS_TEST_FILENAME="$1"
   BATS_TEST_DIRNAME=$(cd "$(dirname "$1")" && pwd)
   BATS_TEST_FILENAME="$BATS_TEST_DIRNAME/$(basename "$1")"
+  # bats exports BATS_TMPDIR as $TMPDIR (trailing slash stripped) or /tmp;
+  # helpers using ${BATS_TMPDIR:-/tmp} must land in the same place they do
+  # under bats, or leak comparisons see the same debris class at two paths.
+  BATS_TMPDIR="${TMPDIR:-/tmp}"
+  BATS_TMPDIR="${BATS_TMPDIR%/}"
+  export BATS_TMPDIR
   _BATS_FILE_TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/bats-compat-run.XXXXXX")
   BATS_RUN_TMPDIR="$_BATS_FILE_TMPROOT"
   BATS_FILE_TMPDIR="$_BATS_FILE_TMPROOT/file"

@@ -102,6 +102,14 @@ Re-read this file before every batch. Update after every batch.
 - FULL-suite paired bench (3 reps, in-container, pre-errtrace shim): bats median 77065ms (CV 1.6%) vs bashunit 60449ms (CV 0.2%) → **-21.6%, beyond noise**, all exits 0.
 - scripts x2 rerun: run1 LEAK-BOTH identical watcher class (symmetric, pre-existing). run2: (a) bats-only sweep-daemon leak → gate must be directional (fail only on bashunit-only leaks) — FIX PENDING; (b) FLAKE: "herdr-child reap invalidates before close while spontaneous loss wakes the parent" failed under bashunit run2 only (passed run1 + all host runs) — needs flake-rate measurement under BOTH runners in docker before parity claim is final.
 
+## Post-rebase progress (2026-08-29, after compaction + overnight hang)
+
+- Rebased onto main 9161046; oracle now **403 scenarios** (scripts 254→257). Reconverted.
+- Overnight background compare hung at 21:38 (machine sleep) — killed, rerun.
+- New scripts scenarios use `run --separate-stderr` + assert_stderr/refute_stderr → shim support added (commit af7b55e). compare scripts: **257/257 parity**, bats 112s / bashunit 100s, both exit 0. One bashunit-only watcher LEAK-INFO (allowlisted class, not gating).
+- Cleanup-review fixes applied (commit 39d5b26): widened LEAK_PATTERNS (sleep/bun/python3 -/hts./palette.), snapshot_tmp (+hts.*, palette.*, tmp.*, chezmoi-test.yaml), count-aware (xN) normalization, honest gate comment, negative control 7 (allowlist hole documented). **All 8 negative controls pass.**
+- In flight: 4-file host-safe compare with hardened harness (bg berwj6txk).
+
 ## Parity review resolution (review-parity.md)
 
 - HIGH-1 helper-depth failures: FIXED via set -E + bashunit-frame-filtered ERR handler; probe matrix re-verified (bare body fail, helper partial fail, fail-call all red on both runners).

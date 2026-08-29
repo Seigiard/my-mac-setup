@@ -61,6 +61,9 @@ snapshot_tmp() {
 # side leaking one.
 normalize_leaks() {
   sed -e 's/^[0-9][0-9]* //' \
+      -e "s|^${TMPDIR:-/tmp}/*|TMP/|" \
+      -e 's|^/tmp/|TMP/|' \
+      -e 's|^/private/tmp/|TMP/|' \
       -e 's/[0-9a-f]\{32\}/HASH/g' \
       -e 's/tmp\.[A-Za-z0-9]\{6,\}/tmp.X/g' \
       -e 's/hts\.[A-Za-z0-9]\{6,\}/hts.X/g' \
@@ -71,6 +74,13 @@ normalize_leaks() {
       -e 's/[0-9][0-9]*/N/g' \
     | sort | uniq -c \
     | sed -e 's/^ *\([0-9][0-9]*\) \(.*\)$/\2 (x\1)/'
+}
+
+# Strip the (xN) count suffix: the directional gate compares CLASSES; counts
+# stay visible in the reported lines (cleanup review H3: log counts, gate on
+# class presence — count deltas of a class both sides shed are stochastic).
+strip_counts() {
+  sed -e 's/ (x[0-9][0-9]*)$//'
 }
 
 # new_entries <pre> <post> — lines in post but not in pre.
@@ -135,9 +145,15 @@ reap_orphan_watchers
 # understood); sweep-daemon observed once, bats-only. The allowlist is
 # rate-blind by design — counts are still visible in the (xN) suffix of
 # LEAK-INFO lines, and per-run frequency is aggregated in the benchmark reps.
-KNOWN_STOCHASTIC='herdr-child __watcher|herdr-task-sync --sweep-daemon'
-bu_only="$(printf '%s\n' "$bu_leaks" | grep -vxF -f <(printf '%s\n' "$bats_leaks") | grep . || true)"
-bats_only="$(printf '%s\n' "$bats_leaks" | grep -vxF -f <(printf '%s\n' "$bu_leaks") | grep . || true)"
+# TMP/hts.X: recorded oracle-side evidence (status.md 2026-08-29) — a herdr
+# engine process surviving hts_teardown recreates $HTS_STATE/sockets after
+# rm -rf; 2490 historical bats-shed instances under $TMPDIR plus 4 shed by
+# the bats half of the same run that first flagged the class.
+KNOWN_STOCHASTIC='herdr-child __watcher|herdr-task-sync --sweep-daemon|^path: TMP/hts\.X$'
+bu_classes="$(printf '%s\n' "$bu_leaks" | strip_counts)"
+bats_classes="$(printf '%s\n' "$bats_leaks" | strip_counts)"
+bu_only="$(printf '%s\n' "$bu_classes" | grep -vxF -f <(printf '%s\n' "$bats_classes") | grep . || true)"
+bats_only="$(printf '%s\n' "$bats_classes" | grep -vxF -f <(printf '%s\n' "$bu_classes") | grep . || true)"
 bu_only_hard="$(printf '%s\n' "$bu_only" | grep -Ev "$KNOWN_STOCHASTIC" | grep . || true)"
 if [ -n "$bu_only_hard" ]; then
   echo "LEAK-PARITY-MISMATCH (bashunit-only, not a known oracle-stochastic class):"
@@ -150,11 +166,9 @@ if [ -n "$bu_only_hard" ]; then
   overall=1
 fi
 if [ -n "$bats_leaks$bu_leaks" ] && [ -z "$bu_only_hard" ]; then
-  echo "LEAK-INFO (oracle-stochastic or symmetric; not gating):"
-  [ -z "$bats_only" ] || printf 'bats-only: %s\n' "$bats_only"
-  [ -z "$bu_only" ] || printf 'bashunit-only: %s\n' "$bu_only"
-  comm_both="$(printf '%s\n' "$bats_leaks" | grep -xF -f <(printf '%s\n' "$bu_leaks") | grep . || true)"
-  [ -z "$comm_both" ] || printf 'both: %s\n' "$comm_both"
+  echo "LEAK-INFO (oracle-stochastic or symmetric; not gating; counts per side):"
+  [ -z "$bats_leaks" ] || printf '%s\n' "$bats_leaks" | sed 's/^/bats: /'
+  [ -z "$bu_leaks" ] || printf '%s\n' "$bu_leaks" | sed 's/^/bashunit: /'
 fi
 
 echo "bats exit=$bats_rc (${bats_secs}s)  bashunit exit=$bu_rc (${bu_secs}s)"
