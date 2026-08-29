@@ -322,7 +322,7 @@ function validatePublishedPath(repoRoot: string, stdout: string | Buffer, extern
 // The target checkout owns issue creation when it advertises the pinned contract.
 // Once that compatible CLI fails, do not bypass its validation and locking with a
 // legacy direct write.
-export function publishIssue(repoRoot: string, fields: IssueFields): PublishedIssue {
+export function publishIssue(repoRoot: string, fields: IssueFields, timeoutMs: number = ISSUE_CLI_TIMEOUT_MS): PublishedIssue {
   const cliPath = path.join(repoRoot, "scripts", "issues");
   try {
     fs.lstatSync(cliPath);
@@ -334,7 +334,7 @@ export function publishIssue(repoRoot: string, fields: IssueFields): PublishedIs
     return cliFailure([], `Could not inspect scripts/issues: ${String(error)}`);
   }
 
-  const probe = spawnSync(cliPath, ["--version"], { cwd: repoRoot, encoding: "utf8", timeout: ISSUE_CLI_TIMEOUT_MS, killSignal: "SIGKILL" });
+  const probe = spawnSync(cliPath, ["--version"], { cwd: repoRoot, encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL" });
   if (probe.error || probe.status !== 0) return cliFailure([], spawnFailureMessage("--version", probe));
   if (probe.stdout !== ISSUE_CLI_CONTRACT) return cliFailure([], "scripts/issues --version returned an incompatible contract");
 
@@ -367,7 +367,7 @@ export function publishIssue(repoRoot: string, fields: IssueFields): PublishedIs
   ];
   if (redacted.fields.parentPlan) args.push("--parent-plan", redacted.fields.parentPlan);
 
-  const published = spawnSync(cliPath, args, { cwd: repoRoot, encoding: "utf8", timeout: ISSUE_CLI_TIMEOUT_MS, killSignal: "SIGKILL" });
+  const published = spawnSync(cliPath, args, { cwd: repoRoot, encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL" });
   if (published.error || published.status !== 0) {
     return cliFailure(redacted.hits, spawnFailureMessage("create", published));
   }

@@ -100,4 +100,15 @@ RUN chezmoi execute-template --file /tmp/Brewfile.tmpl > /tmp/Brewfile && \
     brew bundle --file=/tmp/Brewfile && \
     rm -rf "$(brew --cache)"
 
+# Warm bun's global install cache from the pinned lockfile so both run-time
+# installs (chezmoi's run_onchange script into ~/.claude/.smithers and the
+# worktree `make test-smithers`) resolve offline from cache. The runtime
+# installs still run with --frozen-lockfile against the tree the worktree
+# actually carries, so the lockfile-vs-tree check this suite relies on
+# (docs/issues/2026-08-19-001) is untouched; only the network cost moves to
+# this layer, keyed on the two manifests. The scratch node_modules is
+# discarded — only ~/.bun's cache is the product.
+COPY --chown=testuser home/private_dot_claude/dot_smithers/package.json home/private_dot_claude/dot_smithers/bun.lock /tmp/smithers-deps/
+RUN cd /tmp/smithers-deps && bun install --frozen-lockfile && rm -rf /tmp/smithers-deps/node_modules
+
 CMD ["/bin/zsh"]

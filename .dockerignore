@@ -3,3 +3,7 @@
 *
 !docker
 !home/private_dot_config/brewfiles
+# Only the two dependency manifests, to key the baked bun install cache;
+# the package source itself stays out of the context on purpose.
+!home/private_dot_claude/dot_smithers/package.json
+!home/private_dot_claude/dot_smithers/bun.lock

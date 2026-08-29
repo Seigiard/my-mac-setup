@@ -274,6 +274,9 @@ printf 'docs/issues/2026-08-13-001-reviewer-leg-died-mid-stream.md\\n'
       fs.mkdirSync(scripts, { recursive: true });
       fs.writeFileSync(path.join(scripts, "issues"), "#!/bin/sh\nexec sleep 10\n", { mode: 0o755 });
 
+      // Deliberately no injected timeout: this is the one test proving the
+      // production default (ISSUE_CLI_TIMEOUT_MS) is wired and finite
+      // against a hung CLI. It costs ~5s of wall clock by design.
       const result = publishIssue(repo, fields());
 
       expect(result.mode).toBe("cli-failed");
@@ -352,14 +355,14 @@ exec sleep 10
         { mode: 0o755 },
       );
 
-      const result = publishIssue(repo, fields());
+      // Same injected-timeout rationale as the version-probe test above.
+      const result = publishIssue(repo, fields(), 300);
 
       expect(result.mode).toBe("cli-failed");
       expect(result.path).toBeNull();
       expect(result.error).toContain("ETIMEDOUT");
       expect(fs.existsSync(path.join(repo, "docs", "issues"))).toBe(false);
     },
-    7_000,
   );
 
   for (const [name, output, createTarget] of [
