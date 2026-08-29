@@ -47,6 +47,64 @@ function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
 }
 
+# The suite-end orphan guard (docs/issues/2026-08-28-001) must kill and fail
+# on a watcher whose launcher is dead AND whose run dir is gone, while leaving
+# both near-miss controls alone: a live launcher, and a dead launcher whose
+# run dir still exists (a concurrent run's legitimately held watcher).
+# MMS_BASHUNIT_BIN=/usr/bin/true stubs the per-file runs so only the guard
+# executes. The fake watchers are `sleep` holders whose argv carries the
+# process-table shape the guard scans for.
+function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
+  _bats_test_init 76 'post-apply orphan guard reaps only abandoned watchers'
+  local repository_root
+  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  [[ -x "$repository_root/tests/run-post-apply.sh" ]] || skip "repository checkout is not mounted"
+  local watcher_argv="$repository_root/home/dot_local/bin/executable_herdr-child __watcher"
+
+  local dead_pid
+  true & dead_pid=$!
+  wait "$dead_pid" || true
+
+  local live_run_dir="$BATS_TEST_TMPDIR/guard-live-run"
+  local stop_fakes="$BATS_TEST_TMPDIR/stop-fakes"
+  mkdir -p "$live_run_dir"
+  # Fakes poll a stop file instead of holding a fixed-lifetime sleep: their
+  # lifetime is not a wall-clock bound (no flake under load), and a killed
+  # fake leaves at most a 0.2s sleep grandchild behind. stdio is detached so
+  # no child can hold the test runner's output pipe open.
+  bash -c 'until [ -e "$1" ]; do sleep 0.2; done' \
+    "guard-fake-live-launcher $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $$" \
+    "$stop_fakes" </dev/null >/dev/null 2>&1 &
+  local live_launcher_fake=$!
+  bash -c 'until [ -e "$1" ]; do sleep 0.2; done' \
+    "guard-fake-live-rundir $watcher_argv --run-dir $live_run_dir --launcher-pid $dead_pid" \
+    "$stop_fakes" </dev/null >/dev/null 2>&1 &
+  local live_rundir_fake=$!
+
+  run env MMS_BASHUNIT_BIN=/usr/bin/true "$repository_root/tests/run-post-apply.sh" host-safe
+  assert_success
+  kill -0 "$live_launcher_fake"
+  kill -0 "$live_rundir_fake"
+
+  bash -c 'until [ -e "$1" ]; do sleep 0.2; done' \
+    "guard-fake-orphan $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $dead_pid" \
+    "$stop_fakes" </dev/null >/dev/null 2>&1 &
+  local orphan_fake=$!
+  run env MMS_BASHUNIT_BIN=/usr/bin/true "$repository_root/tests/run-post-apply.sh" host-safe
+  [ "$status" -eq 1 ]
+  assert_output --partial "ORPHANED herdr-child watcher survived the suite"
+  local attempt=0
+  while kill -0 "$orphan_fake" 2>/dev/null && [ "$attempt" -lt 300 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$orphan_fake"
+  assert_failure
+
+  : > "$stop_fakes"
+  wait "$live_launcher_fake" "$live_rundir_fake" 2>/dev/null || true
+}
+
 # ===========================================
 # Chezmoi-managed files exist
 # ===========================================

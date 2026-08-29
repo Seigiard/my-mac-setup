@@ -652,7 +652,15 @@ case "${1:-} ${2:-}" in
   "agent wait")
     : > "$CHILD_STUB/wait-observed"
     if [ -f "$CHILD_STUB/wait-block" ]; then
-      while [ ! -f "$CHILD_STUB/wait-release" ]; do sleep 0.01; done
+      # Bounded so an orphaned stub cannot poll forever after a killed
+      # harness (docs/issues/2026-08-28-001).
+      attempt=0
+      while [ ! -f "$CHILD_STUB/wait-release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
     fi
     if [ -f "$CHILD_STUB/wait-error" ]; then
       printf '{"error":{"code":"internal_error","message":"transient wait failure"}}\n' >&2
@@ -677,7 +685,15 @@ case "${1:-} ${2:-}" in
       fi
       if [ -f "$CHILD_STUB/block-parent-prompt" ]; then
         : > "$CHILD_STUB/parent-prompt-accepted"
-        while [ ! -f "$CHILD_STUB/release-parent-prompt" ]; do sleep 0.01; done
+        # Bounded so an orphaned stub cannot poll forever after a killed
+        # harness (docs/issues/2026-08-28-001).
+        attempt=0
+        while [ ! -f "$CHILD_STUB/release-parent-prompt" ]; do
+          [ -d "$CHILD_STUB" ] || exit 1
+          attempt=$((attempt + 1))
+          [ "$attempt" -lt 12000 ] || exit 1
+          sleep 0.01
+        done
       fi
       printf '%s\n' "${4:-}" >> "$CHILD_STUB/successful-prompts.log"
     elif [ -f "$CHILD_STUB/advance-on-prompt" ]; then
