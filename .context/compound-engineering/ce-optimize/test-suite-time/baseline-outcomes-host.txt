@@ -1,3 +1,0 @@
-SKIP: chezmoiignore filters macOS files on Linux # skip Only relevant on Linux
-SKIP: darwin scripts excluded from managed list on Linux # skip Only relevant on Linux
-SKIP: se blocks --json emits the composable block catalog # skip smithers deps not installed (run bun install in /Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/home/private_dot_claude/dot_smithers)

@@ -1,3 +1,0 @@
-1..2
-ok 1 chezmoiignore filters macOS files on Linux # skip Only relevant on Linux
-ok 2 chezmoiignore includes macOS files on macOS

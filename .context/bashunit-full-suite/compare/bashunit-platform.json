@@ -1,7 +1,0 @@
-{
-  "summary": { "total": 2, "passed": 1, "failed": 0, "skipped": 1, "incomplete": 0, "flaky": 0, "duration_ms": 141 },
-  "tests": [
-    { "file": "/Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/bashunit/platform_test.sh", "name": "chezmoiignore filters macOS files on Linux", "status": "skipped", "duration_ms": 30, "retries": 0, "message": "" },
-    { "file": "/Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/tests/bashunit/platform_test.sh", "name": "chezmoiignore includes macOS files on macOS", "status": "passed", "duration_ms": 111, "retries": 0, "message": "" }
-  ]
-}

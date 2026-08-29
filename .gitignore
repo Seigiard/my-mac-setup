@@ -12,3 +12,6 @@ tests/bashunit/manifest.tsv
 
 # bashunit runtime state (last-failed cache)
 .bashunit/
+
+# Session working state (CE skills, experiment scratch) — never PR content
+.context/
