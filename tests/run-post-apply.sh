@@ -58,4 +58,32 @@ PYEOF
   fi
   command rm -f "$report"
 done
+
+# Suite-end orphan guard (docs/issues/2026-08-28-001): no herdr-child
+# __watcher spawned from this checkout may survive the run once its
+# --launcher-pid process is dead. Scoped to $ROOT so concurrent runs from
+# other checkouts cannot cross-fire; the awk program's own command line never
+# matches because its literal "--launcher-pid [0-9]+" text carries no digits.
+orphan_rows="$(ps -axo pid=,args= | awk -v root="$ROOT/" '
+  index($0, "herdr-child __watcher") && index($0, root) && match($0, /--launcher-pid [0-9]+/) {
+    print $1 " " substr($0, RSTART + 15, RLENGTH - 15)
+  }' || true)"
+orphan_pids=""
+while read -r pid launcher; do
+  [ -n "$pid" ] || continue
+  kill -0 "$launcher" 2>/dev/null && continue
+  echo "ORPHANED herdr-child watcher survived the suite: pid=$pid (dead launcher $launcher)" >&2
+  kill -TERM "$pid" 2>/dev/null || true
+  orphan_pids="$orphan_pids $pid"
+done <<EOF
+$orphan_rows
+EOF
+if [ -n "${orphan_pids# }" ]; then
+  sleep 0.5
+  for pid in $orphan_pids; do
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  echo "suite-end watcher orphan guard failed (docs/issues/2026-08-28-001)" >&2
+  [ "$rc" -ne 0 ] || rc=1
+fi
 exit "$rc"

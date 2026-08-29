@@ -5,7 +5,7 @@ type: "bug"
 category: "testing-ci"
 tags: ["herdr","process-cleanup","test-isolation","performance"]
 date: "2026-08-28"
-status: "open"
+status: "in-progress"
 priority: "medium"
 ---
 
@@ -45,3 +45,32 @@ floor: kill each watcher whose `--launcher-pid` process is dead (see
 - Fix in the watcher itself (exit when launcher pid vanishes) vs. in test
   teardown (broader reap) vs. both. The watcher-side fix also protects real
   (non-test) herdr usage from the same leak.
+
+## Findings (2026-08-29)
+
+Three escape paths confirmed by deterministic reproduction (red on the
+pre-fix revision, green after):
+
+1. `HERDR_CHILD_TEST_ARM_BARRIER` wait: spun at 10ms with no
+   `kill -0 "$launcher_pid"` check, so a SIGKILLed harness (which writes no
+   `abort.state`) orphaned the watcher forever.
+2. `HERDR_CHILD_TEST_WATCHER_RELEASE` wait: the launcher legitimately exits
+   before this hold is released, so launcher liveness cannot free it; an
+   abandoned hold (harness killed before touching the release file) spun
+   forever.
+3. Main supervision loop — the shape every live orphan on the machine
+   actually had (`ps` showed dead launcher, deleted run dir, growing
+   /dev/null write offset): once teardown removes the run dir, the
+   `herdr pane get` error path fails to write `$run_dir/pane-get.err`, the
+   `pane_not_found` grep finds nothing, and the loop treats every iteration
+   as transient — polling forever at `POLL_INTERVAL` (10ms in lifecycle
+   tests). This branch also affects real herdr usage when run state is
+   removed while herdr is unreachable.
+
+Fix: watchers now exit when their run dir disappears (main loop, release
+hold, invalidation loop); the pre-arm barrier fails on a dead launcher; all
+test-only barrier holds (arm, release, failure-publish) are bounded by
+`HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS` (default 120s). Test teardown
+escalates TERM→KILL, the blocking herdr stubs are bounded, and
+`tests/run-post-apply.sh` fails the run if any watcher from this checkout
+survives with a dead launcher (then reaps it).
