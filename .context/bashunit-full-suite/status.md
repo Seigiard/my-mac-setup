@@ -127,3 +127,9 @@ Re-read this file before every batch. Update after every batch.
 - MEDIUM zero-arg assert_output inversion: zero call sites in suite; documented, not churned.
 - MEDIUM setup_file ':' masking: fixed in converter. MEDIUM leak paths: TMPDIR globs added.
 - Coverage review: manifest exact both directions; function names now file-prefixed (collision fixed); 3 scenarios keep runtime bats dependency (scripts #101-103; #103 also requires tests/scripts.bats to remain) — verdict-relevant; orphaned probe file tests/herdr_child_descriptor_probe.bats = pre-existing dead coverage (issue to file).
+
+## FINAL (2026-08-29 ~05:10)
+
+- make test-ubuntu GREEN through the switched runner (full apply + templates + smithers + post-apply full via bashunit; idempotent 13/13 with real apply).
+- Contract test rewritten (MMS_BASHUNIT_BIN stub), docker-compose stages converter, lint excludes generated artifacts. All commits on optimize/test-suite-time; NOT pushed, no PR (per goal).
+- EXPERIMENT COMPLETE. Verdict: bashunit-full-suite-win. Migration performed and verified.

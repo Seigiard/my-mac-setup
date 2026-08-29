@@ -198,6 +198,21 @@ checksum-verified single file committed to the repo). Design choices:
   a file (`MMS_BASHUNIT_JOBS` overrides), idempotent.bats serialized.
 - bats remains a test dependency (three scenarios execute it at runtime).
 
+Follow-on changes the switch surfaced:
+
+- `tests/test_post_apply_suite_contract.py` asserted the exact bats argv by
+  intercepting `bats` on PATH; it now records invocations of the bashunit
+  binary via a `MMS_BASHUNIT_BIN` override and additionally asserts the
+  wrapper regenerates converted files from the .bats sources.
+- `docker/docker-compose.yml` staging now mounts and copies
+  `scripts/bats2bashunit.py` into the container worktree.
+- `make lint` excludes generated `*_test.sh` artifacts and `.context/`
+  working state from shellcheck.
+- The CI parallel-prerequisite assertions (bats ≥ 1.5, flock/shlock) remain:
+  bats is still installed and still true; loosening them was not worth
+  unverifiable CI churn.
+
 Post-switch verification: host-safe run rc=0 (390 tests, 0 failures), all
-8 negative controls pass, and a full `make test-ubuntu` Docker run through
+8 negative controls pass, contract tests and `make test-issues` (45/45)
+green, `make lint` rc=0, and a full `make test-ubuntu` Docker run through
 the switched runner.
