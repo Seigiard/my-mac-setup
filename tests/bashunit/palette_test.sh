@@ -7,7 +7,7 @@ _bats_file_init "${BASH_SOURCE[0]}"
 
 #
 # Behaviour tests for the herdr command palette, run against the chezmoi SOURCE
-# tree. tests/smoke.bats also exercises the palette, but from the applied copy
+# tree. tests/bashunit/smoke_test.sh also exercises the palette, but from the applied copy
 # under $HOME -- which is stale until `chezmoi apply`, a command this repo
 # forbids on the host. These tests read $SOURCE_ROOT instead, so they gate an
 # uncommitted edit in a bare checkout.

@@ -109,7 +109,7 @@ function test_idempotent_005_guard_an_empty_marker_does_not_yield_run() {
 
 function test_idempotent_006_guard_mms_disposable_home_0_does_not_yield_run() {
   _bats_test_init 6 'guard: MMS_DISPOSABLE_HOME=0 does not yield run'
-  # MMS_CI_MINIMAL treats any non-empty value as true (tests/templates.bats).
+  # MMS_CI_MINIMAL treats any non-empty value as true (tests/bashunit/templates_test.sh).
   # This guard deliberately diverges: a safety guard fails closed.
   run predicate_verdict MMS_DISPOSABLE_HOME=0
   assert_success

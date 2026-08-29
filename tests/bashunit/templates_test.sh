@@ -319,7 +319,7 @@ function test_templates_017_chezmoiremove_entries_are_absent_from_the_source() {
 
 function test_templates_018_chezmoiremove_deletes_the_retired_opencode_force() {
   _bats_test_init 18 '.chezmoiremove deletes the retired opencode forced theme'
-  # smoke.bats asserts the live file is gone; this entry is what makes
+  # smoke_test.sh asserts the live file is gone; this entry is what makes
   # `chezmoi apply` delete it on machines that deployed the old theme.
   run grep -qx '.config/opencode/themes/flexoki-light-forced.json' \
     "$SOURCE_ROOT/.chezmoiremove"

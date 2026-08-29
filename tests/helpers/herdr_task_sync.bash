@@ -1,5 +1,5 @@
-# Herdr task-sync Bats harness.
-# Load this after helpers/common so SOURCE_ROOT and bats assertion helpers exist.
+# Herdr task-sync test harness.
+# Load this after helpers/common so SOURCE_ROOT and the DSL assertion helpers exist.
 
 HTS_ENGINE="$SOURCE_ROOT/dot_local/bin/executable_herdr-task-sync"
 # shellcheck disable=SC2034 # The loading Bats file reads this shared harness value.
@@ -752,11 +752,11 @@ HTS_WAIT_MATCH_POLLS="${HTS_WAIT_MATCH_POLLS:-$((HTS_WAIT_CEILING_SECONDS * 40))
 # other two are only ever read by functions in this file.
 export HTS_WAIT_POLLS
 
-# The two bounds around the nested Bats run in "bounded Bats invocation exits
+# The two bounds around the nested runner invocation in "bounded bashunit invocation exits
 # after detached work". They are deliberately two numbers, not one, because a
 # hang guard and an assertion are different budgets: the old single 90 s budget
-# covered the whole nested run, most of which was Bats parsing every test in
-# tests/scripts.bats to reach the one the filter selects. The nested run now
+# covered the whole nested run, most of which was the runner parsing every test in
+# the full scripts suite to reach the one the filter selects. The nested run now
 # targets a dedicated one-test file, so the progress guard covers setup and the
 # probe itself rather than a whole-suite parse.
 #
@@ -772,7 +772,7 @@ export HTS_WAIT_POLLS
 # message instead of the job being killed with none.
 HTS_INNER_BATS_PROGRESS_SECONDS="${HTS_INNER_BATS_PROGRESS_SECONDS:-60}"
 # EXIT is the assertion, and the only bound here that can fire on a healthy run.
-# It covers Bats teardown and exit alone -- not the parse -- which is what takes
+# It covers runner teardown and exit alone -- not the parse -- which is what takes
 # the load sensitivity out. Sized from measurement, not intuition: the driver
 # prints its elapsed value on every run, and this is a large multiple of the
 # ~0.2 s observed under CPU saturation on a 10-core host. Must stay below

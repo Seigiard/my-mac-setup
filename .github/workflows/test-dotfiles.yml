@@ -37,11 +37,11 @@ env:
   # clears this again per-job, below.
   MMS_CI_MINIMAL: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '1' || '' }}
   # Declares this runner's $HOME disposable, which is the only thing that lets
-  # the idempotency scenario in tests/idempotent.bats run its real `chezmoi
+  # the idempotency scenario in tests/bashunit/idempotent_test.sh run its real `chezmoi
   # apply`. Unconditional on purpose: it must NOT copy the
   # trigger-conditional shape of MMS_CI_MINIMAL above, or the nightly
   # `schedule` and the manual `workflow_dispatch` runs would silently lose that
-  # coverage. tests/idempotent.bats hard-fails when GITHUB_ACTIONS is set and
+  # coverage. tests/bashunit/idempotent_test.sh hard-fails when GITHUB_ACTIONS is set and
   # this is absent, so a deletion here turns the suite red rather than green.
   MMS_DISPOSABLE_HOME: "1"
   # Runners lack node's release GPG key, so mise's signature check on
@@ -65,7 +65,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           # The Brewfile-diff step below needs the event's base commit present.
           # 691 commits, so this costs a second or two against the minutes the
           # minimal install saves.
@@ -232,7 +231,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           # The Brewfile-diff step below needs the event's base commit present.
           # 691 commits, so this costs a second or two against the minutes the
           # minimal install saves.

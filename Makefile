@@ -1,4 +1,4 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-smithers lint clean build-docker shell-ubuntu init-submodules
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-smithers lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
@@ -16,17 +16,11 @@ help:
 	@echo "  make build-docker     Build Docker image without running tests"
 	@echo "  make clean            Remove Docker containers and images"
 
-init-submodules:
-	@if [ ! -f tests/helpers/bats-libs/bats-support/load.bash ]; then \
-		echo "Initializing bats-libs submodules..."; \
-		git submodule update --init --recursive; \
-	fi
-
 test-issues:
 	python3 scripts/issues validate
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
-build-docker: init-submodules
+build-docker:
 	docker compose -f docker/docker-compose.yml build
 
 test-ubuntu: test-issues build-docker
@@ -51,7 +45,7 @@ shell-ubuntu: build-docker
 test-local:
 	chezmoi diff --source=./home
 
-# The parallel post-apply suite keeps tests/idempotent.bats excluded as
+# The parallel post-apply suite keeps tests/bashunit/idempotent_test.sh excluded as
 # redundant defense behind that file's MMS_DISPOSABLE_HOME guard. The guard
 # makes direct host runs inert, but the exclusion keeps this host-safe target
 # from reaching the real apply commands at all. Use `make test-ubuntu` to run
@@ -64,8 +58,8 @@ test-local:
 # green. `make test-ubuntu` applies the checkout first, which is why it is the
 # answer for an unapplied edit. The echo below repeats this at the point of
 # use, because a caveat that lives only in this comment reaches nobody.
-test-suite: init-submodules
-	@echo "NOTE: tests/idempotent.bats remains excluded behind its disposable-home guard."
+test-suite:
+	@echo "NOTE: tests/bashunit/idempotent_test.sh remains excluded behind its disposable-home guard."
 	@echo "      Use make test-ubuntu to run those real apply tests safely."
 	@echo "NOTE: asserts against the ALREADY-APPLIED ~/ , not this checkout."
 	@echo "      An edit under home/ is not covered until it is applied."

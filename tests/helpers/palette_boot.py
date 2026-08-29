@@ -1,8 +1,8 @@
 """Import the command-palette plugin modules from the chezmoi source tree.
 
-The paths arrive in PALETTE_PY / PALETTE_OPEN_PY, which tests/palette.bats points
-at $SOURCE_ROOT. That is the working checkout, so these tests fail on an edit
-chezmoi has not applied yet -- unlike tests/smoke.bats, which reads $HOME.
+The paths arrive in PALETTE_PY / PALETTE_OPEN_PY, which tests/bashunit/palette_test.sh
+points at $SOURCE_ROOT. That is the working checkout, so these tests fail on an edit
+chezmoi has not applied yet -- unlike tests/bashunit/smoke_test.sh, which reads $HOME.
 """
 
 from __future__ import annotations
