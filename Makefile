@@ -36,7 +36,7 @@ test-templates: test-issues build-docker
 	docker compose -f docker/docker-compose.yml run --rm -T test-ubuntu \
 		'set -e && (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/) && \
 		chezmoi init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
-		bats tests/templates.bats'
+		tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh'
 
 test-pi-agents-local:
 	bun test tests/pi-agents-local-extension.test.ts
@@ -76,9 +76,11 @@ test-docker: test-issues build-docker
 	@echo "=== Running Ubuntu tests ==="
 	docker compose -f docker/docker-compose.yml run --rm test-full
 
+# tests/bashunit/*_test.sh: converted test bodies; shellcheck them when the
+# vocabulary is nativized.
 lint:
 	@echo "=== Running shellcheck ==="
-	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "*/node_modules/*" -not -path "./.context/*" -not -name "*_test.sh" | xargs shellcheck --severity=warning
+	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "*/node_modules/*" -not -path "./.context/*" -not -path "./tests/bashunit/*_test.sh" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 	python3 scripts/check_bats_assertions.py tests

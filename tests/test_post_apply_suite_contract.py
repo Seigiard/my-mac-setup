@@ -35,37 +35,37 @@ class TestPostApplySuiteContract(unittest.TestCase):
             "make test-suite must call the host-safe wrapper mode exactly once",
         )
 
-        self.assertEqual(
+        self.assert_invocations(
             self.wrapper_invocations("full"),
             [
-                ["-j", "8", str(GENERATED / "smoke_test.sh")],
-                ["-j", "8", str(GENERATED / "scripts_test.sh")],
-                ["-j", "8", str(GENERATED / "palette_test.sh")],
-                ["-j", "8", str(GENERATED / "platform_test.sh")],
-                ["-j", "8", str(GENERATED / "idempotent_test.sh")],
+                str(GENERATED / "smoke_test.sh"),
+                str(GENERATED / "scripts_test.sh"),
+                str(GENERATED / "palette_test.sh"),
+                str(GENERATED / "platform_test.sh"),
+                str(GENERATED / "idempotent_test.sh"),
             ],
-            "full mode must run every converted suite file sequentially with 8 workers",
+            "full mode must run every suite file sequentially with 8 workers",
         )
-        self.assertEqual(
+        self.assert_invocations(
             self.wrapper_invocations("host-safe"),
             [
-                ["-j", "8", str(GENERATED / "smoke_test.sh")],
-                ["-j", "8", str(GENERATED / "scripts_test.sh")],
-                ["-j", "8", str(GENERATED / "palette_test.sh")],
-                ["-j", "8", str(GENERATED / "platform_test.sh")],
+                str(GENERATED / "smoke_test.sh"),
+                str(GENERATED / "scripts_test.sh"),
+                str(GENERATED / "palette_test.sh"),
+                str(GENERATED / "platform_test.sh"),
             ],
             "host-safe mode must keep the idempotent suite excluded",
         )
 
-    def test_wrapper_regenerates_the_converted_files_from_bats_sources(self):
-        target = GENERATED / "platform_test.sh"
-        if target.exists():
-            target.unlink()
-        self.wrapper_invocations("host-safe")
-        self.assertTrue(
-            target.exists(),
-            "the wrapper must regenerate converted files before running them",
-        )
+    def assert_invocations(self, invocations, expected_files, message):
+        self.assertEqual(len(invocations), len(expected_files), message)
+        for argv, expected_file in zip(invocations, expected_files):
+            # The report path is a fresh mktemp file per invocation, so assert
+            # the flag positions and the suite file but not the path itself.
+            self.assertEqual(len(argv), 5, message)
+            self.assertEqual(argv[0:2], ["-j", "8"], message)
+            self.assertEqual(argv[2], "--report-json", message)
+            self.assertEqual(argv[4], expected_file, message)
 
     def wrapper_invocations(self, mode):
         if not RUNNER.exists():
