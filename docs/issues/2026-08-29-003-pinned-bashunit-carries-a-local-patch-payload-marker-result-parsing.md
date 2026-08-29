@@ -5,8 +5,9 @@ type: "chore"
 category: "testing-ci"
 tags: ["bashunit","vendored-patch"]
 date: "2026-08-29"
-status: "in-progress"
+status: "done"
 priority: "medium"
+closed: "2026-08-29"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Keep the patch when re-pinning bashunit, or upstream it (github.com/TypedDevs/ba
 ## Open decisions
 
 None.
+
+## Resolution
+
+The patch stays vendored and is now regression-guarded instead of upstreamed: upstreaming to TypedDevs/bashunit remains possible later, but the repo needs protection against a silent re-pin today. Added tests/bashunit/bashunit_late_output_probe_test.sh, a deterministic late-child repro (the child waits for the test subshell to die via a bash-3.2-safe pid probe, then appends output after the payload line on the inherited capture), and tests/bashunit/scripts_test.sh test scripts_259, which runs the probe through the real pinned runner in parallel and sequential modes. Calibrated both states: green on the patched runner; against a de-patched copy (both 'Local patch vs upstream 0.50.1' sites reverted to the blind last-line read) the parallel leg reports a phantom failed test (exit 1) and the sequential leg zeroes the assertion count - both flip scripts_259 red. make test-suite passes with verdict parity to the clean baseline; python3 scripts/check_bats_assertions.py tests is clean.
