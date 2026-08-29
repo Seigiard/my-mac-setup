@@ -421,6 +421,7 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
   local files=(
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
+    skills/herdr/SKILL.md
     shared/child-agent-contract.md
     skills/se-flow/SKILL.md
     skills/se-cleanup/SKILL.md
@@ -934,29 +935,9 @@ function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
   assert_file_exists "$HOME/.local/lib/herdr-process.sh"
 }
 
-function test_smoke_060_deployed_herdr_child_contracts_expose_managed_su() {
-  _bats_test_init 60 'deployed herdr child contracts expose managed supervision modes'
-  local contract="$HOME/.claude/shared/child-agent-contract.md"
-  local skill="$HOME/.claude/skills/herdr/SKILL.md"
-  local consult="$HOME/.claude/skills/ask-in-herdr/SKILL.md"
-
-  assert_file_contains "$contract" 'herdr-child start.*--wait'
-  assert_file_contains "$contract" 'herdr-child start.*--detach'
-  assert_file_contains "$contract" 'generation.*event'
-  assert_file_contains "$contract" 'herdr-child prompt.*--wait'
-  assert_file_contains "$contract" 'herdr-child prompt.*--detach'
-  assert_file_contains "$contract" 'not.*task-success verdict'
-  assert_file_contains "$contract" 'start.*prompt.*reply.*nonzero.*recovery JSON'
-  assert_file_contains "$contract" 'Do not retry.*start.*same name'
-  assert_file_contains "$contract" 'herdr agent get.*pane-id'
-  assert_file_contains "$contract" 'managed.*herdr-child prompt.*--detach.*reap'
-  assert_file_contains "$skill" 'cooperative exclusive file scope'
-  assert_file_contains "$skill" 'nonzero recovery JSON.*preserving the child'
-  assert_file_contains "$skill" 'Do not retry.*start.*same name'
-  assert_file_contains "$skill" 'herdr agent get'
-  assert_file_contains "$skill" 'rearm.*managed.*prompt.*--detach.*reap'
-  assert_file_contains "$consult" 'attached.*--wait'
-}
+# Test 60 (prose regexes over the deployed contract docs) was removed as
+# tautological; test 21's manifest owns deployment of these files, and
+# scripts_test.sh test 058 round-trips the marker wire format at the source.
 
 function test_smoke_061_herdr_task_sync_claude_code_hook_is_deployed_and() {
   _bats_test_init 61 'herdr-task-sync Claude Code hook is deployed and executable'
