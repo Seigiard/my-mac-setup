@@ -1,4 +1,4 @@
-1..254
+1..257
 ok 1 python3 is present and at least 3.9, the floor README.md declares
 ok 2 lint target propagates shellcheck failures
 ok 3 CI-minimal Linux render skips Homebrew but keeps the remaining setup
@@ -100,7 +100,7 @@ ok 98 webfetch-markdown-hint adds context for a plain URL
 ok 99 webfetch-markdown-hint stays silent when the URL already uses markdown.new
 ok 100 settings template registers both PreToolUse hooks with their matchers
 ok 101 herdr-task-sync descriptor probe lives in a one-test Bats file
-inner Bats exit phase took 0.039s
+inner Bats exit phase took 0.049s
 ok 102 herdr-task-sync bounded Bats invocation exits after detached work
 ok 103 herdr-task-sync bounded Bats invocation refuses a vacuous run
 ok 104 herdr-task-sync harness fresh reads follow pane and tab mutations
@@ -147,7 +147,7 @@ ok 144 herdr-task-sync presentation fails closed without an exact socket
 ok 145 herdr-task-sync presentation restart recomputes durable pending intent without a label ledger
 ok 146 herdr-task-sync location resolves main linked nested and administrative paths with strict foreground semantics
 ok 147 herdr-task-sync dangling administrative gitdir retains stale location
-ok 148 herdr-task-sync location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water
+ok 148 herdr-task-sync location detached and non-Git identities persist across transient probes
 ok 149 herdr-task-sync location real probe shape pays the second sha call only when detached
 ok 150 herdr-task-sync location detached sha failure retains prior identity as stale and never publishes a malformed git_ref
 ok 151 herdr-task-sync location detached sha budget failure with no prior state renders no git location and self-heals
@@ -162,10 +162,10 @@ ok 159 herdr-task-sync formatter renders a main checkout ref in metadata only
 ok 160 herdr-task-sync formatter renders a worktree ref in metadata only
 ok 161 herdr-task-sync formatter keeps a Git-backed all-idle tab names-only
 ok 162 herdr-task-sync Git-only location changes do not rename a names-only tab
-ok 163 herdr-task-sync formatter keeps the folder qualifier on a main checkout in a differently-named folder
-ok 164 herdr-task-sync formatter reads the workspace display name from the legacy name field when label is absent
+ok 163 herdr-task-sync formatter never qualifies a Git branch with its folder
+ok 164 herdr-task-sync formatter reads the workspace display name from the legacy name field
 ok 165 herdr-task-sync formatter gives a detached HEAD inside a linked worktree the commit icon
-ok 166 herdr-task-sync formatter qualifies a divergent worktree folder in metadata only
+ok 166 herdr-task-sync formatter never qualifies a linked worktree branch with its folder
 ok 167 herdr-task-sync formatter keeps mixed Git identities out of tabs and repairs external labels
 ok 168 herdr-task-sync formatter joins only pane labels when three panes span two repositories
 ok 169 herdr-task-sync worktree tokens use shortest unique slash suffixes for basename collisions
@@ -173,14 +173,14 @@ ok 170 herdr-task-sync worktree tokens digest overlong roots and extend collidin
 ok 171 herdr-task-sync worktree token ordinal fallback is unique and stable under pane reordering
 ok 172 herdr-task-sync long branch refs stay in metadata and do not alter the tab label
 ok 173 herdr-task-sync long repository names do not alter a multi-repo tab label
-ok 174 herdr-task-sync location clears a retired location_label even when every published token already matches
+ok 174 herdr-task-sync clears retired aggregate tokens even when every published token already matches
 ok 175 herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state
-ok 176 herdr-task-sync publishes dirty ahead and behind counts beside an unchanged git_ref
-ok 177 herdr-task-sync clean checkout carries no counts token and republishes when only the counts change
-ok 178 herdr-task-sync counts every changed path once whether it is staged, unstaged, both, or untracked
+ok 176 herdr-task-sync publishes separator-free sidebar lines in display order
+ok 177 herdr-task-sync clean checkout carries no count tokens and republishes when only the counts change
+ok 178 herdr-task-sync separates conflicts staged unstaged and untracked paths
 ok 179 herdr-task-sync omits ahead and behind when the branch has no upstream
-ok 180 herdr-task-sync clears the counts token when a pane leaves a Git checkout
-ok 181 herdr-task-sync status probe over budget drops the counts and leaves git_ref intact
+ok 180 herdr-task-sync clears the count tokens when a pane leaves a Git checkout
+ok 181 herdr-task-sync status probe over budget drops the count tokens and leaves git_ref intact
 ok 182 herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory
 ok 183 herdr-task-sync keeps the counts when only the identity probe misses its budget
 ok 184 herdr-task-sync counts untracked paths its way, not the user git config's way
@@ -218,11 +218,11 @@ ok 215 herdr-task-sync --sweep relabels every tab
 ok 216 herdr-task-sync --sweep leaves an unchanged tab label alone
 ok 217 herdr-task-sync --sweep numbers all-idle tabs per workspace
 ok 218 herdr-task-sync --ensure-daemon keeps a single daemon
-/opt/homebrew/Cellar/bats-core/1.14.0/libexec/bats-core/bats-exec-test: line 92: 69316 Terminated: 15          sleep 30
+/opt/homebrew/Cellar/bats-core/1.14.0/lib/bats-core/tracing.bash: line 312: 60655 Terminated: 15          sleep 30
 ok 219 herdr-task-sync --ensure-daemon replaces a dead daemon
 ok 220 herdr-task-sync --restart-daemon replaces a live daemon
 ok 221 herdr-task-sync --restart-daemon refuses an unrelated lock owner
-/opt/homebrew/Cellar/bats-core/1.14.0/libexec/bats-core/bats-exec-test: line 366: 75006 Terminated: 15          sleep 30
+/opt/homebrew/Cellar/bats-core/1.14.0/libexec/bats-core/bats-exec-test: line 366: 61991 Terminated: 15          sleep 30
 ok 222 herdr-task-sync sweep daemon exits after three unreachable snapshots
 ok 223 herdr-task-sync hook stays silent and publishes nothing outside herdr
 ok 224 herdr-task-sync hook writes nothing to stdout when the engine runs
@@ -247,12 +247,15 @@ ok 242 se approve does not resume a run that already finished
 ok 243 se approve usage does not promise that approve continues the run
 ok 244 se blocks --json emits the composable block catalog # skip smithers deps not installed (run bun install in /Users/seigiard/Projects/my-mac-setup/.claude/worktrees/optimize-test-suite-time/home/private_dot_claude/dot_smithers)
 ok 245 Claude settings modifier registers the executor MCP server over stdio
-ok 246 Claude settings modifier passes settings through untouched without 1Password
-ok 247 Pi settings modifier selects the terminal theme and exact extension packages
-ok 248 Pi settings modifier is idempotent
-ok 249 Pi terminal theme uses only terminal palette colors
-ok 250 Claude Code daltonized theme extends light ANSI with terminal colors
-ok 251 morning-cleanup trashes stale .omc state and stamps the day
-ok 252 morning-cleanup keeps a recently active .omc dir
-ok 253 morning-cleanup is a no-op on its second run of the day
-ok 254 morning-cleanup keeps fresh trash entries
+ok 246 Claude settings modifier registers the credential-free MCP servers without 1Password
+ok 247 Claude settings modifier registers each credentialed MCP server independently
+ok 248 Claude settings modifier registers tavily-mcp when only its credential resolves
+ok 249 Claude settings modifier passes settings through untouched without jq
+ok 250 Pi settings modifier selects the terminal theme and exact extension packages
+ok 251 Pi settings modifier is idempotent
+ok 252 Pi terminal theme uses only terminal palette colors
+ok 253 Claude Code daltonized theme extends light ANSI with terminal colors
+ok 254 morning-cleanup trashes stale .omc state and stamps the day
+ok 255 morning-cleanup keeps a recently active .omc dir
+ok 256 morning-cleanup is a no-op on its second run of the day
+ok 257 morning-cleanup keeps fresh trash entries
