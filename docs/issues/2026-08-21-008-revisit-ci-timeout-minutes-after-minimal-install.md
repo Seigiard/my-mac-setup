@@ -5,7 +5,7 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["testing-ci","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "in-progress"
 priority: "low"
 parent-plan: "docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md"
 ---

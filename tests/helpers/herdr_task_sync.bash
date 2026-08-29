@@ -768,7 +768,7 @@ export HTS_WAIT_POLLS
 # its pid file. It never fires in a healthy run or in the guarded regression --
 # only a genuine hang reaches it. Sixty seconds is intentionally still a guard,
 # not a performance budget: it is far above the measured dedicated-file run, and
-# far enough below the macOS job's timeout-minutes: 25 that it prints its own
+# far enough below the macOS job's timeout-minutes: 20 that it prints its own
 # message instead of the job being killed with none.
 HTS_INNER_BATS_PROGRESS_SECONDS="${HTS_INNER_BATS_PROGRESS_SECONDS:-60}"
 # EXIT is the assertion, and the only bound here that can fire on a healthy run.
