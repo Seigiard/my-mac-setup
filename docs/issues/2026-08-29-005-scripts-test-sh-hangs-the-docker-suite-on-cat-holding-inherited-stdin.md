@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["bashunit","inherited-descriptors","herdr-task-sync","docker-suite"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-29"
 ---
 
 ## Why this exists
@@ -50,3 +51,7 @@ Impact: `make test-ubuntu` is the only target that applies the checkout before a
 ## Open decisions
 
 - Whether a suite-level guard belongs here as well: a runner that refuses to wait on an inherited stdin pipe would turn this class of hang into a fast failure for every future test, not just these two.
+
+## Resolution
+
+Redirected stdin from /dev/null for the three fail-open guard invocations that expect no payload. Verified both affected tests under an intentionally open stdin pipe, the 258-test scripts suite with no surviving cat in anon_pipe, and make test-ubuntu to completion with exit status 0.

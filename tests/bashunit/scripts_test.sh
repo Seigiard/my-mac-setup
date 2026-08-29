@@ -3399,7 +3399,7 @@ function test_scripts_119_herdr_task_sync_fail_open_deadline_rejects_late() {
   local HTS_FAIL_OPEN_BASELINE_MULTIPLIER=1
   local HTS_FAIL_OPEN_MAX_SECONDS=5
 
-  run hts_run_fail_open_guard sleep 2
+  run hts_run_fail_open_guard sleep 2 < /dev/null
 
   assert_failure 124
   assert_output --partial "exceeded fail-open behavioral deadline"
@@ -3448,7 +3448,7 @@ function test_scripts_121_herdr_task_sync_fails_open_for_missing_tools_con() {
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   rmdir "$namespace/tasks"
   printf 'not-a-directory\n' > "$namespace/tasks"
-  run hts_run_fail_open_guard hts_worker_run
+  run hts_run_fail_open_guard hts_worker_run < /dev/null
   assert_success
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]] || fail "worker write failure committed its pending generation"
@@ -3469,7 +3469,7 @@ function test_scripts_121_herdr_task_sync_fails_open_for_missing_tools_con() {
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   task_file="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 commit-write-failure)"
   mkdir "$task_file"
-  run hts_run_fail_open_guard hts_worker_run
+  run hts_run_fail_open_guard hts_worker_run < /dev/null
   assert_success
   [[ "$(hts_record_number "$control" generation)" -gt \
     "$(hts_record_number "$control" committed_generation)" ]] || fail "task write failure committed its pending generation"
