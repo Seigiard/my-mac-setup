@@ -463,6 +463,27 @@ function test_smoke_022_shared_references_are_deployed() {
   assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
   assert_file_exists "$HOME/.claude/shared/decision-brief.md"
   assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
+  assert_file_exists "$HOME/.claude/shared/long-running-work.md"
+}
+
+# A shared file that is renamed or moved keeps the deployment tests above green
+# while the CLAUDE.md pointer reaching it goes dead, because those tests and the
+# pointer are edited independently. Resolving the pointer against the deployed
+# tree is what fails on that split.
+function test_smoke_075_claude_md_pointers_into_shared_resolve() {
+  _bats_test_init 75 'CLAUDE.md pointers into ~/.claude/shared resolve'
+  local claude_md="$HOME/.claude/CLAUDE.md"
+  assert_file_exists "$claude_md"
+
+  local pointers
+  pointers="$(grep -o '~/\.claude/shared/[A-Za-z0-9._-]*\.md' "$claude_md" | sort -u)"
+  [ -n "$pointers" ] || fail "no ~/.claude/shared pointer found in $claude_md"
+
+  local pointer missing=""
+  while IFS= read -r pointer; do
+    [ -f "$HOME/${pointer#\~/}" ] || missing="$missing $pointer"
+  done <<< "$pointers"
+  [ -z "$missing" ] || fail "CLAUDE.md points at missing files:$missing"
 }
 
 # ===========================================

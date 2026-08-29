@@ -97,6 +97,15 @@ Pick one (more recent / more tested), state why in one line, and flag the other 
 - Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
 
+**Long-running work**
+
+<important if="you are about to start, background, or wait on a long-running process — build, test run, dev server, migration, background agent, remote job">
+
+- Read `~/.claude/shared/long-running-work.md` before launching. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
+- The herdr block below decides *where* the process runs when `HERDR_ENV=1`. It does not replace the supervision contract — pane placement comes from herdr, supervision from that document.
+
+</important>
+
 <important if="you are about to start a long-running or observable process — dev server, test watcher, log tail, build — and HERDR_ENV=1 is set">
 
 - You are inside herdr, a terminal multiplexer. The user watches panes, not your background processes.
