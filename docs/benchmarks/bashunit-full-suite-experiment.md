@@ -1,7 +1,6 @@
 # bashunit full-suite migration experiment
 
-Status: IN PROGRESS — this skeleton is filled in as phases complete.
-Working state: `.context/bashunit-full-suite/status.md` (not committed to main docs).
+Status: COMPLETE.
 
 ## Question
 
@@ -13,7 +12,24 @@ reduced? The Bats files are the immutable behavioral oracle.
 
 ## Verdict
 
-TBD — one of `bashunit-full-suite-win | -neutral | -rejected | -inconclusive`.
+**`bashunit-full-suite-win`**
+
+- Behavior preserved: per-scenario parity 403/403 (status, skip reasons,
+  exit codes) on macOS (host-safe, 390) and Ubuntu/Docker (full mode incl.
+  real `chezmoi apply` idempotent scenarios, 403), verified by a
+  manifest-keyed per-scenario verifier whose failure detection is proven by
+  8 negative controls. Flake re-check: 0/10 failures on both runners for the
+  one scenario that flaked once.
+- Wall-clock reduced beyond noise: −24.1% host-safe on macOS, −24.4% full
+  mode in Docker (3 interleaved paired reps each, worst CV 2.1%, only
+  clean-exit repetitions counted).
+- Cleanup parity holds within the monitored leak classes (see Cleanup
+  evidence for the scope qualification).
+
+Caveats carried into production: bats stays installed for three
+nested-runner scenarios; the compat shim is a real maintenance surface
+(see Maintenance cost); the watcher-class leak allowlist is rate-blind by
+design, with counts reported per run.
 
 ## Environment
 
@@ -117,8 +133,9 @@ re-verified per-scenario on both platforms.
 - macOS (host-safe, 390 scenarios): per-scenario parity OK for all four
   files under the hardened leak harness; both runners exit 0.
 - Ubuntu/Docker (full mode, incl. real `chezmoi apply` idempotent
-  scenarios): 400/400 parity pre-rebase; final 403-scenario pass —
-  see Verdict.
+  scenarios): 400/400 parity pre-rebase; final pass on the rebased oracle:
+  **403/403** (platform 2, palette 57, smoke 74, scripts 257,
+  idempotent 13), both runners exit 0 on every file.
 
 ## Performance
 
@@ -131,10 +148,11 @@ counts only if both halves exit 0.
   bats raw [137209, 138872, 140268] median 138872 ms (MAD 1396, CV 0.9%);
   bashunit raw [107307, 105276, 105417] median 105417 ms (MAD 141, CV 0.9%);
   **%change −24.1% — improvement beyond noise.**
-- **Docker, full mode (incl. real-apply idempotent), 3 reps, final shim**
-  (pre-rebase 400-scenario oracle): bats median 82200 ms (CV 1.4%) vs
-  bashunit 62335 ms (CV 1.0%) → **−24.2%, beyond noise**, all exits 0.
-- Final-oracle (403) Docker rep: see Verdict.
+- **Docker, full mode (incl. real-apply idempotent), 3 reps, final oracle
+  (403 scenarios)**: bats raw [81457, 77497, 80625] median 80625 ms
+  (CV 2.1%); bashunit raw [61511, 60863, 60966] median 60966 ms (CV 0.5%);
+  **%change −24.4% — improvement beyond noise**, all exits 0. (An earlier
+  pre-rebase 400-scenario run measured −24.2% with the same shim.)
 
 ## Cleanup evidence
 
@@ -165,4 +183,21 @@ evidence and reported with counts rather than gated.
 
 ## Migration performed?
 
-TBD.
+Yes. `tests/run-post-apply.sh` now converts the .bats files on the fly and
+executes them with the pinned `tests/lib/bashunit` (0.50.1,
+checksum-verified single file committed to the repo). Design choices:
+
+- **The .bats files remain the single source of truth.** Conversion is
+  deterministic and takes under a second, so the generated
+  `tests/bashunit/*_test.sh` + `manifest.tsv` are gitignored build
+  artifacts, not committed duplicates — no drift surface.
+- The runner interface (`full|host-safe`) and every call site (Makefile,
+  docker-compose, CI workflows) are unchanged.
+- Execution shape mirrors the old `bats --jobs 8
+  --no-parallelize-across-files`: sequential across files, 8 workers within
+  a file (`MMS_BASHUNIT_JOBS` overrides), idempotent.bats serialized.
+- bats remains a test dependency (three scenarios execute it at runtime).
+
+Post-switch verification: host-safe run rc=0 (390 tests, 0 failures), all
+8 negative controls pass, and a full `make test-ubuntu` Docker run through
+the switched runner.

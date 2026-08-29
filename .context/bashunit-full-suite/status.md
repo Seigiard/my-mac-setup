@@ -113,7 +113,11 @@ Re-read this file before every batch. Update after every batch.
 - Filed 2026-08-29-002: orphaned tests/herdr_child_descriptor_probe.bats.
 - NOTE: host has runaway `openusage` at 100% of one core since Thu — constant symmetric load; interleaved pairing compensates. Report to user.
 - Issue-number collision to flag: peer session filed a different 2026-08-28-001 in their worktree; both files now coexist after rebase (2026-08-28-001-assert-file-not-exists... and 2026-08-28-001-peer-test-rules...).
-- In flight: formal host-safe bench 3 reps (bg bgqtfomb5). Next: Docker final pass (403 scenarios, full-mode bench), verdict, report.
+- Host bench (3 reps): bats median 138872ms (CV 0.9%) vs bashunit 105417ms (CV 0.9%) → **-24.1%, beyond noise**, all exits 0. Note: runaway `openusage` at 100% of one core throughout — constant, symmetric.
+- Docker final pass (rebased oracle): **403/403 parity full mode** (all five files, real apply), all exits 0; full-mode bench 3 reps: bats 80625ms (CV 2.1%) vs bashunit 60966ms (CV 0.5%) → **-24.4%, beyond noise**.
+- **VERDICT: bashunit-full-suite-win.** Report filled (docs/benchmarks/bashunit-full-suite-experiment.md).
+- **MIGRATION DONE** (commit 6cab1cd): tests/run-post-apply.sh converts on the fly + runs pinned tests/lib/bashunit; generated *_test.sh/manifest gitignored (.bats = single source of truth); run-post-apply-bashunit.sh removed; compare/bench regenerate themselves. Post-switch: host-safe rc=0 (390 tests), 8/8 controls.
+- In flight: `make test-ubuntu` full Docker verification through the switched runner (bg b3qddh318).
 
 ## Parity review resolution (review-parity.md)
 
