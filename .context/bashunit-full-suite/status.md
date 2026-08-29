@@ -108,7 +108,12 @@ Re-read this file before every batch. Update after every batch.
 - Overnight background compare hung at 21:38 (machine sleep) — killed, rerun.
 - New scripts scenarios use `run --separate-stderr` + assert_stderr/refute_stderr → shim support added (commit af7b55e). compare scripts: **257/257 parity**, bats 112s / bashunit 100s, both exit 0. One bashunit-only watcher LEAK-INFO (allowlisted class, not gating).
 - Cleanup-review fixes applied (commit 39d5b26): widened LEAK_PATTERNS (sleep/bun/python3 -/hts./palette.), snapshot_tmp (+hts.*, palette.*, tmp.*, chezmoi-test.yaml), count-aware (xN) normalization, honest gate comment, negative control 7 (allowlist hole documented). **All 8 negative controls pass.**
-- In flight: 4-file host-safe compare with hardened harness (bg berwj6txk).
+- Hardened-harness 4-file host compare: platform 2/2, palette 57/57, smoke 74/74, scripts 257/257 — **390/390 host-safe parity on rebased oracle**.
+- Widened globs caught a real finding: hts.X debris — BOTH runners shed `state/sockets`-only hts.* dirs (teardown races surviving engine process; 2490 historical bats dirs under $TMPDIR). Filed 2026-08-29-001. Shim gap fixed: BATS_TMPDIR now exported like bats. Gate now class-level (counts reported, not gated); TMP/hts.X allowlisted with evidence. Commit 7f0c99d.
+- Filed 2026-08-29-002: orphaned tests/herdr_child_descriptor_probe.bats.
+- NOTE: host has runaway `openusage` at 100% of one core since Thu — constant symmetric load; interleaved pairing compensates. Report to user.
+- Issue-number collision to flag: peer session filed a different 2026-08-28-001 in their worktree; both files now coexist after rebase (2026-08-28-001-assert-file-not-exists... and 2026-08-28-001-peer-test-rules...).
+- In flight: formal host-safe bench 3 reps (bg bgqtfomb5). Next: Docker final pass (403 scenarios, full-mode bench), verdict, report.
 
 ## Parity review resolution (review-parity.md)
 

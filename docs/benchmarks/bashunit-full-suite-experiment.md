@@ -6,7 +6,8 @@ Working state: `.context/bashunit-full-suite/status.md` (not committed to main d
 ## Question
 
 Can the full production post-apply shell-test suite (`tests/run-post-apply.sh`:
-smoke, scripts, palette, platform, idempotent — 400 scenarios) migrate from
+smoke, scripts, palette, platform, idempotent — 403 scenarios after the rebase
+onto main `9161046`) migrate from
 Bats 1.14 to bashunit 0.50.1 with behavior preserved and wall-clock time
 reduced? The Bats files are the immutable behavioral oracle.
 
@@ -43,7 +44,10 @@ TBD — one of `bashunit-full-suite-win | -neutral | -rejected | -inconclusive`.
 - `scripts/run-negative-controls.sh` — proves the verifier rejects: missing
   scenario, duplicated mapping, incorrect skip, weakened assertion
   (fail→pass), skip-reason drift, leaked process/path; plus a positive
-  control.
+  control and an allowlist-blindness control that documents the one accepted
+  hole (a bashunit-only leak of the oracle-stochastic watcher class is
+  excused by design and visible only via LEAK-INFO counts). 8 controls total,
+  all passing.
 
 ## Scenario coverage
 
@@ -52,11 +56,14 @@ TBD — one of `bashunit-full-suite-win | -neutral | -rejected | -inconclusive`.
 | platform.bats | 2 | OK | OK |
 | palette.bats | 57 | OK | OK |
 | smoke.bats | 74 | OK | OK |
-| scripts.bats | 254 | OK | OK (one scenario flake-rate under measurement) |
+| scripts.bats | 257 | OK | OK (flake-rate 0/10 both runners for the one once-flaky scenario) |
 | idempotent.bats | 13 | OK (guard/skip mode) | OK (real chezmoi apply) |
 
 Independent coverage review reconciled the manifest exactly in both
-directions (400/400, verbatim skip messages, no duplicates).
+directions (verbatim skip messages, no duplicates) at 400 scenarios; the
+rebase added three scripts scenarios (`run --separate-stderr` +
+`assert_stderr`/`refute_stderr`, support added to the shim) for 403 total,
+re-verified per-scenario on both platforms.
 
 ## Compatibility findings
 
@@ -91,29 +98,70 @@ directions (400/400, verbatim skip messages, no duplicates).
   A full migration therefore keeps bats installed and keeps that .bats file
   present, or must change what those scenarios test.
 - The suite itself leaks orphaned herdr-child watchers nondeterministically
-  under BOTH runners (observed bats-only, both-sides, and bashunit-only across
-  repeated runs); the cleanup gate treats this class as oracle-stochastic and
-  gates only on bashunit-only leaks outside it. This experiment's diagnosis
-  also found 12 accumulated orphans on the host machine from earlier runs.
+  under BOTH runners; the cleanup gate treats this class as oracle-stochastic
+  and gates only on bashunit-only leak classes outside the allowlist. This
+  experiment's diagnosis also found 12 accumulated orphans on the host
+  machine from earlier runs.
+- Bats exports `BATS_TMPDIR` (= `$TMPDIR`); helpers use
+  `${BATS_TMPDIR:-/tmp}`. The shim initially did not export it, which split
+  identical debris across `/tmp` vs `$TMPDIR` and masqueraded as a
+  bashunit-only leak. Fixed; the shim now exports it exactly as bats does.
+- The widened leak monitoring exposed a pre-existing suite bug: hts test
+  teardown races a surviving engine process that recreates
+  `$HTS_STATE/sockets` after `rm -rf`, shedding one `hts.XXXXXX` dir per
+  affected test under BOTH runners (2490 historical bats-shed dirs found
+  under `$TMPDIR`). Filed as docs/issues/2026-08-29-001.
 
 ## Platform results
 
-TBD (macOS per-file comparisons in progress; Ubuntu pending).
+- macOS (host-safe, 390 scenarios): per-scenario parity OK for all four
+  files under the hardened leak harness; both runners exit 0.
+- Ubuntu/Docker (full mode, incl. real `chezmoi apply` idempotent
+  scenarios): 400/400 parity pre-rebase; final 403-scenario pass —
+  see Verdict.
 
 ## Performance
 
-TBD — `tests/bashunit/bench-bats-vs-bashunit.sh`: 3+ interleaved paired
-repetitions per mode, quiet machine, only clean runs count; raw durations,
-median, MAD, CV, %change.
+`tests/bashunit/bench-bats-vs-bashunit.sh`: interleaved paired repetitions
+(bats/bashunit alternating), orphan reaping between halves, a repetition
+counts only if both halves exit 0.
+
+- **Host, host-safe mode, 3 reps** (macOS arm64; constant background load
+  from a runaway single-core process, identical for both halves):
+  bats raw [137209, 138872, 140268] median 138872 ms (MAD 1396, CV 0.9%);
+  bashunit raw [107307, 105276, 105417] median 105417 ms (MAD 141, CV 0.9%);
+  **%change −24.1% — improvement beyond noise.**
+- **Docker, full mode (incl. real-apply idempotent), 3 reps, final shim**
+  (pre-rebase 400-scenario oracle): bats median 82200 ms (CV 1.4%) vs
+  bashunit 62335 ms (CV 1.0%) → **−24.2%, beyond noise**, all exits 0.
+- Final-oracle (403) Docker rep: see Verdict.
 
 ## Cleanup evidence
 
-TBD — leak checks run around every side-by-side comparison; negative control
-proves they fire.
+Leak checks (process + tmp-path snapshots, class-normalized with per-class
+counts) run around every side-by-side comparison; negative controls prove
+both that they fire (control 6) and where they are blind by design
+(control 7). The parity claim is scoped: **bashunit introduces no new leaks
+within the monitored classes** (herdr daemons, sleep timers, bun trees,
+`python3 -` drivers, stub dirs, hts./palette./tmp. and harness tmp paths,
+chezmoi test config). Classes shed by the oracle itself (herdr-child
+watchers, sweep-daemon, hts.X state dirs) are allowlisted with recorded
+evidence and reported with counts rather than gated.
 
 ## Maintenance cost
 
-TBD.
+- `tests/bashunit/bats-compat.bash` (~530 lines) is the single carrying
+  cost: it re-implements measured Bats semantics (ERR-trap failure shape,
+  `run` capture, assert vocabulary incl. `--separate-stderr`/stderr asserts,
+  skip, tmpdir contract). New Bats idioms adopted in tests must be added
+  here — the rebase during the experiment required exactly that
+  (three `--separate-stderr` scenarios), a ~60-line addition found
+  immediately by the per-scenario verifier.
+- `scripts/bats2bashunit.py` converter + manifest keep the migration
+  mechanical and re-runnable; drift is detectable by re-converting.
+- Three scripts.bats scenarios execute `bats` at runtime, so bats remains a
+  test dependency even after a switch (and `tests/scripts.bats` must remain
+  present for one of them).
 
 ## Migration performed?
 
