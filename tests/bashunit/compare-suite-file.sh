@@ -16,8 +16,13 @@ BU_PATH="${BU_PATH:-$ROOT/tests/bashunit/${BASE}_test.sh}"
 MANIFEST="${MANIFEST:-$ROOT/tests/bashunit/manifest.tsv}"
 mkdir -p "$OUT_DIR"
 
-# Daemon/process patterns this suite is known to spawn.
-LEAK_PATTERNS='htspwn|herdr|sweep-daemon|chezmoi-test'
+# Daemon/process patterns this suite is known to spawn. Beyond the named
+# daemons this covers the anonymous spawn classes the cleanup review found
+# unmonitored: bare sleep timers/fake lock owners, bun test trees,
+# `python3 -` heredoc drivers, and stubs living under hts.XXXXXX /
+# palette.XXXXXX work dirs. The gate is directional (bashunit-only fails),
+# so symmetric ambient matches cost nothing.
+LEAK_PATTERNS='htspwn|herdr|sweep-daemon|chezmoi-test|/hts\.|/palette\.|sleep [0-9]|bun test|python3 -$'
 
 snapshot_procs() {
   # macOS pgrep has no -E; its patterns are ERE already. Exclude ambient
@@ -38,19 +43,34 @@ snapshot_procs() {
     || true
 }
 snapshot_tmp() {
+  # Also watch the classes teardown regressions would shed (cleanup review
+  # H2): hts.XXXXXX / palette.XXXXXX work dirs, bare mktemp tmp.XXXXXX stub
+  # dirs, and the chezmoi test config.
   ls -d /tmp/htspwn* /tmp/bats-compat-run.* /tmp/bats-run-* \
+    /tmp/hts.* /tmp/palette.* /tmp/tmp.* /tmp/chezmoi-test.yaml \
     "${TMPDIR:-/tmp}"/bats-compat-run.* "${TMPDIR:-/tmp}"/bats-run-* \
+    "${TMPDIR:-/tmp}"/hts.* "${TMPDIR:-/tmp}"/palette.* \
+    "${TMPDIR:-/tmp}"/tmp.* \
     2>/dev/null | sort -u || true
 }
 
 # Normalize a leak line to its CLASS: strip pid, hex generations, tmp names,
 # and numeric ids so the same kind of leak on both sides compares equal.
+# Count-aware (cleanup review H3): N instances of a class emit "class (xN)",
+# so a side leaking MORE of the same class no longer compares equal to a
+# side leaking one.
 normalize_leaks() {
   sed -e 's/^[0-9][0-9]* //' \
       -e 's/[0-9a-f]\{32\}/HASH/g' \
       -e 's/tmp\.[A-Za-z0-9]\{6,\}/tmp.X/g' \
+      -e 's/hts\.[A-Za-z0-9]\{6,\}/hts.X/g' \
+      -e 's/palette\.[A-Za-z0-9]\{6,\}/palette.X/g' \
+      -e 's/bats-compat-run\.[A-Za-z0-9]\{6,\}/bats-compat-run.X/g' \
+      -e 's/bats-run-[A-Za-z0-9]\{6,\}/bats-run-X/g' \
       -e 's/--launcher-pid [0-9]*/--launcher-pid N/' \
-      -e 's/[0-9][0-9]*/N/g' | sort -u
+      -e 's/[0-9][0-9]*/N/g' \
+    | sort | uniq -c \
+    | sed -e 's/^ *\([0-9][0-9]*\) \(.*\)$/\2 (x\1)/'
 }
 
 # new_entries <pre> <post> — lines in post but not in pre.
@@ -109,9 +129,12 @@ bu_leaks="$(collect_leaks "bashunit/$BASE" "$pre_procs" "$pre_tmp")"
 reap_orphan_watchers
 
 # Cleanup gate, directional: bashunit must not leak any class the bats oracle
-# does not also produce. Known-stochastic classes the ORACLE itself leaks
-# nondeterministically (observed bats-only, both-sides, and bashunit-only
-# across repeated runs) are reported but do not fail the gate.
+# does not also produce. Recorded oracle-side evidence for the allowlisted
+# classes (status.md): herdr-child watchers observed both-sides symmetric and
+# as ambient debris of aborted bats runs (launcher-death mechanism
+# understood); sweep-daemon observed once, bats-only. The allowlist is
+# rate-blind by design — counts are still visible in the (xN) suffix of
+# LEAK-INFO lines, and per-run frequency is aggregated in the benchmark reps.
 KNOWN_STOCHASTIC='herdr-child __watcher|herdr-task-sync --sweep-daemon'
 bu_only="$(printf '%s\n' "$bu_leaks" | grep -vxF -f <(printf '%s\n' "$bats_leaks") | grep . || true)"
 bats_only="$(printf '%s\n' "$bats_leaks" | grep -vxF -f <(printf '%s\n' "$bu_leaks") | grep . || true)"

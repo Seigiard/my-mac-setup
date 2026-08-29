@@ -12,6 +12,11 @@
 #   4 wrong-status shim weakened: failing test passes    -> MISMATCH-STATUS
 #   5 skip-reason  skip reason text drifted              -> MISMATCH-SKIP-REASON
 #   6 leak         converted side leaks process + path   -> LEAK-PROCESS, LEAK-PATH
+#   7 allowlist    bashunit-only leak of an allowlisted class (herdr-child
+#                  __watcher) passes the gate by design -> rc 0 + LEAK-INFO.
+#                  This control documents the accepted allowlist hole rather
+#                  than detection coverage: a deterministic watcher leak is
+#                  excused, visible only via the LEAK-INFO (xN) counts.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -162,6 +167,41 @@ grep -q "LEAK-PROCESS" "$d/log" && grep -q "LEAK-PATH" "$d/log" && [ $rc -ne 0 ]
 # Clean the deliberate leak.
 pkill -f htspwn-negctl-sleep 2>/dev/null
 command rm -f /tmp/htspwn-negctl-leak
+
+# --- 7 allowlist blindness (expected PASS: documents the accepted hole) ------
+d="$WORK/allowlist"; mkdir -p "$d"
+python3 "$ROOT/scripts/bats2bashunit.py" --out-dir "$d" \
+  --manifest "$d/manifest.tsv" "$FIX/leak.bats" >/dev/null
+python3 - "$d/leak_test.sh" "$ROOT" "$FIX" <<'PYEOF'
+import sys
+p, root, fix = sys.argv[1:4]
+s = open(p).read()
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/bats-compat.bash', root + '/tests/bashunit/bats-compat.bash')
+s = s.replace('$(dirname "${BASH_SOURCE[0]}")/../leak.bats', fix + '/leak.bats')
+open(p, 'w').write(s)
+PYEOF
+python3 - "$d/leak_test.sh" <<'EOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = "run echo clean"
+inject = (
+  # Same double-fork shape as control 6, but the argv matches the
+  # KNOWN_STOCHASTIC watcher class, so the directional gate must NOT fail.
+  '( bash -c "exec -a \\"herdr-child __watcher --launcher-pid 99999\\" sleep 45" </dev/null >/dev/null 2>&1 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- & )\n'
+  '  ' + marker)
+s = s.replace(marker, inject)
+open(p, 'w').write(s)
+EOF
+( cd "$ROOT" && \
+  OUT_DIR="$d" BATS_PATH="$FIX/leak.bats" BU_PATH="$d/leak_test.sh" \
+  MANIFEST="$d/manifest.tsv" bash tests/bashunit/compare-suite-file.sh leak 4 ) \
+  > "$d/log" 2>&1
+rc=$?
+grep -q "LEAK-INFO" "$d/log" && [ $rc -eq 0 ] \
+  && echo "NEGCTL PASS: allowlisted watcher leak is excused (documented hole; LEAK-INFO only)" \
+  || { echo "NEGCTL FAIL: allowlist-blindness control"; sed -n '1,15p' "$d/log" | sed 's/^/    /'; failures=$((failures+1)); }
+pkill -f "herdr-child __watcher --launcher-pid 99999" 2>/dev/null
 
 if [ "$failures" -eq 0 ]; then
   echo "ALL NEGATIVE CONTROLS PASS"
