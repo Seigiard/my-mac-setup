@@ -99,10 +99,10 @@ new_entries() {
   printf '%s\n' "$2" | grep -vxF -f <(printf '%s\n' "$1") || true
 }
 
-# collect_leaks <label> <pre_procs> <pre_tmp> — echoes normalized new
-# process/path entries after a 2s settle-retry (teardown TERM needs a moment).
+# collect_leaks <pre_procs> <pre_tmp> — echoes normalized new process/path
+# entries after a 2s settle-retry (teardown TERM needs a moment).
 collect_leaks() {
-  local label="$1" pre_procs="$2" pre_tmp="$3" post_procs post_tmp tries=0
+  local pre_procs="$1" pre_tmp="$2" post_procs post_tmp tries=0
   while :; do
     post_procs="$(snapshot_procs)"
     post_tmp="$(snapshot_tmp)"
@@ -136,7 +136,7 @@ bats --jobs "$JOBS" --no-parallelize-across-files --tap \
   "$BATS_PATH" > "$OUT_DIR/bats-$BASE.tap" 2>&1
 bats_rc=$?
 bats_secs=$(( $(date +%s) - start ))
-bats_leaks="$(collect_leaks "bats/$BASE" "$pre_procs" "$pre_tmp")"
+bats_leaks="$(collect_leaks "$pre_procs" "$pre_tmp")"
 reap_orphan_watchers
 
 pre_procs="$(snapshot_procs)"; pre_tmp="$(snapshot_tmp)"
@@ -146,7 +146,7 @@ start=$(date +%s)
   "$BU_PATH" > "$OUT_DIR/bashunit-$BASE.tap" 2>&1
 bu_rc=$?
 bu_secs=$(( $(date +%s) - start ))
-bu_leaks="$(collect_leaks "bashunit/$BASE" "$pre_procs" "$pre_tmp")"
+bu_leaks="$(collect_leaks "$pre_procs" "$pre_tmp")"
 reap_orphan_watchers
 
 # Cleanup gate, directional: bashunit must not leak any class the bats oracle
@@ -164,7 +164,6 @@ KNOWN_STOCHASTIC='herdr-child __watcher|herdr-task-sync --sweep-daemon|^path: TM
 bu_classes="$(printf '%s\n' "$bu_leaks" | strip_counts)"
 bats_classes="$(printf '%s\n' "$bats_leaks" | strip_counts)"
 bu_only="$(printf '%s\n' "$bu_classes" | grep -vxF -f <(printf '%s\n' "$bats_classes") | grep . || true)"
-bats_only="$(printf '%s\n' "$bats_classes" | grep -vxF -f <(printf '%s\n' "$bu_classes") | grep . || true)"
 bu_only_hard="$(printf '%s\n' "$bu_only" | grep -Ev "$KNOWN_STOCHASTIC" | grep . || true)"
 if [ -n "$bu_only_hard" ]; then
   echo "LEAK-PARITY-MISMATCH (bashunit-only, not a known oracle-stochastic class):"

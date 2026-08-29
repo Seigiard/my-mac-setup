@@ -13,6 +13,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 JOBS="${MMS_BASHUNIT_JOBS:-8}"
 GEN="$ROOT/tests/bashunit"
+# Overridable so the suite contract test can substitute a recording stub.
+BASHUNIT_BIN="${MMS_BASHUNIT_BIN:-$ROOT/tests/lib/bashunit}"
 
 usage() {
   cat <<'USAGE' >&2
@@ -39,6 +41,6 @@ python3 "$ROOT/scripts/bats2bashunit.py" --serial \
 
 rc=0
 for base in $files; do
-  "$ROOT/tests/lib/bashunit" -j "$JOBS" "$GEN/${base}_test.sh" || rc=$?
+  "$BASHUNIT_BIN" -j "$JOBS" "$GEN/${base}_test.sh" || rc=$?
 done
 exit "$rc"
