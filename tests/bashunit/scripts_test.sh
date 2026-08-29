@@ -5,12 +5,6 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
 _bats_file_init "${BASH_SOURCE[0]}"
 
-
-# `run --separate-stderr` needs bats 1.5. Both CI jobs already assert that floor
-# before running this suite, so the declaration records the requirement rather
-# than raising it.
-bats_require_minimum_version 1.5.0
-
 load 'helpers/common'
 load 'helpers/herdr_task_sync'
 
@@ -2525,31 +2519,34 @@ PY
 # ===========================================
 
 function test_scripts_101_herdr_task_sync_descriptor_probe_lives_in_a_one() {
-  _bats_test_init 101 'herdr-task-sync descriptor probe lives in a one-test Bats file'
-  local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_task_sync_descriptor_probe.bats"
+  _bats_test_init 101 'herdr-task-sync descriptor probe lives in a one-test bashunit file'
+  local descriptor_probe_file="$BATS_TEST_DIRNAME/bashunit/herdr_task_sync_descriptor_probe_test.sh"
   assert_file_exists "$descriptor_probe_file"
-  run bats --count "$descriptor_probe_file"
+  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" --list "$descriptor_probe_file"
   assert_success
-  assert_output "1"
+  # --list prints one `file::function` line per test plus a trailing count.
+  assert_output --partial "::test_herdr_task_sync_descriptor_child_probe"
+  assert_output --partial "1 test"
+  assert_equal "${#lines[@]}" 2
 }
 
 function test_scripts_102_herdr_task_sync_bounded_bats_invocation_exits_af() {
-  _bats_test_init 102 'herdr-task-sync bounded Bats invocation exits after detached work'
+  _bats_test_init 102 'herdr-task-sync bounded bashunit invocation exits after detached work'
   # No python3 skip guard: it is a declared requirement (README.md,
   # Requirements), a deliberate exception to the skip convention in
   # docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md.
-  local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
+  local bashunit_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
   local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
-  local descriptor_probe_file="$BATS_TEST_DIRNAME/herdr_task_sync_descriptor_probe.bats"
-  bats_bin="$(command -v bats)"
+  local descriptor_probe_file="$BATS_TEST_DIRNAME/bashunit/herdr_task_sync_descriptor_probe_test.sh"
+  bashunit_bin="$BATS_TEST_DIRNAME/lib/bashunit"
   export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
   export HTS_DESCRIPTOR_PID_FILE="$pid_file"
   export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
-  # This is the only test whose stub must stay blocked across a whole nested Bats
-  # run, so it is the only one that gets the raised ceiling.
+  # This is the only test whose stub must stay blocked across a whole nested
+  # runner invocation, so it is the only one that gets the raised ceiling.
   export HTS_BLOCKED_HERDR_POLLS
-  run python3 - "$bats_bin" "$descriptor_probe_file" <<'PY'
+  run python3 - "$bashunit_bin" "$descriptor_probe_file" <<'PY'
 import os
 from pathlib import Path
 import signal
@@ -2560,26 +2557,27 @@ import time
 
 # Two bounds, not one, and they measure different things. See the
 # HTS_INNER_BATS_* comments in this file's constants block for why the single
-# budget this replaced was a latent flake.
+# budget this replaced was a latent flake. (The env names keep their historical
+# BATS spelling; the nested runner is now tests/lib/bashunit.)
 #
 # PROGRESS covers the nested run up to the probe writing its pid file. That run
-# now targets a dedicated one-test file, so the guard covers setup and the probe
-# itself rather than Bats parsing every test in tests/scripts.bats.
+# targets a dedicated one-test file, so the guard covers setup and the probe
+# itself rather than the runner parsing the whole scripts suite.
 #
-# EXIT covers what happens after that signal: the nested Bats must exit AND its
-# output pipes must reach end-of-file. That pair is the property under test.
+# EXIT covers what happens after that signal: the nested runner must exit AND
+# its output pipes must reach end-of-file. That pair is the property under test.
 # Waiting on process exit alone would not detect the regression -- a detached
-# worker that inherited the pipes keeps them open after Bats itself is gone, so
-# EOF, not exit, is what a leaked descriptor withholds. The pipes are also why
-# the nested run must never be given temp files instead: a worker holding a file
-# descriptor blocks nothing, and the test would pass unconditionally.
+# worker that inherited the pipes keeps them open after the runner itself is
+# gone, so EOF, not exit, is what a leaked descriptor withholds. The pipes are
+# also why the nested run must never be given temp files instead: a worker
+# holding a file descriptor blocks nothing, and the test would pass
+# unconditionally.
 progress_budget = int(os.environ.get("HTS_INNER_BATS_PROGRESS_SECONDS", "60"))
 exit_budget = int(os.environ.get("HTS_INNER_BATS_EXIT_SECONDS", "30"))
 
 # Distinct status per failure mode, so the outer test's failure block names which
 # bound fired without reading the message. Avoid 126 and 127: the shell reserves
-# them for "not executable" and "not found", and bats reports a misleading BW01
-# warning when a `run` command exits with either.
+# them for "not executable" and "not found".
 EXIT_HANG_GUARD = 124     # never reached its completion signal
 EXIT_REGRESSION = 125     # exited, then held its pipes open -- the guarded bug
 EXIT_EARLY = 3            # ended before completing its test
@@ -2601,19 +2599,22 @@ def fixture_gave_up():
 
 VACUOUS = (
     "the blocked herdr stub hit HTS_BLOCKED_HERDR_CEILING_SECONDS and gave up, so "
-    "nothing held a descriptor while the inner Bats exited -- this run proved nothing"
+    "nothing held a descriptor while the inner runner exited -- this run proved nothing"
 )
 
+# No filter: the probe file holds exactly one test (the outer suite asserts
+# that separately). NO_COLOR keeps the nested runner's output byte-greppable.
 proc = subprocess.Popen(
-    [sys.argv[1], sys.argv[2], "--filter", "^herdr-task-sync descriptor child probe$"],
+    [sys.argv[1], sys.argv[2]],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
+    env={**os.environ, "NO_COLOR": "1"},
 )
 
 # Drain both pipes from launch in their own threads. Nothing may leave a pipe
 # unread: the nested run blocks on a full pipe buffer otherwise, and on the
-# nested-test-failure path Bats echoes the failed test's captured output, which
+# nested-test-failure path the runner echoes the failed test's captured output, which
 # is exactly when that output is largest. An unread pipe there would stall the
 # pid file forever and report a plain test failure as a progress-phase hang.
 captured = {}
@@ -2660,7 +2661,7 @@ def worker_pid():
 # case and in the regression case alike, since a leaked descriptor only shows up
 # afterwards, at exit.
 # Back the poll off rather than holding 10 ms for the whole phase. The signal is
-# seconds away -- the nested run still has to start Bats, source the harness, and
+# seconds away -- the nested run still has to start the runner, source the harness, and
 # run the probe -- so a fixed 10 ms interval spends wakeups and file reads waiting
 # for something that cannot arrive yet, and it spends them competing with the
 # other tests this suite runs alongside under --jobs.
@@ -2671,7 +2672,7 @@ def worker_pid():
 # is what HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against. 50 ms keeps the
 # distortion smaller than the values being measured while still cutting the
 # wakeup count roughly fivefold. Raising it trades measurement sharpness for
-# CPU that Bats' own parsing dwarfs anyway.
+# CPU that the runner's own parsing dwarfs anyway.
 poll_interval = 0.01
 poll_interval_cap = 0.05
 
@@ -2693,14 +2694,14 @@ while pid is None:
             if fixture_gave_up():
                 report(VACUOUS, EXIT_VACUOUS)
             report(
-                f"inner Bats exited with status {proc.returncode} before its test "
+                f"inner runner exited with status {proc.returncode} before its test "
                 "completed; it never wrote the descriptor pid file",
                 EXIT_EARLY,
             )
         break
     if time.monotonic() > progress_deadline:
         report(
-            f"inner Bats did not reach its completion signal within "
+            f"inner runner did not reach its completion signal within "
             f"{progress_budget} seconds (hang guard)",
             EXIT_HANG_GUARD,
         )
@@ -2711,11 +2712,11 @@ while pid is None:
 # teardown remains.
 #
 # Both are one condition, not two. A leaked descriptor does not merely keep the
-# pipes open after Bats exits: Bats' own formatter reads that pipeline to EOF, so
+# pipes open after the runner exits: the runner's own formatter reads that pipeline to EOF, so
 # a descendant holding the write end stops the whole nested invocation from
 # finishing. Rehearsal confirms it -- with close_inherited_descriptors neutered,
 # it is the process wait that times out, not the reader join. Splitting these
-# into separate faults would file the real regression under "Bats is stuck, which
+# into separate faults would file the real regression under "the runner is stuck, which
 # is not the descriptor bug" and send the next reader after the wrong thing. The
 # message names whichever symptom was observed; the cause is the same.
 exit_started = time.monotonic()
@@ -2733,14 +2734,14 @@ symptom = None
 try:
     proc.wait(timeout=exit_budget)
 except subprocess.TimeoutExpired:
-    symptom = "the Bats process never exited"
+    symptom = "the runner process never exited"
 
 if symptom is None:
     for reader in readers:
         remaining = exit_budget - (time.monotonic() - exit_started)
         reader.join(timeout=max(remaining, 0))
     if any(reader.is_alive() for reader in readers):
-        symptom = "Bats exited but its output pipes never reached EOF"
+        symptom = "the runner exited but its output pipes never reached EOF"
 
 if symptom is not None:
     report(
@@ -2758,10 +2759,10 @@ sys.stderr.write(captured.get("stderr") or "")
 # Printed on every run, passing runs included, so the next recalibration of
 # HTS_INNER_BATS_EXIT_SECONDS reads a number out of CI instead of reconstructing
 # one from TAP print-order gaps.
-print(f"inner Bats exit phase took {exit_elapsed:.3f}s", file=sys.stderr)
+print(f"inner runner exit phase took {exit_elapsed:.3f}s", file=sys.stderr)
 
 # Non-vacuity: the herdr stub must STILL be blocked right now. Everything above
-# only proves the nested Bats exited and closed its pipes -- which is unremarkable
+# only proves the nested runner exited and closed its pipes -- which is unremarkable
 # if nothing was holding a descriptor at the time. The stub gives up on its own
 # after HTS_BLOCKED_HERDR_CEILING_SECONDS, and if it did, this run proved nothing.
 #
@@ -2789,7 +2790,7 @@ try:
 except ProcessLookupError:
     report(
         f"blocked herdr stub {blocked_pid} was gone before release without recording "
-        "a give-up; nothing held a descriptor while the inner Bats exited",
+        "a give-up; nothing held a descriptor while the inner runner exited",
         EXIT_VACUOUS,
     )
 except PermissionError:
@@ -2822,18 +2823,19 @@ if proc.returncode != 0:
     # Carry the nested status in the message rather than as our own exit code:
     # forwarding it raw could coincide with one of the codes above and claim a
     # failure mode that did not happen.
-    print(f"inner Bats exited with status {proc.returncode}", file=sys.stderr)
+    print(f"inner runner exited with status {proc.returncode}", file=sys.stderr)
     raise SystemExit(EXIT_NESTED_FAILED)
 PY
   unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
-  # `run` captures the driver's measurement into $output, which bats discards on
-  # a passing test -- so forward it to the console descriptor. The number is only
-  # useful if a green CI run carries it: it is what
+  # `run` captures the driver's measurement into $output, which the runner
+  # discards on a passing test -- so forward it to fd 3, which bashunit leaves
+  # pointing at the console it inherited (guarded: a closed fd 3 is not a test
+  # failure). The number is only useful if a green CI run carries it: it is what
   # HTS_INNER_BATS_EXIT_SECONDS gets recalibrated against, and reconstructing it
-  # from TAP print-order gaps is what made the previous bound guesswork.
-  printf '%s\n' "$output" | grep -F 'inner Bats exit phase took' >&3 || true
+  # from print-order gaps is what made the previous bound guesswork.
+  { printf '%s\n' "$output" | grep -F 'inner runner exit phase took' >&3; } 2>/dev/null || true
   assert_success
-  assert_output --partial "ok 1 herdr-task-sync descriptor child probe"
+  assert_output --partial "Passed: herdr-task-sync descriptor child probe"
 }
 
 # Guards the guard. The test above can only prove anything while the herdr stub
@@ -2843,23 +2845,24 @@ PY
 # it passed on exactly the vacuous run it was written to catch.
 #
 # Pinning the stub to give up immediately must therefore turn the test red. This
-# costs one extra nested Bats run, which is the expensive thing in this file
+# costs one extra nested runner invocation, which is the expensive thing in this file
 # (docs/issues/2026-08-21-021), and it buys the one property no other test here
 # can assert: that the guard above still fails when it should.
 function test_scripts_103_herdr_task_sync_bounded_bats_invocation_refuses() {
-  _bats_test_init 103 'herdr-task-sync bounded Bats invocation refuses a vacuous run'
-  local bats_bin release_file="$BATS_TEST_TMPDIR/release-herdr"
+  _bats_test_init 103 'herdr-task-sync bounded bashunit invocation refuses a vacuous run'
+  local release_file="$BATS_TEST_TMPDIR/release-herdr"
   local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
   local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
-  bats_bin="$(command -v bats)"
   export HTS_DESCRIPTOR_RELEASE_FILE="$release_file"
   export HTS_DESCRIPTOR_PID_FILE="$pid_file"
   export HTS_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file"
   # One poll: the stub records its give-up before the driver ever looks.
   export HTS_BLOCKED_HERDR_POLLS=1
 
-  run bats "$BATS_TEST_FILENAME" \
-    --filter '^herdr-task-sync bounded Bats invocation exits after detached work$'
+  # bashunit's -f matches function names (test_*<filter>*), not titles; the
+  # numeric prefix is the one substring unique to the guarded test above.
+  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" \
+    -f 'scripts_102' "$BATS_TEST_FILENAME"
 
   unset HTS_DESCRIPTOR_RELEASE_FILE HTS_DESCRIPTOR_PID_FILE
   unset HTS_DESCRIPTOR_BLOCKED_PID_FILE HTS_BLOCKED_HERDR_POLLS
@@ -6864,6 +6867,21 @@ function test_scripts_257_morning_cleanup_keeps_fresh_trash_entries() {
   run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
   assert_success
   [ -d "$fake_home/.scratchpad/fresh-entry" ]
+}
+
+# Wires the herdr-child descriptor probe into the suite. run-post-apply.sh runs
+# a fixed file list, so without this nested invocation the probe file would be
+# dead coverage again -- its bats ancestor was exactly that
+# (docs/issues/2026-08-29-002). A dedicated file, not an inline test, because
+# the probe must observe launcher-descriptor EOF from outside any suite whose
+# runner shares those descriptors.
+function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
+  _bats_test_init 258 'herdr-child descriptor probe passes under a nested bashunit run'
+  local probe_file="$BATS_TEST_DIRNAME/bashunit/herdr_child_descriptor_probe_test.sh"
+  assert_file_exists "$probe_file"
+  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  assert_success
+  assert_output --partial "Passed: herdr-child detached watcher closes launcher descriptors"
 }
 
 function set_up_before_script() {

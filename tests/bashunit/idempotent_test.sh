@@ -69,8 +69,9 @@ function test_idempotent_002_chezmoi_verify_succeeds() {
 #
 # Everything below is unguarded on purpose: it must run on every host, so this
 # file is never fully inert locally. Each test name is prefixed `guard:` so a
-# developer can exercise the guard alone -- `bats --filter 'guard:'
-# tests/idempotent.bats` -- without reaching the chezmoi scenarios above.
+# developer can exercise the guard alone -- `tests/lib/bashunit -f guard
+# tests/bashunit/idempotent_test.sh` -- without reaching the chezmoi scenarios
+# above.
 
 # Answer the predicate in a controlled environment. `env -u` drops whatever the
 # calling shell exported, so a developer who already has CI or the marker set
