@@ -6972,6 +6972,35 @@ function test_scripts_259_hts_teardown_reaps_a_surviving_engine_worker() {
   [[ ! -e "$work" ]] || fail "an engine process resurrected $work after teardown"
 }
 
+# Guards the local patch in the pinned runner itself ('Local patch vs upstream
+# 0.50.1' in tests/lib/bashunit): result parsing takes the last
+# ##TEST_EXIT_CODE=-marked line, not the blind last line, so a test's
+# background child appending output after the payload cannot corrupt the
+# verdict. The probe file makes that late write deterministic; on a stock
+# 0.50.1 runner (a re-pin that dropped the patch) the parallel leg reports a
+# phantom failed test (exit 1) and the sequential leg zeroes the assertion
+# count -- both flip this test red. Calibrated against a de-patched copy in
+# docs/issues/2026-08-29-003-pinned-bashunit-carries-a-local-patch-payload-
+# marker-result-parsing.
+function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
+  _bats_test_init 260 'pinned bashunit survives late child output after the result payload'
+  local probe_file="$BATS_TEST_DIRNAME/bashunit/bashunit_late_output_probe_test.sh"
+  assert_file_exists "$probe_file"
+
+  # Parallel leg: aggregate_parallel_results parses the .result file.
+  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  assert_success
+  assert_output --partial "Passed: late child output lands after the result payload"
+  assert_output --partial "Assertions: 1 passed, 1 total"
+
+  # Sequential leg: extract_result_counts parses the captured execution
+  # result. Unpatched it stays exit 0 but reports 0 assertions, so the
+  # assertion-count line is the discriminator here, not the status.
+  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  assert_success
+  assert_output --partial "Assertions: 1 passed, 1 total"
+}
+
 function set_up_before_script() {
   :
 }

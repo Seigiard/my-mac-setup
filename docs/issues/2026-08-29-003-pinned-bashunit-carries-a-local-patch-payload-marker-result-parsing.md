@@ -5,7 +5,7 @@ type: "chore"
 category: "testing-ci"
 tags: ["bashunit","vendored-patch"]
 date: "2026-08-29"
-status: "open"
+status: "in-progress"
 priority: "medium"
 ---
 
