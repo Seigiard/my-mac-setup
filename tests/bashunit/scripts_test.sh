@@ -1441,11 +1441,8 @@ function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
 
 function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
   _bats_test_init 45 'herdr-child reap invalidates before close while spontaneous loss wakes the parent'
-  # The supervision deadline must never expire while reap runs: a timeout
-  # event that races the reap invalidation lets the watcher remove the run
-  # dir before `pane close`, which erases the invalidated.state evidence the
-  # reap-before-close probe needs (3/16 loaded docker runs, 2026-08-29).
-  # The deadline is not what this scenario proves, so keep it out of reach.
+  # The deadline is not what this scenario proves; keep it out of reach so a
+  # loaded run cannot race reap (issues 2026-08-29-004, 2026-08-30-001).
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
