@@ -5,7 +5,7 @@ type: "bug"
 category: "testing-ci"
 tags: ["test-integrity"]
 date: "2026-08-28"
-status: "open"
+status: "in-progress"
 priority: "medium"
 ---
 
