@@ -51,6 +51,110 @@ HTS_GIT_UNTRACKED='?'
 # shellcheck disable=SC2034
 HTS_SIDEBAR_PADDING="$(printf '\342\240\200')"
 
+# Pids of every process the sandbox detached, from three complementary
+# ledgers:
+#   1. The engine's fork-time spawn registry (HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY),
+#      which sees a worker in the window before its first claim -- the window in
+#      which it re-runs `mkdir -p` on its state paths and no claim names it yet.
+#   2. Claim/lock owner records under HTS_STATE, for engines started by paths
+#      that predate the registry (and as overlap-tolerant redundancy).
+#   3. A ps scan for commands referencing this sandbox's private HTS_WORK path:
+#      stub processes (herdr, git, model stubs) are exec'd by their absolute
+#      path under $HTS_WORK, and a blocked stub orphaned by its engine's death
+#      gives up tens of seconds later and recreates socket dirs on its way out.
+# Registry and claim pids are emitted only while `ps` still shows them running
+# herdr-task-sync, so a recycled pid can never be signalled; scan pids carry
+# the sandbox path in their argv, which no unrelated process can.
+_hts_sandbox_pids() {
+  local file pid command
+  {
+    if [[ -s "${HTS_SPAWN_REGISTRY:-}" ]]; then
+      while IFS= read -r pid; do
+        case "$pid" in '' | *[!0-9]*) continue ;; esac
+        case "$(ps -p "$pid" -o command= 2>/dev/null)" in
+          *herdr-task-sync*) printf '%s\n' "$pid" ;;
+        esac
+      done < "$HTS_SPAWN_REGISTRY"
+    fi
+    if [[ -n "${HTS_STATE:-}" && -d "$HTS_STATE" ]]; then
+      find "$HTS_STATE" -type f \( -name owner -o -path '*/sweep.lock/pid' \) 2>/dev/null |
+        while IFS= read -r file; do
+          case "$file" in
+            */sweep.lock/pid) pid="$(cat "$file" 2>/dev/null)" ;;
+            *) pid="$(sed -n 's/^pid=//p' "$file" 2>/dev/null | head -1)" ;;
+          esac
+          case "$pid" in '' | *[!0-9]*) continue ;; esac
+          case "$(ps -p "$pid" -o command= 2>/dev/null)" in
+            *herdr-task-sync*) printf '%s\n' "$pid" ;;
+          esac
+        done
+    fi
+    # Plain read-loop on purpose: an awk/grep here would carry $HTS_WORK in its
+    # own argv and match itself in the snapshot.
+    ps -ax -o pid= -o command= 2>/dev/null |
+      while IFS=' ' read -r pid command; do
+        case "$pid" in '' | *[!0-9]*) continue ;; esac
+        case "$command" in
+          *"$HTS_WORK"*) printf '%s\n' "$pid" ;;
+        esac
+      done
+  } | sort -u
+}
+
+# The pids above plus every live descendant (location-probe subshells, blocked
+# stub calls, watchdogs). Descendants inherit no claim of their own, and the
+# presentation coordinator's probe children keep writing state after their
+# parent dies, so killing only the roots still loses the race.
+_hts_engine_process_tree() {
+  local roots="$1" table frontier pid next children
+  [[ -n "$roots" ]] || return 0
+  table="$(ps -ax -o pid= -o ppid= 2>/dev/null)"
+  frontier="$roots"
+  while [[ -n "$frontier" ]]; do
+    printf '%s\n' "$frontier"
+    next=""
+    for pid in $frontier; do
+      children="$(awk -v parent="$pid" '$2 == parent { print $1 }' <<< "$table")"
+      [[ -z "$children" ]] || next="$next $children"
+    done
+    frontier="${next# }"
+  done | sort -u
+}
+
+# Terminate every surviving sandbox process and WAIT for it to die. `rm -rf`
+# alone races them: a survivor re-runs `mkdir -p` on its state paths and
+# resurrects HTS_WORK as a skeleton holding only state/sockets debris
+# (docs/issues/2026-08-29-001). Multiple rounds, because a root killed in one
+# round may have forked a child (a worker starting its presentation
+# coordinator) between the snapshot and the signal; the child surfaces in the
+# next round's ledgers.
+_hts_reap_engines() {
+  local _round roots tree pid _ alive
+  for _round in 1 2 3 4 5; do
+    roots="$(_hts_sandbox_pids)"
+    [[ -n "$roots" ]] || return 0
+    tree="$(_hts_engine_process_tree "$roots")"
+    while IFS= read -r pid; do
+      kill "$pid" 2>/dev/null || true
+    done <<< "$tree"
+    for _ in $(seq 1 100); do
+      alive=""
+      while IFS= read -r pid; do
+        kill -0 "$pid" 2>/dev/null && alive=1
+      done <<< "$tree"
+      [[ -n "$alive" ]] || break
+      sleep 0.02
+    done
+    if [[ -n "$alive" ]]; then
+      while IFS= read -r pid; do
+        kill -9 "$pid" 2>/dev/null || true
+      done <<< "$tree"
+      sleep 0.02
+    fi
+  done
+  return 0
+}
+
 hts_teardown() {
   # Reap a background reader a failed test left running BEFORE deleting its
   # HTS_WORK: the loop only stops via a file inside HTS_WORK, so once that
@@ -61,8 +165,42 @@ hts_teardown() {
     wait "$HTS_READER_PID" 2>/dev/null || true
     unset HTS_READER_PID
   fi
-  [[ -n "${HTS_WORK:-}" ]] && rm -rf "$HTS_WORK" || true
+  if [[ -n "${HTS_WORK:-}" ]]; then
+    # The descriptor probe's whole contract is that its detached coordinator
+    # and blocked herdr stub OUTLIVE this teardown: the bounded-invocation
+    # driver in scripts_test.sh proves the nested runner exits while a detached
+    # descendant still holds its inherited pipes, then releases and reaps that
+    # descendant itself. Reaping here would kill the held descriptor and turn
+    # that run vacuous, so the probe keeps the legacy removal.
+    if [[ -n "${HTS_DESCRIPTOR_PID_FILE:-}" ]]; then
+      rm -rf "$HTS_WORK" 2>/dev/null || true
+    # Every detached engine spawn is preceded by a synchronous
+    # initialize_namespace, so a missing state/sockets dir proves no engine was
+    # ever forked and the plain removal below cannot be raced. With it present,
+    # reap survivors first, then CONFIRM the removal held: recreation by a
+    # process this round's ledgers missed is only observable after the fact,
+    # and each retry pass reaps again before removing.
+    elif [[ -d "${HTS_STATE:-$HTS_WORK/state}/sockets" ]]; then
+      local _hts_settle=0 _hts_attempt=0
+      _hts_reap_engines
+      rm -rf "$HTS_WORK" 2>/dev/null || true
+      while [[ "$_hts_settle" -lt 2 && "$_hts_attempt" -lt 40 ]]; do
+        _hts_attempt=$((_hts_attempt + 1))
+        sleep 0.05
+        if [[ -e "$HTS_WORK" ]]; then
+          _hts_settle=0
+          _hts_reap_engines
+          rm -rf "$HTS_WORK" 2>/dev/null || true
+        else
+          _hts_settle=$((_hts_settle + 1))
+        fi
+      done
+    else
+      rm -rf "$HTS_WORK" 2>/dev/null || true
+    fi
+  fi
   unset HTS_WORK HTS_STUB HTS_STATE HTS_LOG HTS_DEFAULT_SOCKET HTS_SOCKET_ROOT
+  unset HTS_SPAWN_REGISTRY HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY
 }
 
 hts_setup() {
@@ -75,6 +213,12 @@ hts_setup() {
   HTS_SOCKET_ROOT="$HTS_WORK/sockets"
   export HTS_WORK HTS_DEFAULT_SOCKET HTS_SOCKET_ROOT
   export HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET"
+  # Fork-time spawn ledger for hts_teardown (docs/issues/2026-08-29-001). The
+  # engine appends every detached pid here the instant it forks, which is the
+  # only signal that exists in the window before the child's first claim.
+  # Exported so nohup'd engines hand it down to the engines they spawn.
+  HTS_SPAWN_REGISTRY="$HTS_WORK/spawn-registry"
+  export HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY="$HTS_SPAWN_REGISTRY"
   mkdir -p "$HTS_STUB" "$HTS_STATE" "$HTS_SOCKET_ROOT/socket-1"
   : > "$HTS_LOG"
   printf '%s' "$HTS_DEFAULT_SOCKET" > "$HTS_SOCKET_ROOT/socket-1/socket-path"
@@ -86,7 +230,13 @@ hts_setup() {
   # directories avoid the collision caused by replacing punctuation in names.
   cat > "$HTS_WORK/fixture-lib.sh" <<'SH'
 hts_fixture_init_dir() {
-  mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
+  # Single-level mkdirs, never -p: a stub call surviving hts_teardown must
+  # fail closed instead of resurrecting the deleted sandbox from the tmp
+  # root up (docs/issues/2026-08-29-001).
+  [ -d "$1" ] || return 1
+  for _hts_sub in calls completions locks after; do
+    mkdir "$1/$_hts_sub" 2>/dev/null || [ -d "$1/$_hts_sub" ] || return 1
+  done
   [ -f "$1/state.json" ] || printf '%s\n' \
     '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
     > "$1/state.json"
@@ -111,10 +261,17 @@ hts_fixture_socket_dir() {
       return 0
     fi
   done
-  id="$(cat "$HTS_SOCKET_ROOT/next-id")"
+  id="$(cat "$HTS_SOCKET_ROOT/next-id" 2>/dev/null)"
+  # An unreadable next-id means the sandbox is being torn down around this
+  # call; registering "socket-" into a resurrected root was one of the leak
+  # shapes of docs/issues/2026-08-29-001. Single-level mkdir for the same
+  # reason: fail closed rather than recreate deleted ancestors.
+  case "$id" in
+    '' | *[!0-9]*) rmdir "$lock" 2>/dev/null; return 1 ;;
+  esac
   printf '%s' $((id + 1)) > "$HTS_SOCKET_ROOT/next-id"
   dir="$HTS_SOCKET_ROOT/socket-$id"
-  mkdir -p "$dir"
+  mkdir "$dir" 2>/dev/null || { rmdir "$lock" 2>/dev/null; return 1; }
   printf '%s' "$socket_path" > "$dir/socket-path"
   hts_fixture_init_dir "$dir"
   rmdir "$lock"
@@ -297,13 +454,21 @@ set -e
 name="$(basename "$0")"
 root="$HTS_WORK/models/$name"
 lock="$root/allocate.lock"
-mkdir -p "$root"
-while ! mkdir "$lock" 2>/dev/null; do sleep 0.01; done
+# hts_stub_controlled_engine created this root at setup. A missing root means
+# the sandbox is torn down; `mkdir -p` here resurrected it from the tmp root
+# up (docs/issues/2026-08-29-001), so fail closed instead.
+[ -d "$root" ] || exit 1
+while ! mkdir "$lock" 2>/dev/null; do
+  [ -d "$root" ] || exit 1
+  sleep 0.01
+done
 call=$(( $(cat "$root/next" 2>/dev/null || printf '%s' 0) + 1 ))
 printf '%s' "$call" > "$root/next"
 rmdir "$lock"
 fixture="$root/$call"
-mkdir -p "$fixture"
+# Single-level, not -p: hts_model_fixture may have pre-created it, and a
+# missing parent means the sandbox is torn down (docs/issues/2026-08-29-001).
+mkdir "$fixture" 2>/dev/null || [ -d "$fixture" ] || exit 1
 cat > "$fixture/stdin"
 : > "$fixture/started"
 for _ in $(seq 1 "${HTS_WAIT_POLLS:-6000}"); do
@@ -338,7 +503,9 @@ if [ -d "$fixture" ]; then
   printf '%s\n' "$command_args" >> "$fixture/calls"
   printf '%s' "${LC_ALL:-}" > "$fixture/locale"
   : > "$fixture/started"
-  mkdir -p "$HTS_WORK/git-started"
+  # Single-level, not -p: fail closed when the sandbox is torn down instead
+  # of resurrecting it (docs/issues/2026-08-29-001).
+  mkdir "$HTS_WORK/git-started" 2>/dev/null || [ -d "$HTS_WORK/git-started" ] || exit 1
   : > "$HTS_WORK/git-started/${fixture##*/}"
   if [ -f "$fixture/block" ]; then
     while [ ! -f "$fixture/release" ]; do sleep 0.01; done
