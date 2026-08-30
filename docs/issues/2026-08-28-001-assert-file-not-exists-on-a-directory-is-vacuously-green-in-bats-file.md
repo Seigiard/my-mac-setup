@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["test-integrity"]
 date: "2026-08-28"
-status: "in-progress"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Audit assert_file_not_exists / assert_file_exists call sites whose path can be a
 ## Open decisions
 
 None.
+
+## Resolution
+
+Both Scope actions are done. (1) The two directory expectations, tests/bashunit/scripts_test.sh tests 040 and 042, now use assert_dir_not_exists; every other assert_file_not_exists path resolves to a regular file, matching the 2026-08-29 audit. The test-dsl.bash comment no longer claims the suite depends on the vacuous -f semantics. (2) The surviving run directory was a real herdr-child bug, not intended: watcher_generation_current re-enables errexit internally, so the callers' set +e brackets were clobbered and the watcher died at the call site with the callee's nonzero status before reaching the status-20 handler that runs remove_supervision_run. The failure-publish and sliced-wait supersede paths now invoke the generation check (and watcher_fail its publish) through conditional context, which is immune to the callee's set flips. Calibration: with assert_dir_not_exists and the unfixed watcher, tests 040 and 042 were observed red; with the fix both are green, and make test-ubuntu passed end to end (254/258 scripts tests passed, 4 pre-existing risky, 0 failed). A cross-model review surfaced one adjacent pre-existing TOCTOU, filed as 2026-08-30-001.
