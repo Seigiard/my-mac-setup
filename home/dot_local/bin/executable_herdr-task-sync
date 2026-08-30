@@ -951,17 +951,65 @@ EOF
 
 # Panes routinely share a checkout, so the probe runs once per distinct root
 # rather than once per pane — the dedup build_worktree_tokens already does for
-# worktree tokens.
+# worktree tokens. Distinct roots run concurrently so several slow worktrees
+# cost one status budget rather than one budget each.
 build_root_statuses() {
-  local roots="$1" table="" root row
+  local roots="$1" table="" root row result_file status_pid
+  local status_pids="" status_results="" status_child_failed=0
   while IFS= read -r root; do
     [ -n "$root" ] || continue
-    row="$(resolve_pane_git_status "$root")"
-    table="${table}${table:+
-}${root}${FIELD_SEPARATOR}${row}"
+    result_file="$(umask 077; mktemp "$(namespace_dir)/.status-result.XXXXXX" 2>/dev/null)" || {
+      while IFS= read -r status_pid; do
+        [ -n "$status_pid" ] && wait "$status_pid" 2>/dev/null || true
+      done <<EOF
+$status_pids
+EOF
+      while IFS= read -r result_file; do
+        [ -z "$result_file" ] || rm -f "$result_file"
+      done <<EOF
+$status_results
+EOF
+      return 1
+    }
+    (
+      printf '%s%s' "$root" "$FIELD_SEPARATOR"
+      resolve_pane_git_status "$root"
+    ) > "$result_file" &
+    status_pids="${status_pids}${status_pids:+
+}$!"
+    status_results="${status_results}${status_results:+
+}$result_file"
   done <<EOF
 $roots
 EOF
+  while IFS= read -r status_pid; do
+    [ -n "$status_pid" ] || continue
+    wait "$status_pid" || status_child_failed=1
+  done <<EOF
+$status_pids
+EOF
+  if [ "$status_child_failed" -ne 0 ]; then
+    while IFS= read -r result_file; do
+      [ -z "$result_file" ] || rm -f "$result_file"
+    done <<EOF
+$status_results
+EOF
+    return 1
+  fi
+  while IFS= read -r result_file; do
+    [ -n "$result_file" ] || continue
+    row="$(cat "$result_file" 2>/dev/null)"
+    rm -f "$result_file"
+    if [ -z "$row" ]; then
+      status_child_failed=1
+      continue
+    fi
+    table="${table}${table:+
+}$row"
+  done <<EOF
+$status_results
+EOF
+  [ "$status_child_failed" -eq 0 ] || return 1
   printf '%s' "$table"
 }
 
@@ -1607,7 +1655,7 @@ EOF
 )"
   roots="$(printf '%s\n' "$roots" | sed '/^$/d' | LC_ALL=C sort -u)"
   root_tokens="$(build_worktree_tokens "$roots")"
-  root_statuses="$(build_root_statuses "$roots")"
+  root_statuses="$(build_root_statuses "$roots")" || return 1
   while IFS="$FIELD_SEPARATOR" read -r _pane_id _pane_terminal pane_tab _pane_workspace _pane_agent _pane_native_session _pane_current pane_intended _pane_task _pane_slug _pane_metadata _location_outcome _checkout_root _repository_anchor _repo _branch _is_linked _sha _location_folder _location_status; do
     [ -n "$_pane_id" ] || continue
     _worktree_token=""
