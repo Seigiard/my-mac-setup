@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["flaky-test","herdr"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -24,3 +25,7 @@ Each flake poisons a whole measurement or CI run: the suite reports 1 failure an
 ## Open decisions
 
 None.
+
+## Resolution
+
+Reproduced the loaded-run mechanism deterministically (6/6 forced failures): with --supervision-timeout 5000 the watcher's deadline could expire mid-reap, and the timeout-delivery iteration re-checks invalidated.state inside deliver_supervision_event (executable_herdr-child:564), removes the whole run dir, and exits before reap's pane close - erasing the invalidated.state evidence the reap-before-close stub probe scans for. Fixed by keeping the supervision deadline out of reach (600000 ms) in both halves of test 045; the deadline is not what the scenario proves, and all assertions remain event/marker-based. Verified 25/25 green iterations under 10 busy-loop CPU load plus 20/20 calm, and make test-suite green. The production-side wrinkle (delivery path erasing a pending reap run, degrading the reap-restore path) and deterministic coverage for that interleaving are tracked in 2026-08-30-001.
