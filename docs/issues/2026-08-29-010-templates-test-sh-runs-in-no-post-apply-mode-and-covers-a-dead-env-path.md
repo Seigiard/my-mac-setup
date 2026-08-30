@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["test-coverage","templates","chezmoi"]
 date: "2026-08-29"
-status: "in-progress"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -56,3 +57,7 @@ Verify with `make test-templates`, then `make test-ubuntu`.
 Whether `templates_test.sh` belongs in the post-apply suite at all. It asserts rendering
 rather than deployed state, which is a different stage from what `run-post-apply.sh` covers,
 so adding it may be the wrong fix and an explicit note in the runner may be the right one.
+
+## Resolution
+
+run-post-apply.sh now states explicitly that templates_test.sh is a pre-apply rendering gate wired through CI, docker-compose, and make test-templates — it stays out of both post-apply modes by design (the open decision resolved toward the explicit note). The dead CHEZMOI_NAME/CHEZMOI_EMAIL path got real coverage: tests 002/003 now bind the env vars at init time via write_test_config with two differing probe values each (control: a different env value produces a different config value). Tests 005/006 render dot_gitconfig.tmpl against a probe-value config and assert the substituted user.name/user.email lines plus refute any unrendered directive, instead of the unconditional 'name = ' boilerplate. Test 012's provider/plugin/model literal restatement was deleted as tautological; a narrowed 012 pins the two externally consumed security invariants (external_directory grant, stdio executor transport). Test 014 became a cross-artifact contract: every opencode instructions entry must resolve via chezmoi source-path to a managed source file. Every rewritten test was calibrated red with a production mutation and green after restore. Verified: make test-templates (Docker, green), make test-ubuntu (full Docker suite, exit 0), post-apply contract test, check_bats_assertions. This also implements the templates_test.sh item of issue 2026-08-29-006.
