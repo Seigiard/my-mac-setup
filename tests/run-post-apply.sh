@@ -8,6 +8,10 @@
 # Execution shape: files run sequentially, tests within a file run with up to
 # $MMS_BASHUNIT_JOBS workers (idempotent serializes itself via its
 # '# bashunit: no-parallel-tests' marker).
+#
+# templates_test.sh is deliberately absent: it asserts pre-apply source-tree
+# rendering, not post-apply state. It runs as the pre-apply gate in CI,
+# docker-compose, and `make test-templates`.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

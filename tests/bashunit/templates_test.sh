@@ -10,6 +10,8 @@ load 'helpers/common'
 
 setup() {
   skip_if_no_chezmoi
+  # Unset, write_test_config()'s `execute-template --init` render would fall
+  # through to promptStringOnce, which execute-template cannot prompt for.
   export CHEZMOI_NAME="Test User"
   export CHEZMOI_EMAIL="test@example.com"
 }
@@ -30,8 +32,7 @@ function test_templates_001_python3_is_present_and_at_least_3_9_the_floor_re() {
 }
 
 # ===========================================
-# .chezmoi.yaml.tmpl (validated via chezmoi data — init-only template
-# uses promptStringOnce which is unavailable in execute-template)
+# .chezmoi.yaml.tmpl
 # ===========================================
 
 # CHEZMOI_NAME/CHEZMOI_EMAIL bind at `chezmoi init`, not at render time, so
@@ -80,16 +81,28 @@ function test_templates_004_gitconfig_template_renders_successfully() {
   assert_success
 }
 
-function test_templates_005_gitconfig_template_contains_user_name() {
-  _bats_test_init 5 'gitconfig template contains user name'
-  run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
-  assert_output --partial "name = "
+# "name = " / "email = " are unconditional boilerplate in the template;
+# asserting them proves nothing about substitution — hence the probe values.
+function test_templates_005_gitconfig_renders_the_config_name_into_user_name() {
+  _bats_test_init 5 'gitconfig renders the config name into user.name'
+  local cfg="$BATS_TEST_TMPDIR/gitconfig-name.yaml"
+  CHEZMOI_NAME="Gitconfig Name Probe" write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/dot_gitconfig.tmpl"
+  assert_success
+  assert_output --partial "name = Gitconfig Name Probe"
+  refute_output --partial '{{'
 }
 
-function test_templates_006_gitconfig_template_contains_user_email() {
-  _bats_test_init 6 'gitconfig template contains user email'
-  run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
-  assert_output --partial "email = "
+function test_templates_006_gitconfig_renders_the_config_email_into_user_ema() {
+  _bats_test_init 6 'gitconfig renders the config email into user.email'
+  local cfg="$BATS_TEST_TMPDIR/gitconfig-email.yaml"
+  CHEZMOI_EMAIL="gitconfig-probe@env.example" write_test_config "$cfg"
+
+  run render_with_config "$cfg" "$SOURCE_ROOT/dot_gitconfig.tmpl"
+  assert_success
+  assert_output --partial "email = gitconfig-probe@env.example"
+  refute_output --partial '{{'
 }
 
 # ===========================================
@@ -246,8 +259,12 @@ function test_templates_011_opencode_json_tmpl_renders_valid_json() {
   assert_success
 }
 
-function test_templates_012_opencode_json_tmpl_grants_unbounded_external_dir() {
-  _bats_test_init 12 'opencode.json.tmpl grants unbounded external-directory reads without changing integrations'
+# opencode.json.tmpl has zero template directives, so asserting its other
+# literals would only mirror the source. These two are consumed verbatim as
+# a security contract: `executor mcp` speaks stdio, so OpenCode never holds
+# the daemon's rotating token.
+function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
+  _bats_test_init 12 'opencode keeps the external-directory grant and the stdio executor transport'
   command_exists jq || skip "jq is required"
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
@@ -256,10 +273,9 @@ function test_templates_012_opencode_json_tmpl_grants_unbounded_external_dir() {
   assert_success
   assert_output "allow"
 
-  run jq -r '[.mcp.fff.command[0], (.mcp.executor.command | join(" ")), .mcp.executor.enabled, (.provider.openrouter.models | has("qwen/qwen3-coder:free")), .plugin[0]] | @tsv' "$BATS_TEST_TMPFILE"
+  run jq -r '[(.mcp.executor.command | join(" ")), (.mcp.executor.enabled | tostring)] | join("|")' "$BATS_TEST_TMPFILE"
   assert_success
-  # `executor mcp` speaks stdio, so OpenCode never holds the daemon's rotating token.
-  assert_output $'fff-mcp\texecutor mcp\ttrue\ttrue\tcompound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git'
+  assert_output "executor mcp|true"
 }
 
 function test_templates_013_opencode_skill_symlinks_target_canonical_claude() {
@@ -273,12 +289,26 @@ function test_templates_013_opencode_skill_symlinks_target_canonical_claude() {
   done
 }
 
-function test_templates_014_opencode_instructions_point_at_the_shared_writin() {
-  _bats_test_init 14 'opencode instructions point at the shared writing-style file'
+function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
+  _bats_test_init 14 'every opencode instructions entry is a managed source file'
+  command_exists jq || skip "jq is required"
+  # OpenCode fails silently on a dangling instructions path.
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
-  run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$BATS_TEST_TMPFILE"
+
+  local entries entry
+  run jq -r '.instructions[]' "$BATS_TEST_TMPFILE"
   assert_success
+  entries="$output"
+  [[ -n "$entries" ]] || fail "no instructions entries in opencode.json.tmpl"
+
+  while IFS= read -r entry; do
+    [[ "$entry" == "~/"* ]] || fail "instructions entry '$entry' is not home-relative, so it cannot be checked against the source tree"
+    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+      --source "$SOURCE_ROOT" "$HOME/${entry#\~/}"
+    assert_success
+    assert_file_exists "$output"
+  done <<< "$entries"
 }
 
 # ===========================================
