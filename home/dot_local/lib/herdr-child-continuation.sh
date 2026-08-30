@@ -76,7 +76,12 @@ EOF
   fi
 
   self="$(script_path)" || { remove_supervision_run "$run_dir"; return 1; }
-  spawn_detached_watcher "$self" "$run_dir" "$pane" "$generation" "$supervision_timeout" --deferred-activation
+  set -m
+  nohup bash "$self" __watcher --run-dir "$run_dir" --pane "$pane" \
+    --generation "$generation" --timeout "$supervision_timeout" \
+    --launcher-pid "$$" --deferred-activation </dev/null >/dev/null 2>&1 &
+  watcher_pid=$!
+  set +m
   set +e
   wait_for_watcher_state "$run_dir/prepared.state" "$run_dir/failed.state" "$watcher_pid"
   local prepared_status=$?
@@ -165,14 +170,14 @@ EOF
   rm -f "$prompt_out" "$prompt_err"
   if [ "$prompt_status" -ne 0 ]; then
     atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
-    wait_for_watcher_state "$run_dir/failed.state" "" "$watcher_pid" || true
+    wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
     print_supervision_failure "$name" "$pane" "$generation" prompt-result-ambiguous "$generation"
     trap - HUP INT TERM
     return "$prompt_status"
   fi
   if ! atomic_write "$run_dir/accepted.state" 'accepted=1'; then
     atomic_write "$run_dir/abort.state" 'reason=acceptance-write-failed' || true
-    wait_for_watcher_state "$run_dir/failed.state" "" "$watcher_pid" || true
+    wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
     print_supervision_failure "$name" "$pane" "$generation" acceptance-write-failed "$generation"
     trap - HUP INT TERM
     return 1

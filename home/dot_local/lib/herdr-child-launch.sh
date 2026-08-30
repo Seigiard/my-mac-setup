@@ -355,7 +355,12 @@ EOF
       cleanup_pane
       return 1
     }
-    spawn_detached_watcher "$self" "$run_dir" "$pane" "$generation" "$supervision_timeout"
+    set -m
+    nohup bash "$self" __watcher --run-dir "$run_dir" --pane "$pane" \
+      --generation "$generation" --timeout "$supervision_timeout" \
+      --launcher-pid "$$" </dev/null >/dev/null 2>&1 &
+    watcher_pid=$!
+    set +m
     set +e
     wait_for_watcher_state "$run_dir/ready.state" "$run_dir/failed.state" "$watcher_pid"
     local ready_status=$?
@@ -428,7 +433,7 @@ EOF
     fi
     if [ "$mode" = detach ]; then
       atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
-      wait_for_watcher_state "$run_dir/failed.state" "" "$watcher_pid" || true
+      wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
       printf 'herdr-child: initial prompt result was ambiguous; child preserved for recovery\n' >&2
       print_supervision_failure "$name" "$pane" "$generation" prompt-result-ambiguous "$generation"
       rm -f "$prompt_out" "$prompt_err"

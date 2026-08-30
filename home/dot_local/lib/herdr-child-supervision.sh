@@ -6,15 +6,6 @@
 REAP_OWNER_GUARD_PID=""
 REAP_OWNER_TOKEN=""
 
-spawn_detached_watcher() {
-  # Callers retain rollback ownership through their local watcher_pid.
-  set -m
-  nohup bash "$1" __watcher --run-dir "$2" --pane "$3" \
-    --generation "$4" --timeout "$5" --launcher-pid "$$" "${@:6}" </dev/null >/dev/null 2>&1 &
-  watcher_pid=$!
-  set +m
-}
-
 wait_for_watcher_state() {
   local wanted="$1" failed="$2" pid="$3" attempt=0
   while [ "$attempt" -lt 500 ]; do
@@ -25,6 +16,10 @@ wait_for_watcher_state() {
     sleep 0.01
   done
   return 1
+}
+
+wait_for_watcher_failure() {
+  wait_for_watcher_state "$1" "" "$2"
 }
 
 remove_supervision_run() {
