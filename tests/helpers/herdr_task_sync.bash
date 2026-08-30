@@ -63,30 +63,50 @@ HTS_SIDEBAR_PADDING="$(printf '\342\240\200')"
 #      path under $HTS_WORK, and a blocked stub orphaned by its engine's death
 #      gives up tens of seconds later and recreates socket dirs on its way out.
 # Registry and claim pids are emitted only while `ps` still shows them running
-# herdr-task-sync, so a recycled pid can never be signalled; scan pids carry
-# the sandbox path in their argv, which no unrelated process can.
+# herdr-task-sync AND carrying the start token recorded at fork/claim time, so
+# a recycled pid can never be signalled; scan pids carry the sandbox path in
+# their argv, which no unrelated process can.
+
+# $1 = pid, $2 = recorded start token ('' = unverifiable, command check only).
+_hts_engine_pid_live() {
+  local pid="$1" start="$2" current
+  case "$(ps -p "$pid" -o command= 2>/dev/null)" in
+    *herdr-task-sync*) ;;
+    *) return 1 ;;
+  esac
+  [[ -n "$start" ]] || return 0
+  current="$(ps -p "$pid" -o lstart= 2>/dev/null |
+    sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  [[ -z "$current" || "$current" == "$start" ]]
+}
+
 _hts_sandbox_pids() {
-  local file pid command
+  local file pid command start
   {
     if [[ -s "${HTS_SPAWN_REGISTRY:-}" ]]; then
-      while IFS= read -r pid; do
+      # Registry lines are "pid start-token". A recycled pid fails the
+      # start-token comparison and is left alone; an empty recorded token
+      # (ps raced the fork) degrades to the command check alone.
+      while IFS=' ' read -r pid start; do
         case "$pid" in '' | *[!0-9]*) continue ;; esac
-        case "$(ps -p "$pid" -o command= 2>/dev/null)" in
-          *herdr-task-sync*) printf '%s\n' "$pid" ;;
-        esac
+        _hts_engine_pid_live "$pid" "$start" || continue
+        printf '%s\n' "$pid"
       done < "$HTS_SPAWN_REGISTRY"
     fi
     if [[ -n "${HTS_STATE:-}" && -d "$HTS_STATE" ]]; then
       find "$HTS_STATE" -type f \( -name owner -o -path '*/sweep.lock/pid' \) 2>/dev/null |
         while IFS= read -r file; do
+          start=""
           case "$file" in
             */sweep.lock/pid) pid="$(cat "$file" 2>/dev/null)" ;;
-            *) pid="$(sed -n 's/^pid=//p' "$file" 2>/dev/null | head -1)" ;;
+            *)
+              pid="$(sed -n 's/^pid=//p' "$file" 2>/dev/null | head -1)"
+              start="$(hts_state_field "$file" process_start 2>/dev/null || true)"
+              ;;
           esac
           case "$pid" in '' | *[!0-9]*) continue ;; esac
-          case "$(ps -p "$pid" -o command= 2>/dev/null)" in
-            *herdr-task-sync*) printf '%s\n' "$pid" ;;
-          esac
+          _hts_engine_pid_live "$pid" "$start" || continue
+          printf '%s\n' "$pid"
         done
     fi
     # Plain read-loop on purpose: an awk/grep here would carry $HTS_WORK in its
