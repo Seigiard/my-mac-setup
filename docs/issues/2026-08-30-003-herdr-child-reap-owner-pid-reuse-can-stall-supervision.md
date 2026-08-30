@@ -1,12 +1,13 @@
 ---
 title: "herdr-child reap owner PID reuse can stall supervision"
-short_description: "watcher_invalidation_action identifies a pending reap only with kill -0 on owner_pid, so PID reuse can make an unrelated process hold supervision in the reap-recovery loop indefinitely."
+short_description: "Reap recovery now uses an owner-held kernel lock, so process death releases ownership independently of PID reuse while a legitimate slow pane close keeps supervision invalidated."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","race"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -21,3 +22,7 @@ Give a reap attempt an identity stronger than PID existence, such as a nonce plu
 
 - Which owner identity is portable across macOS and Linux without adding a heavyweight dependency?
 - What bound distinguishes a stale owner from a legitimately slow pane close under load?
+
+## Resolution
+
+Held a per-run kernel lock for each reap attempt and made the watcher restore supervision when that lock is released, independently of PID reuse. Extended lifecycle test 046 with both a post-lock-check blocked-owner control and a deterministic unrelated-live-process fixture. Verified the calibrated red state, five targeted green repetitions, `make lint`, and `make test-ubuntu`.
