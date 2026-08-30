@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { catalogToJson } from "../block-registry.ts";
+import { BlockRegistry, catalogToJson } from "../block-registry.ts";
 import { validateFlowSpec } from "../flow-validate.ts";
 import { buildRegistry, INITIAL_LIBRARY } from "./index.ts";
 
@@ -20,6 +20,13 @@ describe("initial block library", () => {
     // per-instance or per-generation content (timestamps, ids, unstable
     // iteration order).
     expect(catalogToJson(buildRegistry())).toBe(catalogToJson(registry));
+
+    // buildRegistry() always inserts in INITIAL_LIBRARY order, so the check
+    // above alone would stay green if list() stopped sorting by name. The
+    // reversed registration proves order-independence on the real library.
+    const reordered = new BlockRegistry();
+    for (const block of [...INITIAL_LIBRARY].reverse()) reordered.register(block);
+    expect(catalogToJson(reordered)).toBe(catalogToJson(registry));
   });
 
   test("catalog exposes external and needsWorkspace flags per block", () => {

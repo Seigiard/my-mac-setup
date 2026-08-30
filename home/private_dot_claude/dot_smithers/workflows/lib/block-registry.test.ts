@@ -87,8 +87,27 @@ describe("BlockRegistry catalog", () => {
     second.register(computeBlock());
     second.register(agentBlock());
 
-    // #then registration order is erased by list()'s sort
+    // #then registration order is erased by list()'s sort; key order inside
+    // each entry is canonicalized separately by sortedReplacer (next test)
     expect(catalogToJson(first)).toBe(catalogToJson(second));
+  });
+
+  test("catalog JSON canonicalizes object keys regardless of declaration order", () => {
+    // #given a schema whose keys are declared in reverse-alphabetical order.
+    // Registration-order comparisons cannot see key order, because both
+    // registries would carry the same declaration; the discriminator is the
+    // serialized document itself.
+    const registry = new BlockRegistry();
+    registry.register(computeBlock({ inputSchema: z.object({ headSha: z.string(), baseSha: z.string() }) }));
+
+    const parsed = JSON.parse(catalogToJson(registry)) as {
+      blocks: { inputSchema: { properties: Record<string, unknown> } }[];
+    };
+    const keys = Object.keys(parsed.blocks[0]!.inputSchema.properties);
+
+    // #then sortedReplacer erased the declaration order from the bytes —
+    // without it JSON.stringify would emit headSha before baseSha
+    expect(keys).toEqual(["baseSha", "headSha"]);
   });
 });
 

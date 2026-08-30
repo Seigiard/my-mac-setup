@@ -439,13 +439,15 @@ describe("mainCheckoutEscapeReason (побег из воркитри, run-178671
     // #given зелёный work-гейт
     const verdict = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0 });
     expect(verdict.state).toBe("green");
+    const reasonCount = verdict.reasons.length;
 
     // #when продакшен-композиция se-pipeline workGateFn дописывает диагноз
     const result = appendEscapeAdvisory(verdict, "/abs/repo", "at-staging", "now");
 
     // #then причина дописана, но состояние не тронуто — ложный позитив не
     // стоит лишнего work-плеча
-    expect(result.reasons.some((r) => r.includes("/abs/repo"))).toBe(true);
+    expect(result.reasons).toHaveLength(reasonCount + 1);
+    expect(result.reasons[reasonCount]).toContain("/abs/repo");
     expect(result.state).toBe("green");
   });
 
@@ -471,8 +473,10 @@ describe("mainCheckoutEscapeReason (побег из воркитри, run-178671
     // #when digest не менялся
     const result = appendEscapeAdvisory(verdict, "/abs/repo", "same", "same");
 
-    // #then
+    // #then ни причины, ни состояния — advisory-контракт держится и на
+    // пути без побега
     expect(result.reasons).toHaveLength(reasonCount);
+    expect(result.state).toBe("green");
   });
 });
 
