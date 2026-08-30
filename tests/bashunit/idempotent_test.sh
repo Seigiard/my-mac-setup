@@ -144,11 +144,16 @@ function test_idempotent_010_guard_every_disposable_environment_declares_the() {
   # Never skipped. A skip here would be indistinguishable from this file going
   # inert, which is exactly the rot the test exists to catch.
   if [[ -z "${GITHUB_ACTIONS:-}" ]] && [[ ! -f /.dockerenv ]]; then
-    # Nothing reports this $HOME disposable, so the one claim available is that
-    # the predicate does not accuse this machine of losing a marker it never
-    # needed. It holds under the local opt-in too, where the verdict is `run`.
-    [[ "$(mms_disposable_home_verdict)" != "misconfigured" ]] || \
-      fail "No platform fact reports a disposable \$HOME here, yet the predicate returned misconfigured."
+    # Nothing reports this $HOME disposable. Do not assert `!= misconfigured`
+    # here — this branch's own condition makes that verdict unreachable.
+    # Deliberately unscrubbed: the marker must win over whatever this shell
+    # exports, a claim the env -u guard tests above cannot make.
+    local live marked
+    live="$(mms_disposable_home_verdict)"
+    [[ "$live" == "run" || "$live" == "skip" ]] || \
+      fail "No platform fact reports a disposable \$HOME here, yet the predicate returned '$live' instead of run or skip."
+    marked="$(MMS_DISPOSABLE_HOME=1 mms_disposable_home_verdict)"
+    assert_equal "$marked" "run"
     return 0
   fi
 

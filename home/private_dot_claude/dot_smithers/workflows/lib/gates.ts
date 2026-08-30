@@ -347,6 +347,21 @@ export function mainCheckoutEscapeReason(
   return `the target repository's main checkout at ${repoDir} gained uncommitted changes since staging — the work agent may have written OUTSIDE its worktree (run-1786717826270). Inspect \`git -C ${repoDir} status\` before re-running: the work you are missing from the run branch may be sitting there.`;
 }
 
+// Advisory by contract: the escape diagnosis must never touch the verdict's
+// state — an operator committing in their own checkout during a multi-hour
+// run is ordinary, and flipping the gate would buy a second work leg on a
+// false positive.
+export function appendEscapeAdvisory(
+  verdict: GateResult,
+  repoDir: string,
+  stagedDigest: string | null | undefined,
+  currentDigest: string,
+): GateResult {
+  const reason = mainCheckoutEscapeReason(repoDir, stagedDigest, currentDigest);
+  if (reason !== undefined) verdict.reasons.push(reason);
+  return verdict;
+}
+
 export function codeReviewGate(input: CodeReviewGateInput): GateResult {
   if (input.raw === undefined) {
     return { state: "failed", reasons: ["verify-code stage produced no report (crash or timeout)"] };

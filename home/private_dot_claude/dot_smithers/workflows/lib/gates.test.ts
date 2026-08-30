@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  appendEscapeAdvisory,
   codeReviewGate,
   docReviewGate,
   emptyCoverageNotes,
@@ -424,30 +425,57 @@ describe("mainCheckoutEscapeReason (побег из воркитри, run-178671
     expect(mainCheckoutEscapeReason("/abs/repo", null, "digest-now")).toBeUndefined();
   });
 
-  test("причина только ДОБАВЛЯЕТСЯ: зелёный вердикт work остаётся зелёным", () => {
+  test("digest изменился → причина названа и указывает оператору на checkout", () => {
+    // #when
+    const reason = mainCheckoutEscapeReason("/abs/repo", "at-staging", "now");
+
+    // #then сообщение само ведёт к диагнозу: где смотреть и какой командой
+    expect(reason).toContain("/abs/repo");
+    expect(reason).toContain("git -C /abs/repo status");
+    expect(reason).toContain("OUTSIDE its worktree");
+  });
+
+  test("appendEscapeAdvisory: диагноз advisory — зелёный work-гейт остаётся зелёным", () => {
     // #given зелёный work-гейт
     const verdict = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0 });
     expect(verdict.state).toBe("green");
+    const reasonCount = verdict.reasons.length;
 
-    // #when гейт дописывает диагноз побега (как в se-pipeline workGateFn)
-    const reason = mainCheckoutEscapeReason("/abs/repo", "at-staging", "now");
-    expect(reason).toBeDefined();
-    if (reason !== undefined) verdict.reasons.push(reason);
+    // #when продакшен-композиция se-pipeline workGateFn дописывает диагноз
+    const result = appendEscapeAdvisory(verdict, "/abs/repo", "at-staging", "now");
 
-    // #then состояние не меняется — ложный позитив не стоит лишнего work-плеча
-    expect(verdict.state).toBe("green");
+    // #then причина дописана, но состояние не тронуто — ложный позитив не
+    // стоит лишнего work-плеча
+    expect(result.reasons).toHaveLength(reasonCount + 1);
+    expect(result.reasons[reasonCount]).toContain("/abs/repo");
+    expect(result.state).toBe("green");
   });
 
-  test("на красном KTD14-вердикте диагноз стоит рядом с симптомом", () => {
+  test("appendEscapeAdvisory: на красном KTD14-вердикте диагноз стоит рядом с симптомом", () => {
     // #given work-гейт закрылся по «нет изменений контента»
     const verdict = workGate({ raw: workEnvelope(), baseTree, headTree: baseTree, validateExitCode: 0 });
     const reasonCount = verdict.reasons.length;
-    const reason = mainCheckoutEscapeReason("/abs/repo", "at-staging", "now");
-    if (reason !== undefined) verdict.reasons.push(reason);
+
+    // #when
+    const result = appendEscapeAdvisory(verdict, "/abs/repo", "at-staging", "now");
 
     // #then оператор видит и симптом (KTD14), и настоящую причину
-    expect(verdict.state).toBe("failed");
-    expect(verdict.reasons).toHaveLength(reasonCount + 1);
+    expect(result.state).toBe("failed");
+    expect(result.reasons).toHaveLength(reasonCount + 1);
+    expect(result.reasons[reasonCount]).toContain("git -C /abs/repo status");
+  });
+
+  test("appendEscapeAdvisory: без побега вердикт не трогается", () => {
+    // #given
+    const verdict = workGate({ raw: workEnvelope(), baseTree, headTree, validateExitCode: 0 });
+    const reasonCount = verdict.reasons.length;
+
+    // #when digest не менялся
+    const result = appendEscapeAdvisory(verdict, "/abs/repo", "same", "same");
+
+    // #then
+    expect(result.reasons).toHaveLength(reasonCount);
+    expect(result.state).toBe("green");
   });
 });
 

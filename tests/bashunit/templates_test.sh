@@ -34,18 +34,40 @@ function test_templates_001_python3_is_present_and_at_least_3_9_the_floor_re() {
 # uses promptStringOnce which is unavailable in execute-template)
 # ===========================================
 
-function test_templates_002_chezmoi_data_contains_name_from_env_var() {
-  _bats_test_init 2 'chezmoi data contains name from env var'
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" data --format json
+# CHEZMOI_NAME/CHEZMOI_EMAIL bind at `chezmoi init`, not at render time, so
+# the setup() exports above are inert here — each value needs its own
+# init-time config. The second render is the control against ambient host
+# state.
+function test_templates_002_chezmoi_init_binds_name_from_env_var() {
+  _bats_test_init 2 'chezmoi init binds name from env var'
+  local tmpl="$BATS_TEST_TMPDIR/name.tmpl"
+  printf '{{ .name }}' > "$tmpl"
+
+  CHEZMOI_NAME="Alpha Tester" write_test_config "$BATS_TEST_TMPDIR/name-a.yaml"
+  run render_with_config "$BATS_TEST_TMPDIR/name-a.yaml" "$tmpl"
   assert_success
-  assert_output --partial '"name"'
+  assert_output "Alpha Tester"
+
+  CHEZMOI_NAME="Beta Tester" write_test_config "$BATS_TEST_TMPDIR/name-b.yaml"
+  run render_with_config "$BATS_TEST_TMPDIR/name-b.yaml" "$tmpl"
+  assert_success
+  assert_output "Beta Tester"
 }
 
-function test_templates_003_chezmoi_data_contains_email_from_env_var() {
-  _bats_test_init 3 'chezmoi data contains email from env var'
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" data --format json
+function test_templates_003_chezmoi_init_binds_email_from_env_var() {
+  _bats_test_init 3 'chezmoi init binds email from env var'
+  local tmpl="$BATS_TEST_TMPDIR/email.tmpl"
+  printf '{{ .email }}' > "$tmpl"
+
+  CHEZMOI_EMAIL="alpha@example.net" write_test_config "$BATS_TEST_TMPDIR/email-a.yaml"
+  run render_with_config "$BATS_TEST_TMPDIR/email-a.yaml" "$tmpl"
   assert_success
-  assert_output --partial '"email"'
+  assert_output "alpha@example.net"
+
+  CHEZMOI_EMAIL="beta@example.net" write_test_config "$BATS_TEST_TMPDIR/email-b.yaml"
+  run render_with_config "$BATS_TEST_TMPDIR/email-b.yaml" "$tmpl"
+  assert_success
+  assert_output "beta@example.net"
 }
 
 # ===========================================

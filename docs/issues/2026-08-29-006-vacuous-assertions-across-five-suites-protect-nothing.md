@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["tautological-tests","vacuous-assertions","test-quality"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -80,3 +81,7 @@ suite; Smithers changes use `make test-smithers`.
 
 Whether `smoke_test.sh:1038-1039` protects a real constraint worth deriving, or should
 simply be deleted. No consumer of the width budget has been identified yet.
+
+## Resolution
+
+All nine sites replaced with assertions that change verdict when the named behavior breaks, each calibrated red by reintroducing its regression: (1) test_docker_contract.py dropped the comment-only idempotent_test.sh assertIn — reachability is owned behaviorally by test_post_apply_suite_contract.py's wrapper-argv check; (2) smoke_test.sh deleted the two constant-arithmetic width lines, keeping the awk [ui]-scoped -eq 32 (section placement is real protection; no width-4 consumer exists in herdr-task-sync, resolving the open decision); (3) scripts_test.sh:161 now asserts status and a .gitconfig positive control before the darwin refutation; (4) scripts_test.sh test 216 proves the sweep ran (api snapshot in the log) before counting zero renames, distinguishing 'no rename' from 'no log' — calibrated red by no-op'ing sweep_tabs; (5) idempotent_test.sh test 010's workstation branch asserts the closed run/skip vocabulary plus the live-env marker flip to run (registered assert_equal) — calibrated red by breaking the truth rule; (6) gates escape composition extracted into appendEscapeAdvisory in lib/gates.ts, called from se-pipeline.tsx, with tests asserting reason content, reasonCount delta and state preservation on green/red/no-escape paths — calibrated red by mutating the helper to flip state; (7) block-registry.test.ts compares two independently built registries in opposite registration order plus a sortedReplacer key-canonicalization discriminator — both calibrated red; (8) blocks/index.test.ts compares two buildRegistry() generations plus a reversed INITIAL_LIBRARY registry; (9) templates_test.sh 002/003 bind CHEZMOI_NAME/EMAIL at init via write_test_config and prove a different value renders differently — calibrated red by breaking the env read. Verified: make test-issues (41 OK), test-templates, test-smithers (545 pass), test-suite, test-ubuntu (full Docker, exit 0), lint. Cross-model se-code-review (sonnet + gpt-5.6-terra) returned Ready-with-fixes; its three findings (registration-order gap, key-canonicalization gap, missing state assertion) applied in 57485e1.

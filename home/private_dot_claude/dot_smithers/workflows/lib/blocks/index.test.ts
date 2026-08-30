@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { catalogToJson } from "../block-registry.ts";
+import { BlockRegistry, catalogToJson } from "../block-registry.ts";
 import { validateFlowSpec } from "../flow-validate.ts";
 import { buildRegistry, INITIAL_LIBRARY } from "./index.ts";
 
@@ -14,8 +14,16 @@ describe("initial block library", () => {
     );
   });
 
-  test("catalog is byte-stable across generations", () => {
-    expect(catalogToJson(registry)).toBe(catalogToJson(registry));
+  test("catalog is byte-stable across independently built registries", () => {
+    // Two separate buildRegistry() calls on purpose — a single shared
+    // instance cannot catch per-generation content.
+    expect(catalogToJson(buildRegistry())).toBe(catalogToJson(registry));
+
+    // buildRegistry() always inserts in INITIAL_LIBRARY order, so only the
+    // reversed registration can see a lost list() sort.
+    const reordered = new BlockRegistry();
+    for (const block of [...INITIAL_LIBRARY].reverse()) reordered.register(block);
+    expect(catalogToJson(reordered)).toBe(catalogToJson(registry));
   });
 
   test("catalog exposes external and needsWorkspace flags per block", () => {

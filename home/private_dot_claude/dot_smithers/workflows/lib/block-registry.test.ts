@@ -74,11 +74,33 @@ describe("BlockRegistry catalog", () => {
     expect((scan?.outputSchema as { type?: string }).type).toBe("object");
   });
 
-  test("catalog JSON is byte-stable across two consecutive generations", () => {
+  test("catalog JSON is byte-stable across independently built registries", () => {
+    // #given the same blocks registered in opposite order — collapsing the
+    // two registries into one would make this test unable to fail
+    const first = new BlockRegistry();
+    first.register(agentBlock());
+    first.register(computeBlock());
+
+    const second = new BlockRegistry();
+    second.register(computeBlock());
+    second.register(agentBlock());
+
+    // #then
+    expect(catalogToJson(first)).toBe(catalogToJson(second));
+  });
+
+  test("catalog JSON canonicalizes object keys regardless of declaration order", () => {
+    // #given keys deliberately declared in reverse-alphabetical order
     const registry = new BlockRegistry();
-    registry.register(agentBlock());
-    registry.register(computeBlock());
-    expect(catalogToJson(registry)).toBe(catalogToJson(registry));
+    registry.register(computeBlock({ inputSchema: z.object({ headSha: z.string(), baseSha: z.string() }) }));
+
+    const parsed = JSON.parse(catalogToJson(registry)) as {
+      blocks: { inputSchema: { properties: Record<string, unknown> } }[];
+    };
+    const keys = Object.keys(parsed.blocks[0]!.inputSchema.properties);
+
+    // #then sortedReplacer erased the declaration order from the bytes
+    expect(keys).toEqual(["baseSha", "headSha"]);
   });
 });
 
