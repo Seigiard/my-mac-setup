@@ -6998,25 +6998,15 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
 }
 
 # Bounded open-pipe regression for the fail-open guard's stdin contract
-# (docs/issues/2026-08-29-011). Every no-payload hts_run_fail_open_guard call
-# site must redirect stdin from /dev/null: the guard's payload capture
-# (`cat > "$input"` in tests/helpers/herdr_task_sync.bash) otherwise reads the
-# runner's inherited stdin, and when that stdin is a pipe whose write end stays
-# open, cat blocks until an outer CI timeout kills the whole suite -- the
-# Docker hang PR #98 fixed. This scenario owns the test-fixture stdin contract;
-# the detached-child descriptor probes (tests 102/258) own production
-# descendant descriptors and stay separate.
-#
-# The nested runner's stdin is a non-TTY pipe whose write end the fixture holds
-# open, with no payload, for the entire run -- the exact regressed condition.
-# Correct call sites get EOF from their own /dev/null redirects and finish;
-# a call site that lost its redirect inherits the pipe and hangs, and the
-# deadline turns that hang into a bounded failure that names the blocked cat
-# descendant instead of stalling the suite.
-#
-# Two narrower invocations, not one: each affected test (119 and 121) gets its
-# own scenario so a deadline failure attributes to one call-site family, and
-# the only extra cost over a single invocation is a second runner startup.
+# (docs/issues/2026-08-29-011, follow-up to PR #98). A no-payload
+# hts_run_fail_open_guard call without a /dev/null redirect makes the guard's
+# payload capture (`cat > "$input"` in tests/helpers/herdr_task_sync.bash)
+# read the runner's inherited stdin; when that stdin is a pipe whose write end
+# stays open, cat blocks until an outer CI timeout kills the whole suite. The
+# nested runner below gets exactly that stdin, so a lost redirect fails here
+# in seconds instead. Two scenarios, not one, so a failure attributes to one
+# call-site family (119 or 121). The detached-child descriptor probes
+# (tests 102/258) own production descendant descriptors.
 hts_run_nested_fail_open_open_pipe_scenario() {
   local test_filter="$1" budget="$2"
   run python3 - "$BATS_TEST_DIRNAME/lib/bashunit" \
@@ -7040,9 +7030,9 @@ EXIT_EOF_WITHHELD = 5      # runner exited but its output pipes never hit EOF
 
 read_fd, write_fd = os.pipe()
 # close_fds (the Popen default) keeps write_fd out of the child: only this
-# process holds the write end open, exactly like the outer runner in the
-# Docker hang, so EOF on the nested stdin can only come from a /dev/null
-# redirect inside the tests under scrutiny. No payload is ever written.
+# process holds the write end open, so EOF on the nested stdin can only come
+# from a /dev/null redirect inside the tests under scrutiny. No payload is
+# ever written.
 proc = subprocess.Popen(
     [bashunit, "--filter", test_filter, suite],
     stdin=read_fd,
@@ -7122,8 +7112,8 @@ deadline = time.monotonic() + budget
 try:
     proc.wait(timeout=budget)
 except subprocess.TimeoutExpired:
-    # State-aware verdict: before naming a cause, look for the regressed
-    # state itself -- a cat descendant still reading our held-open pipe.
+    # A cat descendant still reading our held-open pipe is the regressed
+    # state itself, so it outranks a generic hang verdict.
     comms = descendant_comms(proc.pid)
     if any(comm == "cat" or comm.endswith("/cat") for comm in comms):
         report(
@@ -7160,20 +7150,17 @@ raise SystemExit(proc.returncode)
 PY
 }
 
-# Budgets are wall-clock ceilings for a hang that is otherwise infinite, not
-# performance expectations: green baselines measured 2026-08-30 on an idle
-# workstation were ~6s (test 119) and ~24s (test 121), and the defaults leave
-# an order of magnitude for Docker and loaded CI. Override via
-# HTS_FAIL_OPEN_PIPE_BUDGET_SECONDS when recalibrating.
+# Budgets are wall-clock ceilings for an otherwise-infinite hang, not
+# performance expectations: the defaults leave an order of magnitude over
+# idle-workstation green baselines (~6s / ~24s) for Docker and loaded CI.
+# Override via HTS_FAIL_OPEN_PIPE_BUDGET_SECONDS when recalibrating.
 function test_scripts_264_herdr_task_sync_fail_open_deadline_test_complet() {
   _bats_test_init 264 'herdr-task-sync fail-open deadline test completes with the runner stdin pipe held open'
   hts_run_nested_fail_open_open_pipe_scenario \
     fail_open_deadline_rejects_late "${HTS_FAIL_OPEN_PIPE_BUDGET_SECONDS:-90}"
   assert_success
-  # Title prefixes only: the nested runner truncates long titles to the
-  # terminal width (observed under make test-ubuntu), so a full-title match
-  # is environment-dependent. "1 passed, 1 total" pins the filter to exactly
-  # one nested test.
+  # The nested runner truncates long titles to the terminal width, so match
+  # title prefixes only; "1 passed, 1 total" pins the filter to one test.
   assert_output --partial "Passed: herdr-task-sync fail-open deadline rejects late"
   assert_output --partial "1 passed, 1 total"
   assert_output --partial "All tests passed"
