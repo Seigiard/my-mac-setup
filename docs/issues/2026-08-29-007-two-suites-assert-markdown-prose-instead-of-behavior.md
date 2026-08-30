@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["tautological-tests","test-quality","documentation"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -53,3 +54,7 @@ Run `make test-suite`, then `make test-ubuntu`.
 Whether the child-supervision markers documented in `child-agent-contract.md` are a
 consumed wire format or explanatory prose. If they are consumed, a round-trip test between
 emitter and documented shape replaces both tests; if not, the assertions should simply go.
+
+## Resolution
+
+Both prose-assertion suites replaced or removed. scripts_test.sh test 058 no longer greps 16 English sentences: the open decision resolved to 'consumed wire format' — executable_herdr-child emits [child-supervision v1 ...] (line 617) and [child-ask v2 ...] (line 1752) and parents validate them per the contract — so the new test 058 round-trips the markers actually delivered through the lifecycle stub against the shapes documented in child-agent-contract.md (field-key skeleton equality plus value-grammar checks), and verifies every herdr-child subcommand the three docs reference is accepted by the real CLI. Calibrated red: an emitter field rename and a doc-only phantom subcommand both fail it. smoke_test.sh test 60 deleted as tautological; its single non-duplicated fact — deployment of ~/.claude/skills/herdr/SKILL.md — moved into test 21's deployment manifest (contract doc and ask-in-herdr SKILL.md were already owned by tests 21/22). Lifecycle properties the prose named remain behaviorally owned by scripts tests 023/034/053/057/064/092. Verified: make test-suite, make test-ubuntu, make lint all green; cross-model se-code-review applied 3 P2 hardenings.

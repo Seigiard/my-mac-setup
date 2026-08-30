@@ -1853,28 +1853,75 @@ function test_scripts_057_herdr_child_attached_child_promoted_to_detach_as() {
   assert_file_contains "$CHILD_STUB/successful-prompts.log" 'child-ask v2'
 }
 
-function test_scripts_058_herdr_child_source_contracts_document_attached_a() {
-  _bats_test_init 58 'herdr child source contracts document attached and detached lifecycle boundaries'
+# Reduce a marker to its field-key skeleton: "[child-ask v2 generation=... pane=x]"
+# becomes "[child-ask v2 generation= pane=]", so documented placeholders and
+# emitted values compare as one shape.
+child_marker_skeleton() {
+  sed -E 's/=[^] ]+/=/g' <<<"$1"
+}
+
+# The marker lines in child-agent-contract.md are a consumed wire format: parents
+# validate [child-supervision v1 ...] and [child-ask v2 ...] bodies field by field,
+# so the emitted markers must round-trip the documented shapes.
+function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
+  _bats_test_init 58 'herdr-child emitted markers round-trip the documented wire shapes'
   local contract="$SOURCE_ROOT/private_dot_claude/shared/child-agent-contract.md"
   local skill="$SOURCE_ROOT/private_dot_claude/skills/herdr/SKILL.md"
   local consult="$SOURCE_ROOT/private_dot_claude/skills/ask-in-herdr/SKILL.md"
 
-  assert_file_contains "$contract" 'herdr-child start.*--wait'
-  assert_file_contains "$contract" 'herdr-child start.*--detach'
-  assert_file_contains "$contract" 'generation.*event'
-  assert_file_contains "$contract" 'herdr-child prompt.*--wait'
-  assert_file_contains "$contract" 'herdr-child prompt.*--detach'
-  assert_file_contains "$contract" 'not.*task-success verdict'
-  assert_file_contains "$contract" 'start.*prompt.*reply.*nonzero.*recovery JSON'
-  assert_file_contains "$contract" 'Do not retry.*start.*same name'
-  assert_file_contains "$contract" 'herdr agent get.*pane-id'
-  assert_file_contains "$contract" 'managed.*herdr-child prompt.*--detach.*reap'
-  assert_file_contains "$skill" 'cooperative exclusive file scope'
-  assert_file_contains "$skill" 'nonzero recovery JSON.*preserving the child'
-  assert_file_contains "$skill" 'Do not retry.*start.*same name'
-  assert_file_contains "$skill" 'herdr agent get'
-  assert_file_contains "$skill" 'rearm.*managed.*prompt.*--detach.*reap'
-  assert_file_contains "$consult" 'attached.*--wait'
+  # #given — a detached child settles, so the watcher prompts the parent
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 5000
+  assert_success
+  printf 'done 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_log 'event=settled-11'
+
+  # #then — the delivered supervision marker matches the documented shape
+  local emitted documented
+  emitted="$(grep -o '\[child-supervision v1 generation=[^]]*\]' "$CHILD_STUB/successful-prompts.log" | head -n1)"
+  documented="$(grep -o '\[child-supervision v1 generation=[^]]*\]' "$contract" | head -n1)"
+  [ -n "$emitted" ] || fail "no child-supervision marker was delivered to the parent"
+  [ -n "$documented" ] || fail "contract no longer documents the child-supervision marker shape"
+  assert_equal "$(child_marker_skeleton "$documented")" "$(child_marker_skeleton "$emitted")"
+  grep -Eq '^\[child-supervision v1 generation=[^ ]+ event=(timeout|settled-[0-9]+|blocked-[0-9]+|child-gone) outcome=[^ ]+ reason=[^ ]+ agent=[^ ]+ pane=[^] ]+\]$' \
+    <<<"$emitted" || fail "supervision marker values break the documented grammar: $emitted"
+
+  # #given — a detached child calls back through ask
+  child_lifecycle_stub_herdr
+  printf 'child-life' > "$CHILD_STUB/started-name"
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_POLL_INTERVAL=0.01 \
+    bash "$HERDR_CHILD" prompt --to child-life --pane wT:p9 --detach \
+    --supervision-timeout 5000 "detached task"
+  assert_success
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=child-life \
+    HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_LAUNCH_MODE=wait \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask "Which path?"
+  assert_success
+
+  # #then — the delivered callback marker matches the documented shape
+  emitted="$(grep -o '\[child-ask v2 generation=[^]]*\]' "$CHILD_STUB/successful-prompts.log" | head -n1)"
+  documented="$(grep -o '\[child-ask v2 generation=[^]]*\]' "$contract" | head -n1)"
+  [ -n "$emitted" ] || fail "no child-ask v2 marker was delivered to the parent"
+  [ -n "$documented" ] || fail "contract no longer documents the child-ask v2 marker shape"
+  assert_equal "$(child_marker_skeleton "$documented")" "$(child_marker_skeleton "$emitted")"
+  grep -Eq '^\[child-ask v2 generation=[^ ]+ event=callback-[0-9]+ agent=[^ ]+ pane=[^] ]+\]$' \
+    <<<"$emitted" || fail "child-ask marker values break the documented grammar: $emitted"
+
+  # #then — every subcommand the docs reference is one the CLI accepts
+  local tokens token
+  tokens="$(grep -ohE 'herdr-child [a-z][a-z-]*' "$contract" "$skill" "$consult" \
+    | awk '{print $2}' | sort -u)"
+  [ -n "$tokens" ] || fail "docs reference no herdr-child subcommands; the sync sweep would no-op"
+  for token in $tokens; do
+    # Without a herdr environment every real subcommand fails for an env
+    # reason; only a token the CLI dropped fails with "unknown subcommand".
+    run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID= bash "$HERDR_CHILD" "$token"
+    assert_failure
+    refute_output --partial 'unknown subcommand'
+  done
 }
 
 function test_scripts_059_herdr_child_rejects_invalid_and_live_names_befor() {
