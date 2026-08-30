@@ -44,6 +44,11 @@ class TestDotfilesWorkflow(unittest.TestCase):
         self.assertIsNotNone(match, "step must be gated by an if: condition")
         expr = match.group("expr")
         self.assertIn("github.event_name", expr)
+        # The positive-membership assumption cannot survive negation; reject
+        # such conditions instead of silently misreading them as selections.
+        self.assertNotIn(
+            "!", expr, "negated condition breaks this parser's assumption: %s" % expr
+        )
         selected = {
             event
             for event in declared
@@ -67,6 +72,20 @@ class TestDotfilesWorkflow(unittest.TestCase):
         text = self.workflow_text()
         declared = self.declared_triggers(text)
 
+        # The minimal-install selector defines which events are ordinary runs;
+        # exactly those may restore old downloads, and the remaining
+        # full-verification events must fetch from upstream and save. Deriving
+        # the restore set from MMS_CI_MINIMAL also rejects a swap of the two
+        # conditions, which a bare partition check would accept.
+        minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
+        minimal_events = {
+            event
+            for event in declared
+            if re.search(r"\b%s\b" % re.escape(event), minimal_line.group("expr"))
+        }
+        self.assertTrue(minimal_events, "no declared trigger selects the minimal install")
+
         for job_name in ("test-ubuntu", "test-macos"):
             with self.subTest(job=job_name):
                 job = self.job_block(text, job_name)
@@ -77,14 +96,14 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 save_events = self.events_selected_by_condition(save, declared)
 
                 self.assertEqual(
-                    restore_events & save_events,
-                    set(),
-                    "an event must not both restore old downloads and save them back",
+                    restore_events,
+                    minimal_events,
+                    "only ordinary minimal-install events may restore old downloads",
                 )
                 self.assertEqual(
-                    restore_events | save_events,
-                    declared,
-                    "every declared trigger must be covered by exactly one cache step",
+                    save_events,
+                    declared - minimal_events,
+                    "every full-verification event must save fresh downloads",
                 )
 
                 # The save-only step must use the save-only action variant, or
@@ -98,11 +117,16 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 # Cache identity: the save step must write the path the restore
                 # step reads, and the key it saves under must be findable by at
                 # least one restore-keys prefix — otherwise saved entries are
-                # dead weight.
-                self.assertEqual(
-                    self.step_value(restore, "path"),
-                    self.step_value(save, "path"),
-                )
+                # dead weight. The per-OS fragment is Homebrew's own contract:
+                # it reads its downloads cache from a fixed per-OS location, so
+                # a swapped or invented path warms nothing.
+                restore_path = self.step_value(restore, "path")
+                self.assertEqual(restore_path, self.step_value(save, "path"))
+                expected_fragment = {
+                    "test-ubuntu": ".cache/Homebrew",
+                    "test-macos": "Library/Caches/Homebrew",
+                }[job_name]
+                self.assertIn(expected_fragment, restore_path)
                 save_key = self.step_value(save, "key")
                 restore_keys_block = re.search(
                     r"^          restore-keys: \|\n(?P<keys>(?:^            .+\n?)+)",
@@ -134,14 +158,18 @@ class TestDotfilesWorkflow(unittest.TestCase):
         target = re.search(r"tar\s[^\n]*-C\s+\"?(?P<dir>[^\s\"]+)", script.group("body"))
         self.assertIsNotNone(target, "install script must extract into an explicit directory")
 
+        gate_position = job.index("      - name: Run the Smithers test gate")
         path_appends = {
-            entry.strip()
-            for entry in re.findall(r'echo\s+"?([^"\n]+?)"?\s*>>\s*"?\$GITHUB_PATH', job)
+            append.group(1).strip()
+            for append in re.finditer(r'echo\s+"?([^"\n]+?)"?\s*>>\s*"?\$GITHUB_PATH', job)
+            # $GITHUB_PATH takes effect from the next step on, so an append
+            # after the gate cannot make the scanner resolvable for it.
+            if append.start() < gate_position
         }
         self.assertIn(
             target.group("dir"),
             path_appends,
-            "gitleaks lands in a directory the workflow never puts on $GITHUB_PATH",
+            "gitleaks lands in a directory no step before the Smithers gate puts on $GITHUB_PATH",
         )
 
         self.assertNotIn(

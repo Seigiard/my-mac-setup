@@ -39,12 +39,14 @@ class TestDockerContract(unittest.TestCase):
             line[8:] for line in match.group("script").splitlines()
         ) + "\n"
 
-    def service_env_names(self, service):
+    def service_env(self, service):
         block = re.search(
             r"^    environment:\n(?P<body>(?:^      .*\n)+)", service, re.MULTILINE
         )
         self.assertIsNotNone(block, "service must declare an environment block")
-        return set(re.findall(r"^      - ([A-Za-z_]+)=", block.group("body"), re.MULTILINE))
+        return dict(
+            re.findall(r"^      - ([A-Za-z_]+)=(.*)$", block.group("body"), re.MULTILINE)
+        )
 
     def service_volumes(self, service):
         block = re.search(
@@ -83,8 +85,10 @@ class TestDockerContract(unittest.TestCase):
         service_name = run.group("service")
         script = self.service_command_script(self.service_block(service_name))
         self.assertIsNotNone(script, "%s must run a scripted command, not an interactive shell" % service_name)
-        self.assertIn("chezmoi apply", script)
-        self.assertIn("tests/run-post-apply.sh full", script)
+        # Line-anchored so a comment or an echo that merely mentions the
+        # command cannot satisfy the assertion.
+        self.assertRegex(script, r"(?m)^\s*chezmoi apply\b")
+        self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
     def test_apply_services_run_the_canonical_gates(self):
         # Gate integrity: every service that runs a real apply must finish with
@@ -94,8 +98,10 @@ class TestDockerContract(unittest.TestCase):
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 script = self.service_command_script(self.service_block(name))
-                self.assertIn("make test-smithers", script)
-                self.assertIn("tests/run-post-apply.sh full", script)
+                # Line-anchored so a comment or echo mentioning the command
+                # does not satisfy the gate check.
+                self.assertRegex(script, r"(?m)^\s*make test-smithers\b")
+                self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
     def test_apply_services_declare_disposable_home_and_frozen_brew_bundle(self):
         # Derived over all services rather than two named ones: a real apply
@@ -105,9 +111,9 @@ class TestDockerContract(unittest.TestCase):
         # surfaces as wall-clock/network flakiness).
         for name in self.apply_service_names():
             with self.subTest(service=name):
-                env = self.service_env_names(self.service_block(name))
-                self.assertIn("MMS_DISPOSABLE_HOME", env)
-                self.assertIn("HOMEBREW_BUNDLE_NO_UPGRADE", env)
+                env = self.service_env(self.service_block(name))
+                self.assertEqual(env.get("MMS_DISPOSABLE_HOME"), "1")
+                self.assertEqual(env.get("HOMEBREW_BUNDLE_NO_UPGRADE"), "1")
 
     def test_staging_lands_issue_cli_docs_and_makefile_in_the_worktree(self):
         # Execute the extracted staging commands under a temp root instead of
@@ -125,7 +131,7 @@ class TestDockerContract(unittest.TestCase):
                         break
                     staging_lines.append(line)
                 staging = "\n".join(staging_lines)
-                self.assertIn("mkdir", staging, "no staging commands found before the cd")
+                self.assertTrue(staging.strip(), "no staging commands found before the cd")
 
                 with tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
