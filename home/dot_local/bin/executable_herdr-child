@@ -78,16 +78,72 @@ require_parent() {
   }
 }
 
-now_seq() {
-  if command -v python3 >/dev/null 2>&1; then
-    local value
-    value="$(python3 -c 'import time; print(int(time.time()*1000000))' 2>/dev/null)"
-    if [ -n "$value" ]; then
-      printf '%s' "$value"
-      return
-    fi
-  fi
-  printf '%s000000' "$(date +%s)"
+metadata_report_checked() {
+  local pane="$1" expected_generation="$2" expected_terminal="$3" expected_session="$4"
+  shift 4
+  mkdir -p "$STATE_DIR" 2>/dev/null || return 1
+  chmod 700 "$STATE_DIR" 2>/dev/null || true
+  python3 -c 'import fcntl, hashlib, json, os, subprocess, sys, tempfile, time
+state_dir, pane, expected_generation, expected_terminal, expected_session = sys.argv[1:6]
+report_args = sys.argv[6:]
+clock = os.environ.get("HERDR_CHILD_TEST_NOW_SEQ")
+wall = int(clock) if clock else time.time_ns() // 1000
+pane_lock = os.open(os.path.join(state_dir, "metadata-" + hashlib.sha256(pane.encode()).hexdigest() + ".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+try:
+    fcntl.flock(pane_lock, fcntl.LOCK_EX)
+    if expected_generation != "-":
+        current = subprocess.run(["herdr", "pane", "get", pane], capture_output=True, text=True, pass_fds=(pane_lock,))
+        if current.returncode != 0:
+            raise SystemExit(32 if "pane_not_found" in current.stderr else 34)
+        try:
+            pane_data = json.loads(current.stdout).get("result", {}).get("pane", {})
+            tokens = pane_data.get("tokens") or {}
+            terminal = pane_data.get("terminal_id", "")
+            session = pane_data.get("agent_session", {}).get("value", "")
+        except (AttributeError, json.JSONDecodeError):
+            raise SystemExit(34)
+        if tokens.get("supervision_generation", "") != expected_generation or terminal != expected_terminal or session != expected_session:
+            raise SystemExit(20)
+    seq_lock = os.open(os.path.join(state_dir, "metadata-seq.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(seq_lock, fcntl.LOCK_EX)
+        counter = os.path.join(state_dir, "metadata-seq")
+        try:
+            with open(counter, encoding="ascii") as handle:
+                previous = int(handle.read())
+        except FileNotFoundError:
+            previous = 0
+        value = max(wall, previous + 1)
+        tmp_fd, tmp = tempfile.mkstemp(prefix=".metadata-seq.", dir=state_dir)
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="ascii") as handle:
+                handle.write(str(value))
+            os.replace(tmp, counter)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    finally:
+        os.close(seq_lock)
+    result = subprocess.run(["herdr", "pane", "report-metadata", pane, *report_args, "--seq", str(value)], stdout=subprocess.DEVNULL, pass_fds=(pane_lock,))
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+    print(value)
+finally:
+    os.close(pane_lock)' "$STATE_DIR" "$pane" "$expected_generation" "$expected_terminal" "$expected_session" "$@"
+}
+
+metadata_report() {
+  local pane="$1"
+  shift
+  metadata_report_checked "$pane" - - - "$@"
+}
+
+metadata_report_if_generation() {
+  local run_dir="$1" pane="$2" generation="$3" child_terminal child_session
+  shift 3
+  child_terminal="$(state_value "$run_dir/launch.state" child_terminal)"
+  child_session="$(state_value "$run_dir/launch.state" child_session)"
+  metadata_report_checked "$pane" "$generation" "$child_terminal" "$child_session" "$@"
 }
 
 now_ms() {
@@ -462,6 +518,14 @@ watcher_hold_expired() {
 watcher_publish_failed() {
   local run_dir="$1" pane="$2" generation="$3" reason="$4" preserve_waiting="${5:-0}"
   local current_status hold_started
+  # watcher_generation_current re-enables errexit internally, clobbering any
+  # set +e bracket; conditional invocation keeps its nonzero return non-fatal.
+  if watcher_generation_current "$run_dir" "$pane" "$generation"; then
+    current_status=0
+  else
+    current_status=$?
+  fi
+  [ "$current_status" -eq 0 ] || return "$current_status"
   if [ -n "${HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER:-}" ]; then
     : > "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.ready"
     hold_started="$SECONDS"
@@ -473,29 +537,21 @@ watcher_publish_failed() {
       sleep 0.01
     done
   fi
-  # watcher_generation_current re-enables errexit internally, clobbering any
-  # set +e bracket; conditional invocation keeps its nonzero return non-fatal.
-  if watcher_generation_current "$run_dir" "$pane" "$generation"; then
-    current_status=0
-  else
-    current_status=$?
-  fi
-  [ "$current_status" -eq 0 ] || return "$current_status"
   if [ "$preserve_waiting" -eq 1 ]; then
-    herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    metadata_report_if_generation "$run_dir" "$pane" "$generation" \
+      --source "$SOURCE_ID" --clear-state-labels \
       --state-label 'blocked=waiting for parent' \
       --state-label "supervision failed=$reason" \
       --token "supervision_failure_reason=$reason" \
       --token "supervision_failure_generation=$generation" \
-      --token "supervision_failure_diagnostic=$generation" \
-      --seq "$(now_seq)" >/dev/null 2>&1
+      --token "supervision_failure_diagnostic=$generation" >/dev/null 2>&1
   else
-    herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    metadata_report_if_generation "$run_dir" "$pane" "$generation" \
+      --source "$SOURCE_ID" --clear-state-labels \
       --state-label "supervision failed=$reason" \
       --token "supervision_failure_reason=$reason" \
       --token "supervision_failure_generation=$generation" \
-      --token "supervision_failure_diagnostic=$generation" \
-      --seq "$(now_seq)" >/dev/null 2>&1
+      --token "supervision_failure_diagnostic=$generation" >/dev/null 2>&1
   fi
 }
 
@@ -527,35 +583,31 @@ watcher_fail_without_publish() {
 
 clear_supervision_metadata() {
   local pane="$1"
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+  metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels \
     --clear-token child_mode --clear-token supervision_generation \
     --clear-token supervision_timeout --clear-token supervision_baseline_seq \
     --clear-token parent_terminal --clear-token parent_session \
     --clear-token child_terminal --clear-token child_session \
     --clear-token supervision_failure_reason \
     --clear-token supervision_failure_generation \
-    --clear-token supervision_failure_diagnostic \
-    --seq "$(now_seq)" >/dev/null 2>&1
+    --clear-token supervision_failure_diagnostic >/dev/null 2>&1
 }
 
 clear_supervision_state_labels() {
   local pane="$1"
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
-    --seq "$(now_seq)" >/dev/null 2>&1
+  metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels >/dev/null 2>&1
 }
 
 preserve_callback_waiting_label() {
   local pane="$1"
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
-    --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" \
-    --seq "$(now_seq)" >/dev/null 2>&1
+  metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels \
+    --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" >/dev/null 2>&1
 }
 
 refresh_supervision_liveness() {
   local pane="$1" generation="$2"
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
-    --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" \
-    --seq "$(now_seq)" >/dev/null 2>&1
+  metadata_report "$pane" --source "$SOURCE_ID" \
+    --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" >/dev/null 2>&1
 }
 
 delivery_retry_pause() {
@@ -1207,8 +1259,8 @@ EOF
   if [ "$tab_mode" -eq 1 ]; then
     local token_err
     token_err="$(mktemp)"
-    if ! herdr pane report-metadata "$pane" --source "$TAB_SOURCE_ID" \
-      --token "child-tab=$tab" --seq "$(now_seq)" >/dev/null 2>"$token_err"; then
+    if ! metadata_report "$pane" --source "$TAB_SOURCE_ID" \
+      --token "child-tab=$tab" >/dev/null 2>"$token_err"; then
       cat "$token_err" >&2
       rm -f "$token_err"
       printf 'herdr-child: could not record tab ownership; removing tab %s\n' "$tab" >&2
@@ -1354,13 +1406,12 @@ baseline_seq=$baseline_seq" || {
       cleanup_pane
       return 1
     }
-    if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+    if ! metadata_report "$pane" --source "$SOURCE_ID" \
       --token 'child_mode=detach' --token "supervision_generation=$generation" \
       --token "supervision_timeout=$supervision_timeout" \
       --token "supervision_baseline_seq=$baseline_seq" \
       --token "parent_terminal=$parent_terminal" --token "parent_session=$parent_session" \
-      --token "child_terminal=$child_terminal" --token "child_session=$child_session" \
-      --seq "$(now_seq)" >/dev/null; then
+      --token "child_terminal=$child_terminal" --token "child_session=$child_session" >/dev/null; then
       printf 'herdr-child: detached launch metadata could not be published\n' >&2
       remove_supervision_run "$run_dir"
       cleanup_pane
@@ -1528,12 +1579,11 @@ signal_reap_transition() {
 
 publish_reap_recovery() {
   local pane="$1" generation="$2"
-  herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
+  metadata_report "$pane" --source "$SOURCE_ID" \
     --state-label 'supervision failed=reap-close-failed' \
     --token 'supervision_failure_reason=reap-close-failed' \
     --token "supervision_failure_generation=$generation" \
-    --token "supervision_failure_diagnostic=$generation" \
-    --seq "$(now_seq)" >/dev/null 2>&1
+    --token "supervision_failure_diagnostic=$generation" >/dev/null 2>&1
 }
 
 wait_for_fresh_settlement() {
@@ -1662,18 +1712,21 @@ baseline_seq=$baseline_seq" || { remove_supervision_run "$run_dir"; return 1; }
   trap 'continuation_signal_handler INT' INT
   trap 'continuation_signal_handler TERM' TERM
 
-  if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
+  if ! metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels \
     --token 'child_mode=detach' --token "supervision_generation=$generation" \
     --token "supervision_timeout=$supervision_timeout" \
     --token "supervision_baseline_seq=$baseline_seq" \
     --token "parent_terminal=$parent_terminal" --token "parent_session=$parent_session" \
     --token "child_terminal=$child_terminal" --token "child_session=$child_session" \
     --clear-token supervision_failure_reason --clear-token supervision_failure_generation \
-    --clear-token supervision_failure_diagnostic --seq "$(now_seq)" >/dev/null; then
+    --clear-token supervision_failure_diagnostic >/dev/null; then
     stop_owned_watcher "$run_dir" "$watcher_pid" metadata-publish-failed
     printf 'herdr-child: detached continuation metadata could not be published\n' >&2
     trap - HUP INT TERM
     return 1
+  fi
+  if [ -n "${HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED:-}" ]; then
+    : > "$HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED"
   fi
   takeover_complete=1
   if ! invalidate_generation "$old_generation" managed-continuation; then
@@ -1755,9 +1808,8 @@ ask_parent() {
   local pane_json context pane_terminal pane_session mode generation run_dir
   local supervision_timeout stored_parent_terminal stored_parent_session
   local stored_child_terminal stored_child_session route_terminal="" route_session=""
-  seq="$(now_seq)"
-  herdr pane report-metadata "$HERDR_PANE_ID" --source "$SOURCE_ID" \
-    --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" --seq "$seq" >/dev/null
+  seq="$(metadata_report "$HERDR_PANE_ID" --source "$SOURCE_ID" \
+    --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS")"
 
   pane_json="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null || true)"
   context="$(printf '%s' "$pane_json" | json_child_context 2>/dev/null || true)"
@@ -2040,8 +2092,7 @@ $text"
     printf 'herdr-child: reply delivery failed; waiting label remains published\n' >&2
     exit 1
   fi
-  if ! herdr pane report-metadata "$pane" --source "$SOURCE_ID" \
-    --clear-state-labels --seq "$(now_seq)" >/dev/null; then
+  if ! metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels >/dev/null; then
     printf 'herdr-child: reply delivered to %s in %s, but the waiting label could not be cleared\n' "$name" "$pane" >&2
     exit 1
   fi

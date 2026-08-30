@@ -17,6 +17,8 @@ setup() {
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER
+  unset HERDR_CHILD_TEST_NOW_SEQ
+  unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
 }
 
 teardown() {
@@ -24,9 +26,10 @@ teardown() {
   if [[ -n "${CHILD_STUB:-}" ]]; then
     [[ ! -e "$CHILD_STUB/release-watcher" ]] || true
     : > "$CHILD_STUB/release-watcher" 2>/dev/null || true
-    if [[ -s "$CHILD_STUB/watcher.pid" ]]; then
-      local watcher_pid
-      watcher_pid="$(cat "$CHILD_STUB/watcher.pid" 2>/dev/null || true)"
+    local pid_file watcher_pid
+    for pid_file in watcher.pid new-watcher.pid reply.pid; do
+      [[ -s "$CHILD_STUB/$pid_file" ]] || continue
+      watcher_pid="$(cat "$CHILD_STUB/$pid_file" 2>/dev/null || true)"
       if [[ -n "$watcher_pid" ]]; then
         kill -TERM "$watcher_pid" 2>/dev/null || true
         local attempt=0
@@ -40,7 +43,7 @@ teardown() {
           kill -KILL "$watcher_pid" 2>/dev/null || true
         fi
       fi
-    fi
+    done
   fi
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
@@ -705,24 +708,49 @@ case "${1:-} ${2:-}" in
     clear_labels=0
     waiting_label=0
     clear_next=0
+    seq_next=0
+    seq_value=
+    for arg in "$@"; do
+      if [ "$seq_next" -eq 1 ]; then
+        seq_value="$arg"
+        seq_next=0
+        continue
+      fi
+      [ "$arg" != --seq ] || seq_next=1
+    done
+    if [ -n "$seq_value" ] && [ -f "$CHILD_STUB/metadata-seq" ] && \
+       [ "$seq_value" -le "$(cat "$CHILD_STUB/metadata-seq")" ]; then
+      printf '{"result":{"type":"pane_metadata_reported"}}\n'
+      exit 0
+    fi
+    [ -z "$seq_value" ] || printf '%s\n' "$seq_value" > "$CHILD_STUB/metadata-seq"
     for arg in "$@"; do
       if [ "$clear_next" -eq 1 ]; then
-        if [ "$arg" = supervision_generation ]; then
-          rm -f "$CHILD_STUB/generation"
-          : > "$CHILD_STUB/generation-invalidated"
-        fi
+        case "$arg" in
+          supervision_generation)
+            rm -f "$CHILD_STUB/generation"
+            : > "$CHILD_STUB/generation-invalidated"
+            ;;
+          supervision_failure_reason) rm -f "$CHILD_STUB/failure-reason" ;;
+          supervision_failure_generation) rm -f "$CHILD_STUB/failure-generation" ;;
+          supervision_failure_diagnostic) rm -f "$CHILD_STUB/failure-diagnostic" ;;
+        esac
         clear_next=0
         continue
       fi
       [ "$arg" != --clear-token ] || { clear_next=1; continue; }
       case "$arg" in
         supervision_generation=*) printf '%s\n' "${arg#*=}" > "$CHILD_STUB/generation" ;;
+        supervision_failure_reason=*) printf '%s\n' "${arg#*=}" > "$CHILD_STUB/failure-reason" ;;
+        supervision_failure_generation=*) printf '%s\n' "${arg#*=}" > "$CHILD_STUB/failure-generation" ;;
+        supervision_failure_diagnostic=*) printf '%s\n' "${arg#*=}" > "$CHILD_STUB/failure-diagnostic" ;;
         child-tab=*) printf '%s\n' "${arg#*=}" > "$CHILD_STUB/child-tab" ;;
         --clear-state-labels) clear_labels=1 ;;
         blocked=waiting\ for\ parent) waiting_label=1 ;;
+        supervision\ failed=*) : > "$CHILD_STUB/failure-label" ;;
       esac
     done
-    [ "$clear_labels" -eq 0 ] || rm -f "$CHILD_STUB/waiting-label"
+    [ "$clear_labels" -eq 0 ] || rm -f "$CHILD_STUB/waiting-label" "$CHILD_STUB/failure-label"
     [ "$waiting_label" -eq 0 ] || : > "$CHILD_STUB/waiting-label"
     printf '{"result":{"type":"pane_metadata_reported"}}\n'
     ;;
@@ -1365,28 +1393,66 @@ function test_scripts_039_herdr_child_transient_pane_reads_never_become_ch() {
 function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
   _bats_test_init 40 'herdr-child superseded watcher cannot publish failure metadata over a new generation'
   child_lifecycle_stub_herdr
+  local old_generation old_run new_generation watcher_pid new_watcher_pid reply_pid reply_status attempt=0
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
+  export HERDR_CHILD_TEST_NOW_SEQ=100
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
-  local old_generation old_run watcher_pid attempt=0
   old_generation="$(cat "$CHILD_STUB/generation")"
   old_run="$CHILD_STUB/state/runs/$old_generation"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
-
-  : > "$CHILD_STUB/malformed-state"
-  child_wait_for_file "$CHILD_STUB/failure-publish.ready"
   printf 'new-generation\n' > "$CHILD_STUB/generation"
-  : > "$CHILD_STUB/failure-publish.release"
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
-  [ "$attempt" -lt 500 ]
   assert_dir_not_exists "$old_run"
-  run cat "$CHILD_STUB/generation"
+
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
+  export HERDR_CHILD_TEST_NOW_SEQ=100
+  run child_lifecycle_start --supervision-timeout 5000
   assert_success
-  assert_output new-generation
-  run grep -q 'supervision_failure_reason=' "$CHILD_STUB/calls.log"
+  old_generation="$(cat "$CHILD_STUB/generation")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  attempt=0
+
+  printf '12\n' > "$CHILD_STUB/prompt-fail-count"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/failure-publish.ready"
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/new-watcher.pid" \
+    HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED="$CHILD_STUB/takeover-metadata-published" \
+    HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_RETRY_INTERVAL=0.01 \
+    bash "$HERDR_CHILD" reply --to child-life --pane wT:p9 "Use path A" \
+    >"$CHILD_STUB/reply.out" 2>"$CHILD_STUB/reply.err" &
+  reply_pid=$!
+  printf '%s\n' "$reply_pid" > "$CHILD_STUB/reply.pid"
+  child_wait_for_file "$CHILD_STUB/takeover-metadata-published"
+  : > "$CHILD_STUB/failure-publish.release"
+  if wait "$reply_pid"; then reply_status=0; else reply_status=$?; fi
+  assert_equal 0 "$reply_status"
+  new_generation="$(cat "$CHILD_STUB/generation")"
+  run test "$new_generation" != "$old_generation"
+  assert_success
+  run grep -q 'supervision_failure_reason=prompt-error' "$CHILD_STUB/calls.log"
+  assert_failure
+  assert_file_not_exists "$CHILD_STUB/failure-label"
+  assert_file_not_exists "$CHILD_STUB/failure-reason"
+  assert_file_not_exists "$CHILD_STUB/failure-generation"
+  assert_file_not_exists "$CHILD_STUB/failure-diagnostic"
+  wait "$watcher_pid" 2>/dev/null || true
+  printf 'done 12\n' > "$CHILD_STUB/child-state"
+  child_wait_for_log "generation=$new_generation.*event=settled-12"
+  new_watcher_pid="$(cat "$CHILD_STUB/new-watcher.pid")"
+  while kill -0 "$new_watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$new_watcher_pid"
   assert_failure
 }
 
@@ -2312,16 +2378,20 @@ function test_scripts_079_herdr_child_ask_and_reply_publish_strictly_incre() {
   child_stub_herdr
   local parent_agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
   env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$parent_agents" HERDR_ENV=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_NOW_SEQ=200 \
     HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=child-a HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question >/dev/null
   local child_agents='{"result":{"agents":[{"name":"child-a","pane_id":"wT:p9"}]}}'
   env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$child_agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_NOW_SEQ=100 \
     bash "$HERDR_CHILD" reply --to child-a --pane wT:p9 decision >/dev/null
   local first_seq second_seq
   first_seq="$(grep '^pane report-metadata' "$CHILD_STUB/calls.log" | sed -n '1s/.*--seq \([0-9]*\).*/\1/p')"
   second_seq="$(grep '^pane report-metadata' "$CHILD_STUB/calls.log" | sed -n '2s/.*--seq \([0-9]*\).*/\1/p')"
-  [ -n "$first_seq" ]
-  [ "$second_seq" -gt "$first_seq" ]
+  run test -n "$first_seq"
+  assert_success
+  run test "$second_seq" -gt "$first_seq"
+  assert_success
 }
 
 function test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery() {
@@ -7302,5 +7372,9 @@ function tear_down_after_script() {
   _bats_file_cleanup
 }
 
-function tear_down() { _bats_run_teardown; }
-
+function tear_down() {
+  if [ -n "${CHILD_STUB:-}" ] && [ -e "$CHILD_STUB/failure-publish.ready" ]; then
+    : > "$CHILD_STUB/failure-publish.release"
+  fi
+  _bats_run_teardown
+}
