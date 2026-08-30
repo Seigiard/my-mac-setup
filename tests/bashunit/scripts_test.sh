@@ -639,6 +639,16 @@ case "${1:-} ${2:-}" in
     state_file=baseline-state
     [ "$count" -eq 1 ] || state_file=child-state
     read -r child_status child_seq < "$CHILD_STUB/$state_file"
+    if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/block-agent-get" ]; then
+      : > "$CHILD_STUB/agent-get.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/agent-get.release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
+    fi
     child_name="$(read_value started-name child)"
     child_terminal="$(read_value child-terminal term-child)"
     child_session="$(read_value child-session child-session)"
@@ -755,6 +765,12 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"type":"pane_metadata_reported"}}\n'
     ;;
   "pane get")
+    if [ -f "$CHILD_STUB/observe-reap-invalidation" ] && \
+       [ -f "$CHILD_STUB/pane-close.ready" ]; then
+      for run_dir in "$HERDR_CHILD_STATE_DIR"/runs/*; do
+        [ ! -f "$run_dir/invalidated.state" ] || : > "$CHILD_STUB/reap-invalidation-consumed"
+      done
+    fi
     if [ -f "$CHILD_STUB/child-gone" ]; then
       printf '{"error":{"code":"pane_not_found","message":"pane not found"}}\n' >&2
       exit 1
@@ -809,6 +825,16 @@ case "${1:-} ${2:-}" in
       else
         : > "$CHILD_STUB/close-before-invalidation"
       fi
+    fi
+    if [ -f "$CHILD_STUB/block-pane-close" ]; then
+      : > "$CHILD_STUB/pane-close.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/pane-close.release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
     fi
     if [ -f "$CHILD_STUB/close-fail" ]; then
       printf '{"error":{"code":"internal_error","message":"close failed"}}\n' >&2
@@ -1580,30 +1606,43 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
 function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   _bats_test_init 46 'herdr-child failed reap restores supervision for the kept child'
   child_lifecycle_stub_herdr
-  run child_lifecycle_start --supervision-timeout 5000
+  run child_lifecycle_start --supervision-timeout 600000
   assert_success
-  local generation run_dir watcher_pid attempt=0
+  local generation run_dir watcher_pid reap_pid attempt=0
   generation="$(cat "$CHILD_STUB/generation")"
   run_dir="$CHILD_STUB/state/runs/$generation"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-agent-get"
+  : > "$CHILD_STUB/block-pane-close"
+  : > "$CHILD_STUB/observe-reap-invalidation"
   : > "$CHILD_STUB/close-fail"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/agent-get.ready"
 
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
-  assert_success
-  assert_output --partial 'supervision recovery requested'
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life >"$CHILD_STUB/reap.out" 2>&1 &
+  reap_pid=$!
+  child_wait_for_file "$CHILD_STUB/pane-close.ready"
+  assert_file_contains "$run_dir/invalidated.state" '^reason=reap$'
+  : > "$CHILD_STUB/agent-get.release"
+  child_wait_for_file "$CHILD_STUB/reap-invalidation-consumed"
+  : > "$CHILD_STUB/block-parent-prompt"
+  : > "$CHILD_STUB/pane-close.release"
+  wait "$reap_pid"
+  assert_file_contains "$CHILD_STUB/reap.out" 'supervision recovery requested'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
   while [ -f "$run_dir/invalidated.state" ] && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
   [ "$attempt" -lt 500 ]
+  child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
   kill -0 "$watcher_pid"
 
-  printf 'idle 11\n' > "$CHILD_STUB/child-state"
-  child_wait_for_log 'event=settled-11'
+  : > "$CHILD_STUB/release-parent-prompt"
+  child_wait_for_file "$CHILD_STUB/successful-prompts.log"
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output 1
@@ -1614,7 +1653,7 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
 function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   _bats_test_init 47 'herdr-child detached ask follows parent identity and suppresses its ordinary blocked wake'
   child_lifecycle_stub_herdr
-  run child_lifecycle_start --supervision-timeout 5000
+  run child_lifecycle_start --supervision-timeout 600000
   assert_success
   local generation watcher_pid attempt=0
   generation="$(cat "$CHILD_STUB/generation")"
@@ -5494,6 +5533,82 @@ function test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t() {
 
   # then: the counts appear without manual repair
   assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
+}
+
+function test_scripts_266_herdr_task_sync_status_probes_start_concurrently() {
+  _bats_test_init 266 'herdr-task-sync starts distinct checkout status probes concurrently'
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root_one="$HTS_WORK/repo-one" root_two="$HTS_WORK/repo-two"
+  local common_one="$HTS_WORK/repo-one.git" common_two="$HTS_WORK/repo-two.git" state leaked
+  mkdir -p "$root_one/.git" "$root_two/.git" "$common_one" "$common_two"
+  hts_git_location_fixture "$root_one" "$root_one" "$common_one" refs/heads/one
+  hts_git_location_fixture "$root_two" "$root_two" "$common_two" refs/heads/two
+  hts_git_status_fixture "$root_one" '1 M. N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_git_status_fixture "$root_two" '1 .M N... 100644 100644 100644 2222222 2222222 two.txt'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root_one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root_two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repos"}'
+  hts_set_process_label pane-1 worker-one
+  hts_set_process_label pane-2 worker-two
+
+  # Each status call waits until both markers exist. A serial loop times out
+  # the first probe before it can start the second; concurrent probes release
+  # each other and preserve both independent outcomes.
+  export HERDR_TASK_SYNC_TEST_STATUS_BARRIER="$HTS_WORK/status-probes-started"
+  export HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT=2
+  run hts_location_pass
+  unset HERDR_TASK_SYNC_TEST_STATUS_BARRIER HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT
+  assert_success
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_staged' "$state")" "${HTS_GIT_STAGED}1"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+  for leaked in "$(hts_namespace "$HTS_DEFAULT_SOCKET")"/.status-result.*; do
+    [[ ! -e "$leaked" ]] || fail "status result file leaked: $leaked"
+  done
+
+  # One timed-out root remains isolated from a healthy peer after the probes
+  # are parallelized; stale/fresh outcomes keep their existing semantics.
+  hts_block_git_status "$root_one"
+  run hts_location_pass
+  assert_success
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_staged' "$state")" null
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+}
+
+function test_scripts_267_herdr_task_sync_status_infrastructure_failure_p() {
+  _bats_test_init 267 'herdr-task-sync status infrastructure failure preserves published counts'
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+  hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
+
+  # Queue a fresh generation, then fail only the aggregate result allocation.
+  # The presentation command is fail-open, so preservation is the observable
+  # contract: publishing an empty table would clear the existing count.
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
+  cat > "$HTS_STUB/mktemp" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *"/.status-result."*) exit 1 ;;
+esac
+exec /usr/bin/mktemp "$@"
+SH
+  chmod +x "$HTS_STUB/mktemp"
+  run hts_presentation_run
+  assert_success
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
 }
 
 function test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory() {

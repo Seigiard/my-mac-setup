@@ -1,13 +1,14 @@
 ---
 title: "Names-only Herdr tabs can exceed display width"
-short_description: "Two valid 43-column agent pane labels plus the separator produce an 89-column tab label, so an 80-column Herdr tab row can clip one identity."
+short_description: "Herdr 0.8.2 dynamically clips and scrolls the tab strip, so preserving complete pane labels avoids duplicating renderer-specific width policy."
 type: "follow-up"
 category: "herdr"
 tags: ["tab-labels","width-budget"]
 date: "2026-08-23"
-status: "open"
+status: "wontfix"
 priority: "low"
 parent-plan: "docs/plans/2026-08-23-001-refactor-herdr-name-only-tab-labels-plan.md"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -21,3 +22,7 @@ Design a generic names-only width policy that preserves useful identity for two 
 ## Open decisions
 
 Whether tab labels should truncate each pane equally, redistribute unused width, or rely on Herdr clipping; whether the 80-column budget should remain configurable.
+
+## Resolution
+
+Herdr 0.8.2 owns tab-strip overflow dynamically: it sizes labels from display width, clips cells to the available viewport, and exposes scrolling for neighboring tabs. The observed UI keeps the active tab readable, so a fixed composer-side width budget would duplicate Herdr layout policy and discard pane identity prematurely.

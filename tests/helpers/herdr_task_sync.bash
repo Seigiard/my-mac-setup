@@ -533,6 +533,17 @@ if [ -d "$fixture" ]; then
       fi
       ;;
     *"--porcelain=v2"*)
+      if [ -n "${HERDR_TASK_SYNC_TEST_STATUS_BARRIER:-}" ] && \
+        [ -n "${HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT:-}" ]; then
+        mkdir "$HERDR_TASK_SYNC_TEST_STATUS_BARRIER" 2>/dev/null || \
+          [ -d "$HERDR_TASK_SYNC_TEST_STATUS_BARRIER" ] || exit 1
+        : > "$HERDR_TASK_SYNC_TEST_STATUS_BARRIER/${fixture##*/}"
+        while :; do
+          set -- "$HERDR_TASK_SYNC_TEST_STATUS_BARRIER"/*
+          [ "$#" -ge "$HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT" ] && break
+          sleep 0.001
+        done
+      fi
       if [ -f "$fixture/block.status" ]; then
         while [ ! -f "$fixture/release" ]; do sleep 0.01; done
       fi
@@ -1239,6 +1250,8 @@ hts_presentation_run() {
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER:-}" \
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT:-}" \
     HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_RELEASE:-}" \
+    HERDR_TASK_SYNC_TEST_STATUS_BARRIER="${HERDR_TASK_SYNC_TEST_STATUS_BARRIER:-}" \
+    HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT="${HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT:-}" \
     bash "$HTS_ENGINE" --presentation-worker
 }
 
