@@ -178,14 +178,14 @@ baseline_seq=$baseline_seq" || { remove_supervision_run "$run_dir"; return 1; }
   rm -f "$prompt_out" "$prompt_err"
   if [ "$prompt_status" -ne 0 ]; then
     atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
-    wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+    wait_for_watcher_state "$run_dir/failed.state" "" "$watcher_pid" || true
     print_supervision_failure "$name" "$pane" "$generation" prompt-result-ambiguous "$generation"
     trap - HUP INT TERM
     return "$prompt_status"
   fi
   if ! atomic_write "$run_dir/accepted.state" 'accepted=1'; then
     atomic_write "$run_dir/abort.state" 'reason=acceptance-write-failed' || true
-    wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+    wait_for_watcher_state "$run_dir/failed.state" "" "$watcher_pid" || true
     print_supervision_failure "$name" "$pane" "$generation" acceptance-write-failed "$generation"
     trap - HUP INT TERM
     return 1

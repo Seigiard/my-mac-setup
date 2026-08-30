@@ -441,7 +441,7 @@ EOF
     fi
     if [ "$mode" = detach ]; then
       atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
-      wait_for_watcher_failure "$run_dir/failed.state" "$watcher_pid" || true
+      wait_for_watcher_state "$run_dir/failed.state" "" "$watcher_pid" || true
       printf 'herdr-child: initial prompt result was ambiguous; child preserved for recovery\n' >&2
       print_supervision_failure "$name" "$pane" "$generation" prompt-result-ambiguous "$generation"
       rm -f "$prompt_out" "$prompt_err"

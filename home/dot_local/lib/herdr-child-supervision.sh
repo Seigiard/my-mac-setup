@@ -9,19 +9,8 @@ REAP_OWNER_TOKEN=""
 wait_for_watcher_state() {
   local wanted="$1" failed="$2" pid="$3" attempt=0
   while [ "$attempt" -lt 500 ]; do
-    [ ! -f "$failed" ] || return 2
+    [ -z "$failed" ] || [ ! -f "$failed" ] || return 2
     [ ! -f "$wanted" ] || return 0
-    kill -0 "$pid" 2>/dev/null || return 1
-    attempt=$((attempt + 1))
-    sleep 0.01
-  done
-  return 1
-}
-
-wait_for_watcher_failure() {
-  local failed="$1" pid="$2" attempt=0
-  while [ "$attempt" -lt 500 ]; do
-    [ ! -f "$failed" ] || return 0
     kill -0 "$pid" 2>/dev/null || return 1
     attempt=$((attempt + 1))
     sleep 0.01
