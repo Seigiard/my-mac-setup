@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["bashunit-experiment"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -26,3 +27,7 @@ Merged in from the duplicate 2026-08-29-003 (closed 2026-08-29):
 ## Open decisions
 
 None.
+
+## Resolution
+
+hts_teardown now terminates and awaits every sandbox process before removing HTS_WORK, using three ledgers: a fork-time spawn registry the engine writes under HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY (test-only, with process-start tokens so recycled pids are never signalled), claim/lock owner records, and a ps scan for commands under the sandbox path (catches blocked stubs that give up tens of seconds later). Removal is then confirmed settled with a bounded recreation watch. Complementarily, the engine and harness stubs now create at most one directory level and never ancestors (atomic_write, initialize_namespace, pane dirs, sweep daemon, stub fixtures), so any straggler fails closed instead of resurrecting the deleted tree; foreground modes still bootstrap STATE_DIR recursively so fresh machines keep naming. The descriptor probe opts out of reaping because its contract requires the detached coordinator to outlive teardown. Regression test 'hts_teardown reaps a surviving engine worker before removing state' proven red on the pre-fix teardown and green after. Full -j 8 scripts_test.sh: 253 passed, 0 failed, 0 leaked hts.* dirs (previously 4-15 per run). One-time cleanup done: 3067 stale dirs moved from TMPDIR and /tmp to ~/.scratchpad/hts-pile-1788054805.

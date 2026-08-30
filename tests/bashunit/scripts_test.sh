@@ -6890,6 +6890,39 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
   assert_output --partial "Passed: herdr-child detached watcher closes launcher descriptors"
 }
 
+# Guards docs/issues/2026-08-29-001: hts_teardown must terminate and await a
+# still-running engine before removing state. The contract is causal, so the
+# assertion is process death, with the directory's settled absence as the
+# observable effect.
+function test_scripts_259_hts_teardown_reaps_a_surviving_engine_worker() {
+  _bats_test_init 259 'hts_teardown reaps a surviving engine worker before removing state'
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  # The model stub blocks until a release that never comes, pinning the worker
+  # mid-task through teardown. The stub creates its own fixture dir, so no
+  # canned stdout/status is needed for a call that is never released.
+  hts_stub_controlled_engine pi
+
+  hts_run --agent claude --session reap-s <<< 'reap request'
+  hts_wait_for_file "$HTS_WORK/models/pi/1/started" || fail "worker never reached its model call"
+  local engine_pid work="$HTS_WORK"
+  engine_pid="$(hts_record_number \
+    "$(hts_pane_state_dir "$HTS_DEFAULT_SOCKET" pane-1)/worker.claim/owner" pid)"
+  # Control: prove a live engine was observed, not startup or cleanup noise.
+  [[ -n "$engine_pid" ]] || fail "worker claim published no pid"
+  kill -0 "$engine_pid" 2>/dev/null || fail "worker was not alive at teardown time"
+
+  hts_teardown
+
+  run kill -0 "$engine_pid"
+  assert_failure
+  [[ ! -e "$work" ]] || fail "teardown left $work behind"
+  # A survivor recreates state within its first claim window; a settled check
+  # distinguishes real removal from a removal about to be raced.
+  sleep 0.3
+  [[ ! -e "$work" ]] || fail "an engine process resurrected $work after teardown"
+}
+
 function set_up_before_script() {
   :
 }

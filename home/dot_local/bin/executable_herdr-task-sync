@@ -243,7 +243,12 @@ atomic_write() {
   local file="$1" content="$2" dir tmp
   [ ! -d "$file" ] || return 1
   dir="$(dirname "$file")"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  # Create at most the leaf, never ancestors: `mkdir -p` lets a detached
+  # process resurrect a deleted state tree (docs/issues/2026-08-29-001). The
+  # leaf itself is needed — the presentation pass writes location.state for
+  # panes that never enqueued, whose pane dir nothing else creates. A missing
+  # PARENT means the tree was deleted out from under us; fail closed.
+  mkdir "$dir" 2>/dev/null || [ -d "$dir" ] || return 1
   tmp="$(umask 077; mktemp "$dir/.record.XXXXXX" 2>/dev/null)" || return 1
   if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
     rm -f "$tmp"
@@ -277,6 +282,19 @@ max_number() {
 
 process_start_token() {
   ps -p "$1" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+# Test-only spawn ledger. A detached worker publishes its pid in a claim only
+# after its startup mkdirs, so a test teardown that runs inside that window
+# cannot find it and races its state recreation (docs/issues/2026-08-29-001).
+# Recording the pid at fork time closes the window; production runs never set
+# the variable and skip this entirely.
+register_test_spawn() {
+  [ -n "${HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY:-}" ] || return 0
+  # The start token lets the harness refuse a recycled pid: a later process
+  # that happens to reuse this pid carries a different start time.
+  printf '%s %s\n' "$1" "$(process_start_token "$1")" \
+    >> "$HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY" 2>/dev/null || true
 }
 
 claim_owner_id=""
@@ -341,9 +359,16 @@ release_claim() {
 }
 
 initialize_namespace() {
-  local namespace socket_record reconcile_record
+  local namespace socket_record reconcile_record level
   namespace="$(namespace_dir)" || return 1
-  mkdir -p "$namespace/panes" "$namespace/tasks" "$namespace/migration" 2>/dev/null || return 1
+  # Single-level mkdirs, never `mkdir -p`: `-p` lets a detached worker
+  # resurrect a deleted state tree (docs/issues/2026-08-29-001). STATE_DIR is
+  # created one level deep at most — its parent (~/.cache, or a test's work
+  # dir) must already exist.
+  for level in "$STATE_DIR" "$STATE_DIR/sockets" "$namespace" \
+    "$namespace/panes" "$namespace/tasks" "$namespace/migration"; do
+    mkdir "$level" 2>/dev/null || [ -d "$level" ] || return 1
+  done
   socket_record="socket_path=$(encode_value "$SOCKET_PATH")"
   [ -f "$namespace/socket.state" ] || atomic_write "$namespace/socket.state" "$socket_record" || return 1
   reconcile_record="pending_generation=0
@@ -1227,6 +1252,7 @@ start_presentation_coordinator() {
   # gives the coordinator its own group so event-triggered work can finish.
   set -m
   nohup bash "$self" --presentation-worker </dev/null >/dev/null 2>&1 &
+  register_test_spawn "$!"
   set +m
 }
 
@@ -1424,7 +1450,10 @@ EOF
     (
       if [ -n "${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER:-}" ] && \
         [ -n "${HERDR_TASK_SYNC_TEST_LOCATION_BARRIER_COUNT:-}" ]; then
-        mkdir -p "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER" || exit 1
+        # Single-level: the barrier lives inside the test sandbox, and `-p`
+        # would resurrect it after teardown (docs/issues/2026-08-29-001).
+        mkdir "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER" 2>/dev/null || \
+          [ -d "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER" ] || exit 1
         : > "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER/$(encode_key "$id")"
         while :; do
           set -- "$HERDR_TASK_SYNC_TEST_LOCATION_BARRIER"/*
@@ -1868,7 +1897,10 @@ sweep_tabs() {
 # pane that already exists. The lock directory is created atomically, so a
 # second daemon exits instead of doubling the rename traffic.
 run_sweep_daemon() {
-  mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+  # Single-level, not `-p`: the daemon is detached, and recreating missing
+  # ancestors resurrects a deleted test sandbox (docs/issues/2026-08-29-001).
+  # A fresh machine's STATE_DIR is created by the foreground entry point.
+  mkdir "$STATE_DIR" 2>/dev/null || [ -d "$STATE_DIR" ] || exit 0
   # A daemon started right after its predecessor was killed finds the lock still
   # there for a moment. Waiting a few seconds beats exiting, which would leave
   # the machine with no daemon at all until the next herdr event.
@@ -1925,6 +1957,7 @@ ensure_sweep_daemon() {
   # Job control puts the daemon in a process group of its own, out of reach.
   set -m
   nohup bash "$self" --sweep-daemon </dev/null >/dev/null 2>&1 &
+  register_test_spawn "$!"
   set +m
   return 0
 }
@@ -2167,7 +2200,9 @@ run_worker() {
   local task_file task_generation presentation_required commit_status abort_worker
   initialize_namespace || exit 0
   pane_dir="$(pane_state_dir)"
-  mkdir -p "$pane_dir" 2>/dev/null || exit 0
+  # Single-level: panes/ exists after initialize_namespace, and `-p` would
+  # resurrect a deleted state tree (docs/issues/2026-08-29-001).
+  mkdir "$pane_dir" 2>/dev/null || [ -d "$pane_dir" ] || exit 0
   control="$pane_dir/control.state"
   high_water="$pane_dir/high-water.state"
   worker_lock="$pane_dir/worker.claim"
@@ -2284,13 +2319,29 @@ case "$mode" in
       printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
       exit 0
     fi
+    # Foreground invocations may bootstrap STATE_DIR recursively; only
+    # detached paths must fail closed (docs/issues/2026-08-29-001). Without
+    # this a fresh machine with no ~/.cache never gets a namespace.
+    mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
     SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
     ;;
-  presentation-worker | sweep | sweep-daemon | ensure-daemon | restart-daemon)
+  sweep | ensure-daemon | restart-daemon)
     if [ -z "$SOCKET_PATH" ]; then
       printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
       exit 0
     fi
+    # Foreground CLI invocations bootstrap like the event hook above.
+    mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+    initialize_namespace || exit 0
+    SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
+    ;;
+  presentation-worker | sweep-daemon)
+    if [ -z "$SOCKET_PATH" ]; then
+      printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
+      exit 0
+    fi
+    # Detached: stays fail-closed — a missing STATE_DIR means the state tree
+    # was deleted underneath this process (docs/issues/2026-08-29-001).
     initialize_namespace || exit 0
     SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
     ;;
@@ -2369,7 +2420,9 @@ umask 077
 initialize_namespace || exit 0
 
 pane_dir="$(pane_state_dir)"
-mkdir -p "$pane_dir" 2>/dev/null || exit 0
+# Single-level: panes/ exists after initialize_namespace, and `-p` would
+# resurrect a deleted state tree (docs/issues/2026-08-29-001).
+mkdir "$pane_dir" 2>/dev/null || [ -d "$pane_dir" ] || exit 0
 control="$pane_dir/control.state"
 high_water="$pane_dir/high-water.state"
 control_lock="$pane_dir/control.lock"
@@ -2433,5 +2486,6 @@ self="$(script_path)" || exit 0
 # claimed worker reads the inbox rather than request argv, so every completion
 # is fenced against the latest active native session and committed generation.
 nohup bash "$self" --worker --pane "$pane" </dev/null >/dev/null 2>&1 &
+register_test_spawn "$!"
 
 exit 0
