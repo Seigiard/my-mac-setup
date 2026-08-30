@@ -264,11 +264,28 @@ function test_templates_011_opencode_json_tmpl_renders_valid_json() {
   assert_success
 }
 
-# Test 012 (opencode permission/mcp/provider literals) was deleted:
-# opencode.json.tmpl contains zero template directives, so the assertions
-# restated the source file verbatim and any deliberate config edit updated
-# test and file together — no regression was protected. Render validity is
-# owned by test 011; the instructions cross-artifact contract by test 014.
+# Test 012 once restated most of opencode.json.tmpl's literals (provider
+# models, plugin URL, mcp command names) — the file has zero template
+# directives, so those assertions mirrored the source and protected nothing.
+# What survives is the two security invariants OpenCode consumes verbatim:
+# the external-directory grant and the executor transport. Widening the
+# grant or moving executor off stdio (which is what keeps OpenCode from
+# holding the daemon's rotating token) is exactly the accidental edit worth
+# a red verdict — an externally consumed literal contract, not source shape.
+function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
+  _bats_test_init 12 'opencode keeps the external-directory grant and the stdio executor transport'
+  command_exists jq || skip "jq is required"
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  run jq -r '.permission.external_directory["*"]' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output "allow"
+
+  run jq -r '[(.mcp.executor.command | join(" ")), (.mcp.executor.enabled | tostring)] | join("|")' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output "executor mcp|true"
+}
 
 function test_templates_013_opencode_skill_symlinks_target_canonical_claude() {
   _bats_test_init 13 'opencode skill symlinks target canonical claude skills'
@@ -291,7 +308,9 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
 
   local entries entry
-  entries="$(jq -r '.instructions[]' "$BATS_TEST_TMPFILE")"
+  run jq -r '.instructions[]' "$BATS_TEST_TMPFILE"
+  assert_success
+  entries="$output"
   [[ -n "$entries" ]] || fail "no instructions entries in opencode.json.tmpl"
 
   while IFS= read -r entry; do
