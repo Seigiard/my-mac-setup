@@ -330,17 +330,9 @@ EOF
       cleanup_pane
       return 1
     }
-    atomic_write "$run_dir/launch.state" "mode=detach
-generation=$generation
-timeout_ms=$supervision_timeout
-parent_pane=$HERDR_PANE_ID
-parent_terminal=$parent_terminal
-parent_session=$parent_session
-child_name=$name
-child_pane=$pane
-child_terminal=$child_terminal
-child_session=$child_session
-baseline_seq=$baseline_seq" || {
+    write_launch_state "$run_dir/launch.state" "$generation" "$supervision_timeout" \
+      "$HERDR_PANE_ID" "$parent_terminal" "$parent_session" "$name" "$pane" \
+      "$child_terminal" "$child_session" "$baseline_seq" || {
       printf 'herdr-child: could not initialize supervision state\n' >&2
       remove_supervision_run "$run_dir"
       cleanup_pane

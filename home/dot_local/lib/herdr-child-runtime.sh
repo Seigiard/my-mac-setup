@@ -144,6 +144,17 @@ atomic_write() {
   fi
 }
 
+write_launch_state() {
+  [ "$#" -eq 11 ] || return 1
+  local file="$1"
+  shift
+  case "$*" in *$'\n'*) return 1 ;; esac
+  atomic_write "$file" "$(printf '%s\n' \
+    'mode=detach' "generation=$1" "timeout_ms=$2" "parent_pane=$3" \
+    "parent_terminal=$4" "parent_session=$5" "child_name=$6" "child_pane=$7" \
+    "child_terminal=$8" "child_session=$9" "baseline_seq=${10}")"
+}
+
 script_path() {
   local self="$0"
   case "$self" in
