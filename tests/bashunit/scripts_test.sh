@@ -3165,8 +3165,10 @@ function test_scripts_107_herdr_task_sync_harness_applies_source_metadata() {
 
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 2 --token repo=alpha
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source task pane-1 --seq 1 --token task=review
-  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 1 --clear-token repo
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 2 --token repo=beta
   local state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo' "$state")" alpha
+  hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 1 --clear-token repo
   assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo' "$state")" alpha
   assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" review
 
@@ -5255,9 +5257,9 @@ function test_scripts_174_herdr_task_sync_clears_retired_aggregate_tokens() {
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
   # given: a stale daemon of the retired version puts both aggregate tokens
   # back while leaving every current token untouched. It reports under the same
-  # source at the sequence the last pass used, as a sharing old daemon would.
+  # source with a newer sequence, as a sharing old daemon would need to.
   local legacy_seq
-  legacy_seq="$(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state")"
+  legacy_seq=$(( $(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state") + 1 ))
   hts_socket_run "$HTS_DEFAULT_SOCKET" pane report-metadata pane-1 \
     --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic' \
     --token 'git_status=old-dirty-1'

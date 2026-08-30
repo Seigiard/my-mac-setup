@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["semantic-tests","herdr"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Define the work that resolves this issue.
 ## Open decisions
 
 None.
+
+## Resolution
+
+Changed the Herdr task-sync stub to ignore metadata sequences less than or equal to the current source high-water, added an equal-sequence regression assertion, and updated the retired-token fixture to publish with a strictly newer sequence. Verified with focused bashunit tests and make test-suite.
