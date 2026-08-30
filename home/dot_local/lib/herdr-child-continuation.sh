@@ -76,12 +76,7 @@ EOF
   fi
 
   self="$(script_path)" || { remove_supervision_run "$run_dir"; return 1; }
-  set -m
-  nohup bash "$self" __watcher --run-dir "$run_dir" --pane "$pane" \
-    --generation "$generation" --timeout "$supervision_timeout" \
-    --launcher-pid "$$" --deferred-activation </dev/null >/dev/null 2>&1 &
-  watcher_pid=$!
-  set +m
+  spawn_detached_watcher "$self" "$run_dir" "$pane" "$generation" "$supervision_timeout" --deferred-activation
   set +e
   wait_for_watcher_state "$run_dir/prepared.state" "$run_dir/failed.state" "$watcher_pid"
   local prepared_status=$?
