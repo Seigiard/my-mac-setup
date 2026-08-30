@@ -63,20 +63,14 @@ class TestDotfilesWorkflow(unittest.TestCase):
         return match.group(1).strip()
 
     def test_cache_restore_and_save_triggers_partition_the_declared_set(self):
-        # The real invariant behind the cache steps: full-Brewfile verification
-        # events must fetch from upstream (no restore) but still seed the cache
-        # (save), while ordinary events restore. So the restore-trigger set and
-        # the save-trigger set must be disjoint and together cover every
-        # declared trigger — read from the on: block, so a newly added trigger
-        # that neither step accounts for turns this red.
+        # Full-Brewfile verification events must fetch from upstream (no
+        # restore) but still seed the cache; only ordinary events may restore.
         text = self.workflow_text()
         declared = self.declared_triggers(text)
 
-        # The minimal-install selector defines which events are ordinary runs;
-        # exactly those may restore old downloads, and the remaining
-        # full-verification events must fetch from upstream and save. Deriving
-        # the restore set from MMS_CI_MINIMAL also rejects a swap of the two
-        # conditions, which a bare partition check would accept.
+        # MMS_CI_MINIMAL defines which events are ordinary runs. Deriving the
+        # restore set from it rejects a swap of the two conditions, which a
+        # bare partition check would accept.
         minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
         self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
         minimal_events = {
@@ -106,20 +100,16 @@ class TestDotfilesWorkflow(unittest.TestCase):
                     "every full-verification event must save fresh downloads",
                 )
 
-                # The save-only step must use the save-only action variant, or
-                # scheduled runs would restore an old archive and mask upstream
-                # fetch decay; the restore step must not be save-only.
+                # A save step that can also restore would let scheduled runs
+                # pull an old archive and mask upstream fetch decay.
                 restore_uses = self.step_value(restore, "uses", indent="        ")
                 save_uses = self.step_value(save, "uses", indent="        ")
                 self.assertIn("/save", save_uses)
                 self.assertNotIn("/save", restore_uses)
 
-                # Cache identity: the save step must write the path the restore
-                # step reads, and the key it saves under must be findable by at
-                # least one restore-keys prefix — otherwise saved entries are
-                # dead weight. The per-OS fragment is Homebrew's own contract:
-                # it reads its downloads cache from a fixed per-OS location, so
-                # a swapped or invented path warms nothing.
+                # A saved entry no restore-keys prefix can find is dead weight.
+                # The per-OS path fragment is Homebrew's own contract: a
+                # swapped or invented path warms nothing.
                 restore_path = self.step_value(restore, "path")
                 self.assertEqual(restore_path, self.step_value(save, "path"))
                 expected_fragment = {
@@ -145,10 +135,8 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 )
 
     def test_ubuntu_provisions_gitleaks_on_a_path_later_steps_resolve(self):
-        # The property behind the install step: the directory gitleaks is
-        # extracted into must be one this job also appends to $GITHUB_PATH,
-        # or the Smithers gate cannot resolve the scanner. Derived from the
-        # scripts instead of mirroring the download URL or version pin.
+        # A gitleaks binary in a directory never appended to $GITHUB_PATH is
+        # unresolvable for the Smithers gate.
         text = self.workflow_text()
         job = self.job_block(text, "test-ubuntu")
         install = self.named_step_block(job, "Install gitleaks")
@@ -183,9 +171,8 @@ class TestDotfilesWorkflow(unittest.TestCase):
         )
 
     def test_every_job_declares_a_timeout(self):
-        # Presence only; the ceiling values are owned by issue
-        # 2026-08-21-008-revisit-ci-timeout-minutes-after-minimal-install.
-        # Without a declared timeout a hung job burns the 360-minute default.
+        # Presence only — ceiling values are owned by issue 2026-08-21-008.
+        # A job without a timeout burns the 360-minute default when it hangs.
         text = self.workflow_text()
         names = self.job_names(text)
         self.assertGreaterEqual(len(names), 3, "job parser found fewer jobs than the workflow runs")

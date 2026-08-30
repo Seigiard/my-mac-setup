@@ -63,17 +63,14 @@ class TestDockerContract(unittest.TestCase):
             for name in self.service_names()
             if "chezmoi apply" in (self.service_command_script(self.service_block(name)) or "")
         ]
-        # Control: the derived loop below must actually cover the two full-run
-        # services, not pass vacuously over an empty selection.
+        # An empty selection would let every caller pass vacuously.
         self.assertGreaterEqual(len(names), 2, "expected at least two full-apply services")
         return names
 
     def test_make_test_ubuntu_routes_to_a_full_apply_service(self):
-        # Derived from what the Makefile actually runs: resolve the service the
-        # target names, then require that service to exist and perform the real
-        # contract — apply the checkout and run the full post-apply suite
-        # (the `full` argument is run-post-apply.sh's CLI contract and is what
-        # includes tests/bashunit/idempotent_test.sh).
+        # No compose-text check for idempotent_test.sh: its only matches in
+        # docker-compose.yml are comments. Reachability is owned by
+        # tests/test_post_apply_suite_contract.py.
         target = re.search(r"^test-ubuntu:.*\n\t(?P<command>.+)$", self.makefile, re.MULTILINE)
         self.assertIsNotNone(target, "Makefile must define the test-ubuntu target")
         run = re.search(
@@ -91,10 +88,8 @@ class TestDockerContract(unittest.TestCase):
         self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
     def test_apply_services_run_the_canonical_gates(self):
-        # Gate integrity: every service that runs a real apply must finish with
-        # the canonical Smithers gate and the full post-apply suite instead of
-        # a partial command list (docs/solutions/design-patterns/
-        # semantic-regression-tests-over-source-shape.md).
+        # Partial per-service command lists once let a green run skip parts of
+        # the canonical gates.
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 script = self.service_command_script(self.service_block(name))
@@ -104,11 +99,9 @@ class TestDockerContract(unittest.TestCase):
                 self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
     def test_apply_services_declare_disposable_home_and_frozen_brew_bundle(self):
-        # Derived over all services rather than two named ones: a real apply
-        # needs MMS_DISPOSABLE_HOME (idempotent_test.sh hard-fails in a
-        # container without it) and HOMEBREW_BUNDLE_NO_UPGRADE (the container
-        # proves dependency presence, not upstream drift; a silent revert only
-        # surfaces as wall-clock/network flakiness).
+        # idempotent_test.sh hard-fails in a container without
+        # MMS_DISPOSABLE_HOME; without HOMEBREW_BUNDLE_NO_UPGRADE a revert to
+        # drift-chasing surfaces only as wall-clock/network flakiness.
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 env = self.service_env(self.service_block(name))
@@ -116,11 +109,9 @@ class TestDockerContract(unittest.TestCase):
                 self.assertEqual(env.get("HOMEBREW_BUNDLE_NO_UPGRADE"), "1")
 
     def test_staging_lands_issue_cli_docs_and_makefile_in_the_worktree(self):
-        # Execute the extracted staging commands under a temp root instead of
-        # mirroring their text: sources are created exactly where the declared
-        # volume mounts put them, so a cp that references a path no mount
-        # provides — or a dropped mount — fails here, and the assertions check
-        # the staged worktree, not the script's wording.
+        # Sources are created where the declared volume mounts put them, so a
+        # cp referencing a path no mount provides — or a dropped mount — fails
+        # here.
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 service = self.service_block(name)
