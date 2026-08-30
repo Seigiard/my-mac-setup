@@ -99,6 +99,24 @@ def wait_for(path, message):
 
 wait_for(work / "watcher.pid", "watcher never published its pid")
 watcher_pid = int((work / "watcher.pid").read_text().strip())
+watcher_command = subprocess.check_output(
+    ["ps", "-o", "command=", "-p", str(watcher_pid)], text=True
+).strip()
+expected_watcher = str(Path(os.environ["HCD_CHILD"]).resolve()) + " __watcher"
+if expected_watcher not in watcher_command:
+    (work / "release-liveness").touch()
+    proc.communicate(timeout=10)
+    (work / "release-watcher").touch()
+    for _ in range(1000):
+        try:
+            os.kill(watcher_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    raise AssertionError(
+        "watcher command does not match suite-end criteria: expected %r in %r"
+        % (expected_watcher, watcher_command)
+    )
 for _ in range(1000):
     if (work / "liveness-started").exists():
         break
