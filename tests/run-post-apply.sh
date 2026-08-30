@@ -9,11 +9,9 @@
 # $MMS_BASHUNIT_JOBS workers (idempotent serializes itself via its
 # '# bashunit: no-parallel-tests' marker).
 #
-# tests/bashunit/templates_test.sh is deliberately NOT in either mode: it
-# asserts source-tree rendering, a pre-apply stage, while every file here
-# asserts post-apply state. Its wiring is the pre-apply gate that CI
-# (.github/workflows/test-dotfiles.yml), docker/docker-compose.yml, and
-# `make test-templates` each run before their apply step.
+# templates_test.sh is deliberately absent: it asserts pre-apply source-tree
+# rendering, not post-apply state. It runs as the pre-apply gate in CI,
+# docker-compose, and `make test-templates`.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

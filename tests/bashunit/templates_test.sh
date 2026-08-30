@@ -10,10 +10,8 @@ load 'helpers/common'
 
 setup() {
   skip_if_no_chezmoi
-  # Feeds write_test_config()'s `execute-template --init` render, where an
-  # unset var would fall through to promptStringOnce and fail — execute-template
-  # has no prompt. Tests that assert the env→config binding itself override
-  # these per call with probe values.
+  # Unset, write_test_config()'s `execute-template --init` render would fall
+  # through to promptStringOnce, which execute-template cannot prompt for.
   export CHEZMOI_NAME="Test User"
   export CHEZMOI_EMAIL="test@example.com"
 }
@@ -83,11 +81,8 @@ function test_templates_004_gitconfig_template_renders_successfully() {
   assert_success
 }
 
-# "name = " / "email = " are unconditional boilerplate in the template, so
-# asserting them proves nothing about substitution. Render against a config
-# carrying a probe value and require that value on the rendered line — an
-# unrendered `{{ .name }}` or a template that stopped reading the config
-# both go red here.
+# "name = " / "email = " are unconditional boilerplate in the template;
+# asserting them proves nothing about substitution — hence the probe values.
 function test_templates_005_gitconfig_renders_the_config_name_into_user_name() {
   _bats_test_init 5 'gitconfig renders the config name into user.name'
   local cfg="$BATS_TEST_TMPDIR/gitconfig-name.yaml"
@@ -264,14 +259,10 @@ function test_templates_011_opencode_json_tmpl_renders_valid_json() {
   assert_success
 }
 
-# Test 012 once restated most of opencode.json.tmpl's literals (provider
-# models, plugin URL, mcp command names) — the file has zero template
-# directives, so those assertions mirrored the source and protected nothing.
-# What survives is the two security invariants OpenCode consumes verbatim:
-# the external-directory grant and the executor transport. Widening the
-# grant or moving executor off stdio (which is what keeps OpenCode from
-# holding the daemon's rotating token) is exactly the accidental edit worth
-# a red verdict — an externally consumed literal contract, not source shape.
+# opencode.json.tmpl has zero template directives, so asserting its other
+# literals would only mirror the source. These two are consumed verbatim as
+# a security contract: `executor mcp` speaks stdio, so OpenCode never holds
+# the daemon's rotating token.
 function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
   _bats_test_init 12 'opencode keeps the external-directory grant and the stdio executor transport'
   command_exists jq || skip "jq is required"
@@ -301,9 +292,7 @@ function test_templates_013_opencode_skill_symlinks_target_canonical_claude() {
 function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
   _bats_test_init 14 'every opencode instructions entry is a managed source file'
   command_exists jq || skip "jq is required"
-  # OpenCode fails silently on a dangling instructions path, so the contract
-  # worth pinning is cross-artifact: each entry must resolve to a file chezmoi
-  # actually manages in this source tree, not merely appear in the JSON.
+  # OpenCode fails silently on a dangling instructions path.
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
 
