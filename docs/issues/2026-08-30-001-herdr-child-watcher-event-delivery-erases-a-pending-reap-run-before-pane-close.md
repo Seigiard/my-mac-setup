@@ -5,8 +5,9 @@ type: "bug"
 category: "herdr"
 tags: ["herdr","race"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Decide whether deliver_supervision_event should treat invalidated.state with rea
 ## Open decisions
 
 None.
+
+## Resolution
+
+deliver_supervision_event now defers every reason=reap invalidation to watcher_invalidation_action instead of returning status 20 and deleting the run directory. Test 046 deterministically forces invalidation during the delivery window and proves failed-close restoration, watcher survival, one settlement wake, and no child-gone wake; tests 046/047 now keep the unrelated 600000ms supervision deadline out of reach. Verified with five targeted repetitions, make lint, and make test-ubuntu.

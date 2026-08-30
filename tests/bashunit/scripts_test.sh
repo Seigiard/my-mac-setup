@@ -636,6 +636,16 @@ case "${1:-} ${2:-}" in
     state_file=baseline-state
     [ "$count" -eq 1 ] || state_file=child-state
     read -r child_status child_seq < "$CHILD_STUB/$state_file"
+    if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/block-agent-get" ]; then
+      : > "$CHILD_STUB/agent-get.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/agent-get.release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
+    fi
     child_name="$(read_value started-name child)"
     child_terminal="$(read_value child-terminal term-child)"
     child_session="$(read_value child-session child-session)"
@@ -727,6 +737,12 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"type":"pane_metadata_reported"}}\n'
     ;;
   "pane get")
+    if [ -f "$CHILD_STUB/observe-reap-invalidation" ] && \
+       [ -f "$CHILD_STUB/pane-close.ready" ]; then
+      for run_dir in "$HERDR_CHILD_STATE_DIR"/runs/*; do
+        [ ! -f "$run_dir/invalidated.state" ] || : > "$CHILD_STUB/reap-invalidation-consumed"
+      done
+    fi
     if [ -f "$CHILD_STUB/child-gone" ]; then
       printf '{"error":{"code":"pane_not_found","message":"pane not found"}}\n' >&2
       exit 1
@@ -781,6 +797,16 @@ case "${1:-} ${2:-}" in
       else
         : > "$CHILD_STUB/close-before-invalidation"
       fi
+    fi
+    if [ -f "$CHILD_STUB/block-pane-close" ]; then
+      : > "$CHILD_STUB/pane-close.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/pane-close.release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
     fi
     if [ -f "$CHILD_STUB/close-fail" ]; then
       printf '{"error":{"code":"internal_error","message":"close failed"}}\n' >&2
@@ -1514,30 +1540,43 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
 function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   _bats_test_init 46 'herdr-child failed reap restores supervision for the kept child'
   child_lifecycle_stub_herdr
-  run child_lifecycle_start --supervision-timeout 5000
+  run child_lifecycle_start --supervision-timeout 600000
   assert_success
-  local generation run_dir watcher_pid attempt=0
+  local generation run_dir watcher_pid reap_pid attempt=0
   generation="$(cat "$CHILD_STUB/generation")"
   run_dir="$CHILD_STUB/state/runs/$generation"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-agent-get"
+  : > "$CHILD_STUB/block-pane-close"
+  : > "$CHILD_STUB/observe-reap-invalidation"
   : > "$CHILD_STUB/close-fail"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/agent-get.ready"
 
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
-  assert_success
-  assert_output --partial 'supervision recovery requested'
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life >"$CHILD_STUB/reap.out" 2>&1 &
+  reap_pid=$!
+  child_wait_for_file "$CHILD_STUB/pane-close.ready"
+  assert_file_contains "$run_dir/invalidated.state" '^reason=reap$'
+  : > "$CHILD_STUB/agent-get.release"
+  child_wait_for_file "$CHILD_STUB/reap-invalidation-consumed"
+  : > "$CHILD_STUB/block-parent-prompt"
+  : > "$CHILD_STUB/pane-close.release"
+  wait "$reap_pid"
+  assert_file_contains "$CHILD_STUB/reap.out" 'supervision recovery requested'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
   while [ -f "$run_dir/invalidated.state" ] && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
   [ "$attempt" -lt 500 ]
+  child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
   kill -0 "$watcher_pid"
 
-  printf 'idle 11\n' > "$CHILD_STUB/child-state"
-  child_wait_for_log 'event=settled-11'
+  : > "$CHILD_STUB/release-parent-prompt"
+  child_wait_for_file "$CHILD_STUB/successful-prompts.log"
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output 1
@@ -1548,7 +1587,7 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
 function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   _bats_test_init 47 'herdr-child detached ask follows parent identity and suppresses its ordinary blocked wake'
   child_lifecycle_stub_herdr
-  run child_lifecycle_start --supervision-timeout 5000
+  run child_lifecycle_start --supervision-timeout 600000
   assert_success
   local generation watcher_pid attempt=0
   generation="$(cat "$CHILD_STUB/generation")"
