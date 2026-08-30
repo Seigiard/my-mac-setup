@@ -64,13 +64,12 @@ done
 # --launcher-pid AND missing --run-dir. Both criteria are required: a dead
 # launcher alone is the normal terminal state of an armed detached watcher,
 # so a concurrent run's legitimately held watcher (whose run dir still
-# exists) must not be killed; every observed leak shape had its run dir
-# already deleted. Scoped to $ROOT so runs from other checkouts cannot
-# cross-fire; the awk program's own command line never matches because its
-# literal "--launcher-pid [0-9]+" text carries no digits. Known parse limit:
-# the /--run-dir [^ ]+/ extraction truncates a run-dir path containing
-# spaces; no environment that spawns these watchers (mktemp dirs, $HOME
-# state dirs) produces such a path today.
+# exists) must not be killed. Scoped to $ROOT so runs from other checkouts
+# cannot cross-fire; the awk program's own command line never matches
+# because its literal "--launcher-pid [0-9]+" text carries no digits.
+# Known parse limit: the /--run-dir [^ ]+/ extraction truncates a run-dir
+# path containing spaces; no environment that spawns these watchers
+# produces such a path today.
 watcher_args_match() {
   # Re-verify pid identity right before signaling (the ps snapshot is stale
   # and pids can be recycled).

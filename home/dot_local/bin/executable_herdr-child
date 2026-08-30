@@ -453,10 +453,8 @@ watcher_generation_current() {
   esac
 }
 
-# Test-only barrier holds must not orphan the watcher daemon when the test
-# harness dies without releasing them (docs/issues/2026-08-28-001): every hold
-# is bounded, and an expired hold means the harness is gone, so the holder
-# cleans up its run state and exits instead of polling forever.
+# Test-only barrier holds are bounded (docs/issues/2026-08-28-001): an
+# expired hold means the harness died without releasing the barrier.
 watcher_hold_expired() {
   [ $((SECONDS - $1)) -ge "${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120}" ]
 }

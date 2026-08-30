@@ -7257,9 +7257,8 @@ function test_scripts_262_herdr_child_armed_watcher_exits_when_run_state_i() {
   local watcher_pid
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   kill -0 "$watcher_pid"
-  # Teardown-style destruction while the watcher polls its main loop: with
-  # the run dir gone every herdr error looks transient, which used to spin
-  # the watcher forever at the poll interval.
+  # Teardown-style destruction mid-poll: with the run dir gone every herdr
+  # error looks transient, so an unguarded watcher spins forever.
   rm -rf "$CHILD_STUB/state"
   local attempt=0
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do

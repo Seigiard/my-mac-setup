@@ -47,13 +47,11 @@ function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
 }
 
-# The suite-end orphan guard (docs/issues/2026-08-28-001) must kill and fail
-# on a watcher whose launcher is dead AND whose run dir is gone, while leaving
-# both near-miss controls alone: a live launcher, and a dead launcher whose
-# run dir still exists (a concurrent run's legitimately held watcher).
+# Covers the suite-end orphan guard (docs/issues/2026-08-28-001). The
+# near-miss controls are load-bearing: a dead launcher with a surviving run
+# dir is a concurrent run's legitimately held watcher, not an orphan.
 # MMS_BASHUNIT_BIN=/usr/bin/true stubs the per-file runs so only the guard
-# executes. The fake watchers are `sleep` holders whose argv carries the
-# process-table shape the guard scans for.
+# executes.
 function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
   _bats_test_init 76 'post-apply orphan guard reaps only abandoned watchers'
   local repository_root
@@ -68,13 +66,10 @@ function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
   local live_run_dir="$BATS_TEST_TMPDIR/guard-live-run"
   local stop_fakes="$BATS_TEST_TMPDIR/stop-fakes"
   mkdir -p "$live_run_dir"
-  # Fakes poll a stop file instead of holding a fixed-lifetime sleep: their
-  # lifetime is not a tight wall-clock bound (no flake under load), and a
-  # killed fake leaves at most a 0.2s sleep grandchild behind. The 300 x 0.2s
-  # cap makes a failed assertion (which skips the stop-file write below) end
-  # in a bounded red test instead of an indefinite hang while bashunit waits
-  # on the background jobs. stdio is detached so no child can hold the test
-  # runner's output pipe open.
+  # Fakes poll a stop file rather than sleep for a fixed lifetime, which
+  # would flake under load. The 300 x 0.2s cap keeps a failed assertion
+  # (which skips the stop-file write) a bounded red test instead of a hang;
+  # stdio is detached so no child holds the runner's output pipe open.
   bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
     "guard-fake-live-launcher $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $$" \
     "$stop_fakes" </dev/null >/dev/null 2>&1 &
