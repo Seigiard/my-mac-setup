@@ -396,6 +396,7 @@ watcher_invalidation_action() {
   owner_pid="$(state_value "$run_dir/reap-pending.state" owner_pid)"
   case "$owner_pid" in '' | *[!0-9]*) return 21 ;; esac
   while :; do
+    [ -d "$run_dir" ] || return 20
     [ ! -f "$run_dir/reap-closed.state" ] || return 20
     if [ -f "$run_dir/reap-restore.state" ]; then
       rm -f "$run_dir/invalidated.state" "$run_dir/reap-pending.state" \
@@ -452,12 +453,25 @@ watcher_generation_current() {
   esac
 }
 
+# Test-only barrier holds are bounded (docs/issues/2026-08-28-001): an
+# expired hold means the harness died without releasing the barrier.
+watcher_hold_expired() {
+  [ $((SECONDS - $1)) -ge "${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120}" ]
+}
+
 watcher_publish_failed() {
   local run_dir="$1" pane="$2" generation="$3" reason="$4" preserve_waiting="${5:-0}"
-  local current_status
+  local current_status hold_started
   if [ -n "${HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER:-}" ]; then
     : > "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.ready"
-    while [ ! -e "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.release" ]; do sleep 0.01; done
+    hold_started="$SECONDS"
+    while [ ! -e "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.release" ]; do
+      if watcher_hold_expired "$hold_started"; then
+        remove_supervision_run "$run_dir"
+        exit 1
+      fi
+      sleep 0.01
+    done
   fi
   # watcher_generation_current re-enables errexit internally, clobbering any
   # set +e bracket; conditional invocation keeps its nonzero return non-fatal.
@@ -696,7 +710,16 @@ watch_child() {
   done
   if [ -n "${HERDR_CHILD_TEST_ARM_BARRIER:-}" ]; then
     : > "$HERDR_CHILD_TEST_ARM_BARRIER.ready"
+    local arm_hold_started="$SECONDS"
     while [ ! -e "$HERDR_CHILD_TEST_ARM_BARRIER.release" ] && [ ! -f "$run_dir/abort.state" ]; do
+      # A live holder of this pre-arm barrier always has a live launcher
+      # blocked on armed.state; a dead launcher means the harness is gone.
+      kill -0 "$launcher_pid" 2>/dev/null || \
+        watcher_fail "$run_dir" "$pane" "$generation" launcher-lost-before-arm
+      if watcher_hold_expired "$arm_hold_started"; then
+        remove_supervision_run "$run_dir"
+        exit 1
+      fi
       sleep 0.01
     done
   fi
@@ -724,7 +747,15 @@ watch_child() {
 
   # Existing descriptor tests hold the watcher at this explicit boundary.
   if [ -n "${HERDR_CHILD_TEST_WATCHER_RELEASE:-}" ]; then
+    local release_hold_started="$SECONDS"
     while [ ! -e "$HERDR_CHILD_TEST_WATCHER_RELEASE" ]; do
+      # The launcher legitimately exits before this hold is released, so the
+      # only abandonment signals are torn-down run state and the hold bound.
+      [ -d "$run_dir" ] || exit 1
+      if watcher_hold_expired "$release_hold_started"; then
+        remove_supervision_run "$run_dir"
+        exit 1
+      fi
       if [ -f "$run_dir/invalidated.state" ]; then
         set +e
         watcher_invalidation_action "$run_dir" "$pane" "$generation"
@@ -754,6 +785,12 @@ watch_child() {
   local delivery_status pane_get_status get_status wait_status wait_output slice remaining
   local wait_phase=0 retry_delay="$DELIVERY_RETRY_INITIAL" callback_status preserve_waiting
   while :; do
+    # Externally removed run state means supervision was torn down (test
+    # teardown or reap); without this check a dead run dir turns the herdr
+    # error path below into a permanent poll loop, because the pane_err
+    # redirection fails and every iteration looks transient
+    # (docs/issues/2026-08-28-001).
+    [ -d "$run_dir" ] || exit 1
     if [ -f "$run_dir/invalidated.state" ]; then
       set +e
       watcher_invalidation_action "$run_dir" "$pane" "$generation"

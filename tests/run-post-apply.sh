@@ -58,4 +58,52 @@ PYEOF
   fi
   command rm -f "$report"
 done
+
+# Suite-end orphan guard (docs/issues/2026-08-28-001): no herdr-child
+# __watcher spawned from this checkout may survive the run abandoned — dead
+# --launcher-pid AND missing --run-dir. Both criteria are required: a dead
+# launcher alone is the normal terminal state of an armed detached watcher,
+# so a concurrent run's legitimately held watcher (whose run dir still
+# exists) must not be killed. Scoped to $ROOT so runs from other checkouts
+# cannot cross-fire; the awk program's own command line never matches
+# because its literal "--launcher-pid [0-9]+" text carries no digits.
+# Known parse limit: the /--run-dir [^ ]+/ extraction truncates a run-dir
+# path containing spaces; no environment that spawns these watchers
+# produces such a path today.
+watcher_args_match() {
+  # Re-verify pid identity right before signaling (the ps snapshot is stale
+  # and pids can be recycled).
+  ps -o args= -p "$1" 2>/dev/null \
+    | grep -F "herdr-child __watcher" | grep -Fq "$ROOT/"
+}
+orphan_rows="$(ps -axo pid=,args= | awk -v root="$ROOT/" '
+  index($0, "herdr-child __watcher") && index($0, root) \
+    && match($0, /--launcher-pid [0-9]+/) {
+    launcher = substr($0, RSTART + 15, RLENGTH - 15)
+    rundir = ""
+    if (match($0, /--run-dir [^ ]+/)) rundir = substr($0, RSTART + 10, RLENGTH - 10)
+    print $1 " " launcher " " rundir
+  }' || true)"
+orphan_pids=""
+while read -r pid launcher rundir; do
+  [ -n "$pid" ] || continue
+  kill -0 "$launcher" 2>/dev/null && continue
+  [ -n "$rundir" ] && [ -d "$rundir" ] && continue
+  watcher_args_match "$pid" || continue
+  echo "ORPHANED herdr-child watcher survived the suite: pid=$pid (dead launcher $launcher, missing run dir $rundir)" >&2
+  kill -TERM "$pid" 2>/dev/null || true
+  orphan_pids="$orphan_pids $pid"
+done <<EOF
+$orphan_rows
+EOF
+if [ -n "${orphan_pids# }" ]; then
+  sleep 0.5
+  for pid in $orphan_pids; do
+    kill -0 "$pid" 2>/dev/null || continue
+    watcher_args_match "$pid" || continue
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  echo "suite-end watcher orphan guard failed (docs/issues/2026-08-28-001)" >&2
+  [ "$rc" -ne 0 ] || rc=1
+fi
 exit "$rc"

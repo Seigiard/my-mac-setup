@@ -34,6 +34,11 @@ teardown() {
           attempt=$((attempt + 1))
           sleep 0.01
         done
+        # A watcher that survives TERM (e.g., stuck publishing through a
+        # deleted stub) must not outlive the test (docs/issues/2026-08-28-001).
+        if kill -0 "$watcher_pid" 2>/dev/null; then
+          kill -KILL "$watcher_pid" 2>/dev/null || true
+        fi
       fi
     fi
   fi
@@ -482,7 +487,15 @@ case "${1:-} ${2:-}" in
     : > "$CHILD_STUB/prompt-seen"
     if [ "${STUB_PROMPT_BLOCK:-0}" = 1 ]; then
       trap 'exit 143' HUP INT TERM
-      while [ ! -e "$CHILD_STUB/release-prompt" ]; do sleep 0.01; done
+      # Bounded so an orphaned stub prompt cannot poll forever after a killed
+      # harness (docs/issues/2026-08-28-001).
+      attempt=0
+      while [ ! -e "$CHILD_STUB/release-prompt" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
     fi
     [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
     [ "${STUB_PROMPT_TIMEOUT:-0}" = 1 ] && { printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; }
@@ -493,7 +506,15 @@ case "${1:-} ${2:-}" in
       if [ "${STUB_SUPERVISION_REPORT_BLOCK:-0}" = 1 ]; then
         : > "$CHILD_STUB/liveness-started"
         trap 'exit 143' HUP INT TERM
-        while [ ! -e "$CHILD_STUB/release-liveness" ]; do sleep 0.01; done
+        # Bounded so an orphaned stub cannot poll forever after a killed
+        # harness (docs/issues/2026-08-28-001).
+        attempt=0
+        while [ ! -e "$CHILD_STUB/release-liveness" ]; do
+          [ -d "$CHILD_STUB" ] || exit 1
+          attempt=$((attempt + 1))
+          [ "$attempt" -lt 12000 ] || exit 1
+          sleep 0.01
+        done
       fi
       [ "${STUB_SUPERVISION_REPORT_FAIL:-0}" != 1 ] || exit 1
     fi
@@ -631,7 +652,15 @@ case "${1:-} ${2:-}" in
   "agent wait")
     : > "$CHILD_STUB/wait-observed"
     if [ -f "$CHILD_STUB/wait-block" ]; then
-      while [ ! -f "$CHILD_STUB/wait-release" ]; do sleep 0.01; done
+      # Bounded so an orphaned stub cannot poll forever after a killed
+      # harness (docs/issues/2026-08-28-001).
+      attempt=0
+      while [ ! -f "$CHILD_STUB/wait-release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
     fi
     if [ -f "$CHILD_STUB/wait-error" ]; then
       printf '{"error":{"code":"internal_error","message":"transient wait failure"}}\n' >&2
@@ -656,7 +685,15 @@ case "${1:-} ${2:-}" in
       fi
       if [ -f "$CHILD_STUB/block-parent-prompt" ]; then
         : > "$CHILD_STUB/parent-prompt-accepted"
-        while [ ! -f "$CHILD_STUB/release-parent-prompt" ]; do sleep 0.01; done
+        # Bounded so an orphaned stub cannot poll forever after a killed
+        # harness (docs/issues/2026-08-28-001).
+        attempt=0
+        while [ ! -f "$CHILD_STUB/release-parent-prompt" ]; do
+          [ -d "$CHILD_STUB" ] || exit 1
+          attempt=$((attempt + 1))
+          [ "$attempt" -lt 12000 ] || exit 1
+          sleep 0.01
+        done
       fi
       printf '%s\n' "${4:-}" >> "$CHILD_STUB/successful-prompts.log"
     elif [ -f "$CHILD_STUB/advance-on-prompt" ]; then
@@ -7175,6 +7212,86 @@ function test_scripts_265_herdr_task_sync_fails_open_test_completes_with() {
   assert_output --partial "Passed: herdr-task-sync fails open for missing tools"
   assert_output --partial "1 passed, 1 total"
   assert_output --partial "All tests passed"
+}
+
+# ===========================================
+# watcher orphan self-termination (docs/issues/2026-08-28-001)
+# ===========================================
+
+function test_scripts_261_herdr_child_watcher_at_arm_barrier_exits_when_la() {
+  _bats_test_init 261 'herdr-child watcher held at the arm barrier exits when its launcher is SIGKILLed'
+  child_stub_herdr
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" \
+    bash "$HERDR_CHILD" start --kind claude --name child-orphan-arm --detach \
+    --prompt "test task" > /dev/null 2>&1 &
+  local launcher_pid=$!
+  local attempt=0
+  while [ ! -e "$CHILD_STUB/arm.ready" ] && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_file_exists "$CHILD_STUB/arm.ready"
+  local watcher_pid
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  # SIGKILL writes no abort.state, so only the watcher's own launcher
+  # liveness check can free it from the held barrier.
+  kill -KILL "$launcher_pid" 2>/dev/null || true
+  wait "$launcher_pid" 2>/dev/null || true
+  attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$watcher_pid"
+  assert_failure
+}
+
+function test_scripts_262_herdr_child_armed_watcher_exits_when_run_state_i() {
+  _bats_test_init 262 'herdr-child armed watcher exits when its supervision run state is torn down'
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 5000
+  assert_success
+  local watcher_pid
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  kill -0 "$watcher_pid"
+  # Teardown-style destruction mid-poll: with the run dir gone every herdr
+  # error looks transient, so an unguarded watcher spins forever.
+  rm -rf "$CHILD_STUB/state"
+  local attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$watcher_pid"
+  assert_failure
+}
+
+function test_scripts_263_herdr_child_watcher_release_hold_is_bounded() {
+  _bats_test_init 263 'herdr-child watcher held for release self-terminates once the hold bound expires'
+  child_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" start --kind claude --name child-orphan-hold --detach \
+    --prompt "test task"
+  assert_success
+  local watcher_pid
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  # No release file is ever written: an abandoned hold must expire on its own
+  # instead of orphaning a polling daemon.
+  local attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$watcher_pid"
+  assert_failure
 }
 
 function set_up_before_script() {
