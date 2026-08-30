@@ -1,6 +1,6 @@
 ---
 title: "Decompose herdr-child lifecycle engine"
-short_description: "The 2,184-line shell executable now combines launch, watcher, callback, continuation, and reap state machines; split it behind the existing semantic suite without changing lifecycle behavior."
+short_description: "The 2,230-line shell executable combines launch, watcher, callback, continuation, and reap state machines in one file; split it behind the existing semantic suite without changing lifecycle behavior."
 type: "chore"
 category: "herdr"
 tags: ["maintainability","herdr-child"]
