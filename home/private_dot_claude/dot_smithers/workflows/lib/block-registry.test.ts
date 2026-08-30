@@ -75,10 +75,8 @@ describe("BlockRegistry catalog", () => {
   });
 
   test("catalog JSON is byte-stable across independently built registries", () => {
-    // #given two registries holding the same blocks registered in opposite
-    // order. Comparing one registry's JSON to itself could never fail — the
-    // claim the test name makes is that generation order does not leak into
-    // the bytes.
+    // #given the same blocks registered in opposite order — collapsing the
+    // two registries into one would make this test unable to fail
     const first = new BlockRegistry();
     first.register(agentBlock());
     first.register(computeBlock());
@@ -87,16 +85,12 @@ describe("BlockRegistry catalog", () => {
     second.register(computeBlock());
     second.register(agentBlock());
 
-    // #then registration order is erased by list()'s sort; key order inside
-    // each entry is canonicalized separately by sortedReplacer (next test)
+    // #then
     expect(catalogToJson(first)).toBe(catalogToJson(second));
   });
 
   test("catalog JSON canonicalizes object keys regardless of declaration order", () => {
-    // #given a schema whose keys are declared in reverse-alphabetical order.
-    // Registration-order comparisons cannot see key order, because both
-    // registries would carry the same declaration; the discriminator is the
-    // serialized document itself.
+    // #given keys deliberately declared in reverse-alphabetical order
     const registry = new BlockRegistry();
     registry.register(computeBlock({ inputSchema: z.object({ headSha: z.string(), baseSha: z.string() }) }));
 
@@ -105,8 +99,7 @@ describe("BlockRegistry catalog", () => {
     };
     const keys = Object.keys(parsed.blocks[0]!.inputSchema.properties);
 
-    // #then sortedReplacer erased the declaration order from the bytes —
-    // without it JSON.stringify would emit headSha before baseSha
+    // #then sortedReplacer erased the declaration order from the bytes
     expect(keys).toEqual(["baseSha", "headSha"]);
   });
 });

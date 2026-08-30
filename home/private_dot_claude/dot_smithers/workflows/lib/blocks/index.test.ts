@@ -15,15 +15,12 @@ describe("initial block library", () => {
   });
 
   test("catalog is byte-stable across independently built registries", () => {
-    // Comparing one registry's JSON to itself could never fail. Two separate
-    // buildRegistry() calls redden this if the catalog ever gains
-    // per-instance or per-generation content (timestamps, ids, unstable
-    // iteration order).
+    // Two separate buildRegistry() calls on purpose — a single shared
+    // instance cannot catch per-generation content.
     expect(catalogToJson(buildRegistry())).toBe(catalogToJson(registry));
 
-    // buildRegistry() always inserts in INITIAL_LIBRARY order, so the check
-    // above alone would stay green if list() stopped sorting by name. The
-    // reversed registration proves order-independence on the real library.
+    // buildRegistry() always inserts in INITIAL_LIBRARY order, so only the
+    // reversed registration can see a lost list() sort.
     const reordered = new BlockRegistry();
     for (const block of [...INITIAL_LIBRARY].reverse()) reordered.register(block);
     expect(catalogToJson(reordered)).toBe(catalogToJson(registry));

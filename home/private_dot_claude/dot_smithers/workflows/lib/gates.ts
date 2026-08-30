@@ -347,12 +347,10 @@ export function mainCheckoutEscapeReason(
   return `the target repository's main checkout at ${repoDir} gained uncommitted changes since staging — the work agent may have written OUTSIDE its worktree (run-1786717826270). Inspect \`git -C ${repoDir} status\` before re-running: the work you are missing from the run branch may be sitting there.`;
 }
 
-// The one composition se-pipeline's workGateFn uses: advisory by contract. It
-// appends the escape diagnosis as a reason and must never touch the verdict's
-// state — an operator committing in their own checkout during a multi-hour run
-// is ordinary, and flipping the gate would buy a second work leg on a false
-// positive. Testable here so the call site cannot silently regress into a red
-// gate.
+// Advisory by contract: the escape diagnosis must never touch the verdict's
+// state — an operator committing in their own checkout during a multi-hour
+// run is ordinary, and flipping the gate would buy a second work leg on a
+// false positive.
 export function appendEscapeAdvisory(
   verdict: GateResult,
   repoDir: string,

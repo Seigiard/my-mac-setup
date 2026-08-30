@@ -473,8 +473,7 @@ describe("mainCheckoutEscapeReason (побег из воркитри, run-178671
     // #when digest не менялся
     const result = appendEscapeAdvisory(verdict, "/abs/repo", "same", "same");
 
-    // #then ни причины, ни состояния — advisory-контракт держится и на
-    // пути без побега
+    // #then
     expect(result.reasons).toHaveLength(reasonCount);
     expect(result.state).toBe("green");
   });

@@ -32,11 +32,9 @@ class TestDockerContract(unittest.TestCase):
         self.assertRegex(self.compose, r"(?m)^  test-ubuntu:\n", "docker-compose.yml must define the service make test-ubuntu runs")
         self.assertNotRegex(self.compose, r"(?m)^  test-quick:\n", "the full apply suite must not be named test-quick")
         self.assertIn("chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose", self.compose)
-        # No compose-text check for idempotent_test.sh here: its only matches in
-        # docker-compose.yml are comments. Reachability is owned behaviorally by
-        # tests/test_post_apply_suite_contract.py, which runs the wrapper and
-        # observes idempotent_test.sh in `full` mode's argv (the mode both
-        # compose services invoke) but not in `host-safe`'s.
+        # No compose-text check for idempotent_test.sh: it appears only in
+        # comments there; tests/test_post_apply_suite_contract.py owns its
+        # reachability.
 
     def test_full_suite_services_stage_issue_cli_and_use_canonical_smithers_gate(self):
         required = [

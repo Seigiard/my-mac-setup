@@ -158,10 +158,8 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   is_linux || skip "Only relevant on Linux"
   skip_if_no_chezmoi
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
-  # Status first: a failed `chezmoi managed` emits an error string that would
-  # satisfy the refutation below. The .gitconfig line is the positive control
-  # proving the listing is real and non-empty before the darwin exclusion is
-  # refuted against it.
+  # A failed `chezmoi managed` emits an error string that would satisfy the
+  # refutation, so status and a known-managed line come first.
   assert_success
   assert_output --partial ".gitconfig"
   refute_output --partial "run_once_after_macos-tunes"
@@ -6068,9 +6066,8 @@ function test_scripts_216_herdr_task_sync_sweep_leaves_an_unchanged_tab_la() {
       {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
   run hts_sweep_run --sweep
   assert_success
-  # Prove the sweep actually talked to herdr before refuting renames: with a
-  # missing or empty log, `cat` noise satisfies any refutation, so a sweep that
-  # made zero calls would pass. The snapshot read is the sweep's first call.
+  # With a missing or empty log any refutation is green, so first prove the
+  # sweep talked to herdr at all — the snapshot read is its first call.
   assert_file_contains "$HTS_LOG" '^api snapshot$'
   run grep -c -E '^(pane|tab) rename' "$HTS_LOG"
   assert_output "0"

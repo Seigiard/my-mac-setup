@@ -144,14 +144,10 @@ function test_idempotent_010_guard_every_disposable_environment_declares_the() {
   # Never skipped. A skip here would be indistinguishable from this file going
   # inert, which is exactly the rot the test exists to catch.
   if [[ -z "${GITHUB_ACTIONS:-}" ]] && [[ ! -f /.dockerenv ]]; then
-    # Nothing reports this $HOME disposable. `!= misconfigured` was vacuous
-    # here: this branch's own condition is exactly what makes the predicate
-    # structurally incapable of returning misconfigured. Assert the live-env
-    # pair instead: the verdict stays inside the closed run/skip vocabulary
-    # (catches vocabulary drift the scrubbed guard tests above cannot see in
-    # this environment), and the marker still flips it to `run` with whatever
-    # else this shell exports — the one claim tests 3-9 deliberately avoid by
-    # scrubbing the environment.
+    # Nothing reports this $HOME disposable. Do not assert `!= misconfigured`
+    # here — this branch's own condition makes that verdict unreachable.
+    # Deliberately unscrubbed: the marker must win over whatever this shell
+    # exports, a claim the env -u guard tests above cannot make.
     local live marked
     live="$(mms_disposable_home_verdict)"
     [[ "$live" == "run" || "$live" == "skip" ]] || \

@@ -677,8 +677,7 @@ export default smithers((ctx) => {
         if (validate !== null && validate.exitCode !== 0) {
           result.reasons.push(`validate-cmd output tail: ${validate.output.slice(-500)}`);
         }
-        // Escape diagnosis, advisory by contract (see appendEscapeAdvisory in
-        // lib/gates.ts): it appends a reason and never touches result.state.
+        // Escape diagnosis, advisory by contract — see appendEscapeAdvisory.
         return appendEscapeAdvisory(result, repoDir, staged.repoDirtyDigest, repoDirtyDigest(repoDir));
       };
 

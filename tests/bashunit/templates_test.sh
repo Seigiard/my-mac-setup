@@ -34,13 +34,10 @@ function test_templates_001_python3_is_present_and_at_least_3_9_the_floor_re() {
 # uses promptStringOnce which is unavailable in execute-template)
 # ===========================================
 
-# CHEZMOI_NAME/CHEZMOI_EMAIL bind at `chezmoi init`, not at data/render time,
-# so `chezmoi data` reads whatever config the host already has and the setup()
-# exports above are inert there — asserting on `chezmoi data` output proved
-# nothing about the env vars. Bind each value into its own init-time config via
-# write_test_config and prove a different value renders differently: the second
-# render is the control that the first match came from the env var, not from
-# ambient host state.
+# CHEZMOI_NAME/CHEZMOI_EMAIL bind at `chezmoi init`, not at render time, so
+# the setup() exports above are inert here — each value needs its own
+# init-time config. The second render is the control against ambient host
+# state.
 function test_templates_002_chezmoi_init_binds_name_from_env_var() {
   _bats_test_init 2 'chezmoi init binds name from env var'
   local tmpl="$BATS_TEST_TMPDIR/name.tmpl"

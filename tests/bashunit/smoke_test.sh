@@ -1031,9 +1031,7 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -E '\$location_label|\$location_status' "$config"
   assert_failure
   # The awk scope proves the key sits inside [ui], which the grep above cannot.
-  # The former follow-ups `width - 4 >= 28` and `width - 4 >= 8` were arithmetic
-  # over the constant just asserted and could never fail independently; no
-  # consumer of a "width - 4" budget exists in ~/.local/bin/herdr-task-sync.
+  # No width-derived assertions here: nothing consumes a "width - 4" budget.
   width="$(awk '
     $0 == "[ui]" { in_ui = 1; next }
     /^\[/ { in_ui = 0 }
