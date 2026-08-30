@@ -6997,6 +6997,196 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   assert_output --partial "Assertions: 1 passed, 1 total"
 }
 
+# Bounded open-pipe regression for the fail-open guard's stdin contract
+# (docs/issues/2026-08-29-011). Every no-payload hts_run_fail_open_guard call
+# site must redirect stdin from /dev/null: the guard's payload capture
+# (`cat > "$input"` in tests/helpers/herdr_task_sync.bash) otherwise reads the
+# runner's inherited stdin, and when that stdin is a pipe whose write end stays
+# open, cat blocks until an outer CI timeout kills the whole suite -- the
+# Docker hang PR #98 fixed. This scenario owns the test-fixture stdin contract;
+# the detached-child descriptor probes (tests 102/258) own production
+# descendant descriptors and stay separate.
+#
+# The nested runner's stdin is a non-TTY pipe whose write end the fixture holds
+# open, with no payload, for the entire run -- the exact regressed condition.
+# Correct call sites get EOF from their own /dev/null redirects and finish;
+# a call site that lost its redirect inherits the pipe and hangs, and the
+# deadline turns that hang into a bounded failure that names the blocked cat
+# descendant instead of stalling the suite.
+#
+# Two narrower invocations, not one: each affected test (119 and 121) gets its
+# own scenario so a deadline failure attributes to one call-site family, and
+# the only extra cost over a single invocation is a second runner startup.
+hts_run_nested_fail_open_open_pipe_scenario() {
+  local test_filter="$1" budget="$2"
+  run python3 - "$BATS_TEST_DIRNAME/lib/bashunit" \
+    "$BATS_TEST_DIRNAME/bashunit/scripts_test.sh" "$test_filter" "$budget" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+bashunit, suite, test_filter, budget_arg = sys.argv[1:5]
+budget = float(budget_arg)
+
+# Distinct status per failure mode, so the outer test names which property
+# broke without parsing the message. Avoid 126 and 127: the shell reserves
+# them for "not executable" and "not found".
+EXIT_INHERITED_PIPE = 125  # a descendant cat is reading the held-open stdin pipe
+EXIT_HANG = 124            # deadline passed without exit, cause undetermined
+EXIT_EOF_WITHHELD = 5      # runner exited but its output pipes never hit EOF
+
+read_fd, write_fd = os.pipe()
+# close_fds (the Popen default) keeps write_fd out of the child: only this
+# process holds the write end open, exactly like the outer runner in the
+# Docker hang, so EOF on the nested stdin can only come from a /dev/null
+# redirect inside the tests under scrutiny. No payload is ever written.
+proc = subprocess.Popen(
+    [bashunit, "--filter", test_filter, suite],
+    stdin=read_fd,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+    env={**os.environ, "NO_COLOR": "1"},
+)
+os.close(read_fd)
+
+# Drain both pipes from launch in their own threads. Nothing may leave a pipe
+# unread: the nested run blocks on a full pipe buffer otherwise, and on the
+# nested-test-failure path the runner echoes the failed test's captured
+# output, which is exactly when that output is largest.
+captured = {}
+
+
+def drain(name, stream):
+    captured[name] = stream.read()
+    stream.close()
+
+
+readers = [
+    threading.Thread(target=drain, args=("stdout", proc.stdout), daemon=True),
+    threading.Thread(target=drain, args=("stderr", proc.stderr), daemon=True),
+]
+for reader in readers:
+    reader.start()
+
+
+def descendant_comms(root):
+    """Transitive children of the nested runner, by command name, via
+    portable ps -- this must work on both macOS and the Ubuntu container."""
+    try:
+        out = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,comm="],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception:
+        return []
+    children = {}
+    comms = {}
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(ppid, []).append(pid)
+        comms[pid] = parts[2]
+    found, stack = [], [root]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            stack.append(child)
+            found.append(comms.get(child, "?"))
+    return found
+
+
+def report(message, code):
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    proc.wait()
+    for reader in readers:
+        reader.join(timeout=5)
+    sys.stdout.write(captured.get("stdout") or "")
+    sys.stderr.write(captured.get("stderr") or "")
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+deadline = time.monotonic() + budget
+try:
+    proc.wait(timeout=budget)
+except subprocess.TimeoutExpired:
+    # State-aware verdict: before naming a cause, look for the regressed
+    # state itself -- a cat descendant still reading our held-open pipe.
+    comms = descendant_comms(proc.pid)
+    if any(comm == "cat" or comm.endswith("/cat") for comm in comms):
+        report(
+            "a no-payload hts_run_fail_open_guard call inherited the runner's "
+            "open stdin pipe: a cat descendant is still reading it after "
+            f"{budget_arg} seconds (descendants: {', '.join(comms)})",
+            EXIT_INHERITED_PIPE,
+        )
+    report(
+        f"nested fail-open run did not exit within {budget_arg} seconds "
+        f"(descendants: {', '.join(comms) or 'none'})",
+        EXIT_HANG,
+    )
+
+# Exit alone is not the property: a descendant that inherited the output
+# pipes keeps them open past the runner's exit, so EOF is asserted
+# separately, on the same deadline.
+for reader in readers:
+    reader.join(timeout=max(deadline - time.monotonic(), 1.0))
+if any(reader.is_alive() for reader in readers):
+    report(
+        "nested fail-open run exited but its output pipes did not reach EOF "
+        "before the deadline",
+        EXIT_EOF_WITHHELD,
+    )
+
+os.close(write_fd)
+sys.stdout.write(captured.get("stdout") or "")
+sys.stderr.write(captured.get("stderr") or "")
+raise SystemExit(proc.returncode)
+PY
+}
+
+# Budgets are wall-clock ceilings for a hang that is otherwise infinite, not
+# performance expectations: green baselines measured 2026-08-30 on an idle
+# workstation were ~6s (test 119) and ~24s (test 121), and the defaults leave
+# an order of magnitude for Docker and loaded CI. Override via
+# HTS_FAIL_OPEN_PIPE_BUDGET_SECONDS when recalibrating.
+function test_scripts_264_herdr_task_sync_fail_open_deadline_test_complet() {
+  _bats_test_init 264 'herdr-task-sync fail-open deadline test completes with the runner stdin pipe held open'
+  hts_run_nested_fail_open_open_pipe_scenario \
+    fail_open_deadline_rejects_late "${HTS_FAIL_OPEN_PIPE_BUDGET_SECONDS:-90}"
+  assert_success
+  # Title prefixes only: the nested runner truncates long titles to the
+  # terminal width (observed under make test-ubuntu), so a full-title match
+  # is environment-dependent. "1 passed, 1 total" pins the filter to exactly
+  # one nested test.
+  assert_output --partial "Passed: herdr-task-sync fail-open deadline rejects late"
+  assert_output --partial "1 passed, 1 total"
+  assert_output --partial "All tests passed"
+}
+
+function test_scripts_265_herdr_task_sync_fails_open_test_completes_with() {
+  _bats_test_init 265 'herdr-task-sync fails-open test completes with the runner stdin pipe held open'
+  hts_run_nested_fail_open_open_pipe_scenario \
+    fails_open_for_missing_tools "${HTS_FAIL_OPEN_PIPE_BUDGET_SECONDS:-240}"
+  assert_success
+  # Truncation-safe title prefix; see test 264 for why.
+  assert_output --partial "Passed: herdr-task-sync fails open for missing tools"
+  assert_output --partial "1 passed, 1 total"
+  assert_output --partial "All tests passed"
+}
+
 function set_up_before_script() {
   :
 }

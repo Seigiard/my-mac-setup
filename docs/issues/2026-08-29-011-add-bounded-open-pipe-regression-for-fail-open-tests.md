@@ -5,7 +5,7 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["bashunit","inherited-descriptors","regression-test","herdr-task-sync"]
 date: "2026-08-29"
-status: "open"
+status: "in-progress"
 priority: "medium"
 ---
 
