@@ -8,6 +8,12 @@
 # Execution shape: files run sequentially, tests within a file run with up to
 # $MMS_BASHUNIT_JOBS workers (idempotent serializes itself via its
 # '# bashunit: no-parallel-tests' marker).
+#
+# tests/bashunit/templates_test.sh is deliberately NOT in either mode: it
+# asserts source-tree rendering, a pre-apply stage, while every file here
+# asserts post-apply state. Its wiring is the pre-apply gate that CI
+# (.github/workflows/test-dotfiles.yml), docker/docker-compose.yml, and
+# `make test-templates` each run before their apply step.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
