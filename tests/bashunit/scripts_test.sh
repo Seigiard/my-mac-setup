@@ -7140,9 +7140,12 @@ except subprocess.TimeoutExpired:
 
 # Exit alone is not the property: a descendant that inherited the output
 # pipes keeps them open past the runner's exit, so EOF is asserted
-# separately, on the same deadline.
+# separately, on the same deadline -- no grace floor, or EOF arriving after
+# the declared deadline would still pass.
 for reader in readers:
-    reader.join(timeout=max(deadline - time.monotonic(), 1.0))
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        reader.join(timeout=remaining)
 if any(reader.is_alive() for reader in readers):
     report(
         "nested fail-open run exited but its output pipes did not reach EOF "
