@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["herdr","process-cleanup","test-isolation","performance"]
 date: "2026-08-28"
-status: "in-progress"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -74,3 +75,7 @@ test-only barrier holds (arm, release, failure-publish) are bounded by
 escalates TERM→KILL, the blocking herdr stubs are bounded, and
 `tests/run-post-apply.sh` fails the run if any watcher from this checkout
 survives with a dead launcher (then reaps it).
+
+## Resolution
+
+Fixed at the source in home/dot_local/bin/executable_herdr-child: watchers now exit when their supervision run dir is externally removed (main loop, release hold, invalidation loop) — this was the escape every observed orphan actually took, since a deleted run dir made the herdr error path look transient forever; the pre-arm test barrier fails on a dead launcher (launcher-lost-before-arm); all test-only barrier holds are bounded by HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS (default 120s). Suite-side: teardown escalates TERM to KILL, all blocking herdr-stub loops are bounded, and tests/run-post-apply.sh fails the run and reaps any watcher from this checkout with a dead launcher AND missing run dir (both criteria required so a concurrent run's legitimately held watcher is not a false positive; pid identity is re-verified before TERM and KILL). Regression coverage: scripts_test 259/260/261 (launcher death, torn-down state, bounded hold — each proven red on the pre-fix revision) and smoke_test 076 (guard reaps only abandoned fakes, controls survive). Verified: full scripts+smoke suites green on host, make lint, make test-ubuntu green in Docker; a pre-fix baseline suite run leaked a watcher while the fixed run left zero.
