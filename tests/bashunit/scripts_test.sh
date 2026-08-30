@@ -1879,6 +1879,8 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   [ -n "$emitted" ] || fail "no child-supervision marker was delivered to the parent"
   [ -n "$documented" ] || fail "contract no longer documents the child-supervision marker shape"
   assert_equal "$(child_marker_skeleton "$documented")" "$(child_marker_skeleton "$emitted")"
+  grep -Eq '^\[child-supervision v1 generation=[^ ]+ event=(timeout|settled-[0-9]+|blocked-[0-9]+|child-gone) outcome=[^ ]+ reason=[^ ]+ agent=[^ ]+ pane=[^] ]+\]$' \
+    <<<"$emitted" || fail "supervision marker values break the documented grammar: $emitted"
 
   # #given — a detached child calls back through ask
   child_lifecycle_stub_herdr
@@ -1901,12 +1903,19 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   [ -n "$emitted" ] || fail "no child-ask v2 marker was delivered to the parent"
   [ -n "$documented" ] || fail "contract no longer documents the child-ask v2 marker shape"
   assert_equal "$(child_marker_skeleton "$documented")" "$(child_marker_skeleton "$emitted")"
+  grep -Eq '^\[child-ask v2 generation=[^ ]+ event=callback-[0-9]+ agent=[^ ]+ pane=[^] ]+\]$' \
+    <<<"$emitted" || fail "child-ask marker values break the documented grammar: $emitted"
 
   # #then — every subcommand the docs reference is one the CLI accepts
-  local token
-  for token in $(grep -ohE 'herdr-child [a-z][a-z-]*' "$contract" "$skill" "$consult" \
-      | awk '{print $2}' | sort -u); do
+  local tokens token
+  tokens="$(grep -ohE 'herdr-child [a-z][a-z-]*' "$contract" "$skill" "$consult" \
+    | awk '{print $2}' | sort -u)"
+  [ -n "$tokens" ] || fail "docs reference no herdr-child subcommands; the sync sweep would no-op"
+  for token in $tokens; do
+    # Without a herdr environment every real subcommand fails for an env
+    # reason; only a token the CLI dropped fails with "unknown subcommand".
     run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID= bash "$HERDR_CHILD" "$token"
+    assert_failure
     refute_output --partial 'unknown subcommand'
   done
 }
