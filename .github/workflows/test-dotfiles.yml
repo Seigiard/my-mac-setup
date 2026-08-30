@@ -58,9 +58,10 @@ env:
 jobs:
   test-ubuntu:
     runs-on: ubuntu-latest
-    # A normal run takes ~5 min; a hung apt mirror otherwise holds the job
-    # for the 360-min default and burns Actions minutes.
-    timeout-minutes: 15
+    # A normal push/PR run (minimal install) takes ~5 min; the nightly full
+    # install takes ~8 min. A hung apt mirror otherwise holds the job for the
+    # 360-min default and burns Actions minutes.
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -225,8 +226,9 @@ jobs:
 
   test-macos:
     runs-on: macos-latest
-    # A normal run takes ~10 min; brew install times vary, so keep headroom.
-    timeout-minutes: 25
+    # A normal push/PR run (minimal install) takes ~8-10 min; the nightly full
+    # install takes ~15 min and brew install times vary, so keep headroom.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4

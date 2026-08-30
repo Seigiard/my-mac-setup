@@ -126,7 +126,7 @@ Skip sets identical line for line; the one failure identical and pre-existing in
 - `docs/issues/2026-08-21-009-python3-is-both-required-and-optional-in-the-test-suite.md` — open: one `setup()` skip guard silences all 56 tests in `tests/palette.bats`; found by the parity gate, invisible to ordinary CI.
 - `docs/issues/2026-08-21-010-grc-is-vestigial-and-rgrc-was-never-moved-cross-platform.md` — open: `grc` survives only as the accidental python3 carrier — a second face of "the declared dependency set is not the one holding the suite up".
 - `docs/issues/2026-08-21-007-linuxbrew-prefix-unreachable-in-ubuntu-ci-job.md` — open: the inverse miss — 37 installed brew packages no test can reach because the prefix never lands on PATH.
-- `docs/issues/2026-08-21-008-revisit-ci-timeout-minutes-after-minimal-install.md` — open: timeout ceilings still sized for the full install, deliberately left for a separate change so a timeout failure stays attributable.
+- `docs/issues/2026-08-21-008-revisit-ci-timeout-minutes-after-minimal-install.md` — done: ceilings recalibrated to 12 min (ubuntu) / 20 min (macos) from 9 days of post-minimal-install run data; the deliberate separate-change delay kept the timeout failure attributable.
 - `completion-is-not-a-verdict.md` — same family, one layer up: there the runner's completion mark hid a red verdict from the human; here the suite's green hides which tests ran from everyone.
 - `external-review-legs-as-unreliable-subprocesses.md` — same family, machine-side: a step that dies quietly must not read as a clean pass; a test that skips quietly must not read as a passing test.
 - Known pre-existing failure the parity run had to reason around: `docs/issues/2026-08-19-001-make-test-ubuntu-fails-two-tests-on-main.md`.
