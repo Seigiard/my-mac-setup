@@ -1345,7 +1345,7 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
     sleep 0.01
   done
   [ "$attempt" -lt 500 ]
-  assert_file_not_exists "$old_run"
+  assert_dir_not_exists "$old_run"
   run cat "$CHILD_STUB/generation"
   assert_success
   assert_output new-generation
@@ -1395,7 +1395,7 @@ function test_scripts_042_herdr_child_sliced_wait_revalidates_generation_b() {
     sleep 0.01
   done
   [ "$attempt" -lt 500 ]
-  assert_file_not_exists "$old_run"
+  assert_dir_not_exists "$old_run"
   run bash -c 'line=$1; file=$2; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "state-label supervised="' _ \
     "$wait_line" "$CHILD_STUB/calls.log"
   assert_success

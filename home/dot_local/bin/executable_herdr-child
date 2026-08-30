@@ -459,10 +459,13 @@ watcher_publish_failed() {
     : > "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.ready"
     while [ ! -e "$HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER.release" ]; do sleep 0.01; done
   fi
-  set +e
-  watcher_generation_current "$run_dir" "$pane" "$generation"
-  current_status=$?
-  set -e
+  # watcher_generation_current re-enables errexit internally, clobbering any
+  # set +e bracket; conditional invocation keeps its nonzero return non-fatal.
+  if watcher_generation_current "$run_dir" "$pane" "$generation"; then
+    current_status=0
+  else
+    current_status=$?
+  fi
   [ "$current_status" -eq 0 ] || return "$current_status"
   if [ "$preserve_waiting" -eq 1 ]; then
     herdr pane report-metadata "$pane" --source "$SOURCE_ID" --clear-state-labels \
@@ -487,10 +490,13 @@ watcher_fail() {
   local publish_status
   release_arm_guard "$run_dir"
   rm -f "$run_dir/ready.state" "$run_dir/accepted.state" "$run_dir/abort.state" 2>/dev/null || true
-  set +e
-  watcher_publish_failed "$run_dir" "$pane" "$generation" "$reason" "$preserve_waiting"
-  publish_status=$?
-  set -e
+  # watcher_publish_failed re-enables errexit internally, clobbering any
+  # set +e bracket; conditional invocation keeps its nonzero return non-fatal.
+  if watcher_publish_failed "$run_dir" "$pane" "$generation" "$reason" "$preserve_waiting"; then
+    publish_status=0
+  else
+    publish_status=$?
+  fi
   if [ "$publish_status" -eq 20 ]; then
     remove_supervision_run "$run_dir"
     exit 0
@@ -900,10 +906,13 @@ EOF
       if [ "$wait_status" -ne 0 ] && ! printf '%s' "$wait_output" | grep -q '"code":"timeout"'; then
         watcher_fail "$run_dir" "$pane" "$generation" wait-error
       fi
-      set +e
-      watcher_generation_current "$run_dir" "$pane" "$generation"
-      generation_status=$?
-      set -e
+      # watcher_generation_current re-enables errexit internally, clobbering any
+      # set +e bracket; conditional invocation keeps its nonzero return non-fatal.
+      if watcher_generation_current "$run_dir" "$pane" "$generation"; then
+        generation_status=0
+      else
+        generation_status=$?
+      fi
       case "$generation_status" in
         0) ;;
         20) remove_supervision_run "$run_dir"; exit 0 ;;
