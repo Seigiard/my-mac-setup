@@ -445,7 +445,7 @@ elif [ "$1" = "pane" ] && [ "$2" = "report-metadata" ]; then
   jq --arg pane "$pane_id" --arg source "$source_id" --argjson seq "$report_seq" \
     --argjson tokens "$tokens" --argjson clears "$clear_tokens" '
       (.metadata[$pane][$source].seq // -1) as $current
-      | if $seq < $current then . else
+      | if $seq <= $current then . else
           .metadata[$pane][$source].seq = $seq
           | .metadata[$pane][$source].tokens = ((.metadata[$pane][$source].tokens // {}) + $tokens | with_entries(select(.key as $key | $clears | index($key) | not)))
           | (.metadata[$pane] // {} | [.[] | .tokens // {}] | add // {}) as $merged
