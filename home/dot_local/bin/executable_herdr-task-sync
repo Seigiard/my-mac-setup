@@ -243,13 +243,11 @@ atomic_write() {
   local file="$1" content="$2" dir tmp
   [ ! -d "$file" ] || return 1
   dir="$(dirname "$file")"
-  # Create at most the leaf directory, never ancestors. `mkdir -p` here
-  # recreated every missing level, so a detached process racing a test
-  # teardown resurrected the deleted state tree from the tmp root up
-  # (docs/issues/2026-08-29-001). One caller legitimately needs the leaf:
-  # the presentation pass writes location.state for panes that never
-  # enqueued, whose pane dir nothing else creates. A missing PARENT means
-  # the tree was deleted out from under us; fail closed.
+  # Create at most the leaf, never ancestors: `mkdir -p` lets a detached
+  # process resurrect a deleted state tree (docs/issues/2026-08-29-001). The
+  # leaf itself is needed — the presentation pass writes location.state for
+  # panes that never enqueued, whose pane dir nothing else creates. A missing
+  # PARENT means the tree was deleted out from under us; fail closed.
   mkdir "$dir" 2>/dev/null || [ -d "$dir" ] || return 1
   tmp="$(umask 077; mktemp "$dir/.record.XXXXXX" 2>/dev/null)" || return 1
   if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
@@ -363,11 +361,10 @@ release_claim() {
 initialize_namespace() {
   local namespace socket_record reconcile_record level
   namespace="$(namespace_dir)" || return 1
-  # Single-level mkdirs on purpose, never `mkdir -p`: `-p` recreates every
-  # missing ancestor, so a detached worker racing a test teardown resurrected
-  # the deleted sandbox from the tmp root up (docs/issues/2026-08-29-001).
-  # STATE_DIR itself is created one level deep at most — its parent
-  # (~/.cache, or a test's work dir) must already exist.
+  # Single-level mkdirs, never `mkdir -p`: `-p` lets a detached worker
+  # resurrect a deleted state tree (docs/issues/2026-08-29-001). STATE_DIR is
+  # created one level deep at most — its parent (~/.cache, or a test's work
+  # dir) must already exist.
   for level in "$STATE_DIR" "$STATE_DIR/sockets" "$namespace" \
     "$namespace/panes" "$namespace/tasks" "$namespace/migration"; do
     mkdir "$level" 2>/dev/null || [ -d "$level" ] || return 1
@@ -2322,11 +2319,9 @@ case "$mode" in
       printf '%s\n' 'herdr-task-sync: presentation skipped without HERDR_SOCKET_PATH' >&2
       exit 0
     fi
-    # Foreground hook invocation: bootstrap STATE_DIR recursively here, the
-    # way the naming entry point does. initialize_namespace itself creates at
-    # most one level so DETACHED survivors cannot resurrect a deleted tree,
-    # which would strand a fresh machine (no ~/.cache yet) with no namespace
-    # if no foreground path ever ran `mkdir -p`.
+    # Foreground invocations may bootstrap STATE_DIR recursively; only
+    # detached paths must fail closed (docs/issues/2026-08-29-001). Without
+    # this a fresh machine with no ~/.cache never gets a namespace.
     mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
     SWEEP_LOCK_DIR="$(namespace_dir)/sweep.lock"
     ;;
@@ -2425,9 +2420,8 @@ umask 077
 initialize_namespace || exit 0
 
 pane_dir="$(pane_state_dir)"
-# Single-level like the worker's sibling: panes/ exists after
-# initialize_namespace two lines up, so `-p` would only ever be resurrecting
-# a concurrently deleted tree (docs/issues/2026-08-29-001).
+# Single-level: panes/ exists after initialize_namespace, and `-p` would
+# resurrect a deleted state tree (docs/issues/2026-08-29-001).
 mkdir "$pane_dir" 2>/dev/null || [ -d "$pane_dir" ] || exit 0
 control="$pane_dir/control.state"
 high_water="$pane_dir/high-water.state"

@@ -6884,10 +6884,8 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
   assert_output --partial "Passed: herdr-child detached watcher closes launcher descriptors"
 }
 
-# Guards the teardown half of the docs/issues/2026-08-29-001 leak: a worker
-# still running when hts_teardown fires used to outlive the rm -rf and re-run
-# `mkdir -p` on its state paths, resurrecting HTS_WORK as an orphan tmp dir.
-# The contract is causal — teardown terminates and awaits the engine — so the
+# Guards docs/issues/2026-08-29-001: hts_teardown must terminate and await a
+# still-running engine before removing state. The contract is causal, so the
 # assertion is process death, with the directory's settled absence as the
 # observable effect.
 function test_scripts_259_hts_teardown_reaps_a_surviving_engine_worker() {

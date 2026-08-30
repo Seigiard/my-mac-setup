@@ -52,16 +52,15 @@ HTS_GIT_UNTRACKED='?'
 HTS_SIDEBAR_PADDING="$(printf '\342\240\200')"
 
 # Pids of every process the sandbox detached, from three complementary
-# ledgers:
-#   1. The engine's fork-time spawn registry (HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY),
-#      which sees a worker in the window before its first claim -- the window in
-#      which it re-runs `mkdir -p` on its state paths and no claim names it yet.
-#   2. Claim/lock owner records under HTS_STATE, for engines started by paths
-#      that predate the registry (and as overlap-tolerant redundancy).
+# ledgers — each covers a blind spot of the others:
+#   1. The engine's fork-time spawn registry (HERDR_TASK_SYNC_TEST_SPAWN_REGISTRY):
+#      the only ledger that sees a worker before its first claim.
+#   2. Claim/lock owner records under HTS_STATE: cover engines tests start
+#      directly (hts_worker_run &), which the registry never sees.
 #   3. A ps scan for commands referencing this sandbox's private HTS_WORK path:
-#      stub processes (herdr, git, model stubs) are exec'd by their absolute
-#      path under $HTS_WORK, and a blocked stub orphaned by its engine's death
-#      gives up tens of seconds later and recreates socket dirs on its way out.
+#      stubs are exec'd by absolute path under $HTS_WORK and hold no claim; a
+#      blocked stub orphaned by its engine's death gives up tens of seconds
+#      later and recreates socket dirs on its way out.
 # Registry and claim pids are emitted only while `ps` still shows them running
 # herdr-task-sync AND carrying the start token recorded at fork/claim time, so
 # a recycled pid can never be signalled; scan pids carry the sandbox path in
@@ -141,13 +140,11 @@ _hts_engine_process_tree() {
   done | sort -u
 }
 
-# Terminate every surviving sandbox process and WAIT for it to die. `rm -rf`
-# alone races them: a survivor re-runs `mkdir -p` on its state paths and
-# resurrects HTS_WORK as a skeleton holding only state/sockets debris
+# Terminate every surviving sandbox process and WAIT for it to die — `rm -rf`
+# alone races a survivor's writes, which resurrect HTS_WORK
 # (docs/issues/2026-08-29-001). Multiple rounds, because a root killed in one
-# round may have forked a child (a worker starting its presentation
-# coordinator) between the snapshot and the signal; the child surfaces in the
-# next round's ledgers.
+# round may have forked a child between the snapshot and the signal; the
+# child surfaces in the next round's ledgers.
 _hts_reap_engines() {
   local _round roots tree pid _ alive
   for _round in 1 2 3 4 5; do
@@ -186,12 +183,10 @@ hts_teardown() {
     unset HTS_READER_PID
   fi
   if [[ -n "${HTS_WORK:-}" ]]; then
-    # The descriptor probe's whole contract is that its detached coordinator
-    # and blocked herdr stub OUTLIVE this teardown: the bounded-invocation
-    # driver in scripts_test.sh proves the nested runner exits while a detached
-    # descendant still holds its inherited pipes, then releases and reaps that
-    # descendant itself. Reaping here would kill the held descriptor and turn
-    # that run vacuous, so the probe keeps the legacy removal.
+    # The descriptor probe's contract requires its detached coordinator and
+    # blocked herdr stub to OUTLIVE this teardown; reaping here would turn
+    # that run vacuous. Its driver (the bounded-invocation test in
+    # scripts_test.sh) releases and reaps them itself.
     if [[ -n "${HTS_DESCRIPTOR_PID_FILE:-}" ]]; then
       rm -rf "$HTS_WORK" 2>/dev/null || true
     # Every detached engine spawn is preceded by a synchronous
@@ -283,9 +278,8 @@ hts_fixture_socket_dir() {
   done
   id="$(cat "$HTS_SOCKET_ROOT/next-id" 2>/dev/null)"
   # An unreadable next-id means the sandbox is being torn down around this
-  # call; registering "socket-" into a resurrected root was one of the leak
-  # shapes of docs/issues/2026-08-29-001. Single-level mkdir for the same
-  # reason: fail closed rather than recreate deleted ancestors.
+  # call: fail closed rather than register a bogus "socket-" dir. Single-level
+  # mkdir for the same reason (docs/issues/2026-08-29-001).
   case "$id" in
     '' | *[!0-9]*) rmdir "$lock" 2>/dev/null; return 1 ;;
   esac
@@ -474,9 +468,9 @@ set -e
 name="$(basename "$0")"
 root="$HTS_WORK/models/$name"
 lock="$root/allocate.lock"
-# hts_stub_controlled_engine created this root at setup. A missing root means
-# the sandbox is torn down; `mkdir -p` here resurrected it from the tmp root
-# up (docs/issues/2026-08-29-001), so fail closed instead.
+# hts_stub_controlled_engine created this root at setup; a missing root means
+# the sandbox is torn down, so fail closed instead of `mkdir -p`-resurrecting
+# it (docs/issues/2026-08-29-001).
 [ -d "$root" ] || exit 1
 while ! mkdir "$lock" 2>/dev/null; do
   [ -d "$root" ] || exit 1
