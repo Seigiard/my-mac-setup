@@ -5426,6 +5426,82 @@ function test_scripts_181_herdr_task_sync_status_probe_over_budget_drops_t() {
   assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
 }
 
+function test_scripts_266_herdr_task_sync_status_probes_start_concurrently() {
+  _bats_test_init 266 'herdr-task-sync starts distinct checkout status probes concurrently'
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root_one="$HTS_WORK/repo-one" root_two="$HTS_WORK/repo-two"
+  local common_one="$HTS_WORK/repo-one.git" common_two="$HTS_WORK/repo-two.git" state leaked
+  mkdir -p "$root_one/.git" "$root_two/.git" "$common_one" "$common_two"
+  hts_git_location_fixture "$root_one" "$root_one" "$common_one" refs/heads/one
+  hts_git_location_fixture "$root_two" "$root_two" "$common_two" refs/heads/two
+  hts_git_status_fixture "$root_one" '1 M. N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_git_status_fixture "$root_two" '1 .M N... 100644 100644 100644 2222222 2222222 two.txt'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root_one")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-2 tab-1 "$root_two")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repos"}'
+  hts_set_process_label pane-1 worker-one
+  hts_set_process_label pane-2 worker-two
+
+  # Each status call waits until both markers exist. A serial loop times out
+  # the first probe before it can start the second; concurrent probes release
+  # each other and preserve both independent outcomes.
+  export HERDR_TASK_SYNC_TEST_STATUS_BARRIER="$HTS_WORK/status-probes-started"
+  export HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT=2
+  run hts_location_pass
+  unset HERDR_TASK_SYNC_TEST_STATUS_BARRIER HERDR_TASK_SYNC_TEST_STATUS_BARRIER_COUNT
+  assert_success
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_staged' "$state")" "${HTS_GIT_STAGED}1"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+  for leaked in "$(hts_namespace "$HTS_DEFAULT_SOCKET")"/.status-result.*; do
+    [[ ! -e "$leaked" ]] || fail "status result file leaked: $leaked"
+  done
+
+  # One timed-out root remains isolated from a healthy peer after the probes
+  # are parallelized; stale/fresh outcomes keep their existing semantics.
+  hts_block_git_status "$root_one"
+  run hts_location_pass
+  assert_success
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_staged' "$state")" null
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+}
+
+function test_scripts_267_herdr_task_sync_status_infrastructure_failure_p() {
+  _bats_test_init 267 'herdr-task-sync status infrastructure failure preserves published counts'
+  command -v jq >/dev/null || skip "jq not available"
+  hts_setup
+  local root="$HTS_WORK/repo" common="$HTS_WORK/repo.git" state
+  mkdir -p "$root/.git" "$common"
+  hts_git_location_fixture "$root" "$root" "$common" refs/heads/topic
+  hts_git_status_fixture "$root" '1 .M N... 100644 100644 100644 1111111 1111111 one.txt'
+  hts_set_pane "$HTS_DEFAULT_SOCKET" "$(hts_process_pane_json pane-1 tab-1 "$root")"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
+  hts_set_process_label pane-1 worker
+  hts_location_pass
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "${HTS_GIT_UNSTAGED}1"
+
+  # Queue a fresh generation, then fail only the aggregate result allocation.
+  # The presentation command is fail-open, so preservation is the observable
+  # contract: publishing an empty table would clear the existing count.
+  HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_event_run
+  cat > "$HTS_STUB/mktemp" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *"/.status-result."*) exit 1 ;;
+esac
+exec /usr/bin/mktemp "$@"
+SH
+  chmod +x "$HTS_STUB/mktemp"
+  run hts_presentation_run
+  assert_success
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal "$(jq -r '.panes[0].tokens.git_unstaged' "$state")" "${HTS_GIT_UNSTAGED}1"
+}
+
 function test_scripts_182_herdr_task_sync_agent_pane_follows_the_directory() {
   _bats_test_init 182 'herdr-task-sync agent pane follows the directory its own statusline reports, not its launch directory'
   command -v jq >/dev/null || skip "jq not available"
@@ -7303,4 +7379,3 @@ function tear_down_after_script() {
 }
 
 function tear_down() { _bats_run_teardown; }
-

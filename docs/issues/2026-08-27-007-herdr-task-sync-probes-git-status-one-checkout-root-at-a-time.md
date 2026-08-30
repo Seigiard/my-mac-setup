@@ -1,12 +1,13 @@
 ---
 title: "herdr-task-sync probes git status one checkout root at a time"
-short_description: "Each distinct checkout root spends its own status budget in sequence, so a developer with several open worktrees adds most of a second to every five-second sweep."
+short_description: "Distinct checkout roots consume separate 0.3-second status budgets in sequence, making several timed-out worktrees approach a second per sweep even though warm probes take about 36-60 ms each."
 type: "follow-up"
 category: "herdr"
 tags: ["performance"]
 date: "2026-08-27"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Measure first, with several seeded roots and a raised status budget, so there is
 ## Open decisions
 
 None.
+
+## Resolution
+
+Ran distinct checkout status probes concurrently through ordered per-root result files; added a barrier-based regression test that proves both probes start before either can finish; verified with shellcheck, focused bashunit coverage, and make test-ubuntu.
