@@ -373,10 +373,9 @@ index      : $i
 # bats-file subset used by this suite
 # ---------------------------------------------------------------------------
 
-# bats-file tests -f (regular file), NOT -e — kept for oracle parity. A
-# directory at the path makes assert_file_not_exists vacuously pass, so
-# directory expectations must use assert_dir_not_exists / assert_dir_exists
-# (see docs/issues/ 2026-08-28 vacuous-file-assertion issue).
+# bats-file semantics kept for oracle parity: -f (regular file), NOT -e.
+# A directory at the path makes assert_file_not_exists vacuously pass —
+# directory expectations must use assert_dir_not_exists / assert_dir_exists.
 assert_file_exists() {
   if [ ! -f "$1" ]; then
     _bats_assert_fail "-- file does not exist --
