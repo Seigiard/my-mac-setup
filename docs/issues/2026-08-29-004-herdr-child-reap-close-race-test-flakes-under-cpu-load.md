@@ -5,7 +5,7 @@ type: "bug"
 category: "testing-ci"
 tags: ["flaky-test","herdr"]
 date: "2026-08-29"
-status: "open"
+status: "in-progress"
 priority: "medium"
 ---
 
