@@ -69,14 +69,17 @@ function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
   local stop_fakes="$BATS_TEST_TMPDIR/stop-fakes"
   mkdir -p "$live_run_dir"
   # Fakes poll a stop file instead of holding a fixed-lifetime sleep: their
-  # lifetime is not a wall-clock bound (no flake under load), and a killed
-  # fake leaves at most a 0.2s sleep grandchild behind. stdio is detached so
-  # no child can hold the test runner's output pipe open.
-  bash -c 'until [ -e "$1" ]; do sleep 0.2; done' \
+  # lifetime is not a tight wall-clock bound (no flake under load), and a
+  # killed fake leaves at most a 0.2s sleep grandchild behind. The 300 x 0.2s
+  # cap makes a failed assertion (which skips the stop-file write below) end
+  # in a bounded red test instead of an indefinite hang while bashunit waits
+  # on the background jobs. stdio is detached so no child can hold the test
+  # runner's output pipe open.
+  bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
     "guard-fake-live-launcher $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $$" \
     "$stop_fakes" </dev/null >/dev/null 2>&1 &
   local live_launcher_fake=$!
-  bash -c 'until [ -e "$1" ]; do sleep 0.2; done' \
+  bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
     "guard-fake-live-rundir $watcher_argv --run-dir $live_run_dir --launcher-pid $dead_pid" \
     "$stop_fakes" </dev/null >/dev/null 2>&1 &
   local live_rundir_fake=$!
@@ -86,7 +89,7 @@ function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
   kill -0 "$live_launcher_fake"
   kill -0 "$live_rundir_fake"
 
-  bash -c 'until [ -e "$1" ]; do sleep 0.2; done' \
+  bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
     "guard-fake-orphan $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $dead_pid" \
     "$stop_fakes" </dev/null >/dev/null 2>&1 &
   local orphan_fake=$!
