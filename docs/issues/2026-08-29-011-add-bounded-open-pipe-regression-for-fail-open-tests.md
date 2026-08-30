@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["bashunit","inherited-descriptors","regression-test","herdr-task-sync"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -24,3 +25,7 @@ PR #98 fixes the observed Docker-suite hang by redirecting three no-payload fail
 ## Open decisions
 
 Whether one nested invocation can cover both affected tests without materially extending scripts_test.sh wall time, or two narrower invocations provide clearer failure attribution.
+
+## Resolution
+
+Added tests 259/260 in tests/bashunit/scripts_test.sh: each reruns an affected fail-open test (119, 121) under a nested bashunit whose stdin is a non-TTY pipe held open with no payload, and asserts process exit plus output-pipe EOF within an env-overridable budget, with a ps-based descendant scan that names the blocked cat when the inherited-pipe regression is present (status 125). Open decision resolved as two narrower invocations for clear failure attribution; the only extra cost over one invocation is a second runner startup. Calibrated red/green: removing the /dev/null redirect from test 119 or 121 failed the matching scenario with status 125 inside its budget; with redirects intact both pass. Verified: focused runs of 259/260, tests/lib/bashunit -j 8 tests/bashunit/scripts_test.sh (254 passed, 2 pre-existing skips, 4 pre-existing risky), make test-ubuntu exit 0, make lint. Cross-model review applied one fix (removed the EOF-join grace floor that could accept EOF past the deadline).
