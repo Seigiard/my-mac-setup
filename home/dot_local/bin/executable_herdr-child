@@ -578,10 +578,14 @@ deliver_supervision_event() {
   local run_dir="$1" generation="$2" event="$3" outcome="$4" reason="$5"
   local child_name="$6" child_pane="$7" parent_terminal="$8" parent_session="$9"
   local receipt="$run_dir/delivered.$event" list_json parent_record parent_pane parent_status message
-  local pane_json generation_status child_terminal child_session pane_err
+  local pane_json generation_status child_terminal child_session pane_err invalidation_reason
   DELIVERY_REASON=""
   [ ! -f "$receipt" ] || return 0
-  [ ! -f "$run_dir/invalidated.state" ] || return 20
+  if [ -f "$run_dir/invalidated.state" ]; then
+    invalidation_reason="$(supervision_reason "$run_dir/invalidated.state")"
+    [ "$invalidation_reason" != reap ] || return 13
+    return 20
+  fi
 
   if [ "$event" != child-gone ]; then
     child_terminal="$(state_value "$run_dir/launch.state" child_terminal)"
@@ -921,6 +925,7 @@ EOF
           retry_delay="$(next_delivery_retry_delay "$retry_delay")"
           ;;
         12) sleep "$POLL_INTERVAL"; continue ;;
+        13) continue ;;
         20) remove_supervision_run "$run_dir"; exit 0 ;;
         *) watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting" ;;
       esac
