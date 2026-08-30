@@ -6974,14 +6974,10 @@ function test_scripts_259_hts_teardown_reaps_a_surviving_engine_worker() {
 
 # Guards the local patch in the pinned runner itself ('Local patch vs upstream
 # 0.50.1' in tests/lib/bashunit): result parsing takes the last
-# ##TEST_EXIT_CODE=-marked line, not the blind last line, so a test's
-# background child appending output after the payload cannot corrupt the
-# verdict. The probe file makes that late write deterministic; on a stock
-# 0.50.1 runner (a re-pin that dropped the patch) the parallel leg reports a
-# phantom failed test (exit 1) and the sequential leg zeroes the assertion
-# count -- both flip this test red. Calibrated against a de-patched copy in
-# docs/issues/2026-08-29-003-pinned-bashunit-carries-a-local-patch-payload-
-# marker-result-parsing.
+# ##TEST_EXIT_CODE=-marked line, not the blind last line. A re-pin of bashunit
+# that drops the patch turns this test red
+# (docs/issues/2026-08-29-003-pinned-bashunit-carries-a-local-patch-payload-
+# marker-result-parsing).
 function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   _bats_test_init 260 'pinned bashunit survives late child output after the result payload'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/bashunit_late_output_probe_test.sh"
