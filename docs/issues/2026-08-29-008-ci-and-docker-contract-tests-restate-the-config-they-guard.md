@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["tautological-tests","test-quality","ci"]
 date: "2026-08-29"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -62,3 +63,7 @@ Whether the `timeout-minutes` invariant belongs here or in
 `2026-08-21-008-revisit-ci-timeout-minutes-after-minimal-install`. That issue owns the
 ceiling values; this one owns the assertion shape. Adding a presence-only check here does
 not preempt the value decision there.
+
+## Resolution
+
+Rewrote tests/test_ci_workflow.py and tests/test_docker_contract.py to assert derived invariants instead of mirroring config text: cache restore/save trigger sets are computed from the on: block and bound to the MMS_CI_MINIMAL event set (disjoint, covering, role-correct), save uses the save-only action variant with a key findable by a restore-keys prefix at the same per-OS Homebrew cache path; the gitleaks install target is verified against GITHUB_PATH appends preceding the Smithers gate; every job must declare timeout-minutes (values stay owned by 2026-08-21-008); make test-ubuntu is resolved to its compose service which must run chezmoi apply, make test-smithers, and run-post-apply full (line-anchored); apply services must set MMS_DISPOSABLE_HOME=1 and HOMEBREW_BUNDLE_NO_UPGRADE=1 (derived over all services); the staging shell is executed under a temp root built from the declared volume mounts. Calibrated red on 15 targeted mutations and green on a behavior-preserving fromJSON rewrite; hardened after a two-peer (Sonnet + Terra) cross-model review.
