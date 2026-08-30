@@ -276,7 +276,7 @@ function test_templates_015_private_settings_json_tmpl_renders_valid_json() {
 # ===========================================
 
 function test_templates_016_every_yazi_plugin_keymap_has_a_managed_plugin_en() {
-  _bats_test_init 16 'every Yazi plugin keymap has a managed plugin entrypoint'
+  _bats_test_init 16 'every Yazi plugin keymap has a local entrypoint or package pin'
   local yazi_dir="$SOURCE_ROOT/private_dot_config/yazi"
   local plugin
   local plugins
@@ -286,7 +286,12 @@ function test_templates_016_every_yazi_plugin_keymap_has_a_managed_plugin_en() {
 
   [[ -n "$plugins" ]] || fail "no Yazi plugin keymaps found"
   for plugin in $plugins; do
-    assert_file_exists "$yazi_dir/plugins/$plugin.yazi/main.lua"
+    if [[ -f "$yazi_dir/plugins/$plugin.yazi/main.lua" ]]; then
+      assert_file_exists "$yazi_dir/plugins/$plugin.yazi/main.lua"
+      continue
+    fi
+    run grep -Eq "use = \".*[/:]$plugin\"" "$yazi_dir/package.toml"
+    assert_success
   done
 }
 
@@ -576,4 +581,3 @@ function tear_down_after_script() {
 }
 
 function tear_down() { _bats_run_teardown; }
-

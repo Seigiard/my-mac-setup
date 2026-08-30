@@ -6,6 +6,17 @@ config/fish/fish_variables
 docs/issues/.issues.lock
 home/private_dot_config/private_karabiner/automatic_backups/
 
+# Restorable exports and package-manager payloads do not belong in git.
+browsers/*backup*
+browsers/*Backup*
+browsers/*settings*.json
+configs/*.rayconfig
+configs/*Backup*.json
+home/private_dot_config/yazi/flavors/flexoki-light.yazi/
+home/private_dot_config/yazi/plugins/ouch.yazi/
+home/private_dot_config/yazi/plugins/piper.yazi/
+home/private_dot_config/yazi/plugins/smart-filter.yazi/
+
 
 # bashunit runtime state (last-failed cache)
 .bashunit/
