@@ -556,6 +556,14 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/ps" <<'SH'
+#!/usr/bin/env bash
+if [ -f "$CHILD_STUB/observe-ps-locale" ]; then
+  printf '%s\n' "${LC_ALL:-unset}" >> "$CHILD_STUB/ps-locales.log"
+fi
+exec /bin/ps "$@"
+SH
+  chmod +x "$CHILD_STUB/ps"
 }
 
 child_start() {
@@ -766,6 +774,18 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"type":"pane_metadata_reported"}}\n'
     ;;
   "pane get")
+    if [ -f "$CHILD_STUB/block-delivery-pane-get" ] && \
+       [ -f "$CHILD_STUB/settlement-observed" ] && \
+       [ ! -f "$CHILD_STUB/delivery-pane-get.ready" ]; then
+      : > "$CHILD_STUB/delivery-pane-get.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/delivery-pane-get.release" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
+    fi
     if [ -f "$CHILD_STUB/observe-reap-invalidation" ] && \
        [ -f "$CHILD_STUB/pane-close.ready" ]; then
       for run_dir in "$HERDR_CHILD_STATE_DIR"/runs/*; do
@@ -7541,6 +7561,112 @@ function test_scripts_263_herdr_child_watcher_release_hold_is_bounded() {
   done
   run kill -0 "$watcher_pid"
   assert_failure
+}
+
+function test_scripts_264_herdr_child_reap_invalidation_suppresses_delivery_already_in_progress() {
+  _bats_test_init 264 'herdr-child reap invalidation suppresses delivery already in progress'
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local watcher_pid attempt=0
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-delivery-pane-get"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/delivery-pane-get.ready"
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
+  assert_success
+  assert_output --partial 'closed pane wT:p9'
+  assert_file_exists "$CHILD_STUB/pane-closed"
+
+  : > "$CHILD_STUB/delivery-pane-get.release"
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  assert_file_not_exists "$CHILD_STUB/successful-prompts.log"
+}
+
+function test_scripts_265_herdr_child_delivery_claim_keeps_reap_fail_closed_without_holding_guard() {
+  _bats_test_init 265 'herdr-child delivery claim keeps reap fail closed without holding the transition guard'
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local generation run_dir watcher_pid attempt=0
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-parent-prompt"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
+  assert_file_exists "$run_dir/delivery-pending.state"
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
+  assert_success
+  assert_output --partial 'supervision generation could not be invalidated'
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+
+  : > "$CHILD_STUB/release-parent-prompt"
+  child_wait_for_file "$CHILD_STUB/successful-prompts.log"
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  assert_dir_not_exists "$run_dir"
+}
+
+function test_scripts_266_herdr_child_reap_recovers_a_delivery_claim_owned_by_a_dead_watcher() {
+  _bats_test_init 266 'herdr-child reap recovers a delivery claim owned by a dead watcher'
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local generation run_dir watcher_pid attempt=0
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-parent-prompt"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
+  assert_file_exists "$run_dir/delivery-pending.state"
+
+  kill -KILL "$watcher_pid"
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
+  assert_success
+  assert_output --partial 'closed pane wT:p9'
+  assert_file_exists "$CHILD_STUB/pane-closed"
+  : > "$CHILD_STUB/release-parent-prompt"
+}
+
+function test_scripts_267_herdr_child_transition_owner_identity_uses_a_stable_locale() {
+  _bats_test_init 267 'herdr-child transition owner identity uses a stable locale'
+  child_lifecycle_stub_herdr
+  : > "$CHILD_STUB/observe-ps-locale"
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-parent-prompt"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
+  assert_file_contains "$CHILD_STUB/ps-locales.log" '^C$'
+  run grep -v '^C$' "$CHILD_STUB/ps-locales.log"
+  assert_failure
+  : > "$CHILD_STUB/release-parent-prompt"
 }
 
 function set_up_before_script() {

@@ -374,6 +374,70 @@ release_arm_guard() {
   rmdir "$1/arm.guard" 2>/dev/null || true
 }
 
+begin_supervision_transition() {
+  local operation="$1" run_dir="$2" subject="${3:--}"
+  python3 -c 'import fcntl, os, subprocess, sys, tempfile
+operation, run_dir, subject, owner_pid = sys.argv[1:5]
+
+def read_state(path):
+    try:
+        with open(path, encoding="ascii") as handle:
+            return dict(line.rstrip("\n").split("=", 1) for line in handle if "=" in line)
+    except (OSError, ValueError):
+        return {}
+
+def process_start(pid):
+    env = dict(os.environ, LC_ALL="C")
+    result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True, env=env)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+def atomic_write(name, content):
+    fd, tmp = tempfile.mkstemp(prefix=".write.", dir=run_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            handle.write(content + "\n")
+        os.replace(tmp, os.path.join(run_dir, name))
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+try:
+    lock = os.open(os.path.join(run_dir, "transition.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+except FileNotFoundError:
+    raise SystemExit(20 if operation == "delivery" else 2)
+try:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    invalidated = os.path.join(run_dir, "invalidated.state")
+    pending = os.path.join(run_dir, "delivery-pending.state")
+    if operation == "delivery":
+        if os.path.isfile(subject):
+            try: os.unlink(pending)
+            except FileNotFoundError: pass
+            raise SystemExit(2)
+        if os.path.isfile(invalidated):
+            raise SystemExit(13 if read_state(invalidated).get("reason") == "reap" else 20)
+        start = process_start(owner_pid)
+        if not start:
+            raise SystemExit(1)
+        atomic_write("delivery-pending.state", f"owner_pid={owner_pid}\nowner_start={start}")
+    else:
+        if os.path.isfile(pending):
+            state = read_state(pending)
+            pid = state.get("owner_pid", "")
+            start = state.get("owner_start", "")
+            if pid.isdigit() and start and process_start(pid) == start:
+                raise SystemExit(1)
+            os.unlink(pending)
+        atomic_write("reap-pending.state", f"status=pending\nowner_pid={owner_pid}\nowner_token={subject}")
+        atomic_write("invalidated.state", "reason=reap")
+finally:
+    os.close(lock)' "$operation" "$run_dir" "$subject" "$$"
+}
+
+finish_delivery_transition() {
+  rm -f "$1/delivery-pending.state" 2>/dev/null || true
+}
+
 request_watcher_abort() {
   local run_dir="$1" reason="$2" status=0
   acquire_arm_guard "$run_dir" || return 1
@@ -641,7 +705,7 @@ deliver_supervision_event() {
   local run_dir="$1" generation="$2" event="$3" outcome="$4" reason="$5"
   local child_name="$6" child_pane="$7" parent_terminal="$8" parent_session="$9"
   local receipt="$run_dir/delivered.$event" list_json parent_record parent_pane parent_status message
-  local pane_json generation_status child_terminal child_session pane_err invalidation_reason
+  local pane_json generation_status child_terminal child_session pane_err invalidation_reason transition_status
   DELIVERY_REASON=""
   [ ! -f "$receipt" ] || return 0
   if [ -f "$run_dir/invalidated.state" ]; then
@@ -701,18 +765,30 @@ EOF
     return 10
   fi
 
+  if begin_supervision_transition delivery "$run_dir" "$receipt"; then
+    transition_status=0
+  else
+    transition_status=$?
+  fi
+  case "$transition_status" in
+    0) ;;
+    2) return 0 ;;
+    13|20) return "$transition_status" ;;
+    *) DELIVERY_REASON="prompt-error"; return 11 ;;
+  esac
+
   message="[child-supervision v1 generation=$generation event=$event outcome=$outcome reason=${reason:-none} agent=$child_name pane=$child_pane]
 
 This is an observed child lifecycle state, not a task-success verdict. Verify the live pair, child output, requested commits, worktree state, tests, and artifacts."
-  if ! herdr agent prompt "$parent_pane" "$message" >/dev/null 2>&1; then
-    DELIVERY_REASON="prompt-error"
-    return 11
-  fi
-  if ! atomic_write "$receipt" "generation=$generation
+  if herdr agent prompt "$parent_pane" "$message" >/dev/null 2>&1 && \
+     atomic_write "$receipt" "generation=$generation
 event=$event"; then
-    DELIVERY_REASON="prompt-error"
-    return 11
+    finish_delivery_transition "$run_dir"
+    return 0
   fi
+  finish_delivery_transition "$run_dir"
+  DELIVERY_REASON="prompt-error"
+  return 11
 }
 
 watch_child() {
@@ -1575,17 +1651,16 @@ invalidate_generation() {
 }
 
 begin_reap_invalidation() {
-  local generation="$1" run_dir
+  local generation="$1" run_dir transition_status
   run_dir="$STATE_DIR/runs/$generation"
   [ -d "$run_dir" ] || return 2
   start_reap_owner_guard "$run_dir" || return 1
-  atomic_write "$run_dir/reap-pending.state" "status=pending
-owner_pid=$$
-owner_token=$REAP_OWNER_TOKEN" || { stop_reap_owner_guard "$run_dir"; return 1; }
-  if ! atomic_write "$run_dir/invalidated.state" 'reason=reap'; then
-    rm -f "$run_dir/reap-pending.state" 2>/dev/null || true
+  if begin_supervision_transition reap "$run_dir" "$REAP_OWNER_TOKEN"; then
+    return 0
+  else
+    transition_status=$?
     stop_reap_owner_guard "$run_dir"
-    return 1
+    return "$transition_status"
   fi
 }
 
