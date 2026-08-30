@@ -1,12 +1,13 @@
 ---
 title: "Superseded watcher can restore stale failure metadata between generation check and publish"
-short_description: "watcher_publish_failed validates the generation with watcher_generation_current and then calls herdr pane report-metadata as a separate step. A continuation that takes over the pane between the check and the publish gets its fresh state labels cleared and the old generation's failure tokens restored. Pre-existing TOCTOU, unchanged by the 2026-08-30 supersede-cleanup fix, which only made the detected-supersede path clean up its run directory."
+short_description: "Per-pane serialization now keeps generation validation, monotonic sequence allocation, and metadata publication in one critical section, preventing a superseded watcher from restoring stale failure state after takeover."
 type: "bug"
 category: "herdr"
 tags: ["concurrency"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Make the failure-metadata publication conditional on the pane still carrying the
 ## Open decisions
 
 Whether herdr grows an atomic compare-and-publish for pane metadata, or herdr-child re-validates and tolerates a benign race with a bounded self-correction.
+
+## Resolution
+
+Serialized every herdr-child metadata writer with a per-pane lock, revalidated watcher generation and identity inside the failure publisher's critical section, and allocated process-shared monotonic metadata sequences under the same lock. Added a deterministic takeover barrier regression test and source-sequence-aware Herdr stub. Verified with focused tests, make lint, make test-issues, the full scripts_test.sh suite, and make test-ubuntu.
