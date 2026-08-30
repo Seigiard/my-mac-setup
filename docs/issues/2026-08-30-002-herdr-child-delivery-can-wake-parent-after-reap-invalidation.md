@@ -5,8 +5,9 @@ type: "bug"
 category: "herdr"
 tags: ["herdr","race"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Serialize reap invalidation against event delivery at the final pre-prompt bound
 ## Open decisions
 
 None.
+
+## Resolution
+
+Serialized reap invalidation with delivery's final prompt decision through a per-run transition guard and delivery claim. Reap now suppresses delivery when invalidation wins, fails closed without holding the guard across an active prompt when delivery wins, and reclaims claims owned by dead watchers. Added barrier-driven tests for all three orderings; calibrated the invalidation-first case red on the old implementation and verified focused tests, make lint, and make test-ubuntu.
