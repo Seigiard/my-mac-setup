@@ -19,6 +19,8 @@ MAX_DELIVERY_RETRIES="${HERDR_CHILD_MAX_DELIVERY_RETRIES:-12}"
 DELIVERY_RETRY_INITIAL="${HERDR_CHILD_DELIVERY_RETRY_INITIAL:-1}"
 DELIVERY_RETRY_MAX="${HERDR_CHILD_DELIVERY_RETRY_MAX:-15}"
 WAIT_SLICE_MS="${HERDR_CHILD_WAIT_SLICE_MS:-30000}"
+REAP_OWNER_GUARD_PID=""
+REAP_OWNER_TOKEN=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -446,20 +448,18 @@ publish_supervision_recovery() {
 
 watcher_invalidation_action() {
   local run_dir="$1" pane="$2" generation="$3" reason attempt=0 pane_err owner_pid
+  local owner_token lock_status
   [ -f "$run_dir/invalidated.state" ] || return 1
   reason="$(supervision_reason "$run_dir/invalidated.state")"
   [ "$reason" = reap ] || return 20
   owner_pid="$(state_value "$run_dir/reap-pending.state" owner_pid)"
+  owner_token="$(state_value "$run_dir/reap-pending.state" owner_token)"
   case "$owner_pid" in '' | *[!0-9]*) return 21 ;; esac
+  case "$owner_token" in *[!0-9a-f]* | '') return 21 ;; esac
+  [ "${#owner_token}" -eq 32 ] || return 21
   while :; do
     [ -d "$run_dir" ] || return 20
     [ ! -f "$run_dir/reap-closed.state" ] || return 20
-    if [ -f "$run_dir/reap-restore.state" ]; then
-      rm -f "$run_dir/invalidated.state" "$run_dir/reap-pending.state" \
-        "$run_dir/reap-restore.state" 2>/dev/null || return 21
-      refresh_supervision_liveness "$pane" "$generation" || return 21
-      return 0
-    fi
     pane_err="$run_dir/reap-pane-get.err"
     if herdr pane get "$pane" >/dev/null 2>"$pane_err"; then
       rm -f "$pane_err"
@@ -469,10 +469,21 @@ watcher_invalidation_action() {
     else
       rm -f "$pane_err"
     fi
-    if ! kill -0 "$owner_pid" 2>/dev/null; then
-      rm -f "$run_dir/invalidated.state" "$run_dir/reap-pending.state" 2>/dev/null || return 21
-      refresh_supervision_liveness "$pane" "$generation" || return 21
-      return 0
+    if [ $((attempt % 100)) -eq 0 ]; then
+      if reap_owner_recovery_status "$run_dir" "$owner_token"; then lock_status=0; else lock_status=$?; fi
+      case "$lock_status" in
+        0)
+          [ -z "${HERDR_CHILD_TEST_REAP_OWNER_VERIFIED:-}" ] ||
+            : > "$HERDR_CHILD_TEST_REAP_OWNER_VERIFIED"
+          ;;
+        1|10)
+          refresh_supervision_liveness "$pane" "$generation" || return 21
+          return 0
+          ;;
+        3) return 0 ;;
+        20) return 20 ;;
+        *) return 21 ;;
+      esac
     fi
     attempt=$((attempt + 1))
     if [ $((attempt % 3000)) -eq 0 ]; then
@@ -1567,12 +1578,107 @@ begin_reap_invalidation() {
   local generation="$1" run_dir
   run_dir="$STATE_DIR/runs/$generation"
   [ -d "$run_dir" ] || return 2
+  start_reap_owner_guard "$run_dir" || return 1
   atomic_write "$run_dir/reap-pending.state" "status=pending
-owner_pid=$$" || return 1
+owner_pid=$$
+owner_token=$REAP_OWNER_TOKEN" || { stop_reap_owner_guard "$run_dir"; return 1; }
   if ! atomic_write "$run_dir/invalidated.state" 'reason=reap'; then
     rm -f "$run_dir/reap-pending.state" 2>/dev/null || true
+    stop_reap_owner_guard "$run_dir"
     return 1
   fi
+}
+
+start_reap_owner_guard() {
+  local run_dir="$1" ready release gone
+  local attempt=0
+  REAP_OWNER_TOKEN="$(generation_nonce)" || return 1
+  ready="$run_dir/reap-owner-$REAP_OWNER_TOKEN.ready"
+  release="$run_dir/reap-owner-$REAP_OWNER_TOKEN.release"
+  gone="$run_dir/reap-owner-$REAP_OWNER_TOKEN.gone"
+  rm -f "$ready" "$release" "$gone" 2>/dev/null || return 1
+  python3 -c 'import fcntl, os, sys, time
+lock_path, ready_path, release_path, gone_path, parent_pid = sys.argv[1:]
+lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+try:
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit(3)
+os.close(os.open(ready_path, os.O_CREAT | os.O_WRONLY, 0o600))
+while os.getppid() == int(parent_pid) and not os.path.exists(release_path):
+    time.sleep(0.01)
+if not os.path.exists(release_path):
+    os.close(os.open(gone_path, os.O_CREAT | os.O_WRONLY, 0o600))
+os.close(lock_fd)' "$run_dir/reap-owner.lock" "$ready" "$release" "$gone" "$$" &
+  REAP_OWNER_GUARD_PID=$!
+  while [ ! -f "$ready" ] && kill -0 "$REAP_OWNER_GUARD_PID" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  if [ -f "$ready" ] && kill -0 "$REAP_OWNER_GUARD_PID" 2>/dev/null; then
+    return 0
+  fi
+  kill "$REAP_OWNER_GUARD_PID" 2>/dev/null || true
+  wait "$REAP_OWNER_GUARD_PID" 2>/dev/null || true
+  REAP_OWNER_GUARD_PID=""
+  rm -f "$ready" "$release" "$gone" 2>/dev/null || true
+  REAP_OWNER_TOKEN=""
+  return 1
+}
+
+stop_reap_owner_guard() {
+  local run_dir="$1" token="$REAP_OWNER_TOKEN"
+  [ -n "$token" ] || return 0
+  : > "$run_dir/reap-owner-$token.release" 2>/dev/null ||
+    kill "$REAP_OWNER_GUARD_PID" 2>/dev/null || true
+  [ -z "$REAP_OWNER_GUARD_PID" ] || wait "$REAP_OWNER_GUARD_PID" 2>/dev/null || true
+  REAP_OWNER_GUARD_PID=""
+  REAP_OWNER_TOKEN=""
+  rm -f "$run_dir/reap-owner-$token.ready" "$run_dir/reap-owner-$token.release" \
+    "$run_dir/reap-owner-$token.gone" 2>/dev/null || true
+}
+
+reap_owner_recovery_status() {
+  local run_dir="$1" owner_token="$2"
+  python3 -c 'import fcntl, os, sys
+run_dir, expected_token = sys.argv[1:]
+
+def state_value(path, key):
+    try:
+        with open(path, encoding="ascii") as handle:
+            for line in handle:
+                if line.startswith(key + "="):
+                    return line.rstrip("\n").split("=", 1)[1]
+    except OSError:
+        return ""
+    return ""
+
+def remove(*names):
+    try:
+        for name in names:
+            os.unlink(os.path.join(run_dir, name))
+    except OSError:
+        raise SystemExit(2)
+
+try:
+    lock_fd = os.open(os.path.join(run_dir, "reap-owner.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit(0)
+except OSError:
+    raise SystemExit(2)
+if state_value(os.path.join(run_dir, "reap-pending.state"), "owner_token") != expected_token:
+    raise SystemExit(3)
+if os.path.exists(os.path.join(run_dir, "reap-closed.state")):
+    raise SystemExit(20)
+if os.path.exists(os.path.join(run_dir, "reap-restore.state")):
+    remove("invalidated.state", "reap-pending.state", "reap-restore.state")
+    raise SystemExit(10)
+gone = "reap-owner-" + expected_token + ".gone"
+if not os.path.exists(os.path.join(run_dir, gone)):
+    raise SystemExit(2)
+remove("invalidated.state", "reap-pending.state", gone)
+raise SystemExit(1)' "$run_dir" "$owner_token"
 }
 
 signal_reap_transition() {
@@ -2267,6 +2373,7 @@ except Exception:
         printf '%s: kept; pane %s could not be closed; supervision recovery could not be published\n' "$name" "$pane"
       fi
     fi
+    [ "$reap_transition" != pending ] || stop_reap_owner_guard "$STATE_DIR/runs/$generation"
     rm -f "$close_err"
   done
 }

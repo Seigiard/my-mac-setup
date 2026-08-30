@@ -17,6 +17,7 @@ setup() {
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER
+  unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
 }
@@ -770,6 +771,16 @@ case "${1:-} ${2:-}" in
       for run_dir in "$HERDR_CHILD_STATE_DIR"/runs/*; do
         [ ! -f "$run_dir/invalidated.state" ] || : > "$CHILD_STUB/reap-invalidation-consumed"
       done
+      if [ -f "$CHILD_STUB/block-reap-pane-get" ]; then
+        : > "$CHILD_STUB/reap-pane-get.ready"
+        attempt=0
+        while [ ! -f "$CHILD_STUB/reap-pane-get.release" ]; do
+          [ -d "$CHILD_STUB" ] || exit 1
+          attempt=$((attempt + 1))
+          [ "$attempt" -lt 12000 ] || exit 1
+          sleep 0.01
+        done
+      fi
     fi
     if [ -f "$CHILD_STUB/child-gone" ]; then
       printf '{"error":{"code":"pane_not_found","message":"pane not found"}}\n' >&2
@@ -858,6 +869,7 @@ SH
 child_lifecycle_start() {
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_REAP_OWNER_VERIFIED="${HERDR_CHILD_TEST_REAP_OWNER_VERIFIED:-}" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_TEST_SKIP_RETRY_SLEEP=1 \
     bash "$HERDR_CHILD" start --kind claude --name child-life --detach \
@@ -1604,8 +1616,9 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
 }
 
 function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
-  _bats_test_init 46 'herdr-child failed reap restores supervision for the kept child'
+  _bats_test_init 46 'herdr-child failed or stale reap restores supervision for the kept child'
   child_lifecycle_stub_herdr
+  HERDR_CHILD_TEST_REAP_OWNER_VERIFIED="$CHILD_STUB/reap-owner-verified"
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
   local generation run_dir watcher_pid reap_pid attempt=0
@@ -1628,11 +1641,26 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   assert_file_contains "$run_dir/invalidated.state" '^reason=reap$'
   : > "$CHILD_STUB/agent-get.release"
   child_wait_for_file "$CHILD_STUB/reap-invalidation-consumed"
+  child_wait_for_file "$CHILD_STUB/reap-owner-verified"
+  assert_file_exists "$run_dir/invalidated.state"
+  assert_file_not_exists "$CHILD_STUB/parent-prompt-accepted"
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
+  assert_success
+  assert_output --partial 'supervision generation could not be invalidated'
+  assert_file_exists "$run_dir/invalidated.state"
+  : > "$CHILD_STUB/block-reap-pane-get"
+  child_wait_for_file "$CHILD_STUB/reap-pane-get.ready"
   : > "$CHILD_STUB/block-parent-prompt"
   : > "$CHILD_STUB/pane-close.release"
-  wait "$reap_pid"
+  if ! wait "$reap_pid"; then
+    cat "$CHILD_STUB/reap.out" >&2
+    return 1
+  fi
   assert_file_contains "$CHILD_STUB/reap.out" 'supervision recovery requested'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
+  : > "$CHILD_STUB/reap-pane-get.release"
   while [ -f "$run_dir/invalidated.state" ] && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
@@ -1648,6 +1676,39 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   assert_output 1
   run grep -q 'event=child-gone' "$CHILD_STUB/calls.log"
   assert_failure
+
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  : > "$CHILD_STUB/block-agent-get"
+  : > "$CHILD_STUB/block-parent-prompt"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/agent-get.ready"
+
+  local stale_token=00000000000000000000000000000001
+  printf 'status=pending\nowner_pid=%s\nowner_token=%s\n' "$$" "$stale_token" > "$run_dir/reap-pending.state"
+  printf 'reason=reap\n' > "$run_dir/invalidated.state"
+  : > "$run_dir/reap-owner-$stale_token.gone"
+  : > "$CHILD_STUB/agent-get.release"
+  attempt=0
+  while [ -f "$run_dir/invalidated.state" ] && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
+  kill -0 "$watcher_pid"
+
+  : > "$CHILD_STUB/release-parent-prompt"
+  child_wait_for_file "$CHILD_STUB/successful-prompts.log"
+  run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
+  assert_success
+  assert_output 1
 }
 
 function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
