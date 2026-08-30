@@ -1855,10 +1855,8 @@ child_marker_skeleton() {
 }
 
 # The marker lines in child-agent-contract.md are a consumed wire format: parents
-# validate [child-supervision v1 ...] and [child-ask v2 ...] bodies field by field.
-# Round-trip the markers herdr-child actually emits against the documented shapes,
-# so the test flips when either side renames, reorders, adds, or drops a field —
-# and stays green through prose copy-edits. Replaces the former prose-grep test 058.
+# validate [child-supervision v1 ...] and [child-ask v2 ...] bodies field by field,
+# so the emitted markers must round-trip the documented shapes.
 function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   _bats_test_init 58 'herdr-child emitted markers round-trip the documented wire shapes'
   local contract="$SOURCE_ROOT/private_dot_claude/shared/child-agent-contract.md"

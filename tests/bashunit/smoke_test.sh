@@ -935,9 +935,8 @@ function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
   assert_file_exists "$HOME/.local/lib/herdr-process.sh"
 }
 
-# Test 60 (prose regexes over the deployed contract docs) was removed as
-# tautological; test 21's manifest owns deployment of these files, and
-# scripts_test.sh test 058 round-trips the marker wire format at the source.
+# Test 60 was removed as tautological: deployment of these docs is owned by
+# test 21's manifest, the marker wire format by scripts_test.sh test 058.
 
 function test_smoke_061_herdr_task_sync_claude_code_hook_is_deployed_and() {
   _bats_test_init 61 'herdr-task-sync Claude Code hook is deployed and executable'
