@@ -1471,6 +1471,7 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
   child_lifecycle_stub_herdr
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
   export HERDR_CHILD_TEST_NOW_SEQ=100
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=1
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
   old_generation="$(cat "$CHILD_STUB/generation")"
