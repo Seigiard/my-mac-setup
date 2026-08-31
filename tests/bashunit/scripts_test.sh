@@ -8104,7 +8104,7 @@ function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
     bash "$SKILLS_WRAPPER" add owner/repo named-skill
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^PWD=.*/tmp$'
-  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><owner/repo><--skill><named-skill><--global><--agent><claude-code><--agent><opencode><--agent><pi>$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><owner/repo><--skill><named-skill><--global><--agent><claude-code><--agent><opencode><--agent><pi><--yes>$'
   assert_equal "$PWD" "$original"
 }
 
@@ -8124,7 +8124,7 @@ function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_r
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
-  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><owned>$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><owned><--yes>$'
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" update owned
@@ -8185,12 +8185,12 @@ SH
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^add$'
 }
 
-function test_scripts_276_skills_remove_uses_xdg_and_fallback_locks_identically() {
-  _bats_test_init 276 'skills remove validates source ownership through XDG and fallback global locks'
+function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_identically() {
+  _bats_test_init 276 'skills remove validates source ownership through explicit and default XDG state locks'
   local stub state_lock fallback_lock
   stub="$(skills_stub_npx)"
   state_lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
-  fallback_lock="$BATS_TEST_TMPDIR/home/.agents/.skill-lock.json"
+  fallback_lock="$BATS_TEST_TMPDIR/home/.local/state/skills/.skill-lock.json"
   mkdir -p "$(dirname "$state_lock")" "$(dirname "$fallback_lock")"
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$state_lock"
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$fallback_lock"
@@ -8201,7 +8201,7 @@ function test_scripts_276_skills_remove_uses_xdg_and_fallback_locks_identically(
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_STATE_HOME= bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
-  run grep -c '<remove><--global><owned>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
   assert_output '2'
 }
 

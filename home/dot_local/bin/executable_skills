@@ -7,8 +7,7 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
-LOCK_PATH="${XDG_STATE_HOME:+$XDG_STATE_HOME/skills/.skill-lock.json}"
-LOCK_PATH="${LOCK_PATH:-$HOME/.agents/.skill-lock.json}"
+LOCK_PATH="$STATE_HOME/skills/.skill-lock.json"
 CANONICAL_ROOT="${SKILLS_CANONICAL_ROOT:-$HOME/.agents/skills}"
 REPOSITORY_OWNED_MANIFEST="${SKILLS_REPOSITORY_OWNED_MANIFEST:-$CONFIG_HOME/agent-skills/repository-owned}"
 CUTOVER_READY="$CONFIG_HOME/agent-skills/cutover-ready"
@@ -98,10 +97,10 @@ run_add() {
   shift
   local args=("$source") skill
   for skill in "$@"; do args+=(--skill "$skill"); done
-  run_npx add "${args[@]}" --global --agent claude-code --agent opencode --agent pi
+  run_npx add "${args[@]}" --global --agent claude-code --agent opencode --agent pi --yes
 }
 
-run_remove() { run_npx remove --global "$@"; }
+run_remove() { run_npx remove --global "$@" --yes; }
 run_update() { run_npx update --global "$@"; }
 
 parse_manifest() {
