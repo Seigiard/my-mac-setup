@@ -47,6 +47,7 @@ import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent, makeWor
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
 import { simplifyCommitDecision } from "./lib/stage-gate.ts";
+import { stageCompoundSkill } from "./lib/compound-skill.ts";
 import seDocReview from "./se-doc-review.tsx";
 import seSimplify from "./se-simplify.tsx";
 import type { WorkflowDefinition } from "@smithers-orchestrator/driver";
@@ -83,7 +84,7 @@ const inputSchema = z.object({
 
 const docReviewSchema = z.object({
   stageDir: z.string(),
-  pluginVersion: z.string(),
+  skillRevision: z.string(),
   claudeStatus: z.enum(["ok", "failed"]),
   opencodeStatus: z.enum(["ok", "failed"]),
   claudeEnvelopePath: z.string().nullish(),
@@ -204,24 +205,12 @@ function makeGetRunState(): GetRunState {
   };
 }
 
-// The opencode review leg has no claude plugin skills — stage a copy of the
-// plugin's ce-code-review skill under /tmp/ce-code-review, the tmp root
-// opencode's permission.external_directory allows (the run worktree itself is
-// its cwd and needs no allow). Same layout as se-code-review.tsx staging.
-function resolvePluginSkillDir(): { dir: string; version: string } {
-  const base = path.join(os.homedir(), ".claude/plugins/cache/compound-engineering-plugin/compound-engineering");
-  const versions = fs.readdirSync(base).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const latest = versions[versions.length - 1];
-  return { dir: path.join(base, latest, "skills/ce-code-review"), version: latest };
-}
-
-function stageCodeReviewConsult(tag: string): { skillDir: string; pluginVersion: string } {
+function stageCodeReviewConsult(tag: string): { skillDir: string; skillRevision: string } {
   const stageDir = path.join("/tmp/ce-code-review", `pipeline-${tag}-${Date.now()}`);
   const skillDir = path.join(stageDir, "skill");
-  fs.mkdirSync(skillDir, { recursive: true });
-  const plugin = resolvePluginSkillDir();
-  fs.cpSync(plugin.dir, skillDir, { recursive: true });
-  return { skillDir, pluginVersion: plugin.version };
+  fs.mkdirSync(stageDir, { recursive: true });
+  const skill = stageCompoundSkill("ce-code-review", skillDir);
+  return { skillDir, skillRevision: skill.skillRevision };
 }
 
 
@@ -231,7 +220,7 @@ function workPrompt(planPath: string, branch: string, smoke: boolean, docReviewA
   }
   return `[se-pipeline-stage]
 
-Invoke the skill compound-engineering:ce-work with args "mode:return-to-caller ${planPath}".
+Invoke the skill ce-work with args "mode:return-to-caller ${planPath}".
 
 That plan file is a FROZEN COPY, staged for this run only. It lives OUTSIDE every repository on purpose: it is not a file of the target repo, and it is not the operator's plan file. Read it for its content and nothing else — never resolve a path relative to it, never write to it, never look for the repository that contains it. EVERY repository path you resolve, read, or write belongs to your cwd.
 
@@ -251,7 +240,7 @@ function codeReviewPrompt(baseSha: string, branch: string, skillDir: string, smo
 Execute the compound-engineering code-review workflow in mode:agent on YOUR CURRENT working directory — it is the pipeline's isolated worktree on run branch ${branch}.
 
 How to execute it:
-- If your available skills include \`compound-engineering:ce-code-review\`, invoke it with args "mode:agent base:${baseSha}".
+- If your available skills include \`ce-code-review\`, invoke it with args "mode:agent base:${baseSha}".
 - ${skillFallbackLine(skillDir)}
 - Review target: the commits on this branch since ${baseSha}.
 

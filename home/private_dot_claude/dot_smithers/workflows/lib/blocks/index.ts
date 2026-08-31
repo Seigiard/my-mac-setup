@@ -238,7 +238,7 @@ const work: AgentBlockDefinition = {
   buildPrompt: (input) => {
     const i = input as { planPath?: string | null; prompt?: string | null };
     const task = i.planPath
-      ? `Invoke the skill compound-engineering:ce-work with args "mode:return-to-caller ${i.planPath}".
+      ? `Invoke the skill ce-work with args "mode:return-to-caller ${i.planPath}".
 
 That plan file is an INPUT, not a location. Read it for its content and nothing else: never resolve a path relative to it, never write to it. EVERY repository path you resolve, read, or write belongs to your cwd.`
       : `Implement headless: ${i.prompt ?? ""}`;

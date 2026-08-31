@@ -19,6 +19,7 @@ import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./li
 import { enforcePreExternalGate, preExternalRepoGate, preExternalTreeGate } from "./lib/pre-external-gate.ts";
 import { reviewLegSchema } from "./lib/review-schema.ts";
 import { stashCreateSafe } from "./lib/staging.ts";
+import { stageCompoundSkill } from "./lib/compound-skill.ts";
 
 const inputSchema = z.object({
   target: z
@@ -31,7 +32,7 @@ const inputSchema = z.object({
 const stageSchema = z.object({
   stageDir: z.string(),
   skillDir: z.string(),
-  pluginVersion: z.string(),
+  skillRevision: z.string(),
   snapshotDir: z.string(),
   snapshotSha: z.string(),
   consultTarget: z.string(),
@@ -47,7 +48,7 @@ const failedSchema = z.object({ agent: z.string() });
 
 const outputSchema = z.object({
   stageDir: z.string(),
-  pluginVersion: z.string(),
+  skillRevision: z.string(),
   snapshotSha: z.string(),
   consultTarget: z.string(),
   claudeStatus: z.enum(["ok", "failed"]),
@@ -73,13 +74,6 @@ const repoDir = process.env.CODE_REVIEW_REPO ?? process.cwd();
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
-}
-
-function resolvePluginSkillDir(): { dir: string; version: string } {
-  const base = path.join(os.homedir(), ".claude/plugins/cache/compound-engineering-plugin/compound-engineering");
-  const versions = fs.readdirSync(base).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const latest = versions[versions.length - 1];
-  return { dir: path.join(base, latest, "skills/ce-code-review"), version: latest };
 }
 
 function detectBaseRef(): string {
@@ -130,15 +124,14 @@ function stage(target: string) {
 
   const stageDir = path.join("/tmp/ce-code-review", `run-${Date.now()}`);
   const skillDir = path.join(stageDir, "skill");
-  fs.mkdirSync(skillDir, { recursive: true });
-  const plugin = resolvePluginSkillDir();
-  fs.cpSync(plugin.dir, skillDir, { recursive: true });
+  fs.mkdirSync(stageDir, { recursive: true });
+  const skill = stageCompoundSkill("ce-code-review", skillDir);
 
   const snapshotDir = path.join(stageDir, "repo");
   git(repoDir, "worktree", "add", "--detach", snapshotDir, snapshotSha);
 
   const consultTarget = target.trim() || `base:${git(repoDir, "merge-base", snapshotSha, detectBaseRef())}`;
-  return { stageDir, skillDir, pluginVersion: plugin.version, snapshotDir, snapshotSha, consultTarget };
+  return { stageDir, skillDir, skillRevision: skill.skillRevision, snapshotDir, snapshotSha, consultTarget };
 }
 
 function cleanupSnapshot(snapshotDir: string) {
@@ -160,7 +153,7 @@ function reviewPrompt(consultTarget: string, skillDir: string, smoke: boolean): 
 Execute the compound-engineering code-review workflow in mode:agent on YOUR CURRENT working directory — it is a frozen snapshot checkout of the repository under review.
 
 How to execute it:
-- If your available skills include \`compound-engineering:ce-code-review\`, invoke it with args "mode:agent ${consultTarget}".
+- If your available skills include \`ce-code-review\`, invoke it with args "mode:agent ${consultTarget}".
 - ${skillFallbackLine(skillDir)} Review target: ${consultTarget}.
 
 ${consultHardRules({
@@ -239,7 +232,7 @@ export default smithers((ctx) => {
               fs.mkdirSync(outDir, { recursive: true });
               const result: z.infer<typeof outputSchema> = {
                 stageDir: staged.stageDir,
-                pluginVersion: staged.pluginVersion,
+                skillRevision: staged.skillRevision,
                 snapshotSha: staged.snapshotSha,
                 consultTarget: staged.consultTarget,
                 claudeStatus: claudeReview ? "ok" : "failed",
