@@ -1095,6 +1095,14 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   assert_output --partial '"supervision":{"status":"armed"'
   assert_output --partial '"timeout_ms":60000'
   assert_file_exists "$CHILD_STUB/watcher.pid"
+  local generation
+  generation="$(cat "$CHILD_STUB/generation")"
+  run cat "$CHILD_STUB/state/runs/$generation/launch.state"
+  assert_success
+  assert_output "$(printf '%s\n' 'mode=detach' "generation=$generation" 'timeout_ms=60000' \
+    'parent_pane=wT:p0' 'parent_terminal=term-parent' 'parent_session=parent-session' \
+    'child_name=child-detached' 'child_pane=wT:p9' 'child_terminal=term-child' \
+    'child_session=child-session' 'baseline_seq=10')"
 
   local metadata_call prompt_call
   metadata_call="$(grep -n 'state-label supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1)"
@@ -1987,6 +1995,12 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_success
   new_generation="$(cat "$CHILD_STUB/generation")"
   [ "$new_generation" != "$old_generation" ]
+  run cat "$CHILD_STUB/state/runs/$new_generation/launch.state"
+  assert_success
+  assert_output "$(printf '%s\n' 'mode=detach' "generation=$new_generation" 'timeout_ms=5000' \
+    'parent_pane=wT:p0' 'parent_terminal=term-parent' 'parent_session=parent-session' \
+    'child_name=child-life' 'child_pane=wT:p9' 'child_terminal=term-child' \
+    'child_session=child-session' 'baseline_seq=11')"
   printf 'done 12\n' > "$CHILD_STUB/child-state"
   child_wait_for_log 'event=settled-12'
 
@@ -7913,7 +7927,7 @@ while IFS='|' read -r module expected allowed_globals; do
     exit 1
   }
 done <<'EOF'
-herdr-child-runtime.sh|atomic_write fail_usage generation_nonce json_agent_snapshot json_child_context json_created_tab_hint json_generation_status json_has_name json_has_pair json_identity_for_pane json_resolve_parent json_tab_identity metadata_report metadata_report_checked metadata_report_if_generation now_ms print_start_result print_supervision_failure print_supervision_uncertain require_herdr require_parent script_path state_value supervision_reason tab_reap_status usage|
+herdr-child-runtime.sh|atomic_write fail_usage generation_nonce json_agent_snapshot json_child_context json_created_tab_hint json_generation_status json_has_name json_has_pair json_identity_for_pane json_resolve_parent json_tab_identity metadata_report metadata_report_checked metadata_report_if_generation now_ms print_start_result print_supervision_failure print_supervision_uncertain require_herdr require_parent script_path state_value supervision_reason tab_reap_status usage write_launch_state|
 herdr-child-supervision.sh|acquire_arm_guard begin_reap_invalidation begin_supervision_transition clear_supervision_metadata clear_supervision_state_labels delivery_retry_pause finish_delivery_transition invalidate_generation next_delivery_retry_delay preserve_callback_waiting_label publish_reap_recovery publish_supervision_recovery reap_owner_recovery_status refresh_supervision_liveness release_arm_guard remove_supervision_run report_signal_supervision request_watcher_abort signal_reap_transition start_reap_owner_guard stop_owned_watcher stop_reap_owner_guard wait_for_watcher_failure wait_for_watcher_state watcher_fail watcher_fail_without_publish watcher_generation_current watcher_hold_expired watcher_invalidation_action watcher_preflight_fail watcher_publish_failed|REAP_OWNER_GUARD_PID REAP_OWNER_TOKEN
 herdr-child-watcher.sh|deliver_supervision_event watch_child|DELIVERY_REASON
 herdr-child-launch.sh|start_child|
@@ -7975,6 +7989,54 @@ function test_scripts_270_herdr_child_reap_invalidation_barrier_is_bounded() {
   [ "$attempt" -lt 500 ]
   assert_file_not_exists "$CHILD_STUB/pane-closed"
   assert_dir_not_exists "$run_dir"
+}
+
+function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
+  _bats_test_init 271 'herdr-child shared lifecycle primitives keep polling and launch-state contracts'
+  local work_dir runtime supervision
+  work_dir="$(mktemp -d)"
+  runtime="$SOURCE_ROOT/dot_local/lib/herdr-child-runtime.sh"
+  supervision="$SOURCE_ROOT/dot_local/lib/herdr-child-supervision.sh"
+
+  run env WORK_DIR="$work_dir" RUNTIME="$runtime" SUPERVISION="$supervision" bash -c '
+    set -u
+    source "$RUNTIME"
+    source "$SUPERVISION"
+
+    IFS=$'"'"'\n'"'"'
+    write_launch_state "$WORK_DIR/launch.state" generation-1 12345 parent-pane \
+      parent-terminal parent-session child-name child-pane child-terminal \
+      child-session 42 || exit 10
+
+    : > "$WORK_DIR/wanted.state"
+    wait_for_watcher_state "$WORK_DIR/wanted.state" "$WORK_DIR/failed.state" "$$" || exit 11
+    rm -f "$WORK_DIR/wanted.state"
+    : > "$WORK_DIR/failed.state"
+    status=0
+    wait_for_watcher_state "$WORK_DIR/wanted.state" "$WORK_DIR/failed.state" "$$" || status=$?
+    [ "$status" -eq 2 ] || exit 12
+    rm -f "$WORK_DIR/failed.state"
+    : > "$WORK_DIR/failure-only.state"
+    wait_for_watcher_failure "$WORK_DIR/failure-only.state" "$$" || exit 13
+    rm -f "$WORK_DIR/failure-only.state"
+    status=0
+    wait_for_watcher_failure "$WORK_DIR/failure-only.state" 2147483647 || status=$?
+    [ "$status" -eq 1 ] || exit 14
+
+    if write_launch_state "$WORK_DIR/invalid.state" generation-2 12345 parent-pane \
+      parent-terminal parent-session $'"'"'bad\nname'"'"' child-pane child-terminal \
+      child-session 42; then
+      exit 15
+    fi
+  '
+  assert_success
+  run cat "$work_dir/launch.state"
+  assert_success
+  assert_output "$(printf '%s\n' 'mode=detach' 'generation=generation-1' 'timeout_ms=12345' \
+    'parent_pane=parent-pane' 'parent_terminal=parent-terminal' 'parent_session=parent-session' \
+    'child_name=child-name' 'child_pane=child-pane' 'child_terminal=child-terminal' \
+    'child_session=child-session' 'baseline_seq=42')"
+  assert_file_not_exists "$work_dir/invalid.state"
 }
 
 function set_up_before_script() {

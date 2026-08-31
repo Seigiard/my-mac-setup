@@ -66,17 +66,9 @@ EOF
   chmod 700 "$STATE_DIR" "$STATE_DIR/runs" 2>/dev/null || true
   run_dir="$STATE_DIR/runs/$generation"
   mkdir "$run_dir" || return 1
-  atomic_write "$run_dir/launch.state" "mode=detach
-generation=$generation
-timeout_ms=$supervision_timeout
-parent_pane=$HERDR_PANE_ID
-parent_terminal=$parent_terminal
-parent_session=$parent_session
-child_name=$name
-child_pane=$pane
-child_terminal=$child_terminal
-child_session=$child_session
-baseline_seq=$baseline_seq" || { remove_supervision_run "$run_dir"; return 1; }
+  write_launch_state "$run_dir/launch.state" "$generation" "$supervision_timeout" \
+    "$HERDR_PANE_ID" "$parent_terminal" "$parent_session" "$name" "$pane" \
+    "$child_terminal" "$child_session" "$baseline_seq" || { remove_supervision_run "$run_dir"; return 1; }
   if [ "${HERDR_CHILD_TEST_SETUP_FAIL:-0}" = 1 ]; then
     remove_supervision_run "$run_dir"
     printf 'herdr-child: detached continuation setup failed before supervision takeover\n' >&2
