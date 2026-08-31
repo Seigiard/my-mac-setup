@@ -42,6 +42,7 @@ import { parseNumstat, shouldRunSimplify } from "./lib/stage-gate.ts";
 import { runValidateCmd } from "./lib/envelopes.ts";
 import { enforcePreExternalGate, preExternalRepoGate, preExternalTreeGate } from "./lib/pre-external-gate.ts";
 import { stashCreateSafe } from "./lib/staging.ts";
+import { stageCompoundSkill } from "./lib/compound-skill.ts";
 
 const STAGE_ROOT = "/tmp/ce-simplify";
 const APPLY_TIMEOUT_MS = 20 * 60_000;
@@ -82,7 +83,7 @@ const classifierSchema = z.object({ run: z.boolean(), reason: z.string().default
 const stageSchema = z.object({
   stageDir: z.string(),
   skillDir: z.string(),
-  pluginVersion: z.string(),
+  skillRevision: z.string(),
   snapshotDir: z.string(),
   snapshotSha: z.string(),
   consultTarget: z.string(),
@@ -133,13 +134,6 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
 }
 
-function resolveSimplifySkillDir(): { dir: string; version: string } {
-  const base = path.join(os.homedir(), ".claude/plugins/cache/compound-engineering-plugin/compound-engineering");
-  const versions = fs.readdirSync(base).sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }));
-  const latest = versions[versions.length - 1];
-  return { dir: path.join(base, latest, "skills/ce-simplify-code"), version: latest };
-}
-
 function detectBaseRef(repoPath: string): string {
   try {
     const head = git(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD");
@@ -179,7 +173,7 @@ function stage(
   if (smoke) {
     const snapshotDir = path.join(stageDir, "repo");
     fs.mkdirSync(snapshotDir, { recursive: true });
-    return { stageDir, skillDir: "", pluginVersion: "smoke", snapshotDir, snapshotSha: "SMOKE", consultTarget: "SMOKE" };
+    return { stageDir, skillDir: "", skillRevision: "smoke", snapshotDir, snapshotSha: "SMOKE", consultTarget: "SMOKE" };
   }
 
   // Secret-gate the snapshot BEFORE anything is staged or dispatched, unless the
@@ -196,15 +190,14 @@ function stage(
   }
 
   const skillDir = path.join(stageDir, "skill");
-  fs.mkdirSync(skillDir, { recursive: true });
-  const plugin = resolveSimplifySkillDir();
-  fs.cpSync(plugin.dir, skillDir, { recursive: true });
+  fs.mkdirSync(stageDir, { recursive: true });
+  const skill = stageCompoundSkill("ce-simplify-code", skillDir);
 
   const snapshotDir = path.join(stageDir, "repo");
   git(repoPath, "worktree", "add", "--detach", snapshotDir, snapshotSha);
 
   const consultTarget = target.trim() || `base:${base}`;
-  return { stageDir, skillDir, pluginVersion: plugin.version, snapshotDir, snapshotSha, consultTarget };
+  return { stageDir, skillDir, skillRevision: skill.skillRevision, snapshotDir, snapshotSha, consultTarget };
 }
 
 function cleanupSnapshot(repoPath: string, snapshotDir: string): void {
@@ -231,7 +224,7 @@ function reportLegPrompt(consultTarget: string, skillDir: string, smoke: boolean
 Run the compound-engineering ce-simplify-code REVIEWERS on YOUR CURRENT working directory — it is a frozen snapshot checkout of the repository under review. This is a REPORT-ONLY consult: you run the reviewer phase and return findings; you apply nothing.
 
 How to execute it:
-- If your available skills include \`compound-engineering:ce-simplify-code\`, invoke it — but only its Steps 1-2 (scope + the three persona reviewers), per the hard rules below.
+- If your available skills include \`ce-simplify-code\`, invoke it — but only its Steps 1-2 (scope + the three persona reviewers), per the hard rules below.
 - ${skillFallbackLine(skillDir)} Simplification scope: ${consultTarget}.
 
 ${consultHardRules({

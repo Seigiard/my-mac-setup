@@ -47,6 +47,47 @@ function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
 }
 
+render_pi_settings() {
+  local home="$1" modifier="$2"
+  printf '%s\n' '{"skills":["~/.claude/skills","/keep-this-source"],"unrelated":true}' \
+    | env HOME="$home" XDG_CONFIG_HOME="$home/.config" bash "$modifier"
+}
+
+function test_smoke_077_pi_settings_retire_legacy_discovery_only_after_exact_cutover() {
+  _bats_test_init 77 'Pi removes Compound Engineering and Claude skill-root discovery only after exact cutover'
+  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local state home rendered
+  for state in absent stale malformed matched; do
+    home="$BATS_TEST_TMPDIR/pi-$state"
+    mkdir -p "$home/.config/agent-skills"
+    printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$home/.config/agent-skills/cutover-generation"
+    case "$state" in
+      stale) printf '%s\n' 'v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$home/.config/agent-skills/cutover-ready" ;;
+      malformed) printf '%s\n' 'not-a-cutover-attestation' > "$home/.config/agent-skills/cutover-ready" ;;
+      matched) printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$home/.config/agent-skills/cutover-ready" ;;
+    esac
+    run render_pi_settings "$home" "$modifier"
+    assert_success
+    rendered="$output"
+    run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$rendered"
+    assert_success
+    run jq -e '.unrelated and (.skills | index("/keep-this-source"))' <<< "$rendered"
+    assert_success
+
+    if [ "$state" = matched ]; then
+      run jq -e '.packages | index("git:github.com/EveryInc/compound-engineering-plugin")' <<< "$rendered"
+      assert_failure
+      run jq -e '.skills | index("~/.claude/skills")' <<< "$rendered"
+      assert_failure
+    else
+      run jq -e '.packages | index("git:github.com/EveryInc/compound-engineering-plugin")' <<< "$rendered"
+      assert_success
+      run jq -e '.skills | index("~/.claude/skills")' <<< "$rendered"
+      assert_success
+    fi
+  done
+}
+
 # Covers the suite-end orphan guard (docs/issues/2026-08-28-001). The
 # near-miss controls are load-bearing: a dead launcher with a surviving run
 # dir is a concurrent run's legitimately held watcher, not an orphan.
@@ -429,28 +470,33 @@ function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
   assert_success
 }
 
-function test_smoke_019_opencode_exposes_curated_claude_skills_through_c() {
-  _bats_test_init 19 'opencode exposes curated claude skills through canonical symlinks'
+function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
+  _bats_test_init 19 'clients resolve model-invocable skills from canonical .agents trees'
   local skill
 
   for skill in \
-    ask-in-herdr markdown-new plan-explainer \
+    ask-in-herdr herdr markdown-new \
+    pf-build pf-research pf-spec plan-explainer \
     se-cleanup se-code-review se-doc-review se-flow se-plan \
     se-review-and-work se-simplify se-work \
     vector-prime work-summary writing-for-agents; do
-    run readlink "$HOME/.config/opencode/skills/$skill"
+    run readlink "$HOME/.claude/skills/$skill/SKILL.md"
     assert_success
-    assert_output "$HOME/.claude/skills/$skill"
-    assert_file_exists "$HOME/.config/opencode/skills/$skill/SKILL.md"
+    assert_output "$HOME/.agents/skills/$skill/SKILL.md"
+    assert_file_exists "$HOME/.agents/skills/$skill/SKILL.md"
+    if [[ -e "$HOME/.config/opencode/skills/$skill" || -L "$HOME/.config/opencode/skills/$skill" ]]; then
+      fail "stale OpenCode skill adapter remains: $HOME/.config/opencode/skills/$skill"
+    fi
   done
 }
 
 function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
   _bats_test_init 20 'explicit-only workflows keep manual invocation boundaries'
-  local workflow claude_skill opencode_command opencode_skill
+  local workflow claude_skill pi_skill opencode_command opencode_skill
 
   for workflow in eli5 open-questions; do
     claude_skill="$HOME/.claude/skills/$workflow/SKILL.md"
+    pi_skill="$HOME/.pi/agent/skills/$workflow"
     opencode_command="$HOME/.config/opencode/commands/$workflow.md"
     opencode_skill="$HOME/.config/opencode/skills/$workflow"
 
@@ -463,6 +509,11 @@ function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
       END { exit !(closed && keys == 1 && valid == 1) }
     ' "$claude_skill"
     assert_success
+
+    run readlink "$pi_skill"
+    assert_success
+    assert_output "$HOME/.claude/skills/$workflow"
+    assert_file_exists "$pi_skill/SKILL.md"
 
     assert_file_exists "$opencode_command"
     run awk '
@@ -479,7 +530,7 @@ function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
     fi
   done
 
-  run zsh -dfc 'unset OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_DISABLE_CLAUDE_CODE_SKILLS; source "$1"; zsh -dfc "$2"' _ "$HOME/.zshenv" '[[ "$OPENCODE_DISABLE_EXTERNAL_SKILLS" == 1 && "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" == 1 ]]'
+  run zsh -dfc 'unset OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_DISABLE_CLAUDE_CODE_SKILLS; source "$1"; zsh -dfc "$2"' _ "$HOME/.zshenv" '[[ -z "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}" && "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" == 1 ]]'
   assert_success
 }
 
@@ -491,11 +542,8 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
     skills/herdr/SKILL.md
-    shared/child-agent-contract.md
     skills/se-flow/SKILL.md
     skills/se-cleanup/SKILL.md
-    skills/eli5/SKILL.md
-    skills/open-questions/SKILL.md
     skills/writing-for-agents/SKILL.md
     skills/writing-for-agents/SKILL-MECHANICS.md
     skills/work-summary/SKILL.md
@@ -506,7 +554,6 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
     skills/pf-research/SKILL.md
     skills/pf-spec/SKILL.md
     skills/pf-build/SKILL.md
-    shared/pf-cycle.md
     skills/pf-build/references/direct-build.md
     skills/pf-build/references/implementer-prompt.md
     skills/pf-build/references/demo.md
@@ -518,12 +565,21 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
   )
   local f missing=""
   for f in "${files[@]}"; do
-    [ -f "$HOME/.claude/$f" ] || missing="$missing $f"
+    [ -f "$HOME/.agents/$f" ] || missing="$missing $f"
   done
-  [ -z "$missing" ] || fail "missing under ~/.claude:$missing"
+  [ -z "$missing" ] || fail "missing under ~/.agents:$missing"
+
+  assert_file_exists "$HOME/.claude/skills/eli5/SKILL.md"
+  assert_file_exists "$HOME/.claude/skills/open-questions/SKILL.md"
+  assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/ask.sh"
+  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/deepwiki-read.sh"
+  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/jina-read.sh"
+  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/jina-search.sh"
+  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/tavily-search.sh"
+  assert_file_contains "$HOME/.agents/skills/writing-for-agents/SKILL.md" 'vendored under its MIT License'
 
   # The retired per-agent scripts directory must stay deleted.
-  assert_dir_not_exists "$HOME/.claude/skills/ask-in-herdr/scripts/agents"
+  assert_dir_not_exists "$HOME/.agents/skills/ask-in-herdr/scripts/agents"
 }
 
 function test_smoke_022_shared_references_are_deployed() {

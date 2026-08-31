@@ -1,3 +1,4 @@
+{{- $cutoverActive := eq (includeTemplate ".chezmoitemplates/agent-skills-cutover-active.tmpl" .) "true" }}
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": [
@@ -52,8 +53,10 @@
         "nex-agi/nex-n2-pro:free": {}
       }
     }
-  },
+  }{{ if not $cutoverActive }},{{ end }}
+{{- if not $cutoverActive }}
   "plugin": [
     "compound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git"
   ]
+{{- end }}
 }

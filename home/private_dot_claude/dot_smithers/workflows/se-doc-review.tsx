@@ -16,6 +16,7 @@ import { AGENT_PROFILES, makeClaudeReviewAgent, makeOpencodeReviewAgent } from "
 import { consultHardRules, REVIEWER_BREVITY_RULE, skillFallbackLine } from "./lib/consult-prompt.ts";
 import { enforcePreExternalGate, preExternalDocGate } from "./lib/pre-external-gate.ts";
 import { parseSeveritySummary, severitySchema } from "./lib/severity-summary.ts";
+import { stageCompoundSkill } from "./lib/compound-skill.ts";
 
 const inputSchema = z.object({
   docPath: z.string().describe("Absolute path to the document under review."),
@@ -28,7 +29,7 @@ const inputSchema = z.object({
 const stageSchema = z.object({
   stageDir: z.string(),
   skillDir: z.string(),
-  pluginVersion: z.string(),
+  skillRevision: z.string(),
   docCopy: z.string(),
 });
 
@@ -48,7 +49,7 @@ const failedSchema = z.object({ agent: z.string() });
 
 const outputSchema = z.object({
   stageDir: z.string(),
-  pluginVersion: z.string(),
+  skillRevision: z.string(),
   claudeStatus: z.enum(["ok", "failed"]),
   opencodeStatus: z.enum(["ok", "failed"]),
   claudeEnvelopePath: z.string().nullish(),
@@ -77,13 +78,6 @@ const repoDir = process.env.DOC_REVIEW_REPO ?? process.cwd();
 const claudeAgent = makeClaudeReviewAgent({ cwd: repoDir, profile: "docReview", jsonField: "envelope" });
 const opencodeAgent = makeOpencodeReviewAgent({ cwd: repoDir });
 
-function resolvePluginSkillDir(): { dir: string; version: string } {
-  const base = path.join(os.homedir(), ".claude/plugins/cache/compound-engineering-plugin/compound-engineering");
-  const versions = fs.readdirSync(base).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const latest = versions[versions.length - 1];
-  return { dir: path.join(base, latest, "skills/ce-doc-review"), version: latest };
-}
-
 // Staging in /tmp/ce-doc-review: outside the repo, readable by opencode only
 // because ~/.config/opencode/opencode.json allows this path via
 // permission.external_directory. If opencode starts rejecting reads here,
@@ -98,12 +92,11 @@ function stage(docPath: string) {
 
   const stageDir = path.join("/tmp/ce-doc-review", `run-${Date.now()}`);
   const skillDir = path.join(stageDir, "skill");
-  fs.mkdirSync(skillDir, { recursive: true });
-  const plugin = resolvePluginSkillDir();
-  fs.cpSync(plugin.dir, skillDir, { recursive: true });
+  fs.mkdirSync(stageDir, { recursive: true });
+  const skill = stageCompoundSkill("ce-doc-review", skillDir);
   const docCopy = path.join(stageDir, "doc-under-review.md");
   fs.copyFileSync(docPath, docCopy);
-  return { stageDir, skillDir, pluginVersion: plugin.version, docCopy };
+  return { stageDir, skillDir, skillRevision: skill.skillRevision, docCopy };
 }
 
 function reviewPrompt(docCopy: string, skillDir: string, smoke: boolean): string {
@@ -115,7 +108,7 @@ function reviewPrompt(docCopy: string, skillDir: string, smoke: boolean): string
 Execute the compound-engineering document-review workflow in HEADLESS mode on this document: ${docCopy}
 
 How to execute it:
-- If your available skills include \`compound-engineering:ce-doc-review\`, invoke it with args "mode:headless ${docCopy}".
+- If your available skills include \`ce-doc-review\`, invoke it with args "mode:headless ${docCopy}".
 - ${skillFallbackLine(skillDir)}
 
 ${consultHardRules({
@@ -185,7 +178,7 @@ export default smithers((ctx) => {
               fs.mkdirSync(outDir, { recursive: true });
               const result: z.infer<typeof outputSchema> = {
                 stageDir: staged.stageDir,
-                pluginVersion: staged.pluginVersion,
+                skillRevision: staged.skillRevision,
                 claudeStatus: claudeReview ? "ok" : "failed",
                 opencodeStatus: opencodeReview ? "ok" : "failed",
               };

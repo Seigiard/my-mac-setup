@@ -1,0 +1,2 @@
+{{- /* sha256sum is chezmoi's built-in template function, not GNU sha256sum. */ -}}
+v1:{{ printf "%s\n%s\n%s\n" (include "private_dot_config/agent-skills/manifest") (include "dot_local/bin/executable_skills") "ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work" | sha256sum }}

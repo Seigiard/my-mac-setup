@@ -1,0 +1,23 @@
+# Names owned by chezmoi in ~/.agents/skills after Unit 4. Keep this list in
+# sync with home/private_dot_agents/skills so wildcard installs cannot claim a
+# repository-owned canonical tree.
+ask-in-herdr
+eli5
+herdr
+markdown-new
+open-questions
+pf-build
+pf-research
+pf-spec
+plan-explainer
+se-cleanup
+se-code-review
+se-doc-review
+se-flow
+se-plan
+se-review-and-work
+se-simplify
+se-work
+vector-prime
+work-summary
+writing-for-agents

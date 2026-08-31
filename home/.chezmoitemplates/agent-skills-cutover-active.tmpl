@@ -1,0 +1,4 @@
+{{- /* A missing, unreadable, or non-matching marker must retain legacy providers. */ -}}
+{{- $ready := joinPath .chezmoi.homeDir ".config/agent-skills/cutover-ready" -}}
+{{- $generation := joinPath .chezmoi.homeDir ".config/agent-skills/cutover-generation" -}}
+{{- output "sh" "-c" "if [ -f \"$1\" ] && [ -f \"$2\" ] && cmp -s \"$1\" \"$2\"; then printf true; else printf false; fi" "sh" $ready $generation -}}

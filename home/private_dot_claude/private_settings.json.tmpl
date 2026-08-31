@@ -1,3 +1,4 @@
+{{- $cutoverActive := eq (includeTemplate ".chezmoitemplates/agent-skills-cutover-active.tmpl" .) "true" }}
 {
   "fileSuggestion": {
     "type": "command",
@@ -107,14 +108,17 @@
   },
   "enabledPlugins": {
     "claude-md-management@claude-plugins-official": true,
+{{- if not $cutoverActive }}
     "compound-engineering@compound-engineering-plugin": true,
     "frontend-design@claude-plugins-official": true,
     "playground@claude-plugins-official": true,
+{{- end }}
     "playwright@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
   },
+{{- if not $cutoverActive }}
   "extraKnownMarketplaces": {
     "compound-engineering-plugin": {
       "source": {
@@ -124,6 +128,7 @@
       "autoUpdate": true
     }
   },
+{{- end }}
   "outputStyle": "writing-style",
   "effortLevel": "high",
   "autoCompactWindow": 400000,

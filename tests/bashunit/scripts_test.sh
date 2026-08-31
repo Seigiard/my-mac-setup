@@ -195,7 +195,8 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
 # ask-in-herdr skill script
 # ===========================================
 
-ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_claude/skills/ask-in-herdr/scripts"
+ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_agents/skills/ask-in-herdr/scripts"
+ASK_HERDR_SCRIPT="$ASK_HERDR_DIR/executable_ask.sh"
 
 ask_live_stub() {
   CHILD_STUB="$(mktemp -d)"
@@ -239,7 +240,7 @@ SH
 
 function test_scripts_009_ask_in_herdr_script_requires_arguments() {
   _bats_test_init 9 'ask-in-herdr script requires arguments'
-  run bash "$ASK_HERDR_DIR/ask.sh"
+  run bash "$ASK_HERDR_SCRIPT"
   assert_failure 2
   assert_output --partial "Usage:"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
@@ -247,19 +248,19 @@ function test_scripts_009_ask_in_herdr_script_requires_arguments() {
 
 function test_scripts_010_ask_sh_rejects_unknown_agents_and_the_removed_he() {
   _bats_test_init 10 'ask.sh rejects unknown agents and the removed headless flag'
-  run bash "$ASK_HERDR_DIR/ask.sh" bogus question
+  run bash "$ASK_HERDR_SCRIPT" bogus question
   assert_failure 2
   assert_output --partial "claude opencode pi"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
-  run bash "$ASK_HERDR_DIR/ask.sh" claude question --model
+  run bash "$ASK_HERDR_SCRIPT" claude question --model
   assert_failure 2
   assert_output --partial "Usage:"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question --headless
+    bash "$ASK_HERDR_SCRIPT" claude question --headless
   assert_failure 2
   assert_output --partial "unknown flag '--headless'"
   assert_output --partial "ask.sh: status=refused"
@@ -270,7 +271,7 @@ function test_scripts_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
   _bats_test_init 11 'ask.sh refuses outside herdr and when herdr-child is absent'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 2
   assert_output --partial "status=refused"
   [ ! -f "$CHILD_STUB/child.log" ]
@@ -278,7 +279,7 @@ function test_scripts_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
   local no_child; no_child="$(mktemp -d)"
   cp "$CHILD_STUB/herdr" "$no_child/herdr"
   run env PATH="$no_child:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 2
   assert_output --partial "herdr-child is not on PATH"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
@@ -289,7 +290,7 @@ function test_scripts_012_ask_sh_starts_a_read_only_live_child_and_returns() {
   _bats_test_init 12 'ask.sh starts a read-only live child and returns its answer'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude "hi there"
+    bash "$ASK_HERDR_SCRIPT" claude "hi there"
   assert_success
   assert_output --partial "ANSWER from child"
   assert_output --partial "close with: herdr-child reap --pane wT:p9 consult-claude-"
@@ -311,7 +312,7 @@ function test_scripts_013_ask_sh_keeps_a_settled_answer_when_the_parent_re() {
   _bats_test_init 13 'ask.sh keeps a settled answer when the parent reminder cannot be queued'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=done STUB_PARENT_PROMPT_FAIL=1 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_DIR/ask.sh" claude question
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_SCRIPT" claude question
   assert_success
   assert_output --partial "ANSWER from child"
   assert_output --partial "warning: could not queue the cleanup reminder"
@@ -323,7 +324,7 @@ function test_scripts_014_ask_sh_forwards_posture_and_every_native_caller() {
   _bats_test_init 14 'ask.sh forwards posture and every native caller option'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" pi question --rw --model M --effort high \
+    bash "$ASK_HERDR_SCRIPT" pi question --rw --model M --effort high \
       --cwd "$PWD" --skills A --skills B --agent N
   assert_success
   run grep -E -- '--posture rw' "$CHILD_STUB/child.log"
@@ -333,7 +334,7 @@ function test_scripts_014_ask_sh_forwards_posture_and_every_native_caller() {
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" opencode question
+    bash "$ASK_HERDR_SCRIPT" opencode question
   assert_success
   run grep -q -- '--model' "$CHILD_STUB/child.log"
   assert_failure
@@ -343,7 +344,7 @@ function test_scripts_015_ask_sh_retries_a_colliding_derived_name_with_a_v() {
   _bats_test_init 15 'ask.sh retries a colliding derived name with a valid suffix'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_NAME_COLLISION=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_success
   run grep -E -- '--name consult-claude-[0-9]+-2' "$CHILD_STUB/child.log"
   assert_success
@@ -353,7 +354,7 @@ function test_scripts_016_ask_sh_reports_blocked_children_after_printing_t() {
   _bats_test_init 16 'ask.sh reports blocked children after printing their answer'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=blocked HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" opencode question
+    bash "$ASK_HERDR_SCRIPT" opencode question
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
@@ -362,7 +363,7 @@ function test_scripts_016_ask_sh_reports_blocked_children_after_printing_t() {
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_WAITING_LABEL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" pi question --rw
+    bash "$ASK_HERDR_SCRIPT" pi question --rw
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
@@ -373,7 +374,7 @@ function test_scripts_017_ask_sh_reports_undelivered_when_child_output_can() {
   _bats_test_init 17 'ask.sh reports undelivered when child output cannot be read'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_READ_FAIL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_output --partial "read failed"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
@@ -383,7 +384,7 @@ function test_scripts_018_ask_sh_reports_a_still_working_child_with_exit_1() {
   _bats_test_init 18 'ask.sh reports a still-working child with exit 124'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
@@ -394,21 +395,21 @@ function test_scripts_019_ask_sh_classifies_successful_waits_with_working() {
   _bats_test_init 19 'ask.sh classifies successful waits with working, unknown, and fallback statuses'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=working HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=unknown HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=surprised HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
@@ -418,13 +419,13 @@ function test_scripts_020_ask_sh_maps_child_start_failures_to_refused_or_u() {
   _bats_test_init 20 'ask.sh maps child start failures to refused or undelivered'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" pi question
+    bash "$ASK_HERDR_SCRIPT" pi question
   assert_failure 2
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
@@ -2169,8 +2170,8 @@ child_marker_skeleton() {
 function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   _bats_test_init 58 'herdr-child emitted markers round-trip the documented wire shapes'
   local contract="$SOURCE_ROOT/private_dot_claude/shared/child-agent-contract.md"
-  local skill="$SOURCE_ROOT/private_dot_claude/skills/herdr/SKILL.md"
-  local consult="$SOURCE_ROOT/private_dot_claude/skills/ask-in-herdr/SKILL.md"
+  local skill="$SOURCE_ROOT/private_dot_agents/skills/herdr/SKILL.md"
+  local consult="$SOURCE_ROOT/private_dot_agents/skills/ask-in-herdr/SKILL.md"
 
   # #given — a detached child settles, so the watcher prompts the parent
   child_lifecycle_stub_herdr
@@ -7170,59 +7171,92 @@ function test_scripts_249_claude_settings_modifier_passes_settings_through() {
 # ===========================================
 
 function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
-  _bats_test_init 250 'Pi settings modifier selects the terminal theme and exact extension packages'
+  _bats_test_init 250 'Pi settings modifier retains legacy providers until cutover attestation matches'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:obsolete-extension","npm:unexpected-extension"],"skills":["~/custom/skills"]}'
+  local config_home="$BATS_TEST_TMPDIR/pi-settings-fallback-config"
+  local agent_skills="$config_home/agent-skills"
 
-  run bash "$modifier" <<< "$input"
+  mkdir -p "$agent_skills"
 
-  assert_success
-  run jq -e '
-    [
-      "npm:@ff-labs/pi-fff",
-      "npm:@howaboua/pi-codex-conversion",
-      "npm:pi-subagents",
-      "npm:pi-agent-browser-native",
-      "git:github.com/EveryInc/compound-engineering-plugin",
-      "npm:pi-ask-user",
-      "npm:@trevonistrevon/pi-loop",
-      "npm:pi-web-access",
-      "npm:pi-context-view"
-    ] as $extensions |
-    .theme == "terminal" and
-    .lastChangelogVersion == "0.84.2" and
-    (.packages == $extensions) and
-    (.skills | index("~/.claude/skills") != null) and
-    (.skills | index("~/custom/skills") != null)
-  ' <<< "$output"
-  assert_success
+  # Missing, stale, and malformed markers must all keep the migration fallback.
+  for state in absent stale malformed; do
+    rm -f "$agent_skills/cutover-ready" "$agent_skills/cutover-generation"
+    case "$state" in
+      stale)
+        printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
+        printf 'cutover-v1-stale\n' > "$agent_skills/cutover-ready"
+        ;;
+      malformed)
+        printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
+        printf 'not-a-cutover-attestation\n' > "$agent_skills/cutover-ready"
+        ;;
+    esac
+
+    run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$input"
+
+    assert_success
+    run jq -e '
+      [
+        "npm:@ff-labs/pi-fff",
+        "npm:@howaboua/pi-codex-conversion",
+        "npm:pi-subagents",
+        "npm:pi-agent-browser-native",
+        "git:github.com/EveryInc/compound-engineering-plugin",
+        "npm:pi-ask-user",
+        "npm:@trevonistrevon/pi-loop",
+        "npm:pi-web-access",
+        "npm:pi-context-view"
+      ] as $extensions |
+      .theme == "terminal" and
+      .lastChangelogVersion == "0.84.2" and
+      (.packages == $extensions) and
+      (.skills | index("~/.claude/skills") != null) and
+      (.skills | index("~/custom/skills") != null)
+    ' <<< "$output"
+    assert_success
+  done
 }
 
 function test_scripts_251_pi_settings_modifier_is_idempotent() {
   _bats_test_init 251 'Pi settings modifier is idempotent'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/.claude/skills"]}'
+  local input='{"lastChangelogVersion":"0.84.2","model":"anthropic/claude-sonnet-4-5","packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/custom/skills","~/.claude/skills"]}'
+  local config_home="$BATS_TEST_TMPDIR/pi-settings-cutover-config"
+  local agent_skills="$config_home/agent-skills"
+  local once
 
-  run bash "$modifier" <<< "$input"
+  mkdir -p "$agent_skills"
+  printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
+  cp "$agent_skills/cutover-generation" "$agent_skills/cutover-ready"
+
+  run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$input"
 
   assert_success
+  once="$output"
   run jq -e '
     [
       "npm:@ff-labs/pi-fff",
       "npm:@howaboua/pi-codex-conversion",
       "npm:pi-subagents",
       "npm:pi-agent-browser-native",
-      "git:github.com/EveryInc/compound-engineering-plugin",
       "npm:pi-ask-user",
       "npm:@trevonistrevon/pi-loop",
       "npm:pi-web-access",
       "npm:pi-context-view"
     ] as $extensions |
     (.theme == "terminal") and
+    (.lastChangelogVersion == "0.84.2") and
+    (.model == "anthropic/claude-sonnet-4-5") and
     (.packages == $extensions) and
-    ([.skills[] | select(. == "~/.claude/skills")] | length == 1)
-  ' <<< "$output"
+    (.skills == ["~/custom/skills"])
+  ' <<< "$once"
   assert_success
+
+  run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$once"
+
+  assert_success
+  assert_output "$once"
 }
 
 function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
@@ -8037,6 +8071,345 @@ function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
     'child_name=child-name' 'child_pane=child-pane' 'child_terminal=child-terminal' \
     'child_session=child-session' 'baseline_seq=42')"
   assert_file_not_exists "$work_dir/invalid.state"
+}
+
+SKILLS_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_skills"
+
+skills_stub_npx() {
+  local stub="$BATS_TEST_TMPDIR/skills-stub"
+  mkdir -p "$stub"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf 'PWD=%s\n' "$PWD" >> "$TMPDIR/npx.log"
+printf 'HOME=%s\n' "${HOME:-}" >> "$TMPDIR/npx.log"
+printf 'XDG_STATE_HOME=%s\n' "${XDG_STATE_HOME:-}" >> "$TMPDIR/npx.log"
+printf 'ARGS=' >> "$TMPDIR/npx.log"
+printf '<%s>' "$@" >> "$TMPDIR/npx.log"
+printf '\n' >> "$TMPDIR/npx.log"
+exit "${NPX_STATUS:-0}"
+SH
+  chmod +x "$stub/npx"
+  printf '%s' "$stub"
+}
+
+function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
+  _bats_test_init 272 'skills add invokes npx globally in an isolated temporary-directory subshell'
+  local stub original
+  stub="$(skills_stub_npx)"
+  original="$PWD"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_DATA_HOME="$BATS_TEST_TMPDIR/data" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" XDG_CACHE_HOME="$BATS_TEST_TMPDIR/cache" \
+    bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^PWD=.*/tmp$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><owner/repo><--skill><named-skill><--global><--agent><claude-code><--agent><opencode><--agent><pi>$'
+  assert_equal "$PWD" "$original"
+}
+
+function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_remove_update() {
+  _bats_test_init 273 'skills validates argv before npx and maps remove and update to global upstream calls'
+  local stub="$BATS_TEST_TMPDIR/skills-stub" lock
+  stub="$(skills_stub_npx)"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add owner/repo
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><owner/repo><--skill><\*><--global>'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><owned>$'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" update owned
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<update><--global><owned>$'
+
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add 'owner/repo;touch'
+  assert_failure
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_274_skills_rejects_malformed_lock_before_npx_and_invalidates_attestation() {
+  _bats_test_init 274 'skills sync invalidates cutover then fails closed on malformed live lock without npx mutation'
+  local stub lock ready before
+  stub="$(skills_stub_npx)"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  mkdir -p "$(dirname "$lock")" "$(dirname "$ready")"
+  printf '%s\n' '{not-json' > "$lock"
+  cp "$lock" "$BATS_TEST_TMPDIR/lock.before"
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$ready"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$SOURCE_ROOT/private_dot_config/agent-skills/manifest" bash "$SKILLS_WRAPPER" sync
+  assert_failure
+  assert_file_not_exists "$ready"
+  run cmp "$BATS_TEST_TMPDIR/lock.before" "$lock"
+  assert_success
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_275_skills_sync_stops_on_failed_install_without_drift_report() {
+  _bats_test_init 275 'skills sync stops at a failed source install and does not report drift'
+  local stub manifest lock
+  stub="$(skills_stub_npx)"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$TMPDIR/npx.log"
+exit 9
+SH
+  chmod +x "$stub/npx"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  : > "$BATS_TEST_TMPDIR/repository-owned"
+  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"obsolete":{"source":"missing/source"}}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    SKILLS_REPOSITORY_OWNED_MANIFEST="$BATS_TEST_TMPDIR/repository-owned" \
+    bash "$SKILLS_WRAPPER" sync
+  assert_failure 9
+  refute_output --partial 'drift:'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^add$'
+}
+
+function test_scripts_276_skills_remove_uses_xdg_and_fallback_locks_identically() {
+  _bats_test_init 276 'skills remove validates source ownership through XDG and fallback global locks'
+  local stub state_lock fallback_lock
+  stub="$(skills_stub_npx)"
+  state_lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  fallback_lock="$BATS_TEST_TMPDIR/home/.agents/.skill-lock.json"
+  mkdir -p "$(dirname "$state_lock")" "$(dirname "$fallback_lock")"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$state_lock"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$fallback_lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_success
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME= bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_success
+  run grep -c '<remove><--global><owned>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_output '2'
+}
+
+function test_scripts_277_skills_sync_restores_repository_owned_wildcard_collision() {
+  _bats_test_init 277 'skills sync restores a repository-owned wildcard collision and removes its lock claim'
+  local stub manifest lock canonical ready
+  stub="$(skills_stub_npx)"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+exit 0
+SH
+  chmod +x "$stub/npx"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$(dirname "$ready")"
+  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
+  printf '%s\n' original > "$canonical/local-skill/SKILL.md"
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$ready"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+  assert_failure
+  run cat "$canonical/local-skill/SKILL.md"
+  assert_output original
+  assert_file_not_exists "$ready"
+  run python3 - "$lock" <<'PY'
+import json, sys
+assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
+PY
+  assert_success
+}
+
+function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
+  _bats_test_init 278 'skills sync blocks symlink, non-regular, and oversized canonical entries before cutover'
+  local kind stub manifest lock canonical item skill
+  for kind in symlink fifo oversized; do
+    stub="$(skills_stub_npx)"
+    manifest="$BATS_TEST_TMPDIR/$kind.manifest"
+    lock="$BATS_TEST_TMPDIR/$kind/state/skills/.skill-lock.json"
+    canonical="$BATS_TEST_TMPDIR/$kind/canonical"
+    mkdir -p "$(dirname "$lock")" "$canonical" "$BATS_TEST_TMPDIR/$kind/config/agent-skills"
+    : > "$BATS_TEST_TMPDIR/$kind/config/agent-skills/repository-owned"
+    printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+    printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
+    for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
+      mkdir -p "$canonical/$skill"
+      printf '%s\n' skill > "$canonical/$skill/SKILL.md"
+    done
+    case "$kind" in
+      symlink) ln -s /etc/passwd "$canonical/escape" ;;
+      fifo) mkfifo "$canonical/non-regular" ;;
+      oversized) dd if=/dev/zero of="$canonical/oversized" bs=1048577 count=1 2>/dev/null ;;
+    esac
+    run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/$kind/home" TMPDIR="$BATS_TEST_TMPDIR/$kind/tmp" \
+      XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/$kind/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/$kind/state" \
+      SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" SKILLS_MAX_FILE_BYTES=1048576 \
+      bash "$SKILLS_WRAPPER" sync
+    assert_failure
+    assert_file_not_exists "$BATS_TEST_TMPDIR/$kind/config/agent-skills/cutover-ready"
+  done
+}
+
+function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wildcards() {
+  _bats_test_init 279 'skills sync reports non-wildcard drift without removing it'
+  local stub manifest lock canonical skill
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/canonical"
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
+  : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'EveryInc/compound-engineering-plugin *' 'owner/repo desired' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"desired":{"source":"owner/repo"},"stale":{"source":"owner/repo"},"orphan":{"source":"gone/repo"}}}' > "$lock"
+  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work desired; do
+    mkdir -p "$canonical/$skill"
+    printf '%s\n' skill > "$canonical/$skill/SKILL.md"
+  done
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-generation"
+  printf '%s\n' 'v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  cat > "$stub/mv" <<'SH'
+#!/usr/bin/env bash
+printf '<%s>' "$@" > "$TMPDIR/mv.log"
+printf '\n' >> "$TMPDIR/mv.log"
+exec /bin/mv "$@"
+SH
+  chmod +x "$stub/mv"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
+  assert_success
+  assert_output --partial 'drift: skills remove owner/repo stale'
+  assert_output --partial 'drift: skills remove gone/repo orphan'
+  refute_output --partial 'ce-code-review'
+  run cat "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  assert_success
+  assert_output 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  run grep -E 'cutover-ready\.tmp\.[0-9]+.*cutover-ready>$' "$BATS_TEST_TMPDIR/tmp/mv.log"
+  assert_success
+}
+
+# ===========================================
+# agent-skills onchange hook
+# ===========================================
+
+AGENT_SKILLS_SYNC_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_9-sync-agent-skills.sh.tmpl"
+
+render_agent_skills_sync() {
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$AGENT_SKILLS_SYNC_TMPL"
+}
+
+function test_scripts_280_agent_skills_sync_hook_renders_valid_bash_and_skips_disposable_homes() {
+  _bats_test_init 280 'agent-skills sync hook is valid Bash and skips network work in disposable homes'
+  skip_if_no_chezmoi
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/sync-agent-skills.sh"
+  render_agent_skills_sync > "$BATS_TEST_TMPFILE"
+  run bash -n "$BATS_TEST_TMPFILE"
+  assert_success
+
+  local stub="$BATS_TEST_TMPDIR/disposable-bin"
+  mkdir -p "$stub"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+: > "$TMPDIR/npx-ran"
+exit 99
+SH
+  chmod +x "$stub/npx"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    MMS_DISPOSABLE_HOME=1 SKILLS_MANIFEST=ambient-manifest bash "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'skipping agent-skills synchronization in disposable home'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx-ran"
+}
+
+function test_scripts_281_agent_skills_sync_hook_reports_node_and_npx_prerequisites() {
+  _bats_test_init 281 'agent-skills sync hook clearly rejects missing or incompatible Node.js and npx'
+  skip_if_no_chezmoi
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/sync-agent-skills.sh"
+  render_agent_skills_sync > "$BATS_TEST_TMPFILE"
+  local stub="$BATS_TEST_TMPDIR/prerequisite-bin"
+  mkdir -p "$stub"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'Node.js is not available'
+
+  cat > "$stub/node" <<'SH'
+#!/usr/bin/env bash
+[ "$1" != --version ] || exit 1
+SH
+  chmod +x "$stub/node"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'Node.js is unavailable or incompatible'
+
+  cat > "$stub/node" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' v22.0.0
+SH
+  chmod +x "$stub/node"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'npx is not available'
+
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+[ "$1" != --version ] || exit 1
+SH
+  chmod +x "$stub/npx"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'npx is unavailable or incompatible'
+}
+
+function test_scripts_282_agent_skills_sync_hook_unsets_manifest_and_preserves_wrapper_failure() {
+  _bats_test_init 282 'agent-skills sync hook invokes the deployed wrapper with no ambient manifest and preserves its status'
+  skip_if_no_chezmoi
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/sync-agent-skills.sh"
+  render_agent_skills_sync > "$BATS_TEST_TMPFILE"
+  local home="$BATS_TEST_TMPDIR/home" stub="$BATS_TEST_TMPDIR/healthy-bin"
+  mkdir -p "$home/.local/bin" "$stub"
+  cat > "$stub/node" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' v22.0.0
+SH
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 10.0.0
+SH
+  cat > "$home/.local/bin/skills" <<'SH'
+#!/usr/bin/env bash
+printf 'manifest=%s\n' "${SKILLS_MANIFEST-unset}" > "$HOME/wrapper.log"
+exit 23
+SH
+  chmod +x "$stub/node" "$stub/npx" "$home/.local/bin/skills"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" MMS_DISPOSABLE_HOME=0 SKILLS_MANIFEST=ambient-manifest bash "$BATS_TEST_TMPFILE"
+  assert_failure 23
+  run cat "$home/wrapper.log"
+  assert_success
+  assert_output 'manifest=unset'
 }
 
 function set_up_before_script() {
