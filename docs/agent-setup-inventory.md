@@ -17,9 +17,9 @@ owners.
 
 | Ownership | Current inventory |
 | --- | --- |
-| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-cleanup`, `se-code-review`, `se-doc-review`, `se-flow`, `se-plan`, `se-review-and-work`, `se-simplify`, `se-work`, `vector-prime`, `work-summary`, `writing-for-agents` |
+| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-cleanup`, `se-code-review`, `se-doc-review`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary`, `writing-for-agents` |
 | Explicit-only | `eli5`, `open-questions`: Claude/Pi manual adapters and OpenCode command adapters only |
-| Upstream-managed | Compound Engineering `*`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `smithers`; `frontend-design`, `skill-creator` |
+| Upstream-managed | Compound Engineering `*`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `frontend-design`, `skill-creator` |
 
 `handoff` is absent and is not managed. `linear-cli`, not `linear`, is the
 selected upstream skill name. `writing-for-agents` is a repository-owned local
@@ -45,6 +45,4 @@ not install the Compound Engineering plugin or its generated convenience
 commands. Pi does not install the Compound Engineering package; its managed
 extension list remains the source of truth for non-skill packages.
 
-`open-source-librarian` is the repository-managed Claude agent. Smithers
-workflows and local OpenCode support configuration remain repository-managed;
-runtime state is not inventory.
+`open-source-librarian` is the repository-managed Claude agent.

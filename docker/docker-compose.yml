@@ -72,7 +72,6 @@ services:
         cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
-        rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
 
         echo "=== Copying dotfiles to chezmoi source ==="
@@ -88,9 +87,6 @@ services:
 
         echo "=== Applying dotfiles (with package installation) ==="
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
-
-        echo "=== Running Smithers test gate ==="
-        make test-smithers
 
         echo "=== Running post-apply tests ==="
         tests/run-post-apply.sh full
@@ -131,7 +127,6 @@ services:
         cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
-        rm -rf /home/testuser/worktree/home/private_dot_claude/dot_smithers/node_modules
         cd /home/testuser/worktree
         (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
         chezmoi init --source=/home/testuser/.local/share/chezmoi \
@@ -139,5 +134,4 @@ services:
           --promptString email="test@example.com"
         tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
         chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
-        make test-smithers
         tests/run-post-apply.sh full

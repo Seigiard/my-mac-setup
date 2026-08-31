@@ -285,8 +285,7 @@ function test_templates_013_claude_and_pi_skill_adapters_target_their_canonica()
   for skill in \
     ask-in-herdr herdr markdown-new \
     pf-build pf-research pf-spec plan-explainer \
-    se-cleanup se-code-review se-doc-review se-flow se-plan \
-    se-review-and-work se-simplify se-work \
+    se-cleanup se-code-review se-doc-review se-plan se-simplify \
     vector-prime work-summary writing-for-agents; do
     run render_template "$SOURCE_ROOT/private_dot_claude/skills/$skill/symlink_SKILL.md.tmpl"
     assert_success

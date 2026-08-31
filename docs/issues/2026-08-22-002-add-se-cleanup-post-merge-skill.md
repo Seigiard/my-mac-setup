@@ -2,7 +2,7 @@
 title: "Add /se-cleanup post-merge skill"
 short_description: "A guarded Bash script should finish merged PR work by returning to the remote default branch, removing the feature worktree, and deleting local and remote feature branches without touching dirty or open work."
 type: "idea"
-category: "se-pipeline"
+category: "agent-platform"
 tags: ["skill","git","worktree","pull-request"]
 date: "2026-08-22"
 status: "open"

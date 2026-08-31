@@ -465,7 +465,7 @@ function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   run rank_real ""
   assert_success
   assert_line --index 0 "Lazygit in new tab"
-  assert_equal "${#lines[@]}" 10
+  assert_equal "${#lines[@]}" 9
 }
 
 function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
@@ -1139,4 +1139,3 @@ function tear_down_after_script() {
 }
 
 function tear_down() { _bats_run_teardown; }
-

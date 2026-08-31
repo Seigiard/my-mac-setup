@@ -1,5 +1,9 @@
 # Test-suite optimization — 2026-08-29
 
+> Historical benchmark: this records the suite and Docker cache layout at the
+> measured commits. Smithers and its dedicated test gate were removed later, so
+> the commands inside this report are not current contributor guidance.
+
 Full production test suite wall-clock time reduced **from 159s to 128s median (−31s, −19.5%)** with zero change to test outcomes: identical test counts, identical skip sets with reasons, zero failures, on both macOS (host) and Ubuntu (docker) legs.
 
 Raw data: [`test-suite-optimization-measurements.json`](test-suite-optimization-measurements.json).

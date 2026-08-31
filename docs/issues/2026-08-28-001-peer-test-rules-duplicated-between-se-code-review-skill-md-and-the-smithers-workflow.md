@@ -5,8 +5,9 @@ type: "chore"
 category: "se-pipeline"
 tags: ["se-code-review","duplication"]
 date: "2026-08-28"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-31"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Give the two rule strings one origin the workflow imports and the skill quotes v
 ## Open decisions
 
 Whether a Markdown skill can practically import from a TypeScript module, or whether a drift test is the cheaper mechanism.
+
+## Resolution
+
+Removed the Smithers workflow copy; the surviving Herdr-based se-code-review skill is now the single owner of the peer test rules.

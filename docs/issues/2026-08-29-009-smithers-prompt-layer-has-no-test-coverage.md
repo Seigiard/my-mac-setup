@@ -5,8 +5,9 @@ type: "bug"
 category: "se-pipeline"
 tags: ["test-coverage","prompts","smithers"]
 date: "2026-08-29"
-status: "open"
+status: "wontfix"
 priority: "medium"
+closed: "2026-08-31"
 ---
 
 ## Why this exists
@@ -50,3 +51,7 @@ Verify with `make test-smithers`.
 Whether `flow-spec.ts` warrants a dedicated test file or is adequately covered by extending
 `flow-validate.test.ts`, which already imports part of it. Deciding this needs a read of how
 much of the module is reachable through the validator's public surface.
+
+## Resolution
+
+The untested Smithers prompt layer was removed with the pipeline implementation.

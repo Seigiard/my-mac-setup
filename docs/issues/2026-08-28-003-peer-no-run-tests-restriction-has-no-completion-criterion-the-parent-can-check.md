@@ -2,7 +2,7 @@
 title: "Peer no-run-tests restriction has no completion criterion the parent can check"
 short_description: "Nothing detects a peer or persona subagent that ran the test suite anyway"
 type: "follow-up"
-category: "se-pipeline"
+category: "agent-platform"
 tags: ["se-code-review","verification"]
 date: "2026-08-28"
 status: "open"

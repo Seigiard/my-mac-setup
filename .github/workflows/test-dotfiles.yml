@@ -151,18 +151,6 @@ jobs:
       - name: Add chezmoi to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # CI-minimal Linux applies skip Homebrew entirely. Full applies install
-      # gitleaks into Linuxbrew, but that script-local shellenv does not reach
-      # later workflow steps. Keep the required Smithers scanner on the
-      # runner-facing PATH in both modes.
-      - name: Install gitleaks
-        run: |
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C "$HOME/.local/bin" gitleaks
-          gitleaks version
-        env:
-          GITLEAKS_VERSION: "8.30.1"
-
       # The command palette shells out to `fzf --filter` and refuses to start
       # without it. Ubuntu's apt fzf predates --accept-nth, which the palette
       # uses to map a match back to its command, so install the upstream build.
@@ -174,13 +162,8 @@ jobs:
         env:
           FZF_VERSION: "0.74.3"
 
-      # Must precede the apply: run_onchange_after_4-install-smithers-deps.sh
-      # provisions ~/.claude/.smithers only when bun is on PATH, and exits 0
-      # without a word when it is not. The Brewfile does install bun, but into
-      # Linuxbrew's prefix, which this job never puts on PATH — so the apply
-      # silently leaves the runtime without node_modules and the `se flow`
-      # tests then run bun in a directory that has none. macOS never hits this
-      # because brew's prefix is on PATH there by default.
+      # Post-apply Pi and TypeScript tests invoke bun from the runner-facing
+      # PATH; Linuxbrew's prefix is intentionally not exported by this job.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
@@ -198,18 +181,6 @@ jobs:
 
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
-
-      # The other smithers directory. Tests that set SE_SMITHERS_DIR point `se`
-      # at the checkout instead of the deployed runtime, and nothing provisions
-      # that copy — the apply deploys from it, it does not build it.
-      - name: Run the Smithers test gate
-        run: make test-smithers
-
-      # Report each gap once, here, instead of once per dependent test.
-      - name: Verify both smithers directories the tests call
-        run: |
-          test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
-          test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
 
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
@@ -321,18 +292,10 @@ jobs:
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
 
-      # See the ubuntu job. The deployed runtime needs no step here: brew's
-      # prefix is on PATH, so the apply's own script already provisioned it.
+      # Post-apply Pi and TypeScript tests use the pinned setup action on both
+      # platforms rather than depending on Homebrew's shell environment.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
-
-      - name: Run the Smithers test gate
-        run: make test-smithers
-
-      - name: Verify both smithers directories the tests call
-        run: |
-          test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
-          test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
 
       - name: Run post-apply tests
         run: tests/run-post-apply.sh full

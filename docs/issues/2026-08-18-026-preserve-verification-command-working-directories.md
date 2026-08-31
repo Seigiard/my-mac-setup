@@ -5,8 +5,9 @@ type: "bug"
 category: "se-pipeline"
 tags: ["se-pipeline","bug"]
 date: "2026-08-18"
-status: "open"
+status: "wontfix"
 priority: "high"
+closed: "2026-08-31"
 ---
 
 ## Why this exists
@@ -43,3 +44,7 @@ The primary `validate_commands:` format already requires package scope to be emb
 - Whether gate 0 can reliably detect an unscoped package command. A generic command such as `bun test` is valid at some repository roots, so detection may require explicit row metadata rather than command inspection.
 - Whether `/se-plan` should fail its own final checks when a package-scoped row and its `validate_commands:` entry disagree. A warning leaves the same failure available to the next run.
 - Whether a red work gate caused by an invalid derived command should permit the operator to replace the validate command and resume from verification, instead of paying for another work stage. This is recovery after a bad launch and does not replace the gate-0 fix.
+
+## Resolution
+
+The se-pipeline verification-command parser was removed with Smithers, so this runtime-specific defect no longer has an implementation surface.

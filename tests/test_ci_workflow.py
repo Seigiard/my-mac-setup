@@ -134,42 +134,6 @@ class TestDotfilesWorkflow(unittest.TestCase):
                     "no restore-keys prefix can find the key the save step writes: %s" % save_key,
                 )
 
-    def test_ubuntu_provisions_gitleaks_on_a_path_later_steps_resolve(self):
-        # A gitleaks binary in a directory never appended to $GITHUB_PATH is
-        # unresolvable for the Smithers gate.
-        text = self.workflow_text()
-        job = self.job_block(text, "test-ubuntu")
-        install = self.named_step_block(job, "Install gitleaks")
-
-        script = re.search(r"^        run: \|\n(?P<body>(?:^          .*\n?)*)", install, re.MULTILINE)
-        self.assertIsNotNone(script, "Install gitleaks must be a multi-line run script")
-        target = re.search(r"tar\s[^\n]*-C\s+\"?(?P<dir>[^\s\"]+)", script.group("body"))
-        self.assertIsNotNone(target, "install script must extract into an explicit directory")
-
-        gate_position = job.index("      - name: Run the Smithers test gate")
-        path_appends = {
-            append.group(1).strip()
-            for append in re.finditer(r'echo\s+"?([^"\n]+?)"?\s*>>\s*"?\$GITHUB_PATH', job)
-            # $GITHUB_PATH takes effect from the next step on, so an append
-            # after the gate cannot make the scanner resolvable for it.
-            if append.start() < gate_position
-        }
-        self.assertIn(
-            target.group("dir"),
-            path_appends,
-            "gitleaks lands in a directory no step before the Smithers gate puts on $GITHUB_PATH",
-        )
-
-        self.assertNotIn(
-            "brew install",
-            install,
-            "ordinary Ubuntu CI skips Linuxbrew, so the required scanner needs an independent install",
-        )
-        self.assertLess(
-            job.index("      - name: Install gitleaks"),
-            job.index("      - name: Run the Smithers test gate"),
-        )
-
     def test_every_job_declares_a_timeout(self):
         # Presence only — ceiling values are owned by issue 2026-08-21-008.
         # A job without a timeout burns the 360-minute default when it hangs.

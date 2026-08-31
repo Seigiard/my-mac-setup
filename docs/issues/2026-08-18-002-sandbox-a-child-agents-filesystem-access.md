@@ -39,4 +39,4 @@ Related and deliberately separate: `docs/issues/2026-08-18-001-launch-time-permi
 - Which containment mechanism, given that consults are started interactively and startup latency is felt directly by the person waiting.
 - Whether the read grant in the shared opencode config narrows again once a sandbox exists, or stays wide because the sandbox already bounds it.
 - Whether the sandbox applies to every child or only to children a caller marks as untrusted.
-- What happens to the headless opencode legs started by the smithers harness and by `pf-build`, which the launch contract does not cover and which today inherit the same wide read grant.
+- What happens to the headless opencode legs started by `pf-build`, which the launch contract does not cover and which today inherit the same wide read grant.

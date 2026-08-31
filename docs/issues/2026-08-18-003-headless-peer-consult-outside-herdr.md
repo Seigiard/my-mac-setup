@@ -1,6 +1,6 @@
 ---
 title: "Consulting a peer agent from outside herdr"
-short_description: "Restore peer consultation outside Herdr without duplicating per-agent option mappings, preferably through Smithers while retaining the stronger headless posture that denies shell access."
+short_description: "Restore peer consultation outside Herdr without duplicating per-agent option mappings while retaining the stronger headless posture that denies shell access."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","follow-up"]
@@ -24,11 +24,8 @@ Losing the capability was accepted rather than overlooked. This file is where it
 
 Give a caller outside herdr a way to consult a peer agent again, without reintroducing a second copy of the per-kind option mapping.
 
-The shape named at decision time is a smithers wrapper: the harness already runs external claude and opencode legs as one-shot processes with timeouts, budget caps, and structured envelopes, in `~/.claude/.smithers/workflows/`. A consult is a smaller instance of what those legs already do, so the mapping work may be mostly done.
-
 Open shapes worth comparing when this is picked up:
 
-- A smithers workflow that takes an agent kind and a question and returns the answer, reusing the harness's existing per-leg invocation code.
 - A `--headless` mode restored inside `ask-in-herdr`, sharing the launch command's option table rather than carrying its own — the launch command would need a mode that prints an agent's argv instead of starting it in a pane.
 - No replacement: callers outside herdr use the agent CLIs directly.
 
@@ -37,5 +34,5 @@ Two constraints any shape has to satisfy. The per-kind option mapping and the tw
 ## Open decisions
 
 - Whether a headless consult is needed at all, or whether every context that consults a peer already runs inside herdr.
-- Whether the launch command grows an argv-printing mode so both paths share one option table, or whether the smithers wrapper carries its own.
+- Whether the launch command grows an argv-printing mode so both paths share one option table.
 - Whether the restored path keeps the shell-denying read-only posture, given that it has no callback to preserve.

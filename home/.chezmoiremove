@@ -8,6 +8,17 @@
 # Standalone se reviews share the Herdr peer lifecycle now.
 .claude/shared/se-harness.md
 
+# The Smithers execution runtime and its pipeline-only skills are retired.
+.claude/.smithers
+.local/bin/se
+.agents/skills/se-flow
+.agents/skills/se-review-and-work
+.agents/skills/se-work
+.agents/skills/smithers
+.claude/skills/se-flow
+.claude/skills/se-review-and-work
+.claude/skills/se-work
+
 # The herdr-only peer consult is deployed under its capability-specific name.
 .claude/skills/ask-agent
 

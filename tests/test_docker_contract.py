@@ -87,15 +87,10 @@ class TestDockerContract(unittest.TestCase):
         self.assertRegex(script, r"(?m)^\s*chezmoi apply\b")
         self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
-    def test_apply_services_run_the_canonical_gates(self):
-        # Partial per-service command lists once let a green run skip parts of
-        # the canonical gates.
+    def test_apply_services_run_the_full_post_apply_suite(self):
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 script = self.service_command_script(self.service_block(name))
-                # Line-anchored so a comment or echo mentioning the command
-                # does not satisfy the gate check.
-                self.assertRegex(script, r"(?m)^\s*make test-smithers\b")
                 self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
     def test_apply_services_declare_disposable_home_and_frozen_brew_bundle(self):

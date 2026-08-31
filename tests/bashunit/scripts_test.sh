@@ -2839,7 +2839,7 @@ function test_scripts_098_webfetch_markdown_hint_adds_context_for_a_plain() {
   _bats_test_init 98 'webfetch-markdown-hint adds context for a plain URL'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$WEBFETCH_HINT" <<'EOF'
-{"tool_name":"WebFetch","tool_input":{"url":"https://smithers.sh/docs"}}
+{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/docs"}}
 EOF
   assert_success
   assert_output --partial '"additionalContext"'
@@ -2851,7 +2851,7 @@ function test_scripts_099_webfetch_markdown_hint_stays_silent_when_the_url() {
   _bats_test_init 99 'webfetch-markdown-hint stays silent when the URL already uses markdown.new'
   command -v jq >/dev/null || skip "jq not available"
   run bash "$WEBFETCH_HINT" <<'EOF'
-{"tool_name":"WebFetch","tool_input":{"url":"https://markdown.new/https://smithers.sh/docs"}}
+{"tool_name":"WebFetch","tool_input":{"url":"https://markdown.new/https://example.com/docs"}}
 EOF
   assert_success
   assert_output ""
@@ -6749,269 +6749,6 @@ function test_scripts_228_herdr_task_sync_hook_survives_malformed_stdin() {
   assert_output ""
 }
 
-function test_scripts_229_se_pipeline_setup_cmd_lands_in_the_workflow_inpu() {
-  _bats_test_init 229 'se pipeline --setup-cmd lands in the workflow input JSON'
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local plan
-  plan="$BATS_TEST_TMPDIR/se-dryrun-plan.md"
-  printf -- '---\nartifact_contract: ce-unified-plan/v1\n---\n# t\n' > "$plan"
-  run env SE_DRY_RUN=1 "$se_bin" pipeline "$plan" --setup-cmd 'bun install && bunx turbo run build --filter=@x/y'
-  assert_success
-  assert_output --partial '"setupCmd":"bun install && bunx turbo run build --filter=@x/y"'
-}
-
-function test_scripts_230_se_flow_dry_run_lands_spec_path_budget_and_setup() {
-  _bats_test_init 230 'se flow --dry-run lands spec path, budget, and setup-cmd in the workflow input JSON'
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local spec
-  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
-  printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
-  run env "$se_bin" flow "$spec" --budget 12 --setup-cmd 'make setup' --dry-run
-  assert_success
-  assert_output --partial 'workflows/se-flow.tsx'
-  assert_output --partial '"budgetUsd":12'
-  assert_output --partial '"setupCmd":"make setup"'
-  assert_output --partial '"specPath":"'
-  assert_output --partial 'se-flow-spec.json'
-}
-
-function test_scripts_231_se_flow_validate_cmd_lands_the_operator_s_comman() {
-  _bats_test_init 231 'se flow --validate-cmd lands the operator'\''s command in the workflow input JSON'
-  # The run-validate block and the simplify subflow read the command from the
-  # run, never from the spec. Without this flag the workflow default is empty
-  # and run-validate can only ever record exitCode null.
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local spec
-  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
-  printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
-  run env "$se_bin" flow "$spec" --validate-cmd 'bun test' --dry-run
-  assert_success
-  assert_output --partial '"validateCmd":"bun test"'
-}
-
-function test_scripts_232_se_flow_without_validate_cmd_sends_an_empty_comm() {
-  _bats_test_init 232 'se flow without --validate-cmd sends an empty command, not a missing key'
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local spec
-  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
-  printf '{"task":{"description":"x"},"repo":"/tmp/r","blocks":[{"id":"scan","block":"secret-scan","retries":0,"timeoutMs":120000}]}' > "$spec"
-  run env "$se_bin" flow "$spec" --dry-run
-  assert_success
-  assert_output --partial '"validateCmd":""'
-}
-
-function test_scripts_233_se_flow_dry_run_prints_the_composed_flow_with_a() {
-  _bats_test_init 233 'se flow --dry-run prints the composed flow with a cost estimate (R10)'
-  # The operator sees what a launch will run and what it may cost before it
-  # starts. A bare command line does not carry that.
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local spec
-  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
-  cat > "$spec" <<'JSON'
-{"task":{"description":"printout fixture"},"repo":"/tmp/r","blocks":[
- {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
- {"id":"scan","block":"secret-scan","input":{},"retries":0,"timeoutMs":120000,"after":["implement"],"bindTo":["implement"]}]}
-JSON
-  run env "$se_bin" flow "$spec" --dry-run
-  assert_success
-  assert_output --partial 'flow: printout fixture'
-  assert_output --partial '2 blocks, estimated ~$'
-  assert_output --partial 'implement'
-  assert_output --partial 'scan'
-}
-
-function test_scripts_234_se_flow_refuses_a_spec_the_validator_rejects_bef() {
-  _bats_test_init 234 'se flow refuses a spec the validator rejects, before launching'
-  # A publish with no secret-scan ancestor must stop at the CLI, not at the
-  # interpreter's gate-0 after a run has already been created.
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local spec
-  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
-  cat > "$spec" <<'JSON'
-{"task":{"description":"unscanned publish"},"repo":"/tmp/r","blocks":[
- {"id":"implement","block":"work","input":{"prompt":"x"},"retries":0,"timeoutMs":600000,"after":[],"bindTo":[]},
- {"id":"ship","block":"pr","input":{"title":"t"},"retries":0,"timeoutMs":300000,"after":["implement"],"bindTo":["implement"]}]}
-JSON
-  run env "$se_bin" flow "$spec" --dry-run
-  assert_failure
-  assert_output --partial 'scan-before-external'
-}
-
-function test_scripts_235_se_flow_rejects_a_non_numeric_budget() {
-  _bats_test_init 235 'se flow rejects a non-numeric budget'
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local spec
-  spec="$BATS_TEST_TMPDIR/se-flow-spec.json"
-  printf '{}' > "$spec"
-  run env "$se_bin" flow "$spec" --budget abc --dry-run
-  assert_failure
-}
-
-# Builds a runtime dir with a stub smithers binary and a smithers.db holding one
-# pending approval, so `se show` / `se approve` can be exercised without an
-# engine. Echoes the dir path.
-se_fake_runtime() {
-  local dir="$BATS_TEST_TMPDIR/se-runtime" title=$1 summary=$2
-  mkdir -p "$dir/node_modules/.bin"
-  # Records its argv so a test can assert what se asked the engine to do.
-  printf '#!/usr/bin/env bash\necho "$*" >> "%s/calls.log"\necho null\n' "$dir" \
-    > "$dir/node_modules/.bin/smithers"
-  chmod +x "$dir/node_modules/.bin/smithers"
-  sqlite3 "$dir/smithers.db" "
-    CREATE TABLE summary (run_id TEXT, verdict TEXT, branch TEXT, plan_path TEXT,
-      report_dir TEXT, total_tokens REAL, est_cost_usd REAL, notes TEXT);
-    CREATE TABLE _smithers_approvals (run_id TEXT, node_id TEXT, iteration INTEGER,
-      status TEXT, requested_at_ms INTEGER, request_json TEXT);
-    INSERT INTO _smithers_approvals VALUES ('run-1', 'approve-work-1', 0, 'pending', 1,
-      json_object('title', '$title', 'summary', '$summary'));
-    CREATE TABLE _smithers_runs (run_id TEXT, status TEXT, runtime_owner_id TEXT, workflow_path TEXT);
-    INSERT INTO _smithers_runs VALUES ('run-1', 'waiting-event', '', '/x/se-pipeline.tsx');
-    CREATE TABLE gate0 (run_id TEXT, repo_path TEXT);
-    INSERT INTO gate0 VALUES ('run-1', '/tmp/target-repo');"
-  printf '%s' "$dir"
-}
-
-function test_scripts_236_se_show_prints_the_pending_approval_s_title_and() {
-  _bats_test_init 236 'se show prints the pending approval'\''s title and reasons, not just a status word'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  command -v jq >/dev/null 2>&1 || skip "jq is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'work gate is failed — approve ONE extra attempt; deny aborts the run' 'validate-cmd exited with code 1')"
-
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" show run-1
-
-  assert_success
-  assert_output --partial 'DECISION REQUIRED: approve-work-1'
-  assert_output --partial 'work gate is failed'
-  assert_output --partial 'validate-cmd exited with code 1'
-}
-
-function test_scripts_237_se_approve_prints_what_is_being_decided_before_r() {
-  _bats_test_init 237 'se approve prints what is being decided before recording the decision'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  command -v jq >/dev/null 2>&1 || skip "jq is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'work failed the extra attempt — abort only: approve stops the run WITH a report' 'no content change')"
-
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
-
-  # The operator must see that approve STOPS this run rather than continuing it.
-  assert_output --partial 'approve stops the run WITH a report'
-}
-
-function test_scripts_238_se_show_on_a_run_with_no_pending_approval_prints() {
-  _bats_test_init 238 'se show on a run with no pending approval prints no decision block'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'unused' 'unused')"
-  sqlite3 "$dir/smithers.db" "UPDATE _smithers_approvals SET status='approved';"
-
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" show run-1
-
-  assert_success
-  refute_output --partial 'DECISION REQUIRED'
-}
-
-function test_scripts_239_se_approve_resumes_a_parked_run_that_nothing_is() {
-  _bats_test_init 239 'se approve resumes a parked run that nothing is driving'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  command -v jq >/dev/null 2>&1 || skip "jq is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
-
-  # #given a parked run with no owner (the owner process exits when a run parks)
-  # #when the operator approves
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
-
-  # #then the decision is recorded AND the run is driven onward, no manual resume
-  assert_success
-  assert_file_contains "$dir/calls.log" '^approve run-1'
-  assert_file_contains "$dir/calls.log" 'resume true'
-}
-
-function test_scripts_240_se_approve_no_resume_records_the_decision_withou() {
-  _bats_test_init 240 'se approve --no-resume records the decision without driving the run'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  command -v jq >/dev/null 2>&1 || skip "jq is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
-
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1 --no-resume
-
-  assert_success
-  assert_file_contains "$dir/calls.log" '^approve run-1'
-  run grep -c 'resume true' "$dir/calls.log"
-  assert_failure
-}
-
-function test_scripts_241_se_approve_refuses_to_resume_a_run_a_live_proces() {
-  _bats_test_init 241 'se approve refuses to resume a run a live process already owns'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  command -v jq >/dev/null 2>&1 || skip "jq is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
-  # #given the run is owned by this very shell, which is unquestionably alive:
-  # two engines on one run corrupt its state, so the resume must be declined.
-  sqlite3 "$dir/smithers.db" \
-    "UPDATE _smithers_runs SET status='running', runtime_owner_id='pid:$$:abc';"
-
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
-
-  assert_success
-  assert_output --partial 'owned by a live process'
-  run grep -c 'resume true' "$dir/calls.log"
-  assert_failure
-}
-
-function test_scripts_242_se_approve_does_not_resume_a_run_that_already_fi() {
-  _bats_test_init 242 'se approve does not resume a run that already finished'
-  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 is required"
-  command -v jq >/dev/null 2>&1 || skip "jq is required"
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  local dir
-  dir="$(se_fake_runtime 'work gate is failed' 'boom')"
-  sqlite3 "$dir/smithers.db" "UPDATE _smithers_runs SET status='finished';"
-
-  run env SE_SMITHERS_DIR="$dir" "$se_bin" approve run-1
-
-  assert_success
-  run grep -c 'resume true' "$dir/calls.log"
-  assert_failure
-}
-
-function test_scripts_243_se_approve_usage_does_not_promise_that_approve_c() {
-  _bats_test_init 243 'se approve usage does not promise that approve continues the run'
-  local se_bin="$SOURCE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-  run env "$se_bin" --help
-  assert_success
-  refute_output --partial 'approve a paused run (continue past the gate)'
-  assert_output --partial 'ONE more attempt'
-}
-
-function test_scripts_244_se_blocks_json_emits_the_composable_block_catalo() {
-  _bats_test_init 244 'se blocks --json emits the composable block catalog'
-  local smithers_dir="$SOURCE_ROOT/private_dot_claude/dot_smithers"
-  local se_bin="$smithers_dir/bin/executable_se"
-  # Unlike the other se tests this one drives the real binary, which only exists
-  # after `bun install` in $smithers_dir. CI always installs it and asserts it is
-  # executable in a separate workflow step, so skipping here cannot hide a broken
-  # install -- it only keeps a fresh local checkout from reporting a false failure.
-  [ -x "$smithers_dir/node_modules/.bin/smithers" ] || \
-    skip "smithers deps not installed (run bun install in $smithers_dir)"
-  run env SE_SMITHERS_DIR="$smithers_dir" "$se_bin" blocks --json
-  assert_success
-  assert_output --partial '"secret-scan"'
-  assert_output --partial '"code-review"'
-  # KTD6 JSON-Schema limitation note travels with the catalog.
-  assert_output --partial 'runtime-parses'
-}
-
 # ===========================================
 # Claude settings modifier
 # ===========================================
@@ -8236,28 +7973,28 @@ function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
   done
 }
 
-function test_scripts_2781_skills_sync_default_file_limit_accepts_smithers_documentation() {
-  _bats_test_init 2781 'skills sync default file limit accepts the upstream Smithers documentation artifact'
+function test_scripts_2781_skills_sync_default_file_limit_accepts_large_documentation() {
+  _bats_test_init 2781 'skills sync default file limit accepts a large upstream documentation artifact'
   local stub manifest lock canonical skill
   stub="$(skills_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   canonical="$BATS_TEST_TMPDIR/canonical"
-  mkdir -p "$(dirname "$lock")" "$canonical/smithers" "$BATS_TEST_TMPDIR/config/agent-skills"
+  mkdir -p "$(dirname "$lock")" "$canonical/large-doc" "$BATS_TEST_TMPDIR/config/agent-skills"
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
-  printf '%s\n' 'smithersai/smithers smithers' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"smithers":{"source":"smithersai/smithers"}}}' > "$lock"
+  printf '%s\n' 'example/large-doc large-doc' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"large-doc":{"source":"example/large-doc"}}}' > "$lock"
   for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
     mkdir -p "$canonical/$skill"
     printf '%s\n' skill > "$canonical/$skill/SKILL.md"
   done
-  dd if=/dev/zero of="$canonical/smithers/llms-full.txt" bs=1105837 count=1 2>/dev/null
+  dd if=/dev/zero of="$canonical/large-doc/llms-full.txt" bs=1105837 count=1 2>/dev/null
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
 
-  dd if=/dev/zero of="$canonical/smithers/llms-full.txt" bs=2097153 count=1 2>/dev/null
+  dd if=/dev/zero of="$canonical/large-doc/llms-full.txt" bs=2097153 count=1 2>/dev/null
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync

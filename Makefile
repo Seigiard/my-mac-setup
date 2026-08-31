@@ -1,4 +1,4 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-smithers lint clean build-docker shell-ubuntu
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
@@ -8,7 +8,6 @@ help:
 	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests only (fast, no apply)"
 	@echo "  make test-pi-agents-local  Run focused Pi local-instructions extension tests"
-	@echo "  make test-smithers    Install, type-check, and test the Smithers package"
 	@echo "  make test-local       Run chezmoi diff on current machine (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
 	@echo "  make lint             Run shellcheck on all scripts"
@@ -34,10 +33,6 @@ test-templates: test-issues build-docker
 
 test-pi-agents-local:
 	bun test tests/pi-agents-local-extension.test.ts
-
-test-smithers:
-	cd home/private_dot_claude/dot_smithers && bun install --frozen-lockfile
-	cd home/private_dot_claude/dot_smithers && bun run check
 
 shell-ubuntu: build-docker
 	docker compose -f docker/docker-compose.yml run --rm ubuntu /bin/zsh

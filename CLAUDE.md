@@ -18,8 +18,7 @@ Reproducible dev environment for macOS (primary) and Linux (CI/Docker), managed 
 Reference docs (read on demand):
 
 - `docs/solutions/` — documented learnings from past work (architecture and design patterns), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`); relevant when implementing or debugging in areas they cover
-- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts); relevant when orienting in the se-pipeline domain or naming things consistently
-- `docs/se-pipeline.md` — se-pipeline (Smithers) runbook: durable verify-doc → work → verify-code runs
+- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts)
 - `docs/agent-setup-inventory.md` — curated plugins/skills/agents for manual reinstall across Claude Code, OpenCode, Pi
 - `docs/external-agent-cli-flags.md` — headless/one-shot invocation flags for external coding-agent CLIs
 
@@ -28,7 +27,6 @@ Reference docs (read on demand):
 | Command | What it does |
 |---|---|
 | `make test-issues` | Strictly validate repository issues and run issue CLI tests |
-| `make test-smithers` | Frozen install, required `gitleaks`, TypeScript check, and complete Bun test suite |
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
 | `make test-suite` | Post-apply suite in parallel, host-safe files only. It keeps `tests/bashunit/idempotent_test.sh` excluded as redundant defense behind that file's `MMS_DISPOSABLE_HOME` guard. Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
@@ -141,7 +139,7 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 - Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`; it defines semantic regression tests, control fixtures, coverage ownership, and honest verification.
 - Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
 - Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/bashunit/smoke_test.sh` for deployed cross-component behavior.
-- Run the smallest canonical `make` target that covers the change instead of reconstructing its component commands. Smithers changes use `make test-smithers`.
+- Run the smallest canonical `make` target that covers the change instead of reconstructing its component commands.
 - Run `make test-suite` for the parallel host-safe files, or `make test-ubuntu` for the full Docker suite including `tests/bashunit/idempotent_test.sh`.
 - `tests/bashunit/idempotent_test.sh` guards every real chezmoi command with `MMS_DISPOSABLE_HOME=1`. Direct workstation runs skip those commands; `make test-ubuntu` declares a disposable `$HOME` and runs them.
 - `make test-suite` reads the deployed `~/` and applies nothing, so it cannot see an edit under `home/` that has not been applied yet. For a change to a managed file, `make test-ubuntu` is the one that proves it — it applies the checkout first.

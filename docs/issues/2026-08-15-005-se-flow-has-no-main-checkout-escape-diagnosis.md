@@ -5,8 +5,9 @@ type: "follow-up"
 category: "se-pipeline"
 tags: ["se-pipeline","follow-up"]
 date: "2026-08-15"
-status: "open"
+status: "wontfix"
 priority: "low"
+closed: "2026-08-31"
 ---
 
 # se-flow has no main-checkout escape diagnosis
@@ -30,3 +31,7 @@ The doorway that caused the escape is closed — `docs/issues/2026-08-15-002` fr
 - **How the no-workspace mode is suppressed.** A flow with no workspace-needing block runs with `worktreePath === repoPath` and stages nothing, so a dirty main checkout is the normal state and the comparison must not run at all. The staging row's absence is already that signal — but the check has to consult it, and a compute effect currently receives only `ComputeEffectContext`.
 - **Whether the digest belongs in the `staging` row or in the `commit-work` block's own input.** The row keeps it out of the spec, which is right; a compute effect reading a prolog row is a new coupling for the interpreter.
 - **Whether it is worth carrying at all** now that the plan copy closed the doorway. The pipeline's version cost little and catches an operator editing their own checkout mid-run — which it deliberately does not gate on.
+
+## Resolution
+
+The se-flow interpreter was removed, including the tree-hash diagnostic path described by this issue.

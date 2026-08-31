@@ -436,8 +436,7 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   for skill in \
     ask-in-herdr herdr markdown-new \
     pf-build pf-research pf-spec plan-explainer \
-    se-cleanup se-code-review se-doc-review se-flow se-plan \
-    se-review-and-work se-simplify se-work \
+    se-cleanup se-code-review se-doc-review se-plan se-simplify \
     vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.claude/skills/$skill/SKILL.md"
     assert_success
@@ -446,6 +445,19 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
     if [[ -e "$HOME/.config/opencode/skills/$skill" || -L "$HOME/.config/opencode/skills/$skill" ]]; then
       fail "stale OpenCode skill adapter remains: $HOME/.config/opencode/skills/$skill"
     fi
+  done
+
+  local retired path
+  for retired in se-flow se-review-and-work se-work; do
+    for path in \
+      "$HOME/.agents/skills/$retired" \
+      "$HOME/.claude/skills/$retired" \
+      "$HOME/.config/opencode/skills/$retired"; do
+      [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
+    done
+  done
+  for path in "$HOME/.agents/skills/smithers" "$HOME/.claude/.smithers" "$HOME/.local/bin/se"; do
+    [[ ! -e "$path" && ! -L "$path" ]] || fail "retired Smithers path remains deployed: $path"
   done
 }
 
@@ -501,7 +513,6 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
     skills/herdr/SKILL.md
-    skills/se-flow/SKILL.md
     skills/se-cleanup/SKILL.md
     skills/writing-for-agents/SKILL.md
     skills/writing-for-agents/SKILL-MECHANICS.md
@@ -791,219 +802,6 @@ found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
 assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
 PY
   assert_success
-}
-
-# ===========================================
-# se CLI wrapper (source tree, SE_DRY_RUN)
-# ===========================================
-
-SE_ROOT="$SOURCE_ROOT"
-SE_SRC="$SE_ROOT/private_dot_claude/dot_smithers/bin/executable_se"
-
-se_fixture_repo() {
-  local repo="$BATS_TEST_TMPDIR/target-repo"
-  mkdir -p "$repo/docs/plans"
-  printf '# fixture plan\n' > "$repo/docs/plans/plan.md"
-  echo "$repo"
-}
-
-function test_smoke_037_se_source_script_exists_and_passes_bash_syntax_c() {
-  _bats_test_init 37 'se source script exists and passes bash syntax check'
-  assert_file_exists "$SE_SRC"
-  run bash -n "$SE_SRC"
-  assert_success
-}
-
-function test_smoke_038_se_help_prints_usage() {
-  _bats_test_init 38 'se --help prints usage'
-  run bash "$SE_SRC" --help
-  assert_success
-  assert_output --partial "Usage: se"
-  assert_output --partial "pipeline"
-  assert_output --partial "resume <runId>"
-}
-
-function test_smoke_039_se_pipeline_dry_run_assembles_smithers_command_w() {
-  _bats_test_init 39 'se pipeline dry-run assembles smithers command with env and input JSON'
-  local repo
-  repo="$(se_fixture_repo)"
-  cd "$repo"
-  local repo_abs
-  repo_abs="$(pwd -P)"
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test'
-  assert_success
-  assert_output --partial "PIPELINE_REPO=$repo_abs"
-  assert_output --partial "DOC_REVIEW_REPO=$repo_abs"
-  assert_output --partial "smithers up workflows/se-pipeline.tsx --detach --input"
-  assert_output --partial "\"planPath\":\"$repo_abs/docs/plans/plan.md\""
-  assert_output --partial '"until":"branch"'
-  assert_output --partial '"validateCmd":"make test"'
-}
-
-function test_smoke_040_se_pipeline_forwards_the_single_doc_review_key_a() {
-  _bats_test_init 40 'se pipeline forwards the single doc-review key: absent=false, --doc-review=true'
-  local repo
-  repo="$(se_fixture_repo)"
-  cd "$repo"
-  # se-work path: no flag → docReview:false
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test'
-  assert_success
-  assert_output --partial '"docReview":false'
-  # se-review-and-work path: --doc-review → docReview:true
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --validate-cmd 'make test' --doc-review
-  assert_success
-  assert_output --partial '"docReview":true'
-}
-
-function test_smoke_041_se_pipeline_dry_run_honors_until_pr_and_attach_n() {
-  _bats_test_init 41 'se pipeline dry-run honors --until=pr and --attach (no --detach)'
-  local repo
-  repo="$(se_fixture_repo)"
-  cd "$repo"
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --until=pr --validate-cmd 'make test' --attach
-  assert_success
-  assert_output --partial '"until":"pr"'
-  refute_output --partial -- "--detach"
-}
-
-function test_smoke_042_se_pipeline_fails_on_nonexistent_plan_with_reaso() {
-  _bats_test_init 42 'se pipeline fails on nonexistent plan with reason'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline /nonexistent/plan.md --validate-cmd 'make test'
-  assert_failure
-  assert_output --partial "not found"
-}
-
-function test_smoke_043_se_pipeline_fails_on_invalid_until_value() {
-  _bats_test_init 43 'se pipeline fails on invalid --until value'
-  local repo
-  repo="$(se_fixture_repo)"
-  cd "$repo"
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md --until=xyz --validate-cmd 'make test'
-  assert_failure
-  assert_output --partial "until"
-}
-
-function test_smoke_044_se_pipeline_without_validate_cmd_succeeds_derive() {
-  _bats_test_init 44 'se pipeline without --validate-cmd succeeds (derived from plan at gate-0)'
-  # --validate-cmd is optional: omitted => empty validateCmd in the input JSON,
-  # and the workflow derives it from the plan's Verification Contract at gate-0.
-  local repo
-  repo="$(se_fixture_repo)"
-  cd "$repo"
-  run env SE_DRY_RUN=1 bash "$SE_SRC" pipeline docs/plans/plan.md
-  assert_success
-  assert_output --partial '"validateCmd":""'
-}
-
-function test_smoke_045_se_resume_without_runid_fails_with_usage() {
-  _bats_test_init 45 'se resume without runId fails with usage'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" resume
-  assert_failure
-  assert_output --partial "Usage: se"
-}
-
-function test_smoke_046_se_abort_dry_run_maps_to_smithers_cancel() {
-  _bats_test_init 46 'se abort dry-run maps to smithers cancel'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" abort run-123
-  assert_success
-  assert_output --partial "smithers cancel run-123"
-}
-
-function test_smoke_047_se_list_dry_run_exits_0_and_maps_to_smithers_ps() {
-  _bats_test_init 47 'se list dry-run exits 0 and maps to smithers ps'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" list
-  assert_success
-  assert_output --partial "smithers ps"
-}
-
-function test_smoke_048_se_approve_deny_logs_chat_dry_run_pass_through_t() {
-  _bats_test_init 48 'se approve/deny/logs/chat dry-run pass through to smithers verbatim'
-  for sub in approve deny logs chat; do
-    run env SE_DRY_RUN=1 bash "$SE_SRC" "$sub" run-xyz
-    assert_success
-    assert_output --partial "smithers $sub run-xyz"
-  done
-}
-
-function test_smoke_049_se_approve_without_runid_fails_with_usage() {
-  _bats_test_init 49 'se approve without runId fails with usage'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" approve
-  assert_failure
-  assert_output --partial "Usage: se"
-}
-
-function test_smoke_050_se_with_unknown_command_fails_with_usage() {
-  _bats_test_init 50 'se with unknown command fails with usage'
-  run bash "$SE_SRC" frobnicate
-  assert_failure
-  assert_output --partial "Usage: se"
-}
-
-function test_smoke_051_se_symlink_source_for_local_bin_exists_in_dotfil() {
-  _bats_test_init 51 'se symlink source for ~/.local/bin exists in dotfiles'
-  local link_src="$SE_ROOT/dot_local/bin/symlink_se.tmpl"
-  assert_file_exists "$link_src"
-  run grep -q '.claude/.smithers/bin/se' "$link_src"
-  assert_success
-}
-
-function test_smoke_052_chezmoiignore_excludes_smithers_runtime_state_fr() {
-  _bats_test_init 52 'chezmoiignore excludes smithers runtime state from management'
-  local ignore="$SE_ROOT/.chezmoiignore"
-  for entry in '.claude/.smithers/node_modules' '.claude/.smithers/smithers.db*' '.claude/.smithers/executions'; do
-    run grep -qF "$entry" "$ignore"
-    assert_success
-  done
-}
-
-function test_smoke_053_se_list_json_dry_run_maps_to_smithers_ps_format() {
-  _bats_test_init 53 'se list --json dry-run maps to smithers ps --format json'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" list --json
-  assert_success
-  assert_output --partial "smithers ps --format json"
-}
-
-function test_smoke_054_se_show_dry_run_maps_to_smithers_inspect_format() {
-  _bats_test_init 54 'se show dry-run maps to smithers inspect --format json'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" show run-xyz
-  assert_success
-  assert_output --partial "smithers inspect run-xyz --format json"
-}
-
-function test_smoke_055_se_show_without_runid_fails_with_usage() {
-  _bats_test_init 55 'se show without runId fails with usage'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" show
-  assert_failure
-  assert_output --partial "Usage: se"
-}
-
-function test_smoke_056_se_show_rejects_run_ids_with_shell_sql_metachara() {
-  _bats_test_init 56 'se show rejects run ids with shell/sql metacharacters'
-  run env SE_DRY_RUN=1 bash "$SE_SRC" show "run';drop table summary;--"
-  assert_failure
-}
-
-function test_smoke_057_se_usage_documents_list_json_and_show() {
-  _bats_test_init 57 'se usage documents list --json and show'
-  run bash "$SE_SRC" --help
-  assert_success
-  assert_output --partial "list [--json]"
-  assert_output --partial "show <runId>"
-}
-
-function test_smoke_058_se_db_path_walks_up_past_an_empty_runtime_smithe() {
-  _bats_test_init 58 'se db-path walks up past an empty runtime smithers.db (0.28 state layout)'
-  local tmp; tmp="$(mktemp -d)"
-  mkdir -p "$tmp/parent/.smithers"
-  echo x > "$tmp/parent/smithers.db"
-  : > "$tmp/parent/.smithers/smithers.db"
-  run env SE_SMITHERS_DIR="$tmp/parent/.smithers" bash "$SE_SRC" db-path
-  assert_success
-  assert_output "$tmp/parent/smithers.db"
-  echo y > "$tmp/parent/.smithers/smithers.db"
-  run env SE_SMITHERS_DIR="$tmp/parent/.smithers" bash "$SE_SRC" db-path
-  assert_output "$tmp/parent/.smithers/smithers.db"
-  rm -rf "$tmp"
 }
 
 # ===========================================
