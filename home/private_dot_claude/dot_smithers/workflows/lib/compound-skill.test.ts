@@ -16,19 +16,13 @@ function tempDir(prefix: string): string {
 function fixture(): CompoundSkillPaths & { root: string } {
   const root = tempDir("compound-skill-");
   const canonicalRoot = path.join(root, "home/.agents/skills");
-  const legacyRoot = path.join(root, "home/.claude/plugins/cache/compound-engineering-plugin/compound-engineering");
-  const configRoot = path.join(root, "config/agent-skills");
   const lockPath = path.join(root, "state/skills/.skill-lock.json");
   fs.mkdirSync(canonicalRoot, { recursive: true });
-  fs.mkdirSync(configRoot, { recursive: true });
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   return {
     root,
     canonicalRoot,
-    legacyRoot,
     lockPath,
-    cutoverReadyPath: path.join(configRoot, "cutover-ready"),
-    cutoverGenerationPath: path.join(configRoot, "cutover-generation"),
   };
 }
 
@@ -42,12 +36,6 @@ function writeSkill(root: string, name = "ce-code-review"): string {
 
 function writeLock(paths: CompoundSkillPaths, skills: Record<string, unknown>): void {
   fs.writeFileSync(paths.lockPath, JSON.stringify({ version: 3, skills }));
-}
-
-function matchingAttestation(paths: CompoundSkillPaths): void {
-  const generation = `v1:${"a".repeat(64)}`;
-  fs.writeFileSync(paths.cutoverGenerationPath, `${generation}\n`);
-  fs.writeFileSync(paths.cutoverReadyPath, `${generation}\n`);
 }
 
 afterAll(() => {
@@ -105,10 +93,9 @@ describe("Compound Engineering skill resolution", () => {
     expect(() => resolveCompoundSkill("ce-code-review", paths)).toThrow(/SKILL\.md/);
   });
 
-  test("prefers a valid canonical skill over a legacy cache before cutover", () => {
+  test("resolves a valid canonical skill", () => {
     const paths = fixture();
     writeSkill(paths.canonicalRoot);
-    writeSkill(path.join(paths.legacyRoot, "1.0.0", "skills"));
 
     expect(resolveCompoundSkill("ce-code-review", paths)).toEqual({
       dir: path.join(paths.canonicalRoot, "ce-code-review"),
@@ -116,20 +103,9 @@ describe("Compound Engineering skill resolution", () => {
     });
   });
 
-  test("uses the legacy cache only while attestation is absent, stale, or malformed", () => {
+  test("requires the canonical skill even when a legacy plugin cache exists", () => {
     const paths = fixture();
-    const legacy = writeSkill(path.join(paths.legacyRoot, "1.0.0", "skills"));
-
-    expect(resolveCompoundSkill("ce-code-review", paths)).toEqual({ dir: legacy, skillRevision: "legacy-plugin" });
-    fs.writeFileSync(paths.cutoverGenerationPath, `v1:${"a".repeat(64)}\n`);
-    fs.writeFileSync(paths.cutoverReadyPath, "not-an-attestation\n");
-    expect(resolveCompoundSkill("ce-code-review", paths)).toEqual({ dir: legacy, skillRevision: "legacy-plugin" });
-  });
-
-  test("refuses the legacy cache after an exact attestation match", () => {
-    const paths = fixture();
-    writeSkill(path.join(paths.legacyRoot, "1.0.0", "skills"));
-    matchingAttestation(paths);
+    writeSkill(path.join(paths.root, "home/.claude/plugins/cache/compound-engineering-plugin/compound-engineering/1.0.0/skills"));
 
     expect(() => resolveCompoundSkill("ce-code-review", paths)).toThrow(/canonical skill/i);
   });

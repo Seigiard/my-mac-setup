@@ -32,6 +32,11 @@
 .config/opencode/skills/work-summary
 .config/opencode/skills/writing-for-agents
 
+# The portable agent-skill installation is canonical; remove the completed
+# provider-migration attestation left by earlier applies.
+.config/agent-skills/cutover-ready
+.config/agent-skills/cutover-generation
+
 # architecture-designer is no longer selected; remove the legacy external tree.
 .claude/skills/architecture-designer
 

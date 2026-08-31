@@ -7171,66 +7171,39 @@ function test_scripts_249_claude_settings_modifier_passes_settings_through() {
 # ===========================================
 
 function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
-  _bats_test_init 250 'Pi settings modifier retains legacy providers until cutover attestation matches'
+  _bats_test_init 250 'Pi settings modifier uses portable skills and the managed package set'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:obsolete-extension","npm:unexpected-extension"],"skills":["~/custom/skills"]}'
-  local config_home="$BATS_TEST_TMPDIR/pi-settings-fallback-config"
-  local agent_skills="$config_home/agent-skills"
+  local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["git:github.com/EveryInc/compound-engineering-plugin","npm:obsolete-extension"],"skills":["~/.claude/skills","~/custom/skills"]}'
 
-  mkdir -p "$agent_skills"
+  run bash "$modifier" <<< "$input"
 
-  # Missing, stale, and malformed markers must all keep the migration fallback.
-  for state in absent stale malformed; do
-    rm -f "$agent_skills/cutover-ready" "$agent_skills/cutover-generation"
-    case "$state" in
-      stale)
-        printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
-        printf 'cutover-v1-stale\n' > "$agent_skills/cutover-ready"
-        ;;
-      malformed)
-        printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
-        printf 'not-a-cutover-attestation\n' > "$agent_skills/cutover-ready"
-        ;;
-    esac
-
-    run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$input"
-
-    assert_success
-    run jq -e '
-      [
-        "npm:@ff-labs/pi-fff",
-        "npm:@howaboua/pi-codex-conversion",
-        "npm:pi-subagents",
-        "npm:pi-agent-browser-native",
-        "git:github.com/EveryInc/compound-engineering-plugin",
-        "npm:pi-ask-user",
-        "npm:@trevonistrevon/pi-loop",
-        "npm:pi-web-access",
-        "npm:pi-context-view"
-      ] as $extensions |
-      .theme == "terminal" and
-      .lastChangelogVersion == "0.84.2" and
-      (.packages == $extensions) and
-      (.skills | index("~/.claude/skills") != null) and
-      (.skills | index("~/custom/skills") != null)
-    ' <<< "$output"
-    assert_success
-  done
+  assert_success
+  run jq -e '
+    [
+      "npm:@ff-labs/pi-fff",
+      "npm:@howaboua/pi-codex-conversion",
+      "npm:pi-subagents",
+      "npm:pi-agent-browser-native",
+      "npm:pi-ask-user",
+      "npm:@trevonistrevon/pi-loop",
+      "npm:pi-web-access",
+      "npm:pi-context-view"
+    ] as $extensions |
+    .theme == "terminal" and
+    .lastChangelogVersion == "0.84.2" and
+    (.packages == $extensions) and
+    (.skills == ["~/custom/skills"])
+  ' <<< "$output"
+  assert_success
 }
 
 function test_scripts_251_pi_settings_modifier_is_idempotent() {
   _bats_test_init 251 'Pi settings modifier is idempotent'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"lastChangelogVersion":"0.84.2","model":"anthropic/claude-sonnet-4-5","packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/custom/skills","~/.claude/skills"]}'
-  local config_home="$BATS_TEST_TMPDIR/pi-settings-cutover-config"
-  local agent_skills="$config_home/agent-skills"
   local once
 
-  mkdir -p "$agent_skills"
-  printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
-  cp "$agent_skills/cutover-generation" "$agent_skills/cutover-ready"
-
-  run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$input"
+  run bash "$modifier" <<< "$input"
 
   assert_success
   once="$output"
@@ -7253,7 +7226,7 @@ function test_scripts_251_pi_settings_modifier_is_idempotent() {
   ' <<< "$once"
   assert_success
 
-  run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$once"
+  run bash "$modifier" <<< "$once"
 
   assert_success
   assert_output "$once"
@@ -8138,22 +8111,19 @@ function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_r
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
-function test_scripts_274_skills_rejects_malformed_lock_before_npx_and_invalidates_attestation() {
-  _bats_test_init 274 'skills sync invalidates cutover then fails closed on malformed live lock without npx mutation'
-  local stub lock ready before
+function test_scripts_274_skills_rejects_malformed_lock_before_npx() {
+  _bats_test_init 274 'skills sync fails closed on malformed live lock without npx mutation'
+  local stub lock
   stub="$(skills_stub_npx)"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
-  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
-  mkdir -p "$(dirname "$lock")" "$(dirname "$ready")"
+  mkdir -p "$(dirname "$lock")"
   printf '%s\n' '{not-json' > "$lock"
   cp "$lock" "$BATS_TEST_TMPDIR/lock.before"
-  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$ready"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$SOURCE_ROOT/private_dot_config/agent-skills/manifest" bash "$SKILLS_WRAPPER" sync
   assert_failure
-  assert_file_not_exists "$ready"
   run cmp "$BATS_TEST_TMPDIR/lock.before" "$lock"
   assert_success
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
@@ -8207,7 +8177,7 @@ function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_iden
 
 function test_scripts_277_skills_sync_restores_repository_owned_wildcard_collision() {
   _bats_test_init 277 'skills sync restores a repository-owned wildcard collision and removes its lock claim'
-  local stub manifest lock canonical ready
+  local stub manifest lock canonical
   stub="$(skills_stub_npx)"
   cat > "$stub/npx" <<'SH'
 #!/usr/bin/env bash
@@ -8218,13 +8188,11 @@ SH
   manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
-  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
-  mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$(dirname "$ready")"
+  mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$BATS_TEST_TMPDIR/config/agent-skills"
   printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
   printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
   printf '%s\n' original > "$canonical/local-skill/SKILL.md"
-  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$ready"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -8232,7 +8200,6 @@ SH
   assert_failure
   run cat "$canonical/local-skill/SKILL.md"
   assert_output original
-  assert_file_not_exists "$ready"
   run python3 - "$lock" <<'PY'
 import json, sys
 assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
@@ -8241,7 +8208,7 @@ PY
 }
 
 function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
-  _bats_test_init 278 'skills sync blocks symlink, non-regular, and oversized canonical entries before cutover'
+  _bats_test_init 278 'skills sync blocks symlink, non-regular, and oversized canonical entries'
   local kind stub manifest lock canonical item skill
   for kind in symlink fifo oversized; do
     stub="$(skills_stub_npx)"
@@ -8264,21 +8231,19 @@ function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
     run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/$kind/home" TMPDIR="$BATS_TEST_TMPDIR/$kind/tmp" \
       XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/$kind/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/$kind/state" \
       SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" SKILLS_MAX_FILE_BYTES=1048576 \
-      bash "$SKILLS_WRAPPER" sync
+    bash "$SKILLS_WRAPPER" sync
     assert_failure
-    assert_file_not_exists "$BATS_TEST_TMPDIR/$kind/config/agent-skills/cutover-ready"
   done
 }
 
 function test_scripts_2781_skills_sync_default_file_limit_accepts_smithers_documentation() {
   _bats_test_init 2781 'skills sync default file limit accepts the upstream Smithers documentation artifact'
-  local stub manifest lock canonical ready skill
+  local stub manifest lock canonical skill
   stub="$(skills_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   canonical="$BATS_TEST_TMPDIR/canonical"
-  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
-  mkdir -p "$(dirname "$lock")" "$canonical/smithers" "$(dirname "$ready")"
+  mkdir -p "$(dirname "$lock")" "$canonical/smithers" "$BATS_TEST_TMPDIR/config/agent-skills"
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' 'smithersai/smithers smithers' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"smithers":{"source":"smithersai/smithers"}}}' > "$lock"
@@ -8287,13 +8252,10 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_smithers_docum
     printf '%s\n' skill > "$canonical/$skill/SKILL.md"
   done
   dd if=/dev/zero of="$canonical/smithers/llms-full.txt" bs=1105837 count=1 2>/dev/null
-  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-generation"
-
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
-  assert_file_exists "$ready"
 
   dd if=/dev/zero of="$canonical/smithers/llms-full.txt" bs=2097153 count=1 2>/dev/null
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -8301,7 +8263,6 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_smithers_docum
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_failure
   assert_output --partial 'canonical tree file exceeds 2097152 bytes'
-  assert_file_not_exists "$ready"
 }
 
 function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wildcards() {
@@ -8319,16 +8280,6 @@ function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wil
     mkdir -p "$canonical/$skill"
     printf '%s\n' skill > "$canonical/$skill/SKILL.md"
   done
-  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-generation"
-  printf '%s\n' 'v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
-  cat > "$stub/mv" <<'SH'
-#!/usr/bin/env bash
-printf '<%s>' "$@" > "$TMPDIR/mv.log"
-printf '\n' >> "$TMPDIR/mv.log"
-exec /bin/mv "$@"
-SH
-  chmod +x "$stub/mv"
-
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
@@ -8336,11 +8287,6 @@ SH
   assert_output --partial 'drift: skills remove owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
   refute_output --partial 'ce-code-review'
-  run cat "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
-  assert_success
-  assert_output 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-  run grep -E 'cutover-ready\.tmp\.[0-9]+.*cutover-ready>$' "$BATS_TEST_TMPDIR/tmp/mv.log"
-  assert_success
 }
 
 # ===========================================

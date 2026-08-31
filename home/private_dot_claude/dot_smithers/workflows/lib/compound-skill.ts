@@ -8,10 +8,7 @@ const MAX_TREE_BYTES = 100 * 1024 * 1024;
 
 export interface CompoundSkillPaths {
   canonicalRoot: string;
-  legacyRoot: string;
   lockPath: string;
-  cutoverReadyPath: string;
-  cutoverGenerationPath: string;
 }
 
 export interface ResolvedCompoundSkill {
@@ -27,15 +24,11 @@ interface LockEntry {
 type SkillLock = Map<string, LockEntry> | undefined;
 
 export function defaultCompoundSkillPaths(home = os.homedir(), env = process.env): CompoundSkillPaths {
-  const configHome = env.XDG_CONFIG_HOME || path.join(home, ".config");
   const stateHome = env.XDG_STATE_HOME || path.join(home, ".local/state");
   const lockPath = path.join(stateHome, "skills/.skill-lock.json");
   return {
     canonicalRoot: path.join(home, ".agents/skills"),
-    legacyRoot: path.join(home, ".claude/plugins/cache/compound-engineering-plugin/compound-engineering"),
     lockPath,
-    cutoverReadyPath: path.join(configHome, "agent-skills/cutover-ready"),
-    cutoverGenerationPath: path.join(configHome, "agent-skills/cutover-generation"),
   };
 }
 
@@ -54,13 +47,7 @@ export function resolveCompoundSkill(name: string, paths = defaultCompoundSkillP
     return { dir: canonicalDir, skillRevision: entry.skillFolderHash };
   }
 
-  if (hasCurrentAttestation(paths)) {
-    throw new Error(`Canonical skill is missing after cutover: ${canonicalDir}`);
-  }
-
-  const legacyDir = resolveLegacySkillDir(name, paths.legacyRoot);
-  validateSkillTree(legacyDir);
-  return { dir: legacyDir, skillRevision: "legacy-plugin" };
+  throw new Error(`Canonical skill is missing: ${canonicalDir}`);
 }
 
 export function stageCompoundSkill(name: string, destination: string, paths = defaultCompoundSkillPaths()): ResolvedCompoundSkill {
@@ -91,35 +78,6 @@ function readLock(lockPath: string): SkillLock {
     entries.set(name, { source: value.source, skillFolderHash: value.skillFolderHash as string | undefined });
   }
   return entries;
-}
-
-function hasCurrentAttestation(paths: CompoundSkillPaths): boolean {
-  const generation = readAttestation(paths.cutoverGenerationPath);
-  const ready = readAttestation(paths.cutoverReadyPath);
-  return generation !== undefined && generation === ready;
-}
-
-function readAttestation(filePath: string): string | undefined {
-  try {
-    const value = fs.readFileSync(filePath, "utf8");
-    return /^v1:[0-9a-f]{64}\n?$/.test(value) ? value.trim() : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function resolveLegacySkillDir(name: string, legacyRoot: string): string {
-  let versions: string[];
-  try {
-    versions = fs.readdirSync(legacyRoot).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  } catch {
-    throw new Error(`Canonical skill is missing and no legacy plugin cache is available for ${name}`);
-  }
-  for (let index = versions.length - 1; index >= 0; index--) {
-    const candidate = path.join(legacyRoot, versions[index], "skills", name);
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  throw new Error(`Canonical skill is missing and no legacy plugin cache is available for ${name}`);
 }
 
 function validateSkillTree(root: string): void {

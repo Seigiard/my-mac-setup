@@ -35,17 +35,15 @@ OpenCode, and Pi after installation or discovery configuration changes.
 
 ## Plugin-Owned Functionality
 
-The Compound Engineering providers are retained only until
-`~/.config/agent-skills/cutover-ready` exactly matches the managed generation;
-then portable bare `ce-*` skills replace their client-specific providers.
+Portable bare `ce-*` skills replace the former client-specific Compound
+Engineering providers.
 
 Claude retains `claude-md-management`, `playwright`, `plugin-dev`,
 `security-guidance`, and `typescript-lsp` for non-skill functionality. Its
-Compound Engineering and `frontend-design` plugins are retired after exact
-cutover. OpenCode retires its Compound Engineering plugin, including
-its generated convenience commands, after exact cutover. Pi retires its
-Compound Engineering package after exact cutover; its managed extension list
-remains the source of truth for non-skill packages.
+Compound Engineering and `frontend-design` plugins are retired. OpenCode does
+not install the Compound Engineering plugin or its generated convenience
+commands. Pi does not install the Compound Engineering package; its managed
+extension list remains the source of truth for non-skill packages.
 
 `open-source-librarian` is the repository-managed Claude agent. Smithers
 workflows and local OpenCode support configuration remain repository-managed;

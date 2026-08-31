@@ -630,18 +630,6 @@ function test_templates_028_the_minimal_render_deploys_brewfile_macos_empty() {
   assert_file_contains "$dest/.config/brewfiles/Brewfile" '^brew "jq"'
 }
 
-function test_templates_029_agent_skills_generation_renders_without_gnu_sha256sum() {
-  _bats_test_init 29 'agent-skills generation uses chezmoi hashing, not the host sha256sum executable'
-  skip_if_no_chezmoi
-  local template="$SOURCE_ROOT/private_dot_config/agent-skills/cutover-generation.tmpl"
-  local empty_path="$BATS_TEST_TMPDIR/no-commands"
-  mkdir -p "$empty_path"
-
-  run env PATH="$empty_path" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template"
-  assert_success
-  assert_output --regexp '^v1:[0-9a-f]{64}$'
-}
-
 function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_input() {
   _bats_test_init 30 'agent-skills sync onchange hash changes when either managed input changes'
   skip_if_no_chezmoi
@@ -670,59 +658,32 @@ function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_inpu
   assert_success
 }
 
-# Provider retirement is intentionally a two-apply transition. Render each
-# client configuration against the live marker boundary so missing and invalid
-# markers cannot silently remove the migration fallback.
-function test_templates_031_agent_skills_provider_removal_requires_an_exact_cutover_attestation() {
-  _bats_test_init 31 'agent-skills providers retire only after an exact cutover attestation match'
+function test_templates_031_agent_skills_clients_use_portable_providers() {
+  _bats_test_init 31 'agent-skills clients retain non-skill plugins without legacy skill providers'
   skip_if_no_chezmoi
-  local state home generation claude opencode
-  for state in absent stale malformed matched; do
-    home="$BATS_TEST_TMPDIR/$state-home"
-    mkdir -p "$home/.config/agent-skills"
-    generation="$(env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_config/agent-skills/cutover-generation.tmpl")"
-    printf '%s\n' "$generation" > "$home/.config/agent-skills/cutover-generation"
-    case "$state" in
-      stale) printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$home/.config/agent-skills/cutover-ready" ;;
-      malformed) printf '%s\n' 'not-a-cutover-attestation' > "$home/.config/agent-skills/cutover-ready" ;;
-      matched) printf '%s\n' "$generation" > "$home/.config/agent-skills/cutover-ready" ;;
-    esac
+  local home="$BATS_TEST_TMPDIR/client-home" claude opencode
 
-    run env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
-    assert_success
-    claude="$output"
-    run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$claude"
-    assert_success
+  run env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
+  assert_success
+  claude="$output"
+  run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$claude"
+  assert_success
 
-    run env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
-    assert_success
-    opencode="$output"
-    run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$opencode"
-    assert_success
+  run env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
+  assert_success
+  opencode="$output"
+  run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$opencode"
+  assert_success
 
-    if [ "$state" = matched ]; then
-      run jq -e '.enabledPlugins | has("compound-engineering@compound-engineering-plugin") or has("frontend-design@claude-plugins-official")' <<< "$claude"
-      assert_failure
-      run jq -e '.extraKnownMarketplaces | has("compound-engineering-plugin")' <<< "$claude"
-      assert_failure
-      run jq -e '.plugin | index("compound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git")' <<< "$opencode"
-      assert_failure
-    else
-      run jq -e '.enabledPlugins["compound-engineering@compound-engineering-plugin"] and .enabledPlugins["frontend-design@claude-plugins-official"]' <<< "$claude"
-      assert_success
-      run jq -e '.extraKnownMarketplaces | has("compound-engineering-plugin")' <<< "$claude"
-      assert_success
-      run jq -e '.plugin | index("compound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git")' <<< "$opencode"
-      assert_success
-    fi
+  run jq -e '.enabledPlugins | has("compound-engineering@compound-engineering-plugin") or has("frontend-design@claude-plugins-official") or has("playground@claude-plugins-official")' <<< "$claude"
+  assert_failure
+  run jq -e '.extraKnownMarketplaces | has("compound-engineering-plugin")' <<< "$claude"
+  assert_failure
+  run jq -e 'has("plugin")' <<< "$opencode"
+  assert_failure
 
-    run jq -e '.enabledPlugins | has("playground@claude-plugins-official")' <<< "$claude"
-    assert_failure
-
-    # These plugins have non-skill behavior and must survive both branches.
-    run jq -e '.enabledPlugins["claude-md-management@claude-plugins-official"] and .enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
-    assert_success
-  done
+  run jq -e '.enabledPlugins["claude-md-management@claude-plugins-official"] and .enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
+  assert_success
 }
 
 function set_up_before_script() {

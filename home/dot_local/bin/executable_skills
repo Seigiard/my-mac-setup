@@ -10,8 +10,6 @@ CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 LOCK_PATH="$STATE_HOME/skills/.skill-lock.json"
 CANONICAL_ROOT="${SKILLS_CANONICAL_ROOT:-$HOME/.agents/skills}"
 REPOSITORY_OWNED_MANIFEST="${SKILLS_REPOSITORY_OWNED_MANIFEST:-$CONFIG_HOME/agent-skills/repository-owned}"
-CUTOVER_READY="$CONFIG_HOME/agent-skills/cutover-ready"
-CUTOVER_GENERATION="$CONFIG_HOME/agent-skills/cutover-generation"
 MAX_FILE_BYTES="${SKILLS_MAX_FILE_BYTES:-2097152}"
 TMPDIR="${TMPDIR:-/tmp}"
 
@@ -212,18 +210,6 @@ validate_mandatory_compound_skills() {
   done
 }
 
-invalidate_cutover() { [ ! -e "$CUTOVER_READY" ] || rm -f "$CUTOVER_READY"; }
-
-write_cutover() {
-  local generation temporary
-  [ -r "$CUTOVER_GENERATION" ] || { fail "missing cutover generation: $CUTOVER_GENERATION"; return 1; }
-  generation="$(cat "$CUTOVER_GENERATION")"
-  [[ "$generation" =~ ^v1:[0-9a-f]{64}$ ]] || { fail 'invalid cutover generation'; return 1; }
-  mkdir -p "$(dirname "$CUTOVER_READY")" || return 1
-  temporary="$CUTOVER_READY.tmp.$$"
-  (umask 077; printf '%s\n' "$generation" > "$temporary") && mv -f "$temporary" "$CUTOVER_READY"
-}
-
 report_drift() {
   local name source entry desired wildcard=0
   while IFS=$'\t' read -r name source; do
@@ -241,7 +227,6 @@ report_drift() {
 sync() {
   local source entry skill workdir name collision=0 status
   parse_manifest || return 1
-  invalidate_cutover
   load_repository_owned || return 1
   validate_manifest_collisions || return 1
   validate_live_lock || return 1
@@ -290,7 +275,6 @@ sync() {
   validate_canonical_tree "$CANONICAL_ROOT" || { rm -rf "$workdir"; return 1; }
   validate_mandatory_compound_skills || { rm -rf "$workdir"; return 1; }
   report_drift
-  write_cutover || { rm -rf "$workdir"; return 1; }
   rm -rf "$workdir"
 }
 
