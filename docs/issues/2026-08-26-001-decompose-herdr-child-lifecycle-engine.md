@@ -5,8 +5,9 @@ type: "chore"
 category: "herdr"
 tags: ["maintainability","herdr-child"]
 date: "2026-08-26"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-08-30"
 ---
 
 ## Why this exists
@@ -24,5 +25,21 @@ The current implementation is covered by semantic lifecycle tests and passed the
 
 ## Open decisions
 
-- Whether launch, watcher, and metadata helpers should be sourced modules or generated into one deployed executable.
-- Whether the current Python JSON predicates should be consolidated in the same change or in a separate measured optimization.
+None. The refactor keeps one entrypoint backed by sourced Bash modules. Broader
+state-machine and JSON-predicate simplification is deferred to
+`2026-08-30-010-research-simplifying-herdr-child-lifecycle`.
+
+## Resolution
+
+Split the 2,468-line herdr-child executable into six Bash 3.2 sourced lifecycle
+modules while preserving one 49-line deployed entrypoint and semantic behavior.
+Added source-order, function ownership/redefinition, source-time purity, reap
+recovery, live watcher argv, and deployed source-resolution coverage. Verified
+the 83-test `herdr_child` owner (436 assertions), descriptor probe, `make lint`,
+`make test-issues` (44 tests), and `make test-ubuntu` with exit status 0.
+`make test-local` did not produce a verdict after 8 minutes 45 seconds and is
+tracked separately as
+`2026-08-30-006-make-test-local-stalls-in-host-diff`; it is not counted as
+verification evidence. The implementation plan now treats that host-only diff
+as supplementary because `make test-ubuntu` owns disposable checkout apply and
+deployment verification.

@@ -131,6 +131,13 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .config/herdr/plugins/command-palette/palette.py
     .config/herdr/plugins/command-palette/smart_close.py
     .config/herdr/command-palette/commands.toml
+    .local/lib/herdr-process.sh
+    .local/lib/herdr-child-runtime.sh
+    .local/lib/herdr-child-supervision.sh
+    .local/lib/herdr-child-watcher.sh
+    .local/lib/herdr-child-launch.sh
+    .local/lib/herdr-child-continuation.sh
+    .local/lib/herdr-child-reap.sh
   )
   if is_macos; then
     paths+=(
@@ -158,7 +165,9 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
 
   command_exists chezmoi || return 0
   local managed unmanaged=""
-  managed="$(PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" managed)"
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" managed
+  assert_success
+  managed="$output"
   for p in "${paths[@]}"; do
     case $'\n'"$managed"$'\n' in
       *$'\n'"$p"$'\n'*) ;;
@@ -983,12 +992,15 @@ function test_smoke_058_se_db_path_walks_up_past_an_empty_runtime_smithe() {
 # ===========================================
 
 function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
-  _bats_test_init 59 'herdr task and child engines are deployed and executable'
+  _bats_test_init 59 'herdr task and child engines are deployed with child libraries resolvable'
   assert_file_exists "$HOME/.local/bin/herdr-task-sync"
   assert_file_executable "$HOME/.local/bin/herdr-task-sync"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
-  assert_file_exists "$HOME/.local/lib/herdr-process.sh"
+  run "$HOME/.local/bin/herdr-child" --help
+  assert_success
+  assert_output --partial 'Usage:'
+  refute_output --partial '__watcher'
 }
 
 # Test 60 was removed as tautological: deployment of these docs is owned by
@@ -1177,4 +1189,3 @@ function set_up_before_script() {
 function tear_down_after_script() {
   _bats_file_cleanup
 }
-

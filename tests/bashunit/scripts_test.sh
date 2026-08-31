@@ -17,14 +17,31 @@ setup() {
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER
+  unset HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER
   unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
+  unset CHILD_REAP_PID
 }
 
 teardown() {
   hts_teardown
   if [[ -n "${CHILD_STUB:-}" ]]; then
+    if [[ -e "$CHILD_STUB/reap-invalidated.ready" ]]; then
+      : > "$CHILD_STUB/reap-invalidated.release"
+    fi
+    if [[ -n "${CHILD_REAP_PID:-}" ]]; then
+      local reap_attempt=0
+      while kill -0 "$CHILD_REAP_PID" 2>/dev/null && [[ "$reap_attempt" -lt 100 ]]; do
+        reap_attempt=$((reap_attempt + 1))
+        sleep 0.01
+      done
+      if kill -0 "$CHILD_REAP_PID" 2>/dev/null; then
+        kill -TERM "$CHILD_REAP_PID" 2>/dev/null || true
+      fi
+      wait "$CHILD_REAP_PID" 2>/dev/null || true
+      CHILD_REAP_PID=""
+    fi
     [[ ! -e "$CHILD_STUB/release-watcher" ]] || true
     : > "$CHILD_STUB/release-watcher" 2>/dev/null || true
     local pid_file watcher_pid
@@ -1078,6 +1095,14 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   assert_output --partial '"supervision":{"status":"armed"'
   assert_output --partial '"timeout_ms":60000'
   assert_file_exists "$CHILD_STUB/watcher.pid"
+  local generation
+  generation="$(cat "$CHILD_STUB/generation")"
+  run cat "$CHILD_STUB/state/runs/$generation/launch.state"
+  assert_success
+  assert_output "$(printf '%s\n' 'mode=detach' "generation=$generation" 'timeout_ms=60000' \
+    'parent_pane=wT:p0' 'parent_terminal=term-parent' 'parent_session=parent-session' \
+    'child_name=child-detached' 'child_pane=wT:p9' 'child_terminal=term-child' \
+    'child_session=child-session' 'baseline_seq=10')"
 
   local metadata_call prompt_call
   metadata_call="$(grep -n 'state-label supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1)"
@@ -1952,7 +1977,7 @@ function test_scripts_054_herdr_child_attached_prompt_wait_rejects_the_fir() {
 }
 
 function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
-  _bats_test_init 55 'herdr-child managed detached prompt advances generation and preserves the child on rearm failure'
+  _bats_test_init 55 'herdr-child managed detached prompt advances generation, invalidates the old watcher, and preserves the child on rearm failure'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -1970,6 +1995,12 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_success
   new_generation="$(cat "$CHILD_STUB/generation")"
   [ "$new_generation" != "$old_generation" ]
+  run cat "$CHILD_STUB/state/runs/$new_generation/launch.state"
+  assert_success
+  assert_output "$(printf '%s\n' 'mode=detach' "generation=$new_generation" 'timeout_ms=5000' \
+    'parent_pane=wT:p0' 'parent_terminal=term-parent' 'parent_session=parent-session' \
+    'child_name=child-life' 'child_pane=wT:p9' 'child_terminal=term-child' \
+    'child_session=child-session' 'baseline_seq=11')"
   printf 'done 12\n' > "$CHILD_STUB/child-state"
   child_wait_for_log 'event=settled-12'
 
@@ -1993,6 +2024,54 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_success
   refute_output "$old_generation"
   assert_file_not_exists "$CHILD_STUB/pane-closed"
+
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=120 \
+    run child_lifecycle_start --supervision-timeout 5000
+  assert_success
+  old_generation="$(cat "$CHILD_STUB/generation")"
+  old_run="$CHILD_STUB/state/runs/$old_generation"
+  local old_watcher old_watcher_identity attempt=0
+  old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
+  kill -0 "$old_watcher"
+  old_watcher_identity="$(LC_ALL=C /bin/ps -o lstart= -o command= -p "$old_watcher")"
+  case "$old_watcher_identity" in
+    *"$HERDR_CHILD __watcher"*"--run-dir $old_run"*) ;;
+    *) printf 'old watcher identity was not observable: %s\n' "$old_watcher_identity" >&2; return 1 ;;
+  esac
+  old_watcher_is_alive() {
+    local current_identity
+    current_identity="$(LC_ALL=C /bin/ps -o lstart= -o command= -p "$old_watcher" 2>/dev/null)" || return 1
+    [ "$current_identity" = "$old_watcher_identity" ]
+  }
+  assert_dir_exists "$old_run"
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/new-watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=120 HERDR_CHILD_POLL_INTERVAL=0.01 \
+    bash "$HERDR_CHILD" prompt --to child-life --pane wT:p9 --detach \
+    --supervision-timeout 5000 "take over held watcher"
+  assert_success
+  assert_file_not_exists "$CHILD_STUB/release-watcher"
+  while { old_watcher_is_alive || [ -d "$old_run" ]; } && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  if [ "$attempt" -ge 500 ]; then
+    old_watcher_is_alive && printf 'stale watcher identity retained: %s\n' "$old_watcher" >&2
+    [ ! -d "$old_run" ] || printf 'stale watcher run directory retained: %s\n' "$old_run" >&2
+    return 1
+  fi
+  run old_watcher_is_alive
+  assert_failure
+  assert_dir_not_exists "$old_run"
+  assert_file_not_exists "$CHILD_STUB/release-watcher"
+  rm -f "$CHILD_STUB/watcher.pid"
 }
 
 function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
@@ -7566,29 +7645,50 @@ function test_scripts_263_herdr_child_watcher_release_hold_is_bounded() {
 function test_scripts_264_herdr_child_reap_invalidation_suppresses_delivery_already_in_progress() {
   _bats_test_init 264 'herdr-child reap invalidation suppresses delivery already in progress'
   child_lifecycle_stub_herdr
+  HERDR_CHILD_TEST_REAP_OWNER_VERIFIED="$CHILD_STUB/reap-owner-verified"
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
-  local watcher_pid attempt=0
-  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  local generation run_dir reap_pid reap_status attempt=0
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
   printf 'done\n' > "$CHILD_STUB/child-list-status"
   : > "$CHILD_STUB/block-delivery-pane-get"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_file "$CHILD_STUB/delivery-pane-get.ready"
 
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --pane wT:p9 child-life
-  assert_success
-  assert_output --partial 'closed pane wT:p9'
-  assert_file_exists "$CHILD_STUB/pane-closed"
+    HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER="$CHILD_STUB/reap-invalidated" \
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life >"$CHILD_STUB/reap.out" 2>&1 &
+  reap_pid=$!
+  CHILD_REAP_PID="$reap_pid"
+  child_wait_for_file "$CHILD_STUB/reap-invalidated.ready"
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
 
   : > "$CHILD_STUB/delivery-pane-get.release"
-  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+  while [ ! -e "$CHILD_STUB/reap-owner-verified" ] && \
+        [ ! -e "$CHILD_STUB/successful-prompts.log" ] && \
+        [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
   [ "$attempt" -lt 500 ]
   assert_file_not_exists "$CHILD_STUB/successful-prompts.log"
+  assert_file_contains "$run_dir/invalidated.state" '^reason=reap$'
+
+  : > "$CHILD_STUB/reap-invalidated.release"
+  if wait "$reap_pid"; then reap_status=0; else reap_status=$?; fi
+  CHILD_REAP_PID=""
+  [ "$reap_status" -eq 0 ] || cat "$CHILD_STUB/reap.out" >&2
+  assert_equal "$reap_status" 0
+  assert_file_contains "$CHILD_STUB/reap.out" 'closed pane wT:p9'
+  assert_file_exists "$CHILD_STUB/pane-closed"
+  attempt=0
+  while [ -d "$run_dir" ] && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_dir_not_exists "$run_dir"
 }
 
 function test_scripts_265_herdr_child_delivery_claim_keeps_reap_fail_closed_without_holding_guard() {
@@ -7667,6 +7767,276 @@ function test_scripts_267_herdr_child_transition_owner_identity_uses_a_stable_lo
   run grep -v '^C$' "$CHILD_STUB/ps-locales.log"
   assert_failure
   : > "$CHILD_STUB/release-parent-prompt"
+}
+
+function test_scripts_268_herdr_child_checkout_help_resolves_runtime_module() {
+  _bats_test_init 268 'herdr-child checkout help resolves the runtime module'
+  run bash "$HERDR_CHILD" --help
+  assert_success
+  assert_output --partial 'Usage:'
+  refute_output --partial '__watcher'
+
+  run bash "$HERDR_CHILD" not-a-command
+  assert_failure 2
+  assert_output --partial 'unknown subcommand: not-a-command'
+}
+
+function test_scripts_269_herdr_child_modules_load_in_order_without_source_time_effects() {
+  _bats_test_init 269 'herdr-child modules load in order without source-time effects'
+  local lib_dir="$SOURCE_ROOT/dot_local/lib"
+
+  run /bin/bash -s -- "$HERDR_CHILD" "$lib_dir" "$BATS_TEST_TMPDIR/module-loading" <<'BASH'
+set -euo pipefail
+entrypoint="$1"
+lib_dir="$2"
+work_dir="$3"
+shift 3
+set -- 'module positional one' 'module-positional-two'
+mkdir -p "$work_dir"
+
+source_prefix='source "$SCRIPT_DIR/../lib/'
+while IFS= read -r line; do
+  case "$line" in
+    "$source_prefix"*)
+      module="${line##*/}"
+      printf '%s\n' "${module%\"}"
+      ;;
+  esac
+done < "$entrypoint" > "$work_dir/source-order.actual"
+cat > "$work_dir/source-order.expected" <<'EOF'
+herdr-process.sh
+herdr-child-runtime.sh
+herdr-child-supervision.sh
+herdr-child-watcher.sh
+herdr-child-launch.sh
+herdr-child-continuation.sh
+herdr-child-reap.sh
+EOF
+cmp -s "$work_dir/source-order.expected" "$work_dir/source-order.actual" || {
+  printf 'herdr-child module source order differs from the contract\n' >&2
+  diff -u "$work_dir/source-order.expected" "$work_dir/source-order.actual" >&2 || true
+  exit 1
+}
+
+snapshot_shell_state() {
+  local output="$1"
+  shift
+  {
+    set +o
+    trap -p
+    printf 'pwd=%s\n' "$PWD"
+    printf 'umask=%s\n' "$(umask)"
+    printf 'path=<%q>\n' "$PATH"
+    printf 'home=<%q>\n' "$HOME"
+    printf 'ifs=<%q>\n' "$IFS"
+    shopt -p
+    printf 'argv'
+    printf ' <%q>' "$@"
+    printf '\n'
+  } > "$output"
+}
+
+snapshot_function_definitions() {
+  local output="$1" names="$2" function_name
+  {
+    while IFS= read -r function_name; do
+      printf '%s ' "$function_name"
+      declare -f "$function_name" | cksum
+    done < "$names"
+  } > "$output"
+}
+
+snapshot_global_definitions() {
+  local output="$1" names="$2" global_name
+  {
+    while IFS= read -r global_name; do
+      case "$global_name" in
+        BASH*|BASHPID|EPOCHREALTIME|EPOCHSECONDS|FUNCNAME|GROUPS|LINENO|\
+          OPTARG|OPTIND|PIPESTATUS|RANDOM|SECONDS|SHLVL|SRANDOM|_|\
+          global_name|names|output)
+          continue
+          ;;
+      esac
+      declare -p "$global_name" 2>/dev/null || true
+    done < "$names"
+  } > "$output"
+}
+
+# herdr-process.sh is the already-declared predecessor of every child module.
+source "$lib_dir/herdr-process.sh"
+while IFS='|' read -r module expected allowed_globals; do
+  declare -F | awk '{print $3}' | LC_ALL=C sort > "$work_dir/functions.before"
+  snapshot_function_definitions "$work_dir/function-definitions.before" "$work_dir/functions.before"
+  compgen -v | LC_ALL=C sort > "$work_dir/globals.before"
+  snapshot_global_definitions "$work_dir/global-definitions.before" "$work_dir/globals.before"
+  snapshot_shell_state "$work_dir/state.before" "$@"
+  if ! source "$lib_dir/$module" > "$work_dir/source.output" 2>&1; then
+    printf '%s failed to source\n' "$module" >&2
+    cat "$work_dir/source.output" >&2
+    exit 1
+  fi
+  snapshot_shell_state "$work_dir/state.after" "$@"
+  cmp -s "$work_dir/state.before" "$work_dir/state.after" || {
+    printf '%s changed shell state at source time\n' "$module" >&2
+    diff -u "$work_dir/state.before" "$work_dir/state.after" >&2 || true
+    exit 1
+  }
+  [ ! -s "$work_dir/source.output" ] || {
+    printf '%s produced output at source time\n' "$module" >&2
+    cat "$work_dir/source.output" >&2
+    exit 1
+  }
+  declare -F | awk '{print $3}' | LC_ALL=C sort > "$work_dir/functions.after"
+  snapshot_function_definitions "$work_dir/function-definitions.after" "$work_dir/functions.before"
+  cmp -s "$work_dir/function-definitions.before" "$work_dir/function-definitions.after" || {
+    printf '%s redefined an existing function\n' "$module" >&2
+    diff -u "$work_dir/function-definitions.before" "$work_dir/function-definitions.after" >&2 || true
+    exit 1
+  }
+  compgen -v | LC_ALL=C sort > "$work_dir/globals.after"
+  snapshot_global_definitions "$work_dir/global-definitions.after" "$work_dir/globals.before"
+  cmp -s "$work_dir/global-definitions.before" "$work_dir/global-definitions.after" || {
+    printf '%s mutated an existing global at source time\n' "$module" >&2
+    diff -u "$work_dir/global-definitions.before" "$work_dir/global-definitions.after" >&2 || true
+    exit 1
+  }
+  LC_ALL=C comm -13 "$work_dir/functions.before" "$work_dir/functions.after" > "$work_dir/functions.actual"
+  : > "$work_dir/functions.expected"
+  if [ -n "$expected" ]; then
+    printf '%s\n' "$expected" | tr ' ' '\n' | LC_ALL=C sort > "$work_dir/functions.expected"
+  fi
+  cmp -s "$work_dir/functions.expected" "$work_dir/functions.actual" || {
+    printf '%s function ownership differs from the module contract\n' "$module" >&2
+    diff -u "$work_dir/functions.expected" "$work_dir/functions.actual" >&2 || true
+    exit 1
+  }
+  LC_ALL=C comm -13 "$work_dir/globals.before" "$work_dir/globals.after" > "$work_dir/globals.actual"
+  : > "$work_dir/globals.expected"
+  if [ -n "$allowed_globals" ]; then
+    printf '%s\n' "$allowed_globals" | tr ' ' '\n' | while IFS= read -r global_name; do
+      printf '%s\n' "$global_name"
+      [ "${!global_name+x}" = x ] && [ -z "${!global_name}" ] || {
+      printf '%s did not initialize %s to empty\n' "$module" "$global_name" >&2
+      exit 1
+      }
+    done | LC_ALL=C sort > "$work_dir/globals.expected"
+  fi
+  cmp -s "$work_dir/globals.expected" "$work_dir/globals.actual" || {
+    printf '%s global initialization differs from the module contract\n' "$module" >&2
+    diff -u "$work_dir/globals.expected" "$work_dir/globals.actual" >&2 || true
+    exit 1
+  }
+done <<'EOF'
+herdr-child-runtime.sh|atomic_write fail_usage generation_nonce json_agent_snapshot json_child_context json_created_tab_hint json_generation_status json_has_name json_has_pair json_identity_for_pane json_resolve_parent json_tab_identity metadata_report metadata_report_checked metadata_report_if_generation now_ms print_start_result print_supervision_failure print_supervision_uncertain require_herdr require_parent script_path state_value supervision_reason tab_reap_status usage write_launch_state|
+herdr-child-supervision.sh|acquire_arm_guard begin_reap_invalidation begin_supervision_transition clear_supervision_metadata clear_supervision_state_labels delivery_retry_pause finish_delivery_transition invalidate_generation next_delivery_retry_delay preserve_callback_waiting_label publish_reap_recovery publish_supervision_recovery reap_owner_recovery_status refresh_supervision_liveness release_arm_guard remove_supervision_run report_signal_supervision request_watcher_abort signal_reap_transition start_reap_owner_guard stop_owned_watcher stop_reap_owner_guard wait_for_watcher_failure wait_for_watcher_state watcher_fail watcher_fail_without_publish watcher_generation_current watcher_hold_expired watcher_invalidation_action watcher_preflight_fail watcher_publish_failed|REAP_OWNER_GUARD_PID REAP_OWNER_TOKEN
+herdr-child-watcher.sh|deliver_supervision_event watch_child|DELIVERY_REASON
+herdr-child-launch.sh|start_child|
+herdr-child-continuation.sh|ask_parent managed_detached_prompt persist_callback_state prompt_child reply_child wait_for_fresh_settlement|
+herdr-child-reap.sh|reap_children|
+EOF
+BASH
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_270_herdr_child_reap_invalidation_barrier_is_bounded() {
+  _bats_test_init 270 'herdr-child reap invalidation barrier restores supervision when abandoned'
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local generation run_dir reap_pid reap_status attempt=0
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  printf 'done\n' > "$CHILD_STUB/child-list-status"
+  : > "$CHILD_STUB/block-delivery-pane-get"
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/delivery-pane-get.ready"
+
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER="$CHILD_STUB/reap-invalidated" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" reap --pane wT:p9 child-life > "$CHILD_STUB/reap-bounded.out" 2>&1 &
+  reap_pid=$!
+  CHILD_REAP_PID="$reap_pid"
+  child_wait_for_file "$CHILD_STUB/reap-invalidated.ready"
+  while kill -0 "$reap_pid" 2>/dev/null && [ "$attempt" -lt 300 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  if kill -0 "$reap_pid" 2>/dev/null; then
+    kill -TERM "$reap_pid" 2>/dev/null || true
+    wait "$reap_pid" 2>/dev/null || true
+    CHILD_REAP_PID=""
+    fail 'reap invalidation barrier exceeded its test hold bound'
+  fi
+  if wait "$reap_pid"; then reap_status=0; else reap_status=$?; fi
+  CHILD_REAP_PID=""
+  assert_equal "$reap_status" 1
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+  assert_dir_exists "$run_dir"
+  assert_file_exists "$run_dir/invalidated.state"
+  assert_file_exists "$run_dir/reap-pending.state"
+  assert_file_exists "$run_dir/reap-restore.state"
+
+  : > "$CHILD_STUB/delivery-pane-get.release"
+  child_wait_for_file "$CHILD_STUB/successful-prompts.log"
+  attempt=0
+  while [ -d "$run_dir" ] && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+  assert_dir_not_exists "$run_dir"
+}
+
+function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
+  _bats_test_init 271 'herdr-child shared lifecycle primitives keep polling and launch-state contracts'
+  local work_dir runtime supervision
+  work_dir="$(mktemp -d)"
+  runtime="$SOURCE_ROOT/dot_local/lib/herdr-child-runtime.sh"
+  supervision="$SOURCE_ROOT/dot_local/lib/herdr-child-supervision.sh"
+
+  run env WORK_DIR="$work_dir" RUNTIME="$runtime" SUPERVISION="$supervision" bash -c '
+    set -u
+    source "$RUNTIME"
+    source "$SUPERVISION"
+
+    IFS=$'"'"'\n'"'"'
+    write_launch_state "$WORK_DIR/launch.state" generation-1 12345 parent-pane \
+      parent-terminal parent-session child-name child-pane child-terminal \
+      child-session 42 || exit 10
+
+    : > "$WORK_DIR/wanted.state"
+    wait_for_watcher_state "$WORK_DIR/wanted.state" "$WORK_DIR/failed.state" "$$" || exit 11
+    rm -f "$WORK_DIR/wanted.state"
+    : > "$WORK_DIR/failed.state"
+    status=0
+    wait_for_watcher_state "$WORK_DIR/wanted.state" "$WORK_DIR/failed.state" "$$" || status=$?
+    [ "$status" -eq 2 ] || exit 12
+    rm -f "$WORK_DIR/failed.state"
+    : > "$WORK_DIR/failure-only.state"
+    wait_for_watcher_failure "$WORK_DIR/failure-only.state" "$$" || exit 13
+    rm -f "$WORK_DIR/failure-only.state"
+    status=0
+    wait_for_watcher_failure "$WORK_DIR/failure-only.state" 2147483647 || status=$?
+    [ "$status" -eq 1 ] || exit 14
+
+    if write_launch_state "$WORK_DIR/invalid.state" generation-2 12345 parent-pane \
+      parent-terminal parent-session $'"'"'bad\nname'"'"' child-pane child-terminal \
+      child-session 42; then
+      exit 15
+    fi
+  '
+  assert_success
+  run cat "$work_dir/launch.state"
+  assert_success
+  assert_output "$(printf '%s\n' 'mode=detach' 'generation=generation-1' 'timeout_ms=12345' \
+    'parent_pane=parent-pane' 'parent_terminal=parent-terminal' 'parent_session=parent-session' \
+    'child_name=child-name' 'child_pane=child-pane' 'child_terminal=child-terminal' \
+    'child_session=child-session' 'baseline_seq=42')"
+  assert_file_not_exists "$work_dir/invalid.state"
 }
 
 function set_up_before_script() {
