@@ -32,7 +32,7 @@ Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as
 Send Claude this prompt:
 
 ```text
-Invoke `/compound-engineering:ce-simplify-code` as the governing rubric for this scope:
+Invoke `ce-simplify-code` as the governing rubric for this scope:
 
 <resolved scope>
 

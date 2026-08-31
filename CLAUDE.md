@@ -90,6 +90,14 @@ Adding a managed config, step by step:
 
 </important>
 
+<important if="you are adding or changing agent skills">
+
+- `home/private_dot_config/agent-skills/manifest` is the source of truth for selected upstream skills. Use `~/.local/bin/skills {add|remove|update|sync}` to manage the live global installation; `sync` reports drift but never removes it.
+- `home/private_dot_agents/skills/` is chezmoi's canonical storage for repository-owned model-invocable skills. The Skills CLI owns separate children in `~/.agents/skills` and records their ownership in its global lock; do not let either owner claim the same effective skill name.
+- `eli5` and `open-questions` are explicit-only Claude/Pi adapters with OpenCode command adapters. Client plugins retain non-skill functionality only. Restart Claude Code, OpenCode, and Pi after deployment or discovery changes.
+
+</important>
+
 <important if="you are adding or changing an explicit-only workflow">
 
 An explicit-only workflow interrupts the current task and must run only after a direct user request. Keep one canonical description and body in `home/.chezmoitemplates/explicit-only-<name>-description.txt` and `home/.chezmoitemplates/explicit-only-<name>-body.md`.

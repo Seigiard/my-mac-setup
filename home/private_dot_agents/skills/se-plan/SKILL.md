@@ -10,7 +10,7 @@ Thin wrapper over the Compound Engineering `ce-plan` skill. The entire planning 
 
 ## How to run
 
-Invoke the current client's skill tool with the original arguments unchanged: `compound-engineering:ce-plan` in Claude Code or `ce-plan` in OpenCode. Execute its workflow with the amendments.
+Invoke the current client's skill tool with the original arguments unchanged: `ce-plan`. Execute its workflow with the amendments.
 
 ## Amendment 1 — no scoping-confirmation gate by default
 
@@ -26,7 +26,7 @@ Use the **combined** envelope (local + synthesis) for everything downstream in t
 
 ## Keep the plugin skill everywhere else
 
-- **Menu option "Decide on the review's open items"** → re-invoke the plugin skill directly (`compound-engineering:ce-doc-review` in Claude Code or `ce-doc-review` in OpenCode), interactive and without `mode:headless`. The peer reviews already ran; do NOT go through the wrapper again because that would launch another pair. Fold the synthesis's unresolved Consensus/Unique/Contradiction items into that walkthrough.
+- **Menu option "Decide on the review's open items"** → re-invoke the plugin skill directly (`ce-doc-review`), interactive and without `mode:headless`. The peer reviews already ran; do NOT go through the wrapper again because that would launch another pair. Fold the synthesis's unresolved Consensus/Unique/Contradiction items into that walkthrough.
 - Any other internal reference the plugin workflow makes to `ce-doc-review` beyond 5.3.8 also means the plugin skill.
 
 ## Notes

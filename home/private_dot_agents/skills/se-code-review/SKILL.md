@@ -6,7 +6,7 @@ argument-hint: "[mode:agent] [PR URL/number | branch | base:<ref>] [plan:<path>]
 
 # Cross-model code review in herdr
 
-Run the same `compound-engineering:ce-code-review` workflow through two fresh peer sessions.
+Run the same `ce-code-review` workflow through two fresh peer sessions.
 
 Both peers review the same current checkout independently in `mode:agent`. They return reports and never edit the checkout. After collecting their reports, close both tabs before synthesis. Never resume or reuse either peer, and never retain one for another phase.
 
@@ -59,7 +59,7 @@ JSON output flow. Return the final raw JSON report.
 Send Claude this invocation line, then the shared review contract verbatim:
 
 ```text
-Invoke `/compound-engineering:ce-code-review` with these exact arguments:
+Invoke `ce-code-review` with these exact arguments:
 
 mode:agent <resolved arguments>
 ```

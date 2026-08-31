@@ -40,10 +40,10 @@ Ask the user when:
 
 Every skill's own description already carries its triggers. These four lines resolve what a description cannot:
 
-- **Review, plan, or doc-review → the local `/se-*` wrapper** (`/se-code-review`, `/se-plan`, `/se-doc-review`), never the `compound-engineering:ce-*` original it wraps: same workflow plus independent external claude + opencode legs.
-- **Commit, push, PR → `/compound-engineering:ce-commit` or `ce-commit-push-pr`.** The skill owns every git command; run none of them yourself first.
+- **Review, plan, or doc-review → the local `/se-*` wrapper** (`/se-code-review`, `/se-plan`, `/se-doc-review`), never the bare portable `ce-*` original it wraps: same workflow plus independent external Claude and OpenCode legs.
+- **Commit, push, PR → `ce-commit` or `ce-commit-push-pr`.** The skill owns every git command; run none of them yourself first.
 - **Plan iteration ("итерация N", "дальше") → load the plan file first**, then batch 2–3 units per pass, each batch gated on a commit.
-- **Migration or refactor → `/compound-engineering:ce-work` with scope fidelity:** code the migration deleted stays deleted.
+- **Migration or refactor → `ce-work` with scope fidelity:** code the migration deleted stays deleted.
 
 ## Working with code
 
