@@ -6,11 +6,11 @@ argument-hint: "[optional: feature description, requirements doc path, plan path
 
 # Create Technical Plan (wrapper: plugin ce-plan + external doc review)
 
-Thin wrapper over `compound-engineering:ce-plan`. The entire planning workflow is the plugin's — invoke it and follow it faithfully with the **four amendments** below. Do not re-implement, reorder, or skip any of its phases.
+Thin wrapper over the Compound Engineering `ce-plan` skill. The entire planning workflow is the plugin's — invoke it and follow it faithfully with the **four amendments** below. Do not re-implement, reorder, or skip any of its phases.
 
 ## How to run
 
-Invoke the Skill tool with skill `compound-engineering:ce-plan`, passing the original arguments unchanged, and execute its workflow with the amendments.
+Invoke the current client's skill tool with the original arguments unchanged: `compound-engineering:ce-plan` in Claude Code or `ce-plan` in OpenCode. Execute its workflow with the amendments.
 
 ## Amendment 1 — no scoping-confirmation gate by default
 
@@ -20,18 +20,18 @@ This skips ONLY that confirmation. Everything that asks a real question stays: P
 
 ## Amendment 2 — document review through the wrapper
 
-Phase 5.3.8 Document Review (`references/plan-handoff.md`). Where the handoff says to run the `ce-doc-review` skill with `mode:headless <plan-path>`: invoke the Skill tool with skill **bare `se-doc-review`** (the user-level wrapper at `~/.claude/skills/se-doc-review`), NOT `compound-engineering:ce-doc-review`, with the same args (`mode:headless <plan-path>`). The wrapper dispatches fresh Claude and OpenCode peers, runs the local plugin review concurrently, closes both peer panes, synthesizes the three envelopes, and returns the combined text before control comes back. This ordering is deliberate: everything must settle **before** the post-generation menu renders, because the menu is a stopping point where the user may end the session.
+Phase 5.3.8 Document Review (`references/plan-handoff.md`). Where the handoff says to run the `ce-doc-review` skill with `mode:headless <plan-path>`: invoke the current client's skill tool with **bare `se-doc-review`** (the user-level wrapper at `~/.claude/skills/se-doc-review`), not the plugin's `ce-doc-review`, with the same args (`mode:headless <plan-path>`). The wrapper dispatches fresh Claude and OpenCode peers, runs the local plugin review concurrently, closes both peer panes, synthesizes the three envelopes, and returns the combined text before control comes back. This ordering is deliberate: everything must settle **before** the post-generation menu renders, because the menu is a stopping point where the user may end the session.
 
 Use the **combined** envelope (local + synthesis) for everything downstream in the plugin workflow: the 5.3.9 final checks, the counts in the summary line above the post-generation menu, and pipeline-mode P0/P1 handling.
 
 ## Keep the plugin skill everywhere else
 
-- **Menu option "Decide on the review's open items"** → re-invoke `compound-engineering:ce-doc-review` (the plugin skill, interactive, no `mode:headless`) directly. The peer reviews already ran; do NOT go through the wrapper again because that would launch another pair. Fold the synthesis's unresolved Consensus/Unique/Contradiction items into that walkthrough.
+- **Menu option "Decide on the review's open items"** → re-invoke the plugin skill directly (`compound-engineering:ce-doc-review` in Claude Code or `ce-doc-review` in OpenCode), interactive and without `mode:headless`. The peer reviews already ran; do NOT go through the wrapper again because that would launch another pair. Fold the synthesis's unresolved Consensus/Unique/Contradiction items into that walkthrough.
 - Any other internal reference the plugin workflow makes to `ce-doc-review` beyond 5.3.8 also means the plugin skill.
 
 ## Notes
 
-- **Cost:** the amended review step runs three multi-persona reviews concurrently: the local pass plus the canonical Claude and OpenCode peers from `~/.claude/shared/herdr-peer-launch.md`. This is intentional. For a plan without peer review, invoke `compound-engineering:ce-plan` directly.
+- **Cost:** the amended review step runs three multi-persona reviews concurrently: the local pass plus the canonical Claude and OpenCode peers from `~/.claude/shared/herdr-peer-launch.md`. This is intentional. For a plan without peer review, invoke the plugin's `ce-plan` skill directly.
 - **HTML plans** (`output:html`): the plugin skips document review entirely for HTML output; the amendment then never fires and no harness is launched.
 - If the current prompt contains `[ce-doc-review-external-consult]`, you are inside a peer review. Never invoke this wrapper or launch another pair.
 
@@ -44,7 +44,7 @@ pipeline's own verify-code gate then flagged exactly those decisions as P0s.
 After the combined three-envelope review, before rendering the Phase 5.4
 post-generation menu: if any **P0 or P1** finding remains in the "Proposed
 fixes" or "Decisions" buckets, the plan is NOT done. Do not offer the
-execution options (`Start /ce-work`, `Run it as a /goal`) yet. Instead:
+execution options (`Start se-work`, `Run it as a goal`) yet. Instead:
 
 1. Say so explicitly ("N P0/P1 review items are unresolved — an executable
    plan must not carry them silently") and route the user into

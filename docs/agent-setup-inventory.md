@@ -96,8 +96,10 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 - `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
 - Own: `lfg`.
 - Canonical Claude skills exposed through managed symlinks: `ask-in-herdr`,
-  `markdown-new`, `plan-explainer`, `vector-prime`, `work-summary`,
-  `writing-for-agents`.
+  `markdown-new`, `plan-explainer`, all local `se-*` workflows (`se-cleanup`,
+  `se-code-review`, `se-doc-review`, `se-flow`, `se-plan`,
+  `se-review-and-work`, `se-simplify`, `se-work`), `vector-prime`,
+  `work-summary`, `writing-for-agents`.
 
 ### Commands (`~/.config/opencode/commands/`)
 

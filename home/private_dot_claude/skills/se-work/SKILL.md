@@ -17,7 +17,7 @@ Argument contract: an optional plan path; `validate-cmd:'<cmd>'` maps to `--vali
 ## Phase 1 — resolve and preflight
 
 - Plan: explicit path argument, else the freshest `docs/plans/*.md` with `artifact_readiness: implementation-ready`. When not explicit, confirm the pick with the user before launching.
-- `artifact_readiness: requirements-only` → stop; that plan needs `/se-plan` enrichment first.
+- `artifact_readiness: requirements-only` → stop; that plan needs the `se-plan` skill first.
 - Neither a `validate_commands:` frontmatter list nor a `Verification Contract` section with a runnable command → gate-0 hard-errors, naming both shapes. Flag it before launch; pass `--validate-cmd` only if the user supplied an override. A declared list is used verbatim, so a declared mutating flag (`--write`, `--fix`) is refused there too — the work gate requires a clean worktree after the command runs.
 - Launch from the **target repo root** — the cwd becomes `PIPELINE_REPO` / `DOC_REVIEW_REPO`.
 - Check `se list` first: an already-running run on the same repo means observe it, not double-launch.
@@ -34,7 +34,7 @@ cd <repo-root> && se pipeline <plan-path> [--validate-cmd '<cmd>'] [--setup-cmd 
 
 ## Phase 3 — monitor
 
-Wait with a background Bash task (`run_in_background: true`) that exits on the first non-running status — foreground sleep loops are blocked in Claude Code, and one completion notification is all this needs:
+Read `~/.claude/shared/long-running-work.md`, then wait with the current client's supervised long-running mechanism. The monitor must survive the turn, make its first event observable, and wake the agent on the first non-running status; do not run a foreground sleep loop in the operator session. Use this monitor body:
 
 ```bash
 while :; do
@@ -43,7 +43,7 @@ while :; do
 done
 ```
 
-While it runs, keep the session free for the user; report when the task re-invokes you.
+While it runs, keep the session free for the user; report when the supervision mechanism re-invokes you or exposes the terminal event.
 
 - **Killed / cancelled** — `se resume <runId>`. Force-resume waits out the dead owner's heartbeat (~30-45s); `se` prints the hint when that applies.
 - Never edit files inside the run's worktree while the run is live.
@@ -54,7 +54,7 @@ Reached on a doc-review that is not green, a red work gate, or code-review findi
 
 - **Read the verdict, not the log.** A ✓ in `se logs` means the node finished — a gate that decided *failed* carries the same ✓ as a green one. The verdict is the `GATE <stage>: FAILED` block in the log and the request title under `DECISION REQUIRED` in `se show <runId>`.
 - **Approve is not "continue."** At a red work gate it buys ONE more paid attempt of that stage; a second failure stops the run with a report. Per-gate approve semantics: `~/Projects/my-mac-setup/docs/se-pipeline.md`.
-- **Present the pause as a decision brief** (`~/.claude/shared/decision-brief.md`): what this gate checks in plain words, the failure verbatim plus the gate's reasons, what approve / deny / abort each do to the run, your recommendation. Ask with AskUserQuestion (preload with `ToolSearch select:AskUserQuestion`); each option description carries its consequence, so the user decides without reading the log.
+- **Present the pause as a decision brief** (`~/.claude/shared/decision-brief.md`): what this gate checks in plain words, the failure verbatim plus the gate's reasons, what approve / deny / abort each do to the run, your recommendation. Ask with the current platform's blocking question tool; each option description carries its consequence, so the user decides without reading the log.
 - **Record it with `se approve <runId>`** (or `deny` / `abort`) — it resumes the run itself, because the owner process exits when a run parks and a recorded decision moves nothing on its own. It declines only when a live process already owns the run, and says so. Still parked → `se resume <runId>`.
 
 ## Phase 4 — report

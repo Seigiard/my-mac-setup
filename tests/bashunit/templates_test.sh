@@ -282,7 +282,11 @@ function test_templates_013_opencode_skill_symlinks_target_canonical_claude() {
   _bats_test_init 13 'opencode skill symlinks target canonical claude skills'
   local skill
 
-  for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
+  for skill in \
+    ask-in-herdr markdown-new plan-explainer \
+    se-cleanup se-code-review se-doc-review se-flow se-plan \
+    se-review-and-work se-simplify se-work \
+    vector-prime work-summary writing-for-agents; do
     run render_template "$SOURCE_ROOT/private_dot_config/opencode/skills/symlink_${skill}.tmpl"
     assert_success
     assert_output "$HOME/.claude/skills/$skill"
@@ -628,4 +632,3 @@ function tear_down_after_script() {
 }
 
 function tear_down() { _bats_run_teardown; }
-

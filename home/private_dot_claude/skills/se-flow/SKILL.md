@@ -41,7 +41,7 @@ The pre-launch dialogue is the **only** human touchpoint of a run. Every block i
 
 ## Phase 4: Correction intake during a run
 
-While a run is active the operator may send a pipeline or behavior correction. File it as a `docs/issues/` entry via an **in-session subagent** whose tool grant allows Write/Edit **only under `docs/issues/**`** (enforced by the subagent's permission rules, not prose). The running flow is untouched; the operator triages the issue later.
+While a run is active the operator may send a pipeline or behavior correction. File it directly through the target repository's issue workflow under `docs/issues/`; use a subagent only when the current client can enforce a Write/Edit grant limited to `docs/issues/**`. The running flow is untouched; the operator triages the issue later.
 
 ## Trust and escalation rules
 

@@ -18,7 +18,7 @@ Treat tokens beginning with `mode:` as flags. The remaining token, when present,
 
 - Path provided: resolve it to an absolute path and require a readable file.
 - No path, interactive: ask which document to review, or find the most recent document in `docs/brainstorms/` or `docs/plans/` with a file-search tool.
-- No path, headless: output `Review failed: headless mode requires a document path. Re-invoke with: Skill("se-doc-review", "mode:headless <path>")` and stop before scanning or launching peers.
+- No path, headless: output `Review failed: headless mode requires a document path. Re-invoke the se-doc-review skill with: mode:headless <path>` and stop before scanning or launching peers.
 
 Record whether the wrapper was invoked with `mode:headless`; delivery uses that mode after synthesis.
 
@@ -30,7 +30,7 @@ The external payload is the document itself. Unless `SE_SKIP_SECRET_SCAN` is set
 gitleaks dir --no-banner --redact --exit-code 2 "$DOC_PATH"
 ```
 
-Any nonzero exit or unavailable scanner refuses the peer launch and sends nothing externally. In that path, invoke local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`, then deliver its envelope with degraded peer coverage. The override deliberately skips this gate; report that fact.
+Any nonzero exit or unavailable scanner refuses the peer launch and sends nothing externally. In that path, invoke the local plugin skill with `mode:headless DOC_PATH`: `compound-engineering:ce-doc-review` in Claude Code or `ce-doc-review` in OpenCode. Then deliver its envelope with degraded peer coverage. The override deliberately skips this gate; report that fact.
 
 After a clean or explicitly waived scan, copy the document to an isolated temporary directory while preserving its basename and extension:
 
@@ -102,7 +102,7 @@ canonical schema. An empty review still includes Coverage with explicit zero
 counts. End with the exact line: Review complete
 ```
 
-After the shared lifecycle submits both prompts and before it waits, invoke the local `compound-engineering:ce-doc-review` with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and tab closure.
+After the shared lifecycle submits both prompts and before it waits, invoke the local plugin skill with `mode:headless DOC_PATH`: `compound-engineering:ce-doc-review` in Claude Code or `ce-doc-review` in OpenCode. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and tab closure.
 
 Accept an envelope only when Coverage accounts for every attempted persona, its counts reconcile, every surviving finding is routed once with its required fields, and the terminal line is exact. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. If all three passes fail, fail the review without modifying the document further.
 

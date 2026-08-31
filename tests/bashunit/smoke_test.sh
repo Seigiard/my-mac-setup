@@ -433,7 +433,11 @@ function test_smoke_019_opencode_exposes_curated_claude_skills_through_c() {
   _bats_test_init 19 'opencode exposes curated claude skills through canonical symlinks'
   local skill
 
-  for skill in ask-in-herdr markdown-new plan-explainer vector-prime work-summary writing-for-agents; do
+  for skill in \
+    ask-in-herdr markdown-new plan-explainer \
+    se-cleanup se-code-review se-doc-review se-flow se-plan \
+    se-review-and-work se-simplify se-work \
+    vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.config/opencode/skills/$skill"
     assert_success
     assert_output "$HOME/.claude/skills/$skill"
