@@ -8270,6 +8270,40 @@ function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
   done
 }
 
+function test_scripts_2781_skills_sync_default_file_limit_accepts_smithers_documentation() {
+  _bats_test_init 2781 'skills sync default file limit accepts the upstream Smithers documentation artifact'
+  local stub manifest lock canonical ready skill
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/canonical"
+  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  mkdir -p "$(dirname "$lock")" "$canonical/smithers" "$(dirname "$ready")"
+  : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'smithersai/smithers smithers' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"smithers":{"source":"smithersai/smithers"}}}' > "$lock"
+  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
+    mkdir -p "$canonical/$skill"
+    printf '%s\n' skill > "$canonical/$skill/SKILL.md"
+  done
+  dd if=/dev/zero of="$canonical/smithers/llms-full.txt" bs=1105837 count=1 2>/dev/null
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-generation"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
+  assert_success
+  assert_file_exists "$ready"
+
+  dd if=/dev/zero of="$canonical/smithers/llms-full.txt" bs=2097153 count=1 2>/dev/null
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
+  assert_failure
+  assert_output --partial 'canonical tree file exceeds 2097152 bytes'
+  assert_file_not_exists "$ready"
+}
+
 function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wildcards() {
   _bats_test_init 279 'skills sync reports non-wildcard drift without removing it'
   local stub manifest lock canonical skill
