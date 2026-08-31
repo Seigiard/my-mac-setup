@@ -195,7 +195,8 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
 # ask-in-herdr skill script
 # ===========================================
 
-ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_claude/skills/ask-in-herdr/scripts"
+ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_agents/skills/ask-in-herdr/scripts"
+ASK_HERDR_SCRIPT="$ASK_HERDR_DIR/executable_ask.sh"
 
 ask_live_stub() {
   CHILD_STUB="$(mktemp -d)"
@@ -239,7 +240,7 @@ SH
 
 function test_scripts_009_ask_in_herdr_script_requires_arguments() {
   _bats_test_init 9 'ask-in-herdr script requires arguments'
-  run bash "$ASK_HERDR_DIR/ask.sh"
+  run bash "$ASK_HERDR_SCRIPT"
   assert_failure 2
   assert_output --partial "Usage:"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
@@ -247,19 +248,19 @@ function test_scripts_009_ask_in_herdr_script_requires_arguments() {
 
 function test_scripts_010_ask_sh_rejects_unknown_agents_and_the_removed_he() {
   _bats_test_init 10 'ask.sh rejects unknown agents and the removed headless flag'
-  run bash "$ASK_HERDR_DIR/ask.sh" bogus question
+  run bash "$ASK_HERDR_SCRIPT" bogus question
   assert_failure 2
   assert_output --partial "claude opencode pi"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
-  run bash "$ASK_HERDR_DIR/ask.sh" claude question --model
+  run bash "$ASK_HERDR_SCRIPT" claude question --model
   assert_failure 2
   assert_output --partial "Usage:"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question --headless
+    bash "$ASK_HERDR_SCRIPT" claude question --headless
   assert_failure 2
   assert_output --partial "unknown flag '--headless'"
   assert_output --partial "ask.sh: status=refused"
@@ -270,7 +271,7 @@ function test_scripts_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
   _bats_test_init 11 'ask.sh refuses outside herdr and when herdr-child is absent'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 2
   assert_output --partial "status=refused"
   [ ! -f "$CHILD_STUB/child.log" ]
@@ -278,7 +279,7 @@ function test_scripts_011_ask_sh_refuses_outside_herdr_and_when_herdr_chil() {
   local no_child; no_child="$(mktemp -d)"
   cp "$CHILD_STUB/herdr" "$no_child/herdr"
   run env PATH="$no_child:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 2
   assert_output --partial "herdr-child is not on PATH"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
@@ -289,7 +290,7 @@ function test_scripts_012_ask_sh_starts_a_read_only_live_child_and_returns() {
   _bats_test_init 12 'ask.sh starts a read-only live child and returns its answer'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude "hi there"
+    bash "$ASK_HERDR_SCRIPT" claude "hi there"
   assert_success
   assert_output --partial "ANSWER from child"
   assert_output --partial "close with: herdr-child reap --pane wT:p9 consult-claude-"
@@ -311,7 +312,7 @@ function test_scripts_013_ask_sh_keeps_a_settled_answer_when_the_parent_re() {
   _bats_test_init 13 'ask.sh keeps a settled answer when the parent reminder cannot be queued'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=done STUB_PARENT_PROMPT_FAIL=1 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_DIR/ask.sh" claude question
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_SCRIPT" claude question
   assert_success
   assert_output --partial "ANSWER from child"
   assert_output --partial "warning: could not queue the cleanup reminder"
@@ -323,7 +324,7 @@ function test_scripts_014_ask_sh_forwards_posture_and_every_native_caller() {
   _bats_test_init 14 'ask.sh forwards posture and every native caller option'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" pi question --rw --model M --effort high \
+    bash "$ASK_HERDR_SCRIPT" pi question --rw --model M --effort high \
       --cwd "$PWD" --skills A --skills B --agent N
   assert_success
   run grep -E -- '--posture rw' "$CHILD_STUB/child.log"
@@ -333,7 +334,7 @@ function test_scripts_014_ask_sh_forwards_posture_and_every_native_caller() {
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" opencode question
+    bash "$ASK_HERDR_SCRIPT" opencode question
   assert_success
   run grep -q -- '--model' "$CHILD_STUB/child.log"
   assert_failure
@@ -343,7 +344,7 @@ function test_scripts_015_ask_sh_retries_a_colliding_derived_name_with_a_v() {
   _bats_test_init 15 'ask.sh retries a colliding derived name with a valid suffix'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_NAME_COLLISION=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_success
   run grep -E -- '--name consult-claude-[0-9]+-2' "$CHILD_STUB/child.log"
   assert_success
@@ -353,7 +354,7 @@ function test_scripts_016_ask_sh_reports_blocked_children_after_printing_t() {
   _bats_test_init 16 'ask.sh reports blocked children after printing their answer'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=blocked HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" opencode question
+    bash "$ASK_HERDR_SCRIPT" opencode question
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
@@ -362,7 +363,7 @@ function test_scripts_016_ask_sh_reports_blocked_children_after_printing_t() {
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_WAITING_LABEL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" pi question --rw
+    bash "$ASK_HERDR_SCRIPT" pi question --rw
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=blocked"
@@ -373,7 +374,7 @@ function test_scripts_017_ask_sh_reports_undelivered_when_child_output_can() {
   _bats_test_init 17 'ask.sh reports undelivered when child output cannot be read'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_READ_FAIL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_output --partial "read failed"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
@@ -383,7 +384,7 @@ function test_scripts_018_ask_sh_reports_a_still_working_child_with_exit_1() {
   _bats_test_init 18 'ask.sh reports a still-working child with exit 124'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
@@ -394,21 +395,21 @@ function test_scripts_019_ask_sh_classifies_successful_waits_with_working() {
   _bats_test_init 19 'ask.sh classifies successful waits with working, unknown, and fallback statuses'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=working HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=unknown HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_STATUS=surprised HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
@@ -418,13 +419,13 @@ function test_scripts_020_ask_sh_maps_child_start_failures_to_refused_or_u() {
   _bats_test_init 20 'ask.sh maps child start failures to refused or undelivered'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" pi question
+    bash "$ASK_HERDR_SCRIPT" pi question
   assert_failure 2
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_CHILD_STATUS=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_DIR/ask.sh" claude question
+    bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
@@ -2169,8 +2170,8 @@ child_marker_skeleton() {
 function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   _bats_test_init 58 'herdr-child emitted markers round-trip the documented wire shapes'
   local contract="$SOURCE_ROOT/private_dot_claude/shared/child-agent-contract.md"
-  local skill="$SOURCE_ROOT/private_dot_claude/skills/herdr/SKILL.md"
-  local consult="$SOURCE_ROOT/private_dot_claude/skills/ask-in-herdr/SKILL.md"
+  local skill="$SOURCE_ROOT/private_dot_agents/skills/herdr/SKILL.md"
+  local consult="$SOURCE_ROOT/private_dot_agents/skills/ask-in-herdr/SKILL.md"
 
   # #given — a detached child settles, so the watcher prompts the parent
   child_lifecycle_stub_herdr
@@ -8317,7 +8318,7 @@ function test_scripts_281_agent_skills_sync_hook_reports_node_and_npx_prerequisi
   local stub="$BATS_TEST_TMPDIR/prerequisite-bin"
   mkdir -p "$stub"
 
-  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
   assert_failure
   assert_output --partial 'Node.js is not available'
 
@@ -8326,7 +8327,7 @@ function test_scripts_281_agent_skills_sync_hook_reports_node_and_npx_prerequisi
 [ "$1" != --version ] || exit 1
 SH
   chmod +x "$stub/node"
-  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
   assert_failure
   assert_output --partial 'Node.js is unavailable or incompatible'
 
@@ -8335,7 +8336,7 @@ SH
 printf '%s\n' v22.0.0
 SH
   chmod +x "$stub/node"
-  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
   assert_failure
   assert_output --partial 'npx is not available'
 
@@ -8344,7 +8345,7 @@ SH
 [ "$1" != --version ] || exit 1
 SH
   chmod +x "$stub/npx"
-  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" MMS_DISPOSABLE_HOME=0 bash "$BATS_TEST_TMPFILE"
   assert_failure
   assert_output --partial 'npx is unavailable or incompatible'
 }
@@ -8371,7 +8372,7 @@ exit 23
 SH
   chmod +x "$stub/node" "$stub/npx" "$home/.local/bin/skills"
 
-  run env PATH="$stub:/usr/bin:/bin" HOME="$home" SKILLS_MANIFEST=ambient-manifest bash "$BATS_TEST_TMPFILE"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" MMS_DISPOSABLE_HOME=0 SKILLS_MANIFEST=ambient-manifest bash "$BATS_TEST_TMPFILE"
   assert_failure 23
   run cat "$home/wrapper.log"
   assert_success

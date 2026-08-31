@@ -27,12 +27,12 @@ Keep one canonical body. Add a thin adapter only where a client cannot consume t
 - Global skills live at `~/.config/opencode/skills/<name>/SKILL.md`; project skills live at `.opencode/skills/<name>/SKILL.md`.
 - OpenCode recognizes the Agent Skills fields `name`, `description`, `license`, `compatibility`, and `metadata`; it ignores unknown frontmatter fields. `disable-model-invocation` therefore does not create an explicit-only OpenCode skill.
 - A discovered skill is model-visible through the `skill` tool. Use a native command adapter under `commands/` when a workflow must remain explicit-only.
-- This setup disables automatic external and Claude-skill discovery with `OPENCODE_DISABLE_EXTERNAL_SKILLS=1` and `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`. Expose a model-invoked canonical Claude skill through a managed symlink under `home/private_dot_config/opencode/skills/`.
+- This setup leaves external discovery enabled so OpenCode consumes `~/.agents/skills` natively. `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` keeps Claude-only explicit workflows out of OpenCode discovery.
 
 ### Pi
 
 - Global skills live at `~/.pi/agent/skills/`; project skills live at `.pi/skills/`.
-- This setup adds `~/.claude/skills` to Pi's `settings.skills`, so Pi consumes the canonical Claude directory without another adapter.
+- Pi consumes model-invoked skills from `~/.agents/skills`. Add a Pi symlink adapter only when an explicit-only Claude skill needs its metadata preserved.
 - Pi honors `disable-model-invocation: true`: the skill leaves model discovery and remains manually available as `/skill:<name>` when skill commands are enabled.
 - Pi ignores unknown frontmatter fields, but portable shared skills should keep client-only fields to those required by their canonical client.
 
@@ -42,9 +42,10 @@ Edit this repository's source under `home/`, never the deployed file under `~/`.
 
 Use one canonical source:
 
-- Author the shared body under `home/private_dot_claude/skills/<name>/` when Claude Code and Pi consume the same skill.
-- Give OpenCode a symlink adapter for a model-invoked shared skill.
-- Give OpenCode a command adapter for an explicit-only shared workflow.
+- Author model-invoked shared bodies under `home/private_dot_agents/skills/<name>/`.
+- Give Claude Code a `SKILL.md` symlink adapter for a model-invoked shared skill.
+- Give OpenCode a command adapter, but never a native-skill adapter, for an explicit-only workflow.
+- Keep explicit-only bodies under `home/private_dot_claude/skills/<name>/` and give Pi a directory symlink adapter.
 - Record the client surfaces in `docs/agent-setup-inventory.md`.
 
 ## Split by invocation

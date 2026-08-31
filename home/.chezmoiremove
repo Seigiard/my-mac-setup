@@ -15,6 +15,23 @@
 # live and breaks the smoke deployment contract (tests/smoke.bats).
 .config/opencode/themes/flexoki-light-forced.json
 
+# OpenCode now discovers ~/.agents/skills directly. Remove the former Claude
+# symlink adapters so they cannot remain as duplicate discovery providers.
+.config/opencode/skills/ask-in-herdr
+.config/opencode/skills/markdown-new
+.config/opencode/skills/plan-explainer
+.config/opencode/skills/se-cleanup
+.config/opencode/skills/se-code-review
+.config/opencode/skills/se-doc-review
+.config/opencode/skills/se-flow
+.config/opencode/skills/se-plan
+.config/opencode/skills/se-review-and-work
+.config/opencode/skills/se-simplify
+.config/opencode/skills/se-work
+.config/opencode/skills/vector-prime
+.config/opencode/skills/work-summary
+.config/opencode/skills/writing-for-agents
+
 # Marta now reads configuration from Application Support/org.yanex.marta.
 # Remove the legacy config directory that earlier applies left behind.
 Library/marta

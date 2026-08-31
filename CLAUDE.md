@@ -94,14 +94,15 @@ Adding a managed config, step by step:
 
 An explicit-only workflow interrupts the current task and must run only after a direct user request. Keep one canonical description and body in `home/.chezmoitemplates/explicit-only-<name>-description.txt` and `home/.chezmoitemplates/explicit-only-<name>-body.md`.
 
-Package the canonical content through two thin adapters:
+Package the canonical content through three thin adapters:
 
 - Claude Code: `home/private_dot_claude/skills/<name>/SKILL.md.tmpl`, with `disable-model-invocation: true`. Pi reads this deployed skill through its existing `~/.claude/skills` source and needs no separate adapter.
+- Pi: `home/dot_pi/agent/skills/symlink_<name>.tmpl`, targeting the deployed Claude skill directory so Pi keeps the same explicit-only metadata.
 - OpenCode: `home/private_dot_config/opencode/commands/<name>.md.tmpl`, which exposes a manual command. Never add the workflow under `home/private_dot_config/opencode/skills/`.
 
 Use raw `include` with the explicit `.chezmoitemplates/<file>` path so literal Markdown and Go-template syntax remain data. Do not use `includeTemplate`, which executes the included content. Treat `$ARGUMENTS`, `$<digits>`, and unquoted `@path` as reserved OpenCode command syntax; a workflow that must preserve these sequences literally needs client-specific content instead.
 
-Keep both OpenCode discovery-disable exports in `home/dot_zshenv.tmpl`. After deployment, restart each client from the managed zsh environment before checking discovery. Add the workflow name to the `explicit-only workflows keep manual invocation boundaries` case in `tests/bashunit/smoke_test.sh`, then run `make test-templates` and `make test-ubuntu`.
+Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCode cannot discover the Claude-only adapters. Do not set `OPENCODE_DISABLE_EXTERNAL_SKILLS`; OpenCode must discover shared `~/.agents/skills` natively. After deployment, restart each client from the managed zsh environment before checking discovery. Add the workflow name to the `explicit-only workflows keep manual invocation boundaries` case in `tests/bashunit/smoke_test.sh`, then run `make test-templates` and `make test-ubuntu`.
 
 </important>
 

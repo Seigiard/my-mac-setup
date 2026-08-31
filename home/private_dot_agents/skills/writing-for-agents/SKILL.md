@@ -88,4 +88,4 @@ A **dispatch brief** — the prompt handed to a spawned agent (a subagent, an op
 - Carry the facts, never their history: exact paths, runnable commands, the contract of done as a completion criterion.
 - The acceptance test: the brief runs verbatim in a fresh session and produces the intended work with no questions back. A brief that needs you nearby to interpret it has failed the test.
 
-<!-- Source: https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents — vendored; the "Dispatch briefs" section and the description's dispatch trigger are local additions. -->
+<!-- Source: https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents — vendored under its MIT License; the "Dispatch briefs" section and the description's dispatch trigger are local additions. -->

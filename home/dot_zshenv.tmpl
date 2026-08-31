@@ -80,10 +80,10 @@ export LINEAR_ISSUE_SORT="manual"
 
 # -------------------------------------------
 # OpenCode
-# Keep OpenCode skill discovery scoped to OpenCode's native skill paths.
-# These are env-var escape hatches, not valid opencode.json keys.
+# Keep Claude-only skill discovery disabled so explicit-only Claude adapters
+# cannot leak into OpenCode. OpenCode discovers ~/.agents/skills natively.
+# This is an env-var escape hatch, not an opencode.json key.
 # -------------------------------------------
-export OPENCODE_DISABLE_EXTERNAL_SKILLS=1
 export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
 {{ if .is_darwin }}
