@@ -701,20 +701,23 @@ function test_templates_031_agent_skills_provider_removal_requires_an_exact_cuto
     assert_success
 
     if [ "$state" = matched ]; then
-      run jq -e '.enabledPlugins | has("compound-engineering@compound-engineering-plugin") or has("frontend-design@claude-plugins-official") or has("playground@claude-plugins-official")' <<< "$claude"
+      run jq -e '.enabledPlugins | has("compound-engineering@compound-engineering-plugin") or has("frontend-design@claude-plugins-official")' <<< "$claude"
       assert_failure
       run jq -e '.extraKnownMarketplaces | has("compound-engineering-plugin")' <<< "$claude"
       assert_failure
       run jq -e '.plugin | index("compound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git")' <<< "$opencode"
       assert_failure
     else
-      run jq -e '.enabledPlugins["compound-engineering@compound-engineering-plugin"] and .enabledPlugins["frontend-design@claude-plugins-official"] and .enabledPlugins["playground@claude-plugins-official"]' <<< "$claude"
+      run jq -e '.enabledPlugins["compound-engineering@compound-engineering-plugin"] and .enabledPlugins["frontend-design@claude-plugins-official"]' <<< "$claude"
       assert_success
       run jq -e '.extraKnownMarketplaces | has("compound-engineering-plugin")' <<< "$claude"
       assert_success
       run jq -e '.plugin | index("compound-engineering@git+https://github.com/EveryInc/compound-engineering-plugin.git")' <<< "$opencode"
       assert_success
     fi
+
+    run jq -e '.enabledPlugins | has("playground@claude-plugins-official")' <<< "$claude"
+    assert_failure
 
     # These plugins have non-skill behavior and must survive both branches.
     run jq -e '.enabledPlugins["claude-md-management@claude-plugins-official"] and .enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"

@@ -28,9 +28,8 @@ type SkillLock = Map<string, LockEntry> | undefined;
 
 export function defaultCompoundSkillPaths(home = os.homedir(), env = process.env): CompoundSkillPaths {
   const configHome = env.XDG_CONFIG_HOME || path.join(home, ".config");
-  const lockPath = env.XDG_STATE_HOME
-    ? path.join(env.XDG_STATE_HOME, "skills/.skill-lock.json")
-    : path.join(home, ".agents/.skill-lock.json");
+  const stateHome = env.XDG_STATE_HOME || path.join(home, ".local/state");
+  const lockPath = path.join(stateHome, "skills/.skill-lock.json");
   return {
     canonicalRoot: path.join(home, ".agents/skills"),
     legacyRoot: path.join(home, ".claude/plugins/cache/compound-engineering-plugin/compound-engineering"),

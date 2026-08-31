@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolveCompoundSkill, stageCompoundSkill, type CompoundSkillPaths } from "./compound-skill.ts";
+import { defaultCompoundSkillPaths, resolveCompoundSkill, stageCompoundSkill, type CompoundSkillPaths } from "./compound-skill.ts";
 
 const tempDirs: string[] = [];
 const SOURCE = "EveryInc/compound-engineering-plugin";
@@ -55,6 +55,12 @@ afterAll(() => {
 });
 
 describe("Compound Engineering skill resolution", () => {
+  test("uses the default XDG state path when XDG_STATE_HOME is unset", () => {
+    const home = "/test/home";
+
+    expect(defaultCompoundSkillPaths(home, {}).lockPath).toBe(path.join(home, ".local/state/skills/.skill-lock.json"));
+  });
+
   test("accepts only bare skill names", () => {
     const paths = fixture();
 
