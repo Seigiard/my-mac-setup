@@ -623,6 +623,18 @@ function test_templates_028_the_minimal_render_deploys_brewfile_macos_empty() {
   assert_file_contains "$dest/.config/brewfiles/Brewfile" '^brew "jq"'
 }
 
+function test_templates_029_agent_skills_generation_renders_without_gnu_sha256sum() {
+  _bats_test_init 29 'agent-skills generation uses chezmoi hashing, not the host sha256sum executable'
+  skip_if_no_chezmoi
+  local template="$SOURCE_ROOT/private_dot_config/agent-skills/cutover-generation.tmpl"
+  local empty_path="$BATS_TEST_TMPDIR/no-commands"
+  mkdir -p "$empty_path"
+
+  run env PATH="$empty_path" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template"
+  assert_success
+  assert_output --regexp '^v1:[0-9a-f]{64}$'
+}
+
 function set_up_before_script() {
   :
 }

@@ -8039,6 +8039,230 @@ function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
   assert_file_not_exists "$work_dir/invalid.state"
 }
 
+SKILLS_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_skills"
+
+skills_stub_npx() {
+  local stub="$BATS_TEST_TMPDIR/skills-stub"
+  mkdir -p "$stub"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf 'PWD=%s\n' "$PWD" >> "$TMPDIR/npx.log"
+printf 'HOME=%s\n' "${HOME:-}" >> "$TMPDIR/npx.log"
+printf 'XDG_STATE_HOME=%s\n' "${XDG_STATE_HOME:-}" >> "$TMPDIR/npx.log"
+printf 'ARGS=' >> "$TMPDIR/npx.log"
+printf '<%s>' "$@" >> "$TMPDIR/npx.log"
+printf '\n' >> "$TMPDIR/npx.log"
+exit "${NPX_STATUS:-0}"
+SH
+  chmod +x "$stub/npx"
+  printf '%s' "$stub"
+}
+
+function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
+  _bats_test_init 272 'skills add invokes npx globally in an isolated temporary-directory subshell'
+  local stub original
+  stub="$(skills_stub_npx)"
+  original="$PWD"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_DATA_HOME="$BATS_TEST_TMPDIR/data" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" XDG_CACHE_HOME="$BATS_TEST_TMPDIR/cache" \
+    bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^PWD=.*/tmp$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><owner/repo><--skill><named-skill><--global><--agent><claude-code><--agent><opencode><--agent><pi>$'
+  assert_equal "$PWD" "$original"
+}
+
+function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_remove_update() {
+  _bats_test_init 273 'skills validates argv before npx and maps remove and update to global upstream calls'
+  local stub="$BATS_TEST_TMPDIR/skills-stub" lock
+  stub="$(skills_stub_npx)"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add owner/repo
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><owner/repo><--skill><\*><--global>'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><owned>$'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" update owned
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<update><--global><owned>$'
+
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add 'owner/repo;touch'
+  assert_failure
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_274_skills_rejects_malformed_lock_before_npx_and_invalidates_attestation() {
+  _bats_test_init 274 'skills sync invalidates cutover then fails closed on malformed live lock without npx mutation'
+  local stub lock ready before
+  stub="$(skills_stub_npx)"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  mkdir -p "$(dirname "$lock")" "$(dirname "$ready")"
+  printf '%s\n' '{not-json' > "$lock"
+  cp "$lock" "$BATS_TEST_TMPDIR/lock.before"
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$ready"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$SOURCE_ROOT/private_dot_config/agent-skills/manifest" bash "$SKILLS_WRAPPER" sync
+  assert_failure
+  assert_file_not_exists "$ready"
+  run cmp "$BATS_TEST_TMPDIR/lock.before" "$lock"
+  assert_success
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_275_skills_sync_stops_on_failed_install_without_drift_report() {
+  _bats_test_init 275 'skills sync stops at a failed source install and does not report drift'
+  local stub manifest lock
+  stub="$(skills_stub_npx)"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$TMPDIR/npx.log"
+exit 9
+SH
+  chmod +x "$stub/npx"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  : > "$BATS_TEST_TMPDIR/repository-owned"
+  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"obsolete":{"source":"missing/source"}}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    SKILLS_REPOSITORY_OWNED_MANIFEST="$BATS_TEST_TMPDIR/repository-owned" \
+    bash "$SKILLS_WRAPPER" sync
+  assert_failure 9
+  refute_output --partial 'drift:'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^add$'
+}
+
+function test_scripts_276_skills_remove_uses_xdg_and_fallback_locks_identically() {
+  _bats_test_init 276 'skills remove validates source ownership through XDG and fallback global locks'
+  local stub state_lock fallback_lock
+  stub="$(skills_stub_npx)"
+  state_lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  fallback_lock="$BATS_TEST_TMPDIR/home/.agents/.skill-lock.json"
+  mkdir -p "$(dirname "$state_lock")" "$(dirname "$fallback_lock")"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$state_lock"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$fallback_lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_success
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME= bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_success
+  run grep -c '<remove><--global><owned>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_output '2'
+}
+
+function test_scripts_277_skills_sync_restores_repository_owned_wildcard_collision() {
+  _bats_test_init 277 'skills sync restores a repository-owned wildcard collision and removes its lock claim'
+  local stub manifest lock canonical ready
+  stub="$(skills_stub_npx)"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+exit 0
+SH
+  chmod +x "$stub/npx"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  ready="$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$(dirname "$ready")"
+  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
+  printf '%s\n' original > "$canonical/local-skill/SKILL.md"
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$ready"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+  assert_failure
+  run cat "$canonical/local-skill/SKILL.md"
+  assert_output original
+  assert_file_not_exists "$ready"
+  run python3 - "$lock" <<'PY'
+import json, sys
+assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
+PY
+  assert_success
+}
+
+function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
+  _bats_test_init 278 'skills sync blocks symlink, non-regular, and oversized canonical entries before cutover'
+  local kind stub manifest lock canonical item skill
+  for kind in symlink fifo oversized; do
+    stub="$(skills_stub_npx)"
+    manifest="$BATS_TEST_TMPDIR/$kind.manifest"
+    lock="$BATS_TEST_TMPDIR/$kind/state/skills/.skill-lock.json"
+    canonical="$BATS_TEST_TMPDIR/$kind/canonical"
+    mkdir -p "$(dirname "$lock")" "$canonical" "$BATS_TEST_TMPDIR/$kind/config/agent-skills"
+    : > "$BATS_TEST_TMPDIR/$kind/config/agent-skills/repository-owned"
+    printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+    printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
+    for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
+      mkdir -p "$canonical/$skill"
+      printf '%s\n' skill > "$canonical/$skill/SKILL.md"
+    done
+    case "$kind" in
+      symlink) ln -s /etc/passwd "$canonical/escape" ;;
+      fifo) mkfifo "$canonical/non-regular" ;;
+      oversized) dd if=/dev/zero of="$canonical/oversized" bs=1048577 count=1 2>/dev/null ;;
+    esac
+    run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/$kind/home" TMPDIR="$BATS_TEST_TMPDIR/$kind/tmp" \
+      XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/$kind/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/$kind/state" \
+      SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" SKILLS_MAX_FILE_BYTES=1048576 \
+      bash "$SKILLS_WRAPPER" sync
+    assert_failure
+    assert_file_not_exists "$BATS_TEST_TMPDIR/$kind/config/agent-skills/cutover-ready"
+  done
+}
+
+function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wildcards() {
+  _bats_test_init 279 'skills sync reports non-wildcard drift without removing it'
+  local stub manifest lock canonical skill
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/canonical"
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
+  : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'EveryInc/compound-engineering-plugin *' 'owner/repo desired' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"desired":{"source":"owner/repo"},"stale":{"source":"owner/repo"},"orphan":{"source":"gone/repo"}}}' > "$lock"
+  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work desired; do
+    mkdir -p "$canonical/$skill"
+    printf '%s\n' skill > "$canonical/$skill/SKILL.md"
+  done
+  printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-generation"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
+  assert_success
+  assert_output --partial 'drift: skills remove owner/repo stale'
+  assert_output --partial 'drift: skills remove gone/repo orphan'
+  refute_output --partial 'ce-code-review'
+  assert_file_exists "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+}
+
 function set_up_before_script() {
   :
 }
