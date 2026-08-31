@@ -53,13 +53,11 @@ description = "close pane, then tab, but keep workspace"
 prompt_new_tab_name = false
 sidebar_min_width = 32
 
-# herdr-task-sync (~/.local/bin/herdr-task-sync) combines the workspace and pane
-# label into $agent_line, and Git identity plus counts into $git_line. One token
-# per row avoids Herdr's hardcoded middle-dot separator. The script still
-# publishes independent Git tokens for other consumers and rebuilds tab labels
-# from the individual pane labels.
+# Keep workspace and pane as separate built-in tokens so Herdr preserves their
+# distinct styles. herdr-task-sync (~/.local/bin/herdr-task-sync) combines Git
+# identity plus counts into $git_line and rebuilds tab labels from pane labels.
 [ui.sidebar.agents]
-rows = [["state_icon", "$agent_line"], ["$git_line"]]
+rows = [["state_icon", "workspace", "pane"], ["$git_line"]]
 
 # Native agent-status toasts are off: the herdr-focus-notify plugin sends its
 # own clickable notification (with `herdr agent focus` on click), and the two
