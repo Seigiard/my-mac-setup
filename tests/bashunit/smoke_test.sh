@@ -47,6 +47,47 @@ function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
 }
 
+render_pi_settings() {
+  local home="$1" modifier="$2"
+  printf '%s\n' '{"skills":["~/.claude/skills","/keep-this-source"],"unrelated":true}' \
+    | env HOME="$home" XDG_CONFIG_HOME="$home/.config" bash "$modifier"
+}
+
+function test_smoke_077_pi_settings_retire_legacy_discovery_only_after_exact_cutover() {
+  _bats_test_init 77 'Pi removes Compound Engineering and Claude skill-root discovery only after exact cutover'
+  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local state home rendered
+  for state in absent stale malformed matched; do
+    home="$BATS_TEST_TMPDIR/pi-$state"
+    mkdir -p "$home/.config/agent-skills"
+    printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$home/.config/agent-skills/cutover-generation"
+    case "$state" in
+      stale) printf '%s\n' 'v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$home/.config/agent-skills/cutover-ready" ;;
+      malformed) printf '%s\n' 'not-a-cutover-attestation' > "$home/.config/agent-skills/cutover-ready" ;;
+      matched) printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$home/.config/agent-skills/cutover-ready" ;;
+    esac
+    run render_pi_settings "$home" "$modifier"
+    assert_success
+    rendered="$output"
+    run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$rendered"
+    assert_success
+    run jq -e '.unrelated and (.skills | index("/keep-this-source"))' <<< "$rendered"
+    assert_success
+
+    if [ "$state" = matched ]; then
+      run jq -e '.packages | index("git:github.com/EveryInc/compound-engineering-plugin")' <<< "$rendered"
+      assert_failure
+      run jq -e '.skills | index("~/.claude/skills")' <<< "$rendered"
+      assert_failure
+    else
+      run jq -e '.packages | index("git:github.com/EveryInc/compound-engineering-plugin")' <<< "$rendered"
+      assert_success
+      run jq -e '.skills | index("~/.claude/skills")' <<< "$rendered"
+      assert_success
+    fi
+  done
+}
+
 # Covers the suite-end orphan guard (docs/issues/2026-08-28-001). The
 # near-miss controls are load-bearing: a dead launcher with a surviving run
 # dir is a concurrent run's legitimately held watcher, not an orphan.

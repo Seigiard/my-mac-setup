@@ -18,23 +18,35 @@ fi
   let input = "";
   for await (const chunk of process.stdin) input += chunk;
 
+  const fs = require("fs");
+  const path = require("path");
   const settings = input.trim() === "" ? {} : JSON.parse(input);
   const extensions = [
     "npm:@ff-labs/pi-fff",
     "npm:@howaboua/pi-codex-conversion",
     "npm:pi-subagents",
     "npm:pi-agent-browser-native",
-    "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
     "npm:@trevonistrevon/pi-loop",
     "npm:pi-web-access",
     "npm:pi-context-view",
   ];
-  const requiredSkills = ["~/.claude/skills"];
-  const skills = Array.isArray(settings.skills) ? settings.skills : [];
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || ".", ".config");
+  const cutoverReady = path.join(configHome, "agent-skills", "cutover-ready");
+  const cutoverGeneration = path.join(configHome, "agent-skills", "cutover-generation");
+  let cutoverActive = false;
+  try {
+    cutoverActive = fs.readFileSync(cutoverReady).equals(fs.readFileSync(cutoverGeneration));
+  } catch (_) {
+    // Absent, unreadable, and malformed attestation inputs preserve the fallback.
+  }
 
-  for (const skillSource of requiredSkills) {
-    if (!skills.includes(skillSource)) skills.push(skillSource);
+  let skills = Array.isArray(settings.skills) ? settings.skills : [];
+  if (cutoverActive) {
+    skills = skills.filter((skillSource) => skillSource !== "~/.claude/skills");
+  } else {
+    extensions.push("git:github.com/EveryInc/compound-engineering-plugin");
+    if (!skills.includes("~/.claude/skills")) skills.push("~/.claude/skills");
   }
 
   settings.theme = "terminal";

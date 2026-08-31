@@ -163,7 +163,7 @@ require_disposable_home() {
 
 render_template() {
   local template_file="$1"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$template_file"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
 }
 
 # Write the config that `chezmoi init` would generate, using the caller's

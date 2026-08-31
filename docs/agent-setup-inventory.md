@@ -14,11 +14,28 @@ dotfiles repo) · `bundle:name` (ships inside a bundle) · `?` (unconfirmed).
 
 ## Common
 
-### Compound Engineering
+### Compound Engineering Cutover
 
-Install on Claude, Opencode, Pi
+`~/.local/bin/skills` installs the Compound Engineering skills from the managed
+manifest. Until `~/.config/agent-skills/cutover-ready` exactly matches the
+managed `cutover-generation`, legacy providers remain enabled. This makes an
+absent, stale, unreadable, or malformed marker a rollback-safe state.
 
-https://github.com/EveryInc/compound-engineering-plugin
+| Client | Legacy provider | Non-skill inventory | Disposition after exact cutover |
+| ------ | --------------- | ------------------- | ------------------------------ |
+| Claude Code | `compound-engineering@compound-engineering-plugin` | Portable `ce-*` skills | Retire provider. No separately managed commands, agents, hooks, or extensions are required from it. |
+| OpenCode | Compound Engineering plugin | Generated convenience commands for `ce-*` skills | Retire provider and commands. Native portable skill invocation is the accepted replacement. |
+| Pi | `git:github.com/EveryInc/compound-engineering-plugin` package | Portable `ce-*` skills | Retire package. No separately managed commands, agents, hooks, or extensions are required from it. |
+
+Claude's `frontend-design` and `playground` plugins are also retired only on
+exact cutover because their selected skills move to the manifest. The retained
+Claude plugins `claude-md-management`, `playwright`, `plugin-dev`,
+`security-guidance`, and `typescript-lsp` provide non-skill behavior.
+
+**Rollback:** remove `cutover-ready`, apply the retained-provider template
+branch, and restart clients. Do not remove verified canonical skill trees.
+Restoring the retired chezmoi external skill directories requires a git revert;
+the marker does not restore their former ownership.
 
 ### CC Safety Net
 
@@ -37,15 +54,21 @@ https://ccsafetynet.com/docs/installation
 | claude-plugins-official | `gh:anthropics/claude-plugins-official` |
 | cc-marketplace          | `gh:kenryu42/cc-marketplace`            |
 
+`compound-engineering-plugin` is a legacy marketplace declaration retained only
+until exact cutover, then removed with its provider.
+
 ### Plugins — `claude plugin install <plugin>@<marketplace>`
 
-| Plugin               | Marketplace             | Scope | Status  |
-| -------------------- | ----------------------- | ----- | ------- |
-| claude-md-management | claude-plugins-official | user  | enabled |
-| playground           | claude-plugins-official | user  | enabled |
-| playwright           | claude-plugins-official | user  | enabled |
-| skill-creator        | claude-plugins-official | user  | enabled |
-| plugin-dev           | claude-plugins-official | user  | enabled |
+| Plugin               | Marketplace             | Scope | Status                         |
+| -------------------- | ----------------------- | ----- | ------------------------------ |
+| claude-md-management | claude-plugins-official | user  | enabled                        |
+| compound-engineering | compound-engineering-plugin | user | retained until exact cutover |
+| frontend-design      | claude-plugins-official | user  | retained until exact cutover   |
+| playground           | claude-plugins-official | user  | retained until exact cutover   |
+| playwright           | claude-plugins-official | user  | enabled                        |
+| plugin-dev           | claude-plugins-official | user  | enabled                        |
+| security-guidance    | claude-plugins-official | user  | enabled                        |
+| typescript-lsp       | claude-plugins-official | user  | enabled                        |
 
 ### Skills (`~/.claude/skills/`)
 
@@ -55,8 +78,8 @@ https://ccsafetynet.com/docs/installation
 | eli5              | `repo`                              | repo        |
 | handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
 | herdr             | `repo`                              | repo        |
-| improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
-| linear            | `gh:schpet/linear-cli`              | chezmoi-ext |
+| improve-claude-md | managed manifest                    | Skills CLI  |
+| linear            | managed manifest                    | Skills CLI  |
 | markdown-new      | `repo`                              | repo        |
 | open-questions    | `repo`                              | repo        |
 | plan-explainer    | `repo`                              | repo        |
@@ -93,7 +116,6 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Skills (`~/.config/opencode/skills/`)
 
-- `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
 - Own: `lfg`.
 - Canonical Claude skills exposed through managed symlinks: `ask-in-herdr`,
   `markdown-new`, `plan-explainer`, all local `se-*` workflows (`se-cleanup`,
@@ -110,7 +132,6 @@ Local plugins kept in repo: `herdr-agent-state.js`.
 
 ### Agents (`~/.config/opencode/agent/` — ~51)
 
-- `bundle:compound-engineering` — the `ce-*` reviewer/researcher set (~48). Not enumerated.
 - Own / synced: `agent-enhancer`, `open-source-librarian`, `review`.
 
 ---
@@ -126,10 +147,8 @@ is manual, and this inventory intentionally does not duplicate the package list.
 
 ### Skills (`~/.pi/agent/skills/`)
 
-No Pi-only live skills are kept. Pi reads shared Claude skills from
-`~/.claude/skills` through `~/.pi/agent/settings.json` `skills[]`.
-This includes the explicit-only `eli5` and `open-questions` skills, invoked as
-`/skill:eli5` and `/skill:open-questions`.
+Pi has no explicit Claude skill-root discovery source after cutover. Portable
+skills are discovered from the global Skills CLI installation instead.
 
 ### Agents (`~/.pi/agent/agents/`)
 
