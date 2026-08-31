@@ -8252,6 +8252,14 @@ function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wil
     printf '%s\n' skill > "$canonical/$skill/SKILL.md"
   done
   printf '%s\n' 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-generation"
+  printf '%s\n' 'v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  cat > "$stub/mv" <<'SH'
+#!/usr/bin/env bash
+printf '<%s>' "$@" > "$TMPDIR/mv.log"
+printf '\n' >> "$TMPDIR/mv.log"
+exec /bin/mv "$@"
+SH
+  chmod +x "$stub/mv"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -8260,7 +8268,114 @@ function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wil
   assert_output --partial 'drift: skills remove owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
   refute_output --partial 'ce-code-review'
-  assert_file_exists "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  run cat "$BATS_TEST_TMPDIR/config/agent-skills/cutover-ready"
+  assert_success
+  assert_output 'v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  run grep -E 'cutover-ready\.tmp\.[0-9]+.*cutover-ready>$' "$BATS_TEST_TMPDIR/tmp/mv.log"
+  assert_success
+}
+
+# ===========================================
+# agent-skills onchange hook
+# ===========================================
+
+AGENT_SKILLS_SYNC_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_9-sync-agent-skills.sh.tmpl"
+
+render_agent_skills_sync() {
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$AGENT_SKILLS_SYNC_TMPL"
+}
+
+function test_scripts_280_agent_skills_sync_hook_renders_valid_bash_and_skips_disposable_homes() {
+  _bats_test_init 280 'agent-skills sync hook is valid Bash and skips network work in disposable homes'
+  skip_if_no_chezmoi
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/sync-agent-skills.sh"
+  render_agent_skills_sync > "$BATS_TEST_TMPFILE"
+  run bash -n "$BATS_TEST_TMPFILE"
+  assert_success
+
+  local stub="$BATS_TEST_TMPDIR/disposable-bin"
+  mkdir -p "$stub"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+: > "$TMPDIR/npx-ran"
+exit 99
+SH
+  chmod +x "$stub/npx"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    MMS_DISPOSABLE_HOME=1 SKILLS_MANIFEST=ambient-manifest bash "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'skipping agent-skills synchronization in disposable home'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx-ran"
+}
+
+function test_scripts_281_agent_skills_sync_hook_reports_node_and_npx_prerequisites() {
+  _bats_test_init 281 'agent-skills sync hook clearly rejects missing or incompatible Node.js and npx'
+  skip_if_no_chezmoi
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/sync-agent-skills.sh"
+  render_agent_skills_sync > "$BATS_TEST_TMPFILE"
+  local stub="$BATS_TEST_TMPDIR/prerequisite-bin"
+  mkdir -p "$stub"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'Node.js is not available'
+
+  cat > "$stub/node" <<'SH'
+#!/usr/bin/env bash
+[ "$1" != --version ] || exit 1
+SH
+  chmod +x "$stub/node"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'Node.js is unavailable or incompatible'
+
+  cat > "$stub/node" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' v22.0.0
+SH
+  chmod +x "$stub/node"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'npx is not available'
+
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+[ "$1" != --version ] || exit 1
+SH
+  chmod +x "$stub/npx"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" bash "$BATS_TEST_TMPFILE"
+  assert_failure
+  assert_output --partial 'npx is unavailable or incompatible'
+}
+
+function test_scripts_282_agent_skills_sync_hook_unsets_manifest_and_preserves_wrapper_failure() {
+  _bats_test_init 282 'agent-skills sync hook invokes the deployed wrapper with no ambient manifest and preserves its status'
+  skip_if_no_chezmoi
+  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/sync-agent-skills.sh"
+  render_agent_skills_sync > "$BATS_TEST_TMPFILE"
+  local home="$BATS_TEST_TMPDIR/home" stub="$BATS_TEST_TMPDIR/healthy-bin"
+  mkdir -p "$home/.local/bin" "$stub"
+  cat > "$stub/node" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' v22.0.0
+SH
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 10.0.0
+SH
+  cat > "$home/.local/bin/skills" <<'SH'
+#!/usr/bin/env bash
+printf 'manifest=%s\n' "${SKILLS_MANIFEST-unset}" > "$HOME/wrapper.log"
+exit 23
+SH
+  chmod +x "$stub/node" "$stub/npx" "$home/.local/bin/skills"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" SKILLS_MANIFEST=ambient-manifest bash "$BATS_TEST_TMPFILE"
+  assert_failure 23
+  run cat "$home/wrapper.log"
+  assert_success
+  assert_output 'manifest=unset'
 }
 
 function set_up_before_script() {

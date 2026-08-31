@@ -635,6 +635,34 @@ function test_templates_029_agent_skills_generation_renders_without_gnu_sha256su
   assert_output --regexp '^v1:[0-9a-f]{64}$'
 }
 
+function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_input() {
+  _bats_test_init 30 'agent-skills sync onchange hash changes when either managed input changes'
+  skip_if_no_chezmoi
+  local hook="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_9-sync-agent-skills.sh.tmpl"
+  local source="$BATS_TEST_TMPDIR/source" first manifest_changed wrapper_changed
+  mkdir -p "$source/private_dot_config/agent-skills" "$source/dot_local/bin"
+  cp "$SOURCE_ROOT/private_dot_config/agent-skills/manifest" \
+    "$source/private_dot_config/agent-skills/manifest"
+  cp "$SOURCE_ROOT/dot_local/bin/executable_skills" "$source/dot_local/bin/executable_skills"
+
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$source" execute-template < "$hook"
+  assert_success
+  first="$output"
+  printf '\n# manifest probe\n' >> "$source/private_dot_config/agent-skills/manifest"
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$source" execute-template < "$hook"
+  assert_success
+  manifest_changed="$output"
+  printf '\n# wrapper probe\n' >> "$source/dot_local/bin/executable_skills"
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$source" execute-template < "$hook"
+  assert_success
+  wrapper_changed="$output"
+
+  run test "$first" != "$manifest_changed"
+  assert_success
+  run test "$manifest_changed" != "$wrapper_changed"
+  assert_success
+}
+
 function set_up_before_script() {
   :
 }
