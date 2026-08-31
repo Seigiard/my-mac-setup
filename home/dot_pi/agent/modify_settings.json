@@ -45,7 +45,7 @@ fi
   if (cutoverActive) {
     skills = skills.filter((skillSource) => skillSource !== "~/.claude/skills");
   } else {
-    extensions.push("git:github.com/EveryInc/compound-engineering-plugin");
+    extensions.splice(4, 0, "git:github.com/EveryInc/compound-engineering-plugin");
     if (!skills.includes("~/.claude/skills")) skills.push("~/.claude/skills");
   }
 

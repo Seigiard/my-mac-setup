@@ -7171,59 +7171,92 @@ function test_scripts_249_claude_settings_modifier_passes_settings_through() {
 # ===========================================
 
 function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
-  _bats_test_init 250 'Pi settings modifier selects the terminal theme and exact extension packages'
+  _bats_test_init 250 'Pi settings modifier retains legacy providers until cutover attestation matches'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["npm:pi-ask-user","npm:obsolete-extension","npm:unexpected-extension"],"skills":["~/custom/skills"]}'
+  local config_home="$BATS_TEST_TMPDIR/pi-settings-fallback-config"
+  local agent_skills="$config_home/agent-skills"
 
-  run bash "$modifier" <<< "$input"
+  mkdir -p "$agent_skills"
 
-  assert_success
-  run jq -e '
-    [
-      "npm:@ff-labs/pi-fff",
-      "npm:@howaboua/pi-codex-conversion",
-      "npm:pi-subagents",
-      "npm:pi-agent-browser-native",
-      "git:github.com/EveryInc/compound-engineering-plugin",
-      "npm:pi-ask-user",
-      "npm:@trevonistrevon/pi-loop",
-      "npm:pi-web-access",
-      "npm:pi-context-view"
-    ] as $extensions |
-    .theme == "terminal" and
-    .lastChangelogVersion == "0.84.2" and
-    (.packages == $extensions) and
-    (.skills | index("~/.claude/skills") != null) and
-    (.skills | index("~/custom/skills") != null)
-  ' <<< "$output"
-  assert_success
+  # Missing, stale, and malformed markers must all keep the migration fallback.
+  for state in absent stale malformed; do
+    rm -f "$agent_skills/cutover-ready" "$agent_skills/cutover-generation"
+    case "$state" in
+      stale)
+        printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
+        printf 'cutover-v1-stale\n' > "$agent_skills/cutover-ready"
+        ;;
+      malformed)
+        printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
+        printf 'not-a-cutover-attestation\n' > "$agent_skills/cutover-ready"
+        ;;
+    esac
+
+    run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$input"
+
+    assert_success
+    run jq -e '
+      [
+        "npm:@ff-labs/pi-fff",
+        "npm:@howaboua/pi-codex-conversion",
+        "npm:pi-subagents",
+        "npm:pi-agent-browser-native",
+        "git:github.com/EveryInc/compound-engineering-plugin",
+        "npm:pi-ask-user",
+        "npm:@trevonistrevon/pi-loop",
+        "npm:pi-web-access",
+        "npm:pi-context-view"
+      ] as $extensions |
+      .theme == "terminal" and
+      .lastChangelogVersion == "0.84.2" and
+      (.packages == $extensions) and
+      (.skills | index("~/.claude/skills") != null) and
+      (.skills | index("~/custom/skills") != null)
+    ' <<< "$output"
+    assert_success
+  done
 }
 
 function test_scripts_251_pi_settings_modifier_is_idempotent() {
   _bats_test_init 251 'Pi settings modifier is idempotent'
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
-  local input='{"packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/.claude/skills"]}'
+  local input='{"lastChangelogVersion":"0.84.2","model":"anthropic/claude-sonnet-4-5","packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/custom/skills","~/.claude/skills"]}'
+  local config_home="$BATS_TEST_TMPDIR/pi-settings-cutover-config"
+  local agent_skills="$config_home/agent-skills"
+  local once
 
-  run bash "$modifier" <<< "$input"
+  mkdir -p "$agent_skills"
+  printf 'cutover-v1-current\n' > "$agent_skills/cutover-generation"
+  cp "$agent_skills/cutover-generation" "$agent_skills/cutover-ready"
+
+  run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$input"
 
   assert_success
+  once="$output"
   run jq -e '
     [
       "npm:@ff-labs/pi-fff",
       "npm:@howaboua/pi-codex-conversion",
       "npm:pi-subagents",
       "npm:pi-agent-browser-native",
-      "git:github.com/EveryInc/compound-engineering-plugin",
       "npm:pi-ask-user",
       "npm:@trevonistrevon/pi-loop",
       "npm:pi-web-access",
       "npm:pi-context-view"
     ] as $extensions |
     (.theme == "terminal") and
+    (.lastChangelogVersion == "0.84.2") and
+    (.model == "anthropic/claude-sonnet-4-5") and
     (.packages == $extensions) and
-    ([.skills[] | select(. == "~/.claude/skills")] | length == 1)
-  ' <<< "$output"
+    (.skills == ["~/custom/skills"])
+  ' <<< "$once"
   assert_success
+
+  run env XDG_CONFIG_HOME="$config_home" bash "$modifier" <<< "$once"
+
+  assert_success
+  assert_output "$once"
 }
 
 function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
