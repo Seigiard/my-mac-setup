@@ -63,7 +63,7 @@ keybind = cmd+t=unbind
 # palette: Tabs & workspaces | ⌘N | New workspace
 keybind = cmd+KeyN=text:\x02N
 keybind = cmd+n=unbind
-# palette: Tabs & workspaces | ⌘⇧N | New or switch worktree
+# palette: Tabs & workspaces | ⌘⇧N | New worktree
 keybind = cmd+shift+KeyN=text:\x02G
 keybind = cmd+shift+n=unbind
 # palette: Panes | ⌘D | Split right

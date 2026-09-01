@@ -25,6 +25,7 @@ setup() {
   # the first test below is what names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
+  export NEW_WORKTREE_PY="$PALETTE_DIR/new_worktree.py"
   export OPEN_IN_ZED_PY="$PALETTE_DIR/open_in_zed.py"
   export PYTHONPATH="$BATS_TEST_DIRNAME/helpers${PYTHONPATH:+:$PYTHONPATH}"
   PALETTE_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette.XXXXXX")"
@@ -107,6 +108,7 @@ function test_palette_004_palette_sources_under_source_root_compile() {
   run python3 -m py_compile \
     "$PALETTE_DIR/palette.py" \
     "$PALETTE_DIR/open.py" \
+    "$PALETTE_DIR/new_worktree.py" \
     "$PALETTE_DIR/open_in_zed.py" \
     "$PALETTE_DIR/smart_close.py"
   assert_success
@@ -465,7 +467,7 @@ function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   run rank_real ""
   assert_success
   assert_line --index 0 "Lazygit in new tab"
-  assert_equal "${#lines[@]}" 12
+  assert_equal "${#lines[@]}" 13
 }
 
 function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
@@ -1130,16 +1132,16 @@ PY
   refute_output --partial "Traceback"
 }
 
-function test_palette_058_worktrunk_commands_dispatch_the_plugin_actions() {
-  _bats_test_init 58 'Worktrunk commands dispatch open, remove and merge plugin actions'
+function test_palette_058_worktrunk_commands_separate_new_from_switch_or_create() {
+  _bats_test_init 58 'Worktrunk commands separate direct creation from the interactive picker'
   run env HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
 import palette_boot
 
 palette = palette_boot.palette()
 config_path, commands = palette.load_commands()
-worktrunk = [command for command in commands if str(command.raw.get("action", "")).startswith("worktrunk.")]
 assert {command.title for command in palette.ranked("worktree", commands, palette.DEFAULT_LIMIT)} == {
-    "New or switch worktree",
+    "New worktree",
+    "Switch or create worktree",
     "Delete worktree",
     "Merge worktree",
 }
@@ -1151,16 +1153,89 @@ class Result:
 
 calls = []
 palette.subprocess.run = lambda command, **kwargs: calls.append(command) or Result()
-for command in worktrunk:
+for title in ("New worktree", "Switch or create worktree", "Delete worktree", "Merge worktree"):
+    command = next(command for command in commands if command.title == title)
     palette.run_command_with_variables(command, config_path, {}, "herdr")
 
 assert calls == [
+    ["herdr", "plugin", "action", "invoke", "seigi.command-palette.new_worktree"],
     ["herdr", "plugin", "action", "invoke", "worktrunk.open"],
     ["herdr", "plugin", "action", "invoke", "worktrunk.remove"],
     ["herdr", "plugin", "action", "invoke", "worktrunk.merge"],
 ], calls
 PY
   assert_success
+}
+
+function test_palette_059_new_worktree_creates_a_timestamped_branch_and_opens_it() {
+  _bats_test_init 59 'New worktree creates a timestamped branch and opens its Herdr workspace'
+  local stub="$PALETTE_WORK/worktree-bin" repo="$PALETTE_WORK/repo" worktree="$PALETTE_WORK/worktree"
+  mkdir -p "$stub" "$repo" "$worktree"
+
+  cat > "$stub/wt" <<'SH'
+#!/bin/sh
+printf 'wt:%s\n' "$*" >> "$WORKTREE_CALLS"
+printf '{"branch":"%s","path":"%s"}\n' "$3" "$WORKTREE_PATH"
+SH
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+printf 'herdr:%s\n' "$*" >> "$WORKTREE_CALLS"
+if [ "$1 $2" = "worktree list" ]; then
+  printf '{"result":{"source":{"repo_root":"%s","repo_name":"repo","source_workspace_id":"root"}}}\n' "$WORKTREE_REPO"
+elif [ "$1 $2" = "worktree open" ] && [ "${FAIL_WORKTREE_OPEN:-}" = 1 ]; then
+  printf 'open failed\n' >&2
+  exit 1
+else
+  printf '{"result":{}}\n'
+fi
+SH
+  chmod +x "$stub/wt" "$stub/herdr"
+
+  run env PATH="$stub:$PATH" \
+    HERDR_BIN_PATH="$stub/herdr" \
+    WORKTREE_CALLS="$PALETTE_WORK/calls" \
+    WORKTREE_PATH="$worktree" \
+    WORKTREE_REPO="$repo" \
+    HERDR_PLUGIN_CONTEXT_JSON="{\"focused_pane_cwd\":\"$repo\"}" \
+    python3 "$NEW_WORKTREE_PY"
+  assert_success
+
+  run env CALLS_FILE="$PALETTE_WORK/calls" WORKTREE_PATH="$worktree" WORKTREE_REPO="$repo" python3 - <<'PY'
+import os
+import re
+
+lines = open(os.environ["CALLS_FILE"], encoding="utf-8").read().splitlines()
+match = re.fullmatch(r"wt:switch --create (worktree-\d{8}-\d{6}-\d{6}) --no-cd --format=json", lines[0])
+assert match, lines
+branch = match.group(1)
+assert lines[1] == f"herdr:worktree list --cwd {os.environ['WORKTREE_REPO']} --json", lines
+assert lines[2] == (
+    f"herdr:worktree open --cwd {os.environ['WORKTREE_REPO']} "
+    f"--path {os.environ['WORKTREE_PATH']} --label {branch} --focus --json"
+), lines
+PY
+  assert_success
+
+  run env PATH="$stub:$PATH" \
+    HERDR_BIN_PATH="$stub/herdr" \
+    WORKTREE_CALLS="$PALETTE_WORK/failure-calls" \
+    WORKTREE_PATH="$worktree" \
+    WORKTREE_REPO="$repo" \
+    FAIL_WORKTREE_OPEN=1 \
+    HERDR_PLUGIN_CONTEXT_JSON="{\"focused_pane_cwd\":\"$repo\"}" \
+    python3 "$NEW_WORKTREE_PY"
+  assert_failure
+  assert_output --partial "was created at $worktree, but Herdr could not open it: open failed"
+  assert_file_contains "$PALETTE_WORK/failure-calls" "herdr:notification show New worktree failed --body Worktree worktree-"
+}
+
+function test_palette_060_worktrunk_picker_is_configured_as_a_popup() {
+  _bats_test_init 60 'Worktrunk interactive picker is configured as a popup'
+  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/worktrunk/config.toml"
+
+  # These literals are the public config contract consumed by herdr-worktrunk's config.sh.
+  assert_file_exists "$config"
+  assert_file_contains "$config" 'picker_placement = "popup"'
 }
 
 function set_up_before_script() {

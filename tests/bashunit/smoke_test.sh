@@ -128,9 +128,11 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .config/worktrunk/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
+    .config/herdr/plugins/command-palette/new_worktree.py
     .config/herdr/plugins/command-palette/open_in_zed.py
     .config/herdr/plugins/command-palette/palette.py
     .config/herdr/plugins/command-palette/smart_close.py
+    .config/herdr/plugins/config/worktrunk/config.toml
     .config/herdr/command-palette/commands.toml
     .local/lib/herdr-process.sh
     .local/lib/herdr-child-runtime.sh
@@ -190,9 +192,11 @@ function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
 }
 
 function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
-  _bats_test_init 6 'herdr command palette keybinding is configured'
-  assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
-  assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.open"'
+_bats_test_init 6 'herdr command palette keybinding is configured'
+assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
+assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "seigi.command-palette.new_worktree"'
+assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.open"'
+assert_file_contains "$HOME/.config/herdr/plugins/config/worktrunk/config.toml" 'picker_placement = "popup"'
 }
 
 function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {

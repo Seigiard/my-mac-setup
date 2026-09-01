@@ -48,9 +48,17 @@ type = "workspace_picker"
 
 [[commands]]
 group = "Workspaces"
-title = "New or switch worktree"
+title = "New worktree"
+shortcuts = ["wtn", "цет"]
+description = "Create and open a timestamp-named worktree from the default branch (Cmd+Shift+N)"
+type = "plugin_action"
+action = "seigi.command-palette.new_worktree"
+
+[[commands]]
+group = "Workspaces"
+title = "Switch or create worktree"
 shortcuts = ["wt", "це"]
-description = "Choose an existing worktree or create one from the default branch (Cmd+Shift+N)"
+description = "Choose an existing worktree or create one from the default branch"
 type = "plugin_action"
 action = "worktrunk.open"
 

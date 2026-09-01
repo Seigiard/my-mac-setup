@@ -8,16 +8,19 @@ owner of pane labels and Git metadata.
 Use the same direct terminal shortcuts and command palette as the rest of the
 Herdr workspace workflow:
 
-- `Cmd+Shift+N` opens the Worktrunk picker to switch to an existing worktree or
-  create one from the default branch.
+- `Cmd+Shift+N` immediately creates and opens a worktree from the default branch,
+  named `worktree-YYYYMMDD-HHMMSS-ffffff`.
 - `Cmd+Shift+P` opens the command palette. Search for `worktree` or use the
-  `wt`, `wtd`, and `wtm` shortcuts to open, remove, or merge a worktree.
+  `wt`, `wtn`, `wtd`, and `wtm` shortcuts to switch/create interactively, create
+  immediately, remove, or merge a worktree. The interactive picker opens as a
+  floating popup.
 - Herdr's workspace action menus expose the same Worktrunk open, remove, and
   merge operations.
 
 The underlying `prefix+shift+g` binding is a transport target for Ghostty and
-kitty, which send the complete Herdr sequence for `Cmd+Shift+N`. It is not the
-user-facing shortcut and does not require typing `Ctrl+B` manually.
+kitty, which send the complete Herdr sequence for `Cmd+Shift+N`. It invokes the
+local command-palette plugin's direct-create action and does not require typing
+`Ctrl+B` manually.
 
 The source of truth for personal Worktrunk policy is
 `home/private_dot_config/worktrunk/config.toml`, deployed to
@@ -47,6 +50,7 @@ per-checkout dependencies or required ignored environment files.
 - Homebrew installs `wt` from the `worktrunk` formula.
 - The managed Herdr GitHub-plugin installer installs and enables
   `devashish2203/herdr-worktrunk`.
+- The plugin-specific managed config presents its interactive picker as a popup.
 - `herdr-auto-update` trusts that GitHub owner for forward-only plugin updates.
 - Chezmoi changes are not live from this checkout. They become active only
   after this repository is committed, synced into chezmoi's source clone, and
