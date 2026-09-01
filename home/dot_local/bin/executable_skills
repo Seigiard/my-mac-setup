@@ -12,9 +12,10 @@ CANONICAL_ROOT="${SKILLS_CANONICAL_ROOT:-$HOME/.agents/skills}"
 REPOSITORY_OWNED_MANIFEST="${SKILLS_REPOSITORY_OWNED_MANIFEST:-$CONFIG_HOME/agent-skills/repository-owned}"
 MAX_FILE_BYTES="${SKILLS_MAX_FILE_BYTES:-2097152}"
 TMPDIR="${TMPDIR:-/tmp}"
+SKILLS_VERBOSE="${SKILLS_VERBOSE:-0}"
 
 usage() {
-  printf '%s\n' 'Usage: skills {add SOURCE [SKILL...]|remove SOURCE SKILL...|update [SKILL...]|sync}' >&2
+  printf '%s\n' 'Usage: skills [--verbose] {add SOURCE [SKILL...]|remove SOURCE SKILL...|update [SKILL...]|sync}' >&2
 }
 
 fail() {
@@ -76,10 +77,9 @@ os.replace(temporary, lock)
 PY
 }
 
-run_npx() {
+invoke_npx() {
   local command="$1"
   shift
-  mkdir -p "$TMPDIR" "$CONFIG_HOME" "$STATE_HOME" "$DATA_HOME" "$CACHE_HOME" || return 1
   (
     cd "$TMPDIR" || exit 1
     env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" \
@@ -88,6 +88,23 @@ run_npx() {
       LC_ALL=C CI=1 NO_COLOR=1 \
       npx --yes skills@latest "$command" "$@"
   )
+}
+
+run_npx() {
+  local output status
+  mkdir -p "$TMPDIR" "$CONFIG_HOME" "$STATE_HOME" "$DATA_HOME" "$CACHE_HOME" || return 1
+  if [ "$SKILLS_VERBOSE" = 1 ]; then
+    invoke_npx "$@"
+    return
+  fi
+  output="$(mktemp "$TMPDIR/skills-output.XXXXXX")" || return 1
+  trap 'status=$?; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
+  invoke_npx "$@" > "$output" 2>&1
+  status=$?
+  [ "$status" -eq 0 ] || cat "$output" >&2
+  rm -f "$output"
+  trap - EXIT HUP INT TERM
+  return "$status"
 }
 
 run_add() {
@@ -285,7 +302,7 @@ add() {
   local skill
   for skill in "$@"; do [ "$skill" = '*' ] || valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }; done
   validate_live_lock || return 1
-  run_add "$source" "$@" || return 1
+  run_add "$source" "$@" || return "$?"
   grep -Fqx "$source $*" "$MANIFEST" 2>/dev/null || printf 'warning: add diverges from managed manifest\n' >&2
 }
 
@@ -300,7 +317,7 @@ remove() {
     owner="$(lock_source_for_skill "$skill")"
     [ "$owner" = "$source" ] || { fail "lock does not own $skill as $source"; return 1; }
   done
-  run_remove "$@" || return 1
+  run_remove "$@" || return "$?"
   printf 'warning: remove diverges from managed manifest\n' >&2
 }
 
@@ -311,6 +328,10 @@ update() {
   run_update "$@"
 }
 
+if [ "${1:-}" = '--verbose' ]; then
+  SKILLS_VERBOSE=1
+  shift
+fi
 command="${1:-}"
 shift || true
 case "$command" in

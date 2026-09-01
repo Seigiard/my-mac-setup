@@ -7818,6 +7818,101 @@ function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
   assert_equal "$PWD" "$original"
 }
 
+function test_scripts_2721_skills_hides_success_output_but_preserves_verbose_and_failure_diagnostics() {
+  _bats_test_init 2721 'skills hides successful upstream output but preserves verbose and failure diagnostics'
+  local stub="$BATS_TEST_TMPDIR/skills-output-stub"
+  mkdir -p "$stub"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'upstream stdout'
+printf '%s\n' 'upstream stderr' >&2
+for arg in "$@"; do [ "$arg" != fail ] || exit 7; done
+SH
+  chmod +x "$stub/npx"
+  mkdir -p "$BATS_TEST_TMPDIR/home/.local/state/skills"
+  printf '%s\n' '{"version":3,"skills":{"fail":{"source":"owner/repo"}}}' \
+    > "$BATS_TEST_TMPDIR/home/.local/state/skills/.skill-lock.json"
+
+  run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" update
+  assert_success
+  assert_output ''
+  assert_stderr ''
+
+  run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" --verbose update
+  assert_success
+  assert_output --partial 'upstream stdout'
+  refute_output --partial 'upstream stderr'
+  assert_stderr --partial 'upstream stderr'
+  refute_stderr --partial 'upstream stdout'
+
+  run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" --verbose update fail
+  assert_failure 7
+  assert_output --partial 'upstream stdout'
+  assert_stderr --partial 'upstream stderr'
+
+  run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" update fail
+  assert_failure 7
+  assert_output ''
+  assert_stderr --partial 'upstream stdout'
+  assert_stderr --partial 'upstream stderr'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" add owner/repo fail
+  assert_failure 7
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" remove owner/repo fail
+  assert_failure 7
+
+  run bash -c 'for item in "$1"/skills-output.*; do [ ! -e "$item" ] || exit 1; done' _ \
+    "$BATS_TEST_TMPDIR/tmp"
+  assert_success
+}
+
+function test_scripts_2722_skills_removes_captured_output_after_a_signal() {
+  _bats_test_init 2722 'skills removes captured upstream output after a signal'
+  local stub="$BATS_TEST_TMPDIR/skills-signal-stub"
+  mkdir -p "$stub" "$BATS_TEST_TMPDIR/tmp"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'captured before interruption'
+: > "$TMPDIR/npx-ready"
+while :; do sleep 1; done
+SH
+  chmod +x "$stub/npx"
+
+  run python3 - "$SKILLS_WRAPPER" "$stub" "$BATS_TEST_TMPDIR" <<'PY'
+import glob
+import os
+import signal
+import subprocess
+import sys
+import time
+
+wrapper, stub, root = sys.argv[1:]
+tmpdir = os.path.join(root, "tmp")
+env = {"PATH": f"{stub}:/usr/bin:/bin", "HOME": os.path.join(root, "home"), "TMPDIR": tmpdir}
+process = subprocess.Popen(["bash", wrapper, "update"], env=env, start_new_session=True)
+deadline = time.monotonic() + 5
+while not os.path.exists(os.path.join(tmpdir, "npx-ready")):
+    if process.poll() is not None or time.monotonic() >= deadline:
+        process.kill()
+        raise SystemExit("upstream stub did not start")
+    time.sleep(0.01)
+os.killpg(process.pid, signal.SIGTERM)
+status = process.wait(timeout=5)
+if status == 0:
+    raise SystemExit("interrupted wrapper succeeded")
+if glob.glob(os.path.join(tmpdir, "skills-output.*")):
+    raise SystemExit("captured output survived interruption")
+PY
+  assert_success
+}
+
 function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_remove_update() {
   _bats_test_init 273 'skills validates argv before npx and maps remove and update to global upstream calls'
   local stub="$BATS_TEST_TMPDIR/skills-stub" lock
