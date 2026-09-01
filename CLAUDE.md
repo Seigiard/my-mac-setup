@@ -31,13 +31,22 @@ Reference docs (read on demand):
 | `make test-ubuntu` | Full test in Docker |
 | `make test-docker` | Build + run full Docker test suite |
 | `make test-suite` | Post-apply suite in parallel, host-safe files only. It keeps `tests/bashunit/idempotent_test.sh` excluded as redundant defense behind that file's `MMS_DISPOSABLE_HOME` guard. Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
-| `make test-templates` | Template tests only (fast, no apply) |
+| `make test-templates` | Template tests in Docker; may rebuild images and take several minutes |
 | `make test-local` | `chezmoi diff` (dry-run, no changes) |
 | `make lint` | shellcheck |
 | `make shell-ubuntu` | Interactive shell in Ubuntu container |
 | `make build-docker` | Build Docker image only |
 | `make clean` | Remove Docker resources |
 | `tests/lib/bashunit -j 8 tests/bashunit/smoke_test.sh` | Run a single test file |
+
+</important>
+
+<important if="you are about to run make test-templates, make test-ubuntu, make test-docker, or make build-docker">
+
+- Treat these targets as long-running Docker workloads, including cached runs. Read `~/.claude/shared/long-running-work.md` before launch.
+- When `HERDR_ENV=1`, launch the workload in a visible sibling Herdr pane, persist its exit status as a terminal marker, and observe that marker before reporting a verdict.
+- Keep the workload free of the Bash tool's 120-second timeout. A bounded pane observation may stop waiting, but it must leave the workload running for the next check.
+- Before retrying an interrupted workload, verify that its command and Docker children reached a terminal state, then state why a retry is safe.
 
 </important>
 
