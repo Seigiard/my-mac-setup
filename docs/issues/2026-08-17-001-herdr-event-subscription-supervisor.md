@@ -6,7 +6,7 @@ category: "herdr"
 tags: ["herdr","idea"]
 date: "2026-08-17"
 status: "open"
-priority: "medium"
+priority: "low"
 parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md"
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "Bound transient herdr-child pane-read retries"
-short_description: "The watcher treats every non-pane_not_found pane get failure as transient and retries forever, so persistent herdr transport or permission failures can leave a supervision watcher alive indefinitely."
+short_description: "Main polling and delivery-time revalidation retry non-pane_not_found pane get failures without a budget, so persistent Herdr transport or permission failures can leave supervision alive indefinitely without delivering a lifecycle event."
 type: "bug"
 category: "herdr"
 tags: ["herdr-child","watcher","reliability"]
@@ -16,6 +16,11 @@ The main supervision loop retries every `herdr pane get` failure except
 or malformed error responses are therefore indistinguishable from a short
 outage and can keep a watcher alive indefinitely while its run directory
 remains present.
+
+Delivery-time pane identity revalidation has the same failure class. Its
+transient status returns to the watcher loop without consuming the existing
+parent-delivery retry budget, so both pane-read sites need an explicit outage
+policy.
 
 ## Scope
 

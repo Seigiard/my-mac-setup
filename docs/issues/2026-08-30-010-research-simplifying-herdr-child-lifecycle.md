@@ -1,6 +1,6 @@
 ---
 title: "Research simplifying herdr-child lifecycle"
-short_description: "All 71 extracted functions are statically reachable, but detached supervision and subsequent race hardening expanded the lifecycle engine from 405 to 2,468 lines; measure which states, helpers, and embedded predicates can be consolidated without weakening recovery semantics."
+short_description: "After module extraction and preliminary serializer consolidation, the herdr-child lifecycle still spans 2,507 physical lines and 72 function definitions; map its state machines before attempting behavioral simplification."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr-child","maintainability","research"]
@@ -12,16 +12,17 @@ parent-plan: "docs/plans/2026-08-30-001-refactor-herdr-child-lifecycle-modules-p
 
 ## Why this exists
 
-The lifecycle engine grew from 405 to 2,468 lines when detached supervision
-added generation tracking, watcher delivery, callbacks, retries, continuation,
-and reap recovery, followed by several race-condition fixes. The module
-extraction makes those responsibilities reviewable, but deliberately preserves
-their total implementation size and behavior.
+The lifecycle engine grew from 405 lines when detached supervision added
+generation tracking, watcher delivery, callbacks, retries, continuation, and
+reap recovery, followed by several race-condition fixes. The extracted source
+now spans 2,507 physical lines across the entrypoint and six modules.
 
-A static call-graph audit found all 71 functions reachable, including 70 from
-production command roots and one from test-only barrier paths. Reachability does
-not prove that every state, helper, embedded Python predicate, or recovery branch
-is the smallest design that preserves the user contract.
+The current source defines 72 functions, including four nested definitions.
+The module follow-up already centralized watcher-state polling and
+`launch.state` serialization, reducing ten physical lines, but it did not
+simplify the state machines, retry policies, embedded Python predicates, or
+recovery branches. Reachability does not prove that those behaviors form the
+smallest design that preserves the user contract.
 
 ## Scope
 
@@ -36,6 +37,8 @@ is the smallest design that preserves the user contract.
   state transitions or JSON predicates behind one existing runtime dependency.
 - Produce a staged recommendation with expected line-count reduction, behavior
   impact, migration risk, and red/green verification strategy.
+- Resolve the known liveness, abandoned-callback, and pane-retry defects before
+  treating current race behavior as a contract to preserve.
 
 Implementation is out of scope until the research identifies a smaller design
 that preserves or explicitly revises the current lifecycle contract.

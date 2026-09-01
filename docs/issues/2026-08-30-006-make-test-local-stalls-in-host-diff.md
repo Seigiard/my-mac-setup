@@ -1,6 +1,6 @@
 ---
-title: "make test-local stalls in host diff"
-short_description: "chezmoi diff --source=./home remained live for more than eight minutes while rendering host-specific 1Password-backed Claude configuration; the disposable make test-ubuntu gate still passed."
+title: "make test-local requires interactive 1Password authorization"
+short_description: "make test-local invokes op read for the Jina credential and can wait indefinitely for interactive 1Password authorization when no person is present, so the verification command is unsafe for unattended agent runs."
 type: "bug"
 category: "testing-ci"
 tags: ["chezmoi","host-verification"]
@@ -21,17 +21,25 @@ The disposable `make test-ubuntu` gate completed successfully for the same
 managed-file changes. The unresolved problem is therefore specific to the
 host dry-run path, not evidence that the checkout cannot be applied.
 
+A bounded current reproduction remained live for 30 seconds. The process tree
+ended at `modify_dot_claude.json` calling `op read` for the Jina credential and
+waiting for interactive 1Password authorization. With `op` excluded from
+`PATH`, the same direct `chezmoi diff` completed in under one second. An agent
+or unattended job cannot satisfy the authorization prompt, so an unbounded
+wait is an invalid verification contract rather than an ordinary slow lookup.
+
 ## Scope
 
-- Reproduce the stall with bounded timing and identify the last template or
-  external lookup reached by `chezmoi diff`.
-- Determine whether the delay comes from 1Password access, template rendering,
-  or chezmoi's host-state comparison.
-- Add diagnostics or a bounded failure mode so `make test-local` cannot remain
-  silently live without a useful verdict.
+- Detect when interactive 1Password authorization is unavailable and fail fast
+  with a diagnostic that names the blocked `op read` invocation.
+- Bound the authorization wait even when `op` is present and initially appears
+  usable.
 - Preserve the rule that host verification must not apply managed changes.
+- Preserve a meaningful host diff; globally hiding `op` must not turn missing
+  secret rendering into misleading differences.
 
 ## Open decisions
 
-- Whether secret-backed templates should be excluded from this dry-run or
-  retained with an explicit timeout and diagnostic.
+- Whether unattended mode should reject secret-backed rendering before diff or
+  render it through a deterministic non-secret substitute; silently omitting
+  secrets would make the diff verdict misleading.
