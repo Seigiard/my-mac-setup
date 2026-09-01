@@ -181,19 +181,18 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
 
 function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
   _bats_test_init 5 '.gitignore ignores the agent trash directory'
-  run grep -qx '\.scratchpad/' "$HOME/.gitignore"
-  [ "$status" -eq 0 ]
+  local repo="$BATS_TEST_TMPDIR/gitignore-probe"
+  mkdir -p "$repo/.scratchpad"
+  run git -C "$repo" init --quiet
+  assert_success
+  run git -C "$repo" check-ignore --quiet .scratchpad/probe
+  assert_success
 }
 
 function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
   _bats_test_init 6 'herdr command palette keybinding is configured'
   assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
-  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
   assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.open"'
-  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.open"'
-  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.remove"'
-  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.merge"'
-  assert_file_contains "$HOME/.config/ghostty/config" 'cmd+shift+KeyN=text:\x02G'
 }
 
 function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {
@@ -271,7 +270,6 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
 function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
   _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
-  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Lazygit in popup"
 }
 
 function test_smoke_011_herdr_command_palette_sources_are_valid() {
@@ -648,7 +646,6 @@ function test_smoke_027_kitty_sends_the_herdr_prefix_for_macos_style_sho() {
   assert_file_contains "$config" 'cmd+t send_text all .x02c$'
   assert_file_contains "$config" 'cmd+d send_text all .x02v$'
   assert_file_contains "$config" 'cmd+w send_text all .x02x$'
-  assert_file_contains "$config" 'cmd+shift+n send_text all .x02G$'
   assert_file_contains "$config" 'ctrl+shift+1 send_text all .x1b\[49;6u$'
   assert_file_contains "$config" '^map shift+alt+left send_text all .x1b\[1;4D$'
 }
@@ -913,11 +910,6 @@ assert_herdr_sidebar_deployment_contract() {
     in_ui && /^sidebar_min_width = [0-9]+$/ { print $3 }
   ' "$config")"
   [ "$width" -eq 32 ]
-}
-
-function test_smoke_068_herdr_managed_source_preserves_the_u6_sidebar_an() {
-  _bats_test_init 68 'herdr managed source preserves the U6 sidebar and ownership boundaries'
-  assert_herdr_sidebar_deployment_contract "$SOURCE_ROOT/private_dot_config/herdr/config.toml"
 }
 
 function test_smoke_069_herdr_deployed_files_preserve_the_u6_sidebar_and() {

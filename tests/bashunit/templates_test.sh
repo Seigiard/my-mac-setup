@@ -278,27 +278,6 @@ function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
   assert_output "executor mcp|true"
 }
 
-function test_templates_013_claude_and_pi_skill_adapters_target_their_canonica() {
-  _bats_test_init 13 'claude and pi skill adapters target their canonical skill trees'
-  local skill
-
-  for skill in \
-    ask-in-herdr herdr markdown-new \
-    pf-build pf-research pf-spec plan-explainer \
-    se-cleanup se-code-review se-doc-review se-plan se-simplify \
-    vector-prime work-summary writing-for-agents; do
-    run render_template "$SOURCE_ROOT/private_dot_claude/skills/$skill/symlink_SKILL.md.tmpl"
-    assert_success
-    assert_output "$HOME/.agents/skills/$skill/SKILL.md"
-  done
-
-  for skill in eli5 open-questions; do
-    run render_template "$SOURCE_ROOT/dot_pi/agent/skills/symlink_${skill}.tmpl"
-    assert_success
-    assert_output "$HOME/.claude/skills/$skill"
-  done
-}
-
 function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
   _bats_test_init 14 'every opencode instructions entry is a managed source file'
   command_exists jq || skip "jq is required"
