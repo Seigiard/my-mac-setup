@@ -1,12 +1,13 @@
 ---
 title: "Docker suite stalls in herdr-child reap test"
-short_description: "After merging origin/main at 193198d, make test-ubuntu blocks in scripts_test.sh for over four minutes while herdr-child reap waits on an unreleased reap-owner lock; interrupting the process leaves make with exit 1."
+short_description: "The reap-owner guard now exits when its run directory disappears, closing the Docker stall with a bounded regression and a passing full Ubuntu suite."
 type: "bug"
 category: "testing-ci"
 tags: ["bashunit","herdr-child","docker"]
 date: "2026-09-01"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-01"
 ---
 
 ## Why this exists
@@ -35,3 +36,7 @@ though the Worktrunk-specific tests passed before the merge.
 ## Open decisions
 
 None.
+
+## Resolution
+
+Confirmed this as the same release-file deletion race tracked by 2026-08-30-011, fixed the guard lifecycle, added deterministic coverage, and verified make lint plus make test-ubuntu.

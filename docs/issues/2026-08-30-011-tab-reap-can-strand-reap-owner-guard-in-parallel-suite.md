@@ -1,12 +1,13 @@
 ---
 title: "tab reap can strand reap-owner guard in parallel suite"
-short_description: "make test-ubuntu can hang in herdr-child test 092 because its 5-second deadline exposes a general reap-owner race: the run directory can disappear after release publication but before the guard observes it, while reap waits without a bound."
+short_description: "The reap-owner guard now exits when its run directory disappears, closing the release-file deletion race with a bounded regression and a passing full Ubuntu suite."
 type: "bug"
 category: "testing-ci"
 tags: ["herdr-child","flaky-test","process-cleanup","parallel-tests"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-01"
 ---
 
 ## Why this exists
@@ -33,3 +34,7 @@ Verify the focused scenario, complete scripts_test.sh, and make test-ubuntu.
 How the guard should distinguish an intentionally released run directory from
 unexpected state loss; a test-only timeout must not mask the production
 orphan-guard path.
+
+## Resolution
+
+Made run-directory disappearance terminal for the reap-owner guard, added deterministic normal-release and deletion-race coverage, and verified make lint plus make test-ubuntu.

@@ -7708,6 +7708,66 @@ function test_scripts_270_herdr_child_reap_invalidation_barrier_is_bounded() {
   assert_dir_not_exists "$run_dir"
 }
 
+function test_scripts_2701_herdr_child_reap_owner_guard_stops_when_run_dir() {
+  _bats_test_init 2701 'herdr-child reap owner guard stops when its run directory disappears'
+  local work_dir runtime supervision guard_test_pid guard_test_status guard_pid attempt=0
+  work_dir="$BATS_TEST_TMPDIR/reap-owner-guard"
+  mkdir -p "$work_dir"
+  runtime="$SOURCE_ROOT/dot_local/lib/herdr-child-runtime.sh"
+  supervision="$SOURCE_ROOT/dot_local/lib/herdr-child-supervision.sh"
+
+  env WORK_DIR="$work_dir" RUNTIME="$runtime" SUPERVISION="$supervision" bash -c '
+    set -euo pipefail
+    source "$RUNTIME"
+    source "$SUPERVISION"
+
+    normal_dir="$WORK_DIR/normal"
+    mkdir -p "$normal_dir"
+    start_reap_owner_guard "$normal_dir"
+    stop_reap_owner_guard "$normal_dir"
+    [ -d "$normal_dir" ]
+    remove_supervision_run "$normal_dir"
+
+    race_dir="$WORK_DIR/race"
+    mkdir -p "$race_dir"
+    start_reap_owner_guard "$race_dir"
+    printf "%s\n" "$REAP_OWNER_GUARD_PID" > "$WORK_DIR/guard.pid"
+    kill -STOP "$REAP_OWNER_GUARD_PID"
+    (
+      attempt=0
+      while [ ! -e "$race_dir/reap-owner-$REAP_OWNER_TOKEN.release" ] && [ "$attempt" -lt 500 ]; do
+        attempt=$((attempt + 1))
+        sleep 0.01
+      done
+      [ "$attempt" -lt 500 ]
+      remove_supervision_run "$race_dir"
+      kill -CONT "$REAP_OWNER_GUARD_PID"
+    ) &
+    cleanup_pid=$!
+    stop_reap_owner_guard "$race_dir"
+    wait "$cleanup_pid"
+    : > "$WORK_DIR/stopped"
+  ' > "$work_dir/guard.out" 2>&1 &
+  guard_test_pid=$!
+
+  while kill -0 "$guard_test_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  if kill -0 "$guard_test_pid" 2>/dev/null; then
+    guard_pid="$(cat "$work_dir/guard.pid" 2>/dev/null || true)"
+    [ -z "$guard_pid" ] || kill -CONT "$guard_pid" 2>/dev/null || true
+    [ -z "$guard_pid" ] || kill -TERM "$guard_pid" 2>/dev/null || true
+    kill -TERM "$guard_test_pid" 2>/dev/null || true
+    wait "$guard_test_pid" 2>/dev/null || true
+    fail 'reap owner guard did not stop after its run directory disappeared'
+  fi
+  if wait "$guard_test_pid"; then guard_test_status=0; else guard_test_status=$?; fi
+  assert_equal "$guard_test_status" 0
+  assert_file_exists "$work_dir/stopped"
+  assert_dir_not_exists "$work_dir/race"
+}
+
 function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
   _bats_test_init 271 'herdr-child shared lifecycle primitives keep polling and launch-state contracts'
   local work_dir runtime supervision
