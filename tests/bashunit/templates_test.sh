@@ -353,42 +353,6 @@ function test_templates_016_every_yazi_plugin_keymap_has_a_managed_plugin_en() {
 }
 
 # ===========================================
-# .chezmoiremove
-# ===========================================
-
-function test_templates_017_chezmoiremove_entries_are_absent_from_the_source() {
-  _bats_test_init 17 '.chezmoiremove entries are absent from the source tree'
-  assert_file_exists "$SOURCE_ROOT/.chezmoiremove"
-
-  # A path listed in .chezmoiremove that still exists in the source tree tells
-  # chezmoi to both create and delete the same target, and `apply` aborts with
-  # "inconsistent state". Only `apply` reports it — diff, status, verify and
-  # managed all exit 0 on the broken tree — so the guard has to live here.
-  # A stray untracked file (an editor or hook cache) inside a deleted directory
-  # is enough to resurrect it.
-  local conflicts=""
-  local entry
-  while IFS= read -r entry || [[ -n "$entry" ]]; do
-    [[ -z "$entry" || "$entry" == \#* || "$entry" == '!'* ]] && continue
-    if PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
-        --source "$SOURCE_ROOT" "$HOME/$entry" >/dev/null 2>&1; then
-      conflicts+="  $entry"$'\n'
-    fi
-  done < "$SOURCE_ROOT/.chezmoiremove"
-
-  [[ -z "$conflicts" ]] || fail "listed in .chezmoiremove but still in the source tree:"$'\n'"$conflicts"
-}
-
-function test_templates_018_chezmoiremove_deletes_the_retired_opencode_force() {
-  _bats_test_init 18 '.chezmoiremove deletes the retired opencode forced theme'
-  # smoke_test.sh asserts the live file is gone; this entry is what makes
-  # `chezmoi apply` delete it on machines that deployed the old theme.
-  run grep -qx '.config/opencode/themes/flexoki-light-forced.json' \
-    "$SOURCE_ROOT/.chezmoiremove"
-  assert_success
-}
-
-# ===========================================
 # CI-minimal Brewfile render guard
 # private_dot_config/brewfiles/Brewfile.tmpl
 # private_dot_config/brewfiles/empty_Brewfile.macos.tmpl

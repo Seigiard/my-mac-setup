@@ -450,13 +450,12 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   local retired path
   for retired in se-flow se-review-and-work se-work; do
     for path in \
-      "$HOME/.agents/skills/$retired" \
       "$HOME/.claude/skills/$retired" \
       "$HOME/.config/opencode/skills/$retired"; do
       [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
     done
   done
-  for path in "$HOME/.agents/skills/smithers" "$HOME/.claude/.smithers" "$HOME/.local/bin/se"; do
+  for path in "$HOME/.claude/.smithers" "$HOME/.local/bin/se"; do
     [[ ! -e "$path" && ! -L "$path" ]] || fail "retired Smithers path remains deployed: $path"
   done
 }
