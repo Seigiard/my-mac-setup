@@ -112,6 +112,7 @@ run_add() {
   shift
   local args=("$source") skill
   for skill in "$@"; do args+=(--skill "$skill"); done
+  [ "$SKILLS_VERBOSE" = 1 ] || printf 'Installing skills from %s: %s\n' "$source" "$*"
   run_npx add "${args[@]}" --global --agent claude-code --agent opencode --agent pi --yes
 }
 

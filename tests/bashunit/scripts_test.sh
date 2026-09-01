@@ -8097,8 +8097,8 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_large_document
   assert_output --partial 'canonical tree file exceeds 2097152 bytes'
 }
 
-function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wildcards() {
-  _bats_test_init 279 'skills sync reports non-wildcard drift without removing it'
+function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_wildcard_drift() {
+  _bats_test_init 279 'skills sync reports installs and non-wildcard drift without removing it'
   local stub manifest lock canonical skill
   stub="$(skills_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
@@ -8116,6 +8116,8 @@ function test_scripts_279_skills_sync_reports_named_and_absent_drift_but_not_wil
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
+  assert_output --partial 'Installing skills from EveryInc/compound-engineering-plugin: *'
+  assert_output --partial 'Installing skills from owner/repo: desired'
   assert_output --partial 'drift: skills remove owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
   refute_output --partial 'ce-code-review'
