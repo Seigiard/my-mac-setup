@@ -20,6 +20,7 @@ Reference docs (read on demand):
 - `docs/solutions/` — documented learnings from past work (architecture and design patterns), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`); relevant when implementing or debugging in areas they cover
 - `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts)
 - `docs/agent-setup-inventory.md` — curated plugins/skills/agents for manual reinstall across Claude Code, OpenCode, Pi
+- `docs/worktrunk-workspaces.md` — Worktrunk ownership, Herdr bindings, and per-repository worktree setup policy
 - `docs/external-agent-cli-flags.md` — headless/one-shot invocation flags for external coding-agent CLIs
 
 <important if="you need to run commands to build, test, lint, or run scripts">

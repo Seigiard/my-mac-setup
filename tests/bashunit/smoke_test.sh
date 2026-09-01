@@ -125,6 +125,7 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
     .config/herdr/config.toml
+    .config/worktrunk/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
     .config/herdr/plugins/command-palette/open_in_zed.py
@@ -188,6 +189,9 @@ function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
   _bats_test_init 6 'herdr command palette keybinding is configured'
   assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
+  assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.open"'
+  assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.remove"'
+  assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.merge"'
 }
 
 function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {
@@ -223,6 +227,10 @@ SH
   assert_success
   run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
   assert_success
+  run grep -Fx "plugin install devashish2203/herdr-worktrunk -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable worktrunk" "$calls"
+  assert_success
 }
 
 function test_smoke_008_obsolete_zed_herdr_removal_reports_malformed_plu() {
@@ -255,7 +263,7 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
 
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
-  assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
+  assert_file_contains "$config" 'trusted_owners = \["dio16", "devashish2203"\]'
 }
 
 function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
