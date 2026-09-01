@@ -49,6 +49,14 @@ type = "plugin_action"
 command = "seigi.command-palette.smart_close"
 description = "close pane, then tab, but keep workspace"
 
+# Ghostty and kitty send this sequence for Cmd+Shift+N. Worktrunk then owns
+# worktree creation so its path and setup hooks run.
+[[keys.command]]
+key = "prefix+shift+g"
+type = "plugin_action"
+command = "worktrunk.open"
+description = "Worktree: switch / create from default branch"
+
 [ui]
 prompt_new_tab_name = false
 sidebar_min_width = 32

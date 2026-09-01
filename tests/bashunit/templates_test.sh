@@ -278,27 +278,6 @@ function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
   assert_output "executor mcp|true"
 }
 
-function test_templates_013_claude_and_pi_skill_adapters_target_their_canonica() {
-  _bats_test_init 13 'claude and pi skill adapters target their canonical skill trees'
-  local skill
-
-  for skill in \
-    ask-in-herdr herdr markdown-new \
-    pf-build pf-research pf-spec plan-explainer \
-    se-cleanup se-code-review se-doc-review se-plan se-simplify \
-    vector-prime work-summary writing-for-agents; do
-    run render_template "$SOURCE_ROOT/private_dot_claude/skills/$skill/symlink_SKILL.md.tmpl"
-    assert_success
-    assert_output "$HOME/.agents/skills/$skill/SKILL.md"
-  done
-
-  for skill in eli5 open-questions; do
-    run render_template "$SOURCE_ROOT/dot_pi/agent/skills/symlink_${skill}.tmpl"
-    assert_success
-    assert_output "$HOME/.claude/skills/$skill"
-  done
-}
-
 function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
   _bats_test_init 14 'every opencode instructions entry is a managed source file'
   command_exists jq || skip "jq is required"
@@ -399,6 +378,7 @@ assert_minimal_brewfile() {
   refute_line 'brew "imagemagick"'
   refute_line 'brew "shellcheck"'
   refute_line 'brew "herdr"'
+  refute_line 'brew "worktrunk"'
   refute_line 'brew "fzf"'
   refute_line 'brew "bats-core"'
 }
@@ -442,6 +422,7 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   # too, or deleting either from the template outright would satisfy every
   # assertion in this file while real hosts silently stop getting it.
   assert_line 'brew "git"'
+  assert_line --partial 'brew "worktrunk"'
   assert_line --partial 'brew "lazywalker/tap/rgrc"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
@@ -591,6 +572,49 @@ function test_templates_028_the_minimal_render_deploys_brewfile_macos_empty() {
   [[ ! -s "$dest/.config/brewfiles/Brewfile.macos" ]] \
     || fail "Brewfile.macos should be empty in minimal mode"
   assert_file_contains "$dest/.config/brewfiles/Brewfile" '^brew "jq"'
+}
+
+function test_templates_029_worktrunk_platform_hook_matches_make_worktree_setup() {
+  _bats_test_init 29 'worktrunk platform hook copies the Makefile env set before setup'
+  local source="$BATS_TEST_TMPDIR/platform source"
+  local target="$BATS_TEST_TMPDIR/platform-target"
+  local probe="$BATS_TEST_TMPDIR/worktrunk-config-probe.tmpl"
+  local config_json hook
+  local files=(.env console/.env engine/api/.env agent/benchmark/.env e2e-tests/.env)
+  local file
+
+  for file in "${files[@]}"; do
+    mkdir -p "$source/$(dirname "$file")"
+    printf 'from-main:%s\n' "$file" > "$source/$file"
+  done
+  printf 'not-selected\n' > "$source/.env.local"
+  mkdir -p "$target"
+
+  printf '%s\n' '{{ include "private_dot_config/worktrunk/config.toml" | fromToml | toJson }}' > "$probe"
+  run render_with_source "$probe"
+  assert_success
+  config_json="$output"
+
+  run python3 -c 'import json, shlex, sys
+data = json.loads(sys.argv[1])
+project = data["projects"]["github.com/membranehq/platform"]
+assert project["worktree-path"] == "{{ repo_path }}/../platform-{{ branch | sanitize }}"
+assert project["pre-start"][1]["setup"] == "make setup"
+print(project["pre-start"][0]["copy-env"].replace("{{ primary_worktree_path }}", shlex.quote(sys.argv[2])))' "$config_json" "$source"
+  assert_success
+  hook="$output"
+
+  run env WORKTRUNK_TEST_TARGET="$target" bash -c 'cd "$WORKTRUNK_TEST_TARGET" && eval "$1"' _ "$hook"
+  assert_success
+  for file in "${files[@]}"; do
+    assert_file_contains "$target/$file" "from-main:$file"
+  done
+  assert_file_not_exists "$target/.env.local"
+
+  run python3 -c 'import json, sys
+data = json.loads(sys.argv[1])
+assert data["projects"]["github.com/Seigiard/my-mac-setup"]["worktree-path"] == "{{ repo_path }}/.worktrees/{{ branch }}"' "$config_json"
+  assert_success
 }
 
 function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_input() {

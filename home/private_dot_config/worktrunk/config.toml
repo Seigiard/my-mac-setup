@@ -1,0 +1,24 @@
+# Keep each repository's established worktree layout. These identifiers come
+# from the primary GitHub remotes and can be confirmed with `wt config show`.
+[projects."github.com/membranehq/platform"]
+worktree-path = "{{ repo_path }}/../platform-{{ branch | sanitize }}"
+
+# Match platform's `make worktree`: copy its required local environment first,
+# then run the lighter worktree-safe setup. Do not run `make init` or start a
+# second database; platform worktrees share the main checkout's services.
+[[projects."github.com/membranehq/platform".pre-start]]
+copy-env = '''
+source={{ primary_worktree_path }}
+for file in .env console/.env engine/api/.env agent/benchmark/.env e2e-tests/.env; do
+  if [ -f "$source/$file" ]; then
+    mkdir -p "$(dirname "$file")"
+    cp "$source/$file" "$file"
+  fi
+done
+'''
+
+[[projects."github.com/membranehq/platform".pre-start]]
+setup = "make setup"
+
+[projects."github.com/Seigiard/my-mac-setup"]
+worktree-path = "{{ repo_path }}/.worktrees/{{ branch }}"

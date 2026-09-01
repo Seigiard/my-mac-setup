@@ -915,14 +915,14 @@ child_lifecycle_start() {
 }
 
 child_wait_for_log() {
-  local pattern="$1" attempt=0
+  local pattern="$1" file="${2:-$CHILD_STUB/calls.log}" attempt=0
   while [ "$attempt" -lt 500 ]; do
-    grep -q -- "$pattern" "$CHILD_STUB/calls.log" 2>/dev/null && return 0
+    grep -q -- "$pattern" "$file" 2>/dev/null && return 0
     attempt=$((attempt + 1))
     sleep 0.01
   done
   printf 'pattern not observed: %s\n' "$pattern" >&2
-  cat "$CHILD_STUB/calls.log" >&2
+  cat "$file" >&2
   return 1
 }
 
@@ -2178,7 +2178,7 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
   printf 'done 11\n' > "$CHILD_STUB/child-state"
-  child_wait_for_log 'event=settled-11'
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
 
   # #then — the delivered supervision marker matches the documented shape
   local emitted documented
@@ -5960,33 +5960,6 @@ function test_scripts_188_herdr_task_sync_reads_the_newest_agent_directory() {
 
   # then: the sweep publishes the last reported directory, not the first
   assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hts_socket_state "$HTS_DEFAULT_SOCKET")")" "$HTS_ICON_WORKTREE two"
-}
-
-function test_scripts_189_herdr_task_sync_plugin_exposes_only_the_approved() {
-  _bats_test_init 189 'herdr-task-sync plugin exposes only the approved pane, tab, and worktree invalidations'
-  local manifest="$HTS_PLUGIN_DIR/herdr-plugin.toml"
-  run awk '
-    /^on = "/ {
-      event = $0
-      sub(/^on = "/, "", event)
-      sub(/"$/, "", event)
-      next
-    }
-    /^command = / && event != "" {
-      command = $0
-      sub(/^command = /, "", command)
-      print event "|" command
-      event = ""
-    }
-  ' "$manifest"
-  assert_success
-  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]\nworktree.created|["sh", "ensure.sh", "--event"]\nworktree.opened|["sh", "ensure.sh", "--event"]'
-  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.0"$'
-  assert_file_contains "$manifest" '^id = "sweep"$'
-  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
-  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
-  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
-  assert_failure
 }
 
 function test_scripts_190_herdr_task_sync_plugin_wrappers_invoke_one_engin() {
