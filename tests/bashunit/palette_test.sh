@@ -1335,6 +1335,17 @@ function test_palette_062_worktrunk_picker_is_configured_as_a_popup() {
   assert_file_contains "$config" 'picker_placement = "popup"'
 }
 
+function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions() {
+  _bats_test_init 63 'Herdr loads the command palette manifest and actions'
+  command_exists herdr || skip "herdr is not installed"
+  local home="$PALETTE_WORK/herdr-home"
+  mkdir -p "$home"
+
+  run env HOME="$home" herdr plugin link "$PALETTE_DIR" --enabled
+  assert_success
+  assert_output --partial '"id":"smart_close"'
+}
+
 function set_up_before_script() {
   :
 }
