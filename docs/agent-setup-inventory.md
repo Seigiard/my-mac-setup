@@ -32,6 +32,8 @@ Use `skills add <source> [skill...]`, `skills remove <source> <skill...>`,
 entry and reports unmanaged or obsolete lock entries with explicit `skills
 remove` commands. It never removes drift automatically. Restart Claude Code,
 OpenCode, and Pi after installation or discovery configuration changes.
+Successful upstream CLI output is hidden by default; use `skills --verbose
+<command>` to restore it. Failed commands always replay the captured diagnostics.
 
 ## Plugin-Owned Functionality
 
