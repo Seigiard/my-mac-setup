@@ -915,14 +915,14 @@ child_lifecycle_start() {
 }
 
 child_wait_for_log() {
-  local pattern="$1" attempt=0
+  local pattern="$1" file="${2:-$CHILD_STUB/calls.log}" attempt=0
   while [ "$attempt" -lt 500 ]; do
-    grep -q -- "$pattern" "$CHILD_STUB/calls.log" 2>/dev/null && return 0
+    grep -q -- "$pattern" "$file" 2>/dev/null && return 0
     attempt=$((attempt + 1))
     sleep 0.01
   done
   printf 'pattern not observed: %s\n' "$pattern" >&2
-  cat "$CHILD_STUB/calls.log" >&2
+  cat "$file" >&2
   return 1
 }
 
@@ -2178,7 +2178,7 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
   printf 'done 11\n' > "$CHILD_STUB/child-state"
-  child_wait_for_log 'event=settled-11'
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
 
   # #then — the delivered supervision marker matches the documented shape
   local emitted documented
