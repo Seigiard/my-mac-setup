@@ -5,12 +5,19 @@ merge, and removal in Herdr. The `herdr-worktrunk` plugin presents Worktrunk
 checkouts as native Herdr workspaces; `herdr-task-sync` remains the separate
 owner of pane labels and Git metadata.
 
-Use the managed Herdr bindings instead of Herdr's built-in worktree dialog:
+Use the same direct terminal shortcuts and command palette as the rest of the
+Herdr workspace workflow:
 
-- `prefix+shift+g` switches to an existing worktree or creates one from the
-  default branch.
-- `prefix+shift+d` removes a worktree through Worktrunk's safety checks.
-- `prefix+shift+m` merges a worktree through Worktrunk and then removes it.
+- `Cmd+Shift+N` opens the Worktrunk picker to switch to an existing worktree or
+  create one from the default branch.
+- `Cmd+Shift+P` opens the command palette. Search for `worktree` or use the
+  `wt`, `wtd`, and `wtm` shortcuts to open, remove, or merge a worktree.
+- Herdr's workspace action menus expose the same Worktrunk open, remove, and
+  merge operations.
+
+The underlying `prefix+shift+g` binding is a transport target for Ghostty and
+kitty, which send the complete Herdr sequence for `Cmd+Shift+N`. It is not the
+user-facing shortcut and does not require typing `Ctrl+B` manually.
 
 The source of truth for personal Worktrunk policy is
 `home/private_dot_config/worktrunk/config.toml`, deployed to

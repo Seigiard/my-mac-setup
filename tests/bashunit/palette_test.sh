@@ -20,7 +20,7 @@ REAL_COMMANDS="$SOURCE_ROOT/private_dot_config/herdr/command-palette/commands.to
 setup() {
   # No `command_exists python3 || skip` here. python3 is a declared requirement
   # (README.md, Requirements), so its absence must fail rather than silence all
-  # 56 tests in this file from inside setup(). Deliberate exception to the skip
+  # 58 tests in this file from inside setup(). Deliberate exception to the skip
   # convention in docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md;
   # the first test below is what names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
@@ -465,7 +465,7 @@ function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   run rank_real ""
   assert_success
   assert_line --index 0 "Lazygit in new tab"
-  assert_equal "${#lines[@]}" 9
+  assert_equal "${#lines[@]}" 12
 }
 
 function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
@@ -1128,6 +1128,39 @@ PY
   assert_success
   assert_output --partial "survived"
   refute_output --partial "Traceback"
+}
+
+function test_palette_058_worktrunk_commands_dispatch_the_plugin_actions() {
+  _bats_test_init 58 'Worktrunk commands dispatch open, remove and merge plugin actions'
+  run env HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+worktrunk = [command for command in commands if str(command.raw.get("action", "")).startswith("worktrunk.")]
+assert {command.title for command in palette.ranked("worktree", commands, palette.DEFAULT_LIMIT)} == {
+    "New or switch worktree",
+    "Delete worktree",
+    "Merge worktree",
+}
+
+class Result:
+    returncode = 0
+    stdout = ""
+    stderr = ""
+
+calls = []
+palette.subprocess.run = lambda command, **kwargs: calls.append(command) or Result()
+for command in worktrunk:
+    palette.run_command_with_variables(command, config_path, {}, "herdr")
+
+assert calls == [
+    ["herdr", "plugin", "action", "invoke", "worktrunk.open"],
+    ["herdr", "plugin", "action", "invoke", "worktrunk.remove"],
+    ["herdr", "plugin", "action", "invoke", "worktrunk.merge"],
+], calls
+PY
+  assert_success
 }
 
 function set_up_before_script() {

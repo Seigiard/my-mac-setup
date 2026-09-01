@@ -40,6 +40,37 @@ type = "shell"
 command = "zsh -ic 'gpmain'"
 
 [[commands]]
+group = "Workspaces"
+title = "Switch workspace"
+shortcuts = ["ws", "цы"]
+description = "Choose and focus a workspace"
+type = "workspace_picker"
+
+[[commands]]
+group = "Workspaces"
+title = "New or switch worktree"
+shortcuts = ["wt", "це"]
+description = "Choose an existing worktree or create one from the default branch (Cmd+Shift+N)"
+type = "plugin_action"
+action = "worktrunk.open"
+
+[[commands]]
+group = "Workspaces"
+title = "Delete worktree"
+shortcuts = ["wtd", "цев"]
+description = "Remove a worktree through Worktrunk's safety checks"
+type = "plugin_action"
+action = "worktrunk.remove"
+
+[[commands]]
+group = "Workspaces"
+title = "Merge worktree"
+shortcuts = ["wtm", "цеь"]
+description = "Merge a worktree into its target branch, then remove it"
+type = "plugin_action"
+action = "worktrunk.merge"
+
+[[commands]]
 group = "Editor"
 title = "Open in Zed"
 shortcuts = ["zed", "яув"]
@@ -47,13 +78,6 @@ description = "Open the current pane's directory in Zed"
 type = "shell"
 pause = false
 command = "python3 {plugin_root_q}/open_in_zed.py {target_cwd_q}"
-
-[[commands]]
-group = "Herdr"
-title = "Switch workspace"
-shortcuts = ["ws", "цы"]
-description = "Choose and focus a workspace"
-type = "workspace_picker"
 
 [[commands]]
 group = "Herdr"

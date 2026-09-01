@@ -190,8 +190,10 @@ function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
   assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
   assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" "Edit command palette config"
   assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.open"'
-  assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.remove"'
-  assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "worktrunk.merge"'
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.open"'
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.remove"'
+  assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.merge"'
+  assert_file_contains "$HOME/.config/ghostty/config" 'cmd+shift+KeyN=text:\x02G'
 }
 
 function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {
@@ -646,6 +648,7 @@ function test_smoke_027_kitty_sends_the_herdr_prefix_for_macos_style_sho() {
   assert_file_contains "$config" 'cmd+t send_text all .x02c$'
   assert_file_contains "$config" 'cmd+d send_text all .x02v$'
   assert_file_contains "$config" 'cmd+w send_text all .x02x$'
+  assert_file_contains "$config" 'cmd+shift+n send_text all .x02G$'
   assert_file_contains "$config" 'ctrl+shift+1 send_text all .x1b\[49;6u$'
   assert_file_contains "$config" '^map shift+alt+left send_text all .x1b\[1;4D$'
 }
