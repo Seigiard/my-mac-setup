@@ -8,19 +8,23 @@ owner of pane labels and Git metadata.
 Use the same direct terminal shortcuts and command palette as the rest of the
 Herdr workspace workflow:
 
-- `Cmd+Shift+N` immediately creates and opens a worktree from the default branch,
-  named `worktree-YYYYMMDD-HHMMSS-ffffff`.
+- `Cmd+Shift+N` opens a modal progress popup, then creates and opens a worktree
+  from the default branch named `<spaceName>-YYMMDDHHMMSS` (with branch-unsafe
+  characters replaced by `-`). The popup streams Worktrunk setup output. A
+  process lock prevents repeated keypresses from starting parallel creation.
 - `Cmd+Shift+P` opens the command palette. Search for `worktree` or use the
   `wt`, `wtn`, `wtd`, and `wtm` shortcuts to switch/create interactively, create
   immediately, remove, or merge a worktree. The interactive picker opens as a
-  floating popup.
+  floating popup. `wtn` closes the palette before opening the progress popup,
+  because Herdr permits only one popup per workspace.
 - Herdr's workspace action menus expose the same Worktrunk open, remove, and
   merge operations.
 
 The underlying `prefix+shift+g` binding is a transport target for Ghostty and
 kitty, which send the complete Herdr sequence for `Cmd+Shift+N`. It invokes the
 local command-palette plugin's direct-create action and does not require typing
-`Ctrl+B` manually.
+`Ctrl+B` manually. If its progress popup is already open, another invocation
+focuses that popup instead of opening another one.
 
 The source of truth for personal Worktrunk policy is
 `home/private_dot_config/worktrunk/config.toml`, deployed to

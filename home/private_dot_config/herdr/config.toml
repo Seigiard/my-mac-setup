@@ -49,8 +49,8 @@ type = "plugin_action"
 command = "seigi.command-palette.smart_close"
 description = "close pane, then tab, but keep workspace"
 
-# Ghostty and kitty send this sequence for Cmd+Shift+N. The action creates a
-# timestamp-named checkout immediately; the command palette owns the picker.
+# Ghostty and kitty send this sequence for Cmd+Shift+N. The action opens one
+# modal progress popup; its process lock serializes timestamp-named creation.
 [[keys.command]]
 key = "prefix+shift+g"
 type = "plugin_action"

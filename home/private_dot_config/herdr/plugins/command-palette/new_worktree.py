@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -29,10 +31,27 @@ def target_cwd() -> str:
     return os.environ.get("HERDR_TARGET_CWD", "")
 
 
-def run_json(command: list[str], *, cwd: str | None = None) -> dict[str, Any]:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+def workspace_name(cwd: str) -> str:
+    label = context_data().get("workspace_label")
+    if not isinstance(label, str) or not label:
+        label = os.environ.get("HERDR_TARGET_WORKSPACE_LABEL", "")
+    if not label:
+        label = Path(cwd).name
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip(".-") or "worktree"
+
+
+def run_json(
+    command: list[str], *, cwd: str | None = None, stream_stderr: bool = False
+) -> dict[str, Any]:
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=None if stream_stderr else subprocess.PIPE,
+    )
     if result.returncode != 0:
-        message = result.stderr.strip() or result.stdout.strip() or "command failed"
+        message = (result.stderr or "").strip() or result.stdout.strip() or "command failed"
         raise RuntimeError(message)
     try:
         data = json.loads(result.stdout)
@@ -59,12 +78,28 @@ def main() -> int:
         notify(herdr, "The focused pane has no usable working directory.")
         return 1
 
-    branch = datetime.now().astimezone().strftime("worktree-%Y%m%d-%H%M%S-%f")
+    lock_path = os.environ.get(
+        "HERDR_NEW_WORKTREE_LOCK", f"/tmp/herdr-new-worktree-{os.getuid()}.lock"
+    )
+    with open(lock_path, "w", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("Another worktree is already being created. Follow its progress popup.")
+            return 0
+
+        return create_worktree(herdr, cwd)
+
+
+def create_worktree(herdr: str, cwd: str) -> int:
+    branch = f"{workspace_name(cwd)}-{datetime.now().astimezone():%y%m%d%H%M%S}"
     created_path = ""
     try:
+        print(f"Creating {branch} from {cwd}", flush=True)
         switched = run_json(
             ["wt", "switch", "--create", branch, "--no-cd", "--format=json"],
             cwd=cwd,
+            stream_stderr=True,
         )
         wtpath = switched.get("path")
         resolved_branch = switched.get("branch")
@@ -73,6 +108,9 @@ def main() -> int:
         created_path = wtpath
         if not isinstance(resolved_branch, str) or not resolved_branch:
             resolved_branch = branch
+
+        print(f"Checkout ready: {wtpath}", flush=True)
+        print("Opening the Herdr workspace...", flush=True)
 
         worktrees = run_json([herdr, "worktree", "list", "--cwd", cwd, "--json"])
         result = worktrees.get("result")
@@ -116,6 +154,7 @@ def main() -> int:
                 "--json",
             ]
         )
+        print(f"Ready: {resolved_branch}", flush=True)
         return 0
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         message = str(exc)

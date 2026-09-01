@@ -128,6 +128,7 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .config/worktrunk/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
+    .config/herdr/plugins/command-palette/open_new_worktree.py
     .config/herdr/plugins/command-palette/new_worktree.py
     .config/herdr/plugins/command-palette/open_in_zed.py
     .config/herdr/plugins/command-palette/palette.py

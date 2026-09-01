@@ -69,7 +69,7 @@ test-docker: test-issues build-docker
 # vocabulary is nativized.
 lint:
 	@echo "=== Running shellcheck ==="
-	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "*/node_modules/*" -not -path "./.context/*" -not -path "./tests/bashunit/*_test.sh" | xargs shellcheck --severity=warning
+	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "./.worktrees/*" -not -path "*/node_modules/*" -not -path "./.context/*" -not -path "./tests/bashunit/*_test.sh" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 	python3 scripts/check_bats_assertions.py tests

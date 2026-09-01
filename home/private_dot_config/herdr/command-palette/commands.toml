@@ -51,8 +51,9 @@ group = "Workspaces"
 title = "New worktree"
 shortcuts = ["wtn", "цет"]
 description = "Create and open a timestamp-named worktree from the default branch (Cmd+Shift+N)"
-type = "plugin_action"
-action = "seigi.command-palette.new_worktree"
+type = "shell"
+pause = false
+command = "nohup bash -c 'sleep 0.4; herdr plugin action invoke seigi.command-palette.new_worktree' >/dev/null 2>&1 &"
 
 [[commands]]
 group = "Workspaces"
