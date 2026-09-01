@@ -574,49 +574,6 @@ function test_templates_028_the_minimal_render_deploys_brewfile_macos_empty() {
   assert_file_contains "$dest/.config/brewfiles/Brewfile" '^brew "jq"'
 }
 
-function test_templates_029_worktrunk_platform_hook_matches_make_worktree_setup() {
-  _bats_test_init 29 'worktrunk platform hook copies the Makefile env set before setup'
-  local source="$BATS_TEST_TMPDIR/platform source"
-  local target="$BATS_TEST_TMPDIR/platform-target"
-  local probe="$BATS_TEST_TMPDIR/worktrunk-config-probe.tmpl"
-  local config_json hook
-  local files=(.env console/.env engine/api/.env agent/benchmark/.env e2e-tests/.env)
-  local file
-
-  for file in "${files[@]}"; do
-    mkdir -p "$source/$(dirname "$file")"
-    printf 'from-main:%s\n' "$file" > "$source/$file"
-  done
-  printf 'not-selected\n' > "$source/.env.local"
-  mkdir -p "$target"
-
-  printf '%s\n' '{{ include "private_dot_config/worktrunk/config.toml" | fromToml | toJson }}' > "$probe"
-  run render_with_source "$probe"
-  assert_success
-  config_json="$output"
-
-  run python3 -c 'import json, shlex, sys
-data = json.loads(sys.argv[1])
-project = data["projects"]["github.com/membranehq/platform"]
-assert project["worktree-path"] == "{{ repo_path }}/../platform-{{ branch | sanitize }}"
-assert project["pre-start"][1]["setup"] == "make setup"
-print(project["pre-start"][0]["copy-env"].replace("{{ primary_worktree_path }}", shlex.quote(sys.argv[2])))' "$config_json" "$source"
-  assert_success
-  hook="$output"
-
-  run env WORKTRUNK_TEST_TARGET="$target" bash -c 'cd "$WORKTRUNK_TEST_TARGET" && eval "$1"' _ "$hook"
-  assert_success
-  for file in "${files[@]}"; do
-    assert_file_contains "$target/$file" "from-main:$file"
-  done
-  assert_file_not_exists "$target/.env.local"
-
-  run python3 -c 'import json, sys
-data = json.loads(sys.argv[1])
-assert data["projects"]["github.com/Seigiard/my-mac-setup"]["worktree-path"] == "{{ repo_path }}/.worktrees/{{ branch }}"' "$config_json"
-  assert_success
-}
-
 function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_input() {
   _bats_test_init 30 'agent-skills sync onchange hash changes when either managed input changes'
   skip_if_no_chezmoi

@@ -18,7 +18,7 @@ done
 '''
 
 [[projects."github.com/membranehq/platform".pre-start]]
-setup = "make setup"
+setup = "mise exec -- make setup"
 
 [projects."github.com/Seigiard/my-mac-setup"]
 worktree-path = "{{ repo_path }}/.worktrees/{{ branch }}"

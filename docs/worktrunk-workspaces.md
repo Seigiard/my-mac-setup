@@ -35,11 +35,13 @@ handlers have no shared transaction or ordering and can race over the path.
 1. Create a sibling checkout at `../platform-<branch>` from the default branch.
 2. Copy `.env`, `console/.env`, `engine/api/.env`, `agent/benchmark/.env`, and
    `e2e-tests/.env` from the primary checkout when each file exists.
-3. Run `make setup` in the new checkout.
+3. Run `make setup` through mise in the new checkout so repository-pinned tools
+   win over global Homebrew versions.
 
 The hook deliberately does not run `make init`, start databases, or copy
 `node_modules`. Platform worktrees share the primary checkout's Postgres and
-Redis, while `make setup` performs the supported dependency install and build.
+Redis, while `mise exec -- make setup` performs the supported dependency install
+and build with the repository-pinned toolchain.
 
 `Seigiard/my-mac-setup` creates checkouts at
 `.worktrees/<branch>`. It needs no setup hook because the repository has no
