@@ -403,15 +403,16 @@ start_reap_owner_guard() {
   rm -f "$ready" "$release" "$gone" 2>/dev/null || return 1
   python3 -c 'import fcntl, os, sys, time
 lock_path, ready_path, release_path, gone_path, parent_pid = sys.argv[1:]
+run_dir = os.path.dirname(release_path)
 lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
 try:
     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
     raise SystemExit(3)
 os.close(os.open(ready_path, os.O_CREAT | os.O_WRONLY, 0o600))
-while os.getppid() == int(parent_pid) and not os.path.exists(release_path):
+while os.getppid() == int(parent_pid) and os.path.isdir(run_dir) and not os.path.exists(release_path):
     time.sleep(0.01)
-if not os.path.exists(release_path):
+if os.path.isdir(run_dir) and not os.path.exists(release_path):
     os.close(os.open(gone_path, os.O_CREAT | os.O_WRONLY, 0o600))
 os.close(lock_fd)' "$run_dir/reap-owner.lock" "$ready" "$release" "$gone" "$$" &
   REAP_OWNER_GUARD_PID=$!
