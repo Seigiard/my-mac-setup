@@ -59,8 +59,8 @@ Every skill's own description already carries its triggers. These four lines res
 
 <important if="you are adding or reviewing tests">
 
-- **Tautological tests considered harmful.** A test must change verdict when the protected behavior breaks. A test that mirrors newly added source, prompt, config, or fixture text cannot.
-- Replace a tautological test with behavioral coverage, or omit it when no regression is protected. Exact-text assertions are valid only against an externally consumed literal contract.
+- **Tautological tests considered harmful: require an independent oracle.** Name the consumer and observable failure. A useful test fails when the protected behavior breaks and stays green through harmless source refactors.
+- Reject expected values copied from source, prompt, config, fixture, or inventory changed by the same patch. Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
 
 </important>
 
