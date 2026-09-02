@@ -35,32 +35,74 @@ class TestDotfilesWorkflow(unittest.TestCase):
         self.assertTrue(triggers, "no triggers parsed from the on: block")
         return triggers
 
-    def events_selected_by_condition(self, step, declared):
-        """Events a step's `if:` condition selects, as a subset of the declared
-        triggers. Assumes the condition is a positive membership test over
-        `github.event_name` (any spelling: `==` chains, fromJSON lists), which
-        every trigger-gated step in this workflow uses."""
-        match = re.search(r"^        if: (?P<expr>.+)$", step, re.MULTILINE)
-        self.assertIsNotNone(match, "step must be gated by an if: condition")
-        expr = match.group("expr")
-        self.assertIn("github.event_name", expr)
-        # The positive-membership assumption cannot survive negation; reject
-        # such conditions instead of silently misreading them as selections.
+    def events_selected_by_expression(self, expr, declared, context):
+        """Events an arbitrary workflow expression selects, as a subset of
+        the declared triggers. Assumes the expression is a positive
+        membership test over `github.event_name` (any spelling: `==`
+        chains, fromJSON lists) -- true of every trigger-gated step `if:`
+        condition and of the MMS_CI_MINIMAL env expression in this
+        workflow. The positive-membership assumption cannot survive
+        negation (e.g. `!=`); reject such expressions instead of silently
+        misreading a negated condition as selecting the events it names."""
+        self.assertIn("github.event_name", expr, "%s must reference github.event_name" % context)
         self.assertNotIn(
-            "!", expr, "negated condition breaks this parser's assumption: %s" % expr
+            "!", expr, "negated %s breaks this parser's assumption: %s" % (context, expr)
         )
         selected = {
             event
             for event in declared
             if re.search(r"\b%s\b" % re.escape(event), expr)
         }
-        self.assertTrue(selected, "condition selects none of the declared triggers: %s" % expr)
+        self.assertTrue(selected, "%s selects none of the declared triggers: %s" % (context, expr))
         return selected
+
+    def events_selected_by_condition(self, step, declared):
+        """Events a step's `if:` condition selects -- see
+        events_selected_by_expression for the shared parsing assumption."""
+        match = re.search(r"^        if: (?P<expr>.+)$", step, re.MULTILINE)
+        self.assertIsNotNone(match, "step must be gated by an if: condition")
+        return self.events_selected_by_expression(match.group("expr"), declared, "condition")
 
     def step_value(self, step, key, indent="          "):
         match = re.search(r"^%s%s: (.+)$" % (indent, re.escape(key)), step, re.MULTILINE)
         self.assertIsNotNone(match, "step must set %s" % key)
         return match.group(1).strip()
+
+    # Pinned event policy, independent of the workflow file: what each
+    # trigger means for this repo, not what the workflow currently says.
+    #
+    # Ordinary (minimal-install, cache-restoring) events -- every push and PR
+    # run. These fire on nearly every commit, so they restore prior downloads
+    # to stay fast, and only install what tests resolve from brew.
+    MINIMAL_EVENTS = frozenset({"push", "pull_request"})
+    # Full-verification (cache-saving, no-restore) events -- the nightly
+    # schedule and the manual workflow_dispatch escape hatch. These exist
+    # specifically to prove the complete Brewfile still installs against
+    # current upstream archives, so they must fetch fresh rather than reuse a
+    # restored cache entry, and they seed the cache for the next ordinary run.
+    FULL_VERIFICATION_EVENTS = frozenset({"schedule", "workflow_dispatch"})
+
+    def test_mms_ci_minimal_selects_exactly_the_minimal_events(self):
+        # MMS_CI_MINIMAL decides whether a run installs the full Brewfile or
+        # only what tests resolve from brew. The consumer side (rendering
+        # under MMS_CI_MINIMAL=1) is covered by templates_test.sh and
+        # scripts_test.sh; this is the only coverage of WHICH CI events set
+        # it. Compared against the pinned policy (an independent oracle from
+        # the workflow file) so a full-verification event silently gaining
+        # the minimal install -- or an ordinary event losing it -- fails
+        # here instead of only showing up as installed-package drift.
+        text = self.workflow_text()
+        declared = self.declared_triggers(text)
+        minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
+        expr = minimal_line.group("expr")
+        selected = self.events_selected_by_expression(expr, declared, "MMS_CI_MINIMAL")
+        self.assertEqual(
+            selected,
+            self.MINIMAL_EVENTS,
+            "MMS_CI_MINIMAL must select exactly the pinned minimal-install "
+            "events, and no full-verification event: %s" % expr,
+        )
 
     def test_cache_restore_and_save_triggers_partition_the_declared_set(self):
         # Full-Brewfile verification events must fetch from upstream (no
@@ -68,17 +110,15 @@ class TestDotfilesWorkflow(unittest.TestCase):
         text = self.workflow_text()
         declared = self.declared_triggers(text)
 
-        # MMS_CI_MINIMAL defines which events are ordinary runs. Deriving the
-        # restore set from it rejects a swap of the two conditions, which a
-        # bare partition check would accept.
-        minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
-        self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
-        minimal_events = {
-            event
-            for event in declared
-            if re.search(r"\b%s\b" % re.escape(event), minimal_line.group("expr"))
-        }
-        self.assertTrue(minimal_events, "no declared trigger selects the minimal install")
+        expected_declared = self.MINIMAL_EVENTS | self.FULL_VERIFICATION_EVENTS
+        self.assertEqual(
+            declared,
+            expected_declared,
+            "workflow's declared triggers must equal the pinned event policy "
+            "(minimal ∪ full-verification); a new trigger must be classified "
+            "into one of the two sets above, not silently added to neither",
+        )
+        minimal_events = self.MINIMAL_EVENTS
 
         for job_name in ("test-ubuntu", "test-macos"):
             with self.subTest(job=job_name):
@@ -96,7 +136,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 )
                 self.assertEqual(
                     save_events,
-                    declared - minimal_events,
+                    self.FULL_VERIFICATION_EVENTS,
                     "every full-verification event must save fresh downloads",
                 )
 
