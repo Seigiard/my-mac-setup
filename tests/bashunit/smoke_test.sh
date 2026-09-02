@@ -967,11 +967,68 @@ function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
   local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   assert_file_contains "$manifest" '^\[\[startup\]\]$'
   assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/config.toml"'
-  assert_file_contains "$relink" 'include "dot_local/bin/executable_herdr-task-sync"'
+
+  # A source grep for the `include "..."` lines only proves the lines exist; it
+  # never proves the property the onchange mechanism relies on: editing a
+  # declared dependency must change the rendered hashes chezmoi diffs against,
+  # or a stale link/enable/reload never reruns. Render the script from a
+  # scratch source tree, mutate each dependency in turn, and require the
+  # rendered output to change. The unrelated-file control proves the harness
+  # can tell "changed" from "unchanged" at all, rather than always agreeing.
+  #
+  # This lives in the smoke suite, not templates_test.sh, because it shares one
+  # plugin-deployment contract with the manifest assertions above (the deployed
+  # `[[startup]]` block and the relink script's dependency wiring are two halves
+  # of the same "does the pane-labels plugin redeploy correctly" story) and
+  # because this suite runs on host and Docker alike, where templates_test.sh
+  # is Docker-only. Rendering from $SOURCE_ROOT instead of the deployed $HOME
+  # copy is deliberate: it is the only way to observe the hash-trigger property
+  # chezmoi relies on, which no deployed-file inspection can show.
+  skip_if_no_chezmoi
+  # The pinned policy under test: every path here is a file the relink script
+  # declares via `include "..."`, so mutating any one of them must change the
+  # rendered hash, and mutating anything outside this list must not. This list
+  # is the independent side the test compares the template against -- drop an
+  # `include` from the template without updating this list and the loop below
+  # fails on that dependency, as dropping the sweep.sh include line confirmed.
+  local onchange_deps=(
+    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"
+    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"
+    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"
+    "private_dot_config/herdr/config.toml"
+    "dot_local/bin/executable_herdr-task-sync"
+  )
+  local scratch="$BATS_TEST_TMPDIR/onchange-deps"
+  mkdir -p "$scratch/private_dot_config/herdr/plugins/herdr-pane-labels" "$scratch/dot_local/bin"
+  local dep
+  for dep in "${onchange_deps[@]}"; do
+    cp "$SOURCE_ROOT/$dep" "$scratch/$dep"
+  done
+  # Lives next to the real dependencies but the script does not include it.
+  local control="private_dot_config/herdr/plugins/herdr-pane-labels/NOTES.md"
+  printf '# not a declared dependency\n' > "$scratch/$control"
+
+  local baseline
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+  assert_success
+  baseline="$output"
+
+  local rendered
+  for dep in "${onchange_deps[@]}"; do
+    printf '\n# onchange-hash probe\n' >> "$scratch/$dep"
+    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+    assert_success
+    rendered="$output"
+    run test "$rendered" != "$baseline"
+    assert_success
+    baseline="$rendered"
+  done
+
+  printf '\n# unrelated probe\n' >> "$scratch/$control"
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+  assert_success
+  run test "$output" == "$baseline"
+  assert_success
 }
 
 # ===========================================

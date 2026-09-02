@@ -121,11 +121,11 @@ get_os() {
 }
 
 is_macos() {
-  [[ "$(get_os)" == "darwin" ]]
+  [[ "$(get_os)" == "darwin" ]] || return 1
 }
 
 is_linux() {
-  [[ "$(get_os)" == "linux" ]]
+  [[ "$(get_os)" == "linux" ]] || return 1
 }
 
 skip_if_no_chezmoi() {

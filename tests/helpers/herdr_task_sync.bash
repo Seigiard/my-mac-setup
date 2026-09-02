@@ -68,7 +68,7 @@ _hts_engine_pid_live() {
   [[ -n "$start" ]] || return 0
   current="$(ps -p "$pid" -o lstart= 2>/dev/null |
     sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  [[ -z "$current" || "$current" == "$start" ]]
+  [[ -z "$current" || "$current" == "$start" ]] || return 1
 }
 
 _hts_sandbox_pids() {
