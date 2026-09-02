@@ -599,10 +599,13 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
 # already implies; it drifts silently when a shared file is renamed and its
 # entry here is forgotten. Cross-check both independent sides instead: every
 # ~/.claude/shared/*.md pointer written anywhere in the deployed agent surface
-# (CLAUDE.md, skills, the herdr child-launch lib) must resolve to a real file,
-# and conversely every deployed shared file except the directory's own README
-# index must be reachable from at least one such pointer, or it is dead weight
-# nothing loads.
+# (CLAUDE.md, skills, agents, hooks, output-styles, rules, and the herdr
+# child-launch lib) must resolve to a real file, and conversely every deployed
+# shared file except the directory's own README index must be reachable from
+# at least one such pointer, or it is dead weight nothing loads. The scanned
+# paths are chezmoi-managed content dirs only (see home/private_dot_claude/*)
+# — runtime state like sessions or telemetry is deliberately excluded, since a
+# pointer written only there was never part of the wiring this repo deploys.
 function test_smoke_022_shared_references_form_a_closed_reference_set() {
   _bats_test_init 22 'shared references form a closed reference set with the deployed agent surface'
   local shared_dir="$HOME/.claude/shared"
@@ -610,7 +613,9 @@ function test_smoke_022_shared_references_form_a_closed_reference_set() {
 
   local pointers
   pointers="$(grep -rho '~/\.claude/shared/[A-Za-z0-9._-]*\.md' \
-    "$HOME/.claude/CLAUDE.md" "$HOME/.agents" "$HOME/.local/lib" 2>/dev/null | sort -u)"
+    "$HOME/.claude/CLAUDE.md" "$HOME/.agents" "$HOME/.local/lib" \
+    "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/output-styles" \
+    "$HOME/.claude/rules" 2>/dev/null | sort -u)"
   [ -n "$pointers" ] || fail "no ~/.claude/shared pointer found in the deployed agent surface"
 
   local pointer missing=""
