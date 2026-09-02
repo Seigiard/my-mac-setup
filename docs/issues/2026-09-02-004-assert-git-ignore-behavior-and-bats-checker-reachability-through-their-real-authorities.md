@@ -20,3 +20,9 @@ Replace the .gitignore text assertions with git check-ignore results and tracked
 ## Open decisions
 
 Which sourced shell-helper classes the Bats assertion checker must cover; the implementation should enumerate the classes it currently reaches and state any it deliberately excludes.
+
+**Decision (2026-09-02):** `tests/helpers/*.bash` must be scanned, in addition to the two classes the checker already reached (`*.bats`, excluding the vendored `helpers/bats-libs` tree, and `bashunit/*_test.sh`). Rationale: these helpers are `source`d/`load`ed into the same bashunit test context as the suite files (e.g. `smoke_test.sh` does `load 'helpers/common'`), so the bash 3.2 ERR-trap quirk the checker exists for — a bare mid-test `[[ ]]` or `(( ))` silently failing to fail the test — applies to them identically. The glob is flat (`helpers/*.bash`, not recursive), which naturally excludes anything under a nested `helpers/bats-libs/` vendor directory without needing a separate exclusion rule.
+
+`palette_boot.py` under `tests/helpers/` is out of scope: it is Python, not shell, so the bash-specific ERR-trap quirk does not apply to it.
+
+Widening the scan surfaced three real violations, all the same shape — a bare `[[ ]]` as the final statement of a boolean-predicate helper function, whose exit status is the function's return value and is consumed explicitly by every call site (`if is_macos; then`, `is_macos || skip ...`, `_hts_engine_pid_live ... || continue`): `tests/helpers/common.bash` (`is_macos`, `is_linux`) and `tests/helpers/herdr_task_sync.bash` (`_hts_engine_pid_live`). Fixed by appending `|| return 1` to each, matching the `[[ cond ]] || return N` idiom already used throughout these same files (e.g. `herdr_task_sync.bash:76`) and the vendored `tests/lib/bashunit`. No false positives were found in the widened scope.

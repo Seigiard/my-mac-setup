@@ -125,6 +125,51 @@ PLAIN
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_scans_every_declared_shell_file_class(self):
+        # One violation and one clean control per class scanned_files()
+        # claims to reach. If a class silently drops out of scanned_files
+        # (a broken glob, a narrowed pattern), its violation stops being
+        # reported and this test fails for that class specifically.
+        result = self.run_checker(
+            {
+                "reachable.bats": """@test "reachable bats" {
+  [[ 1 == 2 ]]
+  :
+}
+""",
+                "reachable_clean.bats": """@test "reachable bats control" {
+  [[ 1 == 1 ]] || fail "control"
+}
+""",
+                "bashunit/reachable_test.sh": """function test_reachable() {
+  [[ 1 == 2 ]]
+  :
+}
+""",
+                "bashunit/reachable_clean_test.sh": """function test_reachable_control() {
+  [[ 1 == 1 ]] || fail "control"
+}
+""",
+                "helpers/reachable.bash": """reachable_helper() {
+  [[ 1 == 2 ]]
+  :
+}
+""",
+                "helpers/reachable_clean.bash": """reachable_helper_control() {
+  [[ 1 == 1 ]] || return 1
+}
+""",
+            }
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reachable.bats:2: bare [[...]]", result.stdout)
+        self.assertIn("bashunit/reachable_test.sh:2: bare [[...]]", result.stdout)
+        self.assertIn("helpers/reachable.bash:2: bare [[...]]", result.stdout)
+        self.assertNotIn("reachable_clean.bats", result.stdout)
+        self.assertNotIn("reachable_clean_test.sh", result.stdout)
+        self.assertNotIn("reachable_clean.bash", result.stdout)
+
     def test_repository_has_no_implicit_conditional_assertions(self):
         result = subprocess.run(
             [sys.executable, str(CHECKER), str(REPOSITORY / "tests")],

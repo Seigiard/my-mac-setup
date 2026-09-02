@@ -235,6 +235,11 @@ def scanned_files(tests_dir):
     # mid-test [[ ]] or (( )) conditional is silently inert. Scan the whole
     # file, not only test_* bodies — helpers run in the same test context.
     yield from sorted(tests_dir.rglob("bashunit/*_test.sh"))
+    # tests/helpers/*.bash is sourced into that same test context (e.g. via
+    # `load 'helpers/common'`), so the identical quirk applies there. Only
+    # the flat directory: helpers/bats-libs is vendored and excluded above
+    # for *.bats, and this glob does not descend into it either.
+    yield from sorted(tests_dir.glob("helpers/*.bash"))
 
 
 def main(argv):

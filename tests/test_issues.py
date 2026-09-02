@@ -515,11 +515,52 @@ class ClientDiscoveryTests(unittest.TestCase):
         self.assertEqual(Path("CLAUDE.md"), agents.readlink())
         self.assertEqual((REPOSITORY / "CLAUDE.md").resolve(), agents.resolve())
 
-        ignored = (REPOSITORY / ".gitignore").read_text().splitlines()
-        self.assertIn("docs/issues/.issues.lock", ignored)
-        self.assertNotIn(".claude", ignored)
-        self.assertNotIn(".opencode", ignored)
-        self.assertNotIn(".pi", ignored)
+    def check_ignore(self, path):
+        # git check-ignore exits 1 for a path that is NOT ignored -- that is
+        # its normal "no match" signal, not a broken invocation, so callers
+        # must read the status deliberately rather than treat nonzero as a
+        # harness failure.
+        return subprocess.run(
+            ["git", "check-ignore", "-v", "--", path],
+            cwd=REPOSITORY,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def tracked_paths(self, path):
+        result = subprocess.run(
+            ["git", "ls-files", "--", path],
+            cwd=REPOSITORY,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        return [line for line in result.stdout.splitlines() if line]
+
+    def test_issues_lock_is_ignored_and_agent_client_directories_are_not(self):
+        # Evidence from Git's own decision, not from re-reading .gitignore
+        # text: a rule that exists but is overridden by a later negation, or
+        # a path ignored through .git/info/exclude or a nested .gitignore,
+        # would satisfy a text scan while failing this. The lock file must
+        # never be committed, so pair the ignore verdict with tracked-path
+        # evidence -- an ignored-but-already-tracked file would still show
+        # up here.
+        ignored = self.check_ignore("docs/issues/.issues.lock")
+        self.assertEqual(0, ignored.returncode, ignored.stdout + ignored.stderr)
+        self.assertIn("docs/issues/.issues.lock", ignored.stdout)
+        self.assertEqual([], self.tracked_paths("docs/issues/.issues.lock"))
+
+        # The agent-client directories must stay visible to Git: check-ignore
+        # must report "not ignored" (exit 1) and each must carry tracked
+        # files, so a directory that quietly became ignored cannot pass.
+        for client_dir in (".claude", ".opencode", ".pi"):
+            not_ignored = self.check_ignore(client_dir)
+            self.assertEqual(
+                1, not_ignored.returncode, not_ignored.stdout + not_ignored.stderr
+            )
+            self.assertNotEqual([], self.tracked_paths(client_dir))
 
 
 if __name__ == "__main__":
