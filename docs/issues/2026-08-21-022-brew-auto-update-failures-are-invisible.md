@@ -54,7 +54,18 @@ that sequence reaches a terminal result.
 
 ## Open decisions
 
-- Whether startup failures should notify every time or be rate-limited (e.g.,
-  once per lock-state window), so a persistently broken Homebrew does not nag on
-  every Pi start. The manual command should always report its outcome.
-- Notification level for failures: `warning` vs `error`.
+Both decisions below are settled; this section records the chosen policy.
+
+- **Startup notification policy: notify every time, no rate-limiting.** A
+  failed startup update surfaces a `ui.notify` on every startup it fails, with
+  no lock-state window, no persisted state, and no other rate-limiting. Silence
+  is the defect this issue fixes, and a rate-limit would add state that can
+  hide a persistent break instead of surfacing it. Success stays silent at
+  startup unless something was actually updated (unchanged from `809dcfd` /
+  `ce8a90c`). The manual command always reports its terminal outcome —
+  `failed`, `skipped`, `contended`, up-to-date, and updated — regardless of
+  whether anything changed.
+- **Notification level for failures: `warning`.** This matches the convention
+  already used by `home/dot_pi/agent/extensions/agents-local` for a
+  degraded-but-not-fatal condition. The manual command's non-failure terminal
+  outcomes (`skipped`, `contended`, up-to-date, updated) notify at `info`.
