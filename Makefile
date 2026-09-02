@@ -44,9 +44,9 @@ test-local:
 # redundant defense behind that file's MMS_DISPOSABLE_HOME guard. The guard
 # makes direct host runs inert, but the exclusion keeps this host-safe target
 # from reaching the real apply commands at all. Use `make test-ubuntu` to run
-# the full five-file suite against a disposable $$HOME.
+# the full suite against a disposable $$HOME.
 #
-# Second, sharper limit: these four files assert against the deployed $$HOME,
+# Second, sharper limit: the host-safe files assert against the deployed $$HOME,
 # and this target deliberately applies nothing. So it reports on whatever was
 # last applied to this machine, NOT on the working checkout -- an edit under
 # home/ that has not been applied is invisible here, and the run still goes

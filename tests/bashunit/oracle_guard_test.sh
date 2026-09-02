@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: 50 host-safe
 # test-oracle-guard suite — bashunit source. Vocabulary (run, assert_*,
 # skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
 #

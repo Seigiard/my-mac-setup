@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: 30 host-safe
 # palette post-apply suite — bashunit source. Vocabulary (run, assert_*,
 # skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
 # Migrated from palette.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: 60 needs-disposable-home
 # bashunit: no-parallel-tests
 # idempotent post-apply suite — bashunit source. Vocabulary (run, assert_*,
 # skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: 40 host-safe
 # platform post-apply suite — bashunit source. Vocabulary (run, assert_*,
 # skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
 # Migrated from platform.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
@@ -48,4 +49,3 @@ function set_up_before_script() {
 function tear_down_after_script() {
   _bats_file_cleanup
 }
-

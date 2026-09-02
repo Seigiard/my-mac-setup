@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: excluded
 # Dedicated one-test file for the herdr-child descriptor probe: proves a
 # detached launch closes the launcher's inherited descriptors and owns its
 # process group, so a watcher can never hold a test runner's pipes open.
