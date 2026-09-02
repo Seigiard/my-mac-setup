@@ -30,8 +30,8 @@ USAGE
 }
 
 case "${1:-}" in
-  full)      files="smoke scripts palette platform idempotent" ;;
-  host-safe) files="smoke scripts palette platform" ;;
+  full)      files="smoke scripts palette platform oracle_guard idempotent" ;;
+  host-safe) files="smoke scripts palette platform oracle_guard" ;;
   *) usage; exit 2 ;;
 esac
 

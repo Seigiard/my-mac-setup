@@ -51,6 +51,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/test-oracle-guard.sh'",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionStart": [
