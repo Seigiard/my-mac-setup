@@ -1,6 +1,6 @@
 ---
 title: "Remove source-mirror assertions with stronger behavioral owners"
-short_description: "The herdr-child module inventory inside scripts_test.sh test 269 duplicates coverage that command-level lifecycle tests already own, while the Pi package assertion in smoke_test.sh has drifted two packages behind the modifier and still needs a deployment owner decision."
+short_description: "The herdr-child module inventory inside scripts_test.sh test 269 duplicates coverage that command-level lifecycle tests already own, while the Pi package assertion in smoke_test.sh has drifted one package behind the modifier and still needs a deployment owner decision."
 type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","duplicate-coverage","source-ownership"]
@@ -15,7 +15,7 @@ The repository-wide tautological-test audit identified assertions that can be de
 
 `tests/bashunit/scripts_test.sh:7657-7813` (test 269, `herdr-child modules load in order without source-time effects`) hardcodes the herdr-child module source order, the exact function set each module owns, and the exact globals each module initializes, even though command-level lifecycle tests already exercise launch, supervision, continuation, and reap behavior. Those three inventories are copied from the implementation they guard: they fail on a harmless module rename or helper extraction and stay green when the commands themselves break.
 
-`tests/bashunit/smoke_test.sh:404-418` (test 16, `pi settings include all managed packages`) asserts a package list that has already drifted: it names 7 packages while `home/dot_pi/agent/modify_settings.json` declares 9, omitting `npm:pi-ask-user` and `git:github.com/EveryInc/compound-engineering-plugin`.
+`tests/bashunit/smoke_test.sh:404-418` (test 16, `pi settings include all managed packages`) asserts a package list that has already drifted: it names 7 packages while `home/dot_pi/agent/modify_settings.json` declares 8, omitting `npm:pi-ask-user`. The `git:github.com/EveryInc/compound-engineering-plugin` entry is not part of that set — it appears only as modifier *input* in `tests/bashunit/scripts_test.sh:7068`, where the modifier strips it.
 
 ## Scope
 
