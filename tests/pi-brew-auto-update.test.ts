@@ -30,13 +30,11 @@ afterEach(async () => {
 });
 
 function fakeUi() {
-  const statuses: Array<string | undefined> = [];
   const notifications: Array<{ message: string; level: string }> = [];
   const ui: UpdateUi = {
-    setStatus: (_id, value) => statuses.push(value),
     notify: (message, level) => notifications.push({ message, level }),
   };
-  return { ui, statuses, notifications };
+  return { ui, notifications };
 }
 
 async function dependencies(
@@ -93,7 +91,7 @@ test("extension snapshots include npm package and lock-file content", async () =
 });
 
 describe("brew auto update sequence", () => {
-  test("does not notify when successful commands install no updates", async () => {
+  test("stays silent at startup when successful commands install no updates", async () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args) => {
         calls.push([command, args]);
@@ -108,9 +106,9 @@ describe("brew auto update sequence", () => {
         };
       },
     });
-    const { ui, statuses, notifications } = fakeUi();
+    const { ui, notifications } = fakeUi();
 
-    const result = await runBrewAutoUpdate("manual", ui, deps);
+    const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result.status).toBe("complete");
     expect(calls).toEqual([
@@ -118,11 +116,32 @@ describe("brew auto update sequence", () => {
       ["brew", ["upgrade", "pi-coding-agent"]],
       ["pi", ["update", "--extensions"]],
     ]);
-    expect(statuses).toEqual([]);
     expect(notifications).toEqual([]);
   });
 
-  test("does not notify when a git extension remains on the same revision", async () => {
+  test("stays silent at startup when a git extension remains on the same revision", async () => {
+    const unchanged = new Map([["git:compound-engineering", "unchanged-commit"]]);
+    const { deps } = await dependencies({
+      snapshotExtensions: async () => new Map(unchanged),
+      exec: async (command) => ({
+        code: 0,
+        stdout:
+          command === "pi"
+            ? "Updating git:github.com/EveryInc/compound-engineering-plugin...\nUpdated packages\n"
+            : "",
+        stderr: "",
+        killed: false,
+      }),
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("startup", ui, deps);
+
+    expect(result).toEqual({ status: "complete", message: "Pi is up to date." });
+    expect(notifications).toEqual([]);
+  });
+
+  test("manual command reports up-to-date outcome", async () => {
     const unchanged = new Map([["git:compound-engineering", "unchanged-commit"]]);
     const { deps } = await dependencies({
       snapshotExtensions: async () => new Map(unchanged),
@@ -141,7 +160,7 @@ describe("brew auto update sequence", () => {
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
     expect(result).toEqual({ status: "complete", message: "Pi is up to date." });
-    expect(notifications).toEqual([]);
+    expect(notifications).toEqual([{ message: "Pi is up to date.", level: "info" }]);
   });
 
   test("notifies when a git extension advances to a new revision", async () => {
@@ -157,6 +176,24 @@ describe("brew auto update sequence", () => {
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.message).toBe("Pi extensions updated. Restart Pi to use them.");
+    expect(notifications).toEqual([{ message: result.message, level: "info" }]);
+  });
+
+  test("notifies at startup too when a real update installs, unlike the silent up-to-date case", async () => {
+    let snapshots = 0;
+    const { deps } = await dependencies({
+      snapshotExtensions: async () => {
+        snapshots += 1;
+        return new Map([
+          ["git:compound-engineering", snapshots === 1 ? "old-commit" : "new-commit"],
+        ]);
+      },
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result.message).toBe("Pi extensions updated. Restart Pi to use them.");
     expect(notifications).toEqual([{ message: result.message, level: "info" }]);
@@ -196,12 +233,11 @@ describe("brew auto update sequence", () => {
         };
       },
     });
-    const { ui, statuses, notifications } = fakeUi();
+    const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
     expect(result.status).toBe("complete");
-    expect(statuses).toEqual([]);
     expect(notifications).toEqual([{ message: updated.message, level: "info" }]);
   });
 
@@ -224,11 +260,10 @@ describe("brew auto update sequence", () => {
         killed: false,
       }),
     });
-    const { ui, statuses, notifications } = fakeUi();
+    const { ui, notifications } = fakeUi();
 
     await runBrewAutoUpdate("manual", ui, deps);
 
-    expect(statuses).toEqual([]);
     expect(notifications).toEqual([
       {
         message: "Pi and its extensions updated. Restart Pi to use them.",
@@ -237,13 +272,13 @@ describe("brew auto update sequence", () => {
     ]);
   });
 
-  test("reports an unknown extension state without a false update notification", async () => {
+  test("stays silent at startup on an unknown extension state without a false update notification", async () => {
     const { deps } = await dependencies({
       snapshotExtensions: async () => undefined,
     });
     const { ui, notifications } = fakeUi();
 
-    const result = await runBrewAutoUpdate("manual", ui, deps);
+    const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result).toEqual({
       status: "complete",
@@ -252,15 +287,17 @@ describe("brew auto update sequence", () => {
     expect(notifications).toEqual([]);
   });
 
-  test("skips all network work when PI_OFFLINE is set", async () => {
+  test("skips all network work when PI_OFFLINE is set and reports it to a manual caller", async () => {
     const { deps, calls } = await dependencies({ env: { PI_OFFLINE: "1" } });
-    const { ui, statuses } = fakeUi();
+    const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
     expect(result.status).toBe("skipped");
     expect(calls).toEqual([]);
-    expect(statuses).toEqual([]);
+    expect(notifications).toEqual([
+      { message: "Pi update skipped: offline mode is active.", level: "info" },
+    ]);
   });
 
   test("disables startup only when PI_BREW_AUTO_UPDATE is zero", async () => {
@@ -273,24 +310,28 @@ describe("brew auto update sequence", () => {
     expect(manual.calls).toHaveLength(3);
   });
 
-  test("stops after a timed-out command and reports the failure", async () => {
+  test("stops after a timed-out command and notifies a manual caller of the failure", async () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args) => {
         calls.push([command, args]);
         return { code: null, stdout: "", stderr: "", killed: true };
       },
     });
-    const { ui, statuses, notifications } = fakeUi();
+    const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
     expect(result.status).toBe("failed");
     expect(calls).toHaveLength(1);
-    expect(statuses).toEqual([]);
-    expect(notifications).toEqual([]);
+    expect(notifications).toHaveLength(1);
+    // The step that failed ("brew update") must be nameable by the user, not
+    // just a private status enum, so they know what to investigate.
+    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
+    expect(notifications[0]?.message).toContain("timed out");
+    expect(notifications[0]?.level).toBe("warning");
   });
 
-  test("stops on command failure without aborting the caller", async () => {
+  test("stops on command failure and notifies a manual caller without aborting the caller", async () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args) => {
         calls.push([command, args]);
@@ -301,7 +342,81 @@ describe("brew auto update sequence", () => {
 
     await expect(runBrewAutoUpdate("manual", ui, deps)).resolves.toMatchObject({ status: "failed" });
     expect(calls).toHaveLength(1);
-    expect(notifications).toEqual([]);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
+    expect(notifications[0]?.message).toContain("network failed");
+    expect(notifications[0]?.level).toBe("warning");
+  });
+
+  test("notifies a manual caller when the update command itself throws", async () => {
+    const { deps, calls } = await dependencies({
+      exec: async (command, args) => {
+        calls.push([command, args]);
+        throw new Error("spawn brew ENOENT");
+      },
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.status).toBe("failed");
+    expect(calls).toHaveLength(1);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
+    expect(notifications[0]?.message).toContain("spawn brew ENOENT");
+    expect(notifications[0]?.level).toBe("warning");
+  });
+
+  test("startup reports a failure notification every time, unlike a silent success", async () => {
+    const { deps } = await dependencies({
+      exec: async () => ({ code: 7, stdout: "", stderr: "network failed", killed: false }),
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("startup", ui, deps);
+
+    expect(result.status).toBe("failed");
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
+    expect(notifications[0]?.message).toContain("network failed");
+    expect(notifications[0]?.level).toBe("warning");
+  });
+
+  test("startup notifies again on a second consecutive failure, proving there is no rate-limit", async () => {
+    const { deps } = await dependencies({
+      exec: async () => ({ code: 7, stdout: "", stderr: "network failed", killed: false }),
+    });
+    const { ui, notifications } = fakeUi();
+
+    const first = await runBrewAutoUpdate("startup", ui, deps);
+    const second = await runBrewAutoUpdate("startup", ui, deps);
+
+    expect(first.status).toBe("failed");
+    expect(second.status).toBe("failed");
+    expect(notifications).toHaveLength(2);
+    expect(notifications[0]?.level).toBe("warning");
+    expect(notifications[1]?.level).toBe("warning");
+  });
+
+  test("manual command reports contention", async () => {
+    const { deps, calls } = await dependencies();
+    await mkdir(deps.lockPath, { recursive: true });
+    await writeFile(
+      join(deps.lockPath, "owner.json"),
+      JSON.stringify({ pid: 9001, startedAt: deps.now(), token: "other" }),
+    );
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.status).toBe("contended");
+    expect(calls).toEqual([]);
+    expect(notifications).toEqual([
+      {
+        message: "Pi update skipped: a Pi update is already running.",
+        level: "info",
+      },
+    ]);
   });
 });
 
@@ -313,13 +428,12 @@ describe("cross-process update lock", () => {
       join(deps.lockPath, "owner.json"),
       JSON.stringify({ pid: 9001, startedAt: deps.now(), token: "other" }),
     );
-    const { ui, statuses, notifications } = fakeUi();
+    const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result.status).toBe("contended");
     expect(calls).toEqual([]);
-    expect(statuses).toEqual([]);
     expect(notifications).toEqual([]);
   });
 
