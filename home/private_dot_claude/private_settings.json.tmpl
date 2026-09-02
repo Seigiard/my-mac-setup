@@ -61,6 +61,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/zsh-reserved-name-guard.sh'",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionStart": [

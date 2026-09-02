@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# zsh-reserved-name-guard — reserved-parameter gate shared by the Claude Code
+# hook, the opencode plugin, and the pi extension of the same name.
+#
+# Every client runs its bash tool through the login shell, which is zsh on this
+# machine, and herdr panes are zsh too. zsh reserves parameter names that bash
+# leaves free: `status` is a readonly alias of `$?`, `path` and `argv` are tied
+# to PATH and the positional parameters. So `cmd; status=$?; exit $status`
+# does not merely print "read-only variable: status" — the failed assignment
+# leaves `$?` at 1, and the `exit $status` that follows reports a fabricated
+# failure for a command that succeeded. That silent wrong verdict, not the
+# error line, is what this gate exists to stop.
+#
+# Usage: zsh-reserved-name-guard        (command text on stdin)
+#   exit 0  no reserved-name assignment; no output
+#   exit 1  flagged; human-readable reason on stdout
+#
+# Only assignment is gated. Reading `$status` is legal zsh and passes.
+#
+# Heredoc bodies are skipped, because a script written into a file through
+# `cat <<'EOF'` runs under its own interpreter, not under this zsh.
+# Escape hatch: a "zsh-ok:" comment anywhere in the command declares that the
+# assignment runs under bash (a `bash -c` body, a bash script sourced inline)
+# and lets the command through.
+# Fails open: missing input or tooling exits 0 so a broken guard never blocks
+# an agent.
+
+set -uo pipefail
+
+command=$(cat) || exit 0
+[ -n "$command" ] || exit 0
+
+case "$command" in
+  *zsh-ok:*) exit 0 ;;
+esac
+
+readonly_names="status options ARGC PPID HISTCMD LINENO TTYIDLE ZSH_SUBSHELL ZSH_EVAL_CONTEXT zsh_eval_context"
+tied_names="path argv"
+
+flagged=$(printf '%s\n' "$command" | awk -v RESERVED="$readonly_names $tied_names" '
+  BEGIN {
+    n = split(RESERVED, list, " ")
+    for (i = 1; i <= n; i++) reserved[list[i]] = 1
+    Q = sprintf("%c", 39)
+    DQ = sprintf("%c", 34)
+    heredoc = ""
+  }
+  {
+    line = $0
+
+    if (heredoc != "") {
+      body = line
+      sub(/^[ \t]*/, "", body)
+      sub(/[ \t]*$/, "", body)
+      if (body == heredoc) heredoc = ""
+      next
+    }
+
+    if (match(line, /<<-?[ \t]*/)) {
+      rest = substr(line, RSTART + RLENGTH)
+      if (match(rest, /^[^ \t;&|<>()]+/)) {
+        delim = substr(rest, RSTART, RLENGTH)
+        gsub(Q, "", delim)
+        gsub(DQ, "", delim)
+        if (delim ~ /^[A-Za-z_][A-Za-z0-9_]*$/) heredoc = delim
+      }
+    }
+
+    stripped = line
+    sub(/^[ \t]*/, "", stripped)
+    if (substr(stripped, 1, 1) == "#") next
+
+    # Command position is what makes an assignment an assignment. Splitting on
+    # the separators that start a new command keeps `echo "status=$rc"` and
+    # `--status=x` out of the report, while still reaching the inner commands
+    # of a one-liner handed to a herdr pane.
+    segments = line
+    gsub(/[;&|(){}`]/, "\n", segments)
+    m = split(segments, parts, "\n")
+    for (j = 1; j <= m; j++) {
+      s = parts[j]
+      sub(/^[ \t]*/, "", s)
+      while (s ~ /^(local|typeset|declare|export|readonly|integer|float|if|then|else|elif|while|until|do)[ \t]+/ || s ~ /^-[A-Za-z]+[ \t]+/) {
+        sub(/^[^ \t]+[ \t]+/, "", s)
+      }
+      if (match(s, /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=/)) {
+        name = substr(s, 1, RLENGTH)
+        sub(/(\[[^]]*\])?\+?=$/, "", name)
+        if (name in reserved) {
+          shown = stripped
+          if (length(shown) > 120) shown = substr(shown, 1, 117) "..."
+          printf "%s\tline %d: %s\n", name, NR, shown
+          break
+        }
+      }
+    }
+  }
+') || exit 0
+
+[ -n "$flagged" ] || exit 0
+
+lines=$(printf '%s\n' "$flagged" | cut -f2- | sed 's/^/  /')
+names=$(printf '%s\n' "$flagged" | cut -f1 | sort -u | tr '\n' ' ')
+
+hit_readonly=""
+hit_tied=""
+for name in $names; do
+  case " $readonly_names " in *" $name "*) hit_readonly="$hit_readonly $name" ;; esac
+  case " $tied_names " in *" $name "*) hit_tied="$hit_tied $name" ;; esac
+done
+
+{
+  printf 'zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:\n'
+  printf '%s\n' "$lines"
+  if [ -n "$hit_readonly" ]; then
+    printf 'zsh makes%s readonly. The assignment fails AND leaves $? at 1, so a following `exit $status` or `FINAL_EXIT:$status` marker reports a fabricated failure for a command that actually succeeded.\n' "$hit_readonly"
+  fi
+  if [ -n "$hit_tied" ]; then
+    printf 'zsh ties%s to PATH and the positional parameters. Assigning it silently destroys them for the rest of the command.\n' "$hit_tied"
+  fi
+  printf 'Fix: rename the variable — `rc`, `st`, `exit_code`, `dir`. Reading $status is legal zsh and is not blocked, only assignment is. If this assignment genuinely runs under bash rather than this zsh, add a "zsh-ok:" comment to the command and retry.\n'
+}
+exit 1
