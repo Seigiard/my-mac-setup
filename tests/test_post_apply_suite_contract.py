@@ -42,6 +42,7 @@ class TestPostApplySuiteContract(unittest.TestCase):
                 str(GENERATED / "scripts_test.sh"),
                 str(GENERATED / "palette_test.sh"),
                 str(GENERATED / "platform_test.sh"),
+                str(GENERATED / "oracle_guard_test.sh"),
                 str(GENERATED / "idempotent_test.sh"),
             ],
             "full mode must run every suite file sequentially with 8 workers",
@@ -53,6 +54,7 @@ class TestPostApplySuiteContract(unittest.TestCase):
                 str(GENERATED / "scripts_test.sh"),
                 str(GENERATED / "palette_test.sh"),
                 str(GENERATED / "platform_test.sh"),
+                str(GENERATED / "oracle_guard_test.sh"),
             ],
             "host-safe mode must keep the idempotent suite excluded",
         )

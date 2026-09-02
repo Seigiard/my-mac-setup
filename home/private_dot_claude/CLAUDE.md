@@ -61,6 +61,8 @@ Every skill's own description already carries its triggers. These four lines res
 
 - **Tautological tests considered harmful: require an independent oracle.** Name the consumer and observable failure. A useful test fails when the protected behavior breaks and stays green through harmless source refactors.
 - Reject expected values copied from source, prompt, config, fixture, or inventory changed by the same patch. Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
+- **Proof-first is subordinate to this gate.** A test failing before implementation proves nothing when its expected value is copied from the same patch or it inspects source shape. When the consumer, the observable failure, and an independent oracle cannot be named, the correct output of a "write tests first" step is zero new tests.
+- Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
 
 </important>
 

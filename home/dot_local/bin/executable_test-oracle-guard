@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# test-oracle-guard — negative-assertion gate shared by the Claude Code hook,
+# the opencode plugin, and the pi extension of the same name.
+#
+# A test that asserts the ABSENCE of a string usually restates the patch that
+# removed it instead of protecting behavior (the standard this enforces lives
+# in docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md).
+# The gate fires only on proposed edits to test files and only on
+# negative-assertion patterns, so a clean edit costs the calling agent zero
+# context.
+#
+# Usage: test-oracle-guard <file-path>    (proposed content on stdin)
+#   exit 0  not a test file, or no unjustified negative assertion; no output
+#   exit 1  flagged; human-readable reason on stdout
+#
+# Escape hatch: a comment containing "oracle:" on the flagged line or within
+# the 3 lines above it names the independent oracle and lets the line pass.
+# Fails open: missing input or tooling exits 0 so a broken guard never blocks
+# an agent.
+
+set -uo pipefail
+
+path="${1:-}"
+[ -n "$path" ] || exit 0
+
+case "$path" in
+  */tests/* | tests/* | */test/* | test/* | */__tests__/* | __tests__/*) : ;;
+  *)
+    case "${path##*/}" in
+      *_test.* | test_* | *.test.* | *.spec.* | *_spec.*) : ;;
+      *) exit 0 ;;
+    esac
+    ;;
+esac
+
+flagged=$(awk '
+  {
+    low = tolower($0)
+    if (index(low, "oracle:") > 0) last_oracle = NR
+    if (low ~ /assert_not_contains|assert_file_not_contains|assert_not_matches|refute_match|refute_includes|not\.tocontain|not\.tomatch|not_to include|not_to match|! grep /) {
+      if (last_oracle == 0 || NR - last_oracle > 3) {
+        printf "  line %d: %s\n", NR, $0
+      }
+    }
+  }
+' 2>/dev/null) || exit 0
+
+[ -n "$flagged" ] || exit 0
+
+cat <<EOF
+test-oracle-guard: negative assertion(s) without a named oracle in ${path}:
+${flagged}
+An absence assertion usually restates the patch that removed the string instead of protecting behavior. Before keeping it, name three things: the consumer, the observable failure, and an oracle independent of the files this patch changes. Prefer testing the capability that remains, or the real deployment/runtime transition that clears stale state. If this negative assertion is genuinely load-bearing, add a comment naming the oracle (the comment must contain "oracle:") on the line above it and retry.
+EOF
+exit 1
