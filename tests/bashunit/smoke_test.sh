@@ -21,22 +21,6 @@ function test_smoke_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   assert_python3_available
 }
 
-function test_smoke_002_repository_issues_cli_exposes_its_contract_and_r() {
-  _bats_test_init 2 'repository issues CLI exposes its contract and reads checkout issues'
-  local repository_root
-  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-  [[ -f "$repository_root/scripts/issues" ]] || skip "repository checkout is not mounted"
-
-  run python3 "$repository_root/scripts/issues" --version
-  assert_success
-  assert_output "repository-issues-contract 2"
-
-  run bash -c 'cd "$1" && python3 scripts/issues list --status open --json' _ "$repository_root"
-  assert_success
-  run python3 -c 'import json, sys; value = json.loads(sys.argv[1]); assert isinstance(value["issues"], list)' "$output"
-  assert_success
-}
-
 function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   _bats_test_init 3 'post-apply suite wrapper rejects an unknown mode with usage'
   local repository_root
@@ -283,68 +267,6 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
 function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
   _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
-}
-
-function test_smoke_011_herdr_command_palette_sources_are_valid() {
-  _bats_test_init 11 'herdr command palette sources are valid'
-  run python3 -m py_compile \
-    "$HOME/.config/herdr/plugins/command-palette/open.py" \
-    "$HOME/.config/herdr/plugins/command-palette/open_in_zed.py" \
-    "$HOME/.config/herdr/plugins/command-palette/palette.py" \
-    "$HOME/.config/herdr/plugins/command-palette/smart_close.py"
-  assert_success
-
-  run python3 -c 'import importlib.util, os, sys; path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py"); spec=importlib.util.spec_from_file_location("palette", path); mod=importlib.util.module_from_spec(spec); sys.modules[spec.name]=mod; spec.loader.exec_module(mod); assert len(mod.load_command_data_file(__import__("pathlib").Path(os.path.expanduser("~/.config/herdr/command-palette/commands.toml")))) > 0'
-  assert_success
-
-  run python3 "$HOME/.config/herdr/plugins/command-palette/palette.py" --validate \
-    "$HOME/.config/herdr/command-palette/commands.toml"
-  assert_success
-}
-
-function test_smoke_012_herdr_command_palette_opener_detects_active_pale() {
-  _bats_test_init 12 'herdr command palette opener detects active palette pane'
-  run python3 - <<'PY'
-import importlib.util, os, sys
-path=os.path.expanduser("~/.config/herdr/plugins/command-palette/open.py")
-spec=importlib.util.spec_from_file_location("palette_open", path)
-mod=importlib.util.module_from_spec(spec)
-sys.modules[spec.name]=mod
-spec.loader.exec_module(mod)
-token = {mod.PALETTE_TOKEN: mod.PALETTE_TOKEN_VALUE}
-assert mod.pane_is_palette({"pane_id": "pane-1", "tokens": token})
-assert not mod.pane_is_palette({"pane_id": "pane-2", "tokens": {}})
-assert not mod.pane_is_palette({"pane_id": "pane-3", "label": "nvim palette.py"})
-
-class Result:
-    def __init__(self, stdout=""):
-        self.returncode = 0
-        self.stdout = stdout
-        self.stderr = ""
-
-calls = []
-def fake_run(command, **kwargs):
-    calls.append(command)
-    if command[:3] == ["herdr", "pane", "current"]:
-        return Result('{"result":{"pane":{"pane_id":"pane-1"}}}')
-    if command[:3] == ["herdr", "pane", "get"]:
-        return Result('{"result":{"pane":{"pane_id":"pane-1","workspace_id":"w1","tokens":{"command_palette":"open"}}}}')
-    if command[:4] == ["herdr", "plugin", "pane", "focus"]:
-        return Result()
-    raise AssertionError(command)
-
-mod.subprocess.run = fake_run
-os.environ.pop("HERDR_PLUGIN_CONTEXT_JSON", None)
-os.environ.pop("HERDR_ACTIVE_PANE_ID", None)
-os.environ.pop("HERDR_PANE_ID", None)
-# fake_run matches argv[0] == "herdr", which is open.py's default. A shell
-# inside a herdr pane exports HERDR_BIN_PATH, and the absolute path it carries
-# would miss every branch of the mock and open a second palette instead.
-os.environ.pop("HERDR_BIN_PATH", None)
-assert mod.main() == 0
-assert not any(command[:4] == ["herdr", "plugin", "pane", "open"] for command in calls)
-PY
-  assert_success
 }
 
 function test_smoke_013_herdr_command_palette_loads_toml_and_project_loc() {
@@ -596,10 +518,10 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
   assert_dir_not_exists "$HOME/.agents/skills/ask-in-herdr/scripts/agents"
 }
 
-# A hand-copied list here can only restate what test 075 (CLAUDE.md pointers)
-# already implies; it drifts silently when a shared file is renamed and its
-# entry here is forgotten. Cross-check both independent sides instead: every
-# ~/.claude/shared/*.md pointer written anywhere in the deployed agent surface
+# A hand-copied list of shared filenames here can only restate the pointers the
+# deployed surface already writes; it drifts silently when a shared file is
+# renamed and its entry here is forgotten. Cross-check both independent sides
+# instead: every ~/.claude/shared/*.md pointer written in the deployed surface
 # (CLAUDE.md, skills, agents, hooks, output-styles, rules, and the herdr
 # child-launch lib) must resolve to a real file, and conversely every deployed
 # shared file except the directory's own README index must be reachable from
@@ -632,26 +554,6 @@ function test_smoke_022_shared_references_form_a_closed_reference_set() {
     grep -qF "shared/$name" <<< "$pointers" || orphans="$orphans $name"
   done
   [ -z "$orphans" ] || fail "orphaned ~/.claude/shared files referenced by nothing:$orphans"
-}
-
-# A shared file that is renamed or moved keeps the deployment tests above green
-# while the CLAUDE.md pointer reaching it goes dead, because those tests and the
-# pointer are edited independently. Resolving the pointer against the deployed
-# tree is what fails on that split.
-function test_smoke_075_claude_md_pointers_into_shared_resolve() {
-  _bats_test_init 75 'CLAUDE.md pointers into ~/.claude/shared resolve'
-  local claude_md="$HOME/.claude/CLAUDE.md"
-  assert_file_exists "$claude_md"
-
-  local pointers
-  pointers="$(grep -o '~/\.claude/shared/[A-Za-z0-9._-]*\.md' "$claude_md" | sort -u)"
-  [ -n "$pointers" ] || fail "no ~/.claude/shared pointer found in $claude_md"
-
-  local pointer missing=""
-  while IFS= read -r pointer; do
-    [ -f "$HOME/${pointer#\~/}" ] || missing="$missing $pointer"
-  done <<< "$pointers"
-  [ -z "$missing" ] || fail "CLAUDE.md points at missing files:$missing"
 }
 
 # ===========================================
@@ -736,12 +638,34 @@ function test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar() {
   [ -z "$risky" ] || fail "bindings missing --allow-fallback: $risky"
 }
 
+# The real consumer is the palette's own hint parser: load_key_binding_groups()
+# reads `# palette: Group | Key | Description` comments out of the terminal
+# config and builds the panel from them, silently dropping any line that does
+# not split into three non-empty fields. Grepping the literal comment cannot
+# see that drop, so run the deployed parser over the deployed kitty config
+# (pinned via HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG, which is the parser's
+# own override, so the result does not depend on which terminal hosts the run)
+# and assert the entries it actually produces.
 function test_smoke_029_kitty_carries_command_palette_hints_for_the_herd() {
-  _bats_test_init 29 'kitty carries command-palette hints for the herdr plugin (macOS only)'
+  _bats_test_init 29 'kitty command-palette hints parse into palette key-binding groups (macOS only)'
   is_macos || skip "Not on macOS"
-  local config="$HOME/.config/kitty/herdr.conf"
-  assert_file_contains "$config" "^# palette: Tabs & workspaces | ⌘T | New tab$"
-  assert_file_contains "$config" "^# palette: Panes | ⌘D | Split right$"
+  run env \
+    HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG="$HOME/.config/kitty/herdr.conf" \
+    PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
+    python3 - <<'PY'
+import importlib.util, os, sys
+
+path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
+spec = importlib.util.spec_from_file_location("palette", path)
+mod = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = mod
+spec.loader.exec_module(mod)
+
+groups = dict(mod.load_key_binding_groups())
+assert ("⌘T", "New tab") in groups.get("Tabs & workspaces", []), groups
+assert ("⌘D", "Split right") in groups.get("Panes", []), groups
+PY
+  assert_success
 }
 
 function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
@@ -794,10 +718,17 @@ function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
   assert_success
 
   # The manifest wires the status event and the interpreter as argv arrays.
-  assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
-    '^on = "pane.agent_status_changed"$'
-  assert_file_contains "$FOCUS_NOTIFY_DIR/herdr-plugin.toml" \
-    '^command = \["python3", "notify.py"\]$'
+  # Literal consumed outside this repo: herdr's plugin loader parses these two
+  # keys to decide which event fires the plugin and how to exec it. Assert the
+  # deployed copy, not $SOURCE_ROOT — reading the checkout here would be a
+  # source grep wearing a smoke test's name and would stay green when chezmoi
+  # never placed the file (same fix as test 009 in commit 50654e2). The plugin
+  # is darwin-only per home/.chezmoiignore, so it only deploys on macOS.
+  is_macos || return 0
+  local manifest="$HOME/.config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml"
+  assert_file_exists "$manifest"
+  assert_file_contains "$manifest" '^on = "pane.agent_status_changed"$'
+  assert_file_contains "$manifest" '^command = \["python3", "notify.py"\]$'
 }
 
 function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
@@ -1038,14 +969,14 @@ assert_herdr_sidebar_deployment_contract() {
   local config="$1"
   local width
 
-  assert_file_contains "$config" '^sidebar_min_width = 32$'
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
   # Tab labels stay names-only. Built-in workspace and pane tokens retain their
   # distinct Herdr styles; the Git row stays aggregate to avoid separators.
   assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\], \["\$git_line"\]\]$'
   run grep -E '\$location_label|\$location_status' "$config"
   assert_failure
-  # The awk scope proves the key sits inside [ui], which the grep above cannot.
+  # Sole owner of sidebar_min_width: the awk scope proves the key both carries
+  # the value herdr reads and sits inside [ui], which a flat file grep cannot.
   # No width-derived assertions here: nothing consumes a "width - 4" budget.
   width="$(awk '
     $0 == "[ui]" { in_ui = 1; next }

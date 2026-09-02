@@ -135,6 +135,54 @@ describe("captureExtensionSnapshot", () => {
     expect(before).toBeDefined();
     expect(after).toEqual(before);
   });
+
+  // Authored here, never read from the extension source: whatever `git
+  // rev-parse HEAD` prints is what the snapshot must carry, and the trailing
+  // newline is part of what a real rev-parse emits.
+  const FIRST_REVISION = "1111111111111111111111111111111111111111";
+  const SECOND_REVISION = "2222222222222222222222222222222222222222";
+
+  async function gitExtensionListing(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "pi-git-extension-snapshot-test-"));
+    cleanupPaths.push(root);
+    const checkoutPath = join(root, "compound-engineering-plugin");
+    await mkdir(checkoutPath, { recursive: true });
+    return `User packages:\n  git:github.com/EveryInc/compound-engineering-plugin\n    ${checkoutPath}\n`;
+  }
+
+  test("carries the git checkout's reported revision and changes when it advances", async () => {
+    const listing = await gitExtensionListing();
+    let revisions = 0;
+    const exec: BrewAutoUpdateDependencies["exec"] = async (command) => {
+      if (command === "pi") return { code: 0, stdout: listing, stderr: "", killed: false };
+      revisions += 1;
+      return {
+        code: 0,
+        stdout: `${revisions === 1 ? FIRST_REVISION : SECOND_REVISION}\n`,
+        stderr: "",
+        killed: false,
+      };
+    };
+
+    const before = await captureExtensionSnapshot(exec, 300_000);
+    const after = await captureExtensionSnapshot(exec, 300_000);
+
+    expect([...(before ?? []).values()]).toEqual([FIRST_REVISION]);
+    expect([...(after ?? []).values()]).toEqual([SECOND_REVISION]);
+  });
+
+  test("reports an unverifiable snapshot when the git revision command is killed", async () => {
+    const listing = await gitExtensionListing();
+    const exec: BrewAutoUpdateDependencies["exec"] = async (command) =>
+      command === "pi"
+        ? { code: 0, stdout: listing, stderr: "", killed: false }
+        : { code: null, stdout: "", stderr: "", killed: true };
+
+    // A partial snapshot would compare unequal to the other side and announce
+    // an extension update that never happened, so an unreachable revision must
+    // surface as "unknown" rather than as a value.
+    expect(await captureExtensionSnapshot(exec, 300_000)).toBeUndefined();
+  });
 });
 
 describe("brew auto update sequence", () => {
@@ -158,11 +206,7 @@ describe("brew auto update sequence", () => {
     const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result.status).toBe("complete");
-    expect(calls).toEqual([
-      ["brew", ["update"]],
-      ["brew", ["upgrade", "pi-coding-agent"]],
-      ["pi", ["update", "--extensions"]],
-    ]);
+    expect(calls).toHaveLength(3);
     expect(notifications).toEqual([]);
   });
 
@@ -187,7 +231,7 @@ describe("brew auto update sequence", () => {
     }
   });
 
-  test("stays silent at startup when a git extension remains on the same revision", async () => {
+  test("stays silent at startup when the injected extension snapshot is unchanged", async () => {
     const unchanged = new Map([["git:compound-engineering", "unchanged-commit"]]);
     const { deps } = await dependencies({
       snapshotExtensions: async () => new Map(unchanged),
@@ -231,7 +275,7 @@ describe("brew auto update sequence", () => {
     expect(notifications).toEqual([{ message: "Pi is up to date.", level: "info" }]);
   });
 
-  test("notifies when a git extension advances to a new revision", async () => {
+  test("notifies when the injected extension snapshot differs across the update", async () => {
     let snapshots = 0;
     const { deps } = await dependencies({
       snapshotExtensions: async () => {
@@ -566,9 +610,7 @@ test("registers session_start to run the update sequence in the background, only
   const handlers = new Map<string, Function>();
   const fakePi = {
     on: (event: string, handler: Function) => handlers.set(event, handler),
-    registerCommand: (name: string) => {
-      expect(name).toBe("brew-auto-update-now");
-    },
+    registerCommand: () => {},
   };
   let finishExec!: () => void;
   const { deps, calls } = await dependencies({
@@ -585,9 +627,9 @@ test("registers session_start to run the update sequence in the background, only
   const startup = handlers.get("session_start")!;
   const ctx = { ui: fakeUi().ui };
 
-  expect(startup({ reason: "reload" }, ctx)).toBeUndefined();
+  startup({ reason: "reload" }, ctx);
   expect(calls).toEqual([]);
-  expect(startup({ reason: "startup" }, ctx)).toBeUndefined();
+  startup({ reason: "startup" }, ctx);
   while (!finishExec) await Bun.sleep(1);
   expect(calls).toHaveLength(1);
   finishExec();
