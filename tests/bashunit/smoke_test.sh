@@ -975,16 +975,33 @@ function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
   # scratch source tree, mutate each dependency in turn, and require the
   # rendered output to change. The unrelated-file control proves the harness
   # can tell "changed" from "unchanged" at all, rather than always agreeing.
+  #
+  # This lives in the smoke suite, not templates_test.sh, because it shares one
+  # plugin-deployment contract with the manifest assertions above (the deployed
+  # `[[startup]]` block and the relink script's dependency wiring are two halves
+  # of the same "does the pane-labels plugin redeploy correctly" story) and
+  # because this suite runs on host and Docker alike, where templates_test.sh
+  # is Docker-only. Rendering from $SOURCE_ROOT instead of the deployed $HOME
+  # copy is deliberate: it is the only way to observe the hash-trigger property
+  # chezmoi relies on, which no deployed-file inspection can show.
   skip_if_no_chezmoi
+  # The pinned policy under test: every path here is a file the relink script
+  # declares via `include "..."`, so mutating any one of them must change the
+  # rendered hash, and mutating anything outside this list must not. This list
+  # is the independent side the test compares the template against -- drop an
+  # `include` from the template without updating this list and the loop below
+  # fails on that dependency, as dropping the sweep.sh include line confirmed.
+  local onchange_deps=(
+    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"
+    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"
+    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"
+    "private_dot_config/herdr/config.toml"
+    "dot_local/bin/executable_herdr-task-sync"
+  )
   local scratch="$BATS_TEST_TMPDIR/onchange-deps"
   mkdir -p "$scratch/private_dot_config/herdr/plugins/herdr-pane-labels" "$scratch/dot_local/bin"
   local dep
-  for dep in \
-    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" \
-    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" \
-    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" \
-    "private_dot_config/herdr/config.toml" \
-    "dot_local/bin/executable_herdr-task-sync"; do
+  for dep in "${onchange_deps[@]}"; do
     cp "$SOURCE_ROOT/$dep" "$scratch/$dep"
   done
   # Lives next to the real dependencies but the script does not include it.
@@ -997,12 +1014,7 @@ function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
   baseline="$output"
 
   local rendered
-  for dep in \
-    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" \
-    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" \
-    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" \
-    "private_dot_config/herdr/config.toml" \
-    "dot_local/bin/executable_herdr-task-sync"; do
+  for dep in "${onchange_deps[@]}"; do
     printf '\n# onchange-hash probe\n' >> "$scratch/$dep"
     run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
     assert_success
