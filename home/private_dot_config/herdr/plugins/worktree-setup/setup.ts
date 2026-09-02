@@ -1,6 +1,14 @@
 #!/usr/bin/env bun
 
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -44,6 +52,23 @@ function run(command: string, args: string[], cwd?: string): CommandResult {
 
 function git(cwd: string, ...args: string[]): CommandResult {
   return run("git", ["-C", cwd, ...args]);
+}
+
+function recordGeneratedWorktree(worktree: string, branch: string): void {
+  if (!branch) return;
+  const marker = git(
+    worktree,
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-path",
+    "herdr-generated-worktree",
+  );
+  if (!marker.ok || !marker.stdout) {
+    throw new Error(`cannot resolve generated-worktree marker: ${marker.stderr}`);
+  }
+  const temporary = `${marker.stdout}.tmp-${process.pid}`;
+  writeFileSync(temporary, `${branch}\n`, { encoding: "utf8", mode: 0o600 });
+  renameSync(temporary, marker.stdout);
 }
 
 function eventWorktree(): { path: string; branch: string } {
@@ -208,6 +233,7 @@ function runSteps(worktree: string, mainRepo: string, branch: string, steps: unk
 
 function main(): void {
   const worktree = eventWorktree();
+  recordGeneratedWorktree(worktree.path, worktree.branch);
   const mainRepo = mainRepository(worktree.path);
   const key = repositoryKey(mainRepo);
   const project = loadProject(key);

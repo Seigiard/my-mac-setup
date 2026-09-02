@@ -221,7 +221,7 @@ function test_scripts_0081_retired_se_cleanup_migration_preserves_an_independent
 function test_scripts_0082_worktree_setup_uses_one_repository_keyed_config() {
   _bats_test_init 82 'worktree setup uses one repository-keyed config for copy and setup steps'
   local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
-  local root="$BATS_TEST_TMPDIR/worktree-setup" main worktree config
+  local root="$BATS_TEST_TMPDIR/worktree-setup" main worktree config marker
   main="$root/main"
   worktree="$root/feature"
   config="$root/config"
@@ -248,6 +248,8 @@ TOML
   assert_success
   assert_file_contains "$worktree/.env" '^secret$'
   assert_file_contains "$worktree/setup-ran" '^feature$'
+  marker="$(git -C "$worktree" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  assert_file_contains "$marker" '^feature$'
 }
 
 function test_scripts_0083_worktree_setup_refreshes_a_new_branch_from_origin_head() {
@@ -3532,12 +3534,13 @@ function test_scripts_108_herdr_task_sync_harness_models_target_loss_move() {
   assert_output --partial '"label":"converged"'
 }
 
-function test_scripts_109_herdr_task_sync_latest_committed_request_survive() {
-  _bats_test_init 109 'herdr-task-sync latest committed request survives stale completion and a third request'
+function test_scripts_109_herdr_task_sync_first_prompt_fixes_session_iden() {
+  _bats_test_init 109 'herdr-task-sync first prompt fixes session identity while later messages arrive'
   hts_setup
   hts_stub_controlled_engine pi
-  hts_model_fixture pi 1 stale-first
+  hts_model_fixture pi 1 first-identity
   hts_model_fixture pi 2 newest-third
+  hts_release_model pi 2
 
   hts_run --agent claude --session s1 <<< 'first request'
   hts_wait_for_file "$HTS_WORK/models/pi/1/started"
@@ -3545,15 +3548,13 @@ function test_scripts_109_herdr_task_sync_latest_committed_request_survive() {
   hts_run --agent claude --session s1 <<< 'third request'
 
   hts_release_model pi 1
-  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
-  hts_release_model pi 2
 
   local control task
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
   hts_wait_for_quiescence "$control"
-  hts_wait_for_task_slug "$task" newest-third
-  assert_equal "$(hts_record_text "$task" latest_prompt)" "third request"
+  hts_wait_for_task_slug "$task" first-identity
+  assert_equal "$(hts_record_text "$task" latest_prompt)" "first request"
   assert_equal "$(hts_record_text "$task" first_prompt)" "first request"
   assert_equal "$(hts_record_number "$control" generation)" \
     "$(hts_record_number "$control" committed_generation)"
@@ -3562,7 +3563,7 @@ function test_scripts_109_herdr_task_sync_latest_committed_request_survive() {
     "$(hts_record_number "$reconcile" pending_generation)"
   assert_equal "$(hts_record_number "$control" task_metadata_high_water)" \
     "$(hts_record_number "$reconcile" task_metadata_high_water)"
-  assert_file_not_exists "$HTS_WORK/models/pi/3/started"
+  assert_file_not_exists "$HTS_WORK/models/pi/2/started"
   hts_wait_for_publish
   run grep -c -- '--token task=' "$HTS_LOG"
   assert_output "1"
@@ -3625,35 +3626,362 @@ function test_scripts_111_herdr_task_sync_prompt_transcript_and_direct_set() {
   done
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-transcript transcript-s)"
   assert_equal "$(hts_record_text "$task" first_prompt)" "transcript first"
-  assert_equal "$(hts_record_text "$task" latest_prompt)" "transcript latest"
+  assert_equal "$(hts_record_text "$task" latest_prompt)" "transcript first"
 }
 
-function test_scripts_112_herdr_task_sync_failed_latest_model_retains_newe() {
-  _bats_test_init 112 'herdr-task-sync failed latest model retains newest context and prior slug'
+function test_scripts_112_herdr_task_sync_failed_first_model_uses_fallbac() {
+  _bats_test_init 112 'herdr-task-sync failed first model uses deterministic prompt fallback'
   hts_setup
-  hts_run --agent claude --session s1 --set baseline-task < /dev/null
-  local control task before failed_generation
+  local control task
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
-  hts_wait_for_task_slug "$task" baseline-task
-  before="$(hts_record_number "$control" generation)"
-
-  hts_run --agent claude --session s1 <<< 'failed model context'
-  hts_wait_for_record_number "$control" generation $((before + 1))
+  hts_run --agent claude --session s1 <<< 'Repair branch naming now'
   hts_wait_for_quiescence "$control"
-  failed_generation="$(hts_record_number "$control" generation)"
-  assert_equal "$(hts_record_text "$task" slug)" baseline-task
-  assert_equal "$(hts_record_text "$task" first_prompt)" "failed model context"
-  assert_equal "$(hts_record_text "$task" latest_prompt)" "failed model context"
+  hts_wait_for_task_slug "$task" repair-branch-naming-now
+  assert_equal "$(hts_record_text "$task" title)" "Repair branch naming now"
+  assert_equal "$(hts_record_text "$task" first_prompt)" "Repair branch naming now"
+  assert_equal "$(hts_record_text "$task" latest_prompt)" "Repair branch naming now"
+}
 
-  hts_stub_engine pi recovered-task 0 0
-  hts_run --agent claude --session s1 <<< 'request after failure'
-  hts_wait_for_record_number "$control" generation $((failed_generation + 1))
-  hts_wait_for_task_slug "$task" recovered-task
+function test_scripts_1125_herdr_task_sync_names_generated_worktree_once() {
+  _bats_test_init 1125 'herdr-task-sync names a generated worktree and branch once from structured identity'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree" task state branch workspace_label
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" branch fix-herdr-worktree-naming
+  git -C "$repo" worktree add -q -b worktree/generated "$worktree"
+  hts_mark_generated_worktree "$worktree" worktree/generated
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$repo" claude s1)"
+  hts_write_agent_cwd_record s1 "$worktree"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" \
+    '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"worktree-green-field-79d3"}'
+  hts_stub_engine pi \
+    '{"title":"Fix Herdr worktree naming","slug":"fix-herdr-worktree-naming"}' 0 0
+
+  hts_run --agent claude --session s1 <<< 'Fix Herdr worktree naming'
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  hts_wait_for_task_slug "$task" fix-herdr-worktree-naming
+  hts_wait_for_worker_exit
+  branch="$(git -C "$worktree" branch --show-current)"
+  assert_equal "$branch" fix-herdr-worktree-naming-2
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  workspace_label="$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .label' "$state")"
+  assert_equal "$workspace_label" 'Fix Herdr worktree naming'
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .label' "$state")" \
+    cc:fix-herdr-worktree-naming
+
+  hts_run --agent claude --session s1 <<< 'Now investigate something unrelated'
+  hts_wait_for_quiescence "$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+  assert_equal "$(git -C "$worktree" branch --show-current)" fix-herdr-worktree-naming-2
+  run grep -c '^workspace rename ws-1 Fix Herdr worktree naming$' "$HTS_LOG"
+  assert_success
+  assert_output 1
   run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "Current name: baseline-task"
-  assert_output --partial "failed model context"
-  assert_output --partial "request after failure"
+  assert_success
+  refute_output --partial 'something unrelated'
+}
+
+function test_scripts_1126_herdr_task_sync_leaves_manual_worktree_branch() {
+  _bats_test_init 1126 'herdr-task-sync leaves a manually named worktree branch and workspace unchanged'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree" state
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" worktree add -q -b worktree/manual-1234 "$worktree"
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude s1)"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" \
+    '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"manual-workspace"}'
+  hts_stub_engine pi \
+    '{"title":"Fix Herdr worktree naming","slug":"fix-herdr-worktree-naming"}' 0 0
+
+  hts_run --agent claude --session s1 <<< 'Fix Herdr worktree naming'
+  hts_wait_for_task_slug \
+    "$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)" fix-herdr-worktree-naming
+  hts_wait_for_worker_exit
+  assert_equal "$(git -C "$worktree" branch --show-current)" worktree/manual-1234
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal \
+    "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .label' "$state")" \
+    manual-workspace
+  run grep -c '^workspace rename ' "$HTS_LOG"
+  assert_failure
+  assert_output 0
+}
+
+function test_scripts_1127_herdr_task_sync_retries_partial_worktree_identity() {
+  _bats_test_init 1127 'herdr-task-sync retries only the unfinished worktree identity operation'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree" identity state
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" worktree add -q -b worktree/generated "$worktree"
+  hts_mark_generated_worktree "$worktree" worktree/generated
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude s1)"
+  hts_set_tab "$HTS_DEFAULT_SOCKET" \
+    '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"worktree-green-field-79d3"}'
+  hts_stub_engine pi \
+    '{"title":"Recover Herdr identity","slug":"recover-herdr-identity"}' 0 0
+  : > "$(hts_socket_dir "$HTS_DEFAULT_SOCKET")/fail-next-workspace-rename"
+
+  identity="$(hts_namespace "$HTS_DEFAULT_SOCKET")/worktrees/$(hts_key "$(git -C "$worktree" rev-parse --show-toplevel)").state"
+  hts_run --agent claude --session s1 <<< 'Recover Herdr identity'
+  hts_wait_for_record_text "$identity" outcome workspace-failed
+  assert_equal "$(hts_record_text "$identity" outcome)" workspace-failed
+  assert_equal "$(git -C "$worktree" branch --show-current)" recover-herdr-identity
+
+  hts_run --agent claude --session s1 <<< 'This continuation only retries side effects'
+  hts_wait_for_record_text "$identity" outcome complete
+  assert_equal "$(hts_record_text "$identity" outcome)" complete
+  assert_equal "$(git -C "$worktree" branch --show-current)" recover-herdr-identity
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal \
+    "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .label' "$state")" \
+    'Recover Herdr identity'
+  run grep -c '^workspace rename ws-1 Recover Herdr identity$' "$HTS_LOG"
+  assert_success
+  assert_output 2
+}
+
+function test_scripts_1128_herdr_task_sync_leaves_tracked_generated_branch() {
+  _bats_test_init 1128 'herdr-task-sync leaves an upstream-tracked generated worktree branch unchanged'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local origin="$HTS_WORK/origin.git" repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree" state
+  git init -q --bare "$origin"
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" remote add origin "$origin"
+  git -C "$repo" push -q -u origin main
+  git -C "$repo" worktree add -q -b worktree/tracked "$worktree"
+  git -C "$worktree" push -q -u origin worktree/tracked
+  hts_mark_generated_worktree "$worktree" worktree/tracked
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude s1)"
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"tracked-workspace"}'
+  hts_stub_engine pi \
+    '{"title":"Do not rename tracked","slug":"do-not-rename-tracked"}' 0 0
+
+  hts_run --agent claude --session s1 <<< 'Do not rename tracked'
+  hts_wait_for_worker_exit
+  assert_equal "$(git -C "$worktree" branch --show-current)" worktree/tracked
+  state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
+  assert_equal \
+    "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .label' "$state")" \
+    tracked-workspace
+  run grep -c '^workspace rename ' "$HTS_LOG"
+  assert_failure
+  assert_output 0
+}
+
+function test_scripts_1129_herdr_task_sync_bounds_and_retries_branch_rename() {
+  _bats_test_init 1129 'herdr-task-sync bounds and retries a stalled generated branch rename'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree" identity
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" worktree add -q -b worktree/generated "$worktree"
+  hts_mark_generated_worktree "$worktree" worktree/generated
+  cat > "$HTS_STUB/git" <<'SH'
+#!/usr/bin/env bash
+if [[ "$3" == branch && "$4" == -m ]]; then
+  sleep 2
+  exit 0
+fi
+exec /usr/bin/git "$@"
+SH
+  chmod +x "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude s1)"
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"worktree-green-field-79d3"}'
+  hts_stub_engine pi \
+    '{"title":"Bound branch rename","slug":"bound-branch-rename"}' 0 0
+  identity="$(hts_namespace "$HTS_DEFAULT_SOCKET")/worktrees/$(hts_key "$(git -C "$worktree" rev-parse --show-toplevel)").state"
+
+  HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET=0.1 \
+    hts_run --agent claude --session s1 <<< 'Bound branch rename'
+  hts_wait_for_record_text "$identity" outcome branch-failed
+  assert_equal "$(/usr/bin/git -C "$worktree" branch --show-current)" worktree/generated
+
+  rm -f "$HTS_STUB/git"
+  hts_run --agent claude --session s1 <<< 'Retry only the bounded side effect'
+  hts_wait_for_record_text "$identity" outcome complete
+  assert_equal "$(/usr/bin/git -C "$worktree" branch --show-current)" bound-branch-rename
+}
+
+function test_scripts_1130_herdr_task_sync_recovers_committed_side_effects() {
+  _bats_test_init 1130 'herdr-task-sync recovers committed identity side effects on a continuation event'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree" identity task
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" worktree add -q -b worktree/generated "$worktree"
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude s1)"
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"worktree-green-field-79d3"}'
+  hts_stub_engine pi \
+    '{"title":"Recover committed effects","slug":"recover-committed-effects"}' 0 0
+  task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 s1)"
+  identity="$(hts_namespace "$HTS_DEFAULT_SOCKET")/worktrees/$(hts_key "$(git -C "$worktree" rev-parse --show-toplevel)").state"
+
+  hts_run --agent claude --session s1 <<< 'Recover committed effects'
+  hts_wait_for_task_slug "$task" recover-committed-effects
+  assert_file_not_exists "$identity"
+  assert_equal "$(git -C "$worktree" branch --show-current)" worktree/generated
+
+  hts_mark_generated_worktree "$worktree" worktree/generated
+  hts_run --agent claude --session s1 <<< 'Continuation after the durable commit'
+  hts_wait_for_record_text "$identity" outcome complete
+  assert_equal "$(git -C "$worktree" branch --show-current)" recover-committed-effects
+  run cat "$HTS_WORK/pi-stdin.txt"
+  assert_success
+  refute_output --partial 'Continuation after the durable commit'
+}
+
+function test_scripts_1131_herdr_task_sync_serializes_sibling_branch_names() {
+  _bats_test_init 1131 'herdr-task-sync serializes branch naming across sibling worktrees'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" one="$HTS_WORK/one" two="$HTS_WORK/two"
+  local barrier="$HTS_WORK/branch-barrier" release="$HTS_WORK/release-branch-barrier"
+  local identity_one identity_two
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" worktree add -q -b worktree/one "$one"
+  git -C "$repo" worktree add -q -b worktree/two "$two"
+  hts_mark_generated_worktree "$one" worktree/one
+  hts_mark_generated_worktree "$two" worktree/two
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$one" claude s1)"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-2 tab-2 "$two" claude s2 | jq '.workspace_id = "ws-2"')"
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"worktree-one"}'
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-2","label":"worktree-two"}'
+  hts_stub_engine pi \
+    '{"title":"Shared worktree task","slug":"shared-worktree-task"}' 0 0
+  identity_one="$(hts_namespace "$HTS_DEFAULT_SOCKET")/worktrees/$(hts_key "$(git -C "$one" rev-parse --show-toplevel)").state"
+  identity_two="$(hts_namespace "$HTS_DEFAULT_SOCKET")/worktrees/$(hts_key "$(git -C "$two" rev-parse --show-toplevel)").state"
+
+  HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="$barrier" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="$release" \
+    hts_run --pane pane-1 --agent claude --session s1 <<< 'Shared worktree task'
+  hts_wait_for_file "$barrier/$(hts_key "$(git -C "$one" rev-parse --show-toplevel)")"
+  HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="$barrier" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="$release" \
+    hts_run --pane pane-2 --agent claude --session s2 <<< 'Shared worktree task'
+  sleep 0.2
+  assert_equal "$(find "$barrier" -type f | wc -l | tr -d ' ')" 1
+
+  : > "$release"
+  hts_wait_for_record_text "$identity_one" outcome complete
+  hts_wait_for_record_text "$identity_two" outcome complete
+  assert_equal "$(git -C "$one" branch --show-current)" shared-worktree-task
+  assert_equal "$(git -C "$two" branch --show-current)" shared-worktree-task-2
+}
+
+function test_scripts_1132_herdr_task_sync_rechecks_session_before_branch_mutation() {
+  _bats_test_init 1132 'herdr-task-sync rechecks the native session immediately before branch mutation'
+  command -v jq >/dev/null || skip "jq not available"
+  command -v git >/dev/null || skip "git not available"
+  hts_setup
+  local repo="$HTS_WORK/repo" worktree="$HTS_WORK/worktree"
+  local barrier="$HTS_WORK/branch-barrier" release="$HTS_WORK/release-branch-barrier" identity
+  git init -q -b main "$repo"
+  git -C "$repo" config user.name Test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' > "$repo/file"
+  git -C "$repo" add file
+  git -C "$repo" commit -q -m base
+  git -C "$repo" worktree add -q -b worktree/generated "$worktree"
+  hts_mark_generated_worktree "$worktree" worktree/generated
+  rm -f "$HTS_STUB/git"
+
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude s1)"
+  hts_set_workspace "$HTS_DEFAULT_SOCKET" \
+    '{"workspace_id":"ws-1","label":"worktree-green-field-79d3"}'
+  hts_stub_engine pi \
+    '{"title":"Reject stale session","slug":"reject-stale-session"}' 0 0
+  identity="$(hts_namespace "$HTS_DEFAULT_SOCKET")/worktrees/$(hts_key "$(git -C "$worktree" rev-parse --show-toplevel)").state"
+
+  HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="$barrier" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="$release" \
+    hts_run --agent claude --session s1 <<< 'Reject stale session'
+  hts_wait_for_file "$barrier/$(hts_key "$(git -C "$worktree" rev-parse --show-toplevel)")"
+  hts_set_pane "$HTS_DEFAULT_SOCKET" \
+    "$(hts_agent_pane_json pane-1 tab-1 "$worktree" claude replacement-session)"
+  : > "$release"
+  hts_wait_for_quiescence "$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
+
+  assert_file_not_exists "$identity"
+  assert_equal "$(git -C "$worktree" branch --show-current)" worktree/generated
 }
 
 function test_scripts_113_herdr_task_sync_atomic_records_never_expose_trun() {
@@ -4219,30 +4547,30 @@ function test_scripts_127_herdr_task_sync_presentation_labels_a_detected_a() {
 }
 
 function test_scripts_128_herdr_task_sync_presentation_publishes_only_the() {
-  _bats_test_init 128 'herdr-task-sync presentation publishes only the newest accepted generation'
+  _bats_test_init 128 'herdr-task-sync presentation publishes only the first accepted identity'
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   hts_stub_controlled_engine pi
   hts_model_fixture pi 1 stale-first
   hts_model_fixture pi 2 newest-second
+  hts_release_model pi 2
 
   hts_run --agent claude --session latest-s <<< 'first request'
   hts_wait_for_file "$HTS_WORK/models/pi/1/started"
   hts_run --agent claude --session latest-s <<< 'second request'
   hts_release_model pi 1
-  hts_wait_for_file "$HTS_WORK/models/pi/2/started"
-  hts_release_model pi 2
 
   local control task state
   control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   task="$(hts_task_file "$HTS_DEFAULT_SOCKET" claude pane-1 latest-s)"
   hts_wait_for_quiescence "$control"
-  hts_wait_for_task_slug "$task" newest-second
+  hts_wait_for_task_slug "$task" stale-first
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
   state="$(hts_socket_state "$HTS_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" newest-second
-  assert_equal "$(jq -r '.panes[0].label' "$state")" cc:newest-second
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:newest-second
+  assert_equal "$(jq -r '.panes[0].tokens.task' "$state")" stale-first
+  assert_equal "$(jq -r '.panes[0].label' "$state")" cc:stale-first
+  assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:stale-first
+  assert_file_not_exists "$HTS_WORK/models/pi/2/started"
   run grep -c -- '--source task-sync' "$HTS_LOG"
   assert_output "1"
   run grep -c -- '--source sidebar-sync' "$HTS_LOG"
@@ -4477,10 +4805,13 @@ function test_scripts_138_herdr_task_sync_presentation_preserves_state_on() {
   command -v jq >/dev/null || skip "jq not available"
   hts_setup
   HERDR_TASK_SYNC_TEST_NO_PRESENTATION=1 hts_run --agent pi --session retained-s --set retained-task < /dev/null
-  local task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 retained-s)"
+  local task="$(hts_task_file "$HTS_DEFAULT_SOCKET" pi pane-1 retained-s)" control
+  control="$(hts_control_file "$HTS_DEFAULT_SOCKET" pane-1)"
   hts_wait_for_task_slug "$task" retained-task
+  hts_wait_for_quiescence "$control"
   hts_wait_for_record_number "$(hts_namespace "$HTS_DEFAULT_SOCKET")/reconcile.state" pending_generation 1
   touch -t 202001010000 "$task"
+  : > "$HTS_LOG"
   hts_snapshot_complete "$HTS_DEFAULT_SOCKET" false
   run hts_presentation_run
   assert_success
@@ -6260,8 +6591,7 @@ function test_scripts_195_herdr_task_sync_publishes_the_engine_slug_and_st() {
   assert_equal "$(hts_state_field "$state" first_prompt)" "review the cache layer please"
 }
 
-# AE1: a continuation prompt must not rename the session. The model decides
-# stability (KTD6), so the stub stands in for a model that repeats the name.
+# AE1: a continuation prompt must not rename the session or invoke the model.
 function test_scripts_196_herdr_task_sync_keeps_the_slug_on_a_continuation() {
   _bats_test_init 196 'herdr-task-sync keeps the slug on a continuation prompt (AE1)'
   hts_setup
@@ -6274,21 +6604,20 @@ function test_scripts_196_herdr_task_sync_keeps_the_slug_on_a_continuation() {
   generation="$(hts_record_number "$control" generation)"
   : > "$HTS_LOG"
   hts_run --agent claude --session s1 <<< 'продолжай'
-  hts_wait_for_record_number "$control" generation $((generation + 1))
   hts_wait_for_quiescence "$control"
-  hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
+  assert_equal "$(hts_record_number "$control" generation)" "$generation"
   assert_equal "$(hts_record_text "$state" slug)" "cache-review"
   run grep -E 'report-metadata|rename' "$HTS_LOG"
   assert_failure
-  # The naming call sees the session's first prompt, not only the newest one.
+  # The sole naming call sees the session's first prompt.
   run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "Current name: cache-review"
   assert_output --partial "review the cache layer please"
+  refute_output --partial "продолжай"
 }
 
-# AE3: with no usable naming engine the pane keeps whatever it had.
+# AE3: engine availability after the first identity cannot change the pane.
 function test_scripts_197_herdr_task_sync_publishes_nothing_when_no_engine() {
-  _bats_test_init 197 'herdr-task-sync publishes nothing when no engine is usable (AE3, R5)'
+  _bats_test_init 197 'herdr-task-sync keeps its first identity when later engines are unavailable'
   hts_setup
   hts_stub_engine pi cache-review 0 0
   hts_run --agent claude --session s1 <<< 'review the cache layer please'
@@ -6303,12 +6632,13 @@ function test_scripts_197_herdr_task_sync_publishes_nothing_when_no_engine() {
   : > "$HTS_LOG"
   run hts_run --agent claude --session s1 <<< 'now fix the flaky login test'
   assert_success
-  hts_wait_for_record_number "$control" generation $((generation + 1))
   hts_wait_for_quiescence "$control"
-  assert_equal "$(cat "$HTS_LOG")" ""
+  assert_equal "$(hts_record_number "$control" generation)" "$generation"
+  run grep -E 'report-metadata|rename' "$HTS_LOG"
+  assert_failure
   assert_equal "$(hts_record_text "$state" slug)" "$before_slug"
   assert_equal "$(hts_record_text "$state" first_prompt)" "review the cache layer please"
-  assert_equal "$(hts_record_text "$state" latest_prompt)" "now fix the flaky login test"
+  assert_equal "$(hts_record_text "$state" latest_prompt)" "review the cache layer please"
 }
 
 function test_scripts_198_herdr_task_sync_resets_the_stored_context_on_a_n() {
@@ -6329,7 +6659,8 @@ function test_scripts_198_herdr_task_sync_resets_the_stored_context_on_a_n() {
   hts_wait_for_presentation_quiescence "$HTS_DEFAULT_SOCKET"
   assert_equal "$(hts_state_field "$state" first_prompt)" "now fix the flaky login test"
   run cat "$HTS_WORK/pi-stdin.txt"
-  assert_output --partial "Current name: (none)"
+  assert_output --partial "now fix the flaky login test"
+  refute_output --partial "review the cache layer please"
 }
 
 # R8: the adapter's call must not wait on the model.
@@ -6409,14 +6740,14 @@ function test_scripts_202_herdr_task_sync_falls_back_to_claude_when_pi_fai() {
   assert_equal "$(hts_token)" "flaky-login-test"
 }
 
-function test_scripts_203_herdr_task_sync_publishes_nothing_when_both_engi() {
-  _bats_test_init 203 'herdr-task-sync publishes nothing when both engines time out (KTD1)'
+function test_scripts_203_herdr_task_sync_falls_back_when_both_engines_tim() {
+  _bats_test_init 203 'herdr-task-sync uses deterministic fallback when both engines time out'
   hts_setup
   hts_stub_engine pi slow-one 0 5
   hts_stub_engine claude slow-two 0 5
   HTS_TIMEOUT=1 hts_run --agent claude --session s1 <<< 'a substantive prompt here'
-  sleep 6
-  assert_equal "$(cat "$HTS_LOG")" ""
+  hts_wait_for_publish
+  assert_equal "$(hts_token)" a-substantive-prompt-here
 }
 
 function test_scripts_204_herdr_task_sync_creates_its_state_directory_with() {

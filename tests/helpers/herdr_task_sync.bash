@@ -326,7 +326,8 @@ SH
   cat > "$HTS_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 source "$HTS_WORK/fixture-lib.sh"
-if [ -f "$HTS_WORK/block-herdr" ]; then
+if [ -f "$HTS_WORK/block-herdr" ] || \
+  { [ "$1" = "api" ] && [ "$2" = "snapshot" ] && [ -f "$HTS_WORK/block-api-snapshot" ]; }; then
   block_attempts=0
   release_file="${HTS_DESCRIPTOR_RELEASE_FILE:-$HTS_WORK/release-herdr}"
   : > "$HTS_WORK/herdr-blocked"
@@ -413,6 +414,19 @@ elif [ "$1" = "tab" ] && [ "$2" = "rename" ]; then
   hts_fixture_state_lock "$dir" || exit 1
   jq --arg id "$3" --arg label "$4" \
     '.tabs |= map(if .tab_id == $id then .label = $label else . end)' \
+    "$state" > "$tmp" && mv "$tmp" "$state"
+  result=$?
+  hts_fixture_state_unlock "$dir"
+  [ "$result" -eq 0 ] || exit "$result"
+elif [ "$1" = "workspace" ] && [ "$2" = "rename" ]; then
+  if [ -f "$dir/fail-next-workspace-rename" ]; then
+    rm -f "$dir/fail-next-workspace-rename"
+    exit 1
+  fi
+  tmp="$state.tmp.$$"
+  hts_fixture_state_lock "$dir" || exit 1
+  jq --arg id "$3" --arg label "$4" \
+    '.workspaces |= map(if .workspace_id == $id then .label = $label else . end)' \
     "$state" > "$tmp" && mv "$tmp" "$state"
   result=$?
   hts_fixture_state_unlock "$dir"
@@ -602,6 +616,9 @@ hts_run_for_socket() {
     HERDR_SOCKET_PATH="$socket_path" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
+    HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-$HTS_WORKTREE_GIT_BUDGET}" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER:-}" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE:-}" \
     HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
@@ -616,6 +633,9 @@ hts_worker_run() {
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
+    HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-$HTS_WORKTREE_GIT_BUDGET}" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER:-}" \
+    HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
     HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
@@ -755,6 +775,9 @@ hts_after_call_script() {
 # pass -- the eight-pane coordinator test runs seven -- and a tighter budget
 # would SIGKILL those, which is the failure this value exists to prevent.
 HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
+# Worktree identity tests exercise several real Git mutations under the full
+# parallel suite. Only the dedicated timeout case should race their watchdog.
+HTS_WORKTREE_GIT_BUDGET="${HTS_WORKTREE_GIT_BUDGET:-10}"
 # The status probe has its own bound in the engine, so the harness gives it
 # its own generous default for the same reason the identity budget is
 # generous here: a stub probe under --jobs load must not lose the race and
@@ -1150,6 +1173,12 @@ hts_write_agent_cwd_record() {
   printf '%s\n' "$2" > "$root/$key"
 }
 
+hts_mark_generated_worktree() {
+  local marker
+  marker="$(git -C "$1" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  printf '%s\n' "$2" > "$marker"
+}
+
 # Drives the shipped Claude statusline the way Claude Code does, so the record
 # under test is the one the real reporter writes rather than an imitation.
 hts_run_claude_statusline() {
@@ -1375,6 +1404,15 @@ hts_wait_for_record_number() {
     value="$(hts_record_number "$file" "$field" 2>/dev/null || true)"
     [[ -n "$value" && "$value" -ge "$expected" ]] && return 0
     sleep 0.01
+  done
+  return 1
+}
+
+hts_wait_for_record_text() {
+  local file="$1" field="$2" expected="$3" _
+  for _ in $(seq 1 $HTS_WAIT_SLOW_POLLS); do
+    [[ "$(hts_record_text "$file" "$field" 2>/dev/null || true)" = "$expected" ]] && return 0
+    sleep 0.25
   done
   return 1
 }

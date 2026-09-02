@@ -1,8 +1,9 @@
 # Native Herdr worktrees
 
 Herdr is the single owner of interactive Git worktree creation, opening,
-renaming, closing, and removal. Linked checkouts are native child workspaces;
-`herdr-task-sync` remains the separate owner of pane labels and Git metadata.
+closing, and removal. Linked checkouts are native child workspaces;
+`herdr-task-sync` owns task-derived pane labels, Git metadata, and the one-time
+rename of a newly generated branch and its workspace.
 
 - `Cmd+Shift+N` sends the existing `prefix+shift+g` transport sequence from
   Ghostty or kitty and opens Herdr's native new-worktree dialog.
@@ -19,6 +20,12 @@ policy file is
 `~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`. Tables are
 keyed by the canonical `origin` remote, matching the former Worktrunk project
 keys. A repository with no table receives no setup or fresh-base mutation.
+
+On every `worktree.created` event, the plugin also records
+`herdr-generated-worktree` in that checkout's Git administrative directory.
+`herdr-task-sync` requires this lifecycle-owned marker before renaming a
+`worktree/*` branch, so a manually created branch cannot be renamed from its
+prefix alone. Git removes the marker with the linked worktree metadata.
 
 ## Repository policies
 
