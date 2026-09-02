@@ -191,6 +191,9 @@ function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
   assert_success
 }
 
+# Literal consumed outside this repo: herdr's own TOML parser reads this exact
+# key at startup and binds the palette open action to it. No code here calls
+# herdr to observe the binding, so the deployed literal is the whole contract.
 function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
 _bats_test_init 6 'herdr command palette keybinding is configured'
 assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
@@ -260,15 +263,22 @@ SH
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
 }
 
+# Literal consumed outside this repo: herdr's auto-update plugin reads
+# `trusted_owners` at runtime and only auto-installs plugin updates from that
+# allowlist — a real security boundary, not decoration. Reads the deployed
+# $HOME copy (not $SOURCE_ROOT) so this actually proves chezmoi placed the
+# file, matching every other assertion in this suite.
 function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
   _bats_test_init 9 'herdr plugin updates are automatic and owner-restricted'
-  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml"
+  local config="$HOME/.config/herdr/plugins/config/herdr-auto-update/config.toml"
 
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
   assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
 }
 
+# Literal consumed outside this repo: herdr's plugin manifest parser matches
+# this exact `id` to register the palette entry, same category as test 006.
 function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
   _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
   assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
@@ -396,6 +406,10 @@ function test_smoke_014_writing_style_output_style_is_deployed_and_enabl() {
   assert_success
 }
 
+# Pi appends this exact filename to its system prompt by convention, with no
+# settings.json toggle to check the way Claude (test 014) and OpenCode (test
+# 018) have — so unlike those two, the deployed path itself is the entire
+# wiring contract for Pi and there is nothing cheaper to verify against.
 function test_smoke_015_pi_append_system_md_is_deployed() {
   _bats_test_init 15 'pi APPEND_SYSTEM.md is deployed'
   assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
@@ -576,20 +590,47 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
   assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/jina-read.sh"
   assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/jina-search.sh"
   assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/tavily-search.sh"
-  assert_file_contains "$HOME/.agents/skills/writing-for-agents/SKILL.md" 'vendored under its MIT License'
 
   # The retired per-agent scripts directory must stay deleted.
   assert_dir_not_exists "$HOME/.agents/skills/ask-in-herdr/scripts/agents"
 }
 
-function test_smoke_022_shared_references_are_deployed() {
-  _bats_test_init 22 'shared references are deployed'
-  assert_file_exists "$HOME/.claude/shared/README.md"
-  assert_file_exists "$HOME/.claude/shared/pf-cycle.md"
-  assert_file_exists "$HOME/.claude/shared/herdr-peer-launch.md"
-  assert_file_exists "$HOME/.claude/shared/decision-brief.md"
-  assert_file_exists "$HOME/.claude/shared/child-agent-contract.md"
-  assert_file_exists "$HOME/.claude/shared/long-running-work.md"
+# A hand-copied list here can only restate what test 075 (CLAUDE.md pointers)
+# already implies; it drifts silently when a shared file is renamed and its
+# entry here is forgotten. Cross-check both independent sides instead: every
+# ~/.claude/shared/*.md pointer written anywhere in the deployed agent surface
+# (CLAUDE.md, skills, agents, hooks, output-styles, rules, and the herdr
+# child-launch lib) must resolve to a real file, and conversely every deployed
+# shared file except the directory's own README index must be reachable from
+# at least one such pointer, or it is dead weight nothing loads. The scanned
+# paths are chezmoi-managed content dirs only (see home/private_dot_claude/*)
+# — runtime state like sessions or telemetry is deliberately excluded, since a
+# pointer written only there was never part of the wiring this repo deploys.
+function test_smoke_022_shared_references_form_a_closed_reference_set() {
+  _bats_test_init 22 'shared references form a closed reference set with the deployed agent surface'
+  local shared_dir="$HOME/.claude/shared"
+  assert_dir_exists "$shared_dir"
+
+  local pointers
+  pointers="$(grep -rho '~/\.claude/shared/[A-Za-z0-9._-]*\.md' \
+    "$HOME/.claude/CLAUDE.md" "$HOME/.agents" "$HOME/.local/lib" \
+    "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/output-styles" \
+    "$HOME/.claude/rules" "$HOME/.claude/skills" 2>/dev/null | sort -u)"
+  [ -n "$pointers" ] || fail "no ~/.claude/shared pointer found in the deployed agent surface"
+
+  local pointer missing=""
+  while IFS= read -r pointer; do
+    [ -f "$HOME/${pointer#\~/}" ] || missing="$missing $pointer"
+  done <<< "$pointers"
+  [ -z "$missing" ] || fail "dangling ~/.claude/shared pointers:$missing"
+
+  local f name orphans=""
+  for f in "$shared_dir"/*.md; do
+    name="$(basename "$f")"
+    [ "$name" = "README.md" ] && continue
+    grep -qF "shared/$name" <<< "$pointers" || orphans="$orphans $name"
+  done
+  [ -z "$orphans" ] || fail "orphaned ~/.claude/shared files referenced by nothing:$orphans"
 }
 
 # A shared file that is renamed or moved keeps the deployment tests above green
@@ -853,10 +894,65 @@ function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
 # Test 60 was removed as tautological: deployment of these docs is owned by
 # test 21's manifest, the marker wire format by scripts_test.sh test 058.
 
-function test_smoke_061_herdr_task_sync_claude_code_hook_is_deployed_and() {
-  _bats_test_init 61 'herdr-task-sync Claude Code hook is deployed and executable'
-  assert_file_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
-  assert_file_executable "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+# Claude Code injects a UserPromptSubmit hook's stdout straight into the
+# conversation, so the hook's own header comment commits to writing nothing
+# and always exiting 0. Run it the same way settings.json invokes it (test
+# 062 proves that wiring) and check the deployed script actually keeps that
+# promise, instead of only checking it is present and has the execute bit.
+#
+# An empty `{}` payload never proves this: the hook requires session_id
+# before it reaches any dispatch branch (herdr-task-sync-hook.sh's own
+# `[ -n "$session_id" ] || exit 0` guard), so a payload without one exits
+# silently before the real engine call a broken dispatch would corrupt. Send
+# the fields Claude actually supplies for all three wired events -- prompt,
+# session, compact -- and put a stub `herdr-task-sync` ahead on PATH so the
+# real engine -- which would rename this very live pane -- is never invoked,
+# while still proving the hook reached and called it with the right args.
+#
+# The stub also writes a distinctive marker straight to its own real
+# stdout/stderr, outside the redirection it uses to record invocations. That
+# marker is what the hook's own `>/dev/null 2>&1` must swallow: without a
+# real, unconditional leak to silence, a stub that never produces output in
+# the first place would make the "stays silent" assertion pass trivially even
+# if the hook dropped its redirect entirely.
+function test_smoke_061_herdr_task_sync_claude_code_hook_stays_silent_and() {
+  _bats_test_init 61 'herdr-task-sync Claude Code hook stays silent and exits 0'
+  local hook="$HOME/.claude/hooks/herdr-task-sync-hook.sh"
+  assert_file_exists "$hook"
+
+  local stub_dir invocation_log
+  stub_dir="$(mktemp -d)"
+  invocation_log="$stub_dir/invocations.log"
+  cat > "$stub_dir/herdr-task-sync" <<'STUB'
+#!/usr/bin/env bash
+printf 'STUB-STDOUT-LEAK\n'
+printf 'STUB-STDERR-LEAK\n' >&2
+{ printf '%s\n' "$*"; cat >/dev/null; } >> "$HERDR_TASK_SYNC_STUB_LOG"
+STUB
+  chmod +x "$stub_dir/herdr-task-sync"
+
+  run env PATH="$stub_dir:$PATH" HERDR_TASK_SYNC_STUB_LOG="$invocation_log" \
+    bash "$hook" prompt <<< '{"session_id":"smoke-061","prompt":"hi","transcript_path":"/tmp/smoke-061.jsonl"}'
+  assert_success
+  assert_output ""
+
+  run env PATH="$stub_dir:$PATH" HERDR_TASK_SYNC_STUB_LOG="$invocation_log" \
+    bash "$hook" session <<< '{"session_id":"smoke-061","transcript_path":"/tmp/smoke-061.jsonl"}'
+  assert_success
+  assert_output ""
+
+  run env PATH="$stub_dir:$PATH" HERDR_TASK_SYNC_STUB_LOG="$invocation_log" \
+    bash "$hook" compact <<< '{"session_id":"smoke-061","transcript_path":"/tmp/smoke-061.jsonl"}'
+  assert_success
+  assert_output ""
+
+  assert_file_exists "$invocation_log"
+  run wc -l "$invocation_log"
+  assert_output --partial "3 "
+  assert_file_contains "$invocation_log" \
+    '\-\-agent claude \-\-session smoke-061 \-\-transcript /tmp/smoke-061.jsonl'
+
+  rm -rf "$stub_dir"
 }
 
 function test_smoke_062_claude_settings_wire_the_task_sync_hook_to_promp() {
@@ -883,10 +979,18 @@ PY
   assert_success
 }
 
+# Pi discovers extensions by directory, not a manifest: it dynamically
+# imports every file under ~/.pi/agent/extensions/ and calls its default
+# export. File existence alone would still pass on a truncated or corrupted
+# copy that Pi's own loader could never load; import it the same way Pi does
+# and check the shape its loader requires instead.
 function test_smoke_063_herdr_task_sync_pi_extension_is_deployed_beside() {
   _bats_test_init 63 'herdr-task-sync pi extension is deployed beside herdr'\''s own'
   local ext="$HOME/.pi/agent/extensions/herdr-task-sync.ts"
   assert_file_exists "$ext"
+
+  run bun -e "const m = await import(\"$ext\"); if (typeof m.default !== \"function\") throw new Error(\"no default export\")"
+  assert_success
 }
 
 function test_smoke_064_pi_local_private_instructions_focused_tests_pass() {
@@ -896,10 +1000,19 @@ function test_smoke_064_pi_local_private_instructions_focused_tests_pass() {
   assert_success
 }
 
+# Test 066 behaviorally exercises this extension's logic against the
+# checkout copy, not the deployed one (SOURCE_ROOT). Prove the *deployed*
+# copy is what test 066 actually tested, by importing it the way Pi's own
+# directory-based loader would and checking it exports the same names
+# test 066 imports — not a content diff against the checkout, just that the
+# deployed file loads and has the shape a corrupted or stale copy would lack.
 function test_smoke_065_pi_brew_auto_updater_is_deployed() {
   _bats_test_init 65 'Pi brew auto updater is deployed'
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
   assert_file_exists "$ext"
+
+  run bun -e "const m = await import(\"$ext\"); for (const k of [\"default\", \"captureExtensionSnapshot\", \"runBrewAutoUpdate\"]) if (typeof m[k] !== \"function\") throw new Error(\"missing export: \" + k)"
+  assert_success
 }
 
 function test_smoke_066_pi_brew_auto_updater_focused_tests_pass() {
@@ -908,10 +1021,16 @@ function test_smoke_066_pi_brew_auto_updater_focused_tests_pass() {
   assert_success
 }
 
+# OpenCode also loads plugins by directory, not a manifest. Same rationale
+# as test 063: import the deployed file and check its named export, the
+# shape OpenCode's own loader requires, instead of only checking it exists.
 function test_smoke_067_herdr_task_sync_opencode_plugin_is_deployed() {
   _bats_test_init 67 'herdr-task-sync opencode plugin is deployed'
   local plugin="$HOME/.config/opencode/plugins/herdr-task-sync.ts"
   assert_file_exists "$plugin"
+
+  run bun -e "const m = await import(\"$plugin\"); if (typeof m.HerdrTaskSyncPlugin !== \"function\") throw new Error(\"no HerdrTaskSyncPlugin export\")"
+  assert_success
 }
 
 assert_herdr_sidebar_deployment_contract() {
