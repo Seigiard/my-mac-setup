@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: 20 host-safe
 # scripts post-apply suite — bashunit source. Vocabulary (run, assert_*,
 # skip, BATS_* contract) comes from tests/bashunit/test-dsl.bash.
 # Migrated from scripts.bats; parity evidence: docs/benchmarks/bashunit-full-suite-experiment.md.

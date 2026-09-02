@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: excluded
 # Dedicated one-test file for the herdr-task-sync descriptor probe. The
 # bounded-invocation driver in scripts_test.sh runs it under a nested
 # tests/lib/bashunit so the guard covers setup plus the probe itself rather

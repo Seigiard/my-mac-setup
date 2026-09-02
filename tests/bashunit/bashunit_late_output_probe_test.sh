@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: excluded
 # Dedicated one-test fixture for the local bashunit patch "payload-marker
 # result parsing" (docs/issues/2026-08-29-003-pinned-bashunit-carries-a-local-
 # patch-payload-marker-result-parsing): a test's background child that

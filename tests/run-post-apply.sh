@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Post-apply suite runner. tests/bashunit/*_test.sh are the source of truth,
-# written against tests/bashunit/test-dsl.bash, executed with the pinned
-# bashunit at tests/lib/bashunit — measured at ~24% less wall-clock than the
-# previous bats runner with per-scenario behavioral parity (403/403 on macOS
-# and Ubuntu). Evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
+# Post-apply suite runner. Leading '# post-apply:' declarations select the
+# tests/bashunit/*_test.sh files, which are written against
+# tests/bashunit/test-dsl.bash and executed with the pinned bashunit at
+# tests/lib/bashunit — measured at ~24% less wall-clock than the previous bats
+# runner with per-scenario behavioral parity (403/403 on macOS and Ubuntu).
+# Evidence: docs/benchmarks/bashunit-full-suite-experiment.md.
 #
 # Execution shape: files run sequentially, tests within a file run with up to
 # $MMS_BASHUNIT_JOBS workers (idempotent serializes itself via its
@@ -16,7 +17,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 JOBS="${MMS_BASHUNIT_JOBS:-8}"
-GEN="$ROOT/tests/bashunit"
+# Overridable so the suite contract test can exercise invalid declarations.
+GEN="${MMS_BASHUNIT_SUITE_DIR:-$ROOT/tests/bashunit}"
 # Overridable so the suite contract test can substitute a recording stub.
 BASHUNIT_BIN="${MMS_BASHUNIT_BIN:-$ROOT/tests/lib/bashunit}"
 
@@ -30,10 +32,79 @@ USAGE
 }
 
 case "${1:-}" in
-  full)      files="smoke scripts palette platform oracle_guard idempotent" ;;
-  host-safe) files="smoke scripts palette platform oracle_guard" ;;
+  full|host-safe) mode="$1" ;;
   *) usage; exit 2 ;;
 esac
+
+suite_declaration() {
+  local file="$1" line payload order eligibility extra declaration=""
+  while IFS= read -r line; do
+    case "$line" in
+      '# post-apply:'*)
+        [ -z "$declaration" ] || {
+          echo "duplicate post-apply declaration: $file" >&2
+          return 1
+        }
+        payload="${line#\# post-apply: }"
+        if [ "$payload" = excluded ]; then
+          declaration=excluded
+          continue
+        fi
+        read -r order eligibility extra <<EOF
+$payload
+EOF
+        [[ "$order" =~ ^[1-9][0-9]*$ ]] || {
+          echo "invalid post-apply declaration: $file" >&2
+          return 1
+        }
+        case "$eligibility" in
+          host-safe|needs-disposable-home) ;;
+          *) echo "invalid post-apply declaration: $file" >&2; return 1 ;;
+        esac
+        [ -z "${extra:-}" ] && [ "$line" = "# post-apply: $order $eligibility" ] || {
+          echo "invalid post-apply declaration: $file" >&2
+          return 1
+        }
+        declaration="$order $eligibility"
+        ;;
+      '#!'*|'#'*|'') ;;
+      *) break ;;
+    esac
+  done < "$file"
+  [ -n "$declaration" ] || {
+    echo "missing post-apply declaration: $file" >&2
+    return 1
+  }
+  printf '%s\n' "$declaration"
+}
+
+declarations=""
+for file in "$GEN"/*_test.sh; do
+  [ -e "$file" ] || continue
+  declaration="$(suite_declaration "$file")" || exit $?
+  [ "$declaration" != excluded ] || continue
+  declarations="${declarations}${declaration} ${file##*/}
+"
+done
+[ -n "$declarations" ] || {
+  echo "no declared post-apply suites found in $GEN" >&2
+  exit 1
+}
+
+files=""
+previous_order=""
+while read -r order eligibility name; do
+  [ -z "$previous_order" ] || [ "$order" != "$previous_order" ] || {
+    echo "duplicate post-apply order: $order" >&2
+    exit 1
+  }
+  previous_order="$order"
+  if [ "$mode" = full ] || [ "$eligibility" = host-safe ]; then
+    files="$files ${name%_test.sh}"
+  fi
+done <<EOF
+$(printf '%s' "$declarations" | sort -n -k1,1)
+EOF
 
 rc=0
 for base in $files; do

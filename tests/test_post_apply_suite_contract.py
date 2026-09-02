@@ -12,6 +12,10 @@ WORKFLOW = REPOSITORY / ".github" / "workflows" / "test-dotfiles.yml"
 COMPOSE = REPOSITORY / "docker" / "docker-compose.yml"
 RUNNER = REPOSITORY / "tests" / "run-post-apply.sh"
 GENERATED = REPOSITORY / "tests" / "bashunit"
+POST_APPLY_DECLARATION = re.compile(
+    r"^# post-apply: (?P<order>[1-9][0-9]*) "
+    r"(?P<eligibility>host-safe|needs-disposable-home)$"
+)
 
 
 class TestPostApplySuiteContract(unittest.TestCase):
@@ -39,27 +43,9 @@ class TestPostApplySuiteContract(unittest.TestCase):
         suite_files = self.discovered_suite_files()
         self.assertTrue(suite_files, "no post-apply suite files discovered on disk")
 
-        # idempotent_test.sh is the only discovered file whose own hard-fail
-        # guard reads both markers together (lines ~178-179): it refuses to
-        # run for real unless MMS_DISPOSABLE_HOME=1 *and* it can tell this is
-        # a real CI/container environment via GITHUB_ACTIONS. scripts_test.sh
-        # also mentions MMS_DISPOSABLE_HOME (it parameterizes an unrelated
-        # script under test), but never GITHUB_ACTIONS, so the AND of both
-        # markers isolates the file this wrapper must keep host-unsafe
-        # without naming it.
-        guarded = [
-            f
-            for f in suite_files
-            if "MMS_DISPOSABLE_HOME" in f.read_text(encoding="utf-8")
-            and "GITHUB_ACTIONS" in f.read_text(encoding="utf-8")
-        ]
-        self.assertEqual(
-            len(guarded),
-            1,
-            "exactly one discovered suite file should carry the disposable-home "
-            "hard-fail guard, found: %s" % [f.name for f in guarded],
-        )
-        guarded_path = str(guarded[0])
+        declarations = {f: self.post_apply_declaration(f) for f in suite_files}
+        orders = [order for order, _ in declarations.values()]
+        self.assertEqual(len(orders), len(set(orders)), "post-apply order values must be unique")
 
         full_invocations = self.wrapper_invocations("full")
         host_safe_invocations = self.wrapper_invocations("host-safe")
@@ -70,31 +56,92 @@ class TestPostApplySuiteContract(unittest.TestCase):
         host_safe_files = [argv[-1] for argv in host_safe_invocations]
 
         self.assertEqual(
-            set(full_files),
-            {str(f) for f in suite_files},
-            "full mode must run every suite file discovered on disk -- a new "
-            "tests/bashunit/*_test.sh file must be wired into the runner or "
-            "this fails",
+            full_files,
+            [str(f) for f in sorted(suite_files, key=lambda f: declarations[f][0])],
+            "full mode must run every discovered suite once in declared order -- "
+            "a new tests/bashunit/*_test.sh file must be explicitly classified",
         )
         self.assertEqual(
             len(full_files),
             len(set(full_files)),
             "full mode must not run any suite file twice",
         )
-        self.assertNotIn(
-            guarded_path,
-            host_safe_files,
-            "host-safe mode must exclude the disposable-home-guarded suite",
-        )
-        # host-safe's file set is checked against full's *observed* order
-        # (not a hardcoded list) so this only asserts the partition
-        # relationship, not an order copied from the runner's source.
         self.assertEqual(
             host_safe_files,
-            [f for f in full_files if f != guarded_path],
-            "host-safe mode must run exactly the full-mode set minus the "
-            "guarded suite, in the same relative order",
+            [
+                f
+                for f in full_files
+                if declarations[Path(f)][1] == "host-safe"
+            ],
+            "host-safe mode must follow the eligibility declarations consumed "
+            "by the runner, in full-mode order",
         )
+
+    def test_runner_rejects_a_malformed_post_apply_declaration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            (temp_path / "valid_test.sh").write_text(
+                "#!/usr/bin/env bash\n# post-apply: 10 host-safe\n",
+                encoding="utf-8",
+            )
+            fake_bashunit = temp_path / "bashunit"
+            fake_bashunit.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_bashunit.chmod(0o755)
+            env = os.environ.copy()
+            env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(temp_path)
+
+            control = subprocess.run(
+                [str(RUNNER), "full"],
+                cwd=REPOSITORY,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            (temp_path / "broken_test.sh").write_text(
+                "#!/usr/bin/env bash\n# post-apply: 20a host-safe\n",
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(RUNNER), "full"],
+                cwd=REPOSITORY,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(control.returncode, 0, control.stderr)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("invalid post-apply declaration", completed.stderr)
+
+    def test_runner_rejects_a_missing_post_apply_declaration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            (temp_path / "valid_test.sh").write_text(
+                "#!/usr/bin/env bash\n# post-apply: 10 host-safe\n",
+                encoding="utf-8",
+            )
+            (temp_path / "missing_test.sh").write_text(
+                "#!/usr/bin/env bash\n# no eligibility declaration\n",
+                encoding="utf-8",
+            )
+            fake_bashunit = temp_path / "bashunit"
+            fake_bashunit.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_bashunit.chmod(0o755)
+            env = os.environ.copy()
+            env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(temp_path)
+
+            completed = subprocess.run(
+                [str(RUNNER), "full"],
+                cwd=REPOSITORY,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("missing post-apply declaration", completed.stderr)
 
     def discovered_suite_files(self):
         """Suite files this wrapper is responsible for driving, found on disk
@@ -112,6 +159,27 @@ class TestPostApplySuiteContract(unittest.TestCase):
             if not self.wired_outside_the_wrapper(f.name, outside_sources)
             and not self.nested_inside_a_sibling(f.name, texts)
         ]
+
+    def post_apply_declaration(self, path):
+        declarations = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("# post-apply:"):
+                declarations.append(POST_APPLY_DECLARATION.fullmatch(line))
+            elif line and not line.startswith("#"):
+                break
+        self.assertEqual(
+            len(declarations),
+            1,
+            f"{path.name} must have exactly one post-apply declaration",
+        )
+        self.assertIsNotNone(
+            declarations[0],
+            f"{path.name} has an invalid post-apply declaration",
+        )
+        return (
+            int(declarations[0].group("order")),
+            declarations[0].group("eligibility"),
+        )
 
     def wired_outside_the_wrapper(self, name, outside_sources):
         """templates_test.sh is the case in point: the Makefile, workflow,

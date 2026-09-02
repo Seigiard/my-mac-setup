@@ -1,12 +1,13 @@
 ---
 title: "Host-safe suite eligibility is inferred from marker text, not an explicit contract"
-short_description: "tests/test_post_apply_suite_contract.py:49-54 excludes idempotent_test.sh from host-safe mode by grepping the file's text for MMS_DISPOSABLE_HOME and GITHUB_ACTIONS together, instead of the runner consuming a real eligibility declaration."
+short_description: "Each post-apply suite now declares ordered host eligibility in a leading machine-readable tag that tests/run-post-apply.sh consumes and validates at runtime; the contract test verifies the runner's observed partition."
 type: "follow-up"
 category: "testing-ci"
 tags: ["post-apply-suite","test-discovery","semantic-testing"]
 date: "2026-09-02"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Design and implement an explicit eligibility declaration for tests/bashunit/*_te
 ## Open decisions
 
 Whether the eligibility declaration lives as a per-file comment convention (grep-friendly, no new file format) or a small YAML/JSON manifest (more structured, another file to keep in sync). Whether run-post-apply.sh should validate the declaration at runtime (fail loudly on a malformed or missing tag) or only the test suite enforces it statically.
+
+## Resolution
+
+Added ordered per-file post-apply eligibility declarations, made the runner discover and validate them for full and host-safe modes, and replaced marker-text inference with observed runner behavior plus malformed-declaration coverage. Verified with make test-issues, make lint, and make test-suite.
