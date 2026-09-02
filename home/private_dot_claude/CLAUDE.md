@@ -57,12 +57,19 @@ Every skill's own description already carries its triggers. These four lines res
 
 </important>
 
-<important if="you are adding or reviewing tests">
+<important if="you are adding or reviewing tests, or a skill, plan, or workflow step tells you to write tests">
 
-- **Tautological tests considered harmful: require an independent oracle.** Name the consumer and observable failure. A useful test fails when the protected behavior breaks and stays green through harmless source refactors.
+- **Declare the oracle before the first test edit.** Before the first Edit/Write to any test file, write one line in your visible response naming the consumer, the observable failure, and an oracle independent of the files this patch changes. If you cannot complete the line, write zero new tests and say so. A useful test fails when the protected behavior breaks and stays green through harmless source refactors.
+- **This gate outranks every skill's step list.** A "write failing tests first" step in ce-debug, ce-work, or any other workflow does not waive it: a red test proves nothing when its expected value comes from the same patch or inspects source shape. Without the oracle line, the correct output of that step is zero tests.
 - Reject expected values copied from source, prompt, config, fixture, or inventory changed by the same patch. Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
-- **Proof-first is subordinate to this gate.** A test failing before implementation proves nothing when its expected value is copied from the same patch or it inspects source shape. When the consumer, the observable failure, and an independent oracle cannot be named, the correct output of a "write tests first" step is zero new tests.
+- Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
 - Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
+
+</important>
+
+<important if="the interface, hook, or dispatch point you need does not exist in the system that owns the behavior">
+
+A missing interface is a finding to report, not permission to reimplement the owning system's behavior locally. Stop, name the missing interface, and ask. A local clone of upstream behavior — plus tests for the clone — is the expensive wrong turn.
 
 </important>
 
