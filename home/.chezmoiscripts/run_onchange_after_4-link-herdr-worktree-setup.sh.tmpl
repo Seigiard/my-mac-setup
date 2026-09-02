@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Link the repository-owned worktree setup plugin after code or policy changes.
+#
+# Hash triggers:
+# # {{ include "private_dot_config/herdr/plugins/worktree-setup/herdr-plugin.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/worktree-setup/setup.ts" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/config/seigi.worktree-setup/config.toml" | sha256sum }}
+
+set -u
+
+plugin_dir="$HOME/.config/herdr/plugins/worktree-setup"
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "herdr not found; skipping worktree-setup plugin link"
+  exit 0
+fi
+
+if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
+  echo "Herdr worktree-setup plugin manifest not found at $plugin_dir; skipping"
+  exit 0
+fi
+
+if herdr plugin link --enabled "$plugin_dir" >/dev/null 2>&1; then
+  echo "Linked and enabled Herdr worktree-setup plugin"
+else
+  echo "Warning: failed to link Herdr worktree-setup plugin. Run manually: herdr plugin link --enabled $plugin_dir" >&2
+fi

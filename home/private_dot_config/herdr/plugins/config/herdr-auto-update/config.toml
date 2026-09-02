@@ -8,7 +8,7 @@ timeout_secs = 20
 max_concurrency = 8
 
 # Only these GitHub owners can supply automatically executed plugin updates.
-trusted_owners = ["dio16", "devashish2203"]
+trusted_owners = ["dio16"]
 
 # Accept forward-only branch updates. Keep explicit tag and commit pins immutable.
 require_fast_forward = true

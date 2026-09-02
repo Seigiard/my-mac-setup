@@ -125,15 +125,14 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
     .config/herdr/config.toml
-    .config/worktrunk/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
-    .config/herdr/plugins/command-palette/open_new_worktree.py
-    .config/herdr/plugins/command-palette/new_worktree.py
     .config/herdr/plugins/command-palette/open_in_zed.py
     .config/herdr/plugins/command-palette/palette.py
     .config/herdr/plugins/command-palette/smart_close.py
-    .config/herdr/plugins/config/worktrunk/config.toml
+    .config/herdr/plugins/worktree-setup/herdr-plugin.toml
+    .config/herdr/plugins/worktree-setup/setup.ts
+    .config/herdr/plugins/config/seigi.worktree-setup/config.toml
     .config/herdr/command-palette/commands.toml
     .local/lib/herdr-process.sh
     .local/lib/herdr-child-runtime.sh
@@ -195,13 +194,10 @@ function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
 function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
 _bats_test_init 6 'herdr command palette keybinding is configured'
 assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
-assert_file_contains "$HOME/.config/herdr/config.toml" 'command = "seigi.command-palette.new_worktree"'
-assert_file_contains "$HOME/.config/herdr/command-palette/commands.toml" 'action = "worktrunk.open"'
-assert_file_contains "$HOME/.config/herdr/plugins/config/worktrunk/config.toml" 'picker_placement = "popup"'
 }
 
-function test_smoke_007_obsolete_zed_herdr_removal_accepts_formatted_plu() {
-  _bats_test_init 7 'obsolete zed-herdr removal accepts formatted plugin JSON'
+function test_smoke_007_obsolete_plugin_removal_accepts_formatted_plugin_j() {
+  _bats_test_init 7 'obsolete plugin removal accepts formatted plugin JSON'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
   local calls="$BATS_TEST_TMPDIR/herdr.calls"
@@ -219,7 +215,8 @@ if [ "$*" = "plugin list --json" ]; then
 {
   "result": {
     "plugins": [
-      { "plugin_id": "artisann.zed-herdr" }
+      { "plugin_id": "artisann.zed-herdr" },
+      { "plugin_id": "worktrunk" }
     ]
   }
 }
@@ -233,14 +230,14 @@ SH
   assert_success
   run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
   assert_success
-  run grep -Fx "plugin install devashish2203/herdr-worktrunk -y" "$calls"
+  run grep -Fx "plugin uninstall worktrunk" "$calls"
   assert_success
-  run grep -Fx "plugin enable worktrunk" "$calls"
+  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
   assert_success
 }
 
-function test_smoke_008_obsolete_zed_herdr_removal_reports_malformed_plu() {
-  _bats_test_init 8 'obsolete zed-herdr removal reports malformed plugin JSON'
+function test_smoke_008_obsolete_plugin_removal_reports_malformed_entries() {
+  _bats_test_init 8 'obsolete plugin removal reports malformed plugin entries'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
   mkdir -p "$fake_bin"
@@ -252,7 +249,7 @@ SH
   cat > "$fake_bin/herdr" <<'SH'
 #!/bin/sh
 if [ "$*" = "plugin list --json" ]; then
-  printf '{malformed}\n'
+  printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
 fi
 exit 0
 SH
@@ -269,7 +266,7 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
 
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
-  assert_file_contains "$config" 'trusted_owners = \["dio16", "devashish2203"\]'
+  assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
 }
 
 function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
@@ -449,7 +446,7 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   for skill in \
     ask-in-herdr herdr markdown-new \
     pf-build pf-research pf-spec plan-explainer \
-    se-cleanup se-code-review se-doc-review se-plan se-simplify \
+    se-code-review se-doc-review se-plan se-simplify \
     vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.claude/skills/$skill/SKILL.md"
     assert_success
@@ -461,6 +458,12 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   done
 
   local retired path
+  for path in \
+    "$HOME/.agents/skills/se-cleanup" \
+    "$HOME/.claude/skills/se-cleanup" \
+    "$HOME/.config/opencode/skills/se-cleanup"; do
+    [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
+  done
   for retired in se-flow se-review-and-work se-work; do
     for path in \
       "$HOME/.claude/skills/$retired" \
@@ -525,7 +528,6 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
     skills/herdr/SKILL.md
-    skills/se-cleanup/SKILL.md
     skills/writing-for-agents/SKILL.md
     skills/writing-for-agents/SKILL-MECHANICS.md
     skills/work-summary/SKILL.md

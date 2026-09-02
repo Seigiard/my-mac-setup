@@ -25,8 +25,6 @@ setup() {
   # the first test below is what names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
-  export OPEN_NEW_WORKTREE_PY="$PALETTE_DIR/open_new_worktree.py"
-  export NEW_WORKTREE_PY="$PALETTE_DIR/new_worktree.py"
   export OPEN_IN_ZED_PY="$PALETTE_DIR/open_in_zed.py"
   export PYTHONPATH="$BATS_TEST_DIRNAME/helpers${PYTHONPATH:+:$PYTHONPATH}"
   PALETTE_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette.XXXXXX")"
@@ -109,8 +107,6 @@ function test_palette_004_palette_sources_under_source_root_compile() {
   run python3 -m py_compile \
     "$PALETTE_DIR/palette.py" \
     "$PALETTE_DIR/open.py" \
-    "$PALETTE_DIR/open_new_worktree.py" \
-    "$PALETTE_DIR/new_worktree.py" \
     "$PALETTE_DIR/open_in_zed.py" \
     "$PALETTE_DIR/smart_close.py"
   assert_success
@@ -469,7 +465,7 @@ function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   run rank_real ""
   assert_success
   assert_line --index 0 "Lazygit in new tab"
-  assert_equal "${#lines[@]}" 13
+  assert_equal "${#lines[@]}" 9
 }
 
 function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
@@ -1132,207 +1128,6 @@ PY
   assert_success
   assert_output --partial "survived"
   refute_output --partial "Traceback"
-}
-
-function test_palette_058_worktrunk_commands_release_the_palette_before_opening_a_popup() {
-  _bats_test_init 58 'Worktrunk commands release the palette before opening another popup'
-  run env HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
-import palette_boot
-
-palette = palette_boot.palette()
-config_path, commands = palette.load_commands()
-assert {command.title for command in palette.ranked("worktree", commands, palette.DEFAULT_LIMIT)} == {
-    "New worktree",
-    "Switch or create worktree",
-    "Delete worktree",
-    "Merge worktree",
-}
-
-class Result:
-    returncode = 0
-    stdout = ""
-    stderr = ""
-
-calls = []
-palette.subprocess.run = lambda command, **kwargs: calls.append(command) or Result()
-results = []
-for title in ("New worktree", "Switch or create worktree", "Delete worktree", "Merge worktree"):
-    command = next(command for command in commands if command.title == title)
-    results.append(palette.run_command_with_variables(command, config_path, {"target_cwd": ""}, "herdr"))
-
-assert calls[0][0:2] == ["bash", "-lc"], calls
-assert "sleep 0.4; herdr plugin action invoke seigi.command-palette.new_worktree" in calls[0][2], calls
-assert calls[1:] == [
-    ["herdr", "plugin", "action", "invoke", "worktrunk.open"],
-    ["herdr", "plugin", "action", "invoke", "worktrunk.remove"],
-    ["herdr", "plugin", "action", "invoke", "worktrunk.merge"],
-], calls
-assert results[0][2] is False, results
-PY
-  assert_success
-}
-
-function test_palette_059_new_worktree_creates_a_timestamped_branch_and_opens_it() {
-  _bats_test_init 59 'New worktree creates a timestamped branch and opens its Herdr workspace'
-  local stub="$PALETTE_WORK/worktree-bin" repo="$PALETTE_WORK/repo" worktree="$PALETTE_WORK/worktree"
-  mkdir -p "$stub" "$repo" "$worktree"
-
-  cat > "$stub/wt" <<'SH'
-#!/bin/sh
-printf 'wt:%s\n' "$*" >> "$WORKTREE_CALLS"
-printf '{"branch":"%s","path":"%s"}\n' "$3" "$WORKTREE_PATH"
-SH
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-printf 'herdr:%s\n' "$*" >> "$WORKTREE_CALLS"
-if [ "$1 $2" = "worktree list" ]; then
-  printf '{"result":{"source":{"repo_root":"%s","repo_name":"repo","source_workspace_id":"root"}}}\n' "$WORKTREE_REPO"
-elif [ "$1 $2" = "worktree open" ] && [ "${FAIL_WORKTREE_OPEN:-}" = 1 ]; then
-  printf 'open failed\n' >&2
-  exit 1
-else
-  printf '{"result":{}}\n'
-fi
-SH
-  chmod +x "$stub/wt" "$stub/herdr"
-
-  run env PATH="$stub:$PATH" \
-    HERDR_BIN_PATH="$stub/herdr" \
-    WORKTREE_CALLS="$PALETTE_WORK/calls" \
-    WORKTREE_PATH="$worktree" \
-    WORKTREE_REPO="$repo" \
-    HERDR_PLUGIN_CONTEXT_JSON="{\"focused_pane_cwd\":\"$repo\",\"workspace_label\":\"Repo Space\"}" \
-    python3 "$NEW_WORKTREE_PY"
-  assert_success
-
-  run env CALLS_FILE="$PALETTE_WORK/calls" WORKTREE_PATH="$worktree" WORKTREE_REPO="$repo" python3 - <<'PY'
-import os
-import re
-
-lines = open(os.environ["CALLS_FILE"], encoding="utf-8").read().splitlines()
-match = re.fullmatch(r"wt:switch --create (Repo-Space-\d{12}) --no-cd --format=json", lines[0])
-assert match, lines
-branch = match.group(1)
-assert lines[1] == f"herdr:worktree list --cwd {os.environ['WORKTREE_REPO']} --json", lines
-assert lines[2] == (
-    f"herdr:worktree open --cwd {os.environ['WORKTREE_REPO']} "
-    f"--path {os.environ['WORKTREE_PATH']} --label {branch} --focus --json"
-), lines
-PY
-  assert_success
-
-  run env PATH="$stub:$PATH" \
-    HERDR_BIN_PATH="$stub/herdr" \
-    WORKTREE_CALLS="$PALETTE_WORK/failure-calls" \
-    WORKTREE_PATH="$worktree" \
-    WORKTREE_REPO="$repo" \
-    FAIL_WORKTREE_OPEN=1 \
-    HERDR_PLUGIN_CONTEXT_JSON="{\"focused_pane_cwd\":\"$repo\",\"workspace_label\":\"Repo Space\"}" \
-    python3 "$NEW_WORKTREE_PY"
-  assert_failure
-  assert_output --partial "was created at $worktree, but Herdr could not open it: open failed"
-  assert_file_contains "$PALETTE_WORK/failure-calls" "herdr:notification show New worktree failed --body Worktree Repo-Space-"
-}
-
-function test_palette_060_new_worktree_action_opens_or_refocuses_one_progress_popup() {
-  _bats_test_init 60 'New worktree action opens or refocuses one progress popup'
-  local stub="$PALETTE_WORK/popup-bin" calls="$PALETTE_WORK/popup-calls"
-  mkdir -p "$stub"
-
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$POPUP_CALLS"
-case "$1 $2" in
-  "pane get")
-    printf '{"result":{"pane":{"pane_id":"source","workspace_id":"w1"}}}\n'
-    ;;
-  "pane list")
-    if [ "${EXISTING_PROGRESS:-}" = 1 ]; then
-      printf '{"result":{"panes":[{"pane_id":"progress","tokens":{"new_worktree_progress":"open"}}]}}\n'
-    else
-      printf '{"result":{"panes":[]}}\n'
-    fi
-    ;;
-  "plugin pane")
-    if [ "$3" = "open" ]; then
-      printf '{"result":{"plugin_pane":{"pane":{"pane_id":"progress"}}}}\n'
-    fi
-    ;;
-esac
-SH
-  chmod +x "$stub/herdr"
-
-  run env PATH="$stub:$PATH" \
-    HERDR_BIN_PATH="$stub/herdr" \
-    POPUP_CALLS="$calls" \
-    HERDR_PLUGIN_CONTEXT_JSON="{\"focused_pane_id\":\"source\",\"focused_pane_cwd\":\"$PALETTE_WORK/repo\",\"workspace_label\":\"Repo Space\"}" \
-    python3 "$OPEN_NEW_WORKTREE_PY"
-  assert_success
-
-  run env CALLS_FILE="$calls" TARGET_CWD="$PALETTE_WORK/repo" python3 - <<'PY'
-import os
-
-calls = open(os.environ["CALLS_FILE"], encoding="utf-8").read().splitlines()
-opened = next(line for line in calls if line.startswith("plugin pane open "))
-assert "--entrypoint new_worktree_progress --placement popup" in opened, calls
-assert f"--env HERDR_TARGET_CWD={os.environ['TARGET_CWD']}" in opened, calls
-assert "--env HERDR_TARGET_WORKSPACE_LABEL=Repo Space" in opened, calls
-assert any("report-metadata progress" in line for line in calls), calls
-PY
-  assert_success
-
-  : > "$calls"
-  run env PATH="$stub:$PATH" \
-    HERDR_BIN_PATH="$stub/herdr" \
-    POPUP_CALLS="$calls" \
-    EXISTING_PROGRESS=1 \
-    HERDR_PLUGIN_CONTEXT_JSON='{"focused_pane_id":"source"}' \
-    python3 "$OPEN_NEW_WORKTREE_PY"
-  assert_success
-
-  run env CALLS_FILE="$calls" python3 - <<'PY'
-import os
-
-calls = open(os.environ["CALLS_FILE"], encoding="utf-8").read().splitlines()
-assert "plugin pane focus progress" in calls, calls
-assert not any(line.startswith("plugin pane open ") for line in calls), calls
-PY
-  assert_success
-}
-
-function test_palette_061_new_worktree_process_lock_rejects_a_parallel_creation() {
-  _bats_test_init 61 'New worktree process lock rejects a parallel creation before invoking Worktrunk'
-  mkdir -p "$PALETTE_WORK/repo"
-
-  run env NEW_WORKTREE_PY="$NEW_WORKTREE_PY" \
-    HERDR_TARGET_CWD="$PALETTE_WORK/repo" \
-    HERDR_NEW_WORKTREE_LOCK="$PALETTE_WORK/new-worktree.lock" \
-    python3 - <<'PY'
-import fcntl
-import importlib.util
-import os
-import sys
-
-path = os.environ["NEW_WORKTREE_PY"]
-spec = importlib.util.spec_from_file_location("new_worktree", path)
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-with open(os.environ["HERDR_NEW_WORKTREE_LOCK"], "w", encoding="utf-8") as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    raise SystemExit(module.main())
-PY
-  assert_success
-  assert_output --partial "Another worktree is already being created"
-}
-
-function test_palette_062_worktrunk_picker_is_configured_as_a_popup() {
-  _bats_test_init 62 'Worktrunk interactive picker is configured as a popup'
-  local config="$SOURCE_ROOT/private_dot_config/herdr/plugins/config/worktrunk/config.toml"
-
-  # These literals are the public config contract consumed by herdr-worktrunk's config.sh.
-  assert_file_exists "$config"
-  assert_file_contains "$config" 'picker_placement = "popup"'
 }
 
 function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions() {

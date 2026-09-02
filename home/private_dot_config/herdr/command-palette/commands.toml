@@ -47,39 +47,6 @@ description = "Choose and focus a workspace"
 type = "workspace_picker"
 
 [[commands]]
-group = "Workspaces"
-title = "New worktree"
-shortcuts = ["wtn", "цет"]
-description = "Create and open a timestamp-named worktree from the default branch (Cmd+Shift+N)"
-type = "shell"
-pause = false
-command = "nohup bash -c 'sleep 0.4; herdr plugin action invoke seigi.command-palette.new_worktree' >/dev/null 2>&1 &"
-
-[[commands]]
-group = "Workspaces"
-title = "Switch or create worktree"
-shortcuts = ["wt", "це"]
-description = "Choose an existing worktree or create one from the default branch"
-type = "plugin_action"
-action = "worktrunk.open"
-
-[[commands]]
-group = "Workspaces"
-title = "Delete worktree"
-shortcuts = ["wtd", "цев"]
-description = "Remove a worktree through Worktrunk's safety checks"
-type = "plugin_action"
-action = "worktrunk.remove"
-
-[[commands]]
-group = "Workspaces"
-title = "Merge worktree"
-shortcuts = ["wtm", "цеь"]
-description = "Merge a worktree into its target branch, then remove it"
-type = "plugin_action"
-action = "worktrunk.merge"
-
-[[commands]]
 group = "Editor"
 title = "Open in Zed"
 shortcuts = ["zed", "яув"]
