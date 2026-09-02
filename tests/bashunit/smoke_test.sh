@@ -901,12 +901,20 @@ function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
 # promise, instead of only checking it is present and has the execute bit.
 #
 # An empty `{}` payload never proves this: the hook requires session_id
-# before it reaches either dispatch branch (herdr-task-sync-hook.sh's own
+# before it reaches any dispatch branch (herdr-task-sync-hook.sh's own
 # `[ -n "$session_id" ] || exit 0` guard), so a payload without one exits
 # silently before the real engine call a broken dispatch would corrupt. Send
-# the fields Claude actually supplies, and put a stub `herdr-task-sync` ahead
-# on PATH so the real engine -- which would rename this very live pane -- is
-# never invoked, while still proving the hook reached and called it.
+# the fields Claude actually supplies for all three wired events -- prompt,
+# session, compact -- and put a stub `herdr-task-sync` ahead on PATH so the
+# real engine -- which would rename this very live pane -- is never invoked,
+# while still proving the hook reached and called it with the right args.
+#
+# The stub also writes a distinctive marker straight to its own real
+# stdout/stderr, outside the redirection it uses to record invocations. That
+# marker is what the hook's own `>/dev/null 2>&1` must swallow: without a
+# real, unconditional leak to silence, a stub that never produces output in
+# the first place would make the "stays silent" assertion pass trivially even
+# if the hook dropped its redirect entirely.
 function test_smoke_061_herdr_task_sync_claude_code_hook_stays_silent_and() {
   _bats_test_init 61 'herdr-task-sync Claude Code hook stays silent and exits 0'
   local hook="$HOME/.claude/hooks/herdr-task-sync-hook.sh"
@@ -917,6 +925,8 @@ function test_smoke_061_herdr_task_sync_claude_code_hook_stays_silent_and() {
   invocation_log="$stub_dir/invocations.log"
   cat > "$stub_dir/herdr-task-sync" <<'STUB'
 #!/usr/bin/env bash
+printf 'STUB-STDOUT-LEAK\n'
+printf 'STUB-STDERR-LEAK\n' >&2
 { printf '%s\n' "$*"; cat >/dev/null; } >> "$HERDR_TASK_SYNC_STUB_LOG"
 STUB
   chmod +x "$stub_dir/herdr-task-sync"
@@ -931,9 +941,14 @@ STUB
   assert_success
   assert_output ""
 
+  run env PATH="$stub_dir:$PATH" HERDR_TASK_SYNC_STUB_LOG="$invocation_log" \
+    bash "$hook" compact <<< '{"session_id":"smoke-061","transcript_path":"/tmp/smoke-061.jsonl"}'
+  assert_success
+  assert_output ""
+
   assert_file_exists "$invocation_log"
   run wc -l "$invocation_log"
-  assert_output --partial "2 "
+  assert_output --partial "3 "
   assert_file_contains "$invocation_log" \
     '\-\-agent claude \-\-session smoke-061 \-\-transcript /tmp/smoke-061.jsonl'
 
