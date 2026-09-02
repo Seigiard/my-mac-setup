@@ -322,6 +322,30 @@ function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_file
   assert_file_exists "$home/.config/worktrunk/user-note"
 }
 
+function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
+  _bats_test_init 85 'worktree setup relink uses the Herdr CLI contract'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
+  local home="$BATS_TEST_TMPDIR/worktree-link-home"
+  local stub="$BATS_TEST_TMPDIR/worktree-link-bin"
+  mkdir -p "$home/.config/herdr/plugins/worktree-setup" "$stub"
+  printf '%s\n' 'id = "seigi.worktree-setup"' \
+    > "$home/.config/herdr/plugins/worktree-setup/herdr-plugin.toml"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+expected="$HOME/.config/herdr/plugins/worktree-setup"
+if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected" ]; then
+  : > "$HOME/plugin-linked"
+  exit 0
+fi
+exit 2
+SH
+  chmod +x "$stub/herdr"
+
+  run env HOME="$home" PATH="$stub:$PATH" bash "$script"
+  assert_success
+  assert_file_exists "$home/plugin-linked"
+}
+
 # ===========================================
 # ask-in-herdr skill script
 # ===========================================
