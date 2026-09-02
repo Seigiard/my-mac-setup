@@ -421,6 +421,12 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
   run jq -e 'length > 0' <<< "$expected"
   assert_success
 
+  # Subset by design, not exact equality: tests/bashunit/scripts_test.sh:7039-7090
+  # already owns exact transform equality for the modifier's output. This test
+  # owns delivery completeness -- that apply reached the live settings.json --
+  # and a real machine can legitimately carry an extra package installed
+  # directly through Pi between applies (see
+  # docs/issues/2026-08-19-001-pi-package-inventory-drift.md).
   run jq -e --argjson expected "$expected" '
     ($expected - .packages) == []
   ' "$settings"
