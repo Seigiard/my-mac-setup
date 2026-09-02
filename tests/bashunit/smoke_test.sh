@@ -405,14 +405,21 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
   _bats_test_init 16 'pi settings include all managed packages'
   local settings="$HOME/.pi/agent/settings.json"
   assert_file_exists "$settings"
-  run jq -e '
-    (.packages | index("npm:pi-subagents") != null) and
-    (.packages | index("npm:pi-agent-browser-native") != null) and
-    (.packages | index("npm:@howaboua/pi-codex-conversion") != null) and
-    (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
-    (.packages | index("npm:pi-web-access") != null) and
-    (.packages | index("npm:pi-context-view") != null) and
-    (.packages | index("npm:@ff-labs/pi-fff") != null)
+
+  # Derive the expected set from the modifier itself (the chezmoi source of
+  # truth) instead of a hardcoded copy, so this test cannot drift from it.
+  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  [[ -f "$modifier" ]] || skip "repository checkout is not mounted"
+
+  local expected
+  expected="$(bash "$modifier" <<< '{}' | jq -c '.packages')"
+
+  # An empty selection would let the subset assertion below pass vacuously.
+  run jq -e 'length > 0' <<< "$expected"
+  assert_success
+
+  run jq -e --argjson expected "$expected" '
+    ($expected - .packages) == []
   ' "$settings"
   assert_success
 }
