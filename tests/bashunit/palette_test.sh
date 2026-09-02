@@ -526,9 +526,34 @@ TOML
 
 # Ubuntu CI runs python 3.10, where tomllib does not exist and palette.py falls
 # back to its own tiny TOML parser. A shortcuts list must survive that path too.
+#
+# The fixture is written here rather than read from commands.toml: production
+# config is mutable and unrelated to this parser branch, so copying its values
+# ties a parser regression test to an operator's shortcut choices -- edit the
+# entry and the expectation silently rewrites itself, delete it and the test
+# fails for a reason unrelated to the parser. This fixture pins the array shape
+# plus the adjacent scalar and multi-command shapes the fallback parser must
+# handle to read a shortcuts array correctly, including non-ASCII entries --
+# Cyrillic shortcuts are why this test exists; keep them.
 function test_palette_032_the_fallback_toml_parser_reads_a_shortcuts_array() {
   _bats_test_init 32 'the fallback TOML parser reads a shortcuts array'
-  run python3 - "$REAL_COMMANDS" <<'PY'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Shortcut command"
+type = "shell"
+command = "true"
+shortcuts = ["lg", "дп", "дфян"]
+description = "a key that follows the shortcuts array"
+
+[[commands]]
+group = "Fixture"
+title = "No shortcuts command"
+type = "shell"
+command = "true"
+TOML
+
+  run python3 - "$PALETTE_WORK/commands.toml" <<'PY'
 import builtins
 import pathlib
 import sys
@@ -549,9 +574,49 @@ import palette_boot
 palette = palette_boot.palette()
 items = palette.load_command_data_file(pathlib.Path(sys.argv[1]))
 by_title = {item.get("title"): item for item in items}
-assert by_title["Lazygit in popup"]["shortcuts"] == ["lg", "дп", "дфян"], by_title["Lazygit in popup"]
+assert by_title["Shortcut command"]["shortcuts"] == ["lg", "дп", "дфян"], by_title["Shortcut command"]
+assert by_title["Shortcut command"]["description"] == "a key that follows the shortcuts array", by_title["Shortcut command"]
+assert by_title["No shortcuts command"].get("shortcuts") is None, by_title["No shortcuts command"]
 PY
   assert_success
+
+  # Control, paired with the valid fixture above: the fallback parser's array
+  # branch must still hand validate_shortcuts a rejectable shape. validate_cli
+  # returns exit 1 for every failure in its validation chain, so status alone
+  # cannot tell this rejection apart from an unrelated one -- pin the message
+  # to the shortcuts-specific reason too, the same way test_palette_031 does
+  # for the tomllib-backed path.
+  cat > "$PALETTE_WORK/bad-shortcuts.toml" <<'TOML'
+[[commands]]
+title = "Broken shortcut"
+type = "shell"
+command = "true"
+shortcuts = ["lg", 7]
+TOML
+
+  run python3 - "$PALETTE_WORK/bad-shortcuts.toml" <<'PY'
+import builtins
+import sys
+
+real_import = builtins.__import__
+
+
+def without_tomllib(name, *args, **kwargs):
+    if name == "tomllib":
+        raise ModuleNotFoundError(name)
+    return real_import(name, *args, **kwargs)
+
+
+builtins.__import__ = without_tomllib
+
+import palette_boot
+
+palette = palette_boot.palette()
+sys.exit(palette.validate_cli([sys.argv[1]]))
+PY
+  assert_failure
+  assert_output --partial "Broken shortcut"
+  assert_output --partial "shortcut"
 }
 
 function test_palette_033_select_options_rank_through_the_same_scorer() {

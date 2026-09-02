@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -35,39 +36,140 @@ class TestPostApplySuiteContract(unittest.TestCase):
             "make test-suite must call the host-safe wrapper mode exactly once",
         )
 
-        self.assert_invocations(
-            self.wrapper_invocations("full"),
-            [
-                str(GENERATED / "smoke_test.sh"),
-                str(GENERATED / "scripts_test.sh"),
-                str(GENERATED / "palette_test.sh"),
-                str(GENERATED / "platform_test.sh"),
-                str(GENERATED / "oracle_guard_test.sh"),
-                str(GENERATED / "idempotent_test.sh"),
-            ],
-            "full mode must run every suite file sequentially with 8 workers",
+        suite_files = self.discovered_suite_files()
+        self.assertTrue(suite_files, "no post-apply suite files discovered on disk")
+
+        # idempotent_test.sh is the only discovered file whose own hard-fail
+        # guard reads both markers together (lines ~178-179): it refuses to
+        # run for real unless MMS_DISPOSABLE_HOME=1 *and* it can tell this is
+        # a real CI/container environment via GITHUB_ACTIONS. scripts_test.sh
+        # also mentions MMS_DISPOSABLE_HOME (it parameterizes an unrelated
+        # script under test), but never GITHUB_ACTIONS, so the AND of both
+        # markers isolates the file this wrapper must keep host-unsafe
+        # without naming it.
+        guarded = [
+            f
+            for f in suite_files
+            if "MMS_DISPOSABLE_HOME" in f.read_text(encoding="utf-8")
+            and "GITHUB_ACTIONS" in f.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(
+            len(guarded),
+            1,
+            "exactly one discovered suite file should carry the disposable-home "
+            "hard-fail guard, found: %s" % [f.name for f in guarded],
         )
-        self.assert_invocations(
-            self.wrapper_invocations("host-safe"),
-            [
-                str(GENERATED / "smoke_test.sh"),
-                str(GENERATED / "scripts_test.sh"),
-                str(GENERATED / "palette_test.sh"),
-                str(GENERATED / "platform_test.sh"),
-                str(GENERATED / "oracle_guard_test.sh"),
-            ],
-            "host-safe mode must keep the idempotent suite excluded",
+        guarded_path = str(guarded[0])
+
+        full_invocations = self.wrapper_invocations("full")
+        host_safe_invocations = self.wrapper_invocations("host-safe")
+        self.assert_invocation_shape(full_invocations, "full mode")
+        self.assert_invocation_shape(host_safe_invocations, "host-safe mode")
+
+        full_files = [argv[-1] for argv in full_invocations]
+        host_safe_files = [argv[-1] for argv in host_safe_invocations]
+
+        self.assertEqual(
+            set(full_files),
+            {str(f) for f in suite_files},
+            "full mode must run every suite file discovered on disk -- a new "
+            "tests/bashunit/*_test.sh file must be wired into the runner or "
+            "this fails",
+        )
+        self.assertEqual(
+            len(full_files),
+            len(set(full_files)),
+            "full mode must not run any suite file twice",
+        )
+        self.assertNotIn(
+            guarded_path,
+            host_safe_files,
+            "host-safe mode must exclude the disposable-home-guarded suite",
+        )
+        # host-safe's file set is checked against full's *observed* order
+        # (not a hardcoded list) so this only asserts the partition
+        # relationship, not an order copied from the runner's source.
+        self.assertEqual(
+            host_safe_files,
+            [f for f in full_files if f != guarded_path],
+            "host-safe mode must run exactly the full-mode set minus the "
+            "guarded suite, in the same relative order",
         )
 
-    def assert_invocations(self, invocations, expected_files, message):
-        self.assertEqual(len(invocations), len(expected_files), message)
-        for argv, expected_file in zip(invocations, expected_files):
+    def discovered_suite_files(self):
+        """Suite files this wrapper is responsible for driving, found on disk
+        rather than copied from run-post-apply.sh's own file list."""
+        candidates = sorted(GENERATED.glob("*_test.sh"))
+        texts = {f.name: f.read_text(encoding="utf-8") for f in candidates}
+        outside_sources = [
+            MAKEFILE.read_text(encoding="utf-8"),
+            WORKFLOW.read_text(encoding="utf-8"),
+            COMPOSE.read_text(encoding="utf-8"),
+        ]
+        return [
+            f
+            for f in candidates
+            if not self.wired_outside_the_wrapper(f.name, outside_sources)
+            and not self.nested_inside_a_sibling(f.name, texts)
+        ]
+
+    def wired_outside_the_wrapper(self, name, outside_sources):
+        """templates_test.sh is the case in point: the Makefile, workflow,
+        and compose file each invoke it directly as a pre-apply gate step
+        (`tests/lib/bashunit ... tests/bashunit/templates_test.sh`), never
+        through tests/run-post-apply.sh. A suite file with its own direct
+        bashunit invocation elsewhere is not part of this wrapper's
+        inventory; require the literal binary path so a comment or echo
+        line that merely mentions the file's path (e.g. Makefile's
+        test-suite NOTE about idempotent_test.sh) does not count. The name
+        match is boundary-bounded (preceded by a path separator/whitespace/
+        start-of-line, followed by whitespace or end-of-line) rather than
+        a raw substring test, so one suite file's name being a substring of
+        another's (e.g. a hypothetical "widget_test.sh" inside
+        "other_widget_test.sh") cannot cause a false match."""
+        name_pattern = re.compile(r"(?:^|[\s/])%s(?:\s|$)" % re.escape(name))
+        for text in outside_sources:
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or "run-post-apply.sh" in line:
+                    continue
+                if "lib/bashunit" in line and name_pattern.search(line):
+                    return True
+        return False
+
+    def nested_inside_a_sibling(self, name, texts):
+        """The herdr/bashunit descriptor probes are driven as a nested
+        bashunit invocation from inside scripts_test.sh, wired through
+        `$BATS_TEST_DIRNAME/bashunit/<file>`, not by the top-level runner.
+        scripts_test.sh also nests a filtered invocation of itself for a
+        bounded-pipe regression, so self-references are excluded -- only a
+        DIFFERENT sibling wiring a file in this way removes it from the
+        top-level inventory. Comment lines are skipped (mirroring
+        wired_outside_the_wrapper's own comment skip) so an unrelated remark
+        that happens to mention the marker text cannot cause a false
+        exclusion of a real, unwired suite file -- the exact regression this
+        whole discovery mechanism exists to catch."""
+        marker = "BATS_TEST_DIRNAME/bashunit/%s" % name
+        for other_name, other_text in texts.items():
+            if other_name == name:
+                continue
+            for line in other_text.splitlines():
+                if line.strip().startswith("#"):
+                    continue
+                if marker in line:
+                    return True
+        return False
+
+    def assert_invocation_shape(self, invocations, message):
+        for argv in invocations:
             # The report path is a fresh mktemp file per invocation, so assert
-            # the flag positions and the suite file but not the path itself.
+            # the flag positions but not the path itself. -j 8 and
+            # --report-json are the wrapper's own operational contract
+            # (worker count and the bashunit report flag), independent of
+            # which suite files exist.
             self.assertEqual(len(argv), 5, message)
             self.assertEqual(argv[0:2], ["-j", "8"], message)
             self.assertEqual(argv[2], "--report-json", message)
-            self.assertEqual(argv[4], expected_file, message)
 
     def wrapper_invocations(self, mode):
         if not RUNNER.exists():
