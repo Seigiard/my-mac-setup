@@ -967,11 +967,56 @@ function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
   local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   assert_file_contains "$manifest" '^\[\[startup\]\]$'
   assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/config.toml"'
-  assert_file_contains "$relink" 'include "dot_local/bin/executable_herdr-task-sync"'
+
+  # A source grep for the `include "..."` lines only proves the lines exist; it
+  # never proves the property the onchange mechanism relies on: editing a
+  # declared dependency must change the rendered hashes chezmoi diffs against,
+  # or a stale link/enable/reload never reruns. Render the script from a
+  # scratch source tree, mutate each dependency in turn, and require the
+  # rendered output to change. The unrelated-file control proves the harness
+  # can tell "changed" from "unchanged" at all, rather than always agreeing.
+  skip_if_no_chezmoi
+  local scratch="$BATS_TEST_TMPDIR/onchange-deps"
+  mkdir -p "$scratch/private_dot_config/herdr/plugins/herdr-pane-labels" "$scratch/dot_local/bin"
+  local dep
+  for dep in \
+    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" \
+    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" \
+    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" \
+    "private_dot_config/herdr/config.toml" \
+    "dot_local/bin/executable_herdr-task-sync"; do
+    cp "$SOURCE_ROOT/$dep" "$scratch/$dep"
+  done
+  # Lives next to the real dependencies but the script does not include it.
+  local control="private_dot_config/herdr/plugins/herdr-pane-labels/NOTES.md"
+  printf '# not a declared dependency\n' > "$scratch/$control"
+
+  local baseline
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+  assert_success
+  baseline="$output"
+
+  local rendered
+  for dep in \
+    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" \
+    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" \
+    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" \
+    "private_dot_config/herdr/config.toml" \
+    "dot_local/bin/executable_herdr-task-sync"; do
+    printf '\n# onchange-hash probe\n' >> "$scratch/$dep"
+    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+    assert_success
+    rendered="$output"
+    run test "$rendered" != "$baseline"
+    assert_success
+    baseline="$rendered"
+  done
+
+  printf '\n# unrelated probe\n' >> "$scratch/$control"
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+  assert_success
+  run test "$output" == "$baseline"
+  assert_success
 }
 
 # ===========================================
