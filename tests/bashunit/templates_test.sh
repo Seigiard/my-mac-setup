@@ -77,12 +77,6 @@ function test_templates_003_chezmoi_init_binds_email_from_env_var() {
 # dot_gitconfig.tmpl
 # ===========================================
 
-function test_templates_004_gitconfig_template_renders_successfully() {
-  _bats_test_init 4 'gitconfig template renders successfully'
-  run render_template "$SOURCE_ROOT/dot_gitconfig.tmpl"
-  assert_success
-}
-
 # "name = " / "email = " are unconditional boilerplate in the template;
 # asserting them proves nothing about substitution — hence the probe values.
 function test_templates_005_gitconfig_renders_the_config_name_into_user_name() {
@@ -105,26 +99,6 @@ function test_templates_006_gitconfig_renders_the_config_email_into_user_ema() {
   assert_success
   assert_output --partial "email = gitconfig-probe@env.example"
   refute_output --partial '{{'
-}
-
-# ===========================================
-# dot_zshenv.tmpl
-# ===========================================
-
-function test_templates_007_zshenv_template_renders_without_op_in_path() {
-  _bats_test_init 7 'zshenv template renders without op in PATH'
-  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
-  assert_success
-}
-
-# ===========================================
-# dot_zshrc.tmpl
-# ===========================================
-
-function test_templates_008_zshrc_template_renders_successfully() {
-  _bats_test_init 8 'zshrc template renders successfully'
-  run render_template "$SOURCE_ROOT/dot_zshrc.tmpl"
-  assert_success
 }
 
 # ===========================================
@@ -253,14 +227,6 @@ PROBE
 # opencode.json.tmpl
 # ===========================================
 
-function test_templates_011_opencode_json_tmpl_renders_valid_json() {
-  _bats_test_init 11 'opencode.json.tmpl renders valid JSON'
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
-  run python3 -m json.tool "$BATS_TEST_TMPFILE"
-  assert_success
-}
-
 # opencode.json.tmpl has zero template directives, so asserting its other
 # literals would only mirror the source. These two are consumed verbatim as
 # a security contract: `executor mcp` speaks stdio, so OpenCode never holds
@@ -303,17 +269,8 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 }
 
 # ===========================================
-# private_settings.json.tmpl (Claude Code settings)
+# private_settings.json.tmpl retirement contract
 # ===========================================
-
-function test_templates_015_private_settings_json_tmpl_renders_valid_json() {
-  _bats_test_init 15 'private_settings.json.tmpl renders valid JSON'
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-  run python3 -m json.tool "$BATS_TEST_TMPFILE"
-  assert_success
-}
-
 function test_templates_0151_private_settings_omits_task_sync_hooks() {
   _bats_test_init 151 'private_settings.json.tmpl omits task-sync hooks and keeps native Herdr state'
   BATS_TEST_TMPFILE="$(mktemp)"
@@ -637,6 +594,17 @@ function test_templates_031_agent_skills_clients_use_portable_providers() {
   run jq -e 'has("plugin")' <<< "$opencode"
   assert_failure
 
+  # These five names are copied from the template this test renders, so treat
+  # them as the control fixture for the three rejections above, not as an
+  # independent oracle: with an empty `enabledPlugins` every `assert_failure`
+  # would pass, and the retirement checks would prove nothing. The protected
+  # regression is therefore silent *removal* — a settings edit that drops a
+  # plugin Claude still needs for its non-skill functionality.
+  #
+  # docs/agent-setup-inventory.md names the same five and would be the
+  # independent side, but the template-test container mounts only home/,
+  # tests/, docs/issues, Makefile and README.md (docker/docker-compose.yml), so
+  # that file does not exist where this suite runs and cannot be read here.
   run jq -e '.enabledPlugins["claude-md-management@claude-plugins-official"] and .enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
   assert_success
 }

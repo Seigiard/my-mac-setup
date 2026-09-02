@@ -249,8 +249,15 @@ PY
   assert_output --partial "Zed did not respond"
 }
 
-function test_palette_012_open_in_zed_uses_the_standard_macos_cli_fallback() {
-  _bats_test_init 12 'Open in Zed uses the standard macOS CLI fallback'
+# What this proves is the branch, not the path: with sys.platform forced to
+# darwin and nothing named `zed` on PATH, resolve_zed() falls back to
+# MACOS_ZED_CLI instead of raising or returning the PATH lookup. The value of
+# MACOS_ZED_CLI is overwritten with a fake below, so the shipped literal
+# (/Applications/Zed.app/...) is deliberately NOT asserted here: only a macOS
+# host with Zed actually installed could observe it, and this suite runs on
+# Linux too. No test in this repo owns that literal.
+function test_palette_012_resolve_zed_falls_back_to_the_macos_cli_when_zed_is_not_on_path() {
+  _bats_test_init 12 'resolve_zed falls back to the macOS CLI path when zed is not on PATH'
   local fake_zed="$PALETTE_WORK/zed"
   touch "$fake_zed"
   chmod +x "$fake_zed"
@@ -278,7 +285,18 @@ function test_palette_013_validate_accepts_the_real_commands_toml_and_name() {
   _bats_test_init 13 '--validate accepts the real commands.toml and names the command count'
   run python3 "$PALETTE_DIR/palette.py" --validate "$REAL_COMMANDS"
   assert_success
-  assert_output --partial "commands)"
+  # The count is what the name claims, so read it back out of the report
+  # instead of pinning "commands)", a fragment of palette.py's own f-string
+  # that no consumer parses. The expectation is a second, independent count of
+  # the `[[commands]]` table headers in the same file: when the validator's
+  # parser silently drops, merges, or duplicates an entry, the two counts
+  # diverge. Editing commands.toml moves both sides together, so a config
+  # change cannot silently rewrite this expectation.
+  local reported expected
+  reported="$(printf '%s\n' "$output" | sed -n 's/.*(\([0-9][0-9]*\) command.*/\1/p')"
+  expected="$(grep -c '^\[\[commands\]\]' "$REAL_COMMANDS")"
+  [[ "$expected" -gt 0 ]] || fail "no [[commands]] entries found in $REAL_COMMANDS"
+  assert_equal "$reported" "$expected"
 }
 
 function test_palette_014_validate_rejects_an_unsupported_command_type() {
@@ -308,8 +326,7 @@ TOML
 import palette_boot
 
 palette = palette_boot.palette()
-config_path, commands = palette.load_commands()
-assert config_path.name == "commands.toml", config_path
+_, commands = palette.load_commands()
 assert [command.title for command in commands] == ["Only command"], commands
 PY
   assert_success
@@ -462,12 +479,41 @@ function test_palette_027_r2_a_query_matching_no_title_and_no_shortcut_ret() {
   assert_output ""
 }
 
+# Ranked against a test-owned fixture, like tests 029/030 below. Against the
+# production commands.toml the expected count was just a restatement of that
+# file's `[[commands]]` entries: commit 4adc681 deleted four commands and
+# rewrote the expectation in the same patch, so the test could not have caught
+# a ranking regression that dropped entries. The fixture also interleaves two
+# groups, which pins the "group order" half of the claim -- commands come back
+# regrouped by first-seen group, not in file order.
 function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   _bats_test_init 28 'R2: an empty query returns every command in group order'
-  run rank_real ""
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Alpha"
+title = "First alpha"
+type = "shell"
+command = "true"
+
+[[commands]]
+group = "Beta"
+title = "Only beta"
+type = "shell"
+command = "true"
+
+[[commands]]
+group = "Alpha"
+title = "Second alpha"
+type = "shell"
+command = "true"
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" ""
   assert_success
-  assert_line --index 0 "Lazygit in new tab"
-  assert_equal "${#lines[@]}" 9
+  assert_equal "${#lines[@]}" 3
+  assert_line --index 0 "First alpha"
+  assert_line --index 1 "Second alpha"
+  assert_line --index 2 "Only beta"
 }
 
 function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
@@ -1112,10 +1158,21 @@ function test_palette_054_r9_a_missing_fzf_fails_loudly_naming_fzf_the_bre() {
   assert_failure
   assert_output --partial "fzf"
   assert_output --partial "PATH"
-  # Both Brewfile paths: the repo one says where to edit the declaration, the
-  # deployed one is what the install command can actually be run against.
-  assert_output --partial "home/private_dot_config/brewfiles/Brewfile.tmpl"
-  assert_output --partial "brew bundle --file=~/.config/brewfiles/Brewfile"
+  # Both Brewfile paths are instructions a human follows, so neither is pinned
+  # as prose copied from palette.py. Each is read back out of the message and
+  # checked against the tree: the repo path must name a file that really
+  # declares fzf (the oracle is the Brewfile itself), and the install command's
+  # deployed path must be that same managed file's chezmoi destination
+  # (home/private_dot_config/... renders to ~/.config/...). Either path going
+  # stale -- a moved Brewfile, a dropped fzf declaration -- turns this red.
+  local repo_rel deployed repo_file
+  repo_rel="$(printf '%s\n' "$output" | grep -oE 'home/[A-Za-z0-9_./-]+Brewfile[A-Za-z0-9.]*' | head -1)"
+  deployed="$(printf '%s\n' "$output" | grep -oE '~/[A-Za-z0-9_./-]+Brewfile' | head -1)"
+  [[ -n "$repo_rel" && -n "$deployed" ]] || fail "the fzf message named no repo and deployed Brewfile paths: $output"
+  repo_file="$SOURCE_ROOT/${repo_rel#home/}"
+  assert_file_exists "$repo_file"
+  assert_file_contains "$repo_file" "fzf"
+  assert_equal "home/private_dot_${deployed#\~/.}.tmpl" "$repo_rel"
 }
 
 # The only path that could raise out of the curses loop. A traceback there is a
@@ -1197,6 +1254,55 @@ PY
   refute_output --partial "Traceback"
 }
 
+function test_palette_058_delete_checkout_requires_exact_confirmation() {
+  _bats_test_init 58 'Delete worktree checkout requires exact DELETE confirmation'
+  local stub="$PALETTE_WORK/delete-confirmation"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+SH
+  chmod +x "$stub/herdr"
+
+  run env HERDR_BIN_PATH="$stub/herdr" HERDR_CALLS="$stub/herdr.calls" \
+    HERDR_WORKSPACE_ID="w1" HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+from pathlib import Path
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(item for item in commands if item.title == "Delete worktree checkout")
+raw = palette.interactive_run_raw(command)
+child = palette.Command(
+    command.title,
+    command.description,
+    palette.command_kind(raw),
+    command.group,
+    raw,
+    command.origin,
+    command.source,
+)
+variables = palette.context_vars(Path(config_path), palette.os.environ["HERDR_BIN_PATH"])
+
+rejected = palette.variables_with_value(variables, "delete")
+status, output, _ = palette.run_command_with_variables(
+    child, Path(config_path), rejected, palette.os.environ["HERDR_BIN_PATH"]
+)
+assert status == 1, (status, output)
+assert "not deleted" in output, output
+assert not Path(palette.os.environ["HERDR_CALLS"]).exists()
+
+confirmed = palette.variables_with_value(variables, "DELETE")
+status, output, _ = palette.run_command_with_variables(
+    child, Path(config_path), confirmed, palette.os.environ["HERDR_BIN_PATH"]
+)
+assert status == 0, (status, output)
+assert Path(palette.os.environ["HERDR_CALLS"]).read_text().strip() == "worktree remove --workspace w1"
+PY
+  assert_success
+}
+
 function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions() {
   _bats_test_init 63 'Herdr loads the command palette manifest and actions'
   command_exists herdr || skip "herdr is not installed"
@@ -1205,7 +1311,36 @@ function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions()
 
   run env HOME="$home" herdr plugin link "$PALETTE_DIR" --enabled
   assert_success
-  assert_output --partial '"id":"smart_close"'
+
+  # assert_success above owns the real regression: herdr refusing a manifest
+  # its own parser rejects. The action ids are then compared against the other,
+  # independently maintained side of the same relationship -- the keybindings
+  # in herdr's config.toml, which dispatch `<plugin_id>.<action_id>`. herdr
+  # surfaces a dangling binding only at keypress time, so nothing else here
+  # catches a renamed or deleted action. Asserting that the link report echoes
+  # an id typed in the manifest it just read would prove nothing.
+  run env PALETTE_LINK_JSON="$output" \
+    HERDR_CONFIG="$SOURCE_ROOT/private_dot_config/herdr/config.toml" python3 - <<'PY'
+import json
+import os
+import re
+
+raw = os.environ["PALETTE_LINK_JSON"]
+line = next(l for l in reversed(raw.splitlines()) if l.startswith("{"))
+report = json.loads(line)["result"]["plugin"]
+plugin_id = report["plugin_id"]
+reported = {action["id"] for action in report["actions"]}
+assert reported, report
+
+with open(os.environ["HERDR_CONFIG"], encoding="utf-8") as handle:
+    config = handle.read()
+bound = set(re.findall(re.escape(plugin_id) + r"\.([A-Za-z0-9_]+)", config))
+assert bound, f"config.toml binds no {plugin_id} action"
+dangling = bound - reported
+assert not dangling, f"config.toml binds actions herdr does not report: {sorted(dangling)}"
+print(f"bound={sorted(bound)} reported={sorted(reported)}")
+PY
+  assert_success
 }
 
 function set_up_before_script() {

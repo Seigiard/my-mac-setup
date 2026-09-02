@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -184,10 +185,37 @@ class ReadTests(IssueFixtures):
         self.assertIn("[high] 2026-08-21-002 - High", result.stdout)
 
     def test_formats_terminal_priority_id_title_and_description_styles(self):
+        # Transcribing the escape sequences would copy PRIORITY_COLORS and the
+        # four wrapper templates out of scripts/issues, so recolouring the CLI
+        # would edit both sides in one patch and never fail, while a harmless
+        # palette change would fail for no consumer-visible reason. The two
+        # properties below need no palette knowledge: the plain branch is the
+        # independent oracle for the coloured one, and priorities that share a
+        # colour are indistinguishable to the reader the colour exists for.
+        module = self.module()
+        sgr = re.compile(r"\x1b\[[0-9;]*m")
         value = {"id": "2026-08-21-002-high", "priority": "high", "short_description": "High desc", "title": "High"}
-        self.assertEqual("\x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh desc\x1b[0m", self.module().format_issue_summary(value, color=True))
+
+        colored = module.format_issue_summary(value, color=True)
+        plain = module.format_issue_summary(value, color=False)
+        self.assertNotIn("\x1b[", plain)
+        self.assertIn("\x1b[", colored)
+        self.assertEqual(plain, sgr.sub("", colored))
+
+        # Each of the four fields carries its own SGR pair, so one field losing
+        # its reset cannot leak styling into the next.
+        self.assertEqual(4, len(sgr.findall(colored)) // 2)
+        self.assertTrue(colored.endswith("\x1b[0m"))
+
+        # A description identical to the title must still render on its own
+        # line rather than being deduplicated away.
         value["short_description"] = "High"
-        self.assertEqual("\x1b[31m[high]\x1b[0m \x1b[36m2026-08-21-002\x1b[0m - \x1b[1mHigh\x1b[0m\n\x1b[2mHigh\x1b[0m", self.module().format_issue_summary(value, color=True))
+        head, _, tail = sgr.sub("", module.format_issue_summary(value, color=True)).partition("\n")
+        self.assertTrue(head.endswith("High"), head)
+        self.assertEqual("High", tail)
+
+        colors = {p: module.PRIORITY_COLORS[p] for p in module.PRIORITIES}
+        self.assertEqual(len(colors), len(set(colors.values())), "priorities must not share a colour")
 
     def test_searches_title_description_and_arbitrary_body_in_stable_order(self):
         self.write_issue("2026-08-21-002-body.md", issue_text(title="Other", short_description="Nothing") + b"\xffNeedle in body.\xfe\n")

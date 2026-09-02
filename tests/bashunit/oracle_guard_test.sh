@@ -31,10 +31,17 @@ function test_oracle_guard_001_non_test_file_passes_even_with_negative_assertion
 
 function test_oracle_guard_002_flags_negative_assertion_in_test_file() {
   _bats_test_init 2 'flags negative assertion in test file'
+  # The pinned text is the "test-oracle-guard:" prefix, the only part of this
+  # report a consumer parses: the opencode adapter
+  # (home/private_dot_config/opencode/plugins/test-oracle-guard.ts) rethrows the
+  # engine's stdout only when error.message.startsWith("test-oracle-guard:"),
+  # and swallows it otherwise. Lose the prefix and the guard fails open in
+  # opencode. The rest of the wording is prose nothing reads; the line number
+  # is produced from this test's own fixture, so it stays.
   # oracle: engine header — unjustified negative assertion exits 1 with reason.
   run_guard "tests/bashunit/smoke_test.sh" 'assert_not_contains "$palette" "worktrunk"'
   assert_failure
-  assert_output --partial "without a named oracle"
+  assert_output --partial "test-oracle-guard:"
   assert_output --partial "line 1"
 }
 

@@ -84,19 +84,42 @@ function test_scripts_001_python3_is_present_and_at_least_3_9_the_floor_re() {
 # Repository linting
 # ===========================================
 
+# Writes a shellcheck stub that appends its argv to $2 and exits with $3, so a
+# test can tell "make lint failed because shellcheck failed" apart from "make
+# lint failed for some other reason".
+write_shellcheck_stub() {
+  local dir="$1" log="$2" code="$3"
+  cat > "$dir/shellcheck" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$log"
+exit $code
+STUB
+  chmod +x "$dir/shellcheck"
+}
+
 function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   _bats_test_init 2 'lint target propagates shellcheck failures'
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
 
-  local stubdir
-  stubdir="$(mktemp -d)"
-  printf '#!/bin/sh\nexit 1\n' > "$stubdir/shellcheck"
-  chmod +x "$stubdir/shellcheck"
+  # `make lint` runs three shellcheck sweeps plus a python checker, so a bare
+  # assert_failure is also satisfied by a broken Makefile or a failing python
+  # step -- neither of which is this test's subject. The stub records that it
+  # was reached, and the exit-0 leg is the control proving the target reaches
+  # success when shellcheck is happy, so a `|| true` on the shellcheck lines
+  # cannot keep both legs green.
+  local stubdir="$BATS_TEST_TMPDIR/lint-stub"
+  local invocations="$BATS_TEST_TMPDIR/shellcheck.invocations"
+  mkdir -p "$stubdir"
 
+  write_shellcheck_stub "$stubdir" "$invocations" 1
   run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
-  rm -rf "$stubdir"
   assert_failure
+  assert_file_exists "$invocations"
+
+  write_shellcheck_stub "$stubdir" "$invocations" 0
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
+  assert_success
 }
 
 # Herdr alias allocator
@@ -299,10 +322,15 @@ function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
 
   run render_install_packages "$cfg"
   assert_success
-  refute_output --partial 'Installing Homebrew'
+  # Progress banners ("Installing Oh My Zsh...") are prose nothing consumes: a
+  # reworded echo reddens the test while the install still runs, and deleting
+  # the install while keeping the echo stays green. The upstream installer URLs
+  # below are third-party constants this repo does not define, so they move
+  # only when the install itself moves.
+  refute_output --partial 'Homebrew/install/HEAD/install.sh'
   refute_output --partial 'brew bundle --file='
-  assert_output --partial 'Installing Oh My Zsh'
-  assert_output --partial 'Installing fff-mcp'
+  assert_output --partial 'ohmyzsh/ohmyzsh/master/tools/install.sh'
+  assert_output --partial 'fff.nvim/main/install-mcp.sh'
 }
 
 function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
@@ -314,7 +342,7 @@ function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
 
   run render_install_packages "$cfg"
   assert_success
-  assert_output --partial 'Installing Homebrew'
+  assert_output --partial 'Homebrew/install/HEAD/install.sh'
   assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
@@ -327,7 +355,7 @@ function test_scripts_005_ci_minimal_non_linux_render_keeps_homebrew_packa() {
 
   run render_install_packages "$cfg"
   assert_success
-  assert_output --partial 'Installing Homebrew'
+  assert_output --partial 'Homebrew/install/HEAD/install.sh'
   assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
@@ -3351,11 +3379,10 @@ function test_scripts_1105_herdr_pane_labels_harness_isolates_colliding_sanitize
   _bats_test_init 1105 'herdr-pane-labels harness isolates colliding sanitized socket names'
   command -v jq >/dev/null || skip "jq not available"
   hpl_setup
+  # a-b.sock and a_b.sock collided under the retired sanitized-name scheme;
+  # exact socket paths must now map to separate harness directories.
   local socket_one="$HPL_WORK/a-b.sock" socket_two="$HPL_WORK/a_b.sock"
-  local dir_one dir_two sanitized_one sanitized_two
-  sanitized_one="$(printf '%s' "$socket_one" | sed 's/[^[:alnum:]]/_/g')"
-  sanitized_two="$(printf '%s' "$socket_two" | sed 's/[^[:alnum:]]/_/g')"
-  assert_equal "$sanitized_one" "$sanitized_two"
+  local dir_one dir_two
   dir_one="$(hpl_socket_dir "$socket_one")"
   dir_two="$(hpl_socket_dir "$socket_two")"
   run test "$dir_one" != "$dir_two"
@@ -3373,11 +3400,9 @@ function test_scripts_1105_herdr_pane_labels_harness_isolates_colliding_sanitize
   hpl_wait_for_socket_completion "$dir_one" 1
   hpl_wait_for_socket_call "$dir_two" 1
   hpl_wait_for_socket_completion "$dir_two" 1
+  # A failing mkdir trips the ERR trap, so this probes both independent locks
+  # parents without restating the resulting directory existence.
   mkdir "$dir_one/locks/held" "$dir_two/locks/held"
-  assert_dir_exists "$dir_one/locks/held"
-  assert_dir_exists "$dir_two/locks/held"
-  assert_dir_exists "$dir_one/locks"
-  assert_dir_exists "$dir_two/locks"
   assert_equal "$(wc -l < "$(hpl_socket_log "$socket_one")" | tr -d ' ')" 1
   assert_equal "$(wc -l < "$(hpl_socket_log "$socket_two")" | tr -d ' ')" 1
 }
@@ -3430,10 +3455,12 @@ function test_scripts_1107_herdr_pane_labels_harness_models_target_loss_move_reu
   assert_output --partial '"terminal_id":"term-2"'
   hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 stale-write
   run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
+  assert_success
   assert_output --partial '"terminal_id":"term-3"'
   assert_output --partial '"label":"stale-write"'
   hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 converged
   run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
+  assert_success
   assert_output --partial '"label":"converged"'
 }
 
@@ -5735,20 +5762,18 @@ function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
   run bash "$modifier" <<< "$input"
 
   assert_success
+  # Restating the managed package names here would copy them out of the
+  # modifier this test runs, so adding or dropping an extension would edit
+  # both sides in one patch and never fail. What the modifier owes its
+  # consumer is the replacement itself: the caller's packages array is
+  # discarded, whatever it held, and only npm specs survive.
   run jq -e '
-    [
-      "npm:@ff-labs/pi-fff",
-      "npm:@howaboua/pi-codex-conversion",
-      "npm:pi-subagents",
-      "npm:pi-agent-browser-native",
-      "npm:pi-ask-user",
-      "npm:@trevonistrevon/pi-loop",
-      "npm:pi-web-access",
-      "npm:pi-context-view"
-    ] as $extensions |
     .theme == "terminal" and
     .lastChangelogVersion == "0.84.2" and
-    (.packages == $extensions) and
+    ((.packages | index("npm:obsolete-extension")) == null) and
+    ((.packages | map(select(startswith("git:"))) | length) == 0) and
+    ((.packages | length) > 0) and
+    (.packages | all(startswith("npm:"))) and
     (.skills == ["~/custom/skills"])
   ' <<< "$output"
   assert_success
@@ -5764,21 +5789,15 @@ function test_scripts_251_pi_settings_modifier_is_idempotent() {
 
   assert_success
   once="$output"
+  # The input above already carries the managed names, so comparing them back
+  # would compare the fixture to itself. The contract here is that unrelated
+  # user settings survive the rewrite and the git: entry does not.
   run jq -e '
-    [
-      "npm:@ff-labs/pi-fff",
-      "npm:@howaboua/pi-codex-conversion",
-      "npm:pi-subagents",
-      "npm:pi-agent-browser-native",
-      "npm:pi-ask-user",
-      "npm:@trevonistrevon/pi-loop",
-      "npm:pi-web-access",
-      "npm:pi-context-view"
-    ] as $extensions |
     (.theme == "terminal") and
     (.lastChangelogVersion == "0.84.2") and
     (.model == "anthropic/claude-sonnet-4-5") and
-    (.packages == $extensions) and
+    ((.packages | map(select(startswith("git:"))) | length) == 0) and
+    (.packages | all(startswith("npm:"))) and
     (.skills == ["~/custom/skills"])
   ' <<< "$once"
   assert_success
@@ -5793,12 +5812,20 @@ function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
   _bats_test_init 252 'Pi terminal theme uses only terminal palette colors'
   local theme="$SOURCE_ROOT/dot_pi/agent/themes/terminal.json"
 
+  # Naming two arbitrary empty slots proved nothing about the palette. The
+  # property is structural and cross-references two independently edited
+  # sections of the file: every colour either inherits (empty string) or
+  # names a slot the vars block declares, so no colour can hardcode a value
+  # the user's terminal does not control.
   run jq -e '
     .name == "terminal" and
-    .colors.text == "" and
-    .colors.userMessageBg == "" and
     ([.vars[]] | all(type == "number" and . >= 0 and . <= 15)) and
-    ([.colors[] | select(type == "string" and startswith("#"))] | length == 0)
+    (. as $theme
+      | [$theme.colors[]
+         | select(type == "string")
+         | . as $value
+         | select($value != "" and (($theme.vars | has($value)) | not))]
+      | length == 0)
   ' "$theme"
   assert_success
 }
@@ -5807,10 +5834,22 @@ function test_scripts_253_claude_code_daltonized_theme_extends_light_ansi() {
   _bats_test_init 253 'Claude Code daltonized theme extends light ANSI with terminal colors'
   local theme="$SOURCE_ROOT/private_dot_claude/themes/light-ansi-daltonized.json"
 
+  # length > 0 is not a content assertion -- it is the anti-vacuity guard that
+  # keeps the slot-form check below from passing on an empty overrides object.
+  # The vocabulary is the standard 16 ANSI colour names, which is what Claude
+  # Code's theme loader resolves; a bare startswith("ansi:") would also accept
+  # ansi:tomato, which resolves to nothing.
   run jq -e '
+    ["black","red","green","yellow","blue","magenta","cyan","white",
+     "blackBright","redBright","greenBright","yellowBright",
+     "blueBright","magentaBright","cyanBright","whiteBright"] as $ansi |
     .base == "light-ansi" and
     (.overrides | length > 0) and
-    ([.overrides[] | select(startswith("ansi:") | not)] | length == 0)
+    ([.overrides[] | . as $value
+      | select(($value | type) != "string"
+               or ($value | startswith("ansi:") | not)
+               or (($ansi | index($value | ltrimstr("ansi:"))) == null))]
+     | length == 0)
   ' "$theme"
   assert_success
 }
@@ -5888,11 +5927,6 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
   # Bashunit abbreviates long titles to the terminal width in Docker panes.
   assert_output --partial "Passed: herdr-child detached watcher closes launcher desc"
 }
-
-# Guards docs/issues/2026-08-29-001: hts_teardown must terminate and await a
-# still-running engine before removing state. The contract is causal, so the
-# assertion is process death, with the directory's settled absence as the
-# observable effect.
 
 # Guards the local patch in the pinned runner itself ('Local patch vs upstream
 # 0.50.1' in tests/lib/bashunit): result parsing takes the last
@@ -6393,12 +6427,27 @@ function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
     fi
   '
   assert_success
-  run cat "$work_dir/launch.state"
+  # Reading the file back byte-for-byte pinned two things no consumer has: the
+  # field order, and mode=, which no reader under home/dot_local/lib parses --
+  # the watcher, supervision, and continuation modules all go through
+  # state_value with a named key. What is load-bearing is the mapping from
+  # write_launch_state's eleven positional arguments onto those keys, so
+  # assert it through the same accessor those readers use. The expected values
+  # are the arguments this test passed in, not text copied out of the writer.
+  run env WORK_DIR="$work_dir" RUNTIME="$runtime" bash -c '
+    set -u
+    source "$RUNTIME"
+    for pair in generation:generation-1 timeout_ms:12345 parent_pane:parent-pane \
+      parent_terminal:parent-terminal parent_session:parent-session \
+      child_name:child-name child_pane:child-pane child_terminal:child-terminal \
+      child_session:child-session baseline_seq:42; do
+      key="${pair%%:*}"
+      want="${pair#*:}"
+      got="$(state_value "$WORK_DIR/launch.state" "$key")"
+      [ "$got" = "$want" ] || { printf "%s read back as %s, wanted %s\n" "$key" "$got" "$want"; exit 1; }
+    done
+  '
   assert_success
-  assert_output "$(printf '%s\n' 'mode=detach' 'generation=generation-1' 'timeout_ms=12345' \
-    'parent_pane=parent-pane' 'parent_terminal=parent-terminal' 'parent_session=parent-session' \
-    'child_name=child-name' 'child_pane=child-pane' 'child_terminal=child-terminal' \
-    'child_session=child-session' 'baseline_seq=42')"
   assert_file_not_exists "$work_dir/invalid.state"
 }
 
@@ -6660,7 +6709,7 @@ PY
 
 function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
   _bats_test_init 278 'skills sync blocks symlink, non-regular, and oversized canonical entries'
-  local kind stub manifest lock canonical item skill
+  local kind stub manifest lock canonical item skill offender
   for kind in symlink fifo oversized; do
     stub="$(skills_stub_npx)"
     manifest="$BATS_TEST_TMPDIR/$kind.manifest"
@@ -6675,15 +6724,20 @@ function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
       printf '%s\n' skill > "$canonical/$skill/SKILL.md"
     done
     case "$kind" in
-      symlink) ln -s /etc/passwd "$canonical/escape" ;;
-      fifo) mkfifo "$canonical/non-regular" ;;
-      oversized) dd if=/dev/zero of="$canonical/oversized" bs=1048577 count=1 2>/dev/null ;;
+      symlink) ln -s /etc/passwd "$canonical/escape"; offender="$canonical/escape" ;;
+      fifo) mkfifo "$canonical/non-regular"; offender="$canonical/non-regular" ;;
+      oversized) dd if=/dev/zero of="$canonical/oversized" bs=1048577 count=1 2>/dev/null; offender="$canonical/oversized" ;;
     esac
     run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/$kind/home" TMPDIR="$BATS_TEST_TMPDIR/$kind/tmp" \
       XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/$kind/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/$kind/state" \
       SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" SKILLS_MAX_FILE_BYTES=1048576 \
     bash "$SKILLS_WRAPPER" sync
     assert_failure
+    # A bare assert_failure is satisfied by any of the three iterations, so two
+    # of the guards could be deleted and the loop would stay green. The
+    # rejected path is this test's own fixture, so requiring the message to
+    # name it makes each iteration prove its own guard fired.
+    assert_output --partial "$offender"
   done
 }
 
