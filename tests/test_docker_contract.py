@@ -256,6 +256,20 @@ class TestDockerContract(unittest.TestCase):
             stub.chmod(0o755)
             env = os.environ.copy()
             env["MMS_BASHUNIT_BIN"] = str(stub)
+            # The wrapper's own suite-end orphan-watcher guard (docs/issues/
+            # 2026-08-28-001) scans the live `ps` table and can independently
+            # force rc=1 when it finds an unrelated abandoned herdr-child
+            # watcher rooted at this checkout -- a real condition in this
+            # repo's own herdr-based dev environment, not a suite-exit-code
+            # regression. Stub `ps` to report no processes so that guard is
+            # inert and this test isolates only the suite rc -> wrapper exit
+            # code contract, for both the failing run and its control.
+            ps_stub_dir = Path(tmp) / "ps-stub-bin"
+            ps_stub_dir.mkdir()
+            ps_stub = ps_stub_dir / "ps"
+            ps_stub.write_text("#!/bin/sh\nexit 0\n")
+            ps_stub.chmod(0o755)
+            env["PATH"] = str(ps_stub_dir) + os.pathsep + env["PATH"]
 
             failing = subprocess.run(
                 [str(RUNNER), "host-safe"],
@@ -270,9 +284,9 @@ class TestDockerContract(unittest.TestCase):
                 "run-post-apply.sh must exit nonzero when a suite fails:\n%s" % failing.stderr,
             )
 
-            # Control: same wrapper and env shape, stub now succeeds. Rules
-            # out the suite-end orphan-watcher guard (which can force rc=1
-            # on its own) as the real cause of the failure above.
+            # Control: same wrapper, env shape, and stubbed ps; stub now
+            # succeeds. Isolates the failure above as caused by the injected
+            # suite failure, not by host process-table state or setup noise.
             stub.write_text("#!/bin/sh\nexit 0\n")
             stub.chmod(0o755)
             passing = subprocess.run(
@@ -291,38 +305,38 @@ class TestDockerContract(unittest.TestCase):
     def test_make_test_ubuntu_recipe_does_not_swallow_a_failing_run(self):
         # `docker compose run` already returns the container's real exit
         # code, so the only way `make test-ubuntu` could still report success
-        # on a real failure is the recipe body itself adding suppression
-        # syntax: a leading `-` on any recipe line, `set +e`, or a `|| true`
-        # / `; true` anywhere in the body (with or without a trailing
-        # comment), not just at the end of a single first line. This is a
+        # on a real failure is the recipe body adding anything around that
+        # invocation: a leading `-`, `set +e`, a second recipe line, or a
+        # trailing suppression clause. An earlier version of this check
+        # enumerated specific suppression spellings (`|| true`, `; true`) and
+        # missed just-as-common equivalents like `|| :`, `|| exit 0`, or
+        # `| true` -- a denylist of shell idioms can never be exhaustive.
+        # Assert an allowlist instead: the recipe body must be EXACTLY the
+        # docker compose invocation, alone, with nothing appended. This is a
         # literal-shape check on purpose: the suppression syntax IS the
-        # contract here, the same way make's own leading-`-` convention is.
+        # contract here, the same way make's own leading-`-` convention is;
+        # exact-match is just a stronger literal check than a denylist scan.
         target = re.search(
             r"^test-ubuntu:.*\n(?P<body>(?:\t.*\n?)+)", self.makefile, re.MULTILINE
         )
         self.assertIsNotNone(target, "Makefile must define the test-ubuntu target")
         body = target.group("body")
         self.assertTrue(body.strip(), "test-ubuntu target has no recipe body")
-        for line in body.splitlines():
-            recipe_line = line[1:] if line.startswith("\t") else line
-            self.assertFalse(
-                recipe_line.lstrip().startswith("-"),
-                "a leading '-' makes make ignore this recipe line's exit code: %r" % line,
-            )
-        self.assertNotRegex(
-            body,
-            r"\bset\s+\+e\b",
-            "'set +e' in the recipe would let a later failing command pass silently: %r" % body,
+        recipe_lines = [line[1:] for line in body.splitlines() if line.startswith("\t")]
+        self.assertEqual(
+            len(recipe_lines),
+            1,
+            "test-ubuntu's recipe must be a single command line -- a second "
+            "line could suppress the first's exit code (e.g. 'set +e', or "
+            "any command that resets $?): %r" % recipe_lines,
         )
-        self.assertNotRegex(
-            body,
-            r"\|\|\s*true\b",
-            "a '|| true' anywhere in the recipe would swallow a command's exit code: %r" % body,
-        )
-        self.assertNotRegex(
-            body,
-            r";\s*true\b",
-            "a '; true' anywhere in the recipe would swallow a command's exit code: %r" % body,
+        self.assertEqual(
+            recipe_lines[0].strip(),
+            "docker compose -f docker/docker-compose.yml run --rm test-ubuntu",
+            "test-ubuntu's recipe must be exactly the docker compose "
+            "invocation with nothing appended (no leading '-', and no "
+            "trailing '||', ';', '|', or comment) that could swallow its "
+            "exit code: %r" % recipe_lines[0],
         )
 
 

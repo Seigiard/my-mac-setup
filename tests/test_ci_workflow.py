@@ -35,27 +35,33 @@ class TestDotfilesWorkflow(unittest.TestCase):
         self.assertTrue(triggers, "no triggers parsed from the on: block")
         return triggers
 
-    def events_selected_by_condition(self, step, declared):
-        """Events a step's `if:` condition selects, as a subset of the declared
-        triggers. Assumes the condition is a positive membership test over
-        `github.event_name` (any spelling: `==` chains, fromJSON lists), which
-        every trigger-gated step in this workflow uses."""
-        match = re.search(r"^        if: (?P<expr>.+)$", step, re.MULTILINE)
-        self.assertIsNotNone(match, "step must be gated by an if: condition")
-        expr = match.group("expr")
-        self.assertIn("github.event_name", expr)
-        # The positive-membership assumption cannot survive negation; reject
-        # such conditions instead of silently misreading them as selections.
+    def events_selected_by_expression(self, expr, declared, context):
+        """Events an arbitrary workflow expression selects, as a subset of
+        the declared triggers. Assumes the expression is a positive
+        membership test over `github.event_name` (any spelling: `==`
+        chains, fromJSON lists) -- true of every trigger-gated step `if:`
+        condition and of the MMS_CI_MINIMAL env expression in this
+        workflow. The positive-membership assumption cannot survive
+        negation (e.g. `!=`); reject such expressions instead of silently
+        misreading a negated condition as selecting the events it names."""
+        self.assertIn("github.event_name", expr, "%s must reference github.event_name" % context)
         self.assertNotIn(
-            "!", expr, "negated condition breaks this parser's assumption: %s" % expr
+            "!", expr, "negated %s breaks this parser's assumption: %s" % (context, expr)
         )
         selected = {
             event
             for event in declared
             if re.search(r"\b%s\b" % re.escape(event), expr)
         }
-        self.assertTrue(selected, "condition selects none of the declared triggers: %s" % expr)
+        self.assertTrue(selected, "%s selects none of the declared triggers: %s" % (context, expr))
         return selected
+
+    def events_selected_by_condition(self, step, declared):
+        """Events a step's `if:` condition selects -- see
+        events_selected_by_expression for the shared parsing assumption."""
+        match = re.search(r"^        if: (?P<expr>.+)$", step, re.MULTILINE)
+        self.assertIsNotNone(match, "step must be gated by an if: condition")
+        return self.events_selected_by_expression(match.group("expr"), declared, "condition")
 
     def step_value(self, step, key, indent="          "):
         match = re.search(r"^%s%s: (.+)$" % (indent, re.escape(key)), step, re.MULTILINE)
@@ -90,11 +96,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
         minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
         self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
         expr = minimal_line.group("expr")
-        selected = {
-            event
-            for event in declared
-            if re.search(r"\b%s\b" % re.escape(event), expr)
-        }
+        selected = self.events_selected_by_expression(expr, declared, "MMS_CI_MINIMAL")
         self.assertEqual(
             selected,
             self.MINIMAL_EVENTS,

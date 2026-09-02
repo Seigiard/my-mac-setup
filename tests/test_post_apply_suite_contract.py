@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -120,13 +121,19 @@ class TestPostApplySuiteContract(unittest.TestCase):
         bashunit invocation elsewhere is not part of this wrapper's
         inventory; require the literal binary path so a comment or echo
         line that merely mentions the file's path (e.g. Makefile's
-        test-suite NOTE about idempotent_test.sh) does not count."""
+        test-suite NOTE about idempotent_test.sh) does not count. The name
+        match is boundary-bounded (preceded by a path separator/whitespace/
+        start-of-line, followed by whitespace or end-of-line) rather than
+        a raw substring test, so one suite file's name being a substring of
+        another's (e.g. a hypothetical "widget_test.sh" inside
+        "other_widget_test.sh") cannot cause a false match."""
+        name_pattern = re.compile(r"(?:^|[\s/])%s(?:\s|$)" % re.escape(name))
         for text in outside_sources:
             for line in text.splitlines():
                 stripped = line.strip()
                 if stripped.startswith("#") or "run-post-apply.sh" in line:
                     continue
-                if "lib/bashunit" in line and name in line:
+                if "lib/bashunit" in line and name_pattern.search(line):
                     return True
         return False
 
@@ -137,11 +144,20 @@ class TestPostApplySuiteContract(unittest.TestCase):
         scripts_test.sh also nests a filtered invocation of itself for a
         bounded-pipe regression, so self-references are excluded -- only a
         DIFFERENT sibling wiring a file in this way removes it from the
-        top-level inventory."""
+        top-level inventory. Comment lines are skipped (mirroring
+        wired_outside_the_wrapper's own comment skip) so an unrelated remark
+        that happens to mention the marker text cannot cause a false
+        exclusion of a real, unwired suite file -- the exact regression this
+        whole discovery mechanism exists to catch."""
         marker = "BATS_TEST_DIRNAME/bashunit/%s" % name
         for other_name, other_text in texts.items():
-            if other_name != name and marker in other_text:
-                return True
+            if other_name == name:
+                continue
+            for line in other_text.splitlines():
+                if line.strip().startswith("#"):
+                    continue
+                if marker in line:
+                    return True
         return False
 
     def assert_invocation_shape(self, invocations, message):
