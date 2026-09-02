@@ -581,8 +581,11 @@ PY
   assert_success
 
   # Control, paired with the valid fixture above: the fallback parser's array
-  # branch must still hand validate_shortcuts a rejectable shape, and the
-  # rejection is asserted by exit status -- not by scraping message text.
+  # branch must still hand validate_shortcuts a rejectable shape. validate_cli
+  # returns exit 1 for every failure in its validation chain, so status alone
+  # cannot tell this rejection apart from an unrelated one -- pin the message
+  # to the shortcuts-specific reason too, the same way test_palette_031 does
+  # for the tomllib-backed path.
   cat > "$PALETTE_WORK/bad-shortcuts.toml" <<'TOML'
 [[commands]]
 title = "Broken shortcut"
@@ -612,6 +615,8 @@ palette = palette_boot.palette()
 sys.exit(palette.validate_cli([sys.argv[1]]))
 PY
   assert_failure
+  assert_output --partial "Broken shortcut"
+  assert_output --partial "shortcut"
 }
 
 function test_palette_033_select_options_rank_through_the_same_scorer() {
