@@ -181,6 +181,24 @@ describe("brew auto update sequence", () => {
     expect(notifications).toEqual([{ message: result.message, level: "info" }]);
   });
 
+  test("notifies at startup too when a real update installs, unlike the silent up-to-date case", async () => {
+    let snapshots = 0;
+    const { deps } = await dependencies({
+      snapshotExtensions: async () => {
+        snapshots += 1;
+        return new Map([
+          ["git:compound-engineering", snapshots === 1 ? "old-commit" : "new-commit"],
+        ]);
+      },
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("startup", ui, deps);
+
+    expect(result.message).toBe("Pi extensions updated. Restart Pi to use them.");
+    expect(notifications).toEqual([{ message: result.message, level: "info" }]);
+  });
+
   test.each([
     {
       label: "Pi",
@@ -330,6 +348,25 @@ describe("brew auto update sequence", () => {
     expect(notifications[0]?.level).toBe("warning");
   });
 
+  test("notifies a manual caller when the update command itself throws", async () => {
+    const { deps, calls } = await dependencies({
+      exec: async (command, args) => {
+        calls.push([command, args]);
+        throw new Error("spawn brew ENOENT");
+      },
+    });
+    const { ui, notifications } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.status).toBe("failed");
+    expect(calls).toHaveLength(1);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
+    expect(notifications[0]?.message).toContain("spawn brew ENOENT");
+    expect(notifications[0]?.level).toBe("warning");
+  });
+
   test("startup reports a failure notification every time, unlike a silent success", async () => {
     const { deps } = await dependencies({
       exec: async () => ({ code: 7, stdout: "", stderr: "network failed", killed: false }),
@@ -343,6 +380,22 @@ describe("brew auto update sequence", () => {
     expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
     expect(notifications[0]?.message).toContain("network failed");
     expect(notifications[0]?.level).toBe("warning");
+  });
+
+  test("startup notifies again on a second consecutive failure, proving there is no rate-limit", async () => {
+    const { deps } = await dependencies({
+      exec: async () => ({ code: 7, stdout: "", stderr: "network failed", killed: false }),
+    });
+    const { ui, notifications } = fakeUi();
+
+    const first = await runBrewAutoUpdate("startup", ui, deps);
+    const second = await runBrewAutoUpdate("startup", ui, deps);
+
+    expect(first.status).toBe("failed");
+    expect(second.status).toBe("failed");
+    expect(notifications).toHaveLength(2);
+    expect(notifications[0]?.level).toBe("warning");
+    expect(notifications[1]?.level).toBe("warning");
   });
 
   test("manual command reports contention", async () => {
