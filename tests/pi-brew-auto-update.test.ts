@@ -566,7 +566,7 @@ test("registers session_start to run the update sequence in the background, only
   const handlers = new Map<string, Function>();
   const fakePi = {
     on: (event: string, handler: Function) => handlers.set(event, handler),
-    registerCommand: (name: string, options: { handler: Function }) => {
+    registerCommand: (name: string) => {
       expect(name).toBe("brew-auto-update-now");
     },
   };
