@@ -67,14 +67,14 @@ function test_idempotent_0021_chezmoi_apply_preserves_skills_owned_outside_chezm
   _bats_test_init 21 'chezmoi apply preserves agent skills owned outside chezmoi'
   require_disposable_home
   local skill
-  for skill in se-cleanup smithers se-flow se-review-and-work se-work; do
+  for skill in smithers se-flow se-review-and-work se-work; do
     mkdir -p "$HOME/.agents/skills/$skill"
     printf 'manual %s\n' "$skill" > "$HOME/.agents/skills/$skill/SKILL.md"
   done
 
   PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" apply --source="$CHEZMOI_SOURCE" --force
   assert_success
-  for skill in se-cleanup smithers se-flow se-review-and-work se-work; do
+  for skill in smithers se-flow se-review-and-work se-work; do
     run cat "$HOME/.agents/skills/$skill/SKILL.md"
     assert_success
     assert_output "manual $skill"

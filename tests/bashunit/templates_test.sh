@@ -378,7 +378,6 @@ assert_minimal_brewfile() {
   refute_line 'brew "imagemagick"'
   refute_line 'brew "shellcheck"'
   refute_line 'brew "herdr"'
-  refute_line 'brew "worktrunk"'
   refute_line 'brew "fzf"'
   refute_line 'brew "bats-core"'
 }
@@ -422,7 +421,6 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   # too, or deleting either from the template outright would satisfy every
   # assertion in this file while real hosts silently stop getting it.
   assert_line 'brew "git"'
-  assert_line --partial 'brew "worktrunk"'
   assert_line --partial 'brew "lazywalker/tap/rgrc"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"

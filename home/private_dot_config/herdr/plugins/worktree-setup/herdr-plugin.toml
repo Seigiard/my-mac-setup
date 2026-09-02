@@ -1,0 +1,10 @@
+id = "seigi.worktree-setup"
+name = "Worktree Setup"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Prepare new worktrees from one repository-keyed configuration."
+platforms = ["macos", "linux"]
+
+[[events]]
+on = "worktree.created"
+command = ["bun", "setup.ts"]

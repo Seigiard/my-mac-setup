@@ -191,22 +191,135 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   refute_output --partial "run_once_after_macos-tunes"
 }
 
-function test_scripts_0081_retired_se_cleanup_migration_removes_only_managed_files() {
-  _bats_test_init 81 'retired se-cleanup migration removes only formerly managed files'
+function test_scripts_0081_retired_se_cleanup_migration_preserves_an_independent_skill() {
+  _bats_test_init 81 'retired se-cleanup migration preserves an independently owned skill'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-se-cleanup.sh"
   local agents="$BATS_TEST_TMPDIR/home/.agents/skills/se-cleanup"
   local claude="$BATS_TEST_TMPDIR/home/.claude/skills/se-cleanup"
+  local orphan_home="$BATS_TEST_TMPDIR/orphan-home"
   mkdir -p "$agents" "$claude"
-  printf '%s\n' 'old managed skill' > "$agents/SKILL.md"
+  printf '%s\n' 'independently managed skill' > "$agents/SKILL.md"
   printf '%s\n' 'user-owned content' > "$agents/notes.md"
   ln -s "$agents/SKILL.md" "$claude/SKILL.md"
 
   run env HOME="$BATS_TEST_TMPDIR/home" sh "$script"
   assert_success
-  assert_file_not_exists "$agents/SKILL.md"
+  assert_file_contains "$agents/SKILL.md" '^independently managed skill$'
   assert_file_exists "$agents/notes.md"
   assert_dir_exists "$agents"
-  assert_dir_not_exists "$claude"
+  assert_file_exists "$claude/SKILL.md"
+
+  mkdir -p "$orphan_home/.claude/skills/se-cleanup"
+  ln -s ../../../.agents/skills/se-cleanup/SKILL.md \
+    "$orphan_home/.claude/skills/se-cleanup/SKILL.md"
+  run env HOME="$orphan_home" sh "$script"
+  assert_success
+  assert_dir_not_exists "$orphan_home/.claude/skills/se-cleanup"
+}
+
+function test_scripts_0082_worktree_setup_uses_one_repository_keyed_config() {
+  _bats_test_init 82 'worktree setup uses one repository-keyed config for copy and setup steps'
+  local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
+  local root="$BATS_TEST_TMPDIR/worktree-setup" main worktree config
+  main="$root/main"
+  worktree="$root/feature"
+  config="$root/config"
+  mkdir -p "$main" "$config"
+  git -C "$main" init --quiet -b main
+  git -C "$main" config user.email test@example.com
+  git -C "$main" config user.name 'Test User'
+  printf '%s\n' tracked > "$main/tracked"
+  printf '%s\n' secret > "$main/.env"
+  git -C "$main" add tracked
+  git -C "$main" commit --quiet -m initial
+  git -C "$main" remote add origin git@github.com:membranehq/platform.git
+  git -C "$main" worktree add --quiet -b feature "$worktree"
+  cat > "$config/config.toml" <<'TOML'
+[projects."github.com/membranehq/platform"]
+fresh-base = false
+copy = [".env"]
+steps = ["printf '%s' \"$HERDR_BRANCH\" > setup-ran"]
+TOML
+
+  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
+    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"feature\"}}}" \
+    bun "$plugin"
+  assert_success
+  assert_file_contains "$worktree/.env" '^secret$'
+  assert_file_contains "$worktree/setup-ran" '^feature$'
+}
+
+function test_scripts_0083_worktree_setup_refreshes_a_new_branch_from_origin_head() {
+  _bats_test_init 83 'worktree setup refreshes an untouched new branch from origin HEAD'
+  local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
+  local root="$BATS_TEST_TMPDIR/worktree-fresh" origin main worktree dirty config expected old
+  origin="$root/origin.git"
+  main="$root/main"
+  worktree="$root/feature"
+  dirty="$root/dirty"
+  config="$root/config"
+  mkdir -p "$root" "$config"
+  git init --quiet --bare "$origin"
+  git -C "$origin" symbolic-ref HEAD refs/heads/main
+  git init --quiet -b main "$main"
+  git -C "$main" config user.email test@example.com
+  git -C "$main" config user.name 'Test User'
+  printf '%s\n' old > "$main/tracked"
+  git -C "$main" add tracked
+  git -C "$main" commit --quiet -m old
+  git -C "$main" remote add origin "$origin"
+  git -C "$main" push --quiet -u origin main
+  git -C "$main" worktree add --quiet -b feature "$worktree"
+  old="$(git -C "$worktree" rev-parse HEAD)"
+  git -C "$main" worktree add --quiet -b dirty "$dirty" "$old"
+  printf '%s\n' local > "$dirty/untracked"
+  printf '%s\n' new > "$main/tracked"
+  git -C "$main" commit --quiet -am new
+  git -C "$main" push --quiet
+  expected="$(git -C "$main" rev-parse HEAD)"
+  cat > "$config/config.toml" <<TOML
+[projects."${origin%.git}"]
+fresh-base = true
+TOML
+
+  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
+    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"feature\"}}}" \
+    bun "$plugin"
+  assert_success
+  run git -C "$worktree" rev-parse HEAD
+  assert_success
+  assert_output "$expected"
+
+  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
+    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$dirty\",\"branch\":\"dirty\"}}}" \
+    bun "$plugin"
+  assert_success
+  run git -C "$dirty" rev-parse HEAD
+  assert_success
+  assert_output "$old"
+}
+
+function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_files() {
+  _bats_test_init 84 'retired Worktrunk migration removes only formerly managed files'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-worktrunk.sh"
+  local home="$BATS_TEST_TMPDIR/worktrunk-home"
+  mkdir -p \
+    "$home/.config/worktrunk" \
+    "$home/.config/herdr/plugins/config/worktrunk" \
+    "$home/.config/herdr/plugins/command-palette"
+  printf '%s\n' old > "$home/.config/worktrunk/config.toml"
+  printf '%s\n' old > "$home/.config/herdr/plugins/config/worktrunk/config.toml"
+  printf '%s\n' old > "$home/.config/herdr/plugins/command-palette/new_worktree.py"
+  printf '%s\n' old > "$home/.config/herdr/plugins/command-palette/open_new_worktree.py"
+  printf '%s\n' keep > "$home/.config/worktrunk/user-note"
+
+  run env HOME="$home" sh "$script"
+  assert_success
+  assert_file_not_exists "$home/.config/worktrunk/config.toml"
+  assert_file_not_exists "$home/.config/herdr/plugins/config/worktrunk/config.toml"
+  assert_file_not_exists "$home/.config/herdr/plugins/command-palette/new_worktree.py"
+  assert_file_not_exists "$home/.config/herdr/plugins/command-palette/open_new_worktree.py"
+  assert_file_exists "$home/.config/worktrunk/user-note"
 }
 
 # ===========================================

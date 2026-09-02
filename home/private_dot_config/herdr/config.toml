@@ -13,6 +13,7 @@ allow_nested = true
 
 [keys]
 switch_workspace = "ctrl+shift+1..9"
+new_worktree = "prefix+shift+g"
 previous_workspace = "prefix+{"
 next_workspace = "prefix+}"
 focus_pane_left = "shift+alt+left"
@@ -49,13 +50,8 @@ type = "plugin_action"
 command = "seigi.command-palette.smart_close"
 description = "close pane, then tab, but keep workspace"
 
-# Ghostty and kitty send this sequence for Cmd+Shift+N. The action opens one
-# modal progress popup; its process lock serializes timestamp-named creation.
-[[keys.command]]
-key = "prefix+shift+g"
-type = "plugin_action"
-command = "seigi.command-palette.new_worktree"
-description = "Worktree: create with a timestamp name"
+[worktrees]
+directory = "~/.worktrees"
 
 [ui]
 prompt_new_tab_name = false

@@ -17,12 +17,6 @@ title = "Smart close pane or tab"
 contexts = ["workspace"]
 command = ["python3", "smart_close.py"]
 
-[[actions]]
-id = "new_worktree"
-title = "New worktree"
-contexts = ["workspace"]
-command = ["python3", "open_new_worktree.py"]
-
 [[panes]]
 id = "palette"
 title = "Command Palette"
@@ -36,11 +30,3 @@ placement = "popup"
 width = "90%"
 height = "90%"
 command = ["lazygit"]
-
-[[panes]]
-id = "new_worktree_progress"
-title = "Creating worktree"
-placement = "popup"
-width = 96
-height = 24
-command = ["python3", "new_worktree.py"]
