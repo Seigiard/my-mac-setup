@@ -1,6 +1,6 @@
 ---
 title: "Define contracts for inventory and literal tests"
-short_description: "The audit confirmed dependent oracles in CI event policy, post-apply routing and inventory, Herdr glyph and relink wiring, Git ignore behavior, palette fallback parsing, and Bats scan scope; each needs an independent consumer boundary."
+short_description: "The audit's seven confirmed dependent oracles are now split across four implementation issues (2026-09-02-002 through 2026-09-02-005); this issue remains the registry of the shared rule and closes when all four land."
 type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","source-ownership","literal-contracts"]
@@ -11,35 +11,23 @@ priority: "medium"
 
 ## Why this exists
 
-The 2026-09-01 test audit removed source-copy assertions only where behavioral or deployment owners already existed. A repository-wide follow-up audit then confirmed these dependent oracles:
+The 2026-09-01 test audit removed source-copy assertions only where behavioral or deployment owners already existed. A repository-wide follow-up audit then confirmed seven dependent oracles. Each can stay green while its consumer-visible behavior breaks, or fail after a harmless source refactor.
 
-- `tests/test_ci_workflow.py:65-100` derives expected cache events from the workflow expression under test.
-- `tests/test_post_apply_suite_contract.py:17-58` counts command text and copies the runner's suite inventory; `tests/test_docker_contract.py:70-94` accepts a matching command even when its failure is suppressed.
-- `tests/helpers/herdr_task_sync.bash:12-34` extracts expected user-facing glyphs from the implementation that emits them.
-- `tests/bashunit/smoke_test.sh:956-968` greps onchange-template includes without proving that dependency changes alter the rendered hash.
-- `tests/test_issues.py:518-522` inspects `.gitignore` source instead of Git's effective decision.
-- `tests/bashunit/palette_test.sh:527-555` exercises the fallback parser with expected values copied from mutable production configuration.
-- `tests/test_bats_assertion_contract.py:128-136` accepts the checker's own file inventory without an independent reachability fixture for every supported test-shell surface.
-
-Each test can stay green while its consumer-visible behavior breaks, or fail after a harmless source refactor. Architecture inventory tests and exact literals remain valid only when they compare independent sides or protect a literal consumed externally.
+The shared rule they violate: architecture inventory tests and exact literals are valid only when they compare independent sides of a relationship, or protect a literal consumed outside the repository.
 
 ## Scope
 
-Replace the confirmed dependent oracles at their strongest consumer boundaries:
+This issue owns the rule and the split, not the code. The seven findings are implemented under four children:
 
-- Pin the CI event policy independently, then compare workflow conditions with the explicit minimal and full event sets.
-- Discover post-apply consumers and eligible suites independently; execute a failing wrapper through each gate and require nonzero status to propagate.
-- Define stable Herdr glyphs independently if exact glyphs are a user contract; otherwise assert semantic token roles without copying implementation literals.
-- Render the onchange template before and after mutating each dependency and require its hash to change.
-- Use `git check-ignore` and tracked-path evidence for ignore behavior.
-- Give the fallback TOML parser a minimal fixed fixture independent of `commands.toml`.
-- Add reachability fixtures for every shell-file class the Bats assertion checker claims to protect.
+- `2026-09-02-002` — CI cache event policy (`tests/test_ci_workflow.py:65-100`), post-apply suite inventory (`tests/test_post_apply_suite_contract.py:17-58`), and suppressed Docker failure (`tests/test_docker_contract.py:70-94`).
+- `2026-09-02-003` — onchange template hash (`tests/bashunit/smoke_test.sh:956-968`) and palette fallback parser fixture (`tests/bashunit/palette_test.sh:527-555`).
+- `2026-09-02-004` — Git ignore behavior (`tests/test_issues.py:517-521`) and Bats assertion checker reachability (`tests/test_bats_assertion_contract.py:128-136`).
+- `2026-09-02-005` — Herdr task-sync glyphs (`tests/helpers/herdr_task_sync.bash:12-34`).
 
-Keep and document externally consumed command, transport, schema, symlink, and rendered-config literals. Keep one behavioral, deployment, or validation owner per contract. Safe deletions belong to `2026-09-01-003`; Pi hook and updater coverage gaps belong to `2026-09-01-004`; updater failure notifications belong to `2026-08-21-022`.
+Across all four: keep and document externally consumed command, transport, schema, symlink, and rendered-config literals, and keep exactly one behavioral, deployment, or validation owner per contract. Safe deletions belong to `2026-09-01-003`; Pi hook and updater coverage gaps belong to `2026-09-01-004`; updater failure notifications belong to `2026-08-21-022`.
+
+Close this issue once the four children are closed and no further dependent oracle remains from the audit list.
 
 ## Open decisions
 
-- Whether Herdr's exact glyph set is stable user-facing policy or replaceable presentation.
-- Whether post-apply suite eligibility should be derived from file metadata, a canonical manifest consumed by the runner, or another independent rule.
-- Which sourced shell-helper classes must be covered by the Bats assertion checker.
-- Which remaining deployment inventories in smoke and template suites are deliberate machine-setup policy rather than current source-tree shape.
+- Which remaining deployment inventories in the smoke and template suites are deliberate machine-setup policy rather than a mirror of the current source tree. This one is not delegated to a child; it needs a repository-wide answer.
