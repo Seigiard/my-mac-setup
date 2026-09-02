@@ -616,7 +616,7 @@ hts_run_for_socket() {
     HERDR_SOCKET_PATH="$socket_path" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
-    HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-$HTS_GIT_BUDGET}" \
+    HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-$HTS_WORKTREE_GIT_BUDGET}" \
     HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER:-}" \
     HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE:-}" \
     HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
@@ -633,7 +633,7 @@ hts_worker_run() {
     HERDR_SOCKET_PATH="$HTS_DEFAULT_SOCKET" \
     HERDR_TASK_SYNC_STATE_DIR="$HTS_STATE" \
     HERDR_TASK_SYNC_TIMEOUT="${HTS_TIMEOUT:-$HTS_ENGINE_WATCHDOG_SECONDS}" \
-    HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-$HTS_GIT_BUDGET}" \
+    HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-$HTS_WORKTREE_GIT_BUDGET}" \
     HERDR_TASK_SYNC_TEST_BRANCH_BARRIER="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER:-}" \
     HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
@@ -775,6 +775,9 @@ hts_after_call_script() {
 # pass -- the eight-pane coordinator test runs seven -- and a tighter budget
 # would SIGKILL those, which is the failure this value exists to prevent.
 HTS_GIT_BUDGET="${HTS_GIT_BUDGET:-2}"
+# Worktree identity tests exercise several real Git mutations under the full
+# parallel suite. Only the dedicated timeout case should race their watchdog.
+HTS_WORKTREE_GIT_BUDGET="${HTS_WORKTREE_GIT_BUDGET:-10}"
 # The status probe has its own bound in the engine, so the harness gives it
 # its own generous default for the same reason the identity budget is
 # generous here: a stub probe under --jobs load must not lose the race and
