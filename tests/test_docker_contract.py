@@ -291,26 +291,38 @@ class TestDockerContract(unittest.TestCase):
     def test_make_test_ubuntu_recipe_does_not_swallow_a_failing_run(self):
         # `docker compose run` already returns the container's real exit
         # code, so the only way `make test-ubuntu` could still report success
-        # on a real failure is the recipe line itself adding suppression
-        # syntax (a leading `-`, or a trailing `|| true` / `; true`). This is
-        # a literal-shape check on purpose: the suppression syntax IS the
-        # contract here, the same way `make`'s own leading-`-` convention is.
-        target = re.search(r"^test-ubuntu:.*\n\t(?P<command>.+)$", self.makefile, re.MULTILINE)
+        # on a real failure is the recipe body itself adding suppression
+        # syntax: a leading `-` on any recipe line, `set +e`, or a `|| true`
+        # / `; true` anywhere in the body (with or without a trailing
+        # comment), not just at the end of a single first line. This is a
+        # literal-shape check on purpose: the suppression syntax IS the
+        # contract here, the same way make's own leading-`-` convention is.
+        target = re.search(
+            r"^test-ubuntu:.*\n(?P<body>(?:\t.*\n?)+)", self.makefile, re.MULTILINE
+        )
         self.assertIsNotNone(target, "Makefile must define the test-ubuntu target")
-        command = target.group("command")
-        self.assertFalse(
-            command.lstrip().startswith("-"),
-            "a leading '-' makes make ignore this recipe's exit code: %r" % command,
+        body = target.group("body")
+        self.assertTrue(body.strip(), "test-ubuntu target has no recipe body")
+        for line in body.splitlines():
+            recipe_line = line[1:] if line.startswith("\t") else line
+            self.assertFalse(
+                recipe_line.lstrip().startswith("-"),
+                "a leading '-' makes make ignore this recipe line's exit code: %r" % line,
+            )
+        self.assertNotRegex(
+            body,
+            r"\bset\s+\+e\b",
+            "'set +e' in the recipe would let a later failing command pass silently: %r" % body,
         )
         self.assertNotRegex(
-            command,
-            r"\|\|\s*true\s*$",
-            "a trailing '|| true' would swallow docker compose's exit code: %r" % command,
+            body,
+            r"\|\|\s*true\b",
+            "a '|| true' anywhere in the recipe would swallow a command's exit code: %r" % body,
         )
         self.assertNotRegex(
-            command,
-            r";\s*true\s*$",
-            "a trailing '; true' would swallow docker compose's exit code: %r" % command,
+            body,
+            r";\s*true\b",
+            "a '; true' anywhere in the recipe would swallow a command's exit code: %r" % body,
         )
 
 

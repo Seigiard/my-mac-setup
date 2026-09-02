@@ -76,6 +76,32 @@ class TestDotfilesWorkflow(unittest.TestCase):
     # restored cache entry, and they seed the cache for the next ordinary run.
     FULL_VERIFICATION_EVENTS = frozenset({"schedule", "workflow_dispatch"})
 
+    def test_mms_ci_minimal_selects_exactly_the_minimal_events(self):
+        # MMS_CI_MINIMAL decides whether a run installs the full Brewfile or
+        # only what tests resolve from brew. The consumer side (rendering
+        # under MMS_CI_MINIMAL=1) is covered by templates_test.sh and
+        # scripts_test.sh; this is the only coverage of WHICH CI events set
+        # it. Compared against the pinned policy (an independent oracle from
+        # the workflow file) so a full-verification event silently gaining
+        # the minimal install -- or an ordinary event losing it -- fails
+        # here instead of only showing up as installed-package drift.
+        text = self.workflow_text()
+        declared = self.declared_triggers(text)
+        minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
+        expr = minimal_line.group("expr")
+        selected = {
+            event
+            for event in declared
+            if re.search(r"\b%s\b" % re.escape(event), expr)
+        }
+        self.assertEqual(
+            selected,
+            self.MINIMAL_EVENTS,
+            "MMS_CI_MINIMAL must select exactly the pinned minimal-install "
+            "events, and no full-verification event: %s" % expr,
+        )
+
     def test_cache_restore_and_save_triggers_partition_the_declared_set(self):
         # Full-Brewfile verification events must fetch from upstream (no
         # restore) but still seed the cache; only ordinary events may restore.
