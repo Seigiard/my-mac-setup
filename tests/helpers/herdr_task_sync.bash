@@ -9,29 +9,21 @@ HTS_PLUGIN_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 # the stub directory plus the system directories, so a real `pi` or `claude`
 # outside them can never be reached: a missing engine is then a property of the
 # test, not of the machine that runs it.
-# The engine's icon table is the single source of these sequences: they are
-# extracted from it rather than retyped, so a drifted table fails loudly here
-# instead of quietly asserting a glyph the engine no longer emits.
-hts_icon() {
-  local name="$1" octal
-  octal="$(sed -n "s/^ICON_${name}=.*printf '\\([^']*\\)'.*/\\1/p" "$HTS_ENGINE")"
-  if [[ -z "$octal" ]]; then
-    printf 'missing ICON_%s in %s\n' "$name" "$HTS_ENGINE" >&2
-    return 1
-  fi
-  # shellcheck disable=SC2059 # The extracted octal sequence is itself the format.
-  printf "$octal"
-}
+# The $git_ref glyphs are the user-facing contract (docs/issues/2026-09-02-005):
+# they render into a pane label the user reads, have no config or environment
+# override in the engine, and are not documented as user-configurable. Tests
+# define them independently instead of inheriting whatever the engine happens
+# to render, the same as the Git status symbols just below.
 # shellcheck disable=SC2034 # The loading Bats file reads these shared values.
-HTS_ICON_BRANCH="$(hts_icon BRANCH)"
+HTS_ICON_BRANCH="$(printf '\356\261\257')"   # nf-cod-git_branch U+EC6F
 # shellcheck disable=SC2034
-HTS_ICON_WORKTREE="$(hts_icon WORKTREE)"
+HTS_ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 # shellcheck disable=SC2034
-HTS_ICON_COMMIT="$(hts_icon COMMIT)"
+HTS_ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
 # shellcheck disable=SC2034
-HTS_ICON_FOLDER="$(hts_icon FOLDER)"
+HTS_ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 # shellcheck disable=SC2034
-HTS_ICON_STALE="$(hts_icon STALE)"
+HTS_ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 # Git status symbols are the user-facing contract, so tests define them
 # independently instead of inheriting whatever the engine happens to render.
 # shellcheck disable=SC2034
@@ -76,7 +68,7 @@ _hts_engine_pid_live() {
   [[ -n "$start" ]] || return 0
   current="$(ps -p "$pid" -o lstart= 2>/dev/null |
     sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  [[ -z "$current" || "$current" == "$start" ]]
+  [[ -z "$current" || "$current" == "$start" ]] || return 1
 }
 
 _hts_sandbox_pids() {

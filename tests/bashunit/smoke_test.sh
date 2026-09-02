@@ -405,14 +405,30 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
   _bats_test_init 16 'pi settings include all managed packages'
   local settings="$HOME/.pi/agent/settings.json"
   assert_file_exists "$settings"
-  run jq -e '
-    (.packages | index("npm:pi-subagents") != null) and
-    (.packages | index("npm:pi-agent-browser-native") != null) and
-    (.packages | index("npm:@howaboua/pi-codex-conversion") != null) and
-    (.packages | index("npm:@trevonistrevon/pi-loop") != null) and
-    (.packages | index("npm:pi-web-access") != null) and
-    (.packages | index("npm:pi-context-view") != null) and
-    (.packages | index("npm:@ff-labs/pi-fff") != null)
+
+  # Derive the expected set from the modifier itself (the chezmoi source of
+  # truth) instead of a hardcoded copy, so this test cannot drift from it.
+  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  [[ -f "$modifier" ]] || skip "repository checkout is not mounted"
+
+  run bash "$modifier" <<< '{}'
+  assert_success
+
+  local expected
+  expected="$(jq -c '.packages' <<< "$output")"
+
+  # An empty selection would let the subset assertion below pass vacuously.
+  run jq -e 'length > 0' <<< "$expected"
+  assert_success
+
+  # Subset by design, not exact equality: tests/bashunit/scripts_test.sh:7039-7090
+  # already owns exact transform equality for the modifier's output. This test
+  # owns delivery completeness -- that apply reached the live settings.json --
+  # and a real machine can legitimately carry an extra package installed
+  # directly through Pi between applies (see
+  # docs/issues/2026-08-19-001-pi-package-inventory-drift.md).
+  run jq -e --argjson expected "$expected" '
+    ($expected - .packages) == []
   ' "$settings"
   assert_success
 }
@@ -967,11 +983,68 @@ function test_smoke_071_herdr_pane_label_plugin_keeps_startup_sweep_and() {
   local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   assert_file_contains "$manifest" '^\[\[startup\]\]$'
   assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/config.toml"'
-  assert_file_contains "$relink" 'include "dot_local/bin/executable_herdr-task-sync"'
+
+  # A source grep for the `include "..."` lines only proves the lines exist; it
+  # never proves the property the onchange mechanism relies on: editing a
+  # declared dependency must change the rendered hashes chezmoi diffs against,
+  # or a stale link/enable/reload never reruns. Render the script from a
+  # scratch source tree, mutate each dependency in turn, and require the
+  # rendered output to change. The unrelated-file control proves the harness
+  # can tell "changed" from "unchanged" at all, rather than always agreeing.
+  #
+  # This lives in the smoke suite, not templates_test.sh, because it shares one
+  # plugin-deployment contract with the manifest assertions above (the deployed
+  # `[[startup]]` block and the relink script's dependency wiring are two halves
+  # of the same "does the pane-labels plugin redeploy correctly" story) and
+  # because this suite runs on host and Docker alike, where templates_test.sh
+  # is Docker-only. Rendering from $SOURCE_ROOT instead of the deployed $HOME
+  # copy is deliberate: it is the only way to observe the hash-trigger property
+  # chezmoi relies on, which no deployed-file inspection can show.
+  skip_if_no_chezmoi
+  # The pinned policy under test: every path here is a file the relink script
+  # declares via `include "..."`, so mutating any one of them must change the
+  # rendered hash, and mutating anything outside this list must not. This list
+  # is the independent side the test compares the template against -- drop an
+  # `include` from the template without updating this list and the loop below
+  # fails on that dependency, as dropping the sweep.sh include line confirmed.
+  local onchange_deps=(
+    "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"
+    "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"
+    "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"
+    "private_dot_config/herdr/config.toml"
+    "dot_local/bin/executable_herdr-task-sync"
+  )
+  local scratch="$BATS_TEST_TMPDIR/onchange-deps"
+  mkdir -p "$scratch/private_dot_config/herdr/plugins/herdr-pane-labels" "$scratch/dot_local/bin"
+  local dep
+  for dep in "${onchange_deps[@]}"; do
+    cp "$SOURCE_ROOT/$dep" "$scratch/$dep"
+  done
+  # Lives next to the real dependencies but the script does not include it.
+  local control="private_dot_config/herdr/plugins/herdr-pane-labels/NOTES.md"
+  printf '# not a declared dependency\n' > "$scratch/$control"
+
+  local baseline
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+  assert_success
+  baseline="$output"
+
+  local rendered
+  for dep in "${onchange_deps[@]}"; do
+    printf '\n# onchange-hash probe\n' >> "$scratch/$dep"
+    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+    assert_success
+    rendered="$output"
+    run test "$rendered" != "$baseline"
+    assert_success
+    baseline="$rendered"
+  done
+
+  printf '\n# unrelated probe\n' >> "$scratch/$control"
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$scratch" execute-template < "$relink"
+  assert_success
+  run test "$output" == "$baseline"
+  assert_success
 }
 
 # ===========================================

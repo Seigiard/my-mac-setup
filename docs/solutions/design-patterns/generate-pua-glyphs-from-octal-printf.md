@@ -44,7 +44,7 @@ The failure was hit live during the icon-set selection for the herdr label syste
 
 Never paste a PUA glyph literally into a script. Generate it at runtime from its UTF-8 encoding spelled byte-by-byte in octal, one variable per icon, each with the glyph name and codepoint in a trailing comment so a human can map byte sequence → glyph without rendering it.
 
-Shipped pattern in `home/dot_local/bin/executable_herdr-task-sync:51-59`:
+Shipped pattern in `home/dot_local/bin/executable_herdr-task-sync:56-64`:
 
 ```bash
 # Codicon glyphs of the $git_ref grammar, generated from bash 3.2-safe octal
@@ -58,9 +58,9 @@ ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 ```
 
-The formatter `git_ref_for()` (same script, ~line 992) consumes these variables in its branch/worktree/commit/folder/stale arms; nothing downstream ever touches a raw glyph.
+The formatter `git_ref_for()` (same script, ~line 1182) consumes these variables in its branch/worktree/commit/folder/stale arms; nothing downstream ever touches a raw glyph.
 
-**Single-source the table — even the tests derive from it.** The bats suite does not retype the sequences: `hts_icon()` in `tests/scripts.bats` (~line 879) sed-extracts the octal strings from the engine script and hard-fails with `missing ICON_%s` if the table format drifts. A hand-duplicated copy of the table in the tests was a filed defect (`docs/issues/2026-08-20-007-label-system-test-gaps-and-duplicated-icon-table.md`, resolved by the derivation in commit `9e69d0b`).
+**Single-source the table for generation — not for the test that protects it.** The rule above covers anything that *produces* a glyph: never retype the octal sequence, always read it from this one table. A *test asserting the glyph is correct* is a different consumer with the opposite requirement — if it derives its expected value from the same table, a drifted glyph can never fail it, because the assertion then compares the engine against itself. `tests/helpers/herdr_task_sync.bash` originally derived its `HTS_ICON_*` constants this way, via a `hts_icon()` sed-extraction (itself a fix for an earlier hand-duplicated copy, filed as `docs/issues/2026-08-20-007-label-system-test-gaps-and-duplicated-icon-table.md`). `hts_icon()` has since been removed: those constants are now pinned as independent literals, because these glyphs are a user-facing pane-label contract with no config or environment override — the same treatment the file already gives `HTS_GIT_BEHIND`/`HTS_GIT_AHEAD`. See `docs/issues/2026-09-02-005-decide-the-herdr-task-sync-glyph-contract-and-test-it-independently.md` for the discriminator and the mutation-tested evidence: one changed codepoint in the engine now fails 19 assertions that previously could not fail.
 
 To derive the octal bytes for a new icon:
 
@@ -83,12 +83,12 @@ Verify the round trip: `printf '\356\261\257' | xxd` → `ee b1 af`, the UTF-8 e
 - More generally: whenever a source file must carry bytes that editors cannot display faithfully, spell the bytes — don't paste them.
 - This is the unicode-specific instance of the standing environment rule that macOS system bash is 3.2 (no `declare -A`, and no `\uXXXX` printf escapes).
 - Not needed where bash ≥ 4.2 is guaranteed (`\uXXXX` works) or the file format is binary-safe by design.
-- Width-math sibling gotcha, handled directly below the icon table in the same script: `wc -m` and `cut -c` must run under a UTF-8 locale, or each 3-byte codicon counts as three columns and truncation can cut a label mid-codepoint (`executable_herdr-task-sync:60-74`).
+- Width-math sibling gotcha, handled directly below the icon table in the same script: `wc -m` and `cut -c` must run under a UTF-8 locale, or each 3-byte codicon counts as three columns and truncation can cut a label mid-codepoint (`executable_herdr-task-sync:77-89`).
 
 ## Examples
 
-- `home/dot_local/bin/executable_herdr-task-sync:51-59` (icon table), ~`:992` (`git_ref_for()` consumer), `:60-74` (locale pin for width math).
-- `tests/scripts.bats` ~`:879-890` (`hts_icon()` extraction, `HTS_ICON_*` constants); icon-asserting tests include "herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state" (~`:3879`), which strips the five codicons and asserts only plain ASCII remains.
+- `home/dot_local/bin/executable_herdr-task-sync:56-64` (icon table), ~`:1182` (`git_ref_for()` consumer), `:77-89` (locale pin for width math).
+- `tests/helpers/herdr_task_sync.bash:9-26` (`HTS_ICON_*` pinned as independent literals — see the Guidance discriminator above, not a re-derivation); icon-asserting tests in `tests/bashunit/scripts_test.sh` include "herdr-task-sync location and formatter add only approved static icon glyphs and no forbidden ownership state", which strips the five codicons and asserts only plain ASCII remains.
 - Decision origin: `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md`, "Icon set — DECIDED" — records the codicon choice per slot, the octal sequences, the material-icons fallback family, and the "PUA glyph loss" risk entry.
 - Commits: `f7fd73c` (branch-first tab labels), `7c868d6` (unified `$git_ref` token), `9d1895f` (PR #24 close-out). All reachable from main.
 
@@ -97,3 +97,4 @@ Verify the round trip: `printf '\356\261\257' | xxd` → `ee b1 af`, the UTF-8 e
 - `docs/issues/2026-08-20-007-label-system-test-gaps-and-duplicated-icon-table.md` — the hand-duplicated icon table defect and its single-source resolution.
 - `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md` — origin plan of the label system.
 - `CONCEPTS.md` Theming section — the sibling terminal-rendering convention (palette-only, no baked hex); complementary, does not cover glyph encoding.
+- `docs/issues/2026-09-02-005-decide-the-herdr-task-sync-glyph-contract-and-test-it-independently.md` — the discriminator between single-sourcing for generation and pinning literals for a test whose job is to catch a change to the glyph itself.

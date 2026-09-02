@@ -50,6 +50,8 @@ function fakeContext(cwd: string) {
   };
 }
 
+const BASE_PROMPT = "Base prompt";
+
 describe("Pi AGENTS.local.md extension selection", () => {
   test("loads AGENTS.local.md when only AGENTS.local.md exists", async () => {
     const root = await temporaryProject();
@@ -58,10 +60,6 @@ describe("Pi AGENTS.local.md extension selection", () => {
     const selection = await inspectLocalInstructions(root);
 
     expect(selection.selected?.name).toBe("AGENTS.local.md");
-    expect(selection.diagnostics.map((diagnostic) => [diagnostic.name, diagnostic.status])).toEqual([
-      ["AGENTS.local.md", "selected"],
-      ["CLAUDE.local.md", "missing"],
-    ]);
   });
 
   test("prefers AGENTS.local.md when both local files resolve to different files", async () => {
@@ -72,21 +70,25 @@ describe("Pi AGENTS.local.md extension selection", () => {
     const selection = await inspectLocalInstructions(root);
 
     expect(selection.selected?.name).toBe("AGENTS.local.md");
-    expect(selection.diagnostics.map((diagnostic) => [diagnostic.name, diagnostic.status])).toEqual([
-      ["AGENTS.local.md", "selected"],
-      ["CLAUDE.local.md", "skipped-preferred-agents"],
-    ]);
   });
 
   test("skips a broken symlink and warns once per session", async () => {
     const root = await temporaryProject();
     await symlink("missing-target.md", join(root, "AGENTS.local.md"));
-    await writeFile(join(root, "CLAUDE.local.md"), "Fallback instructions.\n");
+    const fallbackSentinel = "SENTINEL_FALLBACK_9f1c";
+    await writeFile(join(root, "CLAUDE.local.md"), `Fallback instructions ${fallbackSentinel}.\n`);
     const { handlers } = fakePi();
     const { ctx, notifications } = fakeContext(root);
 
-    await handlers.before_agent_start({ systemPrompt: "Base prompt" }, ctx);
-    await handlers.before_agent_start({ systemPrompt: "Base prompt" }, ctx);
+    const first = await handlers.before_agent_start({ systemPrompt: BASE_PROMPT }, ctx);
+    const second = await handlers.before_agent_start({ systemPrompt: BASE_PROMPT }, ctx);
+
+    // The broken AGENTS.local.md symlink cannot supply a prompt, so the
+    // extension must fall back to CLAUDE.local.md's real content on every call.
+    expect(first.systemPrompt.startsWith(BASE_PROMPT)).toBe(true);
+    expect(first.systemPrompt).toContain(fallbackSentinel);
+    expect(second.systemPrompt.startsWith(BASE_PROMPT)).toBe(true);
+    expect(second.systemPrompt).toContain(fallbackSentinel);
 
     expect(notifications).toHaveLength(1);
     expect(notifications[0].level).toBe("warning");
@@ -101,10 +103,6 @@ describe("Pi AGENTS.local.md extension selection", () => {
     const selection = await inspectLocalInstructions(root);
 
     expect(selection.selected?.name).toBe("CLAUDE.local.md");
-    expect(selection.diagnostics.map((diagnostic) => [diagnostic.name, diagnostic.status])).toEqual([
-      ["AGENTS.local.md", "skipped-too-large"],
-      ["CLAUDE.local.md", "selected"],
-    ]);
     expect(selection.warnings[0]).toContain("above the 51200 byte limit");
   });
 
@@ -119,10 +117,6 @@ describe("Pi AGENTS.local.md extension selection", () => {
     const selection = await inspectLocalInstructions(root);
 
     expect(selection.selected?.name).toBe("CLAUDE.local.md");
-    expect(selection.diagnostics.map((diagnostic) => [diagnostic.name, diagnostic.status])).toEqual([
-      ["AGENTS.local.md", "skipped-outside-project"],
-      ["CLAUDE.local.md", "selected"],
-    ]);
     expect(selection.warnings[0]).toContain("resolves outside the project");
   });
 
@@ -134,6 +128,49 @@ describe("Pi AGENTS.local.md extension selection", () => {
 
     expect(selection.selected).toBeUndefined();
     expect(selection.warnings).toEqual([]);
-    expect(selection.diagnostics[0].status).toBe("skipped-not-file");
+  });
+});
+
+describe("Pi before_agent_start systemPrompt injection", () => {
+  test("injects the selected AGENTS.local.md content and excludes the CLAUDE.local.md fallback", async () => {
+    const root = await temporaryProject();
+    const agentsSentinel = "SENTINEL_AGENTS_4c2e91";
+    const claudeSentinel = "SENTINEL_CLAUDE_7a08bd";
+    await writeFile(join(root, "AGENTS.local.md"), `Use the local AGENTS file. ${agentsSentinel}\n`);
+    await writeFile(join(root, "CLAUDE.local.md"), `Use the local CLAUDE file. ${claudeSentinel}\n`);
+    const { handlers } = fakePi();
+    const { ctx } = fakeContext(root);
+
+    const result = await handlers.before_agent_start({ systemPrompt: BASE_PROMPT }, ctx);
+
+    expect(result.systemPrompt.startsWith(BASE_PROMPT)).toBe(true);
+    expect(result.systemPrompt).toContain(agentsSentinel);
+    // oracle: claudeSentinel is a fixture value this test wrote independently of the extension's source; a selection regression that injects the unselected fallback would leak it into the prompt.
+    expect(result.systemPrompt).not.toContain(claudeSentinel);
+  });
+
+  test("injects CLAUDE.local.md content when it is the only local instructions file", async () => {
+    const root = await temporaryProject();
+    const claudeSentinel = "SENTINEL_CLAUDE_ONLY_1d5f3a";
+    await writeFile(join(root, "CLAUDE.local.md"), `Use the local CLAUDE file. ${claudeSentinel}\n`);
+    const { handlers } = fakePi();
+    const { ctx } = fakeContext(root);
+
+    const result = await handlers.before_agent_start({ systemPrompt: BASE_PROMPT }, ctx);
+
+    expect(result.systemPrompt.startsWith(BASE_PROMPT)).toBe(true);
+    expect(result.systemPrompt).toContain(claudeSentinel);
+  });
+
+  test("leaves the prompt untouched when no local instructions file exists", async () => {
+    const root = await temporaryProject();
+    const { handlers } = fakePi();
+    const { ctx } = fakeContext(root);
+
+    const result = await handlers.before_agent_start({ systemPrompt: BASE_PROMPT }, ctx);
+
+    // No override object means the caller keeps its original systemPrompt
+    // untouched; that "no-op" contract is what proves the base prompt survives.
+    expect(result).toBeUndefined();
   });
 });
