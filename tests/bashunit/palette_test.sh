@@ -466,7 +466,9 @@ function test_palette_028_r2_an_empty_query_returns_every_command_in_group() {
   run rank_real ""
   assert_success
   assert_line --index 0 "Lazygit in new tab"
-  assert_equal "${#lines[@]}" 9
+  local configured_count
+  configured_count="$(grep -c '^\[\[commands\]\]$' "$REAL_COMMANDS")"
+  assert_equal "${#lines[@]}" "$configured_count"
 }
 
 function test_palette_029_a_command_with_no_shortcuts_still_matches_by_tit() {
@@ -1194,6 +1196,55 @@ PY
   assert_success
   assert_output --partial "survived"
   refute_output --partial "Traceback"
+}
+
+function test_palette_058_delete_checkout_requires_exact_confirmation() {
+  _bats_test_init 58 'Delete workspace checkout requires exact DELETE confirmation'
+  local stub="$PALETTE_WORK/delete-confirmation"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+SH
+  chmod +x "$stub/herdr"
+
+  run env HERDR_BIN_PATH="$stub/herdr" HERDR_CALLS="$stub/herdr.calls" \
+    HERDR_WORKSPACE_ID="w1" HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+from pathlib import Path
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(item for item in commands if item.title == "Delete workspace checkout")
+raw = palette.interactive_run_raw(command)
+child = palette.Command(
+    command.title,
+    command.description,
+    palette.command_kind(raw),
+    command.group,
+    raw,
+    command.origin,
+    command.source,
+)
+variables = palette.context_vars(Path(config_path), palette.os.environ["HERDR_BIN_PATH"])
+
+rejected = palette.variables_with_value(variables, "delete")
+status, output, _ = palette.run_command_with_variables(
+    child, Path(config_path), rejected, palette.os.environ["HERDR_BIN_PATH"]
+)
+assert status == 1, (status, output)
+assert "not deleted" in output, output
+assert not Path(palette.os.environ["HERDR_CALLS"]).exists()
+
+confirmed = palette.variables_with_value(variables, "DELETE")
+status, output, _ = palette.run_command_with_variables(
+    child, Path(config_path), confirmed, palette.os.environ["HERDR_BIN_PATH"]
+)
+assert status == 0, (status, output)
+assert Path(palette.os.environ["HERDR_CALLS"]).read_text().strip() == "worktree remove --workspace w1"
+PY
+  assert_success
 }
 
 function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions() {
