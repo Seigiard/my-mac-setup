@@ -1,6 +1,6 @@
 ---
 title: se-pipeline architecture redirection
-status: proposed
+status: rejected
 date: 2026-08-15
 supersedes: []
 ---
@@ -9,14 +9,14 @@ supersedes: []
 
 ## Status
 
-**Proposed.** Nothing here is implemented. Each of the four decisions below can be
-accepted or rejected on its own; decisions 1 and 2 are coupled and should move together.
+**Rejected.** The Smithers runtime and both executors were removed on 2026-09-01.
+This document remains as the historical analysis that preceded that decision.
 
 ## Context
 
-`se-pipeline` is a durable execution system for long-running coding agents, built on
-Smithers. It lives in `home/private_dot_claude/dot_smithers/` and is driven by the `se`
-CLI and a set of `se-*` skills. Two executors exist side by side: `se-pipeline.tsx`
+`se-pipeline` was a durable execution system for long-running coding agents, built on
+Smithers. It lived in `home/private_dot_claude/dot_smithers/` and was driven by the `se`
+CLI and a set of `se-*` skills. Two executors existed side by side: `se-pipeline.tsx`
 (1100 lines, a fixed four-stage conveyor) and `se-flow.tsx` (940 lines, a generic
 interpreter that executes a declarative flow spec composed from a library of typed
 blocks).

@@ -5,8 +5,9 @@ type: "idea"
 category: "se-pipeline"
 tags: ["se-pipeline","idea"]
 date: "2026-08-14"
-status: "open"
+status: "wontfix"
 priority: "medium"
+closed: "2026-08-31"
 ---
 
 # The launch surface asks for eleven things the operator cannot know and one it can
@@ -67,3 +68,7 @@ So the launch surface is simultaneously too large and too quiet: it offers eleve
 - **Which should be deleted.** `until` has one legal value. `smoke` and `smokeSeverity` are development inputs sharing a schema with operator inputs; a separate development entrypoint would keep the operator-facing schema honest.
 - **Whether the launcher should refuse to launch under-specified.** A repo that looks like a workspace, a plan whose contract names a runner the worktree will not have — both are checkable before spending anything. Refusing is loud and blocks on false positives; asking interactively is friendlier but breaks scripted launches.
 - **Whether `--attach` should exist at all.** It is documented with a warning that Ctrl-C cancels the run rather than detaching — a flag whose own help text explains how it will hurt you.
+
+## Resolution
+
+The se CLI and Smithers pipeline launch surface were removed.

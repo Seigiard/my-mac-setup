@@ -24,18 +24,14 @@ fi
     "npm:@howaboua/pi-codex-conversion",
     "npm:pi-subagents",
     "npm:pi-agent-browser-native",
-    "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
     "npm:@trevonistrevon/pi-loop",
     "npm:pi-web-access",
     "npm:pi-context-view",
   ];
-  const requiredSkills = ["~/.claude/skills"];
-  const skills = Array.isArray(settings.skills) ? settings.skills : [];
-
-  for (const skillSource of requiredSkills) {
-    if (!skills.includes(skillSource)) skills.push(skillSource);
-  }
+  const skills = Array.isArray(settings.skills)
+    ? settings.skills.filter((skillSource) => skillSource !== "~/.claude/skills")
+    : [];
 
   settings.theme = "terminal";
   settings.packages = extensions;

@@ -37,11 +37,11 @@ env:
   # clears this again per-job, below.
   MMS_CI_MINIMAL: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '1' || '' }}
   # Declares this runner's $HOME disposable, which is the only thing that lets
-  # the idempotency scenario in tests/idempotent.bats run its real `chezmoi
+  # the idempotency scenario in tests/bashunit/idempotent_test.sh run its real `chezmoi
   # apply`. Unconditional on purpose: it must NOT copy the
   # trigger-conditional shape of MMS_CI_MINIMAL above, or the nightly
   # `schedule` and the manual `workflow_dispatch` runs would silently lose that
-  # coverage. tests/idempotent.bats hard-fails when GITHUB_ACTIONS is set and
+  # coverage. tests/bashunit/idempotent_test.sh hard-fails when GITHUB_ACTIONS is set and
   # this is absent, so a deletion here turns the suite red rather than green.
   MMS_DISPOSABLE_HOME: "1"
   # Runners lack node's release GPG key, so mise's signature check on
@@ -58,14 +58,14 @@ env:
 jobs:
   test-ubuntu:
     runs-on: ubuntu-latest
-    # A normal run takes ~5 min; a hung apt mirror otherwise holds the job
-    # for the 360-min default and burns Actions minutes.
-    timeout-minutes: 15
+    # A normal push/PR run (minimal install) takes ~5 min; the nightly full
+    # install takes ~8 min. A hung apt mirror otherwise holds the job for the
+    # 360-min default and burns Actions minutes.
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           # The Brewfile-diff step below needs the event's base commit present.
           # 691 commits, so this costs a second or two against the minutes the
           # minimal install saves.
@@ -151,23 +151,6 @@ jobs:
       - name: Add chezmoi to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # CI-minimal Linux applies skip Homebrew entirely. Full applies install
-      # gitleaks into Linuxbrew, but that script-local shellenv does not reach
-      # later workflow steps. Keep the required Smithers scanner on the
-      # runner-facing PATH in both modes.
-      - name: Install gitleaks
-        run: |
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C "$HOME/.local/bin" gitleaks
-          gitleaks version
-        env:
-          GITLEAKS_VERSION: "8.30.1"
-
-      - name: Install bats
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bats
-
       # The command palette shells out to `fzf --filter` and refuses to start
       # without it. Ubuntu's apt fzf predates --accept-nth, which the palette
       # uses to map a match back to its command, so install the upstream build.
@@ -179,13 +162,8 @@ jobs:
         env:
           FZF_VERSION: "0.74.3"
 
-      # Must precede the apply: run_onchange_after_4-install-smithers-deps.sh
-      # provisions ~/.claude/.smithers only when bun is on PATH, and exits 0
-      # without a word when it is not. The Brewfile does install bun, but into
-      # Linuxbrew's prefix, which this job never puts on PATH — so the apply
-      # silently leaves the runtime without node_modules and the `se flow`
-      # tests then run bun in a directory that has none. macOS never hits this
-      # because brew's prefix is on PATH there by default.
+      # Post-apply Pi and TypeScript tests invoke bun from the runner-facing
+      # PATH; Linuxbrew's prefix is intentionally not exported by this job.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
@@ -195,7 +173,7 @@ jobs:
 
       # Stage 2: Fast pre-check gate (no apply needed)
       - name: Run template tests (pre-apply gate)
-        run: bats tests/templates.bats
+        run: tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
 
       # Stage 4: Apply dotfiles
       - name: Apply dotfiles (dry-run first)
@@ -203,31 +181,6 @@ jobs:
 
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
-
-      # The other smithers directory. Tests that set SE_SMITHERS_DIR point `se`
-      # at the checkout instead of the deployed runtime, and nothing provisions
-      # that copy — the apply deploys from it, it does not build it.
-      - name: Run the Smithers test gate
-        run: make test-smithers
-
-      # Report each gap once, here, instead of once per dependent test.
-      - name: Verify both smithers directories the tests call
-        run: |
-          test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
-          test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
-
-      # Within-file parallelism runs on bats' own semaphore, which hard-exits
-      # with "flock/shlock is required for parallelization within files!" when
-      # neither is present. Nothing is installed here: flock ships in Ubuntu,
-      # macOS ships /usr/bin/shlock. Asserting it gives that failure its own
-      # step instead of letting it surface mid-suite. --jobs needs bats >= 1.5;
-      # the version check guards against a runner-image pin-back.
-      - name: Assert the parallel-run prerequisites
-        run: |
-          command -v flock || command -v shlock
-          bats --version
-          bats --version | awk '{print $2}' \
-            | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'
 
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
@@ -244,13 +197,13 @@ jobs:
 
   test-macos:
     runs-on: macos-latest
-    # A normal run takes ~10 min; brew install times vary, so keep headroom.
-    timeout-minutes: 25
+    # A normal push/PR run (minimal install) takes ~8-10 min; the nightly full
+    # install takes ~15 min and brew install times vary, so keep headroom.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           # The Brewfile-diff step below needs the event's base commit present.
           # 691 commits, so this costs a second or two against the minutes the
           # minimal install saves.
@@ -323,9 +276,6 @@ jobs:
       - name: Install chezmoi
         run: brew install chezmoi
 
-      - name: Install bats
-        run: brew install bats-core
-
       # See the ubuntu job: fzf is the command palette's scorer, not optional.
       - name: Install fzf
         run: brew install fzf
@@ -334,7 +284,7 @@ jobs:
         run: chezmoi init --source=./home
 
       - name: Run template tests (pre-apply gate)
-        run: bats tests/templates.bats
+        run: tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
 
       - name: Apply dotfiles (dry-run first)
         run: chezmoi diff --source=./home || true
@@ -342,42 +292,27 @@ jobs:
       - name: Apply dotfiles
         run: chezmoi apply --source=./home --verbose
 
-      # See the ubuntu job. The deployed runtime needs no step here: brew's
-      # prefix is on PATH, so the apply's own script already provisioned it.
+      # Post-apply Pi and TypeScript tests use the pinned setup action on both
+      # platforms rather than depending on Homebrew's shell environment.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Run the Smithers test gate
-        run: make test-smithers
-
-      - name: Verify both smithers directories the tests call
-        run: |
-          test -x home/private_dot_claude/dot_smithers/node_modules/.bin/smithers
-          test -x "$HOME/.claude/.smithers/node_modules/.bin/smithers"
-
-      # Bats prefers flock over shlock for its within-file semaphore. macOS
-      # ships lockf and shlock, but bats-core polls the shlock backend with a
-      # one-second sleep under contention. This PATH entry gives Bats a narrow
-      # flock-compatible command that maps only Bats' simple lock form to
-      # lockf, without adding a Homebrew package to the timed CI setup.
-      - name: Select the Bats flock wrapper
-        run: echo "$GITHUB_WORKSPACE/scripts/ci/macos-bats-flock-bin" >> "$GITHUB_PATH"
-
-      # Within-file parallelism runs on bats' own semaphore. The macOS job
-      # requires the local wrapper here rather than accepting shlock, because
-      # bats-core polls the shlock backend with a one-second sleep under
-      # contention. Asserting the chosen backend gives a PATH mistake its own
-      # step instead of silently measuring the old path. --jobs needs bats >=
-      # 1.5; the version check guards against a runner-image pin-back.
-      - name: Assert the parallel-run prerequisites
-        run: |
-          test "$(command -v flock)" = "$GITHUB_WORKSPACE/scripts/ci/macos-bats-flock-bin/flock"
-          command -v lockf
-          bats --version
-          bats --version | awk '{print $2}' \
-            | awk -F. '{ exit !($1 > 1 || ($1 == 1 && $2 >= 5)) }'
-
+      # This runner has 3 cores, so the suite's default of 8 workers
+      # oversubscribes it nearly 3:1. The herdr-task-sync tests bound their
+      # waits in wall clock -- a claim gives up after ~200 ms, a git probe
+      # after its budget, the fail-open guard after a scaled baseline -- and
+      # under that oversubscription those bounds lose to the scheduler rather
+      # than to behavior, so the worktree-identity tests failed here on every
+      # run while Ubuntu passed. Raising the individual bounds does not fix it
+      # and trades one failure for another: a claim ceiling large enough to
+      # survive 8 workers makes the engine spin 8.4 s where the fail-open
+      # guard allows 8.1, so the promptness tests fail instead. Measured on
+      # macos-latest against the full post-apply suite: 8 workers 6 failures,
+      # 6 workers 3 failures, 4 workers 0 failures in 422 s -- faster than the
+      # 8-worker run it replaces. Ubuntu keeps the default; it passes there.
       - name: Run post-apply tests
+        env:
+          MMS_BASHUNIT_JOBS: "4"
         run: tests/run-post-apply.sh full
 
       # Save-only keeps scheduled and manual full-Brewfile runs useful as cache

@@ -20,7 +20,6 @@ type Trigger = "startup" | "manual";
 type NotificationLevel = "info" | "warning" | "error";
 
 export interface UpdateUi {
-  setStatus(id: string, value: string | undefined): void;
   notify(message: string, level: NotificationLevel): void;
 }
 
@@ -250,6 +249,32 @@ function reportFailure(message: string): UpdateResult {
   return { status: "failed", message };
 }
 
+function levelForStatus(status: UpdateResult["status"]): NotificationLevel {
+  return status === "failed" ? "warning" : "info";
+}
+
+// Startup stays silent on non-failure outcomes (skip/contend/up-to-date) so a
+// routine "nothing to do" run does not nag every session; a failure always
+// notifies regardless of trigger, and the manual command always reports its
+// terminal outcome since the user explicitly asked for one.
+function shouldNotify(trigger: Trigger, status: UpdateResult["status"], installedUpdate: boolean): boolean {
+  if (status === "failed") return true;
+  if (trigger === "manual") return true;
+  return installedUpdate;
+}
+
+function finish(
+  trigger: Trigger,
+  ui: UpdateUi,
+  result: UpdateResult,
+  installedUpdate = false,
+): UpdateResult {
+  if (shouldNotify(trigger, result.status, installedUpdate)) {
+    notify(ui, result.message, levelForStatus(result.status));
+  }
+  return result;
+}
+
 interface InstalledPackage {
   source: string;
   path: string;
@@ -354,19 +379,19 @@ export async function runBrewAutoUpdate(
 ): Promise<UpdateResult> {
   if (deps.env.PI_OFFLINE === "1") {
     const message = "Pi update skipped: offline mode is active.";
-    return { status: "skipped", message };
+    return finish(trigger, ui, { status: "skipped", message });
   }
   if (trigger === "startup" && deps.env.PI_BREW_AUTO_UPDATE === "0") {
     const message = "Pi startup update is disabled.";
-    return { status: "skipped", message };
+    return finish(trigger, ui, { status: "skipped", message });
   }
 
   let lock: AcquiredLock | undefined;
   try {
     const candidate = await acquireLock(deps);
     if (!candidate.acquired) {
-      const message = "Pi update skipped: another Pi process owns the update lock.";
-      return { status: "contended", message };
+      const message = "Pi update skipped: a Pi update is already running.";
+      return finish(trigger, ui, { status: "contended", message });
     }
     lock = candidate;
 
@@ -382,16 +407,18 @@ export async function runBrewAutoUpdate(
         result = await deps.exec(step.command, [...step.args], { timeout: deps.timeoutMs });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        return reportFailure(`${step.label} failed: ${detail}`);
+        return finish(trigger, ui, reportFailure(`${step.label} failed: ${detail}`));
       }
 
       if (result.killed) {
-        return reportFailure(
-          `${step.label} timed out after ${Math.round(deps.timeoutMs / 60_000)} minutes.`,
+        return finish(
+          trigger,
+          ui,
+          reportFailure(`${step.label} timed out after ${Math.round(deps.timeoutMs / 60_000)} minutes.`),
         );
       }
       if (result.code !== 0) {
-        return reportFailure(`${step.label} failed: ${failureDetail(result)}`);
+        return finish(trigger, ui, reportFailure(`${step.label} failed: ${failureDetail(result)}`));
       }
       if (detectsExtensionUpdate) {
         const extensionAfter = await deps.snapshotExtensions();
@@ -409,16 +436,15 @@ export async function runBrewAutoUpdate(
     }
 
     const updateMessage = installedUpdateMessage(installedUpdates);
-    if (updateMessage) notify(ui, updateMessage, "info");
     const message =
       updateMessage ??
       (extensionChangeUnknown
         ? "Pi package update completed; extension changes could not be verified."
         : "Pi is up to date.");
-    return { status: "complete", message };
+    return finish(trigger, ui, { status: "complete", message }, updateMessage !== undefined);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return reportFailure(`Pi update failed without blocking startup: ${detail}`);
+    return finish(trigger, ui, reportFailure(`Pi update failed without blocking startup: ${detail}`));
   } finally {
     await lock?.release();
   }

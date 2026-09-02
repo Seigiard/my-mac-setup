@@ -40,6 +40,13 @@ type = "shell"
 command = "zsh -ic 'gpmain'"
 
 [[commands]]
+group = "Workspaces"
+title = "Switch workspace"
+shortcuts = ["ws", "цы"]
+description = "Choose and focus a workspace"
+type = "workspace_picker"
+
+[[commands]]
 group = "Editor"
 title = "Open in Zed"
 shortcuts = ["zed", "яув"]
@@ -47,21 +54,6 @@ description = "Open the current pane's directory in Zed"
 type = "shell"
 pause = false
 command = "python3 {plugin_root_q}/open_in_zed.py {target_cwd_q}"
-
-[[commands]]
-group = "Herdr"
-title = "Switch workspace"
-shortcuts = ["ws", "цы"]
-description = "Choose and focus a workspace"
-type = "workspace_picker"
-
-[[commands]]
-group = "Smithers"
-title = "sm monitor"
-description = "Open the smithers live web UI (Gateway :7331) in the browser"
-type = "shell"
-pause = false
-command = "se monitor"
 
 [[commands]]
 group = "Herdr"

@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]
 date: "2026-08-18"
-status: "open"
+status: "wontfix"
 priority: "medium"
+closed: "2026-08-31"
 ---
 
 ## Why this exists
@@ -92,3 +93,7 @@ path.
   host processes with a narrower read-only policy.
 - Whether Smithers' Herdr mirror is sufficient for intervention, or whether a safe interactive hijack
   path is also required before rollout.
+
+## Resolution
+
+Smithers and its pipeline runtime were removed from the repository; a Smithers-specific sandbox migration is no longer applicable.

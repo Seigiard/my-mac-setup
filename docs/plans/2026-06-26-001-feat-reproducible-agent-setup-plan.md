@@ -1,6 +1,7 @@
 ---
 date: 2026-06-26
-status: open
+status: superseded
+superseded_by: docs/plans/2026-08-31-feat-unified-agent-skills-management-plan.md
 type: feat
 origin: docs/brainstorms/2026-06-26-reproduce-agent-setup-requirements.md
 ---

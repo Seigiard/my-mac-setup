@@ -40,10 +40,10 @@ Ask the user when:
 
 Every skill's own description already carries its triggers. These four lines resolve what a description cannot:
 
-- **Review, plan, or doc-review → the local `/se-*` wrapper** (`/se-code-review`, `/se-plan`, `/se-doc-review`), never the `compound-engineering:ce-*` original it wraps: same workflow plus independent external claude + opencode legs.
-- **Commit, push, PR → `/compound-engineering:ce-commit` or `ce-commit-push-pr`.** The skill owns every git command; run none of them yourself first.
+- **Review, plan, or doc-review → the local `/se-*` wrapper** (`/se-code-review`, `/se-plan`, `/se-doc-review`), never the bare portable `ce-*` original it wraps: same workflow plus independent external Claude and OpenCode legs.
+- **Commit, push, PR → `ce-commit` or `ce-commit-push-pr`.** The skill owns every git command; run none of them yourself first.
 - **Plan iteration ("итерация N", "дальше") → load the plan file first**, then batch 2–3 units per pass, each batch gated on a commit.
-- **Migration or refactor → `/compound-engineering:ce-work` with scope fidelity:** code the migration deleted stays deleted.
+- **Migration or refactor → `ce-work` with scope fidelity:** code the migration deleted stays deleted.
 
 ## Working with code
 
@@ -54,6 +54,22 @@ Every skill's own description already carries its triggers. These four lines res
 - A model suits work with no single correct answer: classification, drafting, summarization, extraction.
 - Code suits work that is computable: control flow, retry policy, deterministic transforms, counting, parsing.
 - If code can answer, write the code. Do not eyeball a large corpus — measure it.
+
+</important>
+
+<important if="you are adding or reviewing tests, or a skill, plan, or workflow step tells you to write tests">
+
+- **Declare the oracle before the first test edit.** Before the first Edit/Write to any test file, write one line in your visible response naming the consumer, the observable failure, and an oracle independent of the files this patch changes. If you cannot complete the line, write zero new tests and say so. A useful test fails when the protected behavior breaks and stays green through harmless source refactors.
+- **This gate outranks every skill's step list.** A "write failing tests first" step in ce-debug, ce-work, or any other workflow does not waive it: a red test proves nothing when its expected value comes from the same patch or inspects source shape. Without the oracle line, the correct output of that step is zero tests.
+- Reject expected values copied from source, prompt, config, fixture, or inventory changed by the same patch. Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
+- Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
+- Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
+
+</important>
+
+<important if="the interface, hook, or dispatch point you need does not exist in the system that owns the behavior">
+
+A missing interface is a finding to report, not permission to reimplement the owning system's behavior locally. Stop, name the missing interface, and ask. A local clone of upstream behavior — plus tests for the clone — is the expensive wrong turn.
 
 </important>
 
@@ -89,6 +105,15 @@ Pick one (more recent / more tested), state why in one line, and flag the other 
 - `~/.scratchpad` is the trash directory only. Temporary working files still go to the per-session scratchpad path that the system prompt gives you.
 - Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
+
+**Long-running work**
+
+<important if="you are about to start, background, or wait on a long-running process — build, test run, dev server, migration, background agent, remote job">
+
+- Read `~/.claude/shared/long-running-work.md` before launching. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
+- The herdr block below decides *where* the process runs when `HERDR_ENV=1`. It does not replace the supervision contract — pane placement comes from herdr, supervision from that document.
+
+</important>
 
 <important if="you are about to start a long-running or observable process — dev server, test watcher, log tail, build — and HERDR_ENV=1 is set">
 

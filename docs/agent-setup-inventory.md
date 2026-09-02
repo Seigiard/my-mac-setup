@@ -1,185 +1,50 @@
-# Agent setup inventory
+# Agent Setup Inventory
 
-The curated list of plugins / skills / agents I **choose**, for manual reinstall
-across Claude Code, OpenCode, and Pi. Maintained by hand. Bundle internals
-(skills/agents that ship inside a plugin or distribution) are listed as **one
-line**, never enumerated — they come back when the bundle is installed.
+The repository reproduces the selected Claude Code, OpenCode, and Pi setup.
+Codex, Gemini CLI, and GitHub Copilot are intentionally out of scope.
 
-Codex / Gemini CLI / GitHub Copilot targets are ignored on purpose.
+## Skill Ownership
 
-**Source:** `gh:owner/repo` · `npm:pkg` · `git:url` · `repo` (authored in this
-dotfiles repo) · `bundle:name` (ships inside a bundle) · `?` (unconfirmed).
-**Managed:** `chezmoi-ext` (`home/.chezmoiexternal.toml`) · `repo` (tracked here)
-· `manual` (installed by hand / a CLI, not reproduced by this repo).
+`home/private_dot_config/agent-skills/manifest` is the source of truth for
+selected upstream skills. `~/.local/bin/skills` installs them globally under
+`~/.agents/skills`; its global lock owns those upstream children at
+`${XDG_STATE_HOME:-$HOME/.local/state}/skills/.skill-lock.json`.
 
-## Common
+`home/private_dot_agents/skills/` owns repository model-invocable skills.
+Claude Code receives symlink adapters under `~/.claude/skills`; OpenCode and Pi
+discover `~/.agents/skills` natively. No effective skill name may have both
+owners.
 
-### Compound Engineering
+| Ownership | Current inventory |
+| --- | --- |
+| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-code-review`, `se-doc-review`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary`, `writing-for-agents` |
+| Explicit-only | `eli5`, `open-questions`: Claude/Pi manual adapters and OpenCode command adapters only |
+| Upstream-managed | Compound Engineering `*`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `frontend-design`, `skill-creator` |
 
-Install on Claude, Opencode, Pi
+`handoff` is absent and is not managed. `linear-cli`, not `linear`, is the
+selected upstream skill name. `writing-for-agents` is a repository-owned local
+fork and has no upstream update relationship.
 
-https://github.com/EveryInc/compound-engineering-plugin
+## Skills CLI
 
-### CC Safety Net
+Use `skills add <source> [skill...]`, `skills remove <source> <skill...>`,
+`skills update [skill...]`, or `skills sync`. `sync` installs every manifest
+entry and reports unmanaged or obsolete lock entries with explicit `skills
+remove` commands. It never removes drift automatically. Restart Claude Code,
+OpenCode, and Pi after installation or discovery configuration changes.
+Successful upstream CLI output is hidden by default; use `skills --verbose
+<command>` to restore it. Failed commands always replay the captured diagnostics.
 
-Install on Claude, Opencode, Pi
+## Plugin-Owned Functionality
 
-https://ccsafetynet.com/docs/installation
+Portable bare `ce-*` skills replace the former client-specific Compound
+Engineering providers.
 
----
+Claude retains `claude-md-management`, `playwright`, `plugin-dev`,
+`security-guidance`, and `typescript-lsp` for non-skill functionality. Its
+Compound Engineering and `frontend-design` plugins are retired. OpenCode does
+not install the Compound Engineering plugin or its generated convenience
+commands. Pi does not install the Compound Engineering package; its managed
+extension list remains the source of truth for non-skill packages.
 
-## Claude Code
-
-### Marketplaces — `claude plugin marketplace add <source>`
-
-| Marketplace             | Source                                  |
-| ----------------------- | --------------------------------------- |
-| claude-plugins-official | `gh:anthropics/claude-plugins-official` |
-| cc-marketplace          | `gh:kenryu42/cc-marketplace`            |
-
-### Plugins — `claude plugin install <plugin>@<marketplace>`
-
-| Plugin               | Marketplace             | Scope | Status  |
-| -------------------- | ----------------------- | ----- | ------- |
-| claude-md-management | claude-plugins-official | user  | enabled |
-| playground           | claude-plugins-official | user  | enabled |
-| playwright           | claude-plugins-official | user  | enabled |
-| skill-creator        | claude-plugins-official | user  | enabled |
-| plugin-dev           | claude-plugins-official | user  | enabled |
-
-### Skills (`~/.claude/skills/`)
-
-| Skill             | Source                              | Managed     |
-| ----------------- | ----------------------------------- | ----------- |
-| ask-in-herdr      | `repo`                              | repo        |
-| eli5              | `repo`                              | repo        |
-| handoff           | `?` (likely `gh:mattpocock/skills`) | manual      |
-| herdr             | `repo`                              | repo        |
-| improve-claude-md | `gh:dexhorthy/slopfiles`            | chezmoi-ext |
-| linear            | `gh:schpet/linear-cli`              | chezmoi-ext |
-| markdown-new      | `repo`                              | repo        |
-| open-questions    | `repo`                              | repo        |
-| se-code-review    | `repo` (local CE wrapper)           | repo        |
-| se-doc-review     | `repo` (local CE wrapper)           | repo        |
-| se-plan           | `repo` (local CE wrapper)           | repo        |
-| writing-for-agents | `repo` (vendored from `gh:mattpocock/skills`) | repo |
-
-
-### Smithers workflows (`~/.claude/.smithers/`)
-
-| Workflow       | Source | Managed |
-| -------------- | ------ | ------- |
-| se-code-review | `repo` | repo    |
-| se-doc-review  | `repo` | repo    |
-
-Managed Smithers backends remain available to `se-pipeline` and `se-flow`; standalone review wrappers launch fresh Herdr peers. Runtime deps/state are ignored.
-
-### Agents (`~/.claude/agents/`)
-
-| Agent                 | Source |
-| --------------------- | ------ |
-| open-source-librarian | `repo` |
-
----
-
-## OpenCode
-
-### Plugin (`~/.config/opencode/opencode.json` → `plugin[]`)
-
-No OpenCode plugins are installed via `plugin[]`.
-
-Local plugins kept in repo: `herdr-agent-state.js`.
-
-### Skills (`~/.config/opencode/skills/`)
-
-- `bundle:compound-engineering` — the `ce-*` set (37). Not enumerated.
-- Own: `lfg`.
-- Canonical Claude skills exposed through managed symlinks: `ask-in-herdr`,
-  `markdown-new`, `vector-prime`, `work-summary`, `writing-for-agents`.
-
-### Commands (`~/.config/opencode/commands/`)
-
-| Command        | Source | Managed | Invocation |
-| -------------- | ------ | ------- | ---------- |
-| eli5           | `repo` | repo    | manual     |
-| open-questions | `repo` | repo    | manual     |
-
-### Agents (`~/.config/opencode/agent/` — ~51)
-
-- `bundle:compound-engineering` — the `ce-*` reviewer/researcher set (~48). Not enumerated.
-- Own / synced: `agent-enhancer`, `open-source-librarian`, `review`.
-
----
-
-## Pi
-
-### Packages (`~/.pi/agent/settings.json` → `packages[]`) — `pi install <source>`
-
-`home/dot_pi/agent/modify_settings.json` is the source of truth for Pi package
-extensions. Its `extensions` array is an exact desired list: `chezmoi apply`
-writes it to `~/.pi/agent/settings.json` `packages[]`. No Pi package extension
-is manual, and this inventory intentionally does not duplicate the package list.
-
-### Skills (`~/.pi/agent/skills/`)
-
-No Pi-only live skills are kept. Pi reads shared Claude skills from
-`~/.claude/skills` through `~/.pi/agent/settings.json` `skills[]`.
-This includes the explicit-only `eli5` and `open-questions` skills, invoked as
-`/skill:eli5` and `/skill:open-questions`.
-
-### Agents (`~/.pi/agent/agents/`)
-
-No live Pi agents are kept. Add any future agent to `home/dot_pi/agent/agents/`
-before using it, so `chezmoi apply` can reproduce it.
-
----
-
-## Codex / Gemini / Copilot
-
-Ignored on purpose; not reproduced by this repo.
-
----
-
-## Cross-tool skills (want everywhere)
-
-| Skill | Claude | OpenCode | Pi   | Source |
-| ----- | ------ | -------- | ---- | ------ |
-| herdr | ✓      | want     | want | `repo` |
-
-## Explicit-only workflows
-
-`eli5` and `open-questions` share canonical descriptions and bodies from
-`home/.chezmoitemplates/explicit-only-<name>-*`. Claude Code adapters keep
-`disable-model-invocation: true`; Pi consumes those Claude skills; OpenCode
-receives manual command adapters and no native skill adapters.
-
-When adding or updating one of these workflows:
-
-1. Change its canonical description and body under `home/.chezmoitemplates/`.
-2. Add or update the Claude `SKILL.md.tmpl` and OpenCode command `.md.tmpl` thin adapters.
-3. Keep `$ARGUMENTS`, `$<digits>`, and unquoted `@path` out of canonical bodies unless OpenCode expansion is intentional.
-4. Keep both `OPENCODE_DISABLE_EXTERNAL_SKILLS=1` and `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl`.
-5. Extend the focused explicit-only case in `tests/smoke.bats`, run the Docker verification, apply through the normal chezmoi source-clone workflow, and restart each client from managed zsh.
-
-Verified behavior baselines are OpenCode `1.18.20` and Pi `0.84.2`. If an
-observed client version differs, rerun the manual discovery and invocation
-checks before updating these baseline versions.
-
----
-
-## Install quickref
-
-- **Claude:** `claude plugin marketplace add <source>`, then
-  `claude plugin install <plugin>@<marketplace>`. Skills marked `chezmoi-ext` /
-  `repo` come via `chezmoi apply`; `manual` ones must be reinstalled by hand.
-- **OpenCode:** ensure `plugin[]` in `opencode.json` if plugins are added;
-  OpenCode self-installs npm plugins at startup.
-- **Pi:** `pi install <source>` per `packages[]` (`pi list` to check,
-  `pi update --all` to refresh).
-
-## Drift / to confirm
-
-- Source of `handoff` is unconfirmed (`manual` install, not reproduced).
-- OpenCode carries `agent-enhancer`, `open-source-librarian`, `review` agents —
-  confirm whether authored-and-synced or stragglers.
-- Whether to make `herdr` multi-tool now (currently Claude-only live).
+`open-source-librarian` is the repository-managed Claude agent.

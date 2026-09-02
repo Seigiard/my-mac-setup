@@ -5,8 +5,9 @@ type: "bug"
 category: "se-pipeline"
 tags: ["se-pipeline","bug"]
 date: "2026-08-20"
-status: "open"
+status: "wontfix"
 priority: "high"
+closed: "2026-08-31"
 ---
 
 ## Why this exists
@@ -52,3 +53,7 @@ Candidate fixes (combinable):
 
 - Fixed larger timeout vs. scaling from `validateTimeoutMs`.
 - Whether to cap the apply-set size per run (14 findings in one 20-min leg was ambitious).
+
+## Resolution
+
+The Smithers se-simplify apply leg was removed; the surviving Herdr-based se-simplify workflow does not use this timeout path.

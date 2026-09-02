@@ -1,0 +1,344 @@
+#!/usr/bin/env bash
+# Managed front end for the Vercel Skills CLI. Keep this Bash 3.2 compatible.
+set -u
+
+MANIFEST="${SKILLS_MANIFEST:-$HOME/.config/agent-skills/manifest}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+LOCK_PATH="$STATE_HOME/skills/.skill-lock.json"
+CANONICAL_ROOT="${SKILLS_CANONICAL_ROOT:-$HOME/.agents/skills}"
+REPOSITORY_OWNED_MANIFEST="${SKILLS_REPOSITORY_OWNED_MANIFEST:-$CONFIG_HOME/agent-skills/repository-owned}"
+MAX_FILE_BYTES="${SKILLS_MAX_FILE_BYTES:-2097152}"
+TMPDIR="${TMPDIR:-/tmp}"
+SKILLS_VERBOSE="${SKILLS_VERBOSE:-0}"
+
+usage() {
+  printf '%s\n' 'Usage: skills [--verbose] {add SOURCE [SKILL...]|remove SOURCE SKILL...|update [SKILL...]|sync}' >&2
+}
+
+fail() {
+  printf 'skills: %s\n' "$*" >&2
+  return 1
+}
+
+valid_source() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+valid_skill() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+
+lock_records() {
+  [ -e "$LOCK_PATH" ] || return 3
+  python3 - "$LOCK_PATH" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        data = json.load(stream)
+    if data.get("version") != 3 or not isinstance(data.get("skills"), dict):
+        raise ValueError("unsupported Skills CLI lock schema")
+    for name, entry in data["skills"].items():
+        if not isinstance(name, str) or not isinstance(entry, dict) or not isinstance(entry.get("source"), str):
+            raise ValueError("invalid Skills CLI lock entry")
+        print("%s\t%s" % (name, entry["source"]))
+except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+    print("skills: malformed or unsupported global lock: %s" % error, file=sys.stderr)
+    sys.exit(2)
+PY
+}
+
+validate_live_lock() {
+  local status
+  lock_records >/dev/null
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    3) return 0 ;; # No lock is valid before the first installation.
+    *) return "$status" ;;
+  esac
+}
+
+lock_source_for_skill() {
+  lock_records | while IFS=$'\t' read -r name source; do
+    [ "$name" = "$1" ] && { printf '%s\n' "$source"; return 0; }
+  done
+}
+
+remove_lock_claim() {
+  local skill="$1" temporary="$LOCK_PATH.tmp.$$"
+  python3 - "$LOCK_PATH" "$temporary" "$skill" <<'PY'
+import json, os, sys
+lock, temporary, skill = sys.argv[1:]
+with open(lock, encoding="utf-8") as stream:
+    data = json.load(stream)
+data["skills"].pop(skill, None)
+with open(temporary, "w", encoding="utf-8") as stream:
+    json.dump(data, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+os.replace(temporary, lock)
+PY
+}
+
+invoke_npx() {
+  local command="$1"
+  shift
+  (
+    cd "$TMPDIR" || exit 1
+    env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" \
+      XDG_CONFIG_HOME="$CONFIG_HOME" XDG_DATA_HOME="$DATA_HOME" \
+      XDG_STATE_HOME="$STATE_HOME" XDG_CACHE_HOME="$CACHE_HOME" \
+      LC_ALL=C CI=1 NO_COLOR=1 \
+      npx --yes skills@latest "$command" "$@"
+  )
+}
+
+run_npx() {
+  local output status
+  mkdir -p "$TMPDIR" "$CONFIG_HOME" "$STATE_HOME" "$DATA_HOME" "$CACHE_HOME" || return 1
+  if [ "$SKILLS_VERBOSE" = 1 ]; then
+    invoke_npx "$@"
+    return
+  fi
+  output="$(mktemp "$TMPDIR/skills-output.XXXXXX")" || return 1
+  trap 'status=$?; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
+  invoke_npx "$@" > "$output" 2>&1
+  status=$?
+  [ "$status" -eq 0 ] || cat "$output" >&2
+  rm -f "$output"
+  trap - EXIT HUP INT TERM
+  return "$status"
+}
+
+run_add() {
+  local source="$1"
+  shift
+  local args=("$source") skill
+  for skill in "$@"; do args+=(--skill "$skill"); done
+  [ "$SKILLS_VERBOSE" = 1 ] || printf 'Installing skills from %s: %s\n' "$source" "$*"
+  run_npx add "${args[@]}" --global --agent claude-code --agent opencode --agent pi --yes
+}
+
+run_remove() { run_npx remove --global "$@" --yes; }
+run_update() { run_npx update --global "$@"; }
+
+parse_manifest() {
+  local line source skill count had_noglob=0
+  MANIFEST_SOURCES=()
+  MANIFEST_SKILLS=()
+  [ -r "$MANIFEST" ] || { fail "cannot read manifest: $MANIFEST"; return 1; }
+  case $- in *f*) had_noglob=1 ;; esac
+  set -f
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    # Manifest fields are whitespace-delimited; globbing is disabled above.
+    # shellcheck disable=SC2086
+    set -- $line
+    [ "$#" -eq 0 ] && continue
+    source="$1"
+    shift
+    valid_source "$source" || { [ "$had_noglob" -eq 1 ] || set +f; fail "invalid manifest source: $source"; return 1; }
+    [ "$#" -gt 0 ] || { [ "$had_noglob" -eq 1 ] || set +f; fail "manifest source has no skills: $source"; return 1; }
+    for skill in "${MANIFEST_SOURCES[@]:-}"; do
+      [ "$skill" != "$source" ] || { [ "$had_noglob" -eq 1 ] || set +f; fail "duplicate manifest source: $source"; return 1; }
+    done
+    count=0
+    for skill in "$@"; do
+      if [ "$skill" = '*' ]; then
+        [ "$#" -eq 1 ] || { [ "$had_noglob" -eq 1 ] || set +f; fail "wildcard cannot be mixed with named skills: $source"; return 1; }
+      else
+        valid_skill "$skill" || { [ "$had_noglob" -eq 1 ] || set +f; fail "invalid manifest skill: $skill"; return 1; }
+      fi
+      case " ${MANIFEST_SKILLS[*]:-} " in
+        *" $source:$skill "*) [ "$had_noglob" -eq 1 ] || set +f; fail "duplicate manifest skill: $source $skill"; return 1 ;;
+      esac
+      MANIFEST_SKILLS+=("$source:$skill")
+      count=$((count + 1))
+    done
+    [ "$count" -gt 0 ] || return 1
+    MANIFEST_SOURCES+=("$source")
+  done < "$MANIFEST"
+  [ "$had_noglob" -eq 1 ] || set +f
+  [ "${#MANIFEST_SOURCES[@]}" -gt 0 ] || { fail 'manifest is empty'; return 1; }
+}
+
+load_repository_owned() {
+  local line name extra
+  REPOSITORY_OWNED_NAMES=()
+  [ -r "$REPOSITORY_OWNED_MANIFEST" ] || {
+    fail "cannot read repository-owned manifest: $REPOSITORY_OWNED_MANIFEST"
+    return 1
+  }
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    read -r name extra <<< "$line"
+    [ -n "${name:-}" ] || continue
+    [ -z "${extra:-}" ] || { fail "invalid repository-owned manifest entry: $line"; return 1; }
+    valid_skill "$name" || { fail "invalid repository-owned skill: $name"; return 1; }
+    case " ${REPOSITORY_OWNED_NAMES[*]:-} " in
+      *" $name "*) fail "duplicate repository-owned skill: $name"; return 1 ;;
+    esac
+    REPOSITORY_OWNED_NAMES+=("$name")
+  done < "$REPOSITORY_OWNED_MANIFEST"
+}
+
+repository_owns() {
+  local name
+  for name in "${REPOSITORY_OWNED_NAMES[@]:-}"; do
+    [ "$name" != "$1" ] || return 0
+  done
+  return 1
+}
+
+snapshot_repository_trees() {
+  local name
+  for name in "${REPOSITORY_OWNED_NAMES[@]:-}"; do
+    [ ! -d "$CANONICAL_ROOT/$name" ] || cp -pR "$CANONICAL_ROOT/$name" "$1/$name" || return 1
+  done
+}
+
+validate_manifest_collisions() {
+  local entry skill
+  for entry in "${MANIFEST_SKILLS[@]}"; do
+    skill="${entry#*:}"
+    [ "$skill" = '*' ] && continue
+    repository_owns "$skill" && { fail "manifest skill collides with repository-owned skill: $skill"; return 1; }
+  done
+  return 0
+}
+
+validate_canonical_tree() {
+  local root="$1" item size
+  [ -d "$root" ] || { fail "missing canonical skill tree: $root"; return 1; }
+  while IFS= read -r -d '' item; do
+    [ -d "$item" ] && [ ! -L "$item" ] && continue
+    [ ! -L "$item" ] || { fail "canonical tree contains symlink: $item"; return 1; }
+    [ -f "$item" ] || { fail "canonical tree contains non-regular entry: $item"; return 1; }
+    size="$(wc -c < "$item" | tr -d ' ')"
+    [ "$size" -le "$MAX_FILE_BYTES" ] || { fail "canonical tree file exceeds $MAX_FILE_BYTES bytes: $item"; return 1; }
+  done < <(find "$root" -mindepth 1 -print0)
+}
+
+validate_mandatory_compound_skills() {
+  local skill source
+  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
+    source="$(lock_source_for_skill "$skill")"
+    [ "$source" = 'EveryInc/compound-engineering-plugin' ] || {
+      fail "missing mandatory Compound Engineering skill: $skill"
+      return 1
+    }
+    validate_canonical_tree "$CANONICAL_ROOT/$skill" || return 1
+  done
+}
+
+report_drift() {
+  local name source entry desired wildcard=0
+  while IFS=$'\t' read -r name source; do
+    desired=0
+    wildcard=0
+    for entry in "${MANIFEST_SKILLS[@]}"; do
+      [ "${entry%%:*}" = "$source" ] || continue
+      [ "${entry#*:}" != '*' ] || wildcard=1
+      [ "${entry#*:}" != "$name" ] || desired=1
+    done
+    [ "$desired" -eq 1 ] || [ "$wildcard" -eq 1 ] || printf 'drift: skills remove %s %s\n' "$source" "$name"
+  done < <(lock_records)
+}
+
+sync() {
+  local source entry skill workdir name collision=0 status
+  parse_manifest || return 1
+  load_repository_owned || return 1
+  validate_manifest_collisions || return 1
+  validate_live_lock || return 1
+  mkdir -p "$TMPDIR" || return 1
+  workdir="$(mktemp -d "${TMPDIR:-/tmp}/skills-sync.XXXXXX")" || return 1
+  mkdir -p "$workdir/repository-owned" || { rm -rf "$workdir"; return 1; }
+  for entry in "${MANIFEST_SKILLS[@]}"; do
+    source="${entry%%:*}"; skill="${entry#*:}"
+    [ "$skill" != '*' ] || continue
+    repository_owns "$skill" && { rm -rf "$workdir"; fail "manifest skill collides with repository-owned skill: $skill"; return 1; }
+  done
+  for entry in "${MANIFEST_SKILLS[@]}"; do
+    [ "${entry#*:}" != '*' ] || snapshot_repository_trees "$workdir/repository-owned" || {
+      rm -rf "$workdir"; return 1
+    }
+  done
+  for source in "${MANIFEST_SOURCES[@]}"; do
+    for entry in "${MANIFEST_SKILLS[@]}"; do
+      [ "$entry" = "$source:*" ] || continue
+    done
+    set --
+    for entry in "${MANIFEST_SKILLS[@]}"; do
+      [ "${entry%%:*}" != "$source" ] || set -- "$@" "${entry#*:}"
+    done
+    run_add "$source" "$@" || { status=$?; rm -rf "$workdir"; return "$status"; }
+  done
+  while IFS=$'\t' read -r name source; do
+    repository_owns "$name" || continue
+    collision=1
+    if [ -d "$workdir/repository-owned/$name" ]; then
+      mv "$CANONICAL_ROOT/$name" "$workdir/upstream-$name" 2>/dev/null || true
+      mv "$workdir/repository-owned/$name" "$CANONICAL_ROOT/$name"
+    fi
+    remove_lock_claim "$name" || {
+      rm -rf "$workdir"
+      fail "could not remove conflicting lock claim: $name"
+      return 1
+    }
+    fail "canonical skill collides with repository-owned skill: $name"
+  done < <(lock_records)
+  [ "$collision" -eq 0 ] || { rm -rf "$workdir"; return 1; }
+  for entry in "${MANIFEST_SKILLS[@]}"; do
+    skill="${entry#*:}"
+    [ "$skill" = '*' ] || validate_canonical_tree "$CANONICAL_ROOT/$skill" || { rm -rf "$workdir"; return 1; }
+  done
+  validate_canonical_tree "$CANONICAL_ROOT" || { rm -rf "$workdir"; return 1; }
+  validate_mandatory_compound_skills || { rm -rf "$workdir"; return 1; }
+  report_drift
+  rm -rf "$workdir"
+}
+
+add() {
+  local source="$1"; shift
+  valid_source "$source" || { fail "invalid source: $source"; return 1; }
+  if [ "$#" -eq 0 ]; then set -- '*'; fi
+  local skill
+  for skill in "$@"; do [ "$skill" = '*' ] || valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }; done
+  validate_live_lock || return 1
+  run_add "$source" "$@" || return "$?"
+  grep -Fqx "$source $*" "$MANIFEST" 2>/dev/null || printf 'warning: add diverges from managed manifest\n' >&2
+}
+
+remove() {
+  local source="$1"; shift
+  local skill owner
+  valid_source "$source" || { fail "invalid source: $source"; return 1; }
+  [ "$#" -gt 0 ] || { fail 'remove requires at least one skill'; return 1; }
+  validate_live_lock || return 1
+  for skill in "$@"; do
+    valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }
+    owner="$(lock_source_for_skill "$skill")"
+    [ "$owner" = "$source" ] || { fail "lock does not own $skill as $source"; return 1; }
+  done
+  run_remove "$@" || return "$?"
+  printf 'warning: remove diverges from managed manifest\n' >&2
+}
+
+update() {
+  local skill
+  for skill in "$@"; do valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }; done
+  validate_live_lock || return 1
+  run_update "$@"
+}
+
+if [ "${1:-}" = '--verbose' ]; then
+  SKILLS_VERBOSE=1
+  shift
+fi
+command="${1:-}"
+shift || true
+case "$command" in
+  add) [ "$#" -ge 1 ] || { usage; exit 2; }; add "$@" ;;
+  remove) [ "$#" -ge 2 ] || { usage; exit 2; }; remove "$@" ;;
+  update) update "$@" ;;
+  sync) [ "$#" -eq 0 ] || { usage; exit 2; }; sync ;;
+  *) usage; exit 2 ;;
+esac

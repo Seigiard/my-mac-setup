@@ -10,11 +10,11 @@ Resolve these values before launch:
 - `CLAUDE_PROMPT`: the calling skill's complete Claude dispatch brief.
 - `OPENCODE_PROMPT`: the calling skill's complete OpenCode dispatch brief.
 
-Require `HERDR_ENV=1`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
+Require `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
 
-The **cleanup boundary** begins when the report transport directory is created. Track each created pane ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every pane created by this run and removes its report transport files before control returns to the calling skill.
+The **cleanup boundary** begins when the report transport directory is created. Track each created tab ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every tab created by this run and removes its report transport files before control returns to the calling skill.
 
-## Create panes
+## Create tabs
 
 Use run-scoped agent names no longer than 32 characters:
 
@@ -29,18 +29,26 @@ CLAUDE_REPORT_PATH="$PEER_REPORT_DIR/claude.report"
 OPENCODE_REPORT_PATH="$PEER_REPORT_DIR/opencode.report"
 ```
 
-Create sibling panes rooted at the repository without taking focus:
+Create one full-size background tab per peer, rooted at the repository without taking focus:
 
 ```bash
-CLAUDE_PANE=$(herdr pane split --current --direction right --cwd "$REPO_ROOT" --no-focus \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
+CLAUDE_TAB_STATE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" \
+  --cwd "$REPO_ROOT" --label "$CLAUDE_NAME" --no-focus)
+CLAUDE_TAB=$(printf '%s' "$CLAUDE_TAB_STATE" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["tab"]["tab_id"])')
+CLAUDE_PANE=$(printf '%s' "$CLAUDE_TAB_STATE" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
 
-OPENCODE_PANE=$(herdr pane split "$CLAUDE_PANE" --direction down --cwd "$REPO_ROOT" --no-focus \
-  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow","reasoningEffort":"high"}}}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
+OPENCODE_TAB_STATE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" \
+  --cwd "$REPO_ROOT" --label "$OPENCODE_NAME" --no-focus \
+  --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow","reasoningEffort":"high"}}}')
+OPENCODE_TAB=$(printf '%s' "$OPENCODE_TAB_STATE" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["tab"]["tab_id"])')
+OPENCODE_PANE=$(printf '%s' "$OPENCODE_TAB_STATE" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
 ```
 
-A freshly split pane can make its following `agent start` return `agent_pane_busy`. On that exact error, wait two seconds and retry the same start once. A failed retry enters the cleanup boundary. A generic startup timeout enters cleanup immediately without retry.
+A freshly created tab's root pane can make its following `agent start` return `agent_pane_busy`. On that exact error, wait two seconds and retry the same start once. A failed retry enters the cleanup boundary. A generic startup timeout enters cleanup immediately without retry.
 
 ## Start exact peers
 
@@ -140,12 +148,12 @@ A settled state is only a wake-up signal. Pane-backed reads can silently omit al
 
 ## Close and clean before synthesis
 
-After collecting every available report into memory, close both panes and remove the transport directory before synthesis:
+After collecting every available report into memory, close both tabs and remove the transport directory before synthesis:
 
 ```bash
 CLEANUP_ERRORS=""
-herdr pane close "$CLAUDE_PANE" || CLEANUP_ERRORS="$CLEANUP_ERRORS pane:$CLAUDE_PANE"
-herdr pane close "$OPENCODE_PANE" || CLEANUP_ERRORS="$CLEANUP_ERRORS pane:$OPENCODE_PANE"
+herdr tab close "$CLAUDE_TAB" || CLEANUP_ERRORS="$CLEANUP_ERRORS tab:$CLAUDE_TAB"
+herdr tab close "$OPENCODE_TAB" || CLEANUP_ERRORS="$CLEANUP_ERRORS tab:$OPENCODE_TAB"
 rm -f "$CLAUDE_REPORT_PATH" "$CLAUDE_REPORT_PATH.tmp" \
   "$OPENCODE_REPORT_PATH" "$OPENCODE_REPORT_PATH.tmp" \
   || CLEANUP_ERRORS="$CLEANUP_ERRORS reports:$PEER_REPORT_DIR"
@@ -153,4 +161,4 @@ rmdir "$PEER_REPORT_DIR" || CLEANUP_ERRORS="$CLEANUP_ERRORS directory:$PEER_REPO
 [ -z "$CLEANUP_ERRORS" ] || printf 'peer cleanup incomplete:%s\n' "$CLEANUP_ERRORS" >&2
 ```
 
-Pane closure and report-directory removal complete the cleanup boundary. Attempt every recorded pane closure and every cleanup command even when an earlier command fails; report any pane or transport path that remains.
+Tab closure and report-directory removal complete the cleanup boundary. Attempt every recorded tab closure and every cleanup command even when an earlier command fails; report any tab or transport path that remains.

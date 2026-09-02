@@ -10,7 +10,6 @@ resolution_type: workflow_improvement
 related_components:
   - ci
   - chezmoi
-  - smithers
 applies_when:
   - "Adding a regression test for a behavior that already has neighboring coverage"
   - "Reviewing tests that grep source code or assert implementation-specific strings"
@@ -31,7 +30,6 @@ tags:
   - control-fixtures
   - coverage-ownership
   - bats
-  - smithers
 ---
 
 # Semantic regression tests over source shape
@@ -96,7 +94,7 @@ Repeating the same assertion in smoke, template, and unit suites does not create
 
 Use the smallest canonical `make` target that covers the changed contract. A canonical target owns setup and the complete sequence; manually invoking its components is a different gate even when the visible test command matches.
 
-For Smithers, `make test-smithers` owns the frozen dependency install, required `gitleaks`, TypeScript check, and complete Bun suite. For managed files under `home/`, `make test-ubuntu` applies the checkout inside a disposable environment. `make test-suite` is host-safe by design and observes the already-deployed home directory, so it cannot prove an unapplied managed-file change.
+For managed files under `home/`, `make test-ubuntu` applies the checkout inside a disposable environment. `make test-suite` is host-safe by design and observes the already-deployed home directory, so it cannot prove an unapplied managed-file change.
 
 Dependency presence is not command reachability. Verify required binaries from the exact process that runs the gate. A package declaration, a successful installer log, or a `shellenv` export in an earlier subprocess does not prove that a later CI step can resolve the command.
 
@@ -126,8 +124,6 @@ The 2026-08-24 audit applied these rules in several forms:
 - Cost aggregation moved to real SQLite-backed events with child, unrelated, shared-prefix, and wrong-event controls.
 - Platform subprocess checks now require successful status before accepting output.
 - Repeated apply/idempotency paths were consolidated under one state-transition owner.
-- CI and Docker paths now call `make test-smithers` instead of maintaining partial command lists.
-- Ubuntu CI now provisions `gitleaks` on its runner-facing path: ordinary runs skip Linuxbrew entirely, while full installs export Linuxbrew only inside the apply subprocess.
 - The stalled `tests/scripts.bats` run was reported as incomplete even though its active test passed in isolation.
 
 The important result is not fewer tests by itself. The resulting suite has fewer assertions whose verdict can remain green while the protected behavior is absent.

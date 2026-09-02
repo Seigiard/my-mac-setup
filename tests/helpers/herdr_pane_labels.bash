@@ -1059,7 +1059,10 @@ hpl_pid_is_live() {
   local state
   kill -0 "$1" 2>/dev/null || return 1
   state="$(ps -p "$1" -o stat= 2>/dev/null)" || return 0
-  [[ "$state" != *Z* ]]
+  if [[ "$state" != *Z* ]]; then
+    return 0
+  fi
+  return 1
 }
 
 hpl_cutover_namespace() {

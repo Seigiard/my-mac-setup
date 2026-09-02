@@ -37,7 +37,3 @@ CLAUDE.local.md
 
 mise.toml
 .ce-doc-review-tmp/
-.smithers/
-smithers.db
-smithers.db-shm
-smithers.db-wal

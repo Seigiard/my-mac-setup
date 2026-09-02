@@ -5,8 +5,9 @@ type: "bug"
 category: "se-pipeline"
 tags: ["code-review","secret-scan","smithers"]
 date: "2026-08-24"
-status: "open"
+status: "wontfix"
 priority: "medium"
+closed: "2026-08-31"
 ---
 
 ## Why this exists
@@ -32,3 +33,7 @@ until the fixture and baseline agree.
 ## Open decisions
 
 None.
+
+## Resolution
+
+The Smithers code-review harness and its baseline secret gate were removed; the reported rejection path no longer exists.

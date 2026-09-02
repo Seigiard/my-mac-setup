@@ -1,0 +1,16 @@
+# One table per canonical origin remote. A repository without a table is left
+# untouched. Fresh-base runs before copied files and setup commands.
+
+[projects."github.com/membranehq/platform"]
+fresh-base = true
+copy = [
+  ".env",
+  "console/.env",
+  "engine/api/.env",
+  "agent/benchmark/.env",
+  "e2e-tests/.env",
+]
+steps = ["mise exec -- make setup"]
+
+[projects."github.com/Seigiard/my-mac-setup"]
+fresh-base = true

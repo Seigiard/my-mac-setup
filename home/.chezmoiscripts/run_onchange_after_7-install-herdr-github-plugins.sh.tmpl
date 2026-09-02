@@ -23,27 +23,32 @@ fi
 
 failed=()
 
-# Remove plugins whose behavior moved into the local command palette.
+# Remove plugins whose behavior moved into repository-owned or native Herdr flows.
 if plugin_json="$(herdr plugin list --json 2>/dev/null)"; then
-  printf '%s\n' "$plugin_json" | python3 -c '
+  for obsolete_plugin in artisann.zed-herdr worktrunk; do
+    printf '%s\n' "$plugin_json" | python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)
     plugins = data.get("result", {}).get("plugins", [])
-except (AttributeError, json.JSONDecodeError):
+    if not isinstance(plugins, list) or not all(isinstance(plugin, dict) for plugin in plugins):
+        raise TypeError
+    found = any(plugin.get("plugin_id") == sys.argv[1] for plugin in plugins)
+except (AttributeError, json.JSONDecodeError, TypeError):
     raise SystemExit(2)
-raise SystemExit(0 if any(plugin.get("plugin_id") == "artisann.zed-herdr" for plugin in plugins) else 1)
-' 2>/dev/null
-  zed_herdr_state=$?
-  if [[ $zed_herdr_state -eq 0 ]]; then
-    if herdr plugin uninstall artisann.zed-herdr >/dev/null 2>&1; then
-      echo "Removed obsolete Herdr plugin artisann.zed-herdr"
-    else
-      failed+=("artisann.zed-herdr (uninstall: herdr plugin uninstall artisann.zed-herdr)")
+raise SystemExit(0 if found else 1)
+' "$obsolete_plugin" 2>/dev/null
+    plugin_state=$?
+    if [[ $plugin_state -eq 0 ]]; then
+      if herdr plugin uninstall "$obsolete_plugin" >/dev/null 2>&1; then
+        echo "Removed obsolete Herdr plugin $obsolete_plugin"
+      else
+        failed+=("$obsolete_plugin (uninstall: herdr plugin uninstall $obsolete_plugin)")
+      fi
+    elif [[ $plugin_state -ne 1 ]]; then
+      failed+=("failed to inspect obsolete plugin $obsolete_plugin (herdr plugin list --json)")
     fi
-  elif [[ $zed_herdr_state -ne 1 ]]; then
-    failed+=("failed to inspect obsolete plugin artisann.zed-herdr (herdr plugin list --json)")
-  fi
+  done
 else
   failed+=("failed to list Herdr plugins (herdr plugin list --json)")
 fi

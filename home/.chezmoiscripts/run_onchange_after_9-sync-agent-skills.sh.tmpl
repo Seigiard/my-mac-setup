@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Synchronize managed agent skills after either input changes.
+#
+# Hash triggers:
+# # {{ include "private_dot_config/agent-skills/manifest" | sha256sum }}
+# # {{ include "dot_local/bin/executable_skills" | sha256sum }}
+
+set -u
+
+if [ "${MMS_DISPOSABLE_HOME:-}" = "1" ]; then
+  printf '%s\n' 'skipping agent-skills synchronization in disposable home'
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  printf '%s\n' 'agent-skills sync: Node.js is not available; install Node.js and rerun chezmoi apply' >&2
+  exit 1
+fi
+if ! node --version >/dev/null 2>&1; then
+  printf '%s\n' 'agent-skills sync: Node.js is unavailable or incompatible; repair Node.js and rerun chezmoi apply' >&2
+  exit 1
+fi
+
+if ! command -v npx >/dev/null 2>&1; then
+  printf '%s\n' 'agent-skills sync: npx is not available; install a Node.js distribution with npx and rerun chezmoi apply' >&2
+  exit 1
+fi
+if ! npx --version >/dev/null 2>&1; then
+  printf '%s\n' 'agent-skills sync: npx is unavailable or incompatible; repair Node.js and rerun chezmoi apply' >&2
+  exit 1
+fi
+
+wrapper="${HOME:-}/.local/bin/skills"
+if [ -z "${HOME:-}" ] || [ ! -x "$wrapper" ]; then
+  printf 'agent-skills sync: deployed wrapper is unavailable at %s\n' "$wrapper" >&2
+  exit 1
+fi
+
+# Automatic synchronization must always use the managed manifest.
+unset SKILLS_MANIFEST
+exec "$wrapper" sync

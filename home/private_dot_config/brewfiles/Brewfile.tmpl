@@ -48,7 +48,7 @@ brew "ni"
 # JavaScript runtimes
 {{/* node is kept: it is the only source of sqlite3 in the Docker image, which seven tests guard on */ -}}
 brew "node"
-{{/* bun is kept: on the macOS job oven-sh/setup-bun runs after the apply, so this is the only bun on PATH when the smithers script looks for one */ -}}
+{{/* bun is kept for repository-owned Pi and TypeScript tests */ -}}
 brew "oven-sh/bun/bun"  # bun
 
 # Search & text processing
@@ -57,7 +57,7 @@ brew "ripgrep"      # rg
 brew "bat"
 {{ end -}}
 brew "jq"
-{{/* gitleaks is kept: the required Smithers gate runs real secret-scanner tests */ -}}
+{{/* gitleaks is kept for the fail-closed se-doc-review secret scan */ -}}
 brew "gitleaks"
 
 {{ if $full -}}

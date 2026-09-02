@@ -1,19 +1,10 @@
-# Common test helpers for bats tests
+# Common test helpers for the bashunit suites
 
 HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ ! -f "${HELPERS_DIR}/bats-libs/bats-support/load.bash" ]]; then
-  echo "ERROR: bats-libs not found. Run: git submodule update --init --recursive" >&2
-  return 1
-fi
-
-load "${HELPERS_DIR}/bats-libs/bats-support/load"
-load "${HELPERS_DIR}/bats-libs/bats-assert/load"
-load "${HELPERS_DIR}/bats-libs/bats-file/load"
-
-# Sourced rather than `load`ed: this file must stay usable outside bats so its
+# Sourced directly: this file must stay usable outside the test runner so its
 # truth table can be exercised from a plain `bash -c` -- see the `guard:` tests
-# in tests/idempotent.bats.
+# in tests/bashunit/idempotent_test.sh.
 # shellcheck source=./disposable-home.bash
 source "${HELPERS_DIR}/disposable-home.bash"
 
@@ -86,7 +77,7 @@ command_exists() {
 # supported environment provides.
 PYTHON3_MIN_VERSION="3.9"
 
-# Each check returns explicitly: bats-support's fail() prints and returns 1, it
+# Each check returns explicitly: the DSL's fail() prints and returns 1, it
 # does not abort the function, so falling through would emit a second message
 # derived from the state the first one just reported as broken.
 assert_python3_available() {
@@ -130,11 +121,11 @@ get_os() {
 }
 
 is_macos() {
-  [[ "$(get_os)" == "darwin" ]]
+  [[ "$(get_os)" == "darwin" ]] || return 1
 }
 
 is_linux() {
-  [[ "$(get_os)" == "linux" ]]
+  [[ "$(get_os)" == "linux" ]] || return 1
 }
 
 skip_if_no_chezmoi() {
@@ -154,7 +145,7 @@ skip_if_no_chezmoi() {
 # same shape as assert_python3_available() above. A missing developer tool is a
 # reason to skip. A runner whose $HOME is disposable but which carries no
 # marker is a repository misconfiguration that silently removes coverage, and
-# bats exits 0 on skip, so a skip there would be green and untested at once.
+# the runner exits 0 on skip, so a skip there would be green and untested at once.
 require_disposable_home() {
   case "$(mms_disposable_home_verdict)" in
     run)
@@ -172,7 +163,7 @@ require_disposable_home() {
 
 render_template() {
   local template_file="$1"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$template_file"
+  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
 }
 
 # Write the config that `chezmoi init` would generate, using the caller's
@@ -195,7 +186,7 @@ write_test_config() {
 }
 
 # Render a template against a specific config file. Neither render_template()
-# nor templates.bats' render_with_source() can do this — neither passes
+# nor templates_test.sh's render_with_source() can do this — neither passes
 # --config, so both read the host's config and cannot select a render mode.
 render_with_config() {
   local config_file="$1"

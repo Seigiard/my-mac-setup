@@ -51,6 +51,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/test-oracle-guard.sh'",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -74,22 +84,10 @@
   },
   "enabledPlugins": {
     "claude-md-management@claude-plugins-official": true,
-    "compound-engineering@compound-engineering-plugin": true,
-    "frontend-design@claude-plugins-official": true,
-    "playground@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "compound-engineering-plugin": {
-      "source": {
-        "source": "github",
-        "repo": "EveryInc/compound-engineering-plugin"
-      },
-      "autoUpdate": true
-    }
   },
   "outputStyle": "writing-style",
   "effortLevel": "high",
@@ -108,5 +106,6 @@
   "feedbackSurveyState": {
     "lastShownTime": 1754040532937
   },
+  "autoMemoryEnabled": false,
   "tui": "fullscreen"
 }
