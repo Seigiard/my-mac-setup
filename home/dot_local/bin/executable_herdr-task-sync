@@ -2,11 +2,13 @@
 # herdr-task-sync — name the herdr pane after the coding-agent session's task.
 #
 # Adapters (the Claude Code hook, the pi extension, the opencode plugin) call
-# this script with the submitted prompt on stdin. It returns immediately and
-# lets a detached worker do the slow part: ask a naming model for a short
-# English slug, then request one session-wide presentation pass. That pass
-# names every pane and rebuilds every tab. A pane with no agent is named after the
-# command running in it, so `bun run dev` joins the tab label on its own.
+# this script with submitted prompts on stdin. The first accepted root prompt
+# fixes the session identity; later prompts are ignored. The callback returns
+# after a bounded inbox write and leaves a detached worker to generate a display
+# title and English slug. The slug names the pane and an eligible generated Git
+# branch; the title names its Herdr workspace. A session-wide presentation pass
+# then rebuilds every tab. A pane with no agent is named after its command, so
+# `bun run dev` joins the tab label on its own.
 #
 # The slug also stays published as the pane's `task` metadata token, so a
 # sidebar row configured with `$task` keeps working.
@@ -15,7 +17,7 @@
 #   herdr-task-sync --agent <name> --session <id> [--pane <id>]
 #                   [--transcript <path>] [--set <name>]
 #
-#   --set <name>   publish <name> directly (normalized, no model call)
+#   --set <name>   fix the initial name directly (normalized, no model call)
 #   --transcript   derive the naming context from a Claude Code JSONL
 #                  transcript instead of stdin (session start / pre-compact)
 #
@@ -40,6 +42,7 @@ SOURCE_ID="task-sync"
 LOCATION_SOURCE_ID="location-sync"
 SIDEBAR_SOURCE_ID="sidebar-sync"
 SLUG_MAX_LEN=40
+TITLE_MAX_LEN=48
 # R4 asks for 2-4 words. A wordier answer is prose, not a name — an engine that
 # explains itself instead of naming the session counts as a failed call, so the
 # chain advances rather than putting a sentence in the sidebar.
@@ -116,6 +119,8 @@ positive_decimal "$LOCATION_GIT_BUDGET" || LOCATION_GIT_BUDGET=0.075
 # budget has, and a timeout costs the counts only.
 STATUS_GIT_BUDGET="${HERDR_TASK_SYNC_STATUS_BUDGET:-0.3}"
 positive_decimal "$STATUS_GIT_BUDGET" || STATUS_GIT_BUDGET=0.3
+WORKTREE_GIT_BUDGET="${HERDR_TASK_SYNC_WORKTREE_GIT_BUDGET:-1}"
+positive_decimal "$WORKTREE_GIT_BUDGET" || WORKTREE_GIT_BUDGET=1
 STATE_MAX_AGE_DAYS="${HERDR_TASK_SYNC_STATE_MAX_AGE_DAYS:-14}"
 case "$STATE_MAX_AGE_DAYS" in '' | *[!0-9]*) STATE_MAX_AGE_DAYS=14 ;; esac
 # Seconds between two sweeps of the daemon. Five keeps a finished command
@@ -174,6 +179,26 @@ normalize_slug() {
     | sed -e 's/--*/-/g' -e 's/^-//' -e 's/-$//' \
     | cut -c "1-$SLUG_MAX_LEN" \
     | sed -e 's/-$//'
+}
+
+limit_slug_words() {
+  awk -F- -v max="$SLUG_MAX_WORDS" '{
+    out = ""
+    for (i = 1; i <= NF && i <= max; i++) out = out (out == "" ? "" : "-") $i
+    print out
+  }'
+}
+
+normalize_title() {
+  local line
+  line="$(first_nonempty_line "$1" | tr '\t' ' ' \
+    | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  text_prefix "$line" "$TITLE_MAX_LEN" | sed -e 's/[[:space:]]*$//'
+}
+
+title_from_slug() {
+  printf '%s' "$1" | tr '-' ' ' \
+    | awk '{ if (length($0)) $0 = toupper(substr($0, 1, 1)) substr($0, 2); print }'
 }
 
 first_nonempty_line() {
@@ -366,7 +391,8 @@ initialize_namespace() {
   # created one level deep at most — its parent (~/.cache, or a test's work
   # dir) must already exist.
   for level in "$STATE_DIR" "$STATE_DIR/sockets" "$namespace" \
-    "$namespace/panes" "$namespace/tasks" "$namespace/migration"; do
+    "$namespace/panes" "$namespace/tasks" "$namespace/migration" \
+    "$namespace/worktrees" "$namespace/repositories"; do
     mkdir "$level" 2>/dev/null || [ -d "$level" ] || return 1
   done
   socket_record="socket_path=$(encode_value "$SOCKET_PATH")"
@@ -434,13 +460,14 @@ read_state_field() {
 }
 
 write_task_state() {
-  local file="$1" generation="$2" slug="$3" first="$4" latest="$5" present="$6"
-  local presentation_generation="${7:-0}" metadata_seq="${8:-0}"
+  local file="$1" generation="$2" title="$3" slug="$4" first="$5" latest="$6" present="$7"
+  local presentation_generation="${8:-0}" metadata_seq="${9:-0}"
   local content
   content="agent=$(encode_value "$agent")
 pane=$(encode_value "$pane")
 session=$(encode_value "$session")
 generation=$generation
+title=$(encode_value "$title")
 slug=$(encode_value "$slug")
 first_prompt=$(encode_value "$first")
 latest_prompt=$(encode_value "$latest")
@@ -498,7 +525,7 @@ legacy_record_complete() {
 }
 
 import_legacy_state() {
-  local task_file="$1" marker legacy slug first latest marker_record
+  local task_file="$1" marker legacy title slug first latest marker_record
   marker="$(migration_marker_file)"
   [ -f "$marker" ] && return 0
   marker_record="cutover=1"
@@ -514,9 +541,10 @@ import_legacy_state() {
   legacy="$(legacy_state_file_path)"
   if legacy_record_complete "$legacy"; then
     slug="$(read_state_field "$legacy" slug)"
+    title="$(title_from_slug "$slug")"
     first="$(read_state_field "$legacy" first_prompt)"
     latest="$(read_state_field "$legacy" latest_prompt)"
-    write_task_state "$task_file" 0 "$slug" "$first" "$latest" 0 0 0 || return 1
+    write_task_state "$task_file" 0 "$title" "$slug" "$first" "$latest" 0 0 0 || return 1
   fi
   # Malformed and absent legacy input also complete the cutover. This prevents
   # an old producer that writes later from entering canonical state.
@@ -2069,30 +2097,52 @@ transcript_user_entries() {
 }
 
 build_naming_prompt() {
-  local previous="$1" first="$2" latest="$3"
+  local first="$1"
   cat <<EOF
-You name coding-agent sessions for a sidebar. Answer with the name only.
+You name a coding-agent session and its Git branch from the first user task.
+Return exactly one JSON object on one line and nothing else.
 
 Output rules:
-- 2 to 4 English words, lowercase, hyphen-separated, for example: cache-review
-- no quotes, no punctuation, no explanation, no extra lines
+- title: 2 to 6 concise English words for display, preserving an issue ID when present
+- slug: the same identity as 2 to 5 lowercase English words, hyphen-separated
+  - example: {"title":"PRD-2939: Fix agent launch","slug":"prd-2939-fix-agent-launch"}
 
 Naming rules:
-- Name the session's overall task, not the newest message.
-- If the overall task has not changed, repeat the current name exactly.
-- Acknowledgements and continuations ("continue", "продолжай", "да", "ok",
-  "go on", "yes") never change the name.
-- Change the name only when the session starts a different piece of work.
-- With no current name, name the session from its first task.
-
-Current name: ${previous:-(none)}
+- Name the overall task in the first prompt.
+- Do not describe the user, agent, or conversation.
 
 First prompt of the session:
 ${first:-(none)}
-
-Latest prompt:
-${latest:-(none)}
 EOF
+}
+
+identity_from_output() {
+  local raw="$1" line title slug
+  line="$(first_nonempty_line "$raw")"
+  title="$(printf '%s' "$line" | jq -er '.title | select(type == "string")' 2>/dev/null || true)"
+  slug="$(printf '%s' "$line" | jq -er '.slug | select(type == "string")' 2>/dev/null || true)"
+  if [ -z "$title" ] || [ -z "$slug" ]; then
+    slug="$(normalize_slug "$line")"
+    title="$(title_from_slug "$slug")"
+  else
+    title="$(normalize_title "$title")"
+    slug="$(normalize_slug "$slug")"
+  fi
+  [ -n "$title" ] && [ -n "$slug" ] || return 1
+  [ "$(slug_word_count "$slug")" -le "$SLUG_MAX_WORDS" ] || return 1
+  printf '%s\037%s' "$title" "$slug"
+}
+
+deterministic_identity() {
+  local prompt="$1" line title slug
+  line="$(first_nonempty_line "$prompt" | sed \
+    -e 's/^[[:space:]]*[-*#][[:space:]]*//' \
+    -e 's/^[[:space:]]*[0-9][0-9]*[.)][[:space:]]*//')"
+  title="$(normalize_title "$line")"
+  slug="$(normalize_slug "$line" | limit_slug_words)"
+  [ -n "$title" ] || title="Agent task"
+  [ -n "$slug" ] || slug="agent-task"
+  printf '%s\037%s' "$title" "$slug"
 }
 
 # The naming engine chain, isolated in one function per KTD1: one-shot pi
@@ -2100,7 +2150,7 @@ EOF
 # nothing. Prompts always travel on stdin, never as argv.
 call_engine_chain() {
   local naming_prompt="$1"
-  local infile outfile raw candidate
+  local infile outfile raw identity
   infile="$(mktemp "${TMPDIR:-/tmp}/herdr-task-sync-in.XXXXXX")" || return 1
   outfile="$(mktemp "${TMPDIR:-/tmp}/herdr-task-sync-out.XXXXXX")" || {
     rm -f "$infile"
@@ -2117,10 +2167,10 @@ call_engine_chain() {
       --no-tools --no-session --no-extensions --no-skills \
       --no-context-files --no-prompt-templates; then
       raw="$(cat "$outfile" 2>/dev/null)"
-      candidate="$(normalize_slug "$(first_nonempty_line "$raw")")"
-      if [ -n "$candidate" ] && [ "$(slug_word_count "$candidate")" -le "$SLUG_MAX_WORDS" ]; then
+      identity="$(identity_from_output "$raw")" || identity=""
+      if [ -n "$identity" ]; then
         rm -f "$infile" "$outfile"
-        printf '%s' "$candidate"
+        printf '%s' "$identity"
         return 0
       fi
     fi
@@ -2130,10 +2180,10 @@ call_engine_chain() {
     if run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
       claude -p --model "$CLAUDE_MODEL"; then
       raw="$(cat "$outfile" 2>/dev/null)"
-      candidate="$(normalize_slug "$(first_nonempty_line "$raw")")"
-      if [ -n "$candidate" ] && [ "$(slug_word_count "$candidate")" -le "$SLUG_MAX_WORDS" ]; then
+      identity="$(identity_from_output "$raw")" || identity=""
+      if [ -n "$identity" ]; then
         rm -f "$infile" "$outfile"
-        printf '%s' "$candidate"
+        printf '%s' "$identity"
         return 0
       fi
     fi
@@ -2143,9 +2193,267 @@ call_engine_chain() {
   return 1
 }
 
+worktree_identity_file() {
+  printf '%s/worktrees/%s.state' "$(namespace_dir)" "$(encode_key "$1")"
+}
+
+write_worktree_identity() {
+  local file="$1" root="$2" workspace="$3" title="$4" slug="$5"
+  local original_branch="$6" branch="$7" outcome="$8" content
+  content="checkout_root=$(encode_value "$root")
+workspace=$(encode_value "$workspace")
+title=$(encode_value "$title")
+slug=$(encode_value "$slug")
+original_branch=$(encode_value "$original_branch")
+branch=$(encode_value "$branch")
+outcome=$(encode_value "$outcome")"
+  atomic_write "$file" "$content"
+}
+
+branch_name_available() {
+  local root="$1" candidate="$2" output status
+  if worktree_git_output "$root" show-ref --verify --quiet "refs/heads/$candidate" >/dev/null; then
+    return 1
+  else
+    status=$?
+    [ "$status" -eq 1 ] || return 2
+  fi
+  output="$(worktree_git_output "$root" for-each-ref --format='%(refname)' \
+    "refs/remotes/*/$candidate")" || return 2
+  [ -z "$output" ] || return 1
+  return 0
+}
+
+available_branch_name() {
+  local root="$1" slug="$2" candidate base suffix=2 status
+  candidate="$slug"
+  while :; do
+    if branch_name_available "$root" "$candidate"; then
+      break
+    else
+      status=$?
+      [ "$status" -eq 1 ] || return 1
+    fi
+    [ "$suffix" -le 999 ] || return 1
+    base="$(printf '%s' "$slug" | cut -c "1-$((SLUG_MAX_LEN - ${#suffix} - 1))" \
+      | sed -e 's/-$//')"
+    candidate="$base-$suffix"
+    suffix=$((suffix + 1))
+  done
+  worktree_git_output "$root" check-ref-format --branch "$candidate" >/dev/null || return 1
+  printf '%s' "$candidate"
+}
+
+worktree_git_output() {
+  local root="$1" outfile errfile status=0
+  shift
+  outfile="$(mktemp "$(namespace_dir)/.worktree-git.XXXXXX" 2>/dev/null)" || return 1
+  errfile="$outfile.err"
+  if run_budgeted_command "$WORKTREE_GIT_BUDGET" "$outfile" "$errfile" \
+    env LC_ALL=C git -C "$root" "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+  [ "$status" -ne 0 ] || cat "$outfile" 2>/dev/null
+  rm -f "$outfile" "$errfile"
+  return "$status"
+}
+
+generated_worktree_marker() {
+  worktree_git_output "$1" rev-parse --path-format=absolute --git-path herdr-generated-worktree
+}
+
+generated_worktree_matches() {
+  local marker
+  # The creation event writes this file inside Git's per-worktree admin dir,
+  # so branch text alone can never authorize a live ref mutation.
+  marker="$(generated_worktree_marker "$1")" || return 1
+  [ -f "$marker" ] || return 1
+  [ "$(head -n 1 "$marker" 2>/dev/null)" = "$2" ]
+}
+
+pane_identity_fields() {
+  printf '%s' "$1" | jq -r --arg separator "$FIELD_SEPARATOR" '
+    [
+      .result.pane.agent // "",
+      .result.pane.agent_session.value // "",
+      .result.pane.workspace_id // "",
+      (.result.pane.foreground_cwd // .result.pane.cwd // "")
+    ] | join($separator)
+  ' 2>/dev/null
+}
+
+apply_worktree_identity() {
+  local title="$1" slug="$2" payload pane_agent native_session workspace cwd reported root common branch upstream upstream_status
+  local identity_file identity_lock identity_owner repository_lock repository_owner candidate original_branch outcome branch_done=0
+  local final_payload final_agent final_native final_workspace final_cwd final_reported final_root final_common final_branch
+  local workspace_payload workspace_agent workspace_native workspace_target _workspace_cwd fields
+  command -v jq >/dev/null 2>&1 || return 0
+  payload="$(herdr pane get "$pane" 2>/dev/null)" || return 0
+  fields="$(pane_identity_fields "$payload")" || return 0
+  IFS="$FIELD_SEPARATOR" read -r pane_agent native_session workspace cwd <<EOF
+$fields
+EOF
+  [ "$pane_agent" = "$agent" ] || return 0
+  native_session_matches_active "$native_session" "$session" || return 0
+  reported="$(agent_reported_cwd "$(printf '%s' "$payload" | jq -c '.result.pane' 2>/dev/null)")"
+  [ -z "$reported" ] || cwd="$reported"
+  [ -n "$workspace" ] && [ -n "$cwd" ] || return 0
+  root="$(worktree_git_output "$cwd" rev-parse --show-toplevel)" || return 0
+  [ -f "$root/.git" ] || return 0
+  common="$(worktree_git_output "$root" rev-parse --path-format=absolute --git-common-dir)" || return 0
+  branch="$(worktree_git_output "$root" symbolic-ref --quiet --short HEAD)" || return 0
+  if upstream="$(worktree_git_output "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')"; then
+    [ -z "$upstream" ] || return 0
+  else
+    upstream_status=$?
+    [ "$upstream_status" -eq 128 ] || return 0
+  fi
+
+  identity_file="$(worktree_identity_file "$root")"
+  identity_lock="$identity_file.claim"
+  acquire_claim "$identity_lock" "$INBOX_LOCK_ATTEMPTS" || return 0
+  identity_owner="$claim_owner_id"
+  outcome="$(read_state_field "$identity_file" outcome)"
+  if [ -n "$outcome" ]; then
+    original_branch="$(read_state_field "$identity_file" original_branch)"
+    candidate="$(read_state_field "$identity_file" branch)"
+    title="$(read_state_field "$identity_file" title)"
+    slug="$(read_state_field "$identity_file" slug)"
+    case "$outcome" in
+      complete)
+        release_claim "$identity_lock" "$identity_owner"
+        return 0
+        ;;
+      prepared | branch-failed)
+        if [ "$branch" = "$candidate" ]; then
+          branch_done=1
+        elif [ "$branch" != "$original_branch" ]; then
+          release_claim "$identity_lock" "$identity_owner"
+          return 0
+        fi
+        ;;
+      workspace-failed)
+        [ "$branch" = "$candidate" ] || {
+          release_claim "$identity_lock" "$identity_owner"
+          return 0
+        }
+        branch_done=1
+        ;;
+      *)
+        release_claim "$identity_lock" "$identity_owner"
+        return 0
+        ;;
+    esac
+  else
+    case "$branch" in worktree/*) ;; *)
+      release_claim "$identity_lock" "$identity_owner"
+      return 0
+      ;;
+    esac
+    original_branch="$branch"
+  fi
+  generated_worktree_matches "$root" "$original_branch" || {
+    release_claim "$identity_lock" "$identity_owner"
+    return 0
+  }
+  # Branch refs are repository-wide even though identity state is per worktree.
+  # Hold the common-dir claim across candidate selection and the ref mutation.
+  repository_lock="$(namespace_dir)/repositories/$(encode_key "$common").claim"
+  acquire_claim "$repository_lock" "$INBOX_LOCK_ATTEMPTS" || {
+    release_claim "$identity_lock" "$identity_owner"
+    return 0
+  }
+  repository_owner="$claim_owner_id"
+  if [ -n "${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER:-}" ]; then
+    mkdir "$HERDR_TASK_SYNC_TEST_BRANCH_BARRIER" 2>/dev/null || \
+      [ -d "$HERDR_TASK_SYNC_TEST_BRANCH_BARRIER" ] || {
+        release_claim "$repository_lock" "$repository_owner"
+        release_claim "$identity_lock" "$identity_owner"
+        return 0
+      }
+    : > "$HERDR_TASK_SYNC_TEST_BRANCH_BARRIER/$(encode_key "$root")"
+    if [ -n "${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE:-}" ]; then
+      while [ ! -e "$HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE" ]; do
+        sleep 0.001
+      done
+    fi
+  fi
+  if [ "$branch_done" -eq 0 ]; then
+    candidate="$(available_branch_name "$root" "$slug")" || {
+      release_claim "$repository_lock" "$repository_owner"
+      release_claim "$identity_lock" "$identity_owner"
+      return 0
+    }
+  fi
+
+  final_payload="$(herdr pane get "$pane" 2>/dev/null)" || {
+    release_claim "$repository_lock" "$repository_owner"
+    release_claim "$identity_lock" "$identity_owner"
+    return 0
+  }
+  fields="$(pane_identity_fields "$final_payload")" || fields=""
+  IFS="$FIELD_SEPARATOR" read -r final_agent final_native final_workspace final_cwd <<EOF
+$fields
+EOF
+  final_reported="$(agent_reported_cwd "$(printf '%s' "$final_payload" | jq -c '.result.pane' 2>/dev/null)")"
+  [ -z "$final_reported" ] || final_cwd="$final_reported"
+  final_root="$(worktree_git_output "$final_cwd" rev-parse --show-toplevel)" || final_root=""
+  final_common="$(worktree_git_output "$final_root" rev-parse --path-format=absolute --git-common-dir)" || final_common=""
+  final_branch="$(worktree_git_output "$root" symbolic-ref --quiet --short HEAD)" || final_branch=""
+  if upstream="$(worktree_git_output "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')"; then
+    upstream_status=0
+  else
+    upstream_status=$?
+    upstream=""
+  fi
+  if [ "$final_agent" != "$agent" ] || \
+    ! native_session_matches_active "$final_native" "$session" || \
+    [ "$final_workspace" != "$workspace" ] || [ "$final_root" != "$root" ] || [ "$final_common" != "$common" ] || \
+    [ "$final_branch" != "$branch" ] || [ "$upstream_status" -ne 128 ]; then
+    release_claim "$repository_lock" "$repository_owner"
+    release_claim "$identity_lock" "$identity_owner"
+    return 0
+  fi
+
+  if [ "$branch_done" -eq 0 ]; then
+    write_worktree_identity "$identity_file" "$root" "$workspace" "$title" "$slug" \
+      "$original_branch" "$candidate" prepared || {
+        release_claim "$repository_lock" "$repository_owner"
+        release_claim "$identity_lock" "$identity_owner"
+        return 0
+      }
+    if ! worktree_git_output "$root" branch -m "$candidate" >/dev/null; then
+      write_worktree_identity "$identity_file" "$root" "$workspace" "$title" "$slug" \
+        "$original_branch" "$candidate" branch-failed || true
+      release_claim "$repository_lock" "$repository_owner"
+      release_claim "$identity_lock" "$identity_owner"
+      return 0
+    fi
+  fi
+  release_claim "$repository_lock" "$repository_owner"
+  workspace_payload="$(herdr pane get "$pane" 2>/dev/null)" || workspace_payload=""
+  fields="$(pane_identity_fields "$workspace_payload")" || fields=""
+  IFS="$FIELD_SEPARATOR" read -r workspace_agent workspace_native workspace_target _workspace_cwd <<EOF
+$fields
+EOF
+  if [ "$workspace_agent" = "$agent" ] && \
+    native_session_matches_active "$workspace_native" "$session" && \
+    [ "$workspace_target" = "$workspace" ] && \
+    herdr workspace rename "$workspace" "$title" >/dev/null 2>&1; then
+    write_worktree_identity "$identity_file" "$root" "$workspace" "$title" "$slug" \
+      "$original_branch" "$candidate" complete || true
+  else
+    write_worktree_identity "$identity_file" "$root" "$workspace" "$title" "$slug" \
+      "$original_branch" "$candidate" workspace-failed || true
+  fi
+  release_claim "$identity_lock" "$identity_owner"
+}
+
 commit_task_result() {
   local control="$1" high_water="$2" task_file="$3" expected_generation="$4"
-  local slug="$5" first="$6" latest="$7" presentation_required="$8"
+  local title="$5" slug="$6" first="$7" latest="$8" presentation_required="$9"
   local lock owner current_generation current_agent current_session
   local presentation metadata request_kind request_value control_first
   local reconcile reconcile_lock reconcile_owner pending completed location_metadata
@@ -2213,7 +2521,7 @@ commit_task_result() {
     reconcile_owner=""
   fi
 
-  write_task_state "$task_file" "$expected_generation" "$slug" "$first" "$latest" \
+  write_task_state "$task_file" "$expected_generation" "$title" "$slug" "$first" "$latest" \
     "$presentation_required" "${presentation:-0}" "${metadata:-0}" || {
       [ -z "$reconcile_lock" ] || release_claim "$reconcile_lock" "$reconcile_owner"
       release_claim "$lock" "$owner"
@@ -2244,7 +2552,7 @@ commit_task_result() {
 
 run_worker() {
   local pane_dir control high_water worker_lock worker_owner
-  local generation committed kind value first latest previous slug naming_prompt
+  local generation committed kind value first latest previous_title previous_slug title slug naming_prompt identity
   local task_file task_generation presentation_required commit_status abort_worker
   initialize_namespace || exit 0
   pane_dir="$(pane_state_dir)"
@@ -2264,7 +2572,6 @@ run_worker() {
       generation="$(record_number "$control" generation)"
       committed="$(record_number "$control" committed_generation)"
       [ -n "$generation" ] || break
-      [ "${committed:-0}" -lt "$generation" ] || break
 
       agent="$(read_state_field "$control" active_agent)"
       session="$(read_state_field "$control" active_session)"
@@ -2277,40 +2584,64 @@ run_worker() {
       fi
       task_file="$(task_state_file)"
       task_generation="$(record_number "$task_file" generation)"
+      # A durable task commit can outlive a worker killed before its external
+      # Git/Herdr effects. Continuation events retry those idempotent effects
+      # without regenerating or changing the fixed identity.
+      if [ "${committed:-0}" -ge "$generation" ]; then
+        if [ "$task_generation" = "$generation" ] && \
+          [ "$(read_state_field "$task_file" agent)" = "$agent" ] && \
+          [ "$(read_state_field "$task_file" session)" = "$session" ] && \
+          [ "$(record_number "$task_file" presentation_required)" = 1 ]; then
+          title="$(read_state_field "$task_file" title)"
+          slug="$(read_state_field "$task_file" slug)"
+          if [ -n "$slug" ]; then
+            apply_worktree_identity "$title" "$slug"
+            start_presentation_coordinator
+          fi
+        fi
+        break
+      fi
 
       if [ "$task_generation" = "$generation" ] && \
         [ "$(read_state_field "$task_file" agent)" = "$agent" ] && \
         [ "$(read_state_field "$task_file" session)" = "$session" ]; then
+        title="$(read_state_field "$task_file" title)"
         slug="$(read_state_field "$task_file" slug)"
         first="$(read_state_field "$task_file" first_prompt)"
         latest="$(read_state_field "$task_file" latest_prompt)"
         presentation_required="$(record_number "$task_file" presentation_required)"
         [ -n "$presentation_required" ] || presentation_required=0
       else
-        previous="$(read_state_field "$task_file" slug)"
+        previous_title="$(read_state_field "$task_file" title)"
+        previous_slug="$(read_state_field "$task_file" slug)"
         case "$kind" in
           set)
-            slug="$(normalize_slug "$value")"
-            latest="$(read_state_field "$task_file" latest_prompt)"
+            title="$(normalize_title "$value")"
+            slug="$(normalize_slug "$value" | limit_slug_words)"
+            latest="$value"
             [ -n "$first" ] || first="$(read_state_field "$task_file" first_prompt)"
             if [ -n "$slug" ]; then
               presentation_required=1
             else
-              slug="$previous"
+              title="$previous_title"
+              slug="$previous_slug"
               presentation_required=0
             fi
             ;;
           prompt | transcript)
-            latest="$value"
-            naming_prompt="$(build_naming_prompt "$previous" "$first" "$latest")"
-            slug="$(call_engine_chain "$naming_prompt")" || slug=""
-            if [ -n "$slug" ]; then
-              presentation_required=1
-            else
-              # Model failure commits the newest context but retains the prior
-              # semantic slug and does not request redundant presentation.
-              slug="$previous"
+            latest="$first"
+            if [ -n "$previous_slug" ]; then
+              title="$previous_title"
+              slug="$previous_slug"
               presentation_required=0
+            else
+              naming_prompt="$(build_naming_prompt "$first")"
+              identity="$(call_engine_chain "$naming_prompt")" || \
+                identity="$(deterministic_identity "$first")"
+              IFS="$FIELD_SEPARATOR" read -r title slug <<EOF
+$identity
+EOF
+              presentation_required=1
             fi
             ;;
           *)
@@ -2321,7 +2652,7 @@ run_worker() {
       fi
 
       if commit_task_result "$control" "$high_water" "$task_file" "$generation" \
-        "$slug" "$first" "$latest" "$presentation_required"; then
+        "$title" "$slug" "$first" "$latest" "$presentation_required"; then
         commit_status=0
       else
         commit_status=$?
@@ -2334,8 +2665,10 @@ run_worker() {
       fi
       if [ "$commit_status" -eq 0 ] && [ "$presentation_required" -eq 1 ] && \
         [ -n "$slug" ]; then
+        apply_worktree_identity "$title" "$slug"
         start_presentation_coordinator
       fi
+      [ "$commit_status" -ne 0 ] || break
     done
 
     release_claim "$worker_lock" "$worker_owner"
@@ -2457,7 +2790,7 @@ elif [ -n "$transcript" ]; then
   [ -n "$entries" ] || exit 0
   request_kind="transcript"
   request_first="$(printf '%s\n' "$entries" | head -1)"
-  request_value="$(printf '%s\n' "$entries" | tail -1)"
+  request_value="$request_first"
 else
   exit 0
 fi
@@ -2489,11 +2822,21 @@ old_agent="$(read_state_field "$control" active_agent)"
 old_session="$(read_state_field "$control" active_session)"
 control_first="$(read_state_field "$control" first_prompt)"
 task_first="$(read_state_field "$task_file" first_prompt)"
+if [ "$old_agent" = "$agent" ] && [ "$old_session" = "$session" ] && \
+  [ -n "$control_first" ]; then
+  generation="$(record_number "$control" generation)"
+  release_claim "$control_lock" "$inbox_owner"
+  [ -n "$generation" ] || exit 0
+  # The prompt remains ignored, but a short worker gets one chance to recover
+  # committed side effects left incomplete by a crash or transient failure.
+  [ -z "${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" ] || exit 0
+  self="$(script_path)" || exit 0
+  nohup bash "$self" --worker --pane "$pane" </dev/null >/dev/null 2>&1 &
+  register_test_spawn "$!"
+  exit 0
+fi
 if [ "$request_kind" = "transcript" ]; then
   first="$request_first"
-elif [ "$old_agent" = "$agent" ] && [ "$old_session" = "$session" ] && \
-  [ -n "$control_first" ]; then
-  first="$control_first"
 elif [ -n "$task_first" ]; then
   first="$task_first"
 elif [ "$request_kind" = "prompt" ]; then

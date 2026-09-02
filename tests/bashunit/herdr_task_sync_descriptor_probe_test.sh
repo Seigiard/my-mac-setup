@@ -27,7 +27,7 @@ function test_herdr_task_sync_descriptor_child_probe() {
   hts_run --agent claude --session descriptor-s <<< 'descriptor probe prompt'
   hts_wait_for_file "$HTS_WORK/models/pi/1/started"
   generation="$(hts_record_number "$control" generation)"
-  : > "$HTS_WORK/block-herdr"
+  : > "$HTS_WORK/block-api-snapshot"
   hts_release_model pi 1
   hts_wait_for_task_slug "$task" descriptor-probe
   hts_wait_for_record_number "$control" committed_generation "$generation"
