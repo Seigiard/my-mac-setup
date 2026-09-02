@@ -615,7 +615,7 @@ function test_smoke_022_shared_references_form_a_closed_reference_set() {
   pointers="$(grep -rho '~/\.claude/shared/[A-Za-z0-9._-]*\.md' \
     "$HOME/.claude/CLAUDE.md" "$HOME/.agents" "$HOME/.local/lib" \
     "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/output-styles" \
-    "$HOME/.claude/rules" 2>/dev/null | sort -u)"
+    "$HOME/.claude/rules" "$HOME/.claude/skills" 2>/dev/null | sort -u)"
   [ -n "$pointers" ] || fail "no ~/.claude/shared pointer found in the deployed agent surface"
 
   local pointer missing=""
@@ -899,18 +899,45 @@ function test_smoke_059_herdr_task_and_child_engines_are_deployed_and_ex() {
 # and always exiting 0. Run it the same way settings.json invokes it (test
 # 062 proves that wiring) and check the deployed script actually keeps that
 # promise, instead of only checking it is present and has the execute bit.
+#
+# An empty `{}` payload never proves this: the hook requires session_id
+# before it reaches either dispatch branch (herdr-task-sync-hook.sh's own
+# `[ -n "$session_id" ] || exit 0` guard), so a payload without one exits
+# silently before the real engine call a broken dispatch would corrupt. Send
+# the fields Claude actually supplies, and put a stub `herdr-task-sync` ahead
+# on PATH so the real engine -- which would rename this very live pane -- is
+# never invoked, while still proving the hook reached and called it.
 function test_smoke_061_herdr_task_sync_claude_code_hook_stays_silent_and() {
   _bats_test_init 61 'herdr-task-sync Claude Code hook stays silent and exits 0'
   local hook="$HOME/.claude/hooks/herdr-task-sync-hook.sh"
   assert_file_exists "$hook"
 
-  run bash "$hook" prompt <<< '{}'
+  local stub_dir invocation_log
+  stub_dir="$(mktemp -d)"
+  invocation_log="$stub_dir/invocations.log"
+  cat > "$stub_dir/herdr-task-sync" <<'STUB'
+#!/usr/bin/env bash
+{ printf '%s\n' "$*"; cat >/dev/null; } >> "$HERDR_TASK_SYNC_STUB_LOG"
+STUB
+  chmod +x "$stub_dir/herdr-task-sync"
+
+  run env PATH="$stub_dir:$PATH" HERDR_TASK_SYNC_STUB_LOG="$invocation_log" \
+    bash "$hook" prompt <<< '{"session_id":"smoke-061","prompt":"hi","transcript_path":"/tmp/smoke-061.jsonl"}'
   assert_success
   assert_output ""
 
-  run bash "$hook" session <<< '{}'
+  run env PATH="$stub_dir:$PATH" HERDR_TASK_SYNC_STUB_LOG="$invocation_log" \
+    bash "$hook" session <<< '{"session_id":"smoke-061","transcript_path":"/tmp/smoke-061.jsonl"}'
   assert_success
   assert_output ""
+
+  assert_file_exists "$invocation_log"
+  run wc -l "$invocation_log"
+  assert_output --partial "2 "
+  assert_file_contains "$invocation_log" \
+    '\-\-agent claude \-\-session smoke-061 \-\-transcript /tmp/smoke-061.jsonl'
+
+  rm -rf "$stub_dir"
 }
 
 function test_smoke_062_claude_settings_wire_the_task_sync_hook_to_promp() {
