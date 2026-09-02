@@ -21,8 +21,8 @@ if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
   exit 0
 fi
 
-if herdr plugin link --enabled "$plugin_dir" >/dev/null 2>&1; then
+if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
   echo "Linked and enabled Herdr worktree-setup plugin"
 else
-  echo "Warning: failed to link Herdr worktree-setup plugin. Run manually: herdr plugin link --enabled $plugin_dir" >&2
+  echo "Warning: failed to link Herdr worktree-setup plugin. Run manually: herdr plugin link $plugin_dir" >&2
 fi
