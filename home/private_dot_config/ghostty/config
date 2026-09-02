@@ -63,10 +63,10 @@ keybind = cmd+t=unbind
 # palette: Tabs & workspaces | ⌘N | New workspace
 keybind = cmd+KeyN=text:\x02N
 keybind = cmd+n=unbind
-# palette: Tabs & workspaces | ⌘⇧N | New workspace
+# palette: Tabs & workspaces | ⌘⇧N | New worktree
 keybind = cmd+shift+KeyN=text:\x02G
 keybind = cmd+shift+n=unbind
-# palette: Tabs & workspaces | ⌘⇧O | Open workspace
+# palette: Tabs & workspaces | ⌘⇧O | Open worktree
 keybind = cmd+shift+KeyO=text:\x02O
 keybind = cmd+shift+o=unbind
 # palette: Panes | ⌘D | Split right
@@ -105,7 +105,7 @@ keybind = cmd+shift+KeyW=text:\x02D
 keybind = cmd+shift+w=unbind
 keybind = cmd+KeyK=text:\x02W
 keybind = cmd+k=unbind
-# palette: Tabs & workspaces | ⌘⇧K | Delete workspace checkout
+# palette: Tabs & workspaces | ⌘⇧K | Delete worktree checkout
 keybind = cmd+shift+KeyK=text:\x02Y
 keybind = cmd+shift+k=unbind
 keybind = cmd+KeyL=text:\x02T
