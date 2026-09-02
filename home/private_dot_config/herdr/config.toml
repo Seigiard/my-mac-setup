@@ -50,9 +50,6 @@ type = "plugin_action"
 command = "seigi.command-palette.smart_close"
 description = "close pane, then tab, but keep workspace"
 
-[worktrees]
-directory = "~/.worktrees"
-
 [ui]
 prompt_new_tab_name = false
 sidebar_min_width = 32
