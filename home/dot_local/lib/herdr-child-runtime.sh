@@ -6,11 +6,12 @@
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  herdr-child start --kind <claude|opencode|pi> --name <name> [options]
+  herdr-child start --kind <claude|opencode|pi> [options]
   herdr-child ask <question>
+  herdr-child verify --to <alias> --pane <pane-id>
   herdr-child reply --to <name> --pane <pane-id> <decision>
   herdr-child prompt --to <name> --pane <pane-id> (--wait|--detach) [options] <task>
-  herdr-child reap [--pane <pane-id>] <name>...
+  herdr-child reap --to <alias> --pane <pane-id>
 
 Start options:
   --posture <ro|rw>       Child tool posture (default: ro)
@@ -337,6 +338,100 @@ name,pane=sys.argv[1:3]
 data=json.load(sys.stdin)
 agents=data.get("result",{}).get("agents",[])
 raise SystemExit(0 if any(a.get("name")==name and a.get("pane_id")==pane for a in agents) else 1)' "$name" "$pane"
+}
+
+json_validate_agents_and_list_names() {
+  python3 -c 'import json,math,sys
+try:
+ data=json.load(sys.stdin)
+ agents=data["result"]["agents"]
+except Exception:
+ raise SystemExit(1)
+if not isinstance(agents,list): raise SystemExit(1)
+panes=set(); terminals=set(); names=set()
+for agent in agents:
+ if not isinstance(agent,dict): raise SystemExit(1)
+ for key in ("pane_id","agent","terminal_id"):
+  if not isinstance(agent.get(key),str) or not agent[key]: raise SystemExit(1)
+ for key in ("revision","state_change_seq"):
+  value=agent.get(key)
+  if not isinstance(value,(int,float)) or isinstance(value,bool) or not math.isfinite(value): raise SystemExit(1)
+ name=agent.get("name","")
+ if not isinstance(name,str): raise SystemExit(1)
+ if agent["pane_id"] in panes or agent["terminal_id"] in terminals or (name and name in names): raise SystemExit(1)
+ panes.add(agent["pane_id"]); terminals.add(agent["terminal_id"])
+ if name: names.add(name)
+for name in names: print(name)'
+}
+
+json_pair_terminal() {
+  local name="$1" pane="$2"
+  python3 -c 'import json,sys
+name,pane=sys.argv[1:3]
+agents=json.load(sys.stdin).get("result",{}).get("agents",[])
+matches=[a for a in agents if a.get("name")==name and a.get("pane_id")==pane]
+if len(matches)!=1 or not matches[0].get("terminal_id"): raise SystemExit(1)
+print(matches[0]["terminal_id"])' "$name" "$pane"
+}
+
+json_current_name_for_pane() {
+  local pane="$1"
+  python3 -c 'import json,sys
+pane=sys.argv[1]
+agents=json.load(sys.stdin).get("result",{}).get("agents",[])
+matches=[a for a in agents if a.get("pane_id")==pane and isinstance(a.get("name"),str) and a.get("name")]
+if len(matches)!=1: raise SystemExit(1)
+print(matches[0]["name"])' "$pane"
+}
+
+json_pane_has_no_agent() {
+  local pane="$1"
+  python3 -c 'import json,sys
+pane=sys.argv[1]
+agents=json.load(sys.stdin).get("result",{}).get("agents",[])
+raise SystemExit(0 if not any(a.get("pane_id")==pane for a in agents) else 1)' "$pane"
+}
+
+json_error_file_is() {
+  local file="$1" expected="$2"
+  python3 -c 'import json,sys
+try: data=json.load(open(sys.argv[1]))
+except Exception: raise SystemExit(1)
+raise SystemExit(0 if data.get("error",{}).get("code")==sys.argv[2] else 1)' "$file" "$expected"
+}
+
+pane_terminal_matches() {
+  local pane="$1" terminal="$2" output
+  output="$(herdr pane get "$pane")" || return 1
+  printf '%s' "$output" | python3 -c 'import json,sys
+pane_id,terminal_id=sys.argv[1:3]
+try: pane=json.load(sys.stdin)["result"]["pane"]
+except Exception: raise SystemExit(1)
+raise SystemExit(0 if pane.get("pane_id")==pane_id and pane.get("terminal_id")==terminal_id else 1)' "$pane" "$terminal"
+}
+
+verify_pair() {
+  require_parent
+  local name="" pane="" list_json terminal
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; [ -z "$name" ] || fail_usage 'verify accepts --to once'; name="$2"; shift 2 ;;
+      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; [ -z "$pane" ] || fail_usage 'verify accepts --pane once'; pane="$2"; shift 2 ;;
+      *) fail_usage "unknown verify option: $1" ;;
+    esac
+  done
+  [ -n "$name" ] || fail_usage 'verify requires --to'
+  [ -n "$pane" ] || fail_usage 'verify requires --pane'
+  list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; return 1; }
+  terminal="$(printf '%s' "$list_json" | json_pair_terminal "$name" "$pane")" || {
+    printf 'herdr-child: child alias and pane do not identify the same live agent\n' >&2
+    return 1
+  }
+  pane_terminal_matches "$pane" "$terminal" || {
+    printf 'herdr-child: child pane and terminal identity do not match\n' >&2
+    return 1
+  }
+  printf '%s\n' "$terminal"
 }
 
 # Prints "kept:<pane_count>" while a tab exists, "gone" when it does not,

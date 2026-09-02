@@ -5,21 +5,22 @@
 start_child() {
   require_parent
 
+  local -a original_args=("$@")
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
   local configured_agent="" prompt="" prompt_file="" direction="right" direction_explicit=0
   local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
   local supervision_timeout_set=0
   local pane="" list_json="" split_json="" parent_identity="" child_identity=""
   local parent_terminal="" parent_session="" child_terminal="" child_session=""
+  local launch_terminal="" occupied_names="" registered=0
   local baseline_json="" baseline_snapshot="" baseline_seq=""
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
   local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
-  local -a skills=() split_args=() native_args=()
+  local -a skills=() split_args=() native_args=() alias_candidates=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
       --kind) [ $# -ge 2 ] || fail_usage '--kind needs a value'; kind="$2"; shift 2 ;;
-      --name) [ $# -ge 2 ] || fail_usage '--name needs a value'; name="$2"; shift 2 ;;
       --posture) [ $# -ge 2 ] || fail_usage '--posture needs a value'; posture="$2"; shift 2 ;;
       --cwd) [ $# -ge 2 ] || fail_usage '--cwd needs a value'; cwd="$2"; shift 2 ;;
       --model) [ $# -ge 2 ] || fail_usage '--model needs a value'; model="$2"; shift 2 ;;
@@ -57,7 +58,6 @@ start_child() {
   if [ "$tab_mode" -eq 1 ] && [ "$direction_explicit" -eq 1 ]; then fail_usage '--tab cannot be combined with --direction'; fi
   if [ -n "$label" ] && [ "$tab_mode" -ne 1 ]; then fail_usage '--label is only valid with --tab'; fi
   if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage '--tab requires HERDR_WORKSPACE_ID'; fi
-  [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || fail_usage 'name must match [a-z][a-z0-9_-]{0,31}'
   case "$timeout" in '' | 0 | *[!0-9]*) fail_usage '--timeout must be a positive integer' ;; esac
   if [ "$mode" = wait ] && [ "$supervision_timeout_set" -eq 1 ]; then
     fail_usage '--supervision-timeout requires --detach'
@@ -86,9 +86,32 @@ start_child() {
     printf 'herdr-child: could not list live agents\n' >&2
     exit 1
   }
-  if printf '%s' "$list_json" | json_has_name "$name"; then
-    fail_usage "agent name is already live: $name"
+  occupied_names="$(printf '%s' "$list_json" | json_validate_agents_and_list_names)" || {
+    printf 'herdr-child: live agent records are incomplete during alias allocation\n' >&2
+    return 1
+  }
+  local candidate_file candidate occupied
+  candidate_file="$(mktemp)"
+  if ! herdr_alias_candidates "${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(herdr_now_seq)" > "$candidate_file"; then
+    rm -f "$candidate_file"
+    printf 'herdr-child: could not build alias candidates\n' >&2
+    return 1
   fi
+  while IFS= read -r candidate; do alias_candidates+=("$candidate"); done < "$candidate_file"
+  rm -f "$candidate_file"
+  for candidate in "${alias_candidates[@]}"; do
+    occupied=0
+    while IFS= read -r name; do
+      if [ "$name" = "$candidate" ]; then occupied=1; break; fi
+    done <<EOF
+$occupied_names
+EOF
+    if [ "$occupied" -eq 0 ]; then name="$candidate"; break; fi
+  done
+  [ -n "$name" ] || {
+    printf 'herdr-child: alias pool is exhausted\n' >&2
+    return 1
+  }
   set +e
   parent_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$HERDR_PANE_ID")"
   local parent_identity_status=$?
@@ -139,7 +162,32 @@ EOF
   esac
 
   cleanup_pane() {
-    [ -z "$pane" ] || herdr pane close "$pane" >/dev/null 2>&1 || true
+    local context="${1:-cleanup}" fresh_json="" current_terminal=""
+    [ -n "$pane" ] || return 0
+    fresh_json="$(herdr agent list)" || {
+      printf 'herdr-child: preserving pane %s; live identity is unavailable after %s\n' "$pane" "$context" >&2
+      return 1
+    }
+    if [ "$registered" -eq 1 ]; then
+      current_terminal="$(printf '%s' "$fresh_json" | json_pair_terminal "$name" "$pane")" || true
+      if [ "$current_terminal" != "$launch_terminal" ]; then
+        printf 'herdr-child: preserving pane %s; accepted alias ownership is ambiguous after %s\n' "$pane" "$context" >&2
+        return 1
+      fi
+    elif ! printf '%s' "$fresh_json" | json_pane_has_no_agent "$pane"; then
+      printf 'herdr-child: preserving pane %s; an agent occupies it after %s\n' "$pane" "$context" >&2
+      return 1
+    fi
+    if [ -z "$launch_terminal" ] || ! pane_terminal_matches "$pane" "$launch_terminal"; then
+      printf 'herdr-child: preserving pane %s; terminal identity changed after %s\n' "$pane" "$context" >&2
+      return 1
+    fi
+    if ! herdr pane close "$pane" >/dev/null; then
+      printf 'herdr-child: preserving pane %s; close failed after %s\n' "$pane" "$context" >&2
+      return 1
+    fi
+    pane=""
+    launch_terminal=""
   }
   owned_launch_signal() {
     local signal="$1" status=1 parsed_identity="" manual_tab=""
@@ -157,7 +205,7 @@ EOF
     stop_owned_watcher "${run_dir:-}" "${watcher_pid:-}" "launch-signal-$signal"
     rm -f "${start_err:-}" "${start_out:-}" "${prompt_err:-}" "${prompt_out:-}" 2>/dev/null || true
     if [ -n "$pane" ]; then
-      cleanup_pane
+      cleanup_pane "signal-$signal" || true
     elif [ "$tab_mode" -eq 1 ] && [ -n "$split_json" ]; then
       printf 'herdr-child: signal after tab creation left tab %s with unknown pane identity; manual cleanup required\n' \
         "${manual_tab:-unknown}" >&2
@@ -174,12 +222,19 @@ EOF
       printf 'herdr-child: tab create failed\n' >&2
       exit 1
     }
-    identity="$(printf '%s' "$split_json" | json_tab_identity)" || {
+    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+ result=json.load(sys.stdin)["result"]
+ pane=result["root_pane"]
+ pane_id=pane["pane_id"]; terminal_id=pane["terminal_id"]; tab_id=result["tab"]["tab_id"]
+ if not pane_id or not terminal_id or not tab_id: raise ValueError()
+ print("%s\t%s\t%s" % (pane_id,terminal_id,tab_id))
+except Exception: raise SystemExit(1)')" || {
       preserved_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
       printf 'herdr-child: tab create returned no usable pane/tab identity; tab %s was preserved and needs manual cleanup\n' "$preserved_tab" >&2
       exit 1
     }
-    IFS=$'\t' read -r pane tab <<< "$identity"
+    IFS=$'\t' read -r pane launch_terminal tab <<< "$identity"
     tab_note=" (tab $tab)"
     if [ -n "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" ]; then
       : > "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.ready"
@@ -190,10 +245,17 @@ EOF
       printf 'herdr-child: pane split failed\n' >&2
       exit 1
     }
-    pane="$(printf '%s' "$split_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')" || {
-      printf 'herdr-child: pane split returned no pane ID\n' >&2
+    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
+try:
+ pane=json.load(sys.stdin)["result"]["pane"]
+ pane_id=pane["pane_id"]; terminal_id=pane["terminal_id"]
+ if not pane_id or not terminal_id: raise ValueError()
+ print("%s\t%s" % (pane_id,terminal_id))
+except Exception: raise SystemExit(1)')" || {
+      printf 'herdr-child: pane split returned no pane and terminal identity; pane was preserved\n' >&2
       exit 1
     }
+    IFS=$'\t' read -r pane launch_terminal <<< "$identity"
   fi
 
   if [ "$tab_mode" -eq 1 ]; then
@@ -204,7 +266,7 @@ EOF
       cat "$token_err" >&2
       rm -f "$token_err"
       printf 'herdr-child: could not record tab ownership; removing tab %s\n' "$tab" >&2
-      cleanup_pane
+      cleanup_pane token-write-failure || true
       exit 1
     fi
     rm -f "$token_err"
@@ -252,39 +314,56 @@ EOF
     herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
     start_status=$?
     set -e
-    [ "$start_status" -eq 0 ] && break
-    if ! grep -q '"code":"agent_pane_busy"' "$start_err"; then
-      cat "$start_err" >&2
-      printf 'herdr-child: agent start failed%s\n' "$tab_note" >&2
-      rm -f "$start_err" "$start_out"
-      cleanup_pane
-      return 1
-    fi
+    [ "$start_status" -eq 0 ] && { registered=1; break; }
+    if ! json_error_file_is "$start_err" agent_pane_busy; then break; fi
     attempt=$((attempt + 1))
     [ "$attempt" -le 3 ] && sleep 1
   done
   if [ "$start_status" -ne 0 ]; then
     cat "$start_err" >&2
-    printf 'herdr-child: pane was not ready after three agent start attempts%s\n' "$tab_note" >&2
+    if json_error_file_is "$start_err" agent_name_taken; then
+      printf 'herdr-child: alias collision detected; retrying allocation\n' >&2
+      if ! cleanup_pane alias-collision; then
+        printf 'herdr-child: alias collision could not be cleaned up safely\n' >&2
+        rm -f "$start_err" "$start_out"
+        return 1
+      fi
+      rm -f "$start_err" "$start_out"
+      trap - HUP INT TERM
+      start_child "${original_args[@]}"
+      return
+    fi
+    if json_error_file_is "$start_err" agent_pane_busy; then
+      printf 'herdr-child: pane was not ready after three agent start attempts%s\n' "$tab_note" >&2
+    else
+      printf 'herdr-child: agent start failed%s\n' "$tab_note" >&2
+    fi
     rm -f "$start_err" "$start_out"
-    cleanup_pane
+    cleanup_pane start-failure || true
     return 1
   fi
   rm -f "$start_err" "$start_out"
 
+  list_json="$(herdr agent list)" || {
+    printf 'herdr-child: accepted alias could not be verified after agent start\n' >&2
+    cleanup_pane post-registration-validation || true
+    return 1
+  }
+  child_terminal="$(printf '%s' "$list_json" | json_pair_terminal "$name" "$pane")" || true
+  if [ "$child_terminal" != "$launch_terminal" ] || ! pane_terminal_matches "$pane" "$launch_terminal"; then
+    printf 'herdr-child: accepted alias, pane, or terminal changed after agent start\n' >&2
+    cleanup_pane post-registration-validation || true
+    return 1
+  fi
+
   if [ "$mode" = detach ]; then
-    list_json="$(herdr agent list)" || {
-      printf 'herdr-child: child identity could not be read after agent start\n' >&2
-      cleanup_pane
-      return 1
-    }
     set +e
     child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")"
     local child_identity_status=$?
     set -e
     if [ "$child_identity_status" -ne 0 ]; then
       printf 'herdr-child: child terminal identity is unavailable or ambiguous\n' >&2
-      cleanup_pane
+      cleanup_pane detached-identity-validation || true
       return 1
     fi
     IFS=$'\t' read -r child_terminal child_session <<EOF
@@ -292,12 +371,12 @@ $child_identity
 EOF
     if [ -z "$child_session" ]; then
       printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
-      cleanup_pane
+      cleanup_pane detached-session-validation || true
       return 1
     fi
     baseline_json="$(herdr agent get "$pane")" || {
       printf 'herdr-child: child baseline state could not be read after agent start\n' >&2
-      cleanup_pane
+      cleanup_pane detached-baseline-read || true
       return 1
     }
     set +e
@@ -306,7 +385,7 @@ EOF
     set -e
     if [ "$baseline_status" -ne 0 ]; then
       printf 'herdr-child: child baseline state was malformed after agent start\n' >&2
-      cleanup_pane
+      cleanup_pane detached-baseline-validation || true
       return 1
     fi
     IFS=$'\t' read -r _ baseline_seq _ _ _ _ <<EOF
@@ -314,20 +393,20 @@ $baseline_snapshot
 EOF
     generation="$(generation_nonce)" || {
       printf 'herdr-child: could not generate a supervision identity\n' >&2
-      cleanup_pane
+      cleanup_pane supervision-identity || true
       return 1
     }
     umask 077
     mkdir -p "$STATE_DIR/runs" 2>/dev/null || {
       printf 'herdr-child: could not create supervision state\n' >&2
-      cleanup_pane
+      cleanup_pane supervision-state-directory || true
       return 1
     }
     chmod 700 "$STATE_DIR" "$STATE_DIR/runs" 2>/dev/null || true
     run_dir="$STATE_DIR/runs/$generation"
     mkdir "$run_dir" 2>/dev/null || {
       printf 'herdr-child: could not create supervision run state\n' >&2
-      cleanup_pane
+      cleanup_pane supervision-run-directory || true
       return 1
     }
     write_launch_state "$run_dir/launch.state" "$generation" "$supervision_timeout" \
@@ -335,7 +414,7 @@ EOF
       "$child_terminal" "$child_session" "$baseline_seq" || {
       printf 'herdr-child: could not initialize supervision state\n' >&2
       remove_supervision_run "$run_dir"
-      cleanup_pane
+      cleanup_pane supervision-state-write || true
       return 1
     }
     if ! metadata_report "$pane" --source "$SOURCE_ID" \
@@ -346,13 +425,13 @@ EOF
       --token "child_terminal=$child_terminal" --token "child_session=$child_session" >/dev/null; then
       printf 'herdr-child: detached launch metadata could not be published\n' >&2
       remove_supervision_run "$run_dir"
-      cleanup_pane
+      cleanup_pane supervision-metadata || true
       return 1
     fi
     self="$(script_path)" || {
       printf 'herdr-child: watcher entry point could not be resolved\n' >&2
       remove_supervision_run "$run_dir"
-      cleanup_pane
+      cleanup_pane watcher-entrypoint || true
       return 1
     }
     set -m
@@ -373,7 +452,7 @@ EOF
         printf 'herdr-child: watcher did not publish readiness\n' >&2
       fi
       stop_owned_watcher "$run_dir" "$watcher_pid" watcher-readiness-failed
-      cleanup_pane
+      cleanup_pane watcher-readiness || true
       return 1
     fi
   fi
@@ -446,7 +525,7 @@ EOF
       printf 'herdr-child: initial prompt failed%s\n' "$tab_note" >&2
     fi
     rm -f "$prompt_out" "$prompt_err"
-    cleanup_pane
+    cleanup_pane prompt-failure || true
     return 1
   fi
   rm -f "$prompt_out" "$prompt_err"

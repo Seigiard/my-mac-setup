@@ -24,13 +24,13 @@ case "${1:-} ${2:-}" in
   "agent list")
     if [ -f "$HCD_WORK/started-name" ]; then
       child="$(cat "$HCD_WORK/started-name")"
-      printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent","agent_session":{"value":"parent-session"}},{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"}}]}}\n' "$child"
+      printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}},{"name":"%s","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10,"agent_session":{"value":"child-session"}}]}}\n' "$child"
     else
-      printf '{"result":{"agents":[{"name":"parent","pane_id":"wT:p0","terminal_id":"term-parent","agent_session":{"value":"parent-session"}}]}}\n'
+      printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}}]}}\n'
     fi
     ;;
   "pane split")
-    printf '{"result":{"pane":{"pane_id":"wT:p9"}}}\n'
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'
     ;;
   "agent start")
     printf '%s' "$3" > "$HCD_WORK/started-name"
@@ -49,6 +49,9 @@ case "${1:-} ${2:-}" in
       while [ ! -e "$HCD_WORK/release-liveness" ]; do sleep 0.01; done
     fi
     printf '{"result":{"type":"pane_metadata_reported"}}\n'
+    ;;
+  "pane get")
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"tokens":{"supervision_generation":"1"}}}}\n'
     ;;
   "pane close")
     : > "$HCD_WORK/pane-closed"
@@ -81,8 +84,7 @@ env.update({
 control_read, control_write = os.pipe()
 os.set_inheritable(control_write, True)
 proc = subprocess.Popen(
-    ["bash", os.environ["HCD_CHILD"], "start", "--kind", "claude", "--name",
-     "descriptor-child", "--detach", "--prompt", "descriptor task"],
+    ["bash", os.environ["HCD_CHILD"], "start", "--kind", "claude", "--detach", "--prompt", "descriptor task"],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,

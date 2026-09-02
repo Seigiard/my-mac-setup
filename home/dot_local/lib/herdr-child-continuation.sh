@@ -211,12 +211,20 @@ ask_parent() {
   [ -n "${HERDR_CHILD_PARENT_PANE:-}" ] || { printf 'herdr-child: HERDR_CHILD_PARENT_PANE is missing\n' >&2; exit 1; }
   [ -n "${HERDR_PANE_ID:-}" ] || { printf 'herdr-child: HERDR_PANE_ID is missing\n' >&2; exit 1; }
 
-  local seq list_json message parent_pane="$HERDR_CHILD_PARENT_PANE" event
+  local seq list_json message current_name parent_pane="$HERDR_CHILD_PARENT_PANE" event
   local pane_json context pane_terminal pane_session mode generation run_dir
   local supervision_timeout stored_parent_terminal stored_parent_session
   local stored_child_terminal stored_child_session route_terminal="" route_session=""
   seq="$(metadata_report "$HERDR_PANE_ID" --source "$SOURCE_ID" \
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS")"
+  list_json="$(herdr agent list)" || {
+    printf 'herdr-child: child or parent lookup failed; waiting label remains published\n' >&2
+    exit 1
+  }
+  current_name="$(printf '%s' "$list_json" | json_current_name_for_pane "$HERDR_PANE_ID")" || {
+    printf 'herdr-child: current pane has no unique registered alias; waiting label remains published\n' >&2
+    exit 1
+  }
 
   pane_json="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null || true)"
   context="$(printf '%s' "$pane_json" | json_child_context 2>/dev/null || true)"
@@ -254,7 +262,7 @@ EOF
       printf 'herdr-child: callback intent could not be persisted; waiting label remains published\n' >&2
       exit 1
     fi
-    message="[child-ask v2 generation=$generation event=$event agent=$HERDR_CHILD_NAME pane=$HERDR_PANE_ID]
+    message="[child-ask v2 generation=$generation event=$event agent=$current_name pane=$HERDR_PANE_ID]
 
 $1"
   else
@@ -272,15 +280,10 @@ $1"
       route_terminal="$HERDR_CHILD_PARENT_TERMINAL"
       route_session="$HERDR_CHILD_PARENT_SESSION"
     fi
-    message="[child-ask v1 agent=$HERDR_CHILD_NAME pane=$HERDR_PANE_ID]
+    message="[child-ask v1 agent=$current_name pane=$HERDR_PANE_ID]
 
 $1"
   fi
-  list_json="$(herdr agent list)" || {
-    [ -z "$run_dir" ] || persist_callback_state "$run_dir" failed "$event" || true
-    printf 'herdr-child: parent lookup failed; waiting label remains published\n' >&2
-    exit 1
-  }
   if [ -n "$route_terminal" ]; then
     set +e
     local parent_record

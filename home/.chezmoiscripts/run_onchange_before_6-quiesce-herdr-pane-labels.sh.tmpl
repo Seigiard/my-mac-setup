@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Freeze semantic adapters and quiesce every old/current pane-label writer.
+#
+# Hash triggers:
+# # {{ include "dot_local/bin/executable_herdr-pane-labels" | sha256sum }}
+# # {{ include "dot_local/lib/herdr-aliases.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" | sha256sum }}
+# # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" | sha256sum }}
+# # {{ include ".chezmoitemplates/herdr-pane-labels-cutover-lib.sh" | sha256sum }}
+
+# {{ include ".chezmoitemplates/herdr-pane-labels-cutover-lib.sh" }}
+
+set -u
+
+hpl_cutover_setup || exit 1
+trap hpl_cutover_cleanup EXIT
+hpl_cutover_select_rollback_engine
+
+# The deployed U1 library does not exist on first cutover. Render its canonical
+# source body into this before-script and source that exact body for validation.
+alias_library="$HPL_CUTOVER_WORK/herdr-aliases.sh"
+cat > "$alias_library" <<'HERDR_ALIAS_LIBRARY'
+# {{ include "dot_local/lib/herdr-aliases.sh" }}
+HERDR_ALIAS_LIBRARY
+# shellcheck disable=SC1090
+source "$alias_library" || exit 1
+
+if ! hpl_cutover_freeze_old_entry || \
+  ! hpl_cutover_freeze_child_entry || \
+  ! hpl_cutover_refresh_sessions || \
+  ! hpl_cutover_disable_plugin || \
+  ! hpl_cutover_validate_aliases || \
+  ! hpl_cutover_drain_fixed_point || \
+  ! hpl_cutover_refresh_sessions || \
+  ! hpl_cutover_validate_aliases || \
+  ! hpl_cutover_migrate_location_state || \
+  ! hpl_cutover_clear_task_tokens; then
+  hpl_cutover_rollback || true
+  exit 1
+fi
+
+hpl_cutover_trace before-complete
+hpl_cutover_log "old and current writers quiesced"
+exit 0

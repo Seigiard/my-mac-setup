@@ -1,54 +1,93 @@
 #!/usr/bin/env bash
 # chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
-# Link and enable the local Herdr pane-labels plugin after the managed files change.
+# Link, enable, and verify the pane-labels plugin after managed files change.
 #
 # Hash triggers:
+# # {{ include "dot_local/bin/executable_herdr-pane-labels" | sha256sum }}
+# # {{ include "dot_local/lib/herdr-aliases.sh" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh" | sha256sum }}
-# # {{ include "private_dot_config/herdr/config.toml" | sha256sum }}
-# # {{ include "dot_local/bin/executable_herdr-task-sync" | sha256sum }}
+# # {{ include ".chezmoitemplates/herdr-pane-labels-cutover-lib.sh" | sha256sum }}
 
-# Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
+# {{ include ".chezmoitemplates/herdr-pane-labels-cutover-lib.sh" }}
+
 set -u
 
-plugin_dir="$HOME/.config/herdr/plugins/herdr-pane-labels"
-sync="$HOME/.local/bin/herdr-task-sync"
+hpl_cutover_setup || exit 1
+trap hpl_cutover_cleanup EXIT
+hpl_cutover_mark_deployed || exit 1
 
 if ! command -v herdr >/dev/null 2>&1; then
+  if [ -d "$HPL_CUTOVER_ROLLBACK_DIR" ]; then
+    hpl_cutover_error "herdr not found; pane-label activation remains pending"
+    exit 1
+  fi
   echo "herdr not found; skipping pane-labels plugin link"
   exit 0
 fi
 
-if [[ ! -f "$plugin_dir/herdr-plugin.toml" ]]; then
-  echo "Herdr pane-labels plugin manifest not found at $plugin_dir; skipping"
+if [[ ! -f "$HPL_CUTOVER_PLUGIN_DIR/herdr-plugin.toml" ]] || [[ ! -x "$HPL_CUTOVER_NEW_ENGINE" ]]; then
+  hpl_cutover_error "managed pane-label engine or plugin manifest is missing"
+  exit 1
+fi
+
+if ! hpl_cutover_refresh_sessions || ! hpl_cutover_drain_fixed_point; then
+  hpl_cutover_fail_after_deploy
+  exit 1
+fi
+
+hpl_cutover_hook after-second-drain || { hpl_cutover_fail_after_deploy; exit 1; }
+
+if ! hpl_cutover_run_with_deadline herdr plugin link "$HPL_CUTOVER_PLUGIN_DIR" >/dev/null 2>&1; then
+  hpl_cutover_error "failed to link $HPL_CUTOVER_PLUGIN_ID"
+  hpl_cutover_fail_after_deploy
+  exit 1
+fi
+hpl_cutover_mark_plugin_linked
+
+if ! hpl_cutover_refresh_sessions; then
+  hpl_cutover_fail_after_deploy
+  exit 1
+fi
+
+if ! hpl_cutover_has_sessions; then
+  hpl_cutover_commit || exit 1
+  hpl_cutover_log "linked $HPL_CUTOVER_PLUGIN_ID; no running Herdr sessions require verification"
   exit 0
 fi
 
-if herdr plugin link "$plugin_dir" >/dev/null 2>&1; then
-  echo "Linked Herdr pane-labels plugin"
-  if herdr plugin enable seigi.pane-labels >/dev/null 2>&1; then
-    echo "Enabled seigi.pane-labels"
-  else
-    echo "Warning: linked but failed to enable; run manually: herdr plugin enable seigi.pane-labels" >&2
-  fi
-  if herdr server reload-config >/dev/null 2>&1; then
-    echo "Reloaded Herdr config"
-  else
-    echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
-  fi
-  if [[ -f "$sync" ]] && command -v jq >/dev/null 2>&1; then
-    while IFS= read -r socket; do
-      [[ -n "$socket" ]] || continue
-      if ! HERDR_SOCKET_PATH="$socket" bash "$sync" --restart-daemon; then
-        echo "Warning: failed to restart pane-label sweep daemon for $socket" >&2
-        continue
-      fi
-      if ! HERDR_SOCKET_PATH="$socket" bash "$sync" --sweep; then
-        echo "Warning: failed to refresh pane labels for $socket" >&2
-      fi
-    done < <(herdr session list --json 2>/dev/null | jq -r '.sessions[]? | select(.running == true) | .socket_path // empty')
-  fi
-else
-  echo "Warning: failed to link Herdr pane-labels plugin. Run manually: herdr plugin link $plugin_dir" >&2
+if ! hpl_cutover_run_for_sessions herdr plugin enable "$HPL_CUTOVER_PLUGIN_ID" >/dev/null 2>&1 || \
+  ! hpl_cutover_run_for_sessions herdr server reload-config >/dev/null 2>&1; then
+  hpl_cutover_error "failed to enable or reload $HPL_CUTOVER_PLUGIN_ID"
+  hpl_cutover_fail_after_deploy
+  exit 1
 fi
+hpl_cutover_trace plugin-enabled
+
+if ! hpl_cutover_refresh_sessions; then
+  hpl_cutover_fail_after_deploy
+  exit 1
+fi
+
+# Link/reload does not rerun startup hooks for existing sessions. Complete one
+# pass, then explicitly start and verify one daemon for each socket.
+while IFS= read -r socket; do
+  [[ -n "$socket" ]] || continue
+  hpl_cutover_run_with_deadline env HERDR_SOCKET_PATH="$socket" HERDR_PANE_LABELS_STRICT_SWEEP=1 \
+    "$HPL_CUTOVER_NEW_ENGINE" --sweep >/dev/null || {
+    hpl_cutover_fail_after_deploy
+    exit 1
+  }
+  hpl_cutover_trace "first-pass:$socket"
+done < "$HPL_CUTOVER_SOCKETS"
+
+if ! hpl_cutover_ensure_all "$HPL_CUTOVER_NEW_ENGINE" "$HPL_CUTOVER_NEW_CACHE"; then
+  hpl_cutover_fail_after_deploy
+  exit 1
+fi
+
+hpl_cutover_commit || exit 1
+
+hpl_cutover_log "linked and verified $HPL_CUTOVER_PLUGIN_ID"
+exit 0

@@ -46,7 +46,8 @@ teardown() {
 # leaving a wall of identical `python3: command not found` failures below.
 function test_palette_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
-  assert_python3_available
+  run assert_python3_available
+  assert_success
 }
 
 function test_palette_002_a_missing_python3_is_rejected() {

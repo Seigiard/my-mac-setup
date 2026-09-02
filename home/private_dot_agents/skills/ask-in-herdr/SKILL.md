@@ -52,7 +52,7 @@ The answer or partial answer is on stdout. The last stderr line is always one of
 | `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. |
 | `ask.sh: status=refused` | 2 | Arguments or the requested posture are invalid. |
 
-The script prints a close hint on stderr before the status line. Keep the pane for a managed follow-up, or close it with the reported `herdr-child reap --pane <pane-id> <agent-name>` command. The expected pane prevents a delayed reminder from reaping a different child after name reuse. Use `herdr-child prompt --to <agent-name> --pane <pane-id> --wait '<task>'` for that attached follow-up.
+The script prints a close hint on stderr before the status line. `herdr-child` allocates the alias; the script consumes the returned alias-plus-pane pair and verifies its terminal identity before exposing output. Keep the pane for a managed follow-up, or close it with the reported `herdr-child reap --to <alias> --pane <pane-id>` command. Use `herdr-child prompt --to <alias> --pane <pane-id> --wait '<task>'` for that attached follow-up.
 
 For `status=answered`, the script also submits a cleanup reminder to the parent agent's pane. Herdr queues that prompt while the parent is working. The reminder is best effort: a delivery failure prints a warning but does not discard or downgrade the answer already read.
 

@@ -8,6 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=home/dot_local/lib/herdr-process.sh
 source "$SCRIPT_DIR/../lib/herdr-process.sh"
+# shellcheck source=home/dot_local/lib/herdr-aliases.sh
+source "$SCRIPT_DIR/../lib/herdr-aliases.sh"
 # shellcheck source=home/dot_local/lib/herdr-child-runtime.sh
 source "$SCRIPT_DIR/../lib/herdr-child-runtime.sh"
 # shellcheck source=home/dot_local/lib/herdr-child-supervision.sh
@@ -41,6 +43,7 @@ case "$command" in
   start) start_child "$@" ;;
   __watcher) watch_child "$@" ;;
   ask) ask_parent "$@" ;;
+  verify) verify_pair "$@" ;;
   reply) reply_child "$@" ;;
   prompt) prompt_child "$@" ;;
   reap) reap_children "$@" ;;

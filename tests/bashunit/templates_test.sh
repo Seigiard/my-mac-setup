@@ -29,7 +29,8 @@ teardown() {
 # message rather than a bare `python3: command not found`.
 function test_templates_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   _bats_test_init 1 'python3 is present and at least 3.9, the floor README.md declares'
-  assert_python3_available
+  run assert_python3_available
+  assert_success
 }
 
 # ===========================================
@@ -265,6 +266,20 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
     assert_success
     assert_file_exists "$output"
   done <<< "$entries"
+}
+
+# ===========================================
+# private_settings.json.tmpl retirement contract
+# ===========================================
+function test_templates_0151_private_settings_omits_task_sync_hooks() {
+  _bats_test_init 151 'private_settings.json.tmpl omits task-sync hooks and keeps native Herdr state'
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+  run grep "herdr-task-sync-hook.sh" "$BATS_TEST_TMPFILE"
+  assert_failure
+  run grep -c "herdr-agent-state.sh" "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output "1"
 }
 
 # ===========================================

@@ -4,21 +4,21 @@
 
 reap_children() {
   require_parent
-  local expected_pane=""
-  if [ "${1:-}" = "--pane" ]; then
-    [ $# -ge 3 ] || fail_usage 'reap --pane requires a pane ID and child name'
-    expected_pane="$2"
-    [ -n "$expected_pane" ] || fail_usage 'reap --pane requires a non-empty pane ID'
-    shift 2
-    [ $# -eq 1 ] || fail_usage 'reap --pane accepts exactly one child name'
-  fi
-  [ $# -gt 0 ] || fail_usage 'reap requires at least one child name'
-  local list_json name record pane status focused pane_json label_status fresh_list_json fresh_status
+  local name="" expected_pane=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) [ $# -ge 2 ] || fail_usage '--to needs a value'; [ -z "$name" ] || fail_usage 'reap accepts --to once'; name="$2"; shift 2 ;;
+      --pane) [ $# -ge 2 ] || fail_usage '--pane needs a value'; [ -z "$expected_pane" ] || fail_usage 'reap accepts --pane once'; expected_pane="$2"; shift 2 ;;
+      *) fail_usage "unknown reap option: $1" ;;
+    esac
+  done
+  [ -n "$name" ] || fail_usage 'reap requires --to'
+  [ -n "$expected_pane" ] || fail_usage 'reap requires --pane'
+  local list_json record pane status focused terminal pane_json label_status fresh_list_json fresh_status
   local generation own_tab child_tab close_err tab_state metadata reap_transition
   list_json="$(herdr agent list)" || { printf 'herdr-child: could not list children\n' >&2; exit 1; }
 
-  for name in "$@"; do
-    set +e
+  set +e
     record="$(printf '%s' "$list_json" | python3 -c 'import json,sys
 try:
  data=json.load(sys.stdin)
@@ -29,30 +29,30 @@ agents=data.get("result",{}).get("agents",[])
 match=next((a for a in agents if a.get("name")==name), None)
 if match is None:
  raise SystemExit(1)
-print("%s\t%s\t%s" % (match.get("pane_id",""), match.get("agent_status","unknown"), str(bool(match.get("focused"))).lower()))' "$name")"
+print("%s\t%s\t%s\t%s" % (match.get("pane_id",""), match.get("agent_status","unknown"), str(bool(match.get("focused"))).lower(), match.get("terminal_id","")))' "$name")"
     fresh_status=$?
     set -e
     case "$fresh_status" in
       0) ;;
-      1) printf '%s: skipped; no live agent has this name\n' "$name"; continue ;;
-      *) printf '%s: kept; live agent state could not be parsed\n' "$name"; continue ;;
+      1) printf '%s: skipped; no live agent has this name\n' "$name"; return 0 ;;
+      *) printf '%s: kept; live agent state could not be parsed\n' "$name"; return 0 ;;
     esac
-    IFS=$'\t' read -r pane status focused <<< "$record"
-    if [ -n "$expected_pane" ] && [ "$pane" != "$expected_pane" ]; then
+    IFS=$'\t' read -r pane status focused terminal <<< "$record"
+    if [ "$pane" != "$expected_pane" ]; then
       printf '%s: kept; expected pane %s, current pane is %s\n' "$name" "$expected_pane" "$pane"
-      continue
+      return 0
     fi
     case "$status" in
       done|idle) ;;
-      *) printf '%s: kept; status is %s\n' "$name" "$status"; continue ;;
+      *) printf '%s: kept; status is %s\n' "$name" "$status"; return 0 ;;
     esac
     if [ "$focused" = true ]; then
       printf '%s: kept; pane %s is focused\n' "$name" "$pane"
-      continue
+      return 0
     fi
     pane_json="$(herdr pane get "$pane")" || {
       printf '%s: kept; pane metadata could not be read\n' "$name"
-      continue
+      return 0
     }
     set +e
     printf '%s' "$pane_json" | python3 -c 'import json,sys
@@ -60,23 +60,25 @@ try:
  pane=json.load(sys.stdin).get("result",{}).get("pane",{})
 except Exception:
  raise SystemExit(2)
+if pane.get("pane_id")!=sys.argv[1] or pane.get("terminal_id")!=sys.argv[2]:
+ raise SystemExit(2)
 labels=pane.get("state_labels")
 if labels is None or labels == {}:
  raise SystemExit(1)
 if isinstance(labels, dict):
  blocking=[key for key in labels if key not in ("supervised","supervision failed")]
  raise SystemExit(0 if blocking else 1)
-raise SystemExit(2)'
+raise SystemExit(2)' "$pane" "$terminal"
     label_status=$?
     set -e
     case "$label_status" in
-      0) printf '%s: kept; pane %s has a waiting state label\n' "$name" "$pane"; continue ;;
+      0) printf '%s: kept; pane %s has a waiting state label\n' "$name" "$pane"; return 0 ;;
       1) ;;
-      *) printf '%s: kept; pane metadata could not be read\n' "$name"; continue ;;
+      *) printf '%s: kept; pane metadata could not be read\n' "$name"; return 0 ;;
     esac
     fresh_list_json="$(herdr agent list)" || {
       printf '%s: kept; live agent state could not be read\n' "$name"
-      continue
+      return 0
     }
     set +e
     printf '%s' "$fresh_list_json" | python3 -c 'import json,sys
@@ -84,9 +86,9 @@ try:
  data=json.load(sys.stdin)
 except Exception:
  raise SystemExit(2)
-name,pane=sys.argv[1:3]
+name,pane,terminal=sys.argv[1:4]
 agents=data.get("result",{}).get("agents",[])
-match=next((a for a in agents if a.get("name")==name and a.get("pane_id")==pane), None)
+match=next((a for a in agents if a.get("name")==name and a.get("pane_id")==pane and a.get("terminal_id")==terminal), None)
 if match is None:
  raise SystemExit(1)
 status=match.get("agent_status","unknown")
@@ -94,16 +96,16 @@ focused=str(bool(match.get("focused"))).lower()
 if status not in ("done","idle"):
  raise SystemExit(3)
 if focused == "true":
- raise SystemExit(4)' "$name" "$pane"
+ raise SystemExit(4)' "$name" "$pane" "$terminal"
     fresh_status=$?
     set -e
     case "$fresh_status" in
       0) ;;
-      1) printf '%s: kept; child name and pane no longer identify the same live agent\n' "$name"; continue ;;
-      2) printf '%s: kept; live agent state could not be parsed\n' "$name"; continue ;;
-      3) printf '%s: kept; current status is not settled\n' "$name"; continue ;;
-      4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; continue ;;
-      *) printf '%s: kept; live agent state could not be read\n' "$name"; continue ;;
+      1) printf '%s: kept; child name and pane no longer identify the same live agent\n' "$name"; return 0 ;;
+      2) printf '%s: kept; live agent state could not be parsed\n' "$name"; return 0 ;;
+      3) printf '%s: kept; current status is not settled\n' "$name"; return 0 ;;
+      4) printf '%s: kept; pane %s is now focused\n' "$name" "$pane"; return 0 ;;
+      *) printf '%s: kept; live agent state could not be read\n' "$name"; return 0 ;;
     esac
     metadata="$(printf '%s' "$pane_json" | python3 -c 'import json,sys
 try:
@@ -113,7 +115,7 @@ try:
 except Exception:
  raise SystemExit(1)' 2>/dev/null)" || {
       printf '%s: kept; supervision metadata could not be parsed\n' "$name"
-      continue
+      return 0
     }
     IFS=$'\t' read -r generation own_tab child_tab <<< "$metadata"
     [ "$generation" != - ] || generation=""
@@ -121,7 +123,7 @@ except Exception:
     [ "$child_tab" != - ] || child_tab=""
     if [ -n "$child_tab" ] && [ "$child_tab" != "$own_tab" ]; then
       printf '%s: kept; pane %s tab ownership is ambiguous\n' "$name" "$pane"
-      continue
+      return 0
     fi
     reap_transition="none"
     if [ -n "$generation" ]; then
@@ -131,7 +133,7 @@ except Exception:
       set -e
       if [ "$reap_status" -eq 1 ]; then
         printf '%s: kept; supervision generation could not be invalidated\n' "$name"
-        continue
+        return 0
       fi
       if [ "$reap_status" -eq 0 ]; then
         reap_transition="pending"
@@ -181,5 +183,4 @@ except Exception:
     fi
     [ "$reap_transition" != pending ] || stop_reap_owner_guard "$STATE_DIR/runs/$generation"
     rm -f "$close_err"
-  done
 }

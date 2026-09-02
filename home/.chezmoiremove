@@ -1,0 +1,27 @@
+# The palette's global commands.toml is managed directly now. Drop the old
+# read-only seed that earlier applies left inside the plugin directory.
+.config/herdr/plugins/command-palette/defaults
+
+# The child launch contract replaces the turn-bound herdr-pair protocol.
+.claude/skills/herdr-pair
+
+# Standalone se reviews share the Herdr peer lifecycle now.
+.claude/shared/se-harness.md
+
+# The herdr-only peer consult is deployed under its capability-specific name.
+.claude/skills/ask-agent
+
+# opencode moved to theme "system"; the retired forced theme otherwise lingers
+# live and breaks the smoke deployment contract (tests/smoke.bats).
+.config/opencode/themes/flexoki-light-forced.json
+
+# Marta now reads configuration from Application Support/org.yanex.marta.
+# Remove the legacy config directory that earlier applies left behind.
+Library/marta
+
+# Registered aliases replace the retired prompt-driven naming engine and its
+# client-specific adapters.
+.local/bin/herdr-task-sync
+.claude/hooks/herdr-task-sync-hook.sh
+.config/opencode/plugins/herdr-task-sync.ts
+.pi/agent/extensions/herdr-task-sync.ts
