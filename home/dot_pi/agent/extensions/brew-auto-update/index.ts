@@ -390,7 +390,7 @@ export async function runBrewAutoUpdate(
   try {
     const candidate = await acquireLock(deps);
     if (!candidate.acquired) {
-      const message = "Pi update skipped: another Pi process owns the update lock.";
+      const message = "Pi update skipped: a Pi update is already running.";
       return finish(trigger, ui, { status: "contended", message });
     }
     lock = candidate;

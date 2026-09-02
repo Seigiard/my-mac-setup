@@ -413,7 +413,7 @@ describe("brew auto update sequence", () => {
     expect(calls).toEqual([]);
     expect(notifications).toEqual([
       {
-        message: "Pi update skipped: another Pi process owns the update lock.",
+        message: "Pi update skipped: a Pi update is already running.",
         level: "info",
       },
     ]);
