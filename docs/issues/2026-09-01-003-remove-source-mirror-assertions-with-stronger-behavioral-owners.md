@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","duplicate-coverage","source-ownership"]
 date: "2026-09-01"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -29,3 +30,7 @@ Run the narrow shell suites and confirm each deleted assertion had no distinct c
 
 - Whether the Pi package assertion in `smoke_test.sh` should be deleted as a duplicate or repaired as the deployment owner. The modifier tests prove the stdin-to-stdout transform; only the smoke test proves the packages reached the applied `~/.pi/agent/settings.json`, and `CLAUDE.md` reserves the smoke suite for exactly that deployed cross-component behavior. Deleting it therefore removes the only delivery evidence. The default is to keep the assertion and fix the drift, deriving the expected package set from the deployed settings' independent consumer rather than restating a hand-maintained list.
 - If implementation reveals an externally consumed module or package-membership contract not covered by the retained owners, stop and move that assertion under `2026-09-01-002` instead of deleting it.
+
+## Resolution
+
+Merged in PR #138. Test 269 keeps its sourceability, no-output, shell-state, redefinition and global-mutation checks and drops the module source-order, function-ownership and allowed-globals inventories copied from the implementation; the test was renamed to match what it now proves. The Pi package smoke assertion was repaired rather than deleted: it derives the expected set by running the modifier and requires the deployed settings to contain it, guarded against a vacuous pass on an empty set. Deliberate trade-off recorded in the PR: leaks of new module symbols are no longer detected, while redefinition and mutation of existing ones still are.

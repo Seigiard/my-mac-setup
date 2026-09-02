@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","source-ownership"]
 date: "2026-09-02"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -28,3 +29,7 @@ Which sourced shell-helper classes the Bats assertion checker must cover; the im
 Widening the scan surfaced three real violations, all the same shape — a bare `[[ ]]` as the final statement of a boolean-predicate helper function, whose exit status is the function's return value and is consumed explicitly by every call site (`if is_macos; then`, `is_macos || skip ...`, `_hts_engine_pid_live ... || continue`): `tests/helpers/common.bash` (`is_macos`, `is_linux`) and `tests/helpers/herdr_task_sync.bash` (`_hts_engine_pid_live`). Fixed by appending `|| return 1` to each, matching the `[[ cond ]] || return N` idiom already used throughout these same files (e.g. `herdr_task_sync.bash:76`) and the vendored `tests/lib/bashunit`. No false positives were found in the widened scope.
 
 **Addendum (2026-09-02, from cross-model review):** `tests/bashunit/test-dsl.bash` must also be scanned. It is the shared bashunit ERR-trap DSL every `tests/bashunit/*_test.sh` suite sources, and its own header names this checker's exact target hazard as applying to itself (`docs/issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md`). It matched neither existing `bashunit/` glob (no `_test.sh` suffix) nor the new `helpers/*.bash` glob (wrong directory), so the original widening left the single most widely-sourced file in `tests/` unreached. Added `tests_dir.rglob("bashunit/*.bash")` to `scanned_files()` and a matching reachability fixture. No violations exist in the file today.
+
+## Resolution
+
+Merged in PR #134. Ignore behavior is asserted through git check-ignore and git ls-files with controls in both directions plus a nonexistent-child probe, so a future directory-only rule cannot hide files while leaving the directory visible. The Bats assertion checker gained per-class reachability fixtures, and its scan was widened to tests/helpers/*.bash and tests/bashunit/*.bash, including test-dsl.bash, whose own header names the hazard the checker exists for. Three predicate helpers got an explicit '|| return 1' rather than teaching the checker an exemption that would blind it to a bare conditional at the end of a test body.

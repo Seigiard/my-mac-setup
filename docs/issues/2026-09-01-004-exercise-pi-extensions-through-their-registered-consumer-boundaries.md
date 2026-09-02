@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["pi","semantic-testing","behavioral-coverage"]
 date: "2026-09-01"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Strengthen the existing tests rather than adding duplicate suites. Invoke before
 ## Open decisions
 
 Settled: private diagnostic status strings (`candidate`, `skipped-preferred-agents`, `skipped-broken-symlink`, `skipped-outside-project`, `skipped-too-large`, `skipped-not-file`, `skipped-unreadable`, etc.) are not a supported testing interface. A repo-wide search found no consumer of `LocalInstructionDiagnostic`/`selection.diagnostics` outside `home/dot_pi/agent/extensions/agents-local.ts` itself and its test file. The `selection.diagnostics.map(...).toEqual([...])` deep-equality inventories in `tests/pi-agents-local-extension.test.ts` were removed; the suite keeps assertions on which file was selected (`selection.selected?.name`) and on user-visible warning text (`selection.warnings`), now backed by direct `before_agent_start` prompt-content assertions using independent sentinels. If a real external consumer of the diagnostic-status vocabulary is added later, restore targeted status assertions at that boundary rather than reintroducing the full-array inventory.
+
+## Resolution
+
+Merged in PR #137. The returned systemPrompt is asserted against independent sentinels, extension-snapshot coverage is split into package.json-only, lock-file-only and unrelated-file controls, every updater subprocess is required to receive an injected timeout distinct from the production default, and the registered brew-auto-update-now handler is invoked through registerBrewAutoUpdater with its command sequence observed. Each closed path carries a mutation proof. Diagnostic-status inventories were removed after a repository search found no consumer of that vocabulary outside the extension and its own test.

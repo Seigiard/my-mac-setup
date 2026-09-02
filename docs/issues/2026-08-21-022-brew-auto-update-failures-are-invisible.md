@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["agent-platform","follow-up"]
 date: "2026-08-21"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -69,3 +70,7 @@ Both decisions below are settled; this section records the chosen policy.
   already used by `home/dot_pi/agent/extensions/agents-local` for a
   degraded-but-not-fatal condition. The manual command's non-failure terminal
   outcomes (`skipped`, `contended`, up-to-date, updated) notify at `info`.
+
+## Resolution
+
+Merged in PR #135. Both updater entry points now surface their result: failures always notify at warning level regardless of trigger, the manual command reports every terminal outcome, and startup stays silent only on routine no-op runs while still never aborting Pi startup. The tests that required empty notifications were inverted into consumer-visible assertions, proved red against the unfixed code and green after. UpdateUi.setStatus was deleted as an interface member nothing called, verified safe with tsc against the real Pi types. The contended message no longer claims another process holds the lock when the same process's startup run does. The headless no-op is recorded as 2026-09-02-007.
