@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# herdr-peer-alias — print one free allocator-owned agent alias.
+# Peers started outside herdr-child (the se-* review peers) name their agent
+# from here, so every registered name stays inside the pool that pane-label
+# reconciliation renames toward and that the pane-label cutover validates.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=home/dot_local/lib/herdr-aliases.sh
+source "$SCRIPT_DIR/../lib/herdr-aliases.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: herdr-peer-alias <seed> [reserved-alias ...]
+
+Prints one color-animal alias that no live agent holds and that no reserved
+argument claims. Reserve an alias that this run already picked but has not yet
+registered with herdr agent start.
+USAGE
+}
+
+[ $# -ge 1 ] || { usage; exit 2; }
+case "$1" in -h | --help) usage; exit 0 ;; esac
+
+seed="$1"
+shift
+
+for binary in herdr jq; do
+  command -v "$binary" >/dev/null 2>&1 || {
+    printf 'herdr-peer-alias: %s is not on PATH\n' "$binary" >&2
+    exit 1
+  }
+done
+
+list_json="$(herdr agent list)" || {
+  printf 'herdr-peer-alias: could not list live agents\n' >&2
+  exit 1
+}
+# A partial agent record would hide an occupied alias and hand out a duplicate.
+taken="$(printf '%s' "$list_json" | jq -er '
+  .result.agents as $agents
+  | if ($agents | type) == "array" and all($agents[]; has("pane_id"))
+    then [$agents[] | .name // empty] | join("\n")
+    else error("malformed agent list")
+    end')" || {
+  printf 'herdr-peer-alias: malformed herdr agent list\n' >&2
+  exit 1
+}
+
+for reserved in "$@"; do
+  taken="$taken
+$reserved"
+done
+
+while IFS= read -r candidate; do
+  if ! printf '%s\n' "$taken" | grep -qxF "$candidate"; then
+    printf '%s\n' "$candidate"
+    exit 0
+  fi
+done < <(herdr_alias_candidates "$seed")
+
+printf 'herdr-peer-alias: alias pool is exhausted\n' >&2
+exit 1

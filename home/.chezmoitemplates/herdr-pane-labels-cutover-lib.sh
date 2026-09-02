@@ -931,6 +931,32 @@ hpl_cutover_verify_daemon() {
   hpl_cutover_trace "daemon-verified:$socket:$pid:$start"
 }
 
+# A strict sweep compares the whole snapshot identity across its pass, so a
+# concurrent agent state change in any pane fails it even when every label
+# converged. That condition is transient: the next attempt reads a fresh
+# snapshot. A pass that genuinely cannot converge fails every attempt, so the
+# retries cost a real failure only the pauses between them.
+hpl_cutover_strict_sweep() {
+  local socket="$1" attempt=1 attempts pause
+  attempts="${HERDR_PANE_LABELS_CUTOVER_SWEEP_ATTEMPTS:-4}"
+  pause="${HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE:-2}"
+  case "$attempts" in '' | 0 | *[!0-9]*) attempts=4 ;; esac
+  while :; do
+    if hpl_cutover_run_with_deadline env HERDR_SOCKET_PATH="$socket" HERDR_PANE_LABELS_STRICT_SWEEP=1 \
+      "$HPL_CUTOVER_NEW_ENGINE" --sweep >/dev/null; then
+      hpl_cutover_trace "first-pass:$socket"
+      return 0
+    fi
+    [ "$attempt" -lt "$attempts" ] || {
+      hpl_cutover_error "strict pane-label sweep did not converge for $socket in $attempt attempts"
+      return 1
+    }
+    hpl_cutover_trace "strict-sweep-retry:$socket:$attempt"
+    attempt=$((attempt + 1))
+    [ "$pause" = 0 ] || sleep "$pause"
+  done
+}
+
 hpl_cutover_ensure_all() {
   local engine="$1" cache="$2" mode socket
   [ -x "$engine" ] || return 1

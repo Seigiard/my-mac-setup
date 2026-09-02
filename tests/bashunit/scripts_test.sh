@@ -3142,6 +3142,76 @@ function test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv() {
 }
 
 # ===========================================
+# herdr-peer-alias allocator
+# ===========================================
+
+PEER_ALIAS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-peer-alias"
+ALIAS_LIB="$SOURCE_ROOT/dot_local/lib/herdr-aliases.sh"
+
+# The pool library owns the candidate order and the validity rule; the test
+# reads both from it so the expectation never comes from the allocator itself.
+peer_alias_candidate() {
+  bash -c 'source "$1"; herdr_alias_candidates "$2"' _ "$ALIAS_LIB" "$1" | sed -n "$2p"
+}
+
+peer_alias_stub() {
+  local stub="$BATS_TEST_TMPDIR/stub"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "agent list") printf '%s\n' "$STUB_AGENT_LIST" ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$stub/herdr"
+  printf '%s' "$stub"
+}
+
+function test_scripts_1401_herdr_peer_alias_skips_live_and_reserved_aliase() {
+  _bats_test_init 1401 'herdr-peer-alias skips live and reserved aliases'
+  command -v jq >/dev/null || skip "jq not available"
+  local seed="claude|peer-alias-suite|$BATS_TEST_TMPDIR"
+  local stub live reserved expected allocated
+  stub="$(peer_alias_stub)"
+  live="$(peer_alias_candidate "$seed" 1)"
+  reserved="$(peer_alias_candidate "$seed" 2)"
+  expected="$(peer_alias_candidate "$seed" 3)"
+
+  run env PATH="$stub:$PATH" \
+    STUB_AGENT_LIST="{\"result\":{\"agents\":[{\"name\":\"$live\",\"pane_id\":\"wT:p1\"},{\"name\":null,\"pane_id\":\"wT:p2\"}]}}" \
+    bash "$PEER_ALIAS_SCRIPT" "$seed" "$reserved"
+  assert_success
+  assert_output "$expected"
+  allocated="$output"
+
+  run bash -c 'source "$1"; herdr_alias_in_pool "$2"' _ "$ALIAS_LIB" "$allocated"
+  assert_success
+}
+
+# An agent record missing pane_id is a truncated list: its alias may be live
+# and invisible here, so handing out any alias risks a duplicate registration.
+function test_scripts_1402_herdr_peer_alias_fails_closed_on_an_incomplete_() {
+  _bats_test_init 1402 'herdr-peer-alias fails closed on an incomplete agent list'
+  command -v jq >/dev/null || skip "jq not available"
+  local seed="claude|peer-alias-suite|$BATS_TEST_TMPDIR"
+  local stub
+  stub="$(peer_alias_stub)"
+
+  run env PATH="$stub:$PATH" \
+    STUB_AGENT_LIST='{"result":{"agents":[{"name":"amber-badger"}]}}' \
+    bash "$PEER_ALIAS_SCRIPT" "$seed"
+  assert_failure
+  assert_output --partial "malformed herdr agent list"
+
+  run env PATH="$stub:$PATH" \
+    STUB_AGENT_LIST='{"result":{}}' \
+    bash "$PEER_ALIAS_SCRIPT" "$seed"
+  assert_failure
+  assert_output --partial "malformed herdr agent list"
+}
+
+# ===========================================
 # herdr-integrations run-script
 # ===========================================
 
@@ -5580,6 +5650,113 @@ function test_scripts_1321_herdr_pane_label_after_script_rejects_a_failed_first_
   refute_output --partial "linked and verified"
 }
 
+
+# A live machine changes agent state while the sweep runs, and the strict pass
+# compares the whole snapshot identity, so the first attempt can fail with every
+# label already converged. Aborting the apply there disables pane labels for a
+# condition that clears itself.
+function test_scripts_1322_herdr_pane_label_after_script_retries_a_transiently_fai() {
+  _bats_test_init 1322 'herdr pane-label after script retries a transiently failed first sweep'
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET"
+  printf '%s\n' 1 > "$HPL_WORK/sweep-failures"
+  cat > "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels" <<'SH'
+#!/usr/bin/env bash
+set -u
+socket="${HERDR_SOCKET_PATH:-}"
+namespace="$HOME/.cache/herdr-pane-labels/sockets/$(printf '%s' "$socket" | base64 | tr '/+' '_-' | tr -d '=\n')"
+write_socket() {
+  mkdir -p "$namespace"
+  printf 'socket_path=%s\n' "$(printf '%s' "$socket" | base64 | tr -d '\n')" > "$namespace/socket.state"
+}
+case "${1:-}" in
+  --sweep)
+    count=0
+    [ ! -f "$HPL_WORK/sweep-count" ] || read -r count < "$HPL_WORK/sweep-count"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$HPL_WORK/sweep-count"
+    failures=0
+    [ ! -f "$HPL_WORK/sweep-failures" ] || read -r failures < "$HPL_WORK/sweep-failures"
+    if [ "$count" -le "$failures" ]; then
+      printf 'herdr-pane-labels: strict sweep identity changed before verification\n' >&2
+      exit 1
+    fi
+    ;;
+  --ensure-sweep-daemon)
+    write_socket
+    if [ -f "$namespace/sweep.lock/pid" ] && kill -0 "$(cat "$namespace/sweep.lock/pid")" 2>/dev/null; then exit 0; fi
+    mkdir -p "$namespace/sweep.lock"
+    nohup bash "$0" --sweep-daemon </dev/null >/dev/null 2>&1 &
+    ;;
+  --sweep-daemon)
+    write_socket
+    mkdir -p "$namespace/sweep.lock"
+    printf '%s' "$$" > "$namespace/sweep.lock/pid"
+    trap 'rm -f "$namespace/sweep.lock/pid"; rmdir "$namespace/sweep.lock" 2>/dev/null || true; exit 0' INT TERM EXIT
+    while :; do sleep 1; done
+    ;;
+esac
+SH
+  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels"
+
+  export HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE=0
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+  unset HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE
+
+  assert_success
+  assert_output --partial "linked and verified"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^strict-sweep-retry:$HPL_DEFAULT_SOCKET:1$"
+  assert_file_contains "$HPL_CUTOVER_TRACE" "^first-pass:$HPL_DEFAULT_SOCKET$"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+}
+
+# The same retry must not paper over a sweep that never converges: every attempt
+# fails, so the cutover still disables the plugin and reports the failure.
+function test_scripts_1324_herdr_pane_label_after_script_still_fails_a_sweep_that_() {
+  _bats_test_init 1324 'herdr pane-label after script still fails a sweep that never converges'
+  command -v jq >/dev/null || skip "jq not available"
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET"
+  printf '%s\n' 99 > "$HPL_WORK/sweep-failures"
+  cat > "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels" <<'SH'
+#!/usr/bin/env bash
+set -u
+socket="${HERDR_SOCKET_PATH:-}"
+namespace="$HOME/.cache/herdr-pane-labels/sockets/$(printf '%s' "$socket" | base64 | tr '/+' '_-' | tr -d '=\n')"
+case "${1:-}" in
+  --sweep)
+    count=0
+    [ ! -f "$HPL_WORK/sweep-count" ] || read -r count < "$HPL_WORK/sweep-count"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$HPL_WORK/sweep-count"
+    failures=0
+    [ ! -f "$HPL_WORK/sweep-failures" ] || read -r failures < "$HPL_WORK/sweep-failures"
+    if [ "$count" -le "$failures" ]; then
+      printf 'herdr-pane-labels: strict sweep identity changed before verification\n' >&2
+      exit 1
+    fi
+    ;;
+  --ensure-sweep-daemon)
+    mkdir -p "$namespace"
+    printf 'socket_path=%s\n' "$(printf '%s' "$socket" | base64 | tr -d '\n')" > "$namespace/socket.state"
+    ;;
+esac
+SH
+  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels"
+
+  export HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE=0 HERDR_PANE_LABELS_CUTOVER_SWEEP_ATTEMPTS=2
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+  unset HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE HERDR_PANE_LABELS_CUTOVER_SWEEP_ATTEMPTS
+
+  assert_failure
+  assert_output --partial "strict pane-label sweep did not converge"
+  assert_file_contains "$HPL_WORK/plugin.log" '^plugin disable seigi\.pane-labels$'
+  run cat "$HPL_WORK/sweep-count"
+  assert_output 2
+}
 
 function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_witho() {
   _bats_test_init 1323 'herdr pane-label after script skips missing herdr without a transaction'

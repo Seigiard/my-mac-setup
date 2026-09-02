@@ -74,12 +74,10 @@ fi
 # pass, then explicitly start and verify one daemon for each socket.
 while IFS= read -r socket; do
   [[ -n "$socket" ]] || continue
-  hpl_cutover_run_with_deadline env HERDR_SOCKET_PATH="$socket" HERDR_PANE_LABELS_STRICT_SWEEP=1 \
-    "$HPL_CUTOVER_NEW_ENGINE" --sweep >/dev/null || {
+  hpl_cutover_strict_sweep "$socket" || {
     hpl_cutover_fail_after_deploy
     exit 1
   }
-  hpl_cutover_trace "first-pass:$socket"
 done < "$HPL_CUTOVER_SOCKETS"
 
 if ! hpl_cutover_ensure_all "$HPL_CUTOVER_NEW_ENGINE" "$HPL_CUTOVER_NEW_CACHE"; then

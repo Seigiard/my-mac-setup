@@ -10,18 +10,18 @@ Resolve these values before launch:
 - `CLAUDE_PROMPT`: the calling skill's complete Claude dispatch brief.
 - `OPENCODE_PROMPT`: the calling skill's complete OpenCode dispatch brief.
 
-Require `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `herdr`, `claude`, and `opencode`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
+Require `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `herdr`, `claude`, `opencode`, and `herdr-peer-alias`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
 
 The **cleanup boundary** begins when the report transport directory is created. Track each created tab ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every tab created by this run and removes its report transport files before control returns to the calling skill.
 
 ## Create tabs
 
-Use run-scoped agent names no longer than 32 characters:
+A peer's registered name is an allocator-owned `color-animal` alias, never a semantic name. Pane-label reconciliation renames any registered agent whose name falls outside that pool, and a live non-pool name also fails the pane-label cutover. `herdr-peer-alias <seed> [reserved-alias ...]` prints one alias that no live agent holds; the second call reserves the first peer's alias, which is picked but not yet registered:
 
 ```bash
 PEER_RUN_ID="$(date +%s)-$$"
-CLAUDE_NAME="se-claude-$PEER_RUN_ID"
-OPENCODE_NAME="se-opencode-$PEER_RUN_ID"
+CLAUDE_NAME="$(herdr-peer-alias "claude|$PEER_RUN_ID|$REPO_ROOT")"
+OPENCODE_NAME="$(herdr-peer-alias "opencode|$PEER_RUN_ID|$REPO_ROOT" "$CLAUDE_NAME")"
 
 PEER_REPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/se-peer-$PEER_RUN_ID.XXXXXX")
 chmod 700 "$PEER_REPORT_DIR"
@@ -29,18 +29,20 @@ CLAUDE_REPORT_PATH="$PEER_REPORT_DIR/claude.report"
 OPENCODE_REPORT_PATH="$PEER_REPORT_DIR/opencode.report"
 ```
 
-Create one full-size background tab per peer, rooted at the repository without taking focus:
+Allocation runs before the cleanup boundary opens. A failed or empty allocation aborts the launch with no tab created and nothing to clean up.
+
+Create one full-size background tab per peer, rooted at the repository without taking focus. Tab labels belong to pane-label reconciliation, which overwrites any manual label on its next pass, so create both tabs unlabelled:
 
 ```bash
 CLAUDE_TAB_STATE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" \
-  --cwd "$REPO_ROOT" --label "$CLAUDE_NAME" --no-focus)
+  --cwd "$REPO_ROOT" --no-focus)
 CLAUDE_TAB=$(printf '%s' "$CLAUDE_TAB_STATE" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["tab"]["tab_id"])')
 CLAUDE_PANE=$(printf '%s' "$CLAUDE_TAB_STATE" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
 
 OPENCODE_TAB_STATE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" \
-  --cwd "$REPO_ROOT" --label "$OPENCODE_NAME" --no-focus \
+  --cwd "$REPO_ROOT" --no-focus \
   --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow","reasoningEffort":"high"}}}')
 OPENCODE_TAB=$(printf '%s' "$OPENCODE_TAB_STATE" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["tab"]["tab_id"])')
@@ -82,6 +84,10 @@ The interactive OpenCode entrypoint does not accept the run command's variant fl
 
 Each start is complete only when the command succeeds and reports `interactive_ready:true`. Enter the cleanup boundary before prompting if either peer fails this criterion.
 
+Another client can claim an alias between allocation and start. On the exact error `agent_name_taken`, run `herdr-peer-alias` again for that peer with the other peer's alias reserved, then retry the same start once with the new alias; a second failure enters the cleanup boundary.
+
+After a successful start, `$CLAUDE_PANE` and `$OPENCODE_PANE` are the authoritative targets for every later prompt, wait, and read. Pane-label reconciliation may reallocate a peer's alias at any time, so never address a peer by name after start; a pane ID is stable for the life of its pane.
+
 ## Prompt both peers
 
 Append the report transport contract to each calling prompt. This is the only permitted file-write exception in a report-only peer: it does not permit changes to the checkout, reviewed document, or any other file.
@@ -101,8 +107,8 @@ Before ending this turn, write the exact complete report you are returning, byte
 Submit both augmented prompts before either wait can block:
 
 ```bash
-herdr agent prompt "$CLAUDE_NAME" "$CLAUDE_PROMPT"
-herdr agent prompt "$OPENCODE_NAME" "$OPENCODE_PROMPT"
+herdr agent prompt "$CLAUDE_PANE" "$CLAUDE_PROMPT"
+herdr agent prompt "$OPENCODE_PANE" "$OPENCODE_PROMPT"
 ```
 
 After both submissions, perform any concurrent local work explicitly defined by the calling skill. Skills with no concurrent work proceed directly to waiting.
@@ -110,18 +116,18 @@ After both submissions, perform any concurrent local work explicitly defined by 
 ## Wait and collect
 
 ```bash
-herdr agent wait "$CLAUDE_NAME" --timeout 1800000
-herdr agent wait "$OPENCODE_NAME" --timeout 1800000
+herdr agent wait "$CLAUDE_PANE" --timeout 1800000
+herdr agent wait "$OPENCODE_PANE" --timeout 1800000
 ```
 
 The report files are the primary transport. A settled peer that did not create a non-empty regular report file gets one bounded recovery prompt to persist its previous answer:
 
 ```bash
 recover_peer_report() {
-  local agent_name="$1" report_path="$2"
+  local pane="$1" report_path="$2"
   [ -f "$report_path" ] && [ -s "$report_path" ] && return 0
 
-  herdr agent prompt "$agent_name" \
+  herdr agent prompt "$pane" \
     "The report transport file is missing or empty. Write your exact complete previous report, byte-for-byte, atomically through $report_path.tmp and rename it to $report_path. Then reply with only the path." \
     --wait --timeout 120000 || return 1
 
@@ -129,15 +135,15 @@ recover_peer_report() {
 }
 
 CLAUDE_TRANSPORT_OK=1
-if ! recover_peer_report "$CLAUDE_NAME" "$CLAUDE_REPORT_PATH"; then
+if ! recover_peer_report "$CLAUDE_PANE" "$CLAUDE_REPORT_PATH"; then
   CLAUDE_TRANSPORT_OK=0
-  CLAUDE_DIAGNOSTIC=$(herdr agent read "$CLAUDE_NAME" --source visible --lines 200 --format text || true)
+  CLAUDE_DIAGNOSTIC=$(herdr agent read "$CLAUDE_PANE" --source visible --lines 200 --format text || true)
 fi
 
 OPENCODE_TRANSPORT_OK=1
-if ! recover_peer_report "$OPENCODE_NAME" "$OPENCODE_REPORT_PATH"; then
+if ! recover_peer_report "$OPENCODE_PANE" "$OPENCODE_REPORT_PATH"; then
   OPENCODE_TRANSPORT_OK=0
-  OPENCODE_DIAGNOSTIC=$(herdr agent read "$OPENCODE_NAME" --source recent-unwrapped --lines 200 --format text || true)
+  OPENCODE_DIAGNOSTIC=$(herdr agent read "$OPENCODE_PANE" --source recent-unwrapped --lines 200 --format text || true)
 fi
 
 [ "$CLAUDE_TRANSPORT_OK" -eq 0 ] || CLAUDE_REPORT=$(<"$CLAUDE_REPORT_PATH")
