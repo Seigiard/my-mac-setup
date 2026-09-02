@@ -1,0 +1,22 @@
+---
+title: "herdr-child superseded-watcher barrier test flaked once in CI under test-ubuntu"
+short_description: "tests/bashunit/scripts_test.sh test 040 ('herdr-child superseded watcher cannot publish failure metadata over a new generation') failed once in PR #135's test-ubuntu job (274 passed, 1 failed, 1185/1186 assertions) despite an explicit deterministic barrier scheme; four independent signals point to flake, not regression."
+type: "bug"
+category: "testing-ci"
+tags: ["flaky-test","herdr"]
+date: "2026-09-02"
+status: "open"
+priority: "medium"
+---
+
+## Why this exists
+
+PR #135 (fix/pi-updater-failure-notifications, a Pi TypeScript extension change with no herdr-child involvement) hit a single test-ubuntu failure on its first CI attempt: tests/bashunit/scripts_test.sh test 040, 'herdr-child superseded watcher cannot publish failure metadata over a new generation' (274 passed, 1 failed, 1185/1186 assertions). Failing attempt: https://github.com/Seigiard/my-mac-setup/actions/runs/33640164802/job/100281371063 (run 33640164802, attempt 1, test-ubuntu, conclusion failure). Four independent signals say flake rather than regression: (1) test-macos passed in the same run, exercising the same suite -- https://github.com/Seigiard/my-mac-setup/actions/runs/33640164802/job/100284544665; (2) lint passed in the same run -- https://github.com/Seigiard/my-mac-setup/actions/runs/33640164802/job/100284593086; (3) PRs #134 and #136 both passed test-ubuntu from the same main base at the same time (independently confirmed via gh pr view: both show test-ubuntu SUCCESS); (4) rerunning the identical commit's test-ubuntu job passed in 4m25s -- https://github.com/Seigiard/my-mac-setup/actions/runs/33640164802/job/100284541716 (attempt 2, conclusion success). The diff under test in PR #135 touched only the Pi TypeScript brew-auto-update extension, its tests, and docs/issues entries -- nothing in the herdr-child supervision path that test 040 exercises, which rules out a code-caused regression from that PR. Test 040 is the deterministic barrier regression test added by docs/issues/2026-08-30-001-superseded-watcher-can-restore-stale-failure-metadata-between-generation-check-and-publish.md (status done) to guard a real, already-fixed concurrency window: a superseded watcher restoring stale failure metadata over a newer generation's cleared state. A flaky guard erodes trust in exactly the coverage that fix bought -- a real regression in that window could hide behind 'it's just flaky.' Compared against docs/issues/2026-08-29-004-herdr-child-reap-close-race-test-flakes-under-cpu-load.md (status done, closed): that issue is a different test ('herdr-child reap invalidates before close while spontaneous loss wakes the parent') guarding a different mechanism -- an implicit, unbounded scheduling race between the watcher's supervision deadline and reap-before-close ordering, with no synchronization barrier; it was fixed by widening that test's deadline to 600000ms so the timeout branch could never fire mid-reap. Test 040's scenario is structurally different: it already uses an explicit deterministic barrier (HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER, child_wait_for_file, an explicit release file) to synchronize the takeover interleaving it proves, rather than relying on real-world scheduling latency. The two issues are both in the herdr-child watcher / CPU-load-sensitive family, worth cross-referencing, but this is a distinct root cause, not a recurrence of 2026-08-29-004 -- filing new rather than reopening or extending that closed issue.
+
+## Scope
+
+tests/bashunit/scripts_test.sh test 040 ('herdr-child superseded watcher cannot publish failure metadata over a new generation'). Reproduce under artificial CPU load (busy loop pinning cores while looping the single test, matching the method 2026-08-29-004 used) to identify which specific bounded wait inside the test is timing-sensitive -- candidates include the up-to-500-iteration/0.01s polling loops that wait for watcher_pid or new_watcher_pid to die, and the child_wait_for_log / child_wait_for_file calls around the barrier release. Widen or restructure whichever wait is load-sensitive without weakening what the test proves (that a superseded watcher's failure-metadata publish cannot land over a newer generation's cleared state). Confirm 0 failures over a loaded run-loop after the fix, matching the verification bar 2026-08-29-004 and 2026-08-30-001 both used.
+
+## Open decisions
+
+None.

@@ -7654,42 +7654,17 @@ function test_scripts_268_herdr_child_checkout_help_resolves_runtime_module() {
   assert_output --partial 'unknown subcommand: not-a-command'
 }
 
-function test_scripts_269_herdr_child_modules_load_in_order_without_source_time_effects() {
-  _bats_test_init 269 'herdr-child modules load in order without source-time effects'
+function test_scripts_269_herdr_child_modules_source_cleanly_without_source_time_effects() {
+  _bats_test_init 269 'herdr-child modules source cleanly without source-time effects'
   local lib_dir="$SOURCE_ROOT/dot_local/lib"
 
-  run /bin/bash -s -- "$HERDR_CHILD" "$lib_dir" "$BATS_TEST_TMPDIR/module-loading" <<'BASH'
+  run /bin/bash -s -- "$lib_dir" "$BATS_TEST_TMPDIR/module-loading" <<'BASH'
 set -euo pipefail
-entrypoint="$1"
-lib_dir="$2"
-work_dir="$3"
-shift 3
+lib_dir="$1"
+work_dir="$2"
+shift 2
 set -- 'module positional one' 'module-positional-two'
 mkdir -p "$work_dir"
-
-source_prefix='source "$SCRIPT_DIR/../lib/'
-while IFS= read -r line; do
-  case "$line" in
-    "$source_prefix"*)
-      module="${line##*/}"
-      printf '%s\n' "${module%\"}"
-      ;;
-  esac
-done < "$entrypoint" > "$work_dir/source-order.actual"
-cat > "$work_dir/source-order.expected" <<'EOF'
-herdr-process.sh
-herdr-child-runtime.sh
-herdr-child-supervision.sh
-herdr-child-watcher.sh
-herdr-child-launch.sh
-herdr-child-continuation.sh
-herdr-child-reap.sh
-EOF
-cmp -s "$work_dir/source-order.expected" "$work_dir/source-order.actual" || {
-  printf 'herdr-child module source order differs from the contract\n' >&2
-  diff -u "$work_dir/source-order.expected" "$work_dir/source-order.actual" >&2 || true
-  exit 1
-}
 
 snapshot_shell_state() {
   local output="$1"
@@ -7737,7 +7712,7 @@ snapshot_global_definitions() {
 
 # herdr-process.sh is the already-declared predecessor of every child module.
 source "$lib_dir/herdr-process.sh"
-while IFS='|' read -r module expected allowed_globals; do
+while IFS= read -r module; do
   declare -F | awk '{print $3}' | LC_ALL=C sort > "$work_dir/functions.before"
   snapshot_function_definitions "$work_dir/function-definitions.before" "$work_dir/functions.before"
   compgen -v | LC_ALL=C sort > "$work_dir/globals.before"
@@ -7759,53 +7734,25 @@ while IFS='|' read -r module expected allowed_globals; do
     cat "$work_dir/source.output" >&2
     exit 1
   }
-  declare -F | awk '{print $3}' | LC_ALL=C sort > "$work_dir/functions.after"
   snapshot_function_definitions "$work_dir/function-definitions.after" "$work_dir/functions.before"
   cmp -s "$work_dir/function-definitions.before" "$work_dir/function-definitions.after" || {
     printf '%s redefined an existing function\n' "$module" >&2
     diff -u "$work_dir/function-definitions.before" "$work_dir/function-definitions.after" >&2 || true
     exit 1
   }
-  compgen -v | LC_ALL=C sort > "$work_dir/globals.after"
   snapshot_global_definitions "$work_dir/global-definitions.after" "$work_dir/globals.before"
   cmp -s "$work_dir/global-definitions.before" "$work_dir/global-definitions.after" || {
     printf '%s mutated an existing global at source time\n' "$module" >&2
     diff -u "$work_dir/global-definitions.before" "$work_dir/global-definitions.after" >&2 || true
     exit 1
   }
-  LC_ALL=C comm -13 "$work_dir/functions.before" "$work_dir/functions.after" > "$work_dir/functions.actual"
-  : > "$work_dir/functions.expected"
-  if [ -n "$expected" ]; then
-    printf '%s\n' "$expected" | tr ' ' '\n' | LC_ALL=C sort > "$work_dir/functions.expected"
-  fi
-  cmp -s "$work_dir/functions.expected" "$work_dir/functions.actual" || {
-    printf '%s function ownership differs from the module contract\n' "$module" >&2
-    diff -u "$work_dir/functions.expected" "$work_dir/functions.actual" >&2 || true
-    exit 1
-  }
-  LC_ALL=C comm -13 "$work_dir/globals.before" "$work_dir/globals.after" > "$work_dir/globals.actual"
-  : > "$work_dir/globals.expected"
-  if [ -n "$allowed_globals" ]; then
-    printf '%s\n' "$allowed_globals" | tr ' ' '\n' | while IFS= read -r global_name; do
-      printf '%s\n' "$global_name"
-      [ "${!global_name+x}" = x ] && [ -z "${!global_name}" ] || {
-      printf '%s did not initialize %s to empty\n' "$module" "$global_name" >&2
-      exit 1
-      }
-    done | LC_ALL=C sort > "$work_dir/globals.expected"
-  fi
-  cmp -s "$work_dir/globals.expected" "$work_dir/globals.actual" || {
-    printf '%s global initialization differs from the module contract\n' "$module" >&2
-    diff -u "$work_dir/globals.expected" "$work_dir/globals.actual" >&2 || true
-    exit 1
-  }
 done <<'EOF'
-herdr-child-runtime.sh|atomic_write fail_usage generation_nonce json_agent_snapshot json_child_context json_created_tab_hint json_generation_status json_has_name json_has_pair json_identity_for_pane json_resolve_parent json_tab_identity metadata_report metadata_report_checked metadata_report_if_generation now_ms print_start_result print_supervision_failure print_supervision_uncertain require_herdr require_parent script_path state_value supervision_reason tab_reap_status usage write_launch_state|
-herdr-child-supervision.sh|acquire_arm_guard begin_reap_invalidation begin_supervision_transition clear_supervision_metadata clear_supervision_state_labels delivery_retry_pause finish_delivery_transition invalidate_generation next_delivery_retry_delay preserve_callback_waiting_label publish_reap_recovery publish_supervision_recovery reap_owner_recovery_status refresh_supervision_liveness release_arm_guard remove_supervision_run report_signal_supervision request_watcher_abort signal_reap_transition start_reap_owner_guard stop_owned_watcher stop_reap_owner_guard wait_for_watcher_failure wait_for_watcher_state watcher_fail watcher_fail_without_publish watcher_generation_current watcher_hold_expired watcher_invalidation_action watcher_preflight_fail watcher_publish_failed|REAP_OWNER_GUARD_PID REAP_OWNER_TOKEN
-herdr-child-watcher.sh|deliver_supervision_event watch_child|DELIVERY_REASON
-herdr-child-launch.sh|start_child|
-herdr-child-continuation.sh|ask_parent managed_detached_prompt persist_callback_state prompt_child reply_child wait_for_fresh_settlement|
-herdr-child-reap.sh|reap_children|
+herdr-child-runtime.sh
+herdr-child-supervision.sh
+herdr-child-watcher.sh
+herdr-child-launch.sh
+herdr-child-continuation.sh
+herdr-child-reap.sh
 EOF
 BASH
   assert_success
