@@ -191,6 +191,24 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   refute_output --partial "run_once_after_macos-tunes"
 }
 
+function test_scripts_0081_retired_se_cleanup_migration_removes_only_managed_files() {
+  _bats_test_init 81 'retired se-cleanup migration removes only formerly managed files'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-se-cleanup.sh"
+  local agents="$BATS_TEST_TMPDIR/home/.agents/skills/se-cleanup"
+  local claude="$BATS_TEST_TMPDIR/home/.claude/skills/se-cleanup"
+  mkdir -p "$agents" "$claude"
+  printf '%s\n' 'old managed skill' > "$agents/SKILL.md"
+  printf '%s\n' 'user-owned content' > "$agents/notes.md"
+  ln -s "$agents/SKILL.md" "$claude/SKILL.md"
+
+  run env HOME="$BATS_TEST_TMPDIR/home" sh "$script"
+  assert_success
+  assert_file_not_exists "$agents/SKILL.md"
+  assert_file_exists "$agents/notes.md"
+  assert_dir_exists "$agents"
+  assert_dir_not_exists "$claude"
+}
+
 # ===========================================
 # ask-in-herdr skill script
 # ===========================================
@@ -7038,7 +7056,8 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
   assert_file_exists "$probe_file"
   run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
   assert_success
-  assert_output --partial "Passed: herdr-child detached watcher closes launcher descriptors"
+  # Bashunit abbreviates long titles to the terminal width in Docker panes.
+  assert_output --partial "Passed: herdr-child detached watcher closes launcher desc"
 }
 
 # Guards docs/issues/2026-08-29-001: hts_teardown must terminate and await a
