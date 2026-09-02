@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","command-palette","chezmoi"]
 date: "2026-09-02"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Render the onchange template before and after mutating each declared dependency 
 ## Open decisions
 
 None.
+
+## Resolution
+
+Merged in PR #133. The onchange test now renders the template, mutates each declared dependency and requires the rendered hash to change, with an unrelated-file control proving it can tell changed from unchanged. The palette fallback-parser test reads a fixture the test writes itself instead of production commands.toml, and its malformed-shortcuts control is pinned to the shortcuts-specific rejection reason rather than any nonzero exit. Mutation-proved by dropping an include and by disabling array detection in parse_toml_value.

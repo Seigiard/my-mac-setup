@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","ci","source-ownership"]
 date: "2026-09-02"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Pin the CI event policy independently of the workflow file, then compare the wor
 ## Open decisions
 
 Whether post-apply suite eligibility should be derived from file metadata, from a canonical manifest consumed by the runner, or from another independent rule.
+
+## Resolution
+
+Merged in PR #136. The CI event policy is pinned independently and compared against the workflow, including MMS_CI_MINIMAL's trigger condition, which had no coverage at all before. Post-apply suites are discovered on disk with set equality that fails in both directions, and failure propagation is exercised through the wrapper, each compose service command script under stubs, and the Makefile recipe. Review caught a false green in the discovery heuristic: a comment mentioning a suite filename hid an unwired suite, proven with a decoy. The remaining design concern about host-safe eligibility is recorded as 2026-09-02-008.

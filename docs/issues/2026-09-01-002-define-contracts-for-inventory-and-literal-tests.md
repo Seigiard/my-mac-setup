@@ -5,8 +5,9 @@ type: "follow-up"
 category: "testing-ci"
 tags: ["semantic-testing","source-ownership","literal-contracts"]
 date: "2026-09-01"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-02"
 ---
 
 ## Why this exists
@@ -45,3 +46,7 @@ An assertion that fits neither shape — no external tool consumes the exact tex
 Every replacement above carries a mutation proof: the regression it should catch was reproduced against the real deployed `$HOME`, the test was rerun and observed red, then the file was restored and reverified green.
 
 This settles the repository-wide answer this issue asked for. The four child issues still own their own findings.
+
+## Resolution
+
+All four children are closed (2026-09-02-002 through 2026-09-02-005), and the repository-wide open decision this issue reserved for itself was settled in PR #142: a deployment assertion earns its slot only by pinning a literal that a tool outside this repository parses verbatim, or by comparing two independently maintained sides. Assertions fitting neither were strengthened to exercise a named consumer or deleted. Nine smoke tests were reclassified under that rule; peer review then caught that the rewritten hook test fed a payload the hook rejects before dispatch, so it proved neither dispatch nor silence, fixed and mutation-proved in both directions before merge.
