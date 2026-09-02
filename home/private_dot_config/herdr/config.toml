@@ -60,7 +60,7 @@ sidebar_min_width = 32
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
 # labels, rebuilds tab labels, and publishes Git metadata for integrations.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace", "pane"]]
+rows = [["state_icon", "workspace"], ["pane"]]
 
 # Native agent-status toasts are off: the herdr-focus-notify plugin sends its
 # own clickable notification (with `herdr agent focus` on click), and the two
