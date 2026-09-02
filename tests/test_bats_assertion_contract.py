@@ -159,6 +159,15 @@ PLAIN
   [[ 1 == 1 ]] || return 1
 }
 """,
+                "bashunit/reachable.bash": """reachable_dsl_helper() {
+  [[ 1 == 2 ]]
+  :
+}
+""",
+                "bashunit/reachable_clean.bash": """reachable_dsl_helper_control() {
+  [[ 1 == 1 ]] || return 1
+}
+""",
             }
         )
 
@@ -166,6 +175,7 @@ PLAIN
         self.assertIn("reachable.bats:2: bare [[...]]", result.stdout)
         self.assertIn("bashunit/reachable_test.sh:2: bare [[...]]", result.stdout)
         self.assertIn("helpers/reachable.bash:2: bare [[...]]", result.stdout)
+        self.assertIn("bashunit/reachable.bash:2: bare [[...]]", result.stdout)
         self.assertNotIn("reachable_clean.bats", result.stdout)
         self.assertNotIn("reachable_clean_test.sh", result.stdout)
         self.assertNotIn("reachable_clean.bash", result.stdout)

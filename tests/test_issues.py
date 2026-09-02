@@ -562,6 +562,19 @@ class ClientDiscoveryTests(unittest.TestCase):
             )
             self.assertNotEqual([], self.tracked_paths(client_dir))
 
+            # A directory-only rule (e.g. ".claude/*") leaves the bare
+            # directory path itself unignored while hiding every future file
+            # placed under it -- the check above alone would miss that. Probe
+            # a path that does not exist yet, so future additions are covered
+            # too, not just what happens to be tracked today.
+            child_probe = client_dir + "/git-ignore-reachability-probe"
+            child_not_ignored = self.check_ignore(child_probe)
+            self.assertEqual(
+                1,
+                child_not_ignored.returncode,
+                child_not_ignored.stdout + child_not_ignored.stderr,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
