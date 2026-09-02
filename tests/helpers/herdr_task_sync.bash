@@ -622,7 +622,7 @@ hts_run_for_socket() {
     HERDR_TASK_SYNC_TEST_NO_WORKER="${HERDR_TASK_SYNC_TEST_NO_WORKER:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
-    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
+    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-$HTS_LOCK_ATTEMPTS}" \
     bash "$HTS_ENGINE" "$@"
 }
 
@@ -638,7 +638,7 @@ hts_worker_run() {
     HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE="${HERDR_TASK_SYNC_TEST_BRANCH_BARRIER_RELEASE:-}" \
     HERDR_TASK_SYNC_TEST_NO_PRESENTATION="${HERDR_TASK_SYNC_TEST_NO_PRESENTATION:-}" \
     HERDR_TASK_SYNC_TEST_NOW_SEQ="${HERDR_TASK_SYNC_TEST_NOW_SEQ:-}" \
-    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-}" \
+    HERDR_TASK_SYNC_LOCK_ATTEMPTS="${HERDR_TASK_SYNC_LOCK_ATTEMPTS:-$HTS_LOCK_ATTEMPTS}" \
     bash "$HTS_ENGINE" --worker --pane pane-1
 }
 
@@ -783,6 +783,22 @@ HTS_WORKTREE_GIT_BUDGET="${HTS_WORKTREE_GIT_BUDGET:-10}"
 # generous here: a stub probe under --jobs load must not lose the race and
 # flake every counts assertion. A test that wants a timeout sets it low.
 HTS_STATUS_BUDGET="${HTS_STATUS_BUDGET:-2}"
+# The engine's own claim bound (INBOX_LOCK_ATTEMPTS, default 20) retries every
+# 10 ms, so it gives up after ~200 ms. That is a wall-clock bound on acquiring
+# a claim, and a single test drives several engine processes -- the event, the
+# naming worker, the presentation coordinator -- that contend for the same
+# identity and repository claims. Under the full suite at --jobs 8 on a CI
+# runner with fewer cores than workers, 200 ms is not enough: acquire_claim
+# fails, and every caller in apply_worktree_identity turns that into a silent
+# `return 0`, so the branch is never renamed and the mutation tests time out
+# against their 60 s wait ceiling. This is machine speed, not behavior, so the
+# harness raises the ceiling rather than letting scheduler contention decide.
+# 2000 attempts is ~20 s, still inside HTS_WAIT_CEILING_SECONDS, and it is a
+# ceiling reached only under contention -- an uncontended claim returns on the
+# first attempt, so the uncontended suite pays nothing for it. The three tests
+# that assert contention behavior pin HERDR_TASK_SYNC_LOCK_ATTEMPTS=1
+# themselves and keep it.
+HTS_LOCK_ATTEMPTS="${HTS_LOCK_ATTEMPTS:-2000}"
 
 # Behavioral budget for the "fails open promptly rather than hanging" assertions.
 # The helper below scales a same-run process-launch baseline before enforcing this,
