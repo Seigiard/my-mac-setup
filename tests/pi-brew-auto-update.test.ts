@@ -37,6 +37,15 @@ function fakeUi() {
   return { ui, notifications };
 }
 
+// Distinct from DEFAULT_TIMEOUT_MS (5 * 60_000 = 300_000) in the extension
+// source, so a handler that hardcodes the default cannot satisfy an
+// assertion that the injected value was actually threaded through.
+const INJECTED_TIMEOUT_MS = 111_222;
+
+interface CapturedExecOptions {
+  timeout: number;
+}
+
 async function dependencies(
   overrides: Partial<BrewAutoUpdateDependencies> = {},
 ): Promise<{ deps: BrewAutoUpdateDependencies; calls: Array<[string, string[]]> }> {
@@ -52,7 +61,7 @@ async function dependencies(
     pid: 4242,
     processAlive: () => true,
     token: "test-owner",
-    timeoutMs: 300_000,
+    timeoutMs: INJECTED_TIMEOUT_MS,
     staleLockMs: 1_200_000,
     snapshotExtensions: async () => new Map(),
     ...overrides,
@@ -60,34 +69,72 @@ async function dependencies(
   return { deps, calls };
 }
 
-test("extension snapshots include npm package and lock-file content", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-extension-snapshot-test-"));
-  cleanupPaths.push(root);
-  const packagePath = join(root, "node_modules", "example-extension");
-  await mkdir(packagePath, { recursive: true });
-  await writeFile(
-    join(packagePath, "package.json"),
-    JSON.stringify({ name: "example-extension", version: "1.0.0" }),
-  );
-  const lockPath = join(root, "package-lock.json");
-  await writeFile(lockPath, "old lock\n");
-  const exec: BrewAutoUpdateDependencies["exec"] = async (command) => ({
-    code: 0,
-    stdout:
-      command === "pi"
-        ? `User packages:\n  npm:example-extension\n    ${packagePath}\n`
-        : "",
-    stderr: "",
-    killed: false,
+describe("captureExtensionSnapshot", () => {
+  async function setUpExtensionPackage(): Promise<{
+    root: string;
+    packagePath: string;
+    lockPath: string;
+    exec: BrewAutoUpdateDependencies["exec"];
+  }> {
+    const root = await mkdtemp(join(tmpdir(), "pi-extension-snapshot-test-"));
+    cleanupPaths.push(root);
+    const packagePath = join(root, "node_modules", "example-extension");
+    await mkdir(packagePath, { recursive: true });
+    await writeFile(
+      join(packagePath, "package.json"),
+      JSON.stringify({ name: "example-extension", version: "1.0.0" }),
+    );
+    const lockPath = join(root, "package-lock.json");
+    await writeFile(lockPath, "old lock\n");
+    const exec: BrewAutoUpdateDependencies["exec"] = async (command) => ({
+      code: 0,
+      stdout:
+        command === "pi"
+          ? `User packages:\n  npm:example-extension\n    ${packagePath}\n`
+          : "",
+      stderr: "",
+      killed: false,
+    });
+    return { root, packagePath, lockPath, exec };
+  }
+
+  test("changes when the npm package's package.json content changes", async () => {
+    const { packagePath, exec } = await setUpExtensionPackage();
+
+    const before = await captureExtensionSnapshot(exec, 300_000);
+    await writeFile(
+      join(packagePath, "package.json"),
+      JSON.stringify({ name: "example-extension", version: "1.0.1" }),
+    );
+    const after = await captureExtensionSnapshot(exec, 300_000);
+
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    expect(after).not.toEqual(before);
   });
 
-  const before = await captureExtensionSnapshot(exec, 300_000);
-  await writeFile(lockPath, "new lock\n");
-  const after = await captureExtensionSnapshot(exec, 300_000);
+  test("changes when the lock-file content changes", async () => {
+    const { lockPath, exec } = await setUpExtensionPackage();
 
-  expect(before).toBeDefined();
-  expect(after).toBeDefined();
-  expect(after).not.toEqual(before);
+    const before = await captureExtensionSnapshot(exec, 300_000);
+    await writeFile(lockPath, "new lock\n");
+    const after = await captureExtensionSnapshot(exec, 300_000);
+
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    expect(after).not.toEqual(before);
+  });
+
+  test("stays the same when an unrelated file changes", async () => {
+    const { root, exec } = await setUpExtensionPackage();
+
+    const before = await captureExtensionSnapshot(exec, 300_000);
+    await writeFile(join(root, "README.md"), "unrelated change\n");
+    const after = await captureExtensionSnapshot(exec, 300_000);
+
+    expect(before).toBeDefined();
+    expect(after).toEqual(before);
+  });
 });
 
 describe("brew auto update sequence", () => {
@@ -117,6 +164,27 @@ describe("brew auto update sequence", () => {
       ["pi", ["update", "--extensions"]],
     ]);
     expect(notifications).toEqual([]);
+  });
+
+  test("passes the independently injected timeout to every update subprocess", async () => {
+    const execOptions: CapturedExecOptions[] = [];
+    const { deps, calls } = await dependencies({
+      exec: async (command, args, options) => {
+        calls.push([command, args]);
+        execOptions.push(options as CapturedExecOptions);
+        return { code: 0, stdout: "", stderr: "", killed: false };
+      },
+    });
+    const { ui } = fakeUi();
+
+    const result = await runBrewAutoUpdate("manual", ui, deps);
+
+    expect(result.status).toBe("complete");
+    expect(calls).toHaveLength(3);
+    expect(execOptions).toHaveLength(3);
+    for (const options of execOptions) {
+      expect(options).toEqual({ timeout: INJECTED_TIMEOUT_MS });
+    }
   });
 
   test("stays silent at startup when a git extension remains on the same revision", async () => {
@@ -311,9 +379,11 @@ describe("brew auto update sequence", () => {
   });
 
   test("stops after a timed-out command and notifies a manual caller of the failure", async () => {
+    const execOptions: CapturedExecOptions[] = [];
     const { deps, calls } = await dependencies({
-      exec: async (command, args) => {
+      exec: async (command, args, options) => {
         calls.push([command, args]);
+        execOptions.push(options as CapturedExecOptions);
         return { code: null, stdout: "", stderr: "", killed: true };
       },
     });
@@ -323,6 +393,10 @@ describe("brew auto update sequence", () => {
 
     expect(result.status).toBe("failed");
     expect(calls).toHaveLength(1);
+    // The command that was killed must have been given the independently
+    // injected timeout, not a hardcoded default, or this proves nothing about
+    // which timeout the subprocess actually ran under.
+    expect(execOptions).toEqual([{ timeout: INJECTED_TIMEOUT_MS }]);
     expect(notifications).toHaveLength(1);
     // The step that failed ("brew update") must be nameable by the user, not
     // just a private status enum, so they know what to investigate.
@@ -488,14 +562,12 @@ describe("cross-process update lock", () => {
   });
 });
 
-test("registers startup-only background execution and the manual command", async () => {
+test("registers session_start to run the update sequence in the background, only on a startup reason", async () => {
   const handlers = new Map<string, Function>();
-  let commandHandler: Function | undefined;
   const fakePi = {
     on: (event: string, handler: Function) => handlers.set(event, handler),
     registerCommand: (name: string, options: { handler: Function }) => {
       expect(name).toBe("brew-auto-update-now");
-      commandHandler = options.handler;
     },
   };
   let finishExec!: () => void;
@@ -519,5 +591,43 @@ test("registers startup-only background execution and the manual command", async
   while (!finishExec) await Bun.sleep(1);
   expect(calls).toHaveLength(1);
   finishExec();
+});
+
+test("invokes the registered brew-auto-update-now handler and runs the full update sequence through the fake executor", async () => {
+  const handlers = new Map<string, Function>();
+  let commandHandler: Function | undefined;
+  const fakePi = {
+    on: (event: string, handler: Function) => handlers.set(event, handler),
+    registerCommand: (name: string, options: { handler: Function }) => {
+      if (name === "brew-auto-update-now") commandHandler = options.handler;
+    },
+  };
+  const { deps, calls } = await dependencies({
+    exec: async (command, args) => {
+      calls.push([command, args]);
+      return {
+        code: 0,
+        stdout: command === "pi" ? "Updated packages\n" : "",
+        stderr: "",
+        killed: false,
+      };
+    },
+  });
+
+  registerBrewAutoUpdater(fakePi as never, deps);
   expect(commandHandler).toBeDefined();
+
+  const { ui } = fakeUi();
+  // The real handler.handler signature is (args, ctx); a bare {} stands in
+  // for command args the update sequence never reads.
+  await commandHandler!({}, { ui });
+
+  // Observed through the fake executor: this is the actual command sequence
+  // the registered handler drove end to end, in order, not just proof that a
+  // handler function was registered.
+  expect(calls).toEqual([
+    ["brew", ["update"]],
+    ["brew", ["upgrade", "pi-coding-agent"]],
+    ["pi", ["update", "--extensions"]],
+  ]);
 });
