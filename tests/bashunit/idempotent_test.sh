@@ -219,9 +219,33 @@ function test_idempotent_013_guard_the_misconfigured_message_names_the_marker() 
   }
 
   run captured_fail_message
+  # One text assertion, kept for the human who reads this failure: the message
+  # has to name the marker it is asking for. The file names it also carries are
+  # not pinned as strings -- copied out of the message they would only restate
+  # it -- but read back out of the message and checked against the tree.
   assert_output --partial "MMS_DISPOSABLE_HOME"
-  assert_output --partial "test-dotfiles.yml"
-  assert_output --partial "docker-compose.yml"
+
+  # Two independently maintained sides: the message in tests/helpers/common.bash
+  # claims which launch sites declare the marker, and those launch sites have to
+  # actually declare it. The rot this catches is a dropped `env:` block in the
+  # workflow or a dropped `environment:` entry in a compose service -- after
+  # which the scenarios above skip in CI and the suite stays green.
+  #
+  # The repo root only exists where the full checkout does: the host, and the
+  # macOS CI job. `make test-ubuntu` mounts home/ and tests/ alone, so the
+  # cross-check is unreachable there and the file-name half of this contract is
+  # owned by the host and macOS runs.
+  local repo_root named rel
+  repo_root="$BATS_TEST_DIRNAME/.."
+  named="$(printf '%s\n' "$output" | grep -oE '[A-Za-z0-9_./-]+\.ya?ml')"
+  [[ -n "$named" ]] || fail "the misconfigured message names no marker-declaring file: $output"
+  if [[ -d "$repo_root/.github" ]]; then
+    while IFS= read -r rel; do
+      assert_file_exists "$repo_root/$rel"
+      grep -qE 'MMS_DISPOSABLE_HOME[=:][[:space:]]*"?1"?' "$repo_root/$rel" || \
+        fail "$rel is named as a site that declares MMS_DISPOSABLE_HOME=1, but does not set it"
+    done <<< "$named"
+  fi
 }
 
 function set_up_before_script() {

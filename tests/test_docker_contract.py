@@ -89,20 +89,27 @@ class TestDockerContract(unittest.TestCase):
         self.assertRegex(script, r"(?m)^\s*chezmoi apply\b")
         self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
-    def test_apply_services_run_the_full_post_apply_suite(self):
-        for name in self.apply_service_names():
-            with self.subTest(service=name):
-                script = self.service_command_script(self.service_block(name))
-                self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
-
     def test_apply_services_declare_disposable_home_and_frozen_brew_bundle(self):
-        # idempotent_test.sh hard-fails in a container without
-        # MMS_DISPOSABLE_HOME; without HOMEBREW_BUNDLE_NO_UPGRADE a revert to
-        # drift-chasing surfaces only as wall-clock/network flakiness.
+        # HOMEBREW_BUNDLE_NO_UPGRADE is parsed verbatim by Homebrew, a tool
+        # this repo does not own and cannot cheaply invoke in CI, and without
+        # it a revert to drift-chasing surfaces only as wall-clock/network
+        # flakiness. That is the externally-consumed-literal shape, kept.
+        #
+        # MMS_DISPOSABLE_HOME is consumed inside this repo, so trusting the
+        # spelling here would be a source copy. Cross-check it against its
+        # reader instead: tests/helpers/disposable-home.bash is what lets
+        # idempotent_test.sh run its real chezmoi commands, and a rename there
+        # that missed compose would drop that coverage silently.
+        marker = "MMS_DISPOSABLE_HOME"
+        self.assertIn(
+            marker,
+            (REPOSITORY / "tests" / "helpers" / "disposable-home.bash").read_text(encoding="utf-8"),
+            "%s must be the marker tests/helpers/disposable-home.bash reads" % marker,
+        )
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 env = self.service_env(self.service_block(name))
-                self.assertEqual(env.get("MMS_DISPOSABLE_HOME"), "1")
+                self.assertEqual(env.get(marker), "1")
                 self.assertEqual(env.get("HOMEBREW_BUNDLE_NO_UPGRADE"), "1")
 
     def stage_service_volumes(self, service, root, overrides=None):

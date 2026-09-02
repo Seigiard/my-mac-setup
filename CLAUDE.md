@@ -91,7 +91,7 @@ Adding a managed config, step by step:
 1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
 2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
 3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
-4. Add or extend the narrowest test that proves deployment behavior; use `tests/bashunit/smoke_test.sh` only for cross-component coverage.
+4. Coverage passes the test-oracle gate first: state the oracle line (consumer, observable failure, oracle independent of this change) — when it cannot be completed, zero new tests is the correct outcome. When it can, extend the narrowest test that proves deployment behavior; use `tests/bashunit/smoke_test.sh` only for cross-component coverage.
 5. Verify: `make test-local` (diff only), then `make test-ubuntu`.
 
 `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.

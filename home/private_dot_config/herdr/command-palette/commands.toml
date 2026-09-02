@@ -47,18 +47,18 @@ description = "Choose and focus a workspace"
 type = "workspace_picker"
 
 [[commands]]
-group = "Workspaces"
-title = "New workspace"
-description = "Create and focus a worktree workspace from the current repository"
+group = "Worktrees"
+title = "New worktree"
+description = "Create and focus a worktree from the current repository"
 type = "form"
 run_type = "herdr"
 args = ["worktree", "create", "--cwd", "{target_cwd}", "--branch", "{value}", "--focus"]
-prompt = "Branch name for the new workspace"
+prompt = "Branch name for the new worktree"
 placeholder = "worktree/my-feature"
 
 [[commands]]
-group = "Workspaces"
-title = "Open workspace"
+group = "Worktrees"
+title = "Open worktree"
 description = "Open and focus an existing worktree by branch name"
 type = "form"
 run_type = "herdr"
@@ -67,13 +67,13 @@ prompt = "Existing worktree branch"
 placeholder = "feature/my-feature"
 
 [[commands]]
-group = "Workspaces"
-title = "Delete workspace checkout"
+group = "Worktrees"
+title = "Delete worktree checkout"
 description = "Remove the current worktree checkout and keep its branch"
 type = "form"
 append_value = false
-command = "if [ \"$HERDR_COMMAND_PALETTE_VALUE\" = DELETE ]; then \"$HERDR_BIN_PATH\" worktree remove --workspace \"$HERDR_WORKSPACE_ID\"; else printf '%s\\n' 'Checkout not deleted: type DELETE to confirm.' >&2; exit 1; fi"
-prompt = "Type DELETE to remove this checkout"
+command = "if [ \"$HERDR_COMMAND_PALETTE_VALUE\" = DELETE ]; then \"$HERDR_BIN_PATH\" worktree remove --workspace \"$HERDR_WORKSPACE_ID\"; else printf '%s\\n' 'Worktree checkout not deleted: type DELETE to confirm.' >&2; exit 1; fi"
+prompt = "Type DELETE to remove this worktree checkout"
 placeholder = "DELETE"
 
 [[commands]]

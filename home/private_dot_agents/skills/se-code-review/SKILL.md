@@ -48,7 +48,9 @@ When the `testing` persona is selected, append this criterion to its prompt:
 source, prompt, config, or fixture text and would stay green while the intended
 behavior is broken. Require behavioral replacement or removal. Exact-text
 assertions are valid only when they exercise an externally consumed literal
-contract."
+contract. A finding that requests new coverage must name the consumer and the
+observable failure the missing test would catch; report it as advisory when it
+cannot name both."
 
 Run the complete reviewer selection, persona dispatch, validation, merge, and
 JSON output flow. Return the final raw JSON report.
@@ -98,6 +100,7 @@ In default mode, the parent is the only apply owner. Mirror `ce-code-review` Sta
 - Judge consensus and unique findings on their merits. A unique source is not a deny condition.
 - Treat `autofix_class` as routing signal, not apply permission. Do not mechanically apply every `gated_auto` finding.
 - Do not apply contradictions, design decisions, taste calls, advisory findings, or findings the parent determines are wrong.
+- A finding that asks for a new test passes the test-oracle gate before apply: state the oracle line (consumer, observable failure, oracle independent of the reviewed diff). When the line cannot be completed, keep the finding advisory and report the reason instead of writing the test.
 - Apply only when the current working tree is the tree that both peers reviewed.
 - Run targeted tests and lint after each coherent fix group. Broaden checks when the change touches shared behavior.
 - Revert a fix that makes verification fail; never leave the tree red.

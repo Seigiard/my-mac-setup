@@ -297,7 +297,22 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
+      # This runner has 3 cores, so the suite's default of 8 workers
+      # oversubscribes it nearly 3:1. The herdr-task-sync tests bound their
+      # waits in wall clock -- a claim gives up after ~200 ms, a git probe
+      # after its budget, the fail-open guard after a scaled baseline -- and
+      # under that oversubscription those bounds lose to the scheduler rather
+      # than to behavior, so the worktree-identity tests failed here on every
+      # run while Ubuntu passed. Raising the individual bounds does not fix it
+      # and trades one failure for another: a claim ceiling large enough to
+      # survive 8 workers makes the engine spin 8.4 s where the fail-open
+      # guard allows 8.1, so the promptness tests fail instead. Measured on
+      # macos-latest against the full post-apply suite: 8 workers 6 failures,
+      # 6 workers 3 failures, 4 workers 0 failures in 422 s -- faster than the
+      # 8-worker run it replaces. Ubuntu keeps the default; it passes there.
       - name: Run post-apply tests
+        env:
+          MMS_BASHUNIT_JOBS: "4"
         run: tests/run-post-apply.sh full
 
       # Save-only keeps scheduled and manual full-Brewfile runs useful as cache

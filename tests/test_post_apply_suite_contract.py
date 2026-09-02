@@ -22,23 +22,49 @@ class TestPostApplySuiteContract(unittest.TestCase):
     def test_post_apply_suite_uses_one_wrapper_with_two_explicit_modes(self):
         makefile = MAKEFILE.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        compose = COMPOSE.read_text(encoding="utf-8")
 
-        self.assertEqual(
-            workflow.count("run: tests/run-post-apply.sh full"),
-            2,
-            "both GitHub Actions post-apply steps must call the shared full-suite wrapper",
-        )
-        self.assertEqual(
-            compose.count("tests/run-post-apply.sh full"),
-            2,
-            "both Docker full-suite services must call the shared full-suite wrapper",
-        )
-        self.assertEqual(
-            makefile.count("tests/run-post-apply.sh host-safe"),
-            1,
-            "make test-suite must call the host-safe wrapper mode exactly once",
-        )
+        # Counting occurrences pinned "how many exist today" -- a number with
+        # no origin outside the file being read -- and the workflow count also
+        # pinned the YAML spelling `run: `, so reformatting a step to `run: |`
+        # broke it with no behaviour change. What the wrapper actually owes CI
+        # is a relationship between two independently maintained sides:
+        # whatever applies the dotfiles must then run the suite against them.
+        # The compose side of the same rule is owned by
+        # tests/test_docker_contract.py's
+        # test_apply_service_scripts_propagate_a_failing_post_apply_suite,
+        # which executes each applying service's script against a stubbed
+        # wrapper and requires the exit code to survive -- strictly stronger
+        # than counting the command's occurrences.
+        jobs = re.search(r"^jobs:\n(?P<body>.*)\Z", workflow, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(jobs, "workflow must declare a jobs block")
+        job_names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", jobs.group("body"), re.MULTILINE)
+        self.assertTrue(job_names, "no jobs parsed from the workflow")
+
+        applying = []
+        for name in job_names:
+            block = re.search(
+                r"^  %s:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)" % re.escape(name),
+                workflow,
+                re.MULTILINE | re.DOTALL,
+            )
+            body = block.group("body")
+            if "chezmoi apply" not in body:
+                continue
+            applying.append(name)
+            self.assertIn(
+                "tests/run-post-apply.sh full",
+                body,
+                "job %s applies the dotfiles but never runs the post-apply suite" % name,
+            )
+        # An empty selection would let the loop above pass vacuously.
+        self.assertGreaterEqual(len(applying), 2, "expected at least two applying CI jobs, got %r" % applying)
+
+        # make test-suite is host-safe by design: it must reach the wrapper,
+        # and must not reach the full mode, which runs real apply tests.
+        recipe = re.search(r"^test-suite:.*?(?=^\S|\Z)", makefile, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(recipe, "Makefile must define the test-suite target")
+        self.assertRegex(recipe.group(0), r"(?m)^\t.*tests/run-post-apply\.sh host-safe\b")
+        self.assertNotRegex(recipe.group(0), r"(?m)^\t.*tests/run-post-apply\.sh full\b")
 
         suite_files = self.discovered_suite_files()
         self.assertTrue(suite_files, "no post-apply suite files discovered on disk")
@@ -47,10 +73,24 @@ class TestPostApplySuiteContract(unittest.TestCase):
         orders = [order for order, _ in declarations.values()]
         self.assertEqual(len(orders), len(set(orders)), "post-apply order values must be unique")
 
-        full_invocations = self.wrapper_invocations("full")
-        host_safe_invocations = self.wrapper_invocations("host-safe")
-        self.assert_invocation_shape(full_invocations, "full mode")
-        self.assert_invocation_shape(host_safe_invocations, "host-safe mode")
+        # "3" is this test's own value, unrelated to the wrapper's default, so
+        # a wrapper that hardcoded its worker count instead of reading
+        # MMS_BASHUNIT_JOBS fails here.
+        full_invocations = self.wrapper_invocations("full", jobs="3")
+        host_safe_invocations = self.wrapper_invocations("host-safe", jobs="3")
+        self.assert_invocation_shape(full_invocations, "full mode", "3")
+        self.assert_invocation_shape(host_safe_invocations, "host-safe mode", "3")
+
+        # The unset case must still reach bashunit with a positive integer, so
+        # the default cannot silently become empty or 0.
+        default_invocations = self.wrapper_invocations("host-safe")
+        self.assertTrue(default_invocations, "wrapper ran no suite file by default")
+        for argv in default_invocations:
+            self.assertEqual(argv[0], "-j", "default worker flag")
+            self.assertTrue(
+                argv[1].isdigit() and int(argv[1]) > 0,
+                "default worker count must be a positive integer, got %r" % argv[1],
+            )
 
         full_files = [argv[-1] for argv in full_invocations]
         host_safe_files = [argv[-1] for argv in host_safe_invocations]
@@ -228,18 +268,27 @@ class TestPostApplySuiteContract(unittest.TestCase):
                     return True
         return False
 
-    def assert_invocation_shape(self, invocations, message):
+    def assert_invocation_shape(self, invocations, message, expected_jobs):
         for argv in invocations:
             # The report path is a fresh mktemp file per invocation, so assert
-            # the flag positions but not the path itself. -j 8 and
-            # --report-json are the wrapper's own operational contract
-            # (worker count and the bashunit report flag), independent of
-            # which suite files exist.
+            # the flag positions but not the path itself. --report-json is the
+            # wrapper's own operational contract: its inline failure-name
+            # reporter reads that file back.
+            #
+            # The worker count is asserted against the value THIS TEST chose
+            # via MMS_BASHUNIT_JOBS, never against the wrapper's default.
+            # run-post-apply.sh declares that default overridable, and CI's
+            # macOS job really does set MMS_BASHUNIT_JOBS=4
+            # (.github/workflows/test-dotfiles.yml), so pinning the literal 8
+            # made this test red for a supported configuration while staying
+            # blind to the regression that matters -- the wrapper dropping the
+            # operator's cap on the floor.
             self.assertEqual(len(argv), 5, message)
-            self.assertEqual(argv[0:2], ["-j", "8"], message)
+            self.assertEqual(argv[0], "-j", message)
+            self.assertEqual(argv[1], expected_jobs, message)
             self.assertEqual(argv[2], "--report-json", message)
 
-    def wrapper_invocations(self, mode):
+    def wrapper_invocations(self, mode, jobs=None):
         if not RUNNER.exists():
             self.fail("tests/run-post-apply.sh must own the post-apply suite command")
 
@@ -259,6 +308,10 @@ class TestPostApplySuiteContract(unittest.TestCase):
             env = os.environ.copy()
             env["BASHUNIT_ARGV_FILE"] = str(argv_file)
             env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
+            if jobs is None:
+                env.pop("MMS_BASHUNIT_JOBS", None)
+            else:
+                env["MMS_BASHUNIT_JOBS"] = jobs
             subprocess.run(
                 [str(RUNNER), mode],
                 cwd=REPOSITORY,
