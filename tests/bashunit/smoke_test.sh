@@ -411,8 +411,11 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
   local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
   [[ -f "$modifier" ]] || skip "repository checkout is not mounted"
 
+  run bash "$modifier" <<< '{}'
+  assert_success
+
   local expected
-  expected="$(bash "$modifier" <<< '{}' | jq -c '.packages')"
+  expected="$(jq -c '.packages' <<< "$output")"
 
   # An empty selection would let the subset assertion below pass vacuously.
   run jq -e 'length > 0' <<< "$expected"
