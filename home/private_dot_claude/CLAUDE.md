@@ -105,6 +105,7 @@ Pick one (more recent / more tested), state why in one line, and flag the other 
 - `~/.scratchpad` is the trash directory only. Temporary working files still go to the per-session scratchpad path that the system prompt gives you.
 - Nothing empties `~/.scratchpad` automatically. If you moved anything there during a task, say so in your final report and give the user this command: `rm -rf ~/.scratchpad/*`. You cannot run it yourself; the deny list blocks it.
 - Monitor/Bash scripts run under zsh, system bash is 3.2: no `declare -A`, no unquoted word-splitting. Use `cmd | while read -r x` + scratchpad state files. After arming a monitor, verify the first event arrives.
+- zsh reserves parameter names bash leaves free. Never assign to `status`, `path`, or `argv`: `status=$?` fails *and* leaves `$?` at 1, so the `exit $status` after it reports a fabricated failure for a command that succeeded; `path=`/`argv=` silently destroy PATH and the arguments. Use `rc=$?`. Reading `$status` is fine. The same applies to a one-liner you hand to a herdr pane — the pane is zsh too.
 
 **Long-running work**
 
