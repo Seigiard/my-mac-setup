@@ -57,7 +57,7 @@ services:
       # two renders:
       #   MMS_CI_MINIMAL=1 docker compose -f docker/docker-compose.yml run --rm test-full
       # The `test-ubuntu` service deliberately has no such entry, which keeps
-      # `make test-ubuntu` on the full render — see docs/issues/2026-08-20-014.
+      # `make test-ubuntu` on the full render.
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
       # See the ubuntu service above for why this is written literally.
       - MMS_DISPOSABLE_HOME=1
@@ -116,8 +116,8 @@ services:
       # See the ubuntu service: presence, not upstream-drift chasing.
       - HOMEBREW_BUNDLE_NO_UPGRADE=1
       # See the ubuntu service above for why this is written literally. Note
-      # that MMS_CI_MINIMAL stays absent here on purpose (docs/issues/
-      # 2026-08-20-014); only the disposable-$HOME marker is shared.
+      # that MMS_CI_MINIMAL stays absent here on purpose; only the
+      # disposable-$HOME marker is shared.
       - MMS_DISPOSABLE_HOME=1
     entrypoint: ["/bin/bash", "-c"]
     command:

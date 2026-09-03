@@ -256,7 +256,7 @@ watcher_generation_current() {
   esac
 }
 
-# Test-only barrier holds are bounded (docs/issues/2026-08-28-001): an
+# Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
 # expired hold means the harness died without releasing the barrier.
 watcher_hold_expired() {
   [ $((SECONDS - $1)) -ge "${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120}" ]

@@ -130,7 +130,8 @@ PYEOF
   command rm -f "$report"
 done
 
-# Suite-end orphan guard (docs/issues/2026-08-28-001): no herdr-child
+# Suite-end orphan guard (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): no
+# herdr-child
 # __watcher spawned from this checkout may survive the run abandoned — dead
 # --launcher-pid AND missing --run-dir. Both criteria are required: a dead
 # launcher alone is the normal terminal state of an armed detached watcher,
@@ -174,7 +175,7 @@ if [ -n "${orphan_pids# }" ]; then
     watcher_args_match "$pid" || continue
     kill -KILL "$pid" 2>/dev/null || true
   done
-  echo "suite-end watcher orphan guard failed (docs/issues/2026-08-28-001)" >&2
+  echo "suite-end watcher orphan guard failed (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)" >&2
   [ "$rc" -ne 0 ] || rc=1
 fi
 exit "$rc"

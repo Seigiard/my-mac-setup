@@ -695,7 +695,8 @@ export HPL_WAIT_POLLS
 # targets a dedicated one-test file, so the progress guard covers setup and the
 # probe itself rather than a whole-suite parse.
 #
-# The causal remedy docs/issues/2026-08-21-015 prefers is unavailable here: a
+# The causal remedy docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md
+# prefers is unavailable here: a
 # held pipe and a released one differ only in elapsed time, with no marker a test
 # could block on. So the split is the fallback, applied deliberately.
 #
@@ -891,8 +892,9 @@ hpl_crash_run() {
 # shipped 75 ms SIGKILL bound is a UI-latency budget calibrated against real
 # git on an idle machine, and a forked bash-stub probe under --jobs load loses
 # that race, degrades the pane to location_status=stale, and flakes any
-# location assertion (the pattern docs/issues/2026-08-21-015 names; this was
-# its third missed call site after 543ca9e and 7f675e1).
+# location assertion (the pattern
+# docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md names;
+# this was its third missed call site after 543ca9e and 7f675e1).
 hpl_sweep_run() {
   env PATH="$HPL_STUB:/usr/bin:/bin" \
     HERDR_PANE_LABELS_STATE_DIR="$HPL_STATE" \

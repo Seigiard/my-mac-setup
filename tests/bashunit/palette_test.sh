@@ -21,9 +21,8 @@ REAL_COMMANDS="$SOURCE_ROOT/private_dot_config/herdr/command-palette/commands.to
 setup() {
   # No `command_exists python3 || skip` here. python3 is a declared requirement
   # (README.md, Requirements), so its absence must fail rather than silence all
-  # 58 tests in this file from inside setup(). Deliberate exception to the skip
-  # convention in docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md;
-  # the first test below is what names the cause.
+  # 58 tests in this file from inside setup(). Deliberate exception to the
+  # skip-on-missing-tool convention; the first test below names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
   export OPEN_IN_ZED_PY="$PALETTE_DIR/open_in_zed.py"

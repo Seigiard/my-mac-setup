@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # post-apply: excluded
 # Dedicated one-test fixture for the local bashunit patch "payload-marker
-# result parsing" (docs/issues/2026-08-29-003-pinned-bashunit-carries-a-local-
-# patch-payload-marker-result-parsing): a test's background child that
+# result parsing" (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): a test's background child that
 # inherits the captured stdout can append output after the ##...## payload
 # line, which stock upstream 0.50.1 parses as the result line. The guard is
 # owned by test_scripts_259 in tests/bashunit/scripts_test.sh.

@@ -71,8 +71,7 @@ command_exists() {
 # python3 is a declared system requirement of this repository, not an optional
 # tool: it is the herdr command palette's interpreter and `chezmoi apply` shells
 # out to it. So the files that depend on it assert instead of skipping -- a
-# deliberate exception to the skip convention in
-# docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md.
+# deliberate exception to the skip-on-missing-tool convention.
 # The floor is what macOS ships at /usr/bin/python3, the oldest interpreter any
 # supported environment provides.
 PYTHON3_MIN_VERSION="3.9"
@@ -140,9 +139,8 @@ skip_if_no_chezmoi() {
 # whatever machine runs it.
 #
 # The misconfigured verdict asserts instead of skipping -- a deliberate
-# exception to the skip convention in
-# docs/issues/2026-08-20-013-se-blocks-test-hard-fails-without-deps.md, in the
-# same shape as assert_python3_available() above. A missing developer tool is a
+# exception to the skip-on-missing-tool convention, in the same shape as
+# assert_python3_available() above. A missing developer tool is a
 # reason to skip. A runner whose $HOME is disposable but which carries no
 # marker is a repository misconfiguration that silently removes coverage, and
 # the runner exits 0 on skip, so a skip there would be green and untested at once.

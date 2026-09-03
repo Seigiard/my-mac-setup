@@ -62,7 +62,7 @@ teardown() {
           sleep 0.01
         done
         # A watcher that survives TERM (e.g., stuck publishing through a
-        # deleted stub) must not outlive the test (docs/issues/2026-08-28-001).
+        # deleted stub) must not outlive the test (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
         if kill -0 "$watcher_pid" 2>/dev/null; then
           kill -KILL "$watcher_pid" 2>/dev/null || true
         fi
@@ -2188,7 +2188,7 @@ case "${1:-} ${2:-}" in
     if [ "${STUB_PROMPT_BLOCK:-0}" = 1 ]; then
       trap 'exit 143' HUP INT TERM
       # Bounded so an orphaned stub prompt cannot poll forever after a killed
-      # harness (docs/issues/2026-08-28-001).
+      # harness (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
       attempt=0
       while [ ! -e "$CHILD_STUB/release-prompt" ]; do
         [ -d "$CHILD_STUB" ] || exit 1
@@ -2207,7 +2207,7 @@ case "${1:-} ${2:-}" in
         : > "$CHILD_STUB/liveness-started"
         trap 'exit 143' HUP INT TERM
         # Bounded so an orphaned stub cannot poll forever after a killed
-        # harness (docs/issues/2026-08-28-001).
+        # harness (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
         attempt=0
         while [ ! -e "$CHILD_STUB/release-liveness" ]; do
           [ -d "$CHILD_STUB" ] || exit 1
@@ -2371,7 +2371,7 @@ case "${1:-} ${2:-}" in
     : > "$CHILD_STUB/wait-observed"
     if [ -f "$CHILD_STUB/wait-block" ]; then
       # Bounded so an orphaned stub cannot poll forever after a killed
-      # harness (docs/issues/2026-08-28-001).
+      # harness (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
       attempt=0
       while [ ! -f "$CHILD_STUB/wait-release" ]; do
         [ -d "$CHILD_STUB" ] || exit 1
@@ -2404,7 +2404,7 @@ case "${1:-} ${2:-}" in
       if [ -f "$CHILD_STUB/block-parent-prompt" ]; then
         : > "$CHILD_STUB/parent-prompt-accepted"
         # Bounded so an orphaned stub cannot poll forever after a killed
-        # harness (docs/issues/2026-08-28-001).
+        # harness (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
         attempt=0
         while [ ! -f "$CHILD_STUB/release-parent-prompt" ]; do
           [ -d "$CHILD_STUB" ] || exit 1
@@ -7415,7 +7415,8 @@ function test_scripts_257_morning_cleanup_keeps_fresh_trash_entries() {
 # Wires the herdr-child descriptor probe into the suite. run-post-apply.sh runs
 # a fixed file list, so without this nested invocation the probe file would be
 # dead coverage again -- its bats ancestor was exactly that
-# (docs/issues/2026-08-29-002). A dedicated file, not an inline test, because
+# (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+# A dedicated file, not an inline test, because
 # the probe must observe launcher-descriptor EOF from outside any suite whose
 # runner shares those descriptors.
 function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
@@ -7432,8 +7433,7 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
 # 0.50.1' in tests/lib/bashunit): result parsing takes the last
 # ##TEST_EXIT_CODE=-marked line, not the blind last line. A re-pin of bashunit
 # that drops the patch turns this test red
-# (docs/issues/2026-08-29-003-pinned-bashunit-carries-a-local-patch-payload-
-# marker-result-parsing).
+# (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
 function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   _bats_test_init 260 'pinned bashunit survives late child output after the result payload'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/bashunit_late_output_probe_test.sh"
@@ -7453,7 +7453,7 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   assert_output --partial "Assertions: 1 passed, 1 total"
 }
 
-# watcher orphan self-termination (docs/issues/2026-08-28-001)
+# watcher orphan self-termination (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
 # ===========================================
 
 function test_scripts_261_herdr_child_watcher_at_arm_barrier_exits_when_la() {

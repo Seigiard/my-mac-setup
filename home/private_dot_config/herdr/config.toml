@@ -66,5 +66,5 @@ rows = [["state_icon", "workspace"], ["pane"]]
 # own clickable notification (with `herdr agent focus` on click), and the two
 # would otherwise stack for every status change.
 [ui.toast]
-delivery = "off"   # off | herdr | terminal | system
+delivery = "off" # off | herdr | terminal | system
 delay_seconds = 1

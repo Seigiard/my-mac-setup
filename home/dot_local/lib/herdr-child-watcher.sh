@@ -235,7 +235,7 @@ watch_child() {
     # teardown or reap); without this check a dead run dir turns the herdr
     # error path below into a permanent poll loop, because the pane_err
     # redirection fails and every iteration looks transient
-    # (docs/issues/2026-08-28-001).
+    # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
     [ -d "$run_dir" ] || exit 1
     if [ -f "$run_dir/invalidated.state" ]; then
       set +e

@@ -18,7 +18,7 @@
 #   the body's final exit status. This matches bats' set -eET on the same
 #   interpreter — helper-depth command failures fail the test, while the
 #   bash-3.2 quirk stays: a mid-body `[[ ]]`/`(( ))` false is inert
-#   (docs/issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md).
+#   (docs/solutions/test-failures/bats-mid-test-compound-conditionals-bypass-errexit.md).
 # - `run` executes in a command substitution (subshell), captures merged
 #   stdout+stderr with trailing newlines stripped, and splits $lines on
 #   newlines with empty lines dropped — exactly bats' default capture.

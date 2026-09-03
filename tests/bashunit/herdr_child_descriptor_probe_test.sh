@@ -5,7 +5,7 @@
 # process group, so a watcher can never hold a test runner's pipes open.
 # scripts_test.sh runs it under a nested tests/lib/bashunit invocation
 # (its former life as tests/herdr_child_descriptor_probe.bats was orphaned —
-# docs/issues/2026-08-29-002). Vocabulary (run, assert_*, BATS_* contract)
+# docs/solutions/design-patterns/outliving-processes-hang-the-suite.md). Vocabulary (run, assert_*, BATS_* contract)
 # comes from tests/bashunit/test-dsl.bash.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
 _bats_file_init "${BASH_SOURCE[0]}"

@@ -33,7 +33,7 @@ function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
 }
 
-# Covers the suite-end orphan guard (docs/issues/2026-08-28-001). The
+# Covers the suite-end orphan guard (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md). The
 # near-miss controls are load-bearing: a dead launcher with a surviving run
 # dir is a concurrent run's legitimately held watcher, not an orphan.
 # MMS_BASHUNIT_BIN=/usr/bin/true stubs the per-file runs so only the guard
@@ -363,8 +363,8 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
   # already owns exact transform equality for the modifier's output. This test
   # owns delivery completeness -- that apply reached the live settings.json --
   # and a real machine can legitimately carry an extra package installed
-  # directly through Pi between applies (see
-  # docs/issues/2026-08-19-001-pi-package-inventory-drift.md).
+  # directly through Pi between applies, so this asserts containment rather
+  # than equality.
   run jq -e --argjson expected "$expected" '
     ($expected - .packages) == []
   ' "$settings"
@@ -1069,7 +1069,7 @@ function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod
 # ===========================================
 
 # ===========================================
-# zsh cached_init consumers (docs/issues/2026-08-21-001)
+# zsh cached_init consumers
 #
 # ~/.zshrc caches the output of these tools via cached_init and sources the
 # cache in every later shell. An absolute `export PATH=...` line in any of

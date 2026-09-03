@@ -155,8 +155,8 @@ close_hint() {
 }
 
 # The child can still write its report on every non-terminal outcome, so the
-# transport outlives this script there. Removing it while the child works is the
-# failure recorded in docs/issues/2026-08-15-007.
+# transport outlives this script there. Removing it while the child works
+# leaves the child writing into a path that no longer exists.
 retain_transport() {
   RETAIN_TRANSPORT=1
   printf 'ask.sh: child may still write its report; transport retained at %s\n' "$report_dir" >&2

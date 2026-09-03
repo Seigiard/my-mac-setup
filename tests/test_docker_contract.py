@@ -263,8 +263,9 @@ class TestDockerContract(unittest.TestCase):
             stub.chmod(0o755)
             env = os.environ.copy()
             env["MMS_BASHUNIT_BIN"] = str(stub)
-            # The wrapper's own suite-end orphan-watcher guard (docs/issues/
-            # 2026-08-28-001) scans the live `ps` table and can independently
+            # The wrapper's own suite-end orphan-watcher guard
+            # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
+            # scans the live `ps` table and can independently
             # force rc=1 when it finds an unrelated abandoned herdr-child
             # watcher rooted at this checkout -- a real condition in this
             # repo's own herdr-based dev environment, not a suite-exit-code
