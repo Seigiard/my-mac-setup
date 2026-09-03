@@ -1,4 +1,4 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local lint clean build-docker shell-ubuntu
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-pi-herdr-worktree-identity lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests in Docker (may rebuild images)"
 	@echo "  make test-pi-agents-local  Run focused Pi local-instructions extension tests"
+	@echo "  make test-pi-herdr-worktree-identity  Run focused Pi worktree-identity extension tests"
 	@echo "  make test-local       Run chezmoi diff on current machine (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
 	@echo "  make lint             Run shellcheck on all scripts"
@@ -33,6 +34,9 @@ test-templates: test-issues build-docker
 
 test-pi-agents-local:
 	bun test tests/pi-agents-local-extension.test.ts
+
+test-pi-herdr-worktree-identity:
+	bun test tests/pi-herdr-worktree-identity.test.ts
 
 shell-ubuntu: build-docker
 	docker compose -f docker/docker-compose.yml run --rm ubuntu /bin/zsh

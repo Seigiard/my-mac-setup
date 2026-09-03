@@ -1,0 +1,1026 @@
+#!/usr/bin/env bash
+# Resolve a first-prompt naming event, rename its authorized generated worktree,
+# record attribution, and label the containing Herdr workspace.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=home/dot_local/lib/herdr-worktree-state.sh
+source "$SCRIPT_DIR/../lib/herdr-worktree-state.sh"
+
+SLUG_MAX_LEN=40
+SLUG_MAX_WORDS=5
+TITLE_MAX_LEN=48
+BRANCH_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS:-3}"
+FIRST_PROMPT_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_FIRST_PROMPT_CLAIM_ATTEMPTS:-3}"
+LIFECYCLE_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_LIFECYCLE_CLAIM_ATTEMPTS:-260}"
+ENGINE_TIMEOUT="${HERDR_WORKTREE_IDENTITY_TIMEOUT:-30}"
+HERDR_RPC_TIMEOUT="${HERDR_WORKTREE_IDENTITY_HERDR_TIMEOUT:-5}"
+PI_MODEL="${HERDR_WORKTREE_IDENTITY_PI_MODEL:-openai-codex/gpt-5.4-mini}"
+CLAUDE_MODEL="${HERDR_WORKTREE_IDENTITY_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
+
+usage() {
+  printf '%s\n' 'usage: herdr-worktree-identity [--worker] --agent NAME --session ID [--pane ID] [--workspace ID]' >&2
+}
+
+first_nonempty_line() {
+  printf '%s\n' "$1" | sed -e 's/\r$//' | grep -m1 '[^[:space:]]' || true
+}
+
+normalize_slug() {
+  LC_ALL=C printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed -e 's/--*/-/g' -e 's/^-//' -e 's/-$//' \
+    | cut -c "1-$SLUG_MAX_LEN" \
+    | sed -e 's/-$//'
+}
+
+limit_slug_words() {
+  awk -F- -v max="$SLUG_MAX_WORDS" '{
+    out = ""
+    for (i = 1; i <= NF && i <= max; i++) out = out (out == "" ? "" : "-") $i
+    print out
+  }'
+}
+
+slug_word_count() {
+  printf '%s' "$1" | tr '-' '\n' | grep -c '.' || true
+}
+
+normalize_title() {
+  local line
+  line="$(first_nonempty_line "$1" | tr '\t' ' ' \
+    | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  printf '%s' "$line" | cut -c "1-$TITLE_MAX_LEN" | sed -e 's/[[:space:]]*$//'
+}
+
+title_word_count() {
+  printf '%s\n' "$1" | awk '{ print NF }'
+}
+
+title_from_slug() {
+  printf '%s' "$1" | tr '-' ' ' \
+    | awk '{ if (length($0)) $0 = toupper(substr($0, 1, 1)) substr($0, 2); print }'
+}
+
+repository_discriminator() {
+  local root="$1" name
+  name="${root%/}"
+  name="${name##*/}"
+  normalize_slug "$name" | cut -c1-16 | sed -e 's/-$//'
+}
+
+ensure_slug_floor() {
+  local slug="$1" root="$2" discriminator max_base base
+  slug="$(normalize_slug "$slug" | limit_slug_words)"
+  if [ "$(slug_word_count "$slug")" -lt 2 ]; then
+    discriminator="$(repository_discriminator "$root")"
+    [ -n "$discriminator" ] || discriminator=task
+    max_base=$((SLUG_MAX_LEN - ${#discriminator} - 1))
+    if [ "$max_base" -lt 1 ]; then
+      discriminator=task
+      max_base=$((SLUG_MAX_LEN - ${#discriminator} - 1))
+    fi
+    base="$(printf '%s' "${slug:-agent}" | cut -c "1-$max_base" | sed -e 's/-$//')"
+    [ -n "$base" ] || base=agent
+    slug="$(normalize_slug "$base-$discriminator")"
+  fi
+  if [ "$(slug_word_count "$slug")" -lt 2 ]; then
+    slug='agent-task'
+  fi
+  printf '%s' "$slug"
+}
+
+ensure_title_floor() {
+  local title="$1" slug="$2"
+  title="$(normalize_title "$title")"
+  if [ -z "$title" ] || [ "$(title_word_count "$title")" -lt 2 ]; then
+    title="$(title_from_slug "$slug")"
+  fi
+  [ -n "$title" ] || title='Agent task'
+  printf '%s' "$title"
+}
+
+build_naming_prompt() {
+  local first="$1"
+  cat <<EOF
+You name a coding-agent session and its Git branch from the first user task.
+Return exactly one JSON object on one line and nothing else.
+
+Output rules:
+- title: 2 to 6 concise English words for display, preserving an issue ID when present
+- slug: the same identity as 2 to 5 lowercase English words, hyphen-separated
+  - example: {"title":"PRD-2939: Fix agent launch","slug":"prd-2939-fix-agent-launch"}
+
+Naming rules:
+- Name the overall task in the first prompt.
+- Do not describe the user, agent, or conversation.
+
+First prompt of the session:
+${first:-(none)}
+EOF
+}
+
+identity_from_output() {
+  local raw="$1" object title slug
+  object="$(printf '%s' "$raw" | jq -ce '
+    select(type == "object" and (.title | type == "string") and (.slug | type == "string"))
+  ' 2>/dev/null)" || return 1
+  case "$object" in
+    '' | *$'\n'*) return 1 ;;
+  esac
+  title="$(printf '%s' "$object" | jq -r '.title' 2>/dev/null)" || return 1
+  slug="$(printf '%s' "$object" | jq -r '.slug' 2>/dev/null)" || return 1
+  slug="$(normalize_slug "$slug" | limit_slug_words)"
+  [ "$(slug_word_count "$slug")" -ge 2 ] || return 1
+  title="$(ensure_title_floor "$title" "$slug")"
+  [ -n "$title" ] || return 1
+  printf '%s\037%s' "$title" "$slug"
+}
+
+deterministic_identity() {
+  local prompt="$1" root="$2" line title slug
+  line="$(first_nonempty_line "$prompt" | sed \
+    -e 's/^[[:space:]]*[-*#][[:space:]]*//' \
+    -e 's/^[[:space:]]*[0-9][0-9]*[.)][[:space:]]*//')"
+  slug="$(ensure_slug_floor "$(normalize_slug "$line" | limit_slug_words)" "$root")"
+  title="$(ensure_title_floor "$line" "$slug")"
+  printf '%s\037%s' "$title" "$slug"
+}
+
+run_with_timeout() {
+  local seconds="$1" infile="$2" outfile="$3"
+  shift 3
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 -c '
+import os
+import signal
+import subprocess
+import sys
+import time
+
+timeout, infile, outfile, *command = sys.argv[1:]
+process = None
+
+def terminate_group():
+    if process is None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    time.sleep(0.1)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        pass
+
+def interrupted(signum, _frame):
+    terminate_group()
+    raise SystemExit(128 + signum)
+
+signal.signal(signal.SIGTERM, interrupted)
+signal.signal(signal.SIGINT, interrupted)
+signal.signal(signal.SIGHUP, interrupted)
+with open(infile, "rb") as source, open(outfile, "wb") as destination:
+    process = subprocess.Popen(
+        command,
+        stdin=source,
+        stdout=destination,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        raise SystemExit(process.wait(timeout=float(timeout)))
+    except subprocess.TimeoutExpired:
+        terminate_group()
+        raise SystemExit(124)
+' "$seconds" "$infile" "$outfile" "$@"
+}
+
+run_herdr() {
+  local outfile rc=0
+  outfile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-herdr.XXXXXX")" || return 1
+  run_with_timeout "$HERDR_RPC_TIMEOUT" /dev/null "$outfile" herdr "$@" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    cat "$outfile"
+  fi
+  rm -f "$outfile"
+  return "$rc"
+}
+
+call_engine_chain() {
+  local naming_prompt="$1" infile outfile raw identity
+  [ "${HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES:-}" = 1 ] && return 1
+  infile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-in.XXXXXX")" || return 1
+  outfile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-out.XXXXXX")" || {
+    rm -f "$infile"
+    return 1
+  }
+  printf '%s\n' "$naming_prompt" > "$infile"
+
+  # Client adapters honor this guard, so model CLIs cannot recursively name
+  # the naming worker's own prompt submission.
+  export HERDR_WORKTREE_IDENTITY_ACTIVE=1
+  if command -v pi >/dev/null 2>&1 && \
+    run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
+      pi -p --model "$PI_MODEL" --thinking off \
+      --no-tools --no-session --no-extensions --no-skills \
+      --no-context-files --no-prompt-templates; then
+    raw="$(cat "$outfile" 2>/dev/null)"
+    identity="$(identity_from_output "$raw")" || identity=''
+    if [ -n "$identity" ]; then
+      rm -f "$infile" "$outfile"
+      printf '%s' "$identity"
+      return 0
+    fi
+  fi
+  if command -v claude >/dev/null 2>&1 && \
+    run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" claude -p --model "$CLAUDE_MODEL"; then
+    raw="$(cat "$outfile" 2>/dev/null)"
+    identity="$(identity_from_output "$raw")" || identity=''
+    if [ -n "$identity" ]; then
+      rm -f "$infile" "$outfile"
+      printf '%s' "$identity"
+      return 0
+    fi
+  fi
+  rm -f "$infile" "$outfile"
+  return 1
+}
+
+derive_identity() {
+  local prompt="$1" root="$2" identity
+  identity="$(call_engine_chain "$(build_naming_prompt "$prompt")")" || identity=''
+  [ -n "$identity" ] || identity="$(deterministic_identity "$prompt" "$root")"
+  printf '%s' "$identity"
+}
+
+valid_identifier() {
+  case "$1" in
+    '' | *[!A-Za-z0-9:._/-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+encode_path_key() {
+  encode_key "$1"
+}
+
+session_state_file() {
+  printf '%s/sessions/%s.state' "$HERDR_WORKTREE_IDENTITY_STATE_DIR" "$(encode_path_key "$1")"
+}
+
+worktree_state_file() {
+  local common="$1" root="$2"
+  printf '%s/worktrees/%s.state' "$(namespace_dir "$common")" "$(encode_path_key "$root")"
+}
+
+first_prompt_file() {
+  printf '%s/first-prompts/%s' "$HERDR_WORKTREE_IDENTITY_STATE_DIR" "$(encode_key "$agent:$session")"
+}
+
+recorded_first_prompt() {
+  local prompt="$1" file lock owner claim_status stored
+  file="$(first_prompt_file)"
+  stored="$(cat "$file" 2>/dev/null)"
+  if [ -n "$stored" ]; then
+    printf '%s' "$stored"
+    return 0
+  fi
+  [ -n "$(first_nonempty_line "$prompt")" ] || return 1
+  lock="$file.claim"
+  acquire_claim "$lock" "$FIRST_PROMPT_CLAIM_ATTEMPTS"
+  claim_status=$?
+  [ "$claim_status" -eq 0 ] || return 1
+  # shellcheck disable=SC2154 # acquire_claim from the sourced state library sets this.
+  owner="$claim_owner_id"
+  stored="$(cat "$file" 2>/dev/null)"
+  if [ -z "$stored" ]; then
+    atomic_write "$file" "$prompt" || {
+      release_claim "$lock" "$owner" || true
+      return 1
+    }
+    stored="$prompt"
+  fi
+  release_claim "$lock" "$owner" || true
+  printf '%s' "$stored"
+}
+
+diagnostic_file_for_state() {
+  printf '%s.diagnostics.log' "${1%.state}"
+}
+
+write_identity_state() {
+  local file="$1" root="$2" common="$3" workspace="$4" original="$5" outcome="$6" authorization="$7"
+  local title="${8:-}" slug="${9:-}" branch="${10:-}"
+  atomic_write "$file" "checkout_root=$(encode_value "$root")
+repository_anchor=$(encode_value "$common")
+workspace=$(encode_value "$workspace")
+original_branch=$(encode_value "$original")
+branch=$(encode_value "$branch")
+outcome=$(encode_value "$outcome")
+authorization=$(encode_value "$authorization")
+title=$(encode_value "$title")
+slug=$(encode_value "$slug")"
+}
+
+ensure_identity() {
+  local state="$1" root="$2" prompt="$3" title slug identity
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  [ -n "$title" ] && [ "$(slug_word_count "$slug")" -ge 2 ] && return 0
+  identity="$(derive_identity "$prompt" "$root")"
+  IFS=$'\037' read -r title slug <<< "$identity"
+  write_identity_state "$state" "$root" "$(read_state_field "$state" repository_anchor)" "$workspace" \
+    "$(read_state_field "$state" original_branch)" "$(read_state_field "$state" outcome)" authorized "$title" "$slug" \
+    "$(read_state_field "$state" branch)" || true
+  [ -n "$title" ] && [ "$(slug_word_count "$slug")" -ge 2 ]
+}
+
+record_unresolved() {
+  local reason="$1" observed="$2" file
+  file="$(session_state_file "$session")"
+  write_identity_state "$file" '' '' "$workspace" '' unresolved '' || true
+  record_diagnostic "$(diagnostic_file_for_state "$file")" "$reason" "$observed" || true
+}
+
+pane_fields() {
+  jq -r '
+    .result.pane as $pane
+    | if ($pane | type) != "object" then error("missing pane") else
+        [($pane.pane_id // ""), ($pane.agent // ""), ($pane.agent_session.value // ""),
+         ($pane.workspace_id // ""), ($pane.foreground_cwd // $pane.cwd // "")]
+        | map(if type == "string" then . else "" end) | @tsv
+      end
+  ' 2>/dev/null
+}
+
+pane_for_session_from_snapshot() {
+  local snapshot="$1"
+  printf '%s' "$snapshot" | jq -c --arg session "$session" --arg agent "$agent" '
+    [.result.snapshot.panes[]? | select((.agent_session.value // "") == $session and (.agent // "") == $agent)]
+    | if length == 1 then {result:{pane:.[0]}} else empty end
+  ' 2>/dev/null
+}
+
+reported_cwd() {
+  local file value
+  file="$HERDR_WORKTREE_IDENTITY_STATE_DIR/agent-cwd/$(encode_path_key "$session")"
+  [ -f "$file" ] || return 0
+  value="$(head -n 1 "$file" 2>/dev/null)"
+  case "$value" in
+    /*) ;;
+    *) return 0 ;;
+  esac
+  [ -d "$value" ] || return 0
+  (cd "$value" 2>/dev/null) || return 0
+  printf '%s' "$value"
+}
+
+resolve_pane_payload() {
+  local payload snapshot
+  if [ -n "$pane" ]; then
+    payload="$(run_herdr pane get "$pane")" || return 2
+    printf '%s' "$payload"
+    return 0
+  fi
+  snapshot="$(run_herdr api snapshot)" || return 2
+  payload="$(pane_for_session_from_snapshot "$snapshot")" || payload=''
+  [ -n "$payload" ] || return 1
+  printf '%s' "$payload"
+}
+
+is_linked_worktree() {
+  local root="$1" git_dir
+  [ -f "$root/.git" ] || return 1
+  git_dir="$(git -C "$root" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+  [ -n "$git_dir" ] && [ "$git_dir" != "$root/.git" ]
+}
+
+authorize_worktree() {
+  local root="$1" common="$2" branch marker original state observed title slug outcome renamed_branch
+  branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+    record_unresolved detached-head "checkout=$root"
+    return 0
+  }
+  state="$(worktree_state_file "$common" "$root")"
+  original="$(read_state_field "$state" original_branch)"
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  outcome="$(read_state_field "$state" outcome)"
+  renamed_branch="$(read_state_field "$state" branch)"
+  [ -n "$original" ] || original="$branch"
+  marker="$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)" || {
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-path-unavailable "checkout=$root branch=$branch" || true
+    return 0
+  }
+  if [ ! -f "$marker" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-missing "checkout=$root branch=$branch marker=$marker" || true
+    return 0
+  fi
+  observed="$(head -n 1 "$marker" 2>/dev/null)"
+  if [ "$observed" != "$original" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-mismatched "checkout=$root branch=$branch original_branch=$original marker_branch=$observed" || true
+    return 0
+  fi
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$outcome" authorized "$title" "$slug" "$renamed_branch" || true
+}
+
+branch_name_available() {
+  local root="$1" candidate="$2" status remote_refs ref
+  if git -C "$root" show-ref --verify --quiet "refs/heads/$candidate"; then
+    return 1
+  else
+    status=$?
+    [ "$status" -eq 1 ] || return 2
+  fi
+  remote_refs="$(git -C "$root" for-each-ref --format='%(refname)' refs/remotes)" || return 2
+  while IFS= read -r ref; do
+    case "$ref" in
+      refs/remotes/*/"$candidate") return 1 ;;
+    esac
+  done <<< "$remote_refs"
+  return 0
+}
+
+available_branch_name() {
+  local root="$1" slug="$2" candidate suffix=2 base status
+  candidate="$slug"
+  while :; do
+    if branch_name_available "$root" "$candidate"; then
+      git -C "$root" check-ref-format --branch "$candidate" >/dev/null || return 1
+      printf '%s' "$candidate"
+      return 0
+    else
+      status=$?
+    fi
+    [ "$status" -eq 1 ] || return 1
+    [ "$suffix" -le 999 ] || return 1
+    base="$(printf '%s' "$slug" | cut -c "1-$((SLUG_MAX_LEN - ${#suffix} - 1))" | sed -e 's/-$//')"
+    candidate="$base-$suffix"
+    suffix=$((suffix + 1))
+  done
+}
+
+branch_has_upstream() {
+  local root="$1" status
+  git -C "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    128) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+same_checkout_identity() {
+  local root="$1" common="$2" observed_root observed_common
+  observed_root="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  observed_common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ "$observed_root" = "$root" ] && [ "$observed_common" = "$common" ]
+}
+
+attribution_message() {
+  printf 'Intentional rename by herdr-worktree-identity: %s -> %s' "$1" "$2"
+}
+
+write_marker_attribution() {
+  local marker="$1" message="$2"
+  grep -Fqx "$message" "$marker" 2>/dev/null && return 0
+  printf '%s\n' "$message" >> "$marker" 2>/dev/null
+}
+
+write_branch_description() {
+  local root="$1" branch="$2" message="$3"
+  git -C "$root" config --local "branch.$branch.description" "$message"
+}
+
+write_attribution() {
+  local root="$1" original="$2" branch="$3" marker="$4" message attempts=0 marker_ok description_ok
+  message="$(attribution_message "$original" "$branch")"
+  while [ "$attempts" -lt 2 ]; do
+    attempts=$((attempts + 1))
+    marker_ok=0
+    description_ok=0
+    write_marker_attribution "$marker" "$message" && marker_ok=1
+    write_branch_description "$root" "$branch" "$message" && description_ok=1
+    [ "$marker_ok" -eq 1 ] && [ "$description_ok" -eq 1 ] && return 0
+  done
+  return 1
+}
+
+branch_rename_recorded() {
+  local root="$1" original="$2" candidate="$3"
+  git -C "$root" reflog --all --format='%gs' 2>/dev/null \
+    | grep -Fx "Branch: renamed refs/heads/$original to refs/heads/$candidate" >/dev/null
+}
+
+wait_for_test_barrier() {
+  local barrier="${HERDR_WORKTREE_IDENTITY_TEST_BRANCH_BARRIER:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_BRANCH_BARRIER_RELEASE:-}"
+  [ -n "$barrier" ] || return 0
+  mkdir -p "$barrier" 2>/dev/null || return 1
+  : > "$barrier/$(encode_path_key "$root").$$"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+wait_for_revalidation_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+wait_for_prepared_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_PREPARED_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_PREPARED_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+wait_for_claim_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_REPOSITORY_CLAIM_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_REPOSITORY_CLAIM_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+retry_attribution() {
+  local root="$1" common="$2" state="$3" original="$4" branch="$5" marker="$6" title="$7" slug="$8"
+  if write_attribution "$root" "$original" "$branch" "$marker"; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$branch" || true
+  else
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" attribution_failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" attribution-failed "checkout=$root branch=$branch" || true
+  fi
+}
+
+wait_for_workspace_revalidation_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_WORKSPACE_REVALIDATE_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_WORKSPACE_REVALIDATE_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+read_workspace_label() {
+  local workspace_id="$1" payload
+  payload="$(run_herdr workspace get "$workspace_id")" || return 1
+  printf '%s' "$payload" | jq -er '
+    .result.workspace as $workspace
+    | if ($workspace | type) == "object" and (($workspace.label // $workspace.name) | type) == "string"
+      then ($workspace.label // $workspace.name)
+      else error("missing workspace label")
+      end
+  ' 2>/dev/null
+}
+
+# Re-read the pane immediately before the external rename: the original
+# lookup can be stale after an occupant, session, or workspace change.
+label_workspace() {
+  local root="$1" common="$2" state="$3" expected_pane="$4" desired_outcome="$5"
+  local original title slug branch outcome payload fields final_pane final_agent final_session final_workspace current_label
+  original="$(read_state_field "$state" original_branch)"
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  branch="$(read_state_field "$state" branch)"
+  outcome="$(read_state_field "$state" outcome)"
+  if [ -z "$title" ] || [ -z "$workspace" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-unavailable "checkout=$root workspace=${workspace:-missing}" || true
+    return 1
+  fi
+  if [ "$outcome" = workspace-prepared ]; then
+    current_label="$(read_workspace_label "$workspace")" || {
+      record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-reconcile-unavailable "workspace=$workspace" || true
+      return 1
+    }
+    if [ "$current_label" = "$title" ]; then
+      write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || {
+        record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-terminal-state-write-failed "workspace=$workspace title=$title" || true
+        return 1
+      }
+      return 0
+    fi
+  fi
+  wait_for_workspace_revalidation_test_barrier || return 1
+  payload="$(run_herdr pane get "$expected_pane")" || {
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-unreachable "pane=$expected_pane workspace=$workspace" || true
+    return 1
+  }
+  fields="$(printf '%s' "$payload" | pane_fields)" || {
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-malformed "pane=$expected_pane workspace=$workspace" || true
+    return 1
+  }
+  IFS=$'\t' read -r final_pane final_agent final_session final_workspace _ <<< "$fields"
+  if [ "$final_pane" != "$expected_pane" ] || [ "$final_agent" != "$agent" ] || \
+    [ "$final_session" != "$session" ] || [ "$final_workspace" != "$workspace" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-occupant-changed "pane=$expected_pane observed_pane=$final_pane agent=$final_agent session=$final_session workspace=$final_workspace" || true
+    return 1
+  fi
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-prepared authorized "$title" "$slug" "$branch" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-prepared-state-write-failed "workspace=$workspace title=$title" || true
+    return 1
+  }
+  if run_herdr workspace rename "$workspace" "$title" >/dev/null; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || {
+      record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-terminal-state-write-failed "workspace=$workspace title=$title" || true
+      return 1
+    }
+    return 0
+  fi
+  current_label="$(read_workspace_label "$workspace")" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-rename-ambiguous "workspace=$workspace title=$title" || true
+    return 1
+  }
+  if [ "$current_label" = "$title" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || {
+      record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-terminal-state-write-failed "workspace=$workspace title=$title" || true
+      return 1
+    }
+    return 0
+  fi
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+  record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-rename-failed "pane=$expected_pane workspace=$workspace title=$title" || true
+  return 1
+}
+
+# Return 0 when a renamed branch is ready for workspace labeling, 10 when its
+# workspace can be labeled without changing the branch, and 11 when the next
+# naming event must retry before a terminal outcome is selected.
+apply_branch_rename() {
+  local root="$1" common="$2" state="$3" marker="$4"
+  local original title slug outcome branch candidate lock owner claim_status upstream_status marker_observed
+  original="$(read_state_field "$state" original_branch)"
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  outcome="$(read_state_field "$state" outcome)"
+  candidate="$(read_state_field "$state" branch)"
+  [ -n "$original" ] && [ -n "$title" ] && [ "$(slug_word_count "$slug")" -ge 2 ] || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" identity-not-ready "checkout=$root" || true
+    return 11
+  }
+  branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" detached-head "checkout=$root"
+    return 11
+  }
+
+  case "$outcome" in
+    prepared)
+      if [ -z "$candidate" ]; then
+        record_diagnostic "$(diagnostic_file_for_state "$state")" prepared-candidate-missing "checkout=$root branch=$branch" || true
+        return 11
+      fi
+      if [ -n "$candidate" ] && [ "$branch" = "$candidate" ]; then
+        retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+        [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
+        return 11
+      fi
+      if [ "$branch" != "$original" ]; then
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-prepare "checkout=$root branch=$branch expected_branch=$candidate" || true
+        return 10
+      fi
+      if branch_rename_recorded "$root" "$original" "$candidate"; then
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-reverted-after-prepare "checkout=$root branch=$branch expected_branch=$candidate" || true
+        return 10
+      fi
+      ;;
+    workspace-prepared)
+      [ -n "$candidate" ] && [ "$branch" = "$candidate" ] && return 0
+      return 10
+      ;;
+    workspace-failed)
+      if [ -n "$candidate" ]; then
+        [ "$branch" = "$candidate" ] && return 0
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-workspace-failure "checkout=$root branch=$branch expected_branch=$candidate" || true
+        return 10
+      fi
+      ;;
+    attribution_failed)
+      if [ "$branch" = "$candidate" ]; then
+        retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+      else
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-attribution-failure "checkout=$root branch=$branch expected_branch=$candidate" || true
+        return 10
+      fi
+      [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
+      return 11
+      ;;
+  esac
+
+  if [ "$branch" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved "checkout=$root branch=$branch original_branch=$original" || true
+    return 10
+  fi
+  branch_has_upstream "$root"
+  upstream_status=$?
+  case "$upstream_status" in
+    0)
+      record_diagnostic "$(diagnostic_file_for_state "$state")" branch-has-upstream "checkout=$root branch=$branch" || true
+      return 10
+      ;;
+    1) ;;
+    *)
+      record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-unavailable "checkout=$root branch=$branch" || true
+      return 11
+      ;;
+  esac
+
+  wait_for_test_barrier || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-barrier-failed "checkout=$root" || true
+    return 11
+  }
+  lock="$(namespace_dir "$common")/branch-rename.claim"
+  acquire_claim "$lock" "$BRANCH_CLAIM_ATTEMPTS"
+  claim_status=$?
+  if [ "$claim_status" -ne 0 ]; then
+    if [ "$claim_status" -eq 2 ]; then
+      [ -z "${HERDR_WORKTREE_IDENTITY_TEST_CONTENDED_READY:-}" ] || : > "$HERDR_WORKTREE_IDENTITY_TEST_CONTENDED_READY"
+      record_diagnostic "$(diagnostic_file_for_state "$state")" contended "repository_anchor=$common checkout=$root" || true
+    else
+      record_diagnostic "$(diagnostic_file_for_state "$state")" branch-claim-failed "repository_anchor=$common checkout=$root" || true
+    fi
+    return 11
+  fi
+  # shellcheck disable=SC2154 # acquire_claim from the sourced state library sets this.
+  owner="$claim_owner_id"
+  wait_for_claim_test_barrier
+  if [ "$outcome" != prepared ]; then
+    candidate="$(available_branch_name "$root" "$slug")" || {
+      record_diagnostic "$(diagnostic_file_for_state "$state")" branch-candidate-unavailable "checkout=$root slug=$slug" || true
+      release_claim "$lock" "$owner"
+      return 11
+    }
+  fi
+  wait_for_revalidation_test_barrier
+  if ! same_checkout_identity "$root" "$common"; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" checkout-changed-before-rename "checkout=$root" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || branch=''
+  branch_has_upstream "$root"
+  upstream_status=$?
+  if [ "$branch" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-changed-before-rename "checkout=$root branch=$branch original_branch=$original" || true
+    release_claim "$lock" "$owner"
+    return 10
+  fi
+  if [ "$upstream_status" -ne 1 ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-changed-before-rename "checkout=$root branch=$branch upstream_status=$upstream_status" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  if [ ! -f "$marker" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-missing-before-rename "checkout=$root branch=$branch marker=$marker" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  marker_observed="$(head -n 1 "$marker" 2>/dev/null)"
+  if [ "$marker_observed" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-mismatched-before-rename "checkout=$root branch=$branch original_branch=$original marker_branch=$marker_observed" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$candidate" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" prepared-state-write-failed "checkout=$root branch=$branch candidate=$candidate" || true
+    release_claim "$lock" "$owner"
+    return 11
+  }
+  wait_for_prepared_test_barrier
+  if ! same_checkout_identity "$root" "$common"; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" checkout-changed-at-commit "checkout=$root" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || branch=''
+  branch_has_upstream "$root"
+  upstream_status=$?
+  if [ "$branch" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-changed-at-commit "checkout=$root branch=$branch original_branch=$original" || true
+    release_claim "$lock" "$owner"
+    return 10
+  fi
+  if [ "$upstream_status" -ne 1 ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-changed-at-commit "checkout=$root branch=$branch upstream_status=$upstream_status" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  if [ ! -f "$marker" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-missing-at-commit "checkout=$root branch=$branch marker=$marker" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  marker_observed="$(head -n 1 "$marker" 2>/dev/null)"
+  if [ "$marker_observed" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" marker-mismatched-at-commit "checkout=$root branch=$branch original_branch=$original marker_branch=$marker_observed" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  if ! git -C "$root" branch -m "$candidate"; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" branch-failed authorized "$title" "$slug" "$candidate" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-rename-failed "checkout=$root branch=$branch candidate=$candidate" || true
+    release_claim "$lock" "$owner"
+    return 11
+  fi
+  retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+  release_claim "$lock" "$owner"
+  [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
+  return 11
+}
+
+process_worktree_locked() {
+  local prompt="$1" root="$2" common="$3" resolved_pane="$4"
+  local state title slug outcome expected_branch observed_branch branch_status
+  state="$(worktree_state_file "$common" "$root")"
+  authorize_worktree "$root" "$common"
+  [ "$(read_state_field "$state" authorization)" = authorized ] || return 0
+  outcome="$(read_state_field "$state" outcome)"
+  case "$outcome" in
+    declined | workspace-only) return 0 ;;
+    complete)
+      expected_branch="$(read_state_field "$state" branch)"
+      observed_branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || observed_branch=''
+      if [ -n "$expected_branch" ] && [ "$observed_branch" != "$expected_branch" ]; then
+        write_identity_state "$state" "$root" "$common" "$workspace" \
+          "$(read_state_field "$state" original_branch)" workspace-only authorized \
+          "$(read_state_field "$state" title)" "$(read_state_field "$state" slug)" "$expected_branch" || true
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-complete "checkout=$root branch=$observed_branch expected_branch=$expected_branch" || true
+      fi
+      return 0
+      ;;
+  esac
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  if [ -z "$title" ] || [ "$(slug_word_count "$slug")" -lt 2 ]; then
+    ensure_identity "$state" "$root" "$prompt" || return 0
+  fi
+  apply_branch_rename "$root" "$common" "$state" "$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)"
+  branch_status=$?
+  case "$branch_status" in
+    0) label_workspace "$root" "$common" "$state" "$resolved_pane" complete || true ;;
+    10) label_workspace "$root" "$common" "$state" "$resolved_pane" workspace-only || true ;;
+  esac
+}
+
+process_worktree() {
+  local prompt="$1" root="$2" common="$3" resolved_pane="$4"
+  local state lock owner claim_status ready release rc=0
+  state="$(worktree_state_file "$common" "$root")"
+  lock="${state%.state}.lifecycle.claim"
+  ready="${HERDR_WORKTREE_IDENTITY_TEST_LIFECYCLE_ATTEMPT_READY:-}"
+  [ -z "$ready" ] || : > "$ready"
+  acquire_claim "$lock" "$LIFECYCLE_CLAIM_ATTEMPTS"
+  claim_status=$?
+  if [ "$claim_status" -ne 0 ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" lifecycle-contended "checkout=$root" || true
+    return 0
+  fi
+  # shellcheck disable=SC2154 # acquire_claim from the sourced state library sets this.
+  owner="$claim_owner_id"
+  ready="${HERDR_WORKTREE_IDENTITY_TEST_LIFECYCLE_READY:-}"
+  release="${HERDR_WORKTREE_IDENTITY_TEST_LIFECYCLE_RELEASE:-}"
+  if [ -n "$ready" ]; then
+    : > "$ready"
+    while [ -n "$release" ] && [ ! -e "$release" ]; do sleep 0.01; done
+  fi
+  process_worktree_locked "$prompt" "$root" "$common" "$resolved_pane" || rc=$?
+  release_claim "$lock" "$owner" || true
+  return "$rc"
+}
+
+worker() {
+  local prompt="$1" payload fields resolved_pane pane_agent pane_session pane_workspace pane_cwd cwd root common status
+  local first_prompt
+  if ! first_prompt="$(recorded_first_prompt "$prompt")"; then
+    record_unresolved first-prompt-unavailable "agent=$agent session=$session"
+    return 0
+  fi
+  prompt="$first_prompt"
+  command -v herdr >/dev/null 2>&1 || {
+    record_unresolved herdr-unavailable "pane=${pane:-missing}"
+    return 0
+  }
+  command -v jq >/dev/null 2>&1 || {
+    record_unresolved jq-unavailable "pane=${pane:-missing}"
+    return 0
+  }
+  payload="$(resolve_pane_payload)"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    record_unresolved pane-unreachable "pane=${pane:-missing} session=$session"
+    return 0
+  fi
+  if [ "$status" -ne 0 ]; then
+    record_unresolved pane-unresolved "pane=missing session=$session"
+    return 0
+  fi
+  fields="$(printf '%s' "$payload" | pane_fields)" || {
+    record_unresolved pane-malformed "pane=${pane:-missing} session=$session"
+    return 0
+  }
+  IFS=$'\t' read -r resolved_pane pane_agent pane_session pane_workspace pane_cwd <<< "$fields"
+  if { [ -n "$pane" ] && [ "$resolved_pane" != "$pane" ]; } || \
+    [ "$pane_agent" != "$agent" ] || [ "$pane_session" != "$session" ]; then
+    record_unresolved pane-mismatched "pane=${resolved_pane:-missing} agent=$pane_agent session=$pane_session"
+    return 0
+  fi
+  [ -n "$workspace" ] || workspace="$pane_workspace"
+  cwd="$(reported_cwd)"
+  [ -n "$cwd" ] || cwd="$pane_cwd"
+  if [ -z "$cwd" ]; then
+    record_unresolved checkout-unresolved "pane=${resolved_pane:-missing} cwd=missing"
+    return 0
+  fi
+  root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || {
+    record_unresolved checkout-unresolved "pane=${resolved_pane:-missing} cwd=$cwd"
+    return 0
+  }
+  if ! is_linked_worktree "$root"; then
+    local primary_state
+    primary_state="$(session_state_file "$session")"
+    write_identity_state "$primary_state" "$root" '' "$workspace" '' declined '' || true
+    record_diagnostic "$(diagnostic_file_for_state "$primary_state")" primary-checkout "checkout=$root" || true
+    return 0
+  fi
+  common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || {
+    record_unresolved checkout-unresolved "checkout=$root common-dir=unavailable"
+    return 0
+  }
+  process_worktree "$prompt" "$root" "$common" "$resolved_pane"
+}
+
+close_inherited_descriptors() {
+  local descriptor fd
+  for descriptor in /dev/fd/*; do
+    fd="${descriptor##*/}"
+    case "$fd" in
+      0 | 1 | 2 | 255 | *[!0-9]*) continue ;;
+    esac
+    eval "exec ${fd}>&-" 2>/dev/null || true
+  done
+}
+
+detach_worker() {
+  local prompt="$1" prompt_file
+  local -a worker_args
+  prompt_file="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity.XXXXXX")" || return 0
+  printf '%s' "$prompt" > "$prompt_file" || { rm -f "$prompt_file"; return 0; }
+  worker_args=(bash "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" --worker --agent "$agent" --session "$session")
+  [ -z "$pane" ] || worker_args+=(--pane "$pane")
+  [ -z "$workspace" ] || worker_args+=(--workspace "$workspace")
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+  else
+    nohup "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+  fi
+  rm -f "$prompt_file"
+}
+
+worker_mode=0
+agent=''
+session=''
+pane=''
+workspace=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --worker) worker_mode=1; shift ;;
+    --agent) [ "$#" -ge 2 ] || { usage; exit 2; }; agent="$2"; shift 2 ;;
+    --session) [ "$#" -ge 2 ] || { usage; exit 2; }; session="$2"; shift 2 ;;
+    --pane) [ "$#" -ge 2 ] || { usage; exit 2; }; pane="$2"; shift 2 ;;
+    --workspace) [ "$#" -ge 2 ] || { usage; exit 2; }; workspace="$2"; shift 2 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+valid_identifier "$agent" && valid_identifier "$session" &&
+  { [ -z "$pane" ] || valid_identifier "$pane"; } &&
+  { [ -z "$workspace" ] || valid_identifier "$workspace"; } || { usage; exit 2; }
+
+if [ "$worker_mode" -eq 1 ]; then
+  close_inherited_descriptors
+  prompt="$(cat)"
+  worker "$prompt"
+else
+  prompt="$(cat)"
+  if first_prompt="$(recorded_first_prompt "$prompt")"; then
+    detach_worker "$first_prompt"
+  fi
+fi
