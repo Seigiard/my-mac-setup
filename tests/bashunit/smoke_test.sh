@@ -866,6 +866,27 @@ PY
   assert_success
 }
 
+function test_smoke_1063_worktree_identity_deploys_and_statusline_records_() {
+  _bats_test_init 1063 'worktree identity deploys and Claude statusline records its cwd'
+  local engine="$HOME/.local/bin/herdr-worktree-identity"
+  local library="$HOME/.local/lib/herdr-worktree-state.sh"
+  local hook="$HOME/.claude/hooks/statusline.sh"
+  local record_home="$BATS_TEST_TMPDIR/statusline-record-home"
+  local session='statusline-cwd-session'
+  local input
+
+  assert_file_executable "$engine"
+  assert_file_exists "$library"
+  assert_file_executable "$hook"
+  input="$(jq -nc --arg dir "$BATS_TEST_TMPDIR" --arg session "$session" \
+    '{workspace: {current_dir: $dir}, session_id: $session}')"
+
+  run env HOME="$record_home" HERDR_ENV=1 bash "$hook" <<< "$input"
+  assert_success
+  assert_file_contains "$record_home/.cache/herdr-worktree-identity/agent-cwd/$session" "^$BATS_TEST_TMPDIR$"
+  assert_file_not_exists "$record_home/.cache/herdr-task-sync/agent-cwd/$session"
+}
+
 function test_smoke_1055_pi_local_private_instructions_focused_tests_pass() {
   _bats_test_init 1055 'Pi local private instructions focused tests pass'
   run env PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
