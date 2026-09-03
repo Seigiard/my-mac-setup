@@ -46,13 +46,20 @@ shortcuts = ["ws", "цы"]
 description = "Choose and focus a workspace"
 type = "workspace_picker"
 
+# herdr refuses `worktree create` and `worktree open` when the source is a
+# linked worktree: "New and open worktree actions start from the repo parent
+# workspace." {target_cwd} is whatever pane the palette was opened from, and
+# that is usually a worktree -- the case where you most want these commands.
+# So resolve the primary checkout first. `git worktree list --porcelain` names
+# it on the first line, the same rule the worktree-setup plugin uses.
 [[commands]]
 group = "Worktrees"
 title = "New worktree"
 description = "Create and focus a worktree from the current repository"
 type = "form"
-run_type = "herdr"
-args = ["worktree", "create", "--cwd", "{target_cwd}", "--branch", "{value}", "--focus"]
+run_type = "shell"
+pause = false
+command = "root=$(git -C {target_cwd_q} worktree list --porcelain | head -n 1 | cut -d ' ' -f 2-); if [ -z \"$root\" ]; then printf '%s\\n' 'Not inside a Git repository.' >&2; exit 1; fi; exec \"$HERDR_BIN_PATH\" worktree create --cwd \"$root\" --branch {value_q} --focus"
 prompt = "Branch name for the new worktree"
 placeholder = "worktree/my-feature"
 
@@ -61,8 +68,9 @@ group = "Worktrees"
 title = "Open worktree"
 description = "Open and focus an existing worktree by branch name"
 type = "form"
-run_type = "herdr"
-args = ["worktree", "open", "--cwd", "{target_cwd}", "--branch", "{value}", "--focus"]
+run_type = "shell"
+pause = false
+command = "root=$(git -C {target_cwd_q} worktree list --porcelain | head -n 1 | cut -d ' ' -f 2-); if [ -z \"$root\" ]; then printf '%s\\n' 'Not inside a Git repository.' >&2; exit 1; fi; exec \"$HERDR_BIN_PATH\" worktree open --cwd \"$root\" --branch {value_q} --focus"
 prompt = "Existing worktree branch"
 placeholder = "feature/my-feature"
 
