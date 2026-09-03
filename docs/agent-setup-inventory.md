@@ -17,7 +17,7 @@ owners.
 
 | Ownership | Current inventory |
 | --- | --- |
-| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-code-review`, `se-doc-review`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary`, `writing-for-agents` |
+| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-code-review`, `se-doc-review`, `se-orchestrator`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary`, `writing-for-agents` |
 | Explicit-only | `eli5`, `open-questions`: Claude/Pi manual adapters and OpenCode command adapters only |
 | Upstream-managed | Compound Engineering `*`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `frontend-design`, `skill-creator` |
 

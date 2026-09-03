@@ -400,7 +400,7 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   for skill in \
     ask-in-herdr herdr markdown-new \
     pf-build pf-research pf-spec plan-explainer \
-    se-code-review se-doc-review se-plan se-simplify \
+    se-code-review se-doc-review se-orchestrator se-plan se-simplify \
     vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.claude/skills/$skill/SKILL.md"
     assert_success
@@ -409,24 +409,6 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
     if [[ -e "$HOME/.config/opencode/skills/$skill" || -L "$HOME/.config/opencode/skills/$skill" ]]; then
       fail "stale OpenCode skill adapter remains: $HOME/.config/opencode/skills/$skill"
     fi
-  done
-
-  local retired path
-  for path in \
-    "$HOME/.agents/skills/se-cleanup" \
-    "$HOME/.claude/skills/se-cleanup" \
-    "$HOME/.config/opencode/skills/se-cleanup"; do
-    [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
-  done
-  for retired in se-flow se-review-and-work se-work; do
-    for path in \
-      "$HOME/.claude/skills/$retired" \
-      "$HOME/.config/opencode/skills/$retired"; do
-      [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
-    done
-  done
-  for path in "$HOME/.claude/.smithers" "$HOME/.local/bin/se"; do
-    [[ ! -e "$path" && ! -L "$path" ]] || fail "retired Smithers path remains deployed: $path"
   done
 }
 
@@ -482,6 +464,7 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
     skills/herdr/SKILL.md
+    skills/se-orchestrator/SKILL.md
     skills/writing-for-agents/SKILL.md
     skills/writing-for-agents/SKILL-MECHANICS.md
     skills/work-summary/SKILL.md
