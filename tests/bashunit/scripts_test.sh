@@ -5490,6 +5490,28 @@ function test_scripts_1178_herdr_pane_labels_sweep_daemon_exits_after_three_unre
   assert_dir_not_exists "$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
 }
 
+function test_scripts_1179_herdr_pane_labels_names_an_agent_whose_fresh_pane_repor() {
+  _bats_test_init 1179 'herdr-pane-labels names an agent whose fresh pane reports no label yet'
+  command -v jq >/dev/null || skip "jq not available"
+  source "$HERDR_ALIASES"
+  hpl_setup
+  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude
+  # herdr 0.8.2 omits `label` from a pane that has never been renamed. The
+  # engine must read that as an empty label, not reject the snapshot: rejecting
+  # deadlocks the pipeline, because this engine is the only label writer.
+  hpl_transform_state "$HPL_DEFAULT_SOCKET" 'del(.panes[0].label)'
+
+  run hpl_sweep_run --sweep
+  assert_success
+
+  local state alias
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+  alias="$(jq -r '.agents[0].name // ""' "$state")"
+  run herdr_alias_in_pool "$alias"
+  assert_success
+  assert_equal "$(jq -r '.panes[0].label' "$state")" "cc:$alias"
+}
+
 # herdr pane-label cutover (U5)
 # ===========================================
 

@@ -801,7 +801,10 @@ snapshot_is_complete() {
       and all($s.panes[];
         (.pane_id | nonempty_string) and (.terminal_id | nonempty_string) and
         (.tab_id | nonempty_string) and (.workspace_id | nonempty_string) and
-        (.revision | finite_number) and (.label | safe_string) and
+        # herdr omits `label` until a pane is first renamed, and this engine is
+        # the only label writer: rejecting the null would deadlock every fresh
+        # pane out of the pipeline.
+        (.revision | finite_number) and (.label == null or (.label | safe_string)) and
         ((has("agent") | not) or .agent == null or (.agent | nonempty_string)) and
         ((has("cwd") | not) or (.cwd | optional_safe_string)) and
         ((has("foreground_cwd") | not) or (.foreground_cwd | optional_safe_string)) and
@@ -1134,7 +1137,7 @@ reconcile_presentation_pass() {
     .result.snapshot as $s | $s.panes[] as $p
     | ([$s.agents[] | select(.pane_id == $p.pane_id)][0] // {}) as $a
     | [$p.pane_id,$p.terminal_id,$p.tab_id,$p.workspace_id,($p.agent // ""),
-       ($p.revision|tostring),(($p.agent_session // null)|tojson),$p.label,($a.name // ""),
+       ($p.revision|tostring),(($p.agent_session // null)|tojson),($p.label // ""),($a.name // ""),
        ($p.tokens.repo // ""),($p.tokens.worktree // ""),($p.tokens.branch // ""),
        ($p.tokens.location_status // ""),($p.tokens.git_ref // ""),($p|@base64)]
     | join("\u001f")' | filter_records_of_width 15 "$pane_count")" || return 1
@@ -1324,7 +1327,7 @@ EOF
         fi
       fi
       if [ "$current" != "$intended" ]; then
-        final_label="$(printf '%s' "$final_payload" | jq -r '.result.pane.label')"
+        final_label="$(printf '%s' "$final_payload" | jq -r '.result.pane.label // ""')"
         if [ "$final_label" != "$intended" ]; then
           presentation_generation_valid "$pass" || return 2
           herdr pane rename "$id" "$intended" >/dev/null 2>&1 || {
