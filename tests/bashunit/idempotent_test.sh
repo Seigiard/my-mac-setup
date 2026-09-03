@@ -178,6 +178,7 @@ function test_idempotent_010_guard_every_disposable_environment_declares_the() {
 
   [[ "${MMS_DISPOSABLE_HOME:-}" == "1" ]] || \
     fail "This environment reports a disposable \$HOME (GITHUB_ACTIONS is set, or /.dockerenv exists), but MMS_DISPOSABLE_HOME is '${MMS_DISPOSABLE_HOME:-<unset>}' instead of 1. The idempotency scenarios in this file would skip here, removing that coverage without turning anything red. Declare the marker at the site that launched this suite: .github/workflows/test-dotfiles.yml (top-level env: block), or docker/docker-compose.yml (services ubuntu, test-ubuntu, test-full)."
+  assert_equal "${MMS_DISPOSABLE_HOME:-}" "1"
 }
 
 function test_idempotent_011_guard_the_marker_s_claim_covers_chezmoi_s_real_d() {
