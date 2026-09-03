@@ -10,6 +10,12 @@ The agreement between a parent agent and child agents launched into sibling pane
 ### Sandbox-scoped takeover
 A Herdr intervention that attaches the operator to an agent inside its existing microVM. It preserves the agent's filesystem, network, and credential boundaries and never falls back to a host shell.
 
+### Generated-worktree marker
+The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It is the sole authorization boundary for automated ref mutation in that worktree: a component may rename the generated branch only when the marker is present and matches — branch name text alone never authorizes. Later lines appended to the marker carry attribution for mutations already made.
+
+### Workspace-only outcome
+A terminal worktree-identity outcome in which the herdr workspace receives its task-derived title but the branch is left untouched, because the branch is no longer eligible for renaming (upstream set, moved by an agent, or a prior rename was reverted). Workspace labeling is decoupled from branch eligibility by design; the outcome is final, not a retry state.
+
 ## Theming
 
 ### Palette-only contract
