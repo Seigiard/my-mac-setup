@@ -563,8 +563,43 @@ printf '%q ' "$@" >> "$CHILD_STUB/child.log"; printf '\n' >> "$CHILD_STUB/child.
 printf 'child ' >> "$CHILD_STUB/order.log"; printf '%q ' "$@" >> "$CHILD_STUB/order.log"; printf '\n' >> "$CHILD_STUB/order.log"
 case "${1:-}" in
   start)
+    stub_pf=""; stub_prev=""
+    for stub_arg in "$@"; do
+      [ "$stub_prev" != "--prompt-file" ] || stub_pf="$stub_arg"
+      stub_prev="$stub_arg"
+    done
+    [ -z "$stub_pf" ] || cp "$stub_pf" "$CHILD_STUB/prompt.txt"
+    stub_rp=""
+    [ -z "$stub_pf" ] || stub_rp="$(grep -o '/[^ ]*/answer\.report' "$stub_pf" | head -1)"
+    printf '%s' "$stub_rp" > "$CHILD_STUB/report-path"
+    if [ -n "$stub_rp" ]; then
+      case "${STUB_REPORT:-write}" in
+        write)
+          if [ -n "${STUB_REPORT_LINES:-}" ]; then
+            : > "$stub_rp"
+            stub_i=1
+            while [ "$stub_i" -le "$STUB_REPORT_LINES" ]; do
+              printf 'report line %s\n' "$stub_i" >> "$stub_rp"
+              stub_i=$((stub_i + 1))
+            done
+          else
+            printf '%s\n' "${STUB_REPORT_BODY:-ANSWER from child}" > "$stub_rp"
+          fi
+          ;;
+        empty) : > "$stub_rp" ;;
+        symlink) ln -s /etc/hosts "$stub_rp" ;;
+        none) : ;;
+      esac
+    fi
     printf '{"agent":"red-wolf","pane":"wT:p9"}\n'
     [ "${STUB_CHILD_STATUS:-0}" -eq 0 ] || { printf 'child-start-error\n' >&2; exit "$STUB_CHILD_STATUS"; }
+    ;;
+  prompt)
+    printf 'prompt ' >> "$CHILD_STUB/recover.log"; printf '\n' >> "$CHILD_STUB/recover.log"
+    if [ "${STUB_RECOVER:-0}" = 1 ]; then
+      stub_rp2=""; [ ! -f "$CHILD_STUB/report-path" ] || read -r stub_rp2 < "$CHILD_STUB/report-path"
+      [ -z "$stub_rp2" ] || printf '%s\n' "${STUB_REPORT_BODY:-RECOVERED answer}" > "$stub_rp2"
+    fi
     ;;
   verify)
     count=0; [ ! -f "$CHILD_STUB/verify-count" ] || read -r count < "$CHILD_STUB/verify-count"
@@ -829,6 +864,136 @@ function test_scripts_1063_ask_sh_maps_child_start_failures_to_refused_or_undeli
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+}
+
+function test_scripts_1064_ask_sh_names_a_report_path_outside_the_checkout_in_the_de() {
+  _bats_test_init 1064 'ask.sh names a report path outside the checkout in the delivered question'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude 'what is set -e'
+  assert_success
+
+  # The child is the consumer of this text: without a report path in the question it
+  # has nowhere to write, and the caller silently keeps the 200-line pane scrape.
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  assert_file_contains "$CHILD_STUB/prompt.txt" '\[report-transport\]'
+  assert_file_contains "$CHILD_STUB/prompt.txt" 'answer\.report'
+  assert_file_contains "$CHILD_STUB/prompt.txt" 'what is set -e'
+
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  case "$report_line" in
+    "$SOURCE_ROOT"*) printf 'report path is inside the checkout: %s\n' "$report_line" >&2; return 1 ;;
+  esac
+}
+
+function test_scripts_1065_ask_sh_tells_a_read_only_child_to_write_the_report_throug() {
+  _bats_test_init 1065 'ask.sh tells a read-only child to write the report through its shell'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_success
+
+  # The default posture is ro, which strips Edit/Write from claude and denies edit
+  # for opencode. An instruction that assumes a write tool produces no report at all.
+  assert_file_contains "$CHILD_STUB/prompt.txt" 'Use your shell'
+  assert_file_contains "$CHILD_STUB/prompt.txt" 'answer\.report\.tmp'
+  assert_file_contains "$CHILD_STUB/prompt.txt" 'rename'
+  assert_file_contains "$CHILD_STUB/prompt.txt" 'Do not use a file-editing tool'
+}
+
+function test_scripts_1066_ask_sh_removes_its_report_transport_when_it_exits() {
+  _bats_test_init 1066 'ask.sh removes its report transport when it exits'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_success
+
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_dir_not_exists "$transport_dir"
+}
+
+function test_scripts_1067_ask_sh_returns_the_transport_file_not_the_pane_text() {
+  _bats_test_init 1067 'ask.sh returns the transport file, not the pane text'
+  ask_live_stub
+  # The stub emits a different string from `herdr agent read` than it writes to
+  # the transport, so only the file can be the source of the returned answer.
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT_LINES=250 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_success
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
+  assert_output --partial 'report line 1'
+  assert_output --partial 'report line 250'
+  refute_output --partial 'ANSWER from child'
+}
+
+function test_scripts_1068_ask_sh_reports_no_report_after_one_failed_recovery() {
+  _bats_test_init 1068 'ask.sh reports no-report after one failed recovery'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=none HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_failure 3
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=no-report"
+  # Exactly one bounded recovery attempt, and the pane text is evidence only.
+  assert_file_exists "$CHILD_STUB/recover.log"
+  run grep -c 'prompt' "$CHILD_STUB/recover.log"
+  assert_output '1'
+}
+
+function test_scripts_1069_ask_sh_returns_a_recovered_report_as_a_normal_answer() {
+  _bats_test_init 1069 'ask.sh returns a recovered report as a normal answer'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=none STUB_RECOVER=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_success
+  assert_output --partial 'RECOVERED answer'
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
+}
+
+function test_scripts_1070_ask_sh_reports_an_empty_report_as_its_own_status() {
+  _bats_test_init 1070 'ask.sh reports an empty report as its own status'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=empty HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_failure 4
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=empty-report"
+
+  # Control: one byte at the same path reaches the success path.
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT_BODY=x HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_success
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
+}
+
+function test_scripts_1071_ask_sh_refuses_a_report_that_is_not_a_regular_file() {
+  _bats_test_init 1071 'ask.sh refuses a report that is not a regular file'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=symlink HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_failure 5
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=bad-report"
+  # The symlink target is never read.
+  refute_output --partial 'localhost'
+}
+
+function test_scripts_1072_ask_sh_retains_the_transport_while_the_child_may_still_wr() {
+  _bats_test_init 1072 'ask.sh retains the transport while the child may still write'
+  ask_live_stub
+  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=none STUB_AGENT_STATUS=working HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  assert_failure 124
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+  assert_output --partial 'transport retained at'
+
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
 }
 
 # ===========================================
