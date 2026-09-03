@@ -404,7 +404,7 @@ function test_scripts_1180_worktree_identity_renames_once_and_attributes_the_bra
   assert_file_contains "$marker" "^$HWI_BRANCH$"
   assert_file_contains "$marker" "^$attribution$"
   assert_equal "$(hwi_branch_description "$branch")" "$attribution"
-  assert_equal "$(read_state_field "$state" outcome)" prepared
+  assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(read_state_field "$state" branch)" "$branch"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -449,6 +449,9 @@ function test_scripts_1182_worktree_identity_preserves_upstream_and_agent_moved_
 
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.remote"
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.merge"
+  # The upstream leg reaches its terminal workspace-only outcome. Reset this
+  # fixture's independent agent-move control to a new naming lifecycle.
+  rm "$state"
   local ready="$HWI_WORK/revalidate.ready" release="$HWI_WORK/revalidate.release"
   env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_READY="$ready" \
@@ -501,7 +504,7 @@ function test_scripts_1183_worktree_identity_records_branch_and_attribution_fail
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Record branch failure'
   assert_success
-  assert_equal "$(read_state_field "$state" outcome)" prepared
+  assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(hwi_branch_description "$branch")" "Intentional rename by herdr-worktree-identity: $HWI_BRANCH -> $branch"
 }
 
@@ -572,8 +575,146 @@ function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_w
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Recover marker attribution'
   assert_success
-  assert_equal "$(read_state_field "$state" outcome)" prepared
+  assert_equal "$(read_state_field "$state" outcome)" complete
   assert_file_contains "$marker" '^Intentional rename by herdr-worktree-identity: worktree/quiet-stone-fd75 -> recover-marker-attribution$'
+}
+
+# ===========================================
+# herdr-worktree-identity workspace outcomes (U5)
+# ===========================================
+
+# The independent oracle for workspace behavior is the herdr recorder: it
+# observes a workspace rename call without granting this component ownership
+# of pane, tab, or agent labels. Branch assertions read the fixture's real Git
+# state, not the identity state file.
+function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename() {
+  _bats_test_init 1186 'worktree identity labels a workspace once and completes the outcome'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Label workspace independently'
+  assert_success
+  local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  assert_equal "$branch" label-workspace-independently
+  assert_equal "$(read_state_field "$state" outcome)" complete
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Label workspace independently'
+  assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'A later event must not rename labels'
+  assert_success
+  assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$branch"
+}
+
+function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_and_reverted_branches() {
+  _bats_test_init 1187 'worktree identity keeps upstream and agent-reverted branches while labeling the workspace'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_set_upstream
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Preserve upstream workspace'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" outcome)" workspace-only
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Preserve upstream workspace'
+
+  git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.remote"
+  git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.merge"
+  rm "$state"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Keep agent reverted branch'
+  assert_success
+  local renamed="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Do not restore agent branch'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" outcome)" workspace-only
+  assert_equal "$(git -C "$HWI_CHECKOUT" reflog --format='%gs' "$HWI_BRANCH" | grep -c '^Branch: renamed ')" 2
+  assert_equal "$(hwi_workspace_rename_count)" 2
+  assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
+  [ -n "$renamed" ] || fail 'control rename did not occur'
+}
+
+function test_scripts_1188_worktree_identity_declines_marker_and_retries_contention_and_workspace_failure() {
+  _bats_test_init 1188 'worktree identity keeps terminal declines distinct from retryable contention and workspace failures'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  local state="$(hwi_identity_state_path)" marker
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  rm "$marker"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Missing marker never labels'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" declined
+  assert_equal "$(hwi_workspace_rename_count)" 0
+
+  rm "$state"
+  HERDR_PLUGIN_CONFIG_DIR="$HWI_PLUGIN_CONFIG" \
+    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$HWI_CHECKOUT\",\"branch\":\"$HWI_BRANCH\"}}}" \
+    bun "$HWI_WORKTREE_SETUP_PLUGIN" >/dev/null
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  state="$(hwi_identity_state_path)"
+  local lock="$(namespace_dir "$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)")/branch-rename.claim"
+  hwi_start_claim_holder "$lock" || fail 'claim holder was not ready'
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS=1 \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Retry contention label'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" ''
+  assert_file_contains "${state%.state}.diagnostics.log" '^reason=contended '
+  : > "$HWI_HOLDER_RELEASE"
+  wait "$HWI_HOLDER_PID"
+  HWI_HOLDER_PID=''
+  : > "$HWI_WORK/fail-workspace-rename"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Retry contention label'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" workspace-failed
+  rm "$HWI_WORK/fail-workspace-rename"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later naming event retries label'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" complete
+  assert_equal "$(hwi_workspace_rename_count)" 2
+}
+
+function test_scripts_1189_worktree_identity_revalidates_occupant_before_workspace_rename() {
+  _bats_test_init 1189 'worktree identity does not relabel a workspace after its pane changes occupants'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  local ready="$HWI_WORK/workspace-revalidate.ready" release="$HWI_WORK/workspace-revalidate.release"
+  env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_TEST_WORKSPACE_REVALIDATE_READY="$ready" \
+    HERDR_WORKTREE_IDENTITY_TEST_WORKSPACE_REVALIDATE_RELEASE="$release" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Revalidate workspace occupant' &
+  local worker_pid=$! attempt=0
+  while [[ ! -e "$ready" && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_file_exists "$ready"
+  hwi_write_pane pane-1 claude other-session workspace-1 "$HWI_CHECKOUT"
+  : > "$release"
+  wait "$worker_pid"
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" outcome)" workspace-failed
+  assert_equal "$(hwi_workspace_rename_count)" 0
+  assert_file_contains "${state%.state}.diagnostics.log" '^reason=workspace-occupant-changed '
 }
 
 # ===========================================

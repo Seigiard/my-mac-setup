@@ -459,6 +459,58 @@ retry_attribution() {
   fi
 }
 
+wait_for_workspace_revalidation_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_WORKSPACE_REVALIDATE_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_WORKSPACE_REVALIDATE_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+# Re-read the pane immediately before the external rename: the original
+# lookup can be stale after an occupant, session, or workspace change.
+label_workspace() {
+  local root="$1" common="$2" state="$3" expected_pane="$4" desired_outcome="$5"
+  local original title slug branch payload fields final_pane final_agent final_session final_workspace
+  original="$(read_state_field "$state" original_branch)"
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  branch="$(read_state_field "$state" branch)"
+  if [ -z "$title" ] || [ -z "$workspace" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-unavailable "checkout=$root workspace=${workspace:-missing}" || true
+    return 1
+  fi
+  wait_for_workspace_revalidation_test_barrier || return 1
+  payload="$(herdr pane get "$expected_pane" 2>/dev/null)" || {
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-unreachable "pane=$expected_pane workspace=$workspace" || true
+    return 1
+  }
+  fields="$(printf '%s' "$payload" | pane_fields)" || {
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-malformed "pane=$expected_pane workspace=$workspace" || true
+    return 1
+  }
+  IFS=$'\t' read -r final_pane final_agent final_session final_workspace _ <<< "$fields"
+  if [ "$final_pane" != "$expected_pane" ] || [ "$final_agent" != "$agent" ] || \
+    [ "$final_session" != "$session" ] || [ "$final_workspace" != "$workspace" ]; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-occupant-changed "pane=$expected_pane observed_pane=$final_pane agent=$final_agent session=$final_session workspace=$final_workspace" || true
+    return 1
+  fi
+  if herdr workspace rename "$workspace" "$title" >/dev/null 2>&1; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || true
+    return 0
+  fi
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+  record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-rename-failed "pane=$expected_pane workspace=$workspace title=$title" || true
+  return 1
+}
+
+# Return 0 when a renamed branch is ready for workspace labeling, 10 when its
+# workspace can be labeled without changing the branch, and 11 when the next
+# naming event must retry before a terminal outcome is selected.
 apply_branch_rename() {
   local root="$1" common="$2" state="$3" marker="$4"
   local original title slug outcome branch candidate lock owner claim_status upstream_status
@@ -467,10 +519,10 @@ apply_branch_rename() {
   slug="$(read_state_field "$state" slug)"
   outcome="$(read_state_field "$state" outcome)"
   candidate="$(read_state_field "$state" branch)"
-  [ -n "$original" ] && [ "$(slug_word_count "$slug")" -ge 2 ] || return 0
+  [ -n "$original" ] && [ "$(slug_word_count "$slug")" -ge 2 ] || return 11
   branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
     record_diagnostic "$(diagnostic_file_for_state "$state")" detached-head "checkout=$root"
-    return 0
+    return 11
   }
 
   case "$outcome" in
@@ -481,31 +533,32 @@ apply_branch_rename() {
       else
         record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-attribution-failure "checkout=$root branch=$branch expected_branch=$candidate" || true
       fi
-      return 0
+      [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
+      return 11
       ;;
   esac
 
   if [ "$branch" != "$original" ]; then
     record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved "checkout=$root branch=$branch original_branch=$original" || true
-    return 0
+    return 10
   fi
   branch_has_upstream "$root"
   upstream_status=$?
   case "$upstream_status" in
     0)
       record_diagnostic "$(diagnostic_file_for_state "$state")" branch-has-upstream "checkout=$root branch=$branch" || true
-      return 0
+      return 10
       ;;
     1) ;;
     *)
       record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-unavailable "checkout=$root branch=$branch" || true
-      return 0
+      return 11
       ;;
   esac
 
   wait_for_test_barrier || {
     record_diagnostic "$(diagnostic_file_for_state "$state")" branch-barrier-failed "checkout=$root" || true
-    return 0
+    return 11
   }
   lock="$(namespace_dir "$common")/branch-rename.claim"
   acquire_claim "$lock" "$BRANCH_CLAIM_ATTEMPTS"
@@ -517,7 +570,7 @@ apply_branch_rename() {
     else
       record_diagnostic "$(diagnostic_file_for_state "$state")" branch-claim-failed "repository_anchor=$common checkout=$root" || true
     fi
-    return 0
+    return 11
   fi
   # shellcheck disable=SC2154 # acquire_claim from the sourced state library sets this.
   owner="$claim_owner_id"
@@ -525,13 +578,13 @@ apply_branch_rename() {
   candidate="$(available_branch_name "$root" "$slug")" || {
     record_diagnostic "$(diagnostic_file_for_state "$state")" branch-candidate-unavailable "checkout=$root slug=$slug" || true
     release_claim "$lock" "$owner"
-    return 0
+    return 11
   }
   wait_for_revalidation_test_barrier
   if ! same_checkout_identity "$root" "$common"; then
     record_diagnostic "$(diagnostic_file_for_state "$state")" checkout-changed-before-rename "checkout=$root" || true
     release_claim "$lock" "$owner"
-    return 0
+    return 11
   fi
   branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || branch=''
   branch_has_upstream "$root"
@@ -539,31 +592,33 @@ apply_branch_rename() {
   if [ "$branch" != "$original" ]; then
     record_diagnostic "$(diagnostic_file_for_state "$state")" branch-changed-before-rename "checkout=$root branch=$branch original_branch=$original" || true
     release_claim "$lock" "$owner"
-    return 0
+    return 10
   fi
   if [ "$upstream_status" -ne 1 ]; then
     record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-changed-before-rename "checkout=$root branch=$branch upstream_status=$upstream_status" || true
     release_claim "$lock" "$owner"
-    return 0
+    return 11
   fi
   write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$candidate" || {
     record_diagnostic "$(diagnostic_file_for_state "$state")" prepared-state-write-failed "checkout=$root branch=$branch candidate=$candidate" || true
     release_claim "$lock" "$owner"
-    return 0
+    return 11
   }
   if ! git -C "$root" branch -m "$candidate"; then
     write_identity_state "$state" "$root" "$common" "$workspace" "$original" branch-failed authorized "$title" "$slug" "$candidate" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" branch-rename-failed "checkout=$root branch=$branch candidate=$candidate" || true
     release_claim "$lock" "$owner"
-    return 0
+    return 11
   fi
   retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
   release_claim "$lock" "$owner"
+  [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
+  return 11
 }
 
 worker() {
   local prompt="$1" payload fields resolved_pane pane_agent pane_session pane_workspace pane_cwd cwd root common status
-  local state identity title slug
+  local state identity title slug outcome expected_branch observed_branch branch_status desired_outcome
   command -v herdr >/dev/null 2>&1 || {
     record_unresolved herdr-unavailable "pane=${pane:-missing}"
     return 0
@@ -617,6 +672,21 @@ worker() {
   authorize_worktree "$root" "$common"
   state="$(worktree_state_file "$common" "$root")"
   [ "$(read_state_field "$state" authorization)" = authorized ] || return 0
+  outcome="$(read_state_field "$state" outcome)"
+  case "$outcome" in
+    declined | workspace-only) return 0 ;;
+    complete)
+      expected_branch="$(read_state_field "$state" branch)"
+      observed_branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || observed_branch=''
+      if [ -n "$expected_branch" ] && [ "$observed_branch" != "$expected_branch" ]; then
+        write_identity_state "$state" "$root" "$common" "$workspace" \
+          "$(read_state_field "$state" original_branch)" workspace-only authorized \
+          "$(read_state_field "$state" title)" "$(read_state_field "$state" slug)" "$expected_branch" || true
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-complete "checkout=$root branch=$observed_branch expected_branch=$expected_branch" || true
+      fi
+      return 0
+      ;;
+  esac
   title="$(read_state_field "$state" title)"
   slug="$(read_state_field "$state" slug)"
   if [ -z "$title" ] || [ "$(slug_word_count "$slug")" -lt 2 ]; then
@@ -627,6 +697,15 @@ worker() {
       "$(read_state_field "$state" branch)" || true
   fi
   apply_branch_rename "$root" "$common" "$state" "$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)"
+  branch_status=$?
+  case "$branch_status" in
+    0) label_workspace "$root" "$common" "$state" "$resolved_pane" complete || true ;;
+    10)
+      desired_outcome='workspace-only'
+      [ "$(read_state_field "$state" outcome)" = workspace-failed ] && desired_outcome=complete
+      label_workspace "$root" "$common" "$state" "$resolved_pane" "$desired_outcome" || true
+      ;;
+  esac
 }
 
 detach_worker() {

@@ -35,6 +35,12 @@ if [ "$1" = api ] && [ "$2" = snapshot ]; then
   cat "$HWI_SNAPSHOT_JSON"
   exit 0
 fi
+if [ "$1" = workspace ] && [ "$2" = rename ]; then
+  printf '%s\n' "$*" >> "$HWI_WORK/herdr.calls"
+  [ ! -e "$HWI_WORK/fail-workspace-rename" ] || exit 1
+  printf '%s' "$4" > "$HWI_WORK/workspace.label"
+  exit 0
+fi
 exit 1
 SH
   chmod +x "$HWI_STUB/herdr"
@@ -95,6 +101,11 @@ hwi_identity_state_path() {
 hwi_branch_description() {
   local branch="${1:-$(git -C "$HWI_CHECKOUT" branch --show-current)}"
   git -C "$HWI_CHECKOUT" config --get "branch.$branch.description"
+}
+
+hwi_workspace_rename_count() {
+  [ -f "$HWI_WORK/herdr.calls" ] || { printf '0'; return 0; }
+  grep -c '^workspace rename ' "$HWI_WORK/herdr.calls" || true
 }
 
 hwi_set_upstream() {
