@@ -1,12 +1,13 @@
 ---
 title: "Peer report transport accepts a symlinked report file"
-short_description: "recover_peer_report in the shared herdr peer lifecycle validates the peer report with [ -f ] and [ -s ], which follow symlinks, so a peer that leaves a symlink at claude.report or opencode.report makes the review silently synthesize whatever that link targets; ask.sh gained an explicit -L rejection reported as bad-report with exit 5 for the same class of coherence failure, and the shared lifecycle should match it."
+short_description: "The shared herdr peer lifecycle validated the peer report with [ -f ] and [ -s ], which follow symlinks, so a peer that left a symlink at claude.report or opencode.report made the review silently synthesize whatever that link targeted; the acceptance test now rejects -L before opening the path and treats it as a terminal malformed delivery, matching classify_report in ask.sh."
 type: "follow-up"
 category: "agent-platform"
 tags: ["report-transport","herdr-peer-launch","coherence-guard"]
 date: "2026-09-03"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-09-03"
 ---
 
 ## Why this exists
@@ -51,5 +52,10 @@ change.
 
 ## Open decisions
 
-- Whether the shared lifecycle should also distinguish empty from missing the
-  way `ask.sh` does, or keep collapsing both into one recovery attempt.
+None. The shared lifecycle keeps collapsing missing and empty into one recovery
+attempt: unlike `ask.sh` it has no exit code to report the difference through,
+and both are answered by the same recovery prompt.
+
+## Resolution
+
+The shared herdr peer lifecycle now refuses a symlinked report path without opening it. report_is_delivered rejects -L before the -f and -s tests, and recover_peer_report treats that rejection as terminal rather than sending a recovery prompt, so a malformed delivery is never retried as a missing one. This matches classify_report in ask.sh. The open decision was settled the other way: the shared lifecycle keeps collapsing missing and empty into one recovery attempt, because unlike ask.sh it has no distinct exit code to report the difference through.
