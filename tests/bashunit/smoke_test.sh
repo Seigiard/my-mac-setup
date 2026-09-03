@@ -925,7 +925,7 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
   # Pane and tab identity stay stable when Git state changes. Location metadata
   # remains available to integrations, but the sidebar renders identity only.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace", "pane"\]\]$'
+  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace"\], \["pane"\]\]$'
   run grep -E '\$git_ref|\$location_label|\$location_status' "$config"
   assert_failure
   # Sole owner of sidebar_min_width: the awk scope proves the key both carries
@@ -957,7 +957,7 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
     "$config" "${writer_files[@]}"
   assert_success
-  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace", "pane"\]\]'
+  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace"\], \["pane"\]\]'
   assert_file_contains "$config" '"state_icon"'
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
