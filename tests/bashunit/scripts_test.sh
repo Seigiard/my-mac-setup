@@ -362,6 +362,7 @@ function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_c
   assert_equal "$(read_state_field "$state" slug)" json-generated
 
   rm "$state"
+  git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   hwi_write_naming_stub pi
   printf '%s\n' '{"title":"Long model identity","slug":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -376,6 +377,203 @@ function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_c
   assert_success
   run test "$(printf '%s' "$slug" | tr '-' '\n' | grep -c '.')" -ge 2
   assert_success
+}
+
+# ===========================================
+# herdr-worktree-identity branch rename (U4)
+# ===========================================
+
+function test_scripts_1180_worktree_identity_renames_once_and_attributes_the_branch() {
+  _bats_test_init 1180 'worktree identity renames an authorized branch once with durable attribution'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Implement focused branch attribution'
+  assert_success
+  local state marker branch attribution
+  state="$(hwi_identity_state_path)"
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  attribution="Intentional rename by herdr-worktree-identity: $HWI_BRANCH -> $branch"
+  assert_equal "$branch" implement-focused-branch-attribution
+  run git -C "$HWI_CHECKOUT" show-ref --verify --quiet "refs/heads/$HWI_BRANCH"
+  assert_failure 1
+  assert_file_contains "$marker" "^$HWI_BRANCH$"
+  assert_file_contains "$marker" "^$attribution$"
+  assert_equal "$(hwi_branch_description "$branch")" "$attribution"
+  assert_equal "$(read_state_field "$state" outcome)" prepared
+  assert_equal "$(read_state_field "$state" branch)" "$branch"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Implement focused branch attribution again'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$branch"
+  assert_equal "$(git -C "$HWI_CHECKOUT" reflog --format='%gs' "$branch" | grep -c '^Branch: renamed ')" 1
+}
+
+function test_scripts_1181_worktree_identity_suffixes_candidates_against_local_and_remote_refs() {
+  _bats_test_init 1181 'worktree identity avoids local and remote-tracking branch candidates'
+  hwi_setup
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  git -C "$HWI_MAIN" branch implement-candidate-collision
+  hwi_add_remote_tracking_branch implement-candidate-collision-2
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Implement candidate collision'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" implement-candidate-collision-3
+  run git -C "$HWI_CHECKOUT" show-ref --verify --quiet refs/remotes/origin/implement-candidate-collision-2
+  assert_success
+}
+
+function test_scripts_1182_worktree_identity_preserves_upstream_and_agent_moved_branches() {
+  _bats_test_init 1182 'worktree identity leaves upstream and concurrently agent-moved branches untouched'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_set_upstream
+  local state diagnostics
+  state="$(hwi_identity_state_path)"
+  diagnostics="${state%.state}.diagnostics.log"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Preserve upstream branch'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
+  assert_file_contains "$diagnostics" '^reason=branch-has-upstream '
+
+  git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.remote"
+  git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.merge"
+  local ready="$HWI_WORK/revalidate.ready" release="$HWI_WORK/revalidate.release"
+  env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_READY="$ready" \
+    HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_RELEASE="$release" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 \
+    <<< 'Preserve agent move' &
+  local worker_pid=$! attempt=0
+  while [[ ! -e "$ready" && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_file_exists "$ready"
+  git -C "$HWI_CHECKOUT" branch -m agent-chosen-name
+  : > "$release"
+  wait "$worker_pid"
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" agent-chosen-name
+  assert_file_contains "$diagnostics" '^reason=branch-changed-before-rename '
+}
+
+function test_scripts_1183_worktree_identity_records_branch_and_attribution_failures_for_recovery() {
+  _bats_test_init 1183 'worktree identity records rename and attribution failures and retries attribution'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_write_git_proxy
+  : > "$HWI_WORK/fail-git-branch-m"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Record branch failure'
+  assert_success
+  local state="$(hwi_identity_state_path)" marker branch
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" outcome)" branch-failed
+  assert_file_contains "${state%.state}.diagnostics.log" '^reason=branch-rename-failed '
+  assert_file_not_contains "$marker" 'Intentional rename by herdr-worktree-identity'
+
+  rm "$HWI_WORK/fail-git-branch-m"
+  : > "$HWI_WORK/fail-git-description"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Record branch failure'
+  assert_success
+  branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  assert_equal "$branch" record-branch-failure
+  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_file_contains "${state%.state}.diagnostics.log" '^reason=attribution-failed '
+
+  rm "$HWI_WORK/fail-git-description"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Record branch failure'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" prepared
+  assert_equal "$(hwi_branch_description "$branch")" "Intentional rename by herdr-worktree-identity: $HWI_BRANCH -> $branch"
+}
+
+function test_scripts_1184_worktree_identity_serializes_branch_mutation_with_a_barrier() {
+  _bats_test_init 1184 'worktree identity allows exactly one branch mutation after a two-process barrier'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  local barrier="$HWI_WORK/branch-barrier" start_release="$HWI_WORK/start.release"
+  local claim_ready="$HWI_WORK/claim.ready" claim_release="$HWI_WORK/claim.release" contended_ready="$HWI_WORK/contended.ready"
+  mkdir "$barrier"
+  local worker_env=(PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_TEST_BRANCH_BARRIER="$barrier" \
+    HERDR_WORKTREE_IDENTITY_TEST_BRANCH_BARRIER_RELEASE="$start_release" \
+    HERDR_WORKTREE_IDENTITY_TEST_REPOSITORY_CLAIM_READY="$claim_ready" \
+    HERDR_WORKTREE_IDENTITY_TEST_REPOSITORY_CLAIM_RELEASE="$claim_release" \
+    HERDR_WORKTREE_IDENTITY_TEST_CONTENDED_READY="$contended_ready")
+  env "${worker_env[@]}" bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Serialize branch mutation' &
+  local first_pid=$!
+  env "${worker_env[@]}" bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Serialize branch mutation' &
+  local second_pid=$! attempt=0
+  while [[ "$(find "$barrier" -type f | wc -l | tr -d ' ')" -lt 2 && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_equal "$(find "$barrier" -type f | wc -l | tr -d ' ')" 2
+  : > "$start_release"
+  attempt=0
+  while [[ ! -e "$claim_ready" && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_file_exists "$claim_ready"
+  attempt=0
+  while [[ ! -e "$contended_ready" && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_file_exists "$contended_ready"
+  : > "$claim_release"
+  wait "$first_pid"
+  wait "$second_pid"
+  local branch="$(git -C "$HWI_CHECKOUT" branch --show-current)" state="$(hwi_identity_state_path)"
+  assert_equal "$branch" serialize-branch-mutation
+  assert_equal "$(git -C "$HWI_CHECKOUT" reflog --format='%gs' "$branch" | grep -c '^Branch: renamed ')" 1
+  assert_file_contains "${state%.state}.diagnostics.log" '^reason=contended '
+}
+
+function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_write_failure() {
+  _bats_test_init 1185 'worktree identity retries marker attribution after a successful rename'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  local marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  chmod a-w "$marker"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Recover marker attribution'
+  assert_success
+  local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  assert_equal "$branch" recover-marker-attribution
+  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_file_contains "${state%.state}.diagnostics.log" '^reason=attribution-failed '
+
+  chmod u+w "$marker"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Recover marker attribution'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" prepared
+  assert_file_contains "$marker" '^Intentional rename by herdr-worktree-identity: worktree/quiet-stone-fd75 -> recover-marker-attribution$'
 }
 
 # ===========================================

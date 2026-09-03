@@ -13,9 +13,10 @@ hwi_setup() {
   HWI_PANE_JSON="$HWI_WORK/pane.json"
   HWI_SNAPSHOT_JSON="$HWI_WORK/snapshot.json"
   HWI_COMMAND_PATH="$PATH"
+  HWI_REAL_GIT="$(command -v git)"
   HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE"
   mkdir -p "$HWI_STATE" "$HWI_STUB"
-  export HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH
+  export HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT
   export HERDR_WORKTREE_IDENTITY_STATE_DIR
   cat > "$HWI_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -91,6 +92,35 @@ hwi_identity_state_path() {
     "$(printf '%s' "$root" | base64 | tr '/+' '_-' | tr -d '=\n')"
 }
 
+hwi_branch_description() {
+  local branch="${1:-$(git -C "$HWI_CHECKOUT" branch --show-current)}"
+  git -C "$HWI_CHECKOUT" config --get "branch.$branch.description"
+}
+
+hwi_set_upstream() {
+  git -C "$HWI_MAIN" update-ref refs/remotes/origin/main HEAD
+  git -C "$HWI_CHECKOUT" branch --set-upstream-to=origin/main "$HWI_BRANCH"
+}
+
+hwi_add_remote_tracking_branch() {
+  git -C "$HWI_MAIN" update-ref "refs/remotes/origin/$1" HEAD
+}
+
+hwi_write_git_proxy() {
+  cat > "$HWI_STUB/git" <<'SH'
+#!/usr/bin/env bash
+args=" $* "
+if [ -e "$HWI_WORK/fail-git-branch-m" ] && [[ "$args" == *' branch -m '* ]]; then
+  exit 1
+fi
+if [ -e "$HWI_WORK/fail-git-description" ] && [[ "$args" == *' config '* ]] && [[ "$args" == *'.description '* ]]; then
+  exit 1
+fi
+exec "$HWI_REAL_GIT" "$@"
+SH
+  chmod +x "$HWI_STUB/git"
+}
+
 # A separate Bash process holds a real claim until the caller releases it.
 # The ready marker is a causal barrier; the bounded loop below is only a hang
 # guard, never the assertion about contention.
@@ -124,7 +154,7 @@ hwi_teardown() {
     wait "$HWI_HOLDER_PID" 2>/dev/null || true
   fi
   [[ -n "${HWI_WORK:-}" ]] && rm -rf "$HWI_WORK" || true
-  unset HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_MAIN
+  unset HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT HWI_MAIN
   unset HWI_CHECKOUT HWI_BRANCH HWI_PLUGIN_CONFIG HWI_HOLDER_PID HWI_HOLDER_READY HWI_HOLDER_RELEASE
   unset HERDR_WORKTREE_IDENTITY_STATE_DIR
 }

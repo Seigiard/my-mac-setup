@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/../lib/herdr-worktree-state.sh"
 SLUG_MAX_LEN=40
 SLUG_MAX_WORDS=5
 TITLE_MAX_LEN=48
+BRANCH_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS:-3}"
 ENGINE_TIMEOUT="${HERDR_WORKTREE_IDENTITY_TIMEOUT:-30}"
 PI_MODEL="${HERDR_WORKTREE_IDENTITY_PI_MODEL:-openai-codex/gpt-5.4-mini}"
 CLAUDE_MODEL="${HERDR_WORKTREE_IDENTITY_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
@@ -236,11 +237,12 @@ diagnostic_file_for_state() {
 
 write_identity_state() {
   local file="$1" root="$2" common="$3" workspace="$4" original="$5" outcome="$6" authorization="$7"
-  local title="${8:-}" slug="${9:-}"
+  local title="${8:-}" slug="${9:-}" branch="${10:-}"
   atomic_write "$file" "checkout_root=$(encode_value "$root")
 repository_anchor=$(encode_value "$common")
 workspace=$(encode_value "$workspace")
 original_branch=$(encode_value "$original")
+branch=$(encode_value "$branch")
 outcome=$(encode_value "$outcome")
 authorization=$(encode_value "$authorization")
 title=$(encode_value "$title")
@@ -308,7 +310,7 @@ is_linked_worktree() {
 }
 
 authorize_worktree() {
-  local root="$1" common="$2" branch marker original state observed title slug
+  local root="$1" common="$2" branch marker original state observed title slug outcome renamed_branch
   branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
     record_unresolved detached-head "checkout=$root"
     return 0
@@ -317,24 +319,246 @@ authorize_worktree() {
   original="$(read_state_field "$state" original_branch)"
   title="$(read_state_field "$state" title)"
   slug="$(read_state_field "$state" slug)"
+  outcome="$(read_state_field "$state" outcome)"
+  renamed_branch="$(read_state_field "$state" branch)"
   [ -n "$original" ] || original="$branch"
   marker="$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)" || {
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-path-unavailable "checkout=$root branch=$branch" || true
     return 0
   }
   if [ ! -f "$marker" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-missing "checkout=$root branch=$branch marker=$marker" || true
     return 0
   fi
   observed="$(head -n 1 "$marker" 2>/dev/null)"
   if [ "$observed" != "$original" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-mismatched "checkout=$root branch=$branch original_branch=$original marker_branch=$observed" || true
     return 0
   fi
-  write_identity_state "$state" "$root" "$common" "$workspace" "$original" '' authorized "$title" "$slug" || true
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$outcome" authorized "$title" "$slug" "$renamed_branch" || true
+}
+
+branch_name_available() {
+  local root="$1" candidate="$2" status remote_refs ref
+  if git -C "$root" show-ref --verify --quiet "refs/heads/$candidate"; then
+    return 1
+  else
+    status=$?
+    [ "$status" -eq 1 ] || return 2
+  fi
+  remote_refs="$(git -C "$root" for-each-ref --format='%(refname)' refs/remotes)" || return 2
+  while IFS= read -r ref; do
+    case "$ref" in
+      refs/remotes/*/"$candidate") return 1 ;;
+    esac
+  done <<< "$remote_refs"
+  return 0
+}
+
+available_branch_name() {
+  local root="$1" slug="$2" candidate suffix=2 base status
+  candidate="$slug"
+  while :; do
+    if branch_name_available "$root" "$candidate"; then
+      git -C "$root" check-ref-format --branch "$candidate" >/dev/null || return 1
+      printf '%s' "$candidate"
+      return 0
+    else
+      status=$?
+    fi
+    [ "$status" -eq 1 ] || return 1
+    [ "$suffix" -le 999 ] || return 1
+    base="$(printf '%s' "$slug" | cut -c "1-$((SLUG_MAX_LEN - ${#suffix} - 1))" | sed -e 's/-$//')"
+    candidate="$base-$suffix"
+    suffix=$((suffix + 1))
+  done
+}
+
+branch_has_upstream() {
+  local root="$1" status
+  git -C "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    128) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+same_checkout_identity() {
+  local root="$1" common="$2" observed_root observed_common
+  observed_root="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  observed_common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ "$observed_root" = "$root" ] && [ "$observed_common" = "$common" ]
+}
+
+attribution_message() {
+  printf 'Intentional rename by herdr-worktree-identity: %s -> %s' "$1" "$2"
+}
+
+write_marker_attribution() {
+  local marker="$1" message="$2"
+  grep -Fqx "$message" "$marker" 2>/dev/null && return 0
+  printf '%s\n' "$message" >> "$marker" 2>/dev/null
+}
+
+write_branch_description() {
+  local root="$1" branch="$2" message="$3"
+  git -C "$root" config --local "branch.$branch.description" "$message"
+}
+
+write_attribution() {
+  local root="$1" original="$2" branch="$3" marker="$4" message attempts=0 marker_ok description_ok
+  message="$(attribution_message "$original" "$branch")"
+  while [ "$attempts" -lt 2 ]; do
+    attempts=$((attempts + 1))
+    marker_ok=0
+    description_ok=0
+    write_marker_attribution "$marker" "$message" && marker_ok=1
+    write_branch_description "$root" "$branch" "$message" && description_ok=1
+    [ "$marker_ok" -eq 1 ] && [ "$description_ok" -eq 1 ] && return 0
+  done
+  return 1
+}
+
+wait_for_test_barrier() {
+  local barrier="${HERDR_WORKTREE_IDENTITY_TEST_BRANCH_BARRIER:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_BRANCH_BARRIER_RELEASE:-}"
+  [ -n "$barrier" ] || return 0
+  mkdir -p "$barrier" 2>/dev/null || return 1
+  : > "$barrier/$(encode_path_key "$root").$$"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+wait_for_revalidation_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_REVALIDATE_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+wait_for_claim_test_barrier() {
+  local ready="${HERDR_WORKTREE_IDENTITY_TEST_REPOSITORY_CLAIM_READY:-}" release="${HERDR_WORKTREE_IDENTITY_TEST_REPOSITORY_CLAIM_RELEASE:-}"
+  [ -n "$ready" ] || return 0
+  : > "$ready"
+  [ -n "$release" ] || return 0
+  while [ ! -e "$release" ]; do sleep 0.01; done
+}
+
+retry_attribution() {
+  local root="$1" common="$2" state="$3" original="$4" branch="$5" marker="$6" title="$7" slug="$8"
+  if write_attribution "$root" "$original" "$branch" "$marker"; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$branch" || true
+  else
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" attribution_failed authorized "$title" "$slug" "$branch" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" attribution-failed "checkout=$root branch=$branch" || true
+  fi
+}
+
+apply_branch_rename() {
+  local root="$1" common="$2" state="$3" marker="$4"
+  local original title slug outcome branch candidate lock owner claim_status upstream_status
+  original="$(read_state_field "$state" original_branch)"
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  outcome="$(read_state_field "$state" outcome)"
+  candidate="$(read_state_field "$state" branch)"
+  [ -n "$original" ] && [ "$(slug_word_count "$slug")" -ge 2 ] || return 0
+  branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" detached-head "checkout=$root"
+    return 0
+  }
+
+  case "$outcome" in
+    prepared) return 0 ;;
+    attribution_failed)
+      if [ "$branch" = "$candidate" ]; then
+        retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+      else
+        record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-attribution-failure "checkout=$root branch=$branch expected_branch=$candidate" || true
+      fi
+      return 0
+      ;;
+  esac
+
+  if [ "$branch" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved "checkout=$root branch=$branch original_branch=$original" || true
+    return 0
+  fi
+  branch_has_upstream "$root"
+  upstream_status=$?
+  case "$upstream_status" in
+    0)
+      record_diagnostic "$(diagnostic_file_for_state "$state")" branch-has-upstream "checkout=$root branch=$branch" || true
+      return 0
+      ;;
+    1) ;;
+    *)
+      record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-unavailable "checkout=$root branch=$branch" || true
+      return 0
+      ;;
+  esac
+
+  wait_for_test_barrier || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-barrier-failed "checkout=$root" || true
+    return 0
+  }
+  lock="$(namespace_dir "$common")/branch-rename.claim"
+  acquire_claim "$lock" "$BRANCH_CLAIM_ATTEMPTS"
+  claim_status=$?
+  if [ "$claim_status" -ne 0 ]; then
+    if [ "$claim_status" -eq 2 ]; then
+      [ -z "${HERDR_WORKTREE_IDENTITY_TEST_CONTENDED_READY:-}" ] || : > "$HERDR_WORKTREE_IDENTITY_TEST_CONTENDED_READY"
+      record_diagnostic "$(diagnostic_file_for_state "$state")" contended "repository_anchor=$common checkout=$root" || true
+    else
+      record_diagnostic "$(diagnostic_file_for_state "$state")" branch-claim-failed "repository_anchor=$common checkout=$root" || true
+    fi
+    return 0
+  fi
+  # shellcheck disable=SC2154 # acquire_claim from the sourced state library sets this.
+  owner="$claim_owner_id"
+  wait_for_claim_test_barrier
+  candidate="$(available_branch_name "$root" "$slug")" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-candidate-unavailable "checkout=$root slug=$slug" || true
+    release_claim "$lock" "$owner"
+    return 0
+  }
+  wait_for_revalidation_test_barrier
+  if ! same_checkout_identity "$root" "$common"; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" checkout-changed-before-rename "checkout=$root" || true
+    release_claim "$lock" "$owner"
+    return 0
+  fi
+  branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || branch=''
+  branch_has_upstream "$root"
+  upstream_status=$?
+  if [ "$branch" != "$original" ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-changed-before-rename "checkout=$root branch=$branch original_branch=$original" || true
+    release_claim "$lock" "$owner"
+    return 0
+  fi
+  if [ "$upstream_status" -ne 1 ]; then
+    record_diagnostic "$(diagnostic_file_for_state "$state")" upstream-changed-before-rename "checkout=$root branch=$branch upstream_status=$upstream_status" || true
+    release_claim "$lock" "$owner"
+    return 0
+  fi
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$candidate" || {
+    record_diagnostic "$(diagnostic_file_for_state "$state")" prepared-state-write-failed "checkout=$root branch=$branch candidate=$candidate" || true
+    release_claim "$lock" "$owner"
+    return 0
+  }
+  if ! git -C "$root" branch -m "$candidate"; then
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" branch-failed authorized "$title" "$slug" "$candidate" || true
+    record_diagnostic "$(diagnostic_file_for_state "$state")" branch-rename-failed "checkout=$root branch=$branch candidate=$candidate" || true
+    release_claim "$lock" "$owner"
+    return 0
+  fi
+  retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+  release_claim "$lock" "$owner"
 }
 
 worker() {
@@ -399,8 +623,10 @@ worker() {
     identity="$(derive_identity "$prompt" "$root")"
     IFS=$'\037' read -r title slug <<< "$identity"
     write_identity_state "$state" "$root" "$common" "$workspace" \
-      "$(read_state_field "$state" original_branch)" '' authorized "$title" "$slug" || true
+      "$(read_state_field "$state" original_branch)" "$(read_state_field "$state" outcome)" authorized "$title" "$slug" \
+      "$(read_state_field "$state" branch)" || true
   fi
+  apply_branch_rename "$root" "$common" "$state" "$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)"
 }
 
 detach_worker() {
