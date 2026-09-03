@@ -708,6 +708,17 @@ worker() {
   esac
 }
 
+close_inherited_fds() {
+  local fd_path fd
+  for fd_path in /dev/fd/*; do
+    fd="${fd_path##*/}"
+    case "$fd" in
+      0 | 1 | 2 | 255 | '' | *[!0-9]*) continue ;;
+    esac
+    eval "exec ${fd}>&-"
+  done
+}
+
 detach_worker() {
   local prompt_file
   local -a worker_args
@@ -717,12 +728,12 @@ detach_worker() {
   [ -z "$pane" ] || worker_args+=(--pane "$pane")
   [ -z "$workspace" ] || worker_args+=(--workspace "$workspace")
   if command -v setsid >/dev/null 2>&1; then
-    setsid "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+    (close_inherited_fds; exec setsid "${worker_args[@]}") < "$prompt_file" >/dev/null 2>&1 &
   elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
-      "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+    (close_inherited_fds; exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      "${worker_args[@]}") < "$prompt_file" >/dev/null 2>&1 &
   else
-    nohup "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+    (close_inherited_fds; exec nohup "${worker_args[@]}") < "$prompt_file" >/dev/null 2>&1 &
   fi
   rm -f "$prompt_file"
 }
