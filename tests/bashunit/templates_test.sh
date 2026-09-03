@@ -271,15 +271,18 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 # ===========================================
 # private_settings.json.tmpl retirement contract
 # ===========================================
-function test_templates_0151_private_settings_omits_task_sync_hooks() {
-  _bats_test_init 151 'private_settings.json.tmpl omits task-sync hooks and keeps native Herdr state'
+function test_templates_0151_private_settings_registers_worktree_identity_prompt_hook() {
+  _bats_test_init 151 'private settings register the worktree identity prompt hook and omit task sync'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-  run grep "herdr-task-sync-hook.sh" "$BATS_TEST_TMPFILE"
-  assert_failure
-  run grep -c "herdr-agent-state.sh" "$BATS_TEST_TMPFILE"
+  run jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output "1"
+  assert_output --partial 'herdr-worktree-identity-hook.sh'
+  run jq -e '[.hooks.UserPromptSubmit[]?.hooks[]?.command] | any(contains("herdr-task-sync-hook.sh")) | not' "$BATS_TEST_TMPFILE"
+  assert_success
+  run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'herdr-agent-state.sh'
 }
 
 # ===========================================

@@ -84,6 +84,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-worktree-identity-hook.sh'",
+            "timeout": 2
+          }
+        ]
+      }
     ]
   },
   "disableRemoteControl": true,

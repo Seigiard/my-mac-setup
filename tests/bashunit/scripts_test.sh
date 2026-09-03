@@ -7788,3 +7788,137 @@ function tear_down() {
   fi
   _bats_run_teardown
 }
+
+# ===========================================
+# herdr-worktree-identity client adapters (U6)
+# ===========================================
+
+HWI_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-worktree-identity-hook.sh"
+HWI_OPENCODE_PLUGIN_SOURCE="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-worktree-identity.ts"
+
+hwi_adapter_stub_engine() {
+  local root="$1"
+  mkdir -p "$root"
+  cat > "$root/engine" <<'SH'
+#!/usr/bin/env bash
+set -eu
+call="$HWI_ADAPTER_TEST_DIR/call-$$"
+mkdir "$call"
+printf '%s\n' "$@" > "$call/argv"
+cat > "$call/stdin"
+: > "$call/ready"
+(
+  while [ ! -e "$HWI_ADAPTER_TEST_DIR/release" ]; do sleep 0.01; done
+  : > "$call/released"
+) &
+exit 0
+SH
+  chmod +x "$root/engine"
+}
+
+hwi_wait_for_file() {
+  local path="$1" attempt=0
+  while [[ ! -e "$path" && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  if [[ -e "$path" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+function test_scripts_1200_claude_worktree_identity_hook_hands_off_prompt_on_stdin() {
+  _bats_test_init 1200 'claude worktree identity hook passes prompt on stdin and returns after handoff'
+  local root="$BATS_TEST_TMPDIR/claude-adapter" prompt='Name this Claude task: stdin-only sentinel'
+  hwi_adapter_stub_engine "$root"
+
+  run env HERDR_ENV=1 HERDR_PANE_ID=pane-claude HERDR_WORKSPACE_ID=workspace-claude \
+    HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    bash "$HWI_CLAUDE_HOOK" <<< "{\"session_id\":\"session-claude\",\"prompt\":\"$prompt\"}"
+  assert_success
+  assert_output ''
+  local call
+  call="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | head -n 1)"
+  [[ -n "$call" ]] || fail 'the external engine did not receive the Claude prompt event'
+  assert_file_contains "$call/stdin" "^$prompt$"
+  assert_file_not_contains "$call/argv" "$prompt"
+  assert_file_contains "$call/argv" '^--agent$'
+  assert_file_contains "$call/argv" '^claude$'
+  assert_file_contains "$call/argv" '^--pane$'
+  assert_file_contains "$call/argv" '^pane-claude$'
+  hwi_wait_for_file "$call/ready" || fail 'the external engine did not enter slow derivation'
+  assert_file_not_exists "$call/released"
+  : > "$root/release"
+  hwi_wait_for_file "$call/released" || fail 'the slow derivation was not released'
+}
+
+function test_scripts_1201_claude_worktree_identity_hook_fails_open_without_engine() {
+  _bats_test_init 1201 'claude worktree identity hook is quiet when unavailable or gated'
+  run env HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ENGINE="$BATS_TEST_TMPDIR/missing-engine" \
+    bash "$HWI_CLAUDE_HOOK" <<< '{"session_id":"session-claude","prompt":"ignored"}'
+  assert_success
+  assert_output ''
+
+  local root="$BATS_TEST_TMPDIR/claude-gated"
+  hwi_adapter_stub_engine "$root"
+  run env HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    bash "$HWI_CLAUDE_HOOK" <<< '{"session_id":"session-claude","prompt":"outside herdr"}'
+  assert_success
+  run env HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    bash "$HWI_CLAUDE_HOOK" <<< '{"session_id":"session-claude","prompt":"recursive naming"}'
+  assert_success
+  run find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' -print
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_1202_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
+  _bats_test_init 1202 'deployed opencode plugin gates and delivers every prompt on stdin'
+  command_exists bun || skip 'bun is required'
+  local root home deployed
+  root="$BATS_TEST_TMPDIR/opencode-adapter"
+  home="$root/home"
+  deployed="$home/.config/opencode/plugins"
+  mkdir -p "$deployed"
+  hwi_adapter_stub_engine "$root"
+  ln -s "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+  cat > "$root/run.ts" <<'TS'
+const { HerdrWorktreeIdentityPlugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
+const plugin = await HerdrWorktreeIdentityPlugin();
+await plugin["chat.message"]?.(
+  { sessionID: "session-opencode" },
+  { parts: [{ type: "text", text: "OpenCode stdin sentinel" }] },
+);
+await plugin["chat.message"]?.(
+  { sessionID: "session-opencode" },
+  { parts: [{ type: "text", text: "Second OpenCode prompt" }] },
+);
+TS
+  run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode HERDR_WORKSPACE_ID=workspace-opencode \
+    HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
+  assert_success
+  local calls
+  calls="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | wc -l | tr -d ' ')"
+  assert_equal "$calls" 2
+  run sh -c 'cat "$1"/call-*/stdin' _ "$root"
+  assert_success
+  assert_output --partial 'OpenCode stdin sentinel'
+  assert_output --partial 'Second OpenCode prompt'
+  run sh -c 'cat "$1"/call-*/argv' _ "$root"
+  assert_success
+  refute_output --partial 'OpenCode stdin sentinel'
+  refute_output --partial 'Second OpenCode prompt'
+  assert_output --partial 'opencode'
+  : > "$root/release"
+
+  run env HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+    HWI_ADAPTER_TEST_DIR="$root/gated" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
+  assert_success
+  assert_file_not_exists "$root/gated"
+  run env HOME="$home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+    HWI_ADAPTER_TEST_DIR="$root/reentry" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
+  assert_success
+  assert_file_not_exists "$root/reentry"
+}
