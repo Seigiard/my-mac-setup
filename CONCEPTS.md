@@ -10,6 +10,9 @@ The agreement between a parent agent and child agents launched into sibling pane
 ### Sandbox-scoped takeover
 A Herdr intervention that attaches the operator to an agent inside its existing microVM. It preserves the agent's filesystem, network, and credential boundaries and never falls back to a host shell.
 
+### herdr-worktree-identity
+The component that derives a task title and multi-word branch slug from a generated worktree session's prompt, renames the authorized branch once with attribution, and labels the workspace. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
+
 ### Generated-worktree marker
 The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It is the sole authorization boundary for automated ref mutation in that worktree: a component may rename the generated branch only when the marker is present and matches — branch name text alone never authorizes. Later lines appended to the marker carry attribution for mutations already made.
 

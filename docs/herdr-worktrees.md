@@ -2,8 +2,9 @@
 
 Herdr is the single owner of interactive Git worktree creation, opening,
 closing, and removal. Linked checkouts are native child workspaces;
-`herdr-task-sync` owns task-derived pane labels, Git metadata, and the one-time
-rename of a newly generated branch and its workspace.
+`herdr-worktree-identity` owns task-derived Git metadata, the one-time rename
+of a newly generated branch, and its workspace title. The alias system remains
+the sole owner of pane, tab, and agent identity.
 
 - `Cmd+Shift+N` sends the existing `prefix+shift+g` transport sequence from
   Ghostty or kitty and opens Herdr's native new-worktree dialog.
@@ -23,7 +24,7 @@ keys. A repository with no table receives no setup or fresh-base mutation.
 
 On every `worktree.created` event, the plugin also records
 `herdr-generated-worktree` in that checkout's Git administrative directory.
-`herdr-task-sync` requires this lifecycle-owned marker before renaming a
+`herdr-worktree-identity` requires this lifecycle-owned marker before renaming a
 `worktree/*` branch, so a manually created branch cannot be renamed from its
 prefix alone. Git removes the marker with the linked worktree metadata.
 
