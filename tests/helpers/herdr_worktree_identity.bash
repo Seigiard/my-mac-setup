@@ -14,15 +14,22 @@ hwi_setup() {
   HWI_SNAPSHOT_JSON="$HWI_WORK/snapshot.json"
   HWI_COMMAND_PATH="$PATH"
   HWI_REAL_GIT="$(command -v git)"
+  HWI_REAL_MV="$(command -v mv)"
   HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE"
   mkdir -p "$HWI_STATE" "$HWI_STUB"
-  export HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT
+  export HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT HWI_REAL_MV
   export HERDR_WORKTREE_IDENTITY_STATE_DIR
   cat > "$HWI_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = pane ] && [ "$2" = get ]; then
   printf '%s\n' "$*" >> "$HWI_WORK/herdr.calls"
   [ ! -e "$HWI_WORK/fail-pane-get" ] || exit 1
+  if [ -e "$HWI_WORK/block-pane-get-with-descendant" ]; then
+    bash -c 'trap "" TERM; printf "%s\n" "$$" > "$HWI_WORK/pane-child.pid"; while :; do sleep 1; done' &
+    trap 'exit 0' TERM
+    : > "$HWI_WORK/pane-get.ready"
+    wait
+  fi
   if [ -e "$HWI_WORK/block-pane-get" ]; then
     : > "$HWI_WORK/pane-get.ready"
     while [ ! -e "$HWI_WORK/pane-get.release" ]; do sleep 0.01; done
@@ -39,6 +46,16 @@ if [ "$1" = workspace ] && [ "$2" = rename ]; then
   printf '%s\n' "$*" >> "$HWI_WORK/herdr.calls"
   [ ! -e "$HWI_WORK/fail-workspace-rename" ] || exit 1
   printf '%s' "$4" > "$HWI_WORK/workspace.label"
+  if [ -e "$HWI_WORK/commit-then-block-workspace-rename" ]; then
+    : > "$HWI_WORK/workspace-rename.ready"
+    while [ ! -e "$HWI_WORK/workspace-rename.release" ]; do sleep 0.01; done
+  fi
+  exit 0
+fi
+if [ "$1" = workspace ] && [ "$2" = get ]; then
+  label="$(cat "$HWI_WORK/workspace.label" 2>/dev/null)"
+  jq -cn --arg workspace "$3" --arg label "$label" \
+    '{result:{type:"workspace_info",workspace:{workspace_id:$workspace,label:$label}}}'
   exit 0
 fi
 exit 1
@@ -132,6 +149,17 @@ SH
   chmod +x "$HWI_STUB/git"
 }
 
+hwi_write_mv_proxy() {
+  cat > "$HWI_STUB/mv" <<'SH'
+#!/usr/bin/env bash
+if [ -e "$HWI_WORK/fail-terminal-state-write" ] && [ -e "$HWI_WORK/workspace.label" ] && [[ "${2:-}" == *.state ]]; then
+  exit 1
+fi
+exec "$HWI_REAL_MV" "$@"
+SH
+  chmod +x "$HWI_STUB/mv"
+}
+
 # A separate Bash process holds a real claim until the caller releases it.
 # The ready marker is a causal barrier; the bounded loop below is only a hang
 # guard, never the assertion about contention.
@@ -165,7 +193,7 @@ hwi_teardown() {
     wait "$HWI_HOLDER_PID" 2>/dev/null || true
   fi
   [[ -n "${HWI_WORK:-}" ]] && rm -rf "$HWI_WORK" || true
-  unset HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT HWI_MAIN
+  unset HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT HWI_REAL_MV HWI_MAIN
   unset HWI_CHECKOUT HWI_BRANCH HWI_PLUGIN_CONFIG HWI_HOLDER_PID HWI_HOLDER_READY HWI_HOLDER_RELEASE
   unset HERDR_WORKTREE_IDENTITY_STATE_DIR
 }

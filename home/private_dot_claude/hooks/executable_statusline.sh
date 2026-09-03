@@ -9,13 +9,17 @@ input=$(cat)
 # contract: herdr-worktree-identity owns its identity state.
 herdr_record_session_cwd() {
     [ "${HERDR_ENV:-}" = 1 ] || return 0
-    local dir key root tmp
+    local dir key root state_library tmp
     IFS=$'\t' read -r dir key <<< "$(printf '%s' "$input" |
         jq -r '[(.workspace.current_dir // ""), (.session_id // "")] | @tsv' 2>/dev/null)"
     [ -n "$dir" ] && [ -n "$key" ] || return 0
     root="${HERDR_WORKTREE_IDENTITY_STATE_DIR:-$HOME/.cache/herdr-worktree-identity}/agent-cwd"
+    state_library="${HERDR_WORKTREE_IDENTITY_STATE_LIBRARY:-$HOME/.local/lib/herdr-worktree-state.sh}"
+    [ -r "$state_library" ] || return 0
+    # shellcheck source=home/dot_local/lib/herdr-worktree-state.sh
+    . "$state_library"
     mkdir -p "$root" 2>/dev/null || return 0
-    key=$(LC_ALL=C printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-64)
+    key="$(encode_key "$key")" || return 0
     # Rename into place so a sweep reading mid-write never sees a partial path.
     tmp="$root/.$key.$$"
     printf '%s\n' "$dir" > "$tmp" 2>/dev/null && mv -f "$tmp" "$root/$key" 2>/dev/null

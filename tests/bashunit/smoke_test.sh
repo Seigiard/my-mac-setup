@@ -881,9 +881,12 @@ function test_smoke_1063_worktree_identity_deploys_and_statusline_records_() {
   input="$(jq -nc --arg dir "$BATS_TEST_TMPDIR" --arg session "$session" \
     '{workspace: {current_dir: $dir}, session_id: $session}')"
 
-  run env HOME="$record_home" HERDR_ENV=1 bash "$hook" <<< "$input"
+  run env HOME="$record_home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_STATE_LIBRARY="$library" bash "$hook" <<< "$input"
   assert_success
-  assert_file_contains "$record_home/.cache/herdr-worktree-identity/agent-cwd/$session" "^$BATS_TEST_TMPDIR$"
+  run find "$record_home/.cache/herdr-worktree-identity/agent-cwd" -type f
+  assert_success
+  local record="$output"
+  assert_file_contains "$record" "^$BATS_TEST_TMPDIR$"
   assert_file_not_exists "$record_home/.cache/herdr-task-sync/agent-cwd/$session"
 }
 

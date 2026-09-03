@@ -59,77 +59,98 @@ process_start_token() {
 claim_owner_id=""
 
 # Return 0 when a stale claim was removed, 1 when it remains owned, and 2 on
-# an unexpected filesystem error. A blank process-start never proves liveness.
+# an unexpected filesystem error. Claim files are fully written before an
+# atomic hard link publishes them, so readers never observe a live blank owner.
 recover_claim() {
-  local lock="$1" attempt="$2" owner pid start current_start
-  owner="$(read_state_field "$lock/owner" owner_id)"
+  local lock="$1" attempt="$2" owner pid start current_start observed
+  [ -f "$lock" ] || {
+    [ -e "$lock" ] && return 2
+    return 0
+  }
+  observed="$(cat "$lock" 2>/dev/null)" || return 2
+  owner="$(read_state_field "$lock" owner_id)"
   if [ -z "$owner" ]; then
     [ "$attempt" -ge 3 ] || return 1
-    if [ -f "$lock/owner" ] && [ -z "$(read_state_field "$lock/owner" owner_id)" ]; then
-      rm -f "$lock/owner" 2>/dev/null || return 2
-    fi
-    rmdir "$lock" 2>/dev/null && return 0
-    [ -d "$lock" ] && return 1
+    [ "$(cat "$lock" 2>/dev/null)" = "$observed" ] || return 1
+    rm -f "$lock" 2>/dev/null && return 0
+    [ -e "$lock" ] && return 1
     return 2
   fi
-  pid="$(record_number "$lock/owner" pid)"
-  start="$(read_state_field "$lock/owner" process_start)"
+  pid="$(record_number "$lock" pid)"
+  start="$(read_state_field "$lock" process_start)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     current_start="$(process_start_token "$pid")"
+    [ -n "$current_start" ] || return 1
     if [ -n "$start" ] && [ "$start" = "$current_start" ]; then
       return 1
     fi
   fi
-  [ "$(read_state_field "$lock/owner" owner_id)" = "$owner" ] || return 1
-  rm -f "$lock/owner" 2>/dev/null || return 2
-  rmdir "$lock" 2>/dev/null && return 0
-  [ -d "$lock" ] && return 1
+  [ "$(cat "$lock" 2>/dev/null)" = "$observed" ] || return 1
+  rm -f "$lock" 2>/dev/null && return 0
+  [ -e "$lock" ] && return 1
   return 2
 }
 
 # Return 0 on acquisition, 2 when a live owner exhausts the bound, and 1 for
 # invalid input or filesystem failures. Contention is intentionally retryable.
 acquire_claim() {
-  local lock="$1" attempts="$2" attempt=0 owner start owner_record recovery dir
+  local lock="$1" attempts="$2" attempt=0 owner start owner_record recovery dir candidate delay=0.01
   case "$attempts" in
     '' | *[!0-9]* | 0) return 1 ;;
   esac
   dir="$(dirname "$lock")"
   mkdir -p "$dir" 2>/dev/null || return 1
   while :; do
-    if mkdir "$lock" 2>/dev/null; then
-      owner="$$.$RANDOM"
-      start="$(process_start_token "$$")"
-      owner_record="owner_id=$(encode_value "$owner")
+    if [ -e "$lock" ]; then
+      recover_claim "$lock" "$((attempt + 1))"
+      recovery=$?
+      case "$recovery" in
+        0) continue ;;
+        2) return 1 ;;
+      esac
+      attempt=$((attempt + 1))
+      [ "$attempt" -lt "$attempts" ] || return 2
+      sleep "$delay"
+      case "$delay" in
+        0.01) delay=0.02 ;;
+        0.02) delay=0.04 ;;
+        0.04) delay=0.08 ;;
+        0.08) delay=0.16 ;;
+        *) delay=0.25 ;;
+      esac
+      continue
+    fi
+    owner="$$.$RANDOM"
+    start="$(process_start_token "$$")"
+    [ -n "$start" ] || return 1
+    owner_record="owner_id=$(encode_value "$owner")
 pid=$$
 process_start=$(encode_value "$start")"
-      if ! atomic_write "$lock/owner" "$owner_record"; then
-        rmdir "$lock" 2>/dev/null || true
-        return 1
-      fi
+    candidate="$dir/.claim.$$.$RANDOM"
+    if ! (umask 077; printf '%s\n' "$owner_record" > "$candidate") 2>/dev/null; then
+      rm -f "$candidate" 2>/dev/null || true
+      return 1
+    fi
+    if [ -d "$lock" ]; then
+      rm -f "$candidate" 2>/dev/null || true
+      return 1
+    fi
+    if ln "$candidate" "$lock" 2>/dev/null; then
+      rm -f "$candidate" 2>/dev/null || true
       # shellcheck disable=SC2034 # The process that sourced this library reads it.
       claim_owner_id="$owner"
       return 0
     fi
-    [ -d "$lock" ] || return 1
-    recover_claim "$lock" "$((attempt + 1))"
-    recovery=$?
-    case "$recovery" in
-      0) continue ;;
-      2) return 1 ;;
-    esac
-    attempt=$((attempt + 1))
-    [ "$attempt" -lt "$attempts" ] || return 2
-    sleep 0.01
+    rm -f "$candidate" 2>/dev/null || true
+    [ -e "$lock" ] || return 1
   done
 }
 
 release_claim() {
   local lock="$1" owner="$2"
   [ -n "$owner" ] || return 0
-  [ "$(read_state_field "$lock/owner" owner_id)" = "$owner" ] || return 0
-  rm -f "$lock/owner" 2>/dev/null || return 1
-  rmdir "$lock" 2>/dev/null || return 1
+  [ "$(read_state_field "$lock" owner_id)" = "$owner" ] || return 0
+  rm -f "$lock" 2>/dev/null || return 1
 }
 
 # Diagnostics are append-only evidence. No state helper reads this log.
