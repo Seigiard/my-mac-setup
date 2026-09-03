@@ -539,7 +539,9 @@ hpl_cutover_snapshot_is_complete() {
       and all($s.panes[];
         (.pane_id | nonempty_string) and (.terminal_id | nonempty_string) and
         (.tab_id | nonempty_string) and (.workspace_id | nonempty_string) and
-        (.revision | finite_number) and (.label | safe_string) and
+        # herdr omits `label` until a pane is first renamed; rejecting the null
+        # here blocks the whole cutover whenever any fresh pane exists.
+        (.revision | finite_number) and (.label == null or (.label | safe_string)) and
         ((has("agent") | not) or .agent == null or (.agent | nonempty_string)) and optional_session)
       and all($s.tabs[];
         (.tab_id | nonempty_string) and (.workspace_id | nonempty_string) and (.label | safe_string))

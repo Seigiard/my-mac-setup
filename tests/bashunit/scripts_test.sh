@@ -5527,6 +5527,33 @@ function test_scripts_1301_herdr_pane_label_cutover_selects_modes_only_for_the_c
   assert_success
 }
 
+function test_scripts_1302_herdr_pane_label_cutover_accepts_unlabeled_fresh_panes() {
+  _bats_test_init 1302 'herdr pane-label cutover accepts unlabeled fresh panes but still rejects unsafe labels'
+  command -v jq >/dev/null || skip "jq not available"
+  local library="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
+  local script="$BATS_TEST_TMPDIR/cutover-label-check.sh"
+  # herdr 0.8.2 omits `label` from a pane that has never been renamed. The
+  # cutover validator must accept that shape, or the before-script blocks every
+  # apply for as long as one fresh pane exists.
+  cat > "$script" <<'CHECK'
+source "$1"
+pane_snapshot() {
+  jq -c --argjson pane "$1" '{result:{snapshot:{
+    panes:[$pane],
+    tabs:[{tab_id:"tab1",workspace_id:"ws1",label:"1"}],
+    agents:[],layouts:[],workspaces:[{workspace_id:"ws1"}]}}}' <<< '{}'
+}
+base='{"pane_id":"p1","terminal_id":"t1","tab_id":"tab1","workspace_id":"ws1","revision":1}'
+pane_snapshot "$(jq -c 'del(.label)' <<< "$base")" | hpl_cutover_snapshot_is_complete || exit 1
+pane_snapshot "$(jq -c '.label = null' <<< "$base")" | hpl_cutover_snapshot_is_complete || exit 1
+pane_snapshot "$(jq -c '.label = "cc:red-wolf"' <<< "$base")" | hpl_cutover_snapshot_is_complete || exit 1
+pane_snapshot "$(jq -c '.label = "badlabel"' <<< "$base")" | hpl_cutover_snapshot_is_complete && exit 1
+exit 0
+CHECK
+  run env HOME="$BATS_TEST_TMPDIR/cutover-label-home" bash "$script" "$library"
+  assert_success
+}
+
 
 
 
