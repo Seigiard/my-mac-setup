@@ -143,7 +143,7 @@ Pick one (more recent / more tested), state why in one line, and flag the other 
 - `fd` — find files by glob, extension, or mtime: `fd -g '<Name>.tsx' <dir>`, `fd -e ts -e tsx . <dir>`, `fd -HI --changed-within 1d . <dir>`. It respects `.gitignore`, so drop the manual `node_modules` exclude chain.
 - `magick` — the Read tool cannot open a GIF. Split it into frames: `magick <file>.gif -coalesce frame-%02d.png`. Crop one region: `magick frame-01.png -crop <W>x<H>+<X>+<Y> +repage crop.png`.
 - `npx -y agent-browser` — inspect a local dev server, or an app behind PAT auth: `open <url>`, then `snapshot -i`, `eval`, `click @<ref>`, `screenshot <path>`, `close`. Public pages stay with the browser MCP tools and WebFetch.
-- Aliases replace `du` with dust and `df` with duf in the agent shell. For POSIX flags write `command du -sh <dir>` and `command df -h <path>`.
+- Aliases replace `du` with dust, `df` with duf, and `ps` with procs in the agent shell. These replacements reject the original flags: `ps -ww -eo pid,command` fails because procs reads `-w` as `--watch`. For the standard flags write `command du -sh <dir>`, `command df -h <path>`, `command ps -ww -p <pid> -o command=`.
 
 **MCP / agent tool selection:**
 
