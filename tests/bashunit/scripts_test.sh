@@ -146,6 +146,136 @@ SH
 }
 
 # ===========================================
+# herdr-worktree-identity engine (U2)
+# ===========================================
+
+function test_scripts_1137_worktree_identity_authorizes_a_real_plugin_marker_and_reentry_after_rename() {
+  _bats_test_init 1137 'worktree identity authorizes the plugin marker after a real branch rename'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'name this task'
+  assert_success
+  local state marker
+  state="$(hwi_identity_state_path)"
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  assert_file_contains "$marker" "^$HWI_BRANCH$"
+  assert_equal "$(read_state_field "$state" original_branch)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" authorization)" authorized
+
+  git -C "$HWI_CHECKOUT" branch -m task-derived-name
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'name this task again'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" task-derived-name
+  assert_equal "$(read_state_field "$state" original_branch)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" authorization)" authorized
+}
+
+function test_scripts_1138_worktree_identity_declines_missing_or_mismatched_markers_without_ref_mutation() {
+  _bats_test_init 1138 'worktree identity declines absent and mismatched generated-worktree markers'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  local marker before state diagnostics
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  rm "$marker"
+  before="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'missing marker'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$before"
+  state="$(hwi_identity_state_path)"
+  diagnostics="${state%.state}.diagnostics.log"
+  assert_equal "$(read_state_field "$state" outcome)" declined
+  assert_file_contains "$diagnostics" 'reason=marker-missing .*checkout='
+
+  printf '%s\n' different-branch > "$marker"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'mismatched marker'
+  assert_success
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$before"
+  assert_file_contains "$diagnostics" 'reason=marker-mismatched .*marker_branch=different-branch'
+}
+
+function test_scripts_1139_worktree_identity_keeps_unresolved_events_retryable_and_prefers_reported_cwd() {
+  _bats_test_init 1139 'worktree identity records unresolved pane reads and prefers reported working directories'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  : > "$HWI_WORK/fail-pane-get"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'retry later'
+  assert_success
+  local unresolved="$HWI_STATE/sessions/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  assert_equal "$(read_state_field "$unresolved" outcome)" unresolved
+  assert_file_contains "${unresolved%.state}.diagnostics.log" 'reason=pane-unreachable'
+
+  rm "$HWI_WORK/fail-pane-get"
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_MAIN"
+  mkdir -p "$HWI_STATE/agent-cwd"
+  printf '%s\n' "$HWI_CHECKOUT" > "$HWI_STATE/agent-cwd/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n')"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'retry now'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" checkout_root)" "$(git -C "$HWI_CHECKOUT" rev-parse --show-toplevel)"
+  assert_equal "$(read_state_field "$state" authorization)" authorized
+}
+
+function test_scripts_1140_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
+  _bats_test_init 1140 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_MAIN"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'primary checkout'
+  assert_success
+  local state="$HWI_STATE/sessions/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  assert_equal "$(read_state_field "$state" outcome)" declined
+  assert_file_contains "${state%.state}.diagnostics.log" 'reason=primary-checkout .*checkout='
+
+  hwi_write_snapshot_without_match
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-2 --workspace workspace-1 <<< 'no pane for this session'
+  assert_success
+  state="$HWI_STATE/sessions/$(printf '%s' session-2 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  assert_equal "$(read_state_field "$state" outcome)" unresolved
+  assert_file_contains "${state%.state}.diagnostics.log" 'reason=pane-unresolved .*pane=missing'
+
+  hwi_write_pane pane-2 codex session-3 workspace-1 "$HWI_CHECKOUT"
+  hwi_write_snapshot_from_pane
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-3 --workspace workspace-1 <<< 'resolve from snapshot'
+  assert_success
+  assert_equal "$(read_state_field "$(hwi_identity_state_path)" authorization)" authorized
+}
+
+function test_scripts_1141_worktree_identity_foreground_hands_off_to_a_detached_worker() {
+  _bats_test_init 1141 'worktree identity foreground hands prompt processing to a detached worker'
+  hwi_setup
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  : > "$HWI_WORK/block-pane-get"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash "$HWI_ENGINE" --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'do not place this prompt on argv'
+  assert_success
+  local attempt=0
+  while [[ ! -e "$HWI_WORK/pane-get.ready" && "$attempt" -lt 3000 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  assert_file_exists "$HWI_WORK/pane-get.ready"
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'do not place this prompt on argv'
+  : > "$HWI_WORK/pane-get.release"
+}
+
+# ===========================================
 # python3 -- the declared interpreter
 # ===========================================
 
