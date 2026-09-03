@@ -26,5 +26,8 @@ The rule that TUI theme files managed by this repo (Claude Code, opencode, pi) r
 
 ## Agent platform
 
+### Hooks core
+The shared dispatch layer for agent-client hook policies (`~/.local/lib/agent-hooks/`). A policy is written once in the core and declared applicable per client and tool in a static registry; per-client adapters (Claude Code hook, OpenCode plugin, Pi extension) perform transport only — event normalization in, decision translation out. Decisions are `allow`, `block(reason)` with a `<policy-name>:` prefix, or `context(text)` (Claude-only). Every failure path fails open.
+
 ### Explicit-only workflow
 A workflow that interrupts the current task and must run only after a direct user request. Its shared description and instructions are packaged as a Claude Code skill with model invocation disabled, consumed by Pi through the shared Claude skill path, and exposed to OpenCode as a manual command rather than a native skill.

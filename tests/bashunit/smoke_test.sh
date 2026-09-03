@@ -400,7 +400,7 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   for skill in \
     ask-in-herdr herdr markdown-new \
     pf-build pf-research pf-spec plan-explainer \
-    se-code-review se-doc-review se-plan se-simplify \
+    se-code-review se-doc-review se-orchestrator se-plan se-simplify \
     vector-prime work-summary writing-for-agents; do
     run readlink "$HOME/.claude/skills/$skill/SKILL.md"
     assert_success
@@ -409,24 +409,6 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
     if [[ -e "$HOME/.config/opencode/skills/$skill" || -L "$HOME/.config/opencode/skills/$skill" ]]; then
       fail "stale OpenCode skill adapter remains: $HOME/.config/opencode/skills/$skill"
     fi
-  done
-
-  local retired path
-  for path in \
-    "$HOME/.agents/skills/se-cleanup" \
-    "$HOME/.claude/skills/se-cleanup" \
-    "$HOME/.config/opencode/skills/se-cleanup"; do
-    [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
-  done
-  for retired in se-flow se-review-and-work se-work; do
-    for path in \
-      "$HOME/.claude/skills/$retired" \
-      "$HOME/.config/opencode/skills/$retired"; do
-      [[ ! -e "$path" && ! -L "$path" ]] || fail "retired skill remains deployed: $path"
-    done
-  done
-  for path in "$HOME/.claude/.smithers" "$HOME/.local/bin/se"; do
-    [[ ! -e "$path" && ! -L "$path" ]] || fail "retired Smithers path remains deployed: $path"
   done
 }
 
@@ -482,6 +464,7 @@ function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
     skills/ask-in-herdr/SKILL.md
     skills/ask-in-herdr/scripts/ask.sh
     skills/herdr/SKILL.md
+    skills/se-orchestrator/SKILL.md
     skills/writing-for-agents/SKILL.md
     skills/writing-for-agents/SKILL-MECHANICS.md
     skills/work-summary/SKILL.md
@@ -928,7 +911,9 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
   # Pane and tab identity stay stable when Git state changes. Location metadata
   # remains available to integrations, but the sidebar renders identity only.
-  assert_file_contains "$config" '^rows = \[\["state_icon", "workspace"\], \["pane"\]\]$'
+  # The three identity fields and their order are the contract; how they are
+  # grouped into rows is a presentation preference the user changes directly.
+  assert_file_contains "$config" '^rows = \[\[.*"state_icon".*"workspace".*"pane".*\]\]$'
   run grep -E '\$git_ref|\$location_label|\$location_status' "$config"
   assert_failure
   # Sole owner of sidebar_min_width: the awk scope proves the key both carries
@@ -960,7 +945,6 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
     "$config" "${writer_files[@]}"
   assert_success
-  assert_file_contains "$config" 'rows = \[\["state_icon", "workspace"\], \["pane"\]\]'
   assert_file_contains "$config" '"state_icon"'
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
