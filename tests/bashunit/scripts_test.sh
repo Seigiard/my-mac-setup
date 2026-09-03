@@ -24,6 +24,9 @@ setup() {
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
   unset CHILD_REAP_PID
+  # U2 exercises authorization only. Do not let an installed local model CLI
+  # turn those fixtures into live naming requests now that U3 derives names.
+  export HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=1
 }
 
 teardown() {
@@ -68,6 +71,7 @@ teardown() {
   fi
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
+  unset HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES
 }
 
 # ===========================================
@@ -273,6 +277,105 @@ function test_scripts_1141_worktree_identity_foreground_hands_off_to_a_detached_
   assert_file_exists "$HWI_WORK/pane-get.ready"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'do not place this prompt on argv'
   : > "$HWI_WORK/pane-get.release"
+}
+
+# ===========================================
+# herdr-worktree-identity naming derivation (U3)
+# ===========================================
+
+hwi_write_naming_stub() {
+  local binary="$1"
+  cat > "$HWI_STUB/$binary" <<'SH'
+#!/usr/bin/env bash
+name="${0##*/}"
+printf '%s\n' "$*" >> "$HWI_WORK/$name.calls"
+printf '%s' "${HERDR_WORKTREE_IDENTITY_ACTIVE:-}" > "$HWI_WORK/$name.guard"
+cat > "$HWI_WORK/$name.stdin"
+cat "$HWI_WORK/$name.output"
+SH
+  chmod +x "$HWI_STUB/$binary"
+}
+
+function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_identity() {
+  _bats_test_init 1142 'worktree identity uses a normalized multi-word pi identity'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_write_naming_stub pi
+  hwi_write_naming_stub claude
+  printf '%s\n' '{"title":"  Normalize API Tokens  ","slug":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' 'unexpected claude fallback' > "$HWI_WORK/claude.output"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Normalize API tokens from model output'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" title)" 'Normalize API Tokens'
+  assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
+  assert_file_contains "$HWI_WORK/pi.stdin" 'First prompt of the session:'
+  assert_file_not_contains "$HWI_WORK/pi.calls" 'Normalize API tokens from model output'
+  assert_equal "$(cat "$HWI_WORK/pi.guard")" 1
+  assert_file_not_exists "$HWI_WORK/claude.calls"
+}
+
+function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model_slugs() {
+  _bats_test_init 1143 'worktree identity falls back for one-word and non-JSON model slugs'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_write_naming_stub pi
+  hwi_write_naming_stub claude
+  printf '%s\n' '{"title":"JSON","slug":"json"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' 'not JSON' > "$HWI_WORK/claude.output"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" slug)" json-generated
+  assert_file_exists "$HWI_WORK/pi.calls"
+  assert_file_exists "$HWI_WORK/claude.calls"
+}
+
+function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_caps_slugs() {
+  _bats_test_init 1144 'worktree identity falls back without model CLIs and caps long slugs'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  local minimal="$HWI_WORK/minimal"
+  mkdir "$minimal"
+  ln -s "$(command -v jq)" "$minimal/jq"
+  ln -s "$(command -v git)" "$minimal/git"
+
+  run env PATH="$HWI_STUB:$minimal:/usr/bin:/bin" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" slug)" json-generated
+
+  rm "$state"
+  hwi_write_naming_stub pi
+  printf '%s\n' '{"title":"Long model identity","slug":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'a different prompt'
+  assert_success
+  state="$(hwi_identity_state_path)"
+  local slug="$(read_state_field "$state" slug)"
+  assert_equal "$(read_state_field "$state" title)" 'Long model identity'
+  assert_equal "${#slug}" 40
+  run test "${slug%-}" = "$slug"
+  assert_success
+  run test "$(printf '%s' "$slug" | tr '-' '\n' | grep -c '.')" -ge 2
+  assert_success
 }
 
 # ===========================================

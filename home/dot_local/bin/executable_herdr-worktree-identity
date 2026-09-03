@@ -8,8 +8,206 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=home/dot_local/lib/herdr-worktree-state.sh
 source "$SCRIPT_DIR/../lib/herdr-worktree-state.sh"
 
+SLUG_MAX_LEN=40
+SLUG_MAX_WORDS=5
+TITLE_MAX_LEN=48
+ENGINE_TIMEOUT="${HERDR_WORKTREE_IDENTITY_TIMEOUT:-30}"
+PI_MODEL="${HERDR_WORKTREE_IDENTITY_PI_MODEL:-openai-codex/gpt-5.4-mini}"
+CLAUDE_MODEL="${HERDR_WORKTREE_IDENTITY_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
+
 usage() {
   printf '%s\n' 'usage: herdr-worktree-identity [--worker] --agent NAME --session ID [--pane ID] [--workspace ID]' >&2
+}
+
+first_nonempty_line() {
+  printf '%s\n' "$1" | sed -e 's/\r$//' | grep -m1 '[^[:space:]]' || true
+}
+
+normalize_slug() {
+  LC_ALL=C printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed -e 's/--*/-/g' -e 's/^-//' -e 's/-$//' \
+    | cut -c "1-$SLUG_MAX_LEN" \
+    | sed -e 's/-$//'
+}
+
+limit_slug_words() {
+  awk -F- -v max="$SLUG_MAX_WORDS" '{
+    out = ""
+    for (i = 1; i <= NF && i <= max; i++) out = out (out == "" ? "" : "-") $i
+    print out
+  }'
+}
+
+slug_word_count() {
+  printf '%s' "$1" | tr '-' '\n' | grep -c '.' || true
+}
+
+normalize_title() {
+  local line
+  line="$(first_nonempty_line "$1" | tr '\t' ' ' \
+    | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  printf '%s' "$line" | cut -c "1-$TITLE_MAX_LEN" | sed -e 's/[[:space:]]*$//'
+}
+
+title_word_count() {
+  printf '%s\n' "$1" | awk '{ print NF }'
+}
+
+title_from_slug() {
+  printf '%s' "$1" | tr '-' ' ' \
+    | awk '{ if (length($0)) $0 = toupper(substr($0, 1, 1)) substr($0, 2); print }'
+}
+
+repository_discriminator() {
+  local root="$1" name
+  name="${root%/}"
+  name="${name##*/}"
+  normalize_slug "$name" | cut -c1-16 | sed -e 's/-$//'
+}
+
+ensure_slug_floor() {
+  local slug="$1" root="$2" discriminator max_base base
+  slug="$(normalize_slug "$slug" | limit_slug_words)"
+  if [ "$(slug_word_count "$slug")" -lt 2 ]; then
+    discriminator="$(repository_discriminator "$root")"
+    [ -n "$discriminator" ] || discriminator=task
+    max_base=$((SLUG_MAX_LEN - ${#discriminator} - 1))
+    if [ "$max_base" -lt 1 ]; then
+      discriminator=task
+      max_base=$((SLUG_MAX_LEN - ${#discriminator} - 1))
+    fi
+    base="$(printf '%s' "${slug:-agent}" | cut -c "1-$max_base" | sed -e 's/-$//')"
+    [ -n "$base" ] || base=agent
+    slug="$(normalize_slug "$base-$discriminator")"
+  fi
+  if [ "$(slug_word_count "$slug")" -lt 2 ]; then
+    slug='agent-task'
+  fi
+  printf '%s' "$slug"
+}
+
+ensure_title_floor() {
+  local title="$1" slug="$2"
+  title="$(normalize_title "$title")"
+  if [ -z "$title" ] || [ "$(title_word_count "$title")" -lt 2 ]; then
+    title="$(title_from_slug "$slug")"
+  fi
+  [ -n "$title" ] || title='Agent task'
+  printf '%s' "$title"
+}
+
+build_naming_prompt() {
+  local first="$1"
+  cat <<EOF
+You name a coding-agent session and its Git branch from the first user task.
+Return exactly one JSON object on one line and nothing else.
+
+Output rules:
+- title: 2 to 6 concise English words for display, preserving an issue ID when present
+- slug: the same identity as 2 to 5 lowercase English words, hyphen-separated
+  - example: {"title":"PRD-2939: Fix agent launch","slug":"prd-2939-fix-agent-launch"}
+
+Naming rules:
+- Name the overall task in the first prompt.
+- Do not describe the user, agent, or conversation.
+
+First prompt of the session:
+${first:-(none)}
+EOF
+}
+
+identity_from_output() {
+  local raw="$1" object title slug
+  object="$(printf '%s' "$raw" | jq -ce '
+    select(type == "object" and (.title | type == "string") and (.slug | type == "string"))
+  ' 2>/dev/null)" || return 1
+  case "$object" in
+    '' | *$'\n'*) return 1 ;;
+  esac
+  title="$(printf '%s' "$object" | jq -r '.title' 2>/dev/null)" || return 1
+  slug="$(printf '%s' "$object" | jq -r '.slug' 2>/dev/null)" || return 1
+  slug="$(normalize_slug "$slug" | limit_slug_words)"
+  [ "$(slug_word_count "$slug")" -ge 2 ] || return 1
+  title="$(ensure_title_floor "$title" "$slug")"
+  [ -n "$title" ] || return 1
+  printf '%s\037%s' "$title" "$slug"
+}
+
+deterministic_identity() {
+  local prompt="$1" root="$2" line title slug
+  line="$(first_nonempty_line "$prompt" | sed \
+    -e 's/^[[:space:]]*[-*#][[:space:]]*//' \
+    -e 's/^[[:space:]]*[0-9][0-9]*[.)][[:space:]]*//')"
+  slug="$(ensure_slug_floor "$(normalize_slug "$line" | limit_slug_words)" "$root")"
+  title="$(ensure_title_floor "$line" "$slug")"
+  printf '%s\037%s' "$title" "$slug"
+}
+
+run_with_timeout() {
+  local seconds="$1" infile="$2" outfile="$3" pid watchdog status=0
+  shift 3
+  "$@" < "$infile" > "$outfile" 2>/dev/null &
+  pid=$!
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os, signal, sys, time; time.sleep(float(sys.argv[1])); os.kill(int(sys.argv[2]), signal.SIGKILL)' \
+      "$seconds" "$pid" >/dev/null 2>&1 &
+  else
+    (sleep "$seconds"; kill -9 "$pid") >/dev/null 2>&1 &
+  fi
+  watchdog=$!
+  wait "$pid" || status=$?
+  kill "$watchdog" >/dev/null 2>&1 || true
+  wait "$watchdog" 2>/dev/null || true
+  return "$status"
+}
+
+call_engine_chain() {
+  local naming_prompt="$1" infile outfile raw identity
+  [ "${HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES:-}" = 1 ] && return 1
+  infile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-in.XXXXXX")" || return 1
+  outfile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-out.XXXXXX")" || {
+    rm -f "$infile"
+    return 1
+  }
+  printf '%s\n' "$naming_prompt" > "$infile"
+
+  # Client adapters honor this guard, so model CLIs cannot recursively name
+  # the naming worker's own prompt submission.
+  export HERDR_WORKTREE_IDENTITY_ACTIVE=1
+  if command -v pi >/dev/null 2>&1 && \
+    run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
+      pi -p --model "$PI_MODEL" --thinking off \
+      --no-tools --no-session --no-extensions --no-skills \
+      --no-context-files --no-prompt-templates; then
+    raw="$(cat "$outfile" 2>/dev/null)"
+    identity="$(identity_from_output "$raw")" || identity=''
+    if [ -n "$identity" ]; then
+      rm -f "$infile" "$outfile"
+      printf '%s' "$identity"
+      return 0
+    fi
+  fi
+  if command -v claude >/dev/null 2>&1 && \
+    run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" claude -p --model "$CLAUDE_MODEL"; then
+    raw="$(cat "$outfile" 2>/dev/null)"
+    identity="$(identity_from_output "$raw")" || identity=''
+    if [ -n "$identity" ]; then
+      rm -f "$infile" "$outfile"
+      printf '%s' "$identity"
+      return 0
+    fi
+  fi
+  rm -f "$infile" "$outfile"
+  return 1
+}
+
+derive_identity() {
+  local prompt="$1" root="$2" identity
+  identity="$(call_engine_chain "$(build_naming_prompt "$prompt")")" || identity=''
+  [ -n "$identity" ] || identity="$(deterministic_identity "$prompt" "$root")"
+  printf '%s' "$identity"
 }
 
 valid_identifier() {
@@ -38,12 +236,15 @@ diagnostic_file_for_state() {
 
 write_identity_state() {
   local file="$1" root="$2" common="$3" workspace="$4" original="$5" outcome="$6" authorization="$7"
+  local title="${8:-}" slug="${9:-}"
   atomic_write "$file" "checkout_root=$(encode_value "$root")
 repository_anchor=$(encode_value "$common")
 workspace=$(encode_value "$workspace")
 original_branch=$(encode_value "$original")
 outcome=$(encode_value "$outcome")
-authorization=$(encode_value "$authorization")"
+authorization=$(encode_value "$authorization")
+title=$(encode_value "$title")
+slug=$(encode_value "$slug")"
 }
 
 record_unresolved() {
@@ -107,35 +308,38 @@ is_linked_worktree() {
 }
 
 authorize_worktree() {
-  local root="$1" common="$2" branch marker original state observed
+  local root="$1" common="$2" branch marker original state observed title slug
   branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
     record_unresolved detached-head "checkout=$root"
     return 0
   }
   state="$(worktree_state_file "$common" "$root")"
   original="$(read_state_field "$state" original_branch)"
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
   [ -n "$original" ] || original="$branch"
   marker="$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)" || {
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-path-unavailable "checkout=$root branch=$branch" || true
     return 0
   }
   if [ ! -f "$marker" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-missing "checkout=$root branch=$branch marker=$marker" || true
     return 0
   fi
   observed="$(head -n 1 "$marker" 2>/dev/null)"
   if [ "$observed" != "$original" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-mismatched "checkout=$root branch=$branch original_branch=$original marker_branch=$observed" || true
     return 0
   fi
-  write_identity_state "$state" "$root" "$common" "$workspace" "$original" '' authorized || true
+  write_identity_state "$state" "$root" "$common" "$workspace" "$original" '' authorized "$title" "$slug" || true
 }
 
 worker() {
-  local payload fields resolved_pane pane_agent pane_session pane_workspace pane_cwd cwd root common status
+  local prompt="$1" payload fields resolved_pane pane_agent pane_session pane_workspace pane_cwd cwd root common status
+  local state identity title slug
   command -v herdr >/dev/null 2>&1 || {
     record_unresolved herdr-unavailable "pane=${pane:-missing}"
     return 0
@@ -187,6 +391,16 @@ worker() {
     return 0
   }
   authorize_worktree "$root" "$common"
+  state="$(worktree_state_file "$common" "$root")"
+  [ "$(read_state_field "$state" authorization)" = authorized ] || return 0
+  title="$(read_state_field "$state" title)"
+  slug="$(read_state_field "$state" slug)"
+  if [ -z "$title" ] || [ "$(slug_word_count "$slug")" -lt 2 ]; then
+    identity="$(derive_identity "$prompt" "$root")"
+    IFS=$'\037' read -r title slug <<< "$identity"
+    write_identity_state "$state" "$root" "$common" "$workspace" \
+      "$(read_state_field "$state" original_branch)" '' authorized "$title" "$slug" || true
+  fi
 }
 
 detach_worker() {
@@ -228,10 +442,8 @@ valid_identifier "$agent" && valid_identifier "$session" &&
   { [ -z "$workspace" ] || valid_identifier "$workspace"; } || { usage; exit 2; }
 
 if [ "$worker_mode" -eq 1 ]; then
-  # U2 does not derive identity yet, but consuming stdin keeps prompt text out
-  # of argv and preserves the foreground-to-worker handoff contract.
-  cat >/dev/null
-  worker
+  prompt="$(cat)"
+  worker "$prompt"
 else
   detach_worker
 fi
