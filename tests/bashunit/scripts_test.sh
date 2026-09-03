@@ -8,6 +8,7 @@ _bats_file_init "${BASH_SOURCE[0]}"
 
 load 'helpers/common'
 load 'helpers/herdr_pane_labels'
+load 'helpers/herdr_worktree_identity'
 
 setup() {
   unset HERDR_CHILD_NAME
@@ -27,6 +28,7 @@ setup() {
 
 teardown() {
   hpl_teardown
+  hwi_teardown
   if [[ -n "${CHILD_STUB:-}" ]]; then
     if [[ -e "$CHILD_STUB/reap-invalidated.ready" ]]; then
       : > "$CHILD_STUB/reap-invalidated.release"
@@ -66,6 +68,81 @@ teardown() {
   fi
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
   [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
+}
+
+# ===========================================
+# herdr-worktree-identity state library
+# ===========================================
+
+function test_scripts_1134_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
+  _bats_test_init 1134 'worktree identity claims live owners and recovers dead owners'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local lock="$HWI_STATE/repositories/test/identity.claim" owner
+
+  hwi_start_claim_holder "$lock" || fail 'second process did not acquire its claim'
+  run acquire_claim "$lock" 3
+  assert_failure 2
+  run kill -0 "$HWI_HOLDER_PID"
+  assert_success
+
+  kill -KILL "$HWI_HOLDER_PID"
+  wait "$HWI_HOLDER_PID" 2>/dev/null || true
+  HWI_HOLDER_PID=""
+  acquire_claim "$lock" 3 || fail 'dead owner claim was not recovered'
+  owner="$claim_owner_id"
+  release_claim "$lock" "$owner"
+  assert_dir_not_exists "$lock"
+}
+
+function test_scripts_1135_worktree_identity_state_library_recovers_malformed_claims_and_distinguishes_errors() {
+  _bats_test_init 1135 'worktree identity recovers malformed claims and distinguishes contention from errors'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local malformed="$HWI_STATE/malformed.claim" held="$HWI_STATE/held.claim"
+  mkdir -p "$malformed"
+  atomic_write "$malformed/owner" "owner_id=$(encode_value malformed-owner)
+pid=$$
+process_start=$(encode_value '')"
+
+  acquire_claim "$malformed" 3 || fail 'empty process-start claim was not recovered'
+  release_claim "$malformed" "$claim_owner_id"
+
+  hwi_start_claim_holder "$held" || fail 'second process did not acquire its claim'
+  run acquire_claim "$held" 1
+  assert_failure 2
+  : > "$HWI_WORK/not-a-directory"
+  run acquire_claim "$HWI_WORK/not-a-directory" 1
+  assert_failure 1
+}
+
+function test_scripts_1136_worktree_identity_state_library_appends_diagnostics_and_preserves_preexisting_records() {
+  _bats_test_init 1136 'worktree identity diagnostics append and failed pre-rename writes preserve records'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local diagnostics="$HWI_STATE/worktree/diagnostics.log" record="$HWI_STATE/worktree/state"
+  local stub="$HWI_WORK/stub"
+
+  record_diagnostic "$diagnostics" marker-missing 'checkout=/tmp/first'
+  record_diagnostic "$diagnostics" contended 'claim=repository'
+  assert_file_contains "$diagnostics" '^reason=marker-missing observed_state=checkout=/tmp/first$'
+  assert_file_contains "$diagnostics" '^reason=contended observed_state=claim=repository$'
+  assert_equal "$(wc -l < "$diagnostics" | tr -d ' ')" 2
+
+  atomic_write "$record" previous
+  mkdir -p "$stub"
+  cat > "$stub/mv" <<'SH'
+#!/bin/sh
+exit 1
+SH
+  chmod +x "$stub/mv"
+  run env PATH="$stub:/usr/bin:/bin" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash -c 'source "$1"; atomic_write "$2" replacement' _ "$HWI_STATE_LIBRARY" "$record"
+  assert_failure
+  assert_file_contains "$record" '^previous$'
+  run find "$(dirname "$record")" -name '.record.*' -print
+  assert_success
+  assert_output ''
 }
 
 # ===========================================
