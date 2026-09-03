@@ -120,18 +120,29 @@ herdr agent wait "$CLAUDE_PANE" --timeout 1800000
 herdr agent wait "$OPENCODE_PANE" --timeout 1800000
 ```
 
-The report files are the primary transport. A settled peer that did not create a non-empty regular report file gets one bounded recovery prompt to persist its previous answer:
+The report files are the primary transport. A settled peer that did not create a non-empty regular report file gets one bounded recovery prompt to persist its previous answer. A symlink left at the report path is refused outright and never retried: it is a malformed delivery, not a missing one.
 
 ```bash
+report_is_delivered() {
+  local report_path="$1"
+  # -f and -s follow symlinks, so a peer could point the report at any file the
+  # caller can read and have its content synthesized as that peer's review.
+  # Refuse the path without opening it. This is a coherence guard, not a
+  # containment boundary: a same-user peer is not contained by it.
+  [ ! -L "$report_path" ] || return 1
+  [ -f "$report_path" ] && [ -s "$report_path" ]
+}
+
 recover_peer_report() {
   local pane="$1" report_path="$2"
-  [ -f "$report_path" ] && [ -s "$report_path" ] && return 0
+  [ ! -L "$report_path" ] || return 1
+  report_is_delivered "$report_path" && return 0
 
   herdr agent prompt "$pane" \
     "The report transport file is missing or empty. Write your exact complete previous report, byte-for-byte, atomically through $report_path.tmp and rename it to $report_path. Then reply with only the path." \
     --wait --timeout 120000 || return 1
 
-  [ -f "$report_path" ] && [ -s "$report_path" ]
+  report_is_delivered "$report_path"
 }
 
 CLAUDE_TRANSPORT_OK=1

@@ -53,12 +53,25 @@ for reserved in "$@"; do
 $reserved"
 done
 
-while IFS= read -r candidate; do
-  if ! printf '%s\n' "$taken" | grep -qxF "$candidate"; then
-    printf '%s\n' "$candidate"
-    exit 0
-  fi
-done < <(herdr_alias_candidates "$seed")
+# Read the whole pool before scanning it. A process substitution here left the
+# producer writing 1024 candidates into a pipe that this loop closes at the
+# first free alias; the remainder is around the size of a pipe buffer, so the
+# producer sometimes took EPIPE and bash reported the broken pipe on the stderr
+# it inherited from us. It also discarded the producer's exit status, so a pool
+# that failed validation was reported as exhausted instead.
+candidates="$(herdr_alias_candidates "$seed")" || {
+  printf 'herdr-peer-alias: could not build the alias pool\n' >&2
+  exit 1
+}
+
+if [ -n "$candidates" ]; then
+  while IFS= read -r candidate; do
+    if ! printf '%s\n' "$taken" | grep -qxF "$candidate"; then
+      printf '%s\n' "$candidate"
+      exit 0
+    fi
+  done <<< "$candidates"
+fi
 
 printf 'herdr-peer-alias: alias pool is exhausted\n' >&2
 exit 1

@@ -25,3 +25,8 @@ Library/marta
 .claude/hooks/herdr-task-sync-hook.sh
 .config/opencode/plugins/herdr-task-sync.ts
 .pi/agent/extensions/herdr-task-sync.ts
+
+# ask-in-herdr's script deploys under .agents now; only the SKILL.md symlink
+# stays under .claude. Earlier applies left a stale copy of the script at the
+# old path, where it would still run without the report transport.
+.claude/skills/ask-in-herdr/scripts
