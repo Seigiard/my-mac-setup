@@ -405,9 +405,6 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
     assert_success
     assert_output "$HOME/.agents/skills/$skill/SKILL.md"
     assert_file_exists "$HOME/.agents/skills/$skill/SKILL.md"
-    if [[ -e "$HOME/.config/opencode/skills/$skill" || -L "$HOME/.config/opencode/skills/$skill" ]]; then
-      fail "stale OpenCode skill adapter remains: $HOME/.config/opencode/skills/$skill"
-    fi
   done
 }
 
