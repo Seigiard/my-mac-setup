@@ -9,7 +9,7 @@ help:
 	@echo "  make test-templates   Run template tests in Docker (may rebuild images)"
 	@echo "  make test-pi-agents-local  Run focused Pi local-instructions extension tests"
 	@echo "  make test-pi-herdr-worktree-identity  Run focused Pi worktree-identity extension tests"
-	@echo "  make test-local       Run chezmoi diff on current machine (dry-run)"
+	@echo "  make test-local       Diff checkout source against current home (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
 	@echo "  make lint             Run shellcheck on all scripts"
 	@echo "  make shell-ubuntu     Open interactive shell in Ubuntu container"
@@ -44,25 +44,11 @@ shell-ubuntu: build-docker
 test-local:
 	chezmoi diff --source=./home
 
-# The parallel post-apply suite keeps tests/bashunit/idempotent_test.sh excluded as
-# redundant defense behind that file's MMS_DISPOSABLE_HOME guard. The guard
-# makes direct host runs inert, but the exclusion keeps this host-safe target
-# from reaching the real apply commands at all. Use `make test-ubuntu` to run
-# the full suite against a disposable $$HOME.
-#
-# Second, sharper limit: the host-safe files assert against the deployed $$HOME,
-# and this target deliberately applies nothing. So it reports on whatever was
-# last applied to this machine, NOT on the working checkout -- an edit under
-# home/ that has not been applied is invisible here, and the run still goes
-# green. `make test-ubuntu` applies the checkout first, which is why it is the
-# answer for an unapplied edit. The echo below repeats this at the point of
-# use, because a caveat that lives only in this comment reaches nobody.
+# This host-safe target excludes tests/bashunit/idempotent_test.sh and applies
+# nothing. It reports on the already-applied $$HOME, not the working checkout.
 test-suite:
 	@echo "NOTE: tests/bashunit/idempotent_test.sh remains excluded behind its disposable-home guard."
-	@echo "      Use make test-ubuntu to run those real apply tests safely."
 	@echo "NOTE: asserts against the ALREADY-APPLIED ~/ , not this checkout."
-	@echo "      An edit under home/ is not covered until it is applied."
-	@echo "      To test an unapplied edit, use: make test-ubuntu"
 	tests/run-post-apply.sh host-safe
 
 test-docker: test-issues build-docker
