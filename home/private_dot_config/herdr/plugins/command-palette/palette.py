@@ -292,7 +292,7 @@ def interactive_child_raw(raw: dict[str, Any]) -> dict[str, Any]:
     run = raw.get("run")
     if isinstance(run, dict):
         return dict(run)
-    child = {key: value for key, value in raw.items() if key not in {"options", "form", "prompt", "placeholder"}}
+    child = {key: value for key, value in raw.items() if key not in {"options", "options_command", "form", "prompt", "placeholder"}}
     child["type"] = raw.get("run_type") or "shell"
     return child
 
@@ -365,8 +365,14 @@ def validate_command_raw(raw: dict[str, Any], title: str, source: str) -> tuple[
             raise ValueError(f"command '{title}' ({source}) has unsupported interactive run type '{run_kind}'")
         if kind == "select":
             options = raw.get("options")
-            if not isinstance(options, list) or not any(isinstance(option, dict) and option.get("label") for option in options):
-                raise ValueError(f"command '{title}' ({source}) select commands need at least one labeled option")
+            has_static = isinstance(options, list) and any(isinstance(option, dict) and option.get("label") for option in options)
+            options_command = raw.get("options_command")
+            has_dynamic = isinstance(options_command, str) and options_command.strip() != ""
+            if not has_static and not has_dynamic:
+                raise ValueError(
+                    f"command '{title}' ({source}) select commands need at least one labeled option "
+                    "or an options_command"
+                )
     validate_value_quoting(raw, title, source, kind)
     return kind, shortcuts
 
@@ -1295,10 +1301,55 @@ def pick_workspace(herdr: str) -> tuple[int, str, bool]:
     return 0, "", False
 
 
-def command_choices(command: Command) -> list[Choice]:
+OPTIONS_COMMAND_TIMEOUT = 10
+
+
+def dynamic_choices(command: Command, variables: dict[str, str]) -> list[Choice]:
+    """Run a select command's `options_command` and read its rows.
+
+    The rows are tab-separated `value<TAB>label<TAB>description`; a row with no
+    tab is its own label and value. A failing command raises instead of showing
+    an empty list, because "no options" and "the lister is broken" are different
+    problems and only one of them is the user's to fix.
+    """
+    options_command = command.raw.get("options_command")
+    if not isinstance(options_command, str) or not options_command.strip():
+        return []
+    script = str(expand(options_command, variables))
+    try:
+        result = subprocess.run(
+            script,
+            shell=True,
+            text=True,
+            capture_output=True,
+            env=command_environment(variables),
+            cwd=variables.get("target_cwd") or None,
+            timeout=OPTIONS_COMMAND_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"{command.title}: options_command timed out after {OPTIONS_COMMAND_TIMEOUT}s") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"{command.title}: options_command failed ({result.returncode}). {detail}".rstrip())
+
+    choices: list[Choice] = []
+    for line in (result.stdout or "").splitlines():
+        if not line.strip():
+            continue
+        fields = line.split("\t")
+        value = fields[0].strip()
+        label = fields[1].strip() if len(fields) > 1 and fields[1].strip() else value
+        description = fields[2].strip() if len(fields) > 2 else ""
+        if not value:
+            continue
+        choices.append(Choice(label=label, value=value, description=description, heading=""))
+    return choices
+
+
+def command_choices(command: Command, variables: dict[str, str] | None = None) -> list[Choice]:
     options = command.raw.get("options")
     if not isinstance(options, list):
-        return []
+        return list(dynamic_choices(command, variables)) if variables is not None else []
     choices: list[Choice] = []
     for option in options:
         if not isinstance(option, dict):
@@ -1313,6 +1364,8 @@ def command_choices(command: Command) -> list[Choice]:
                 heading=str(option.get("heading") or ""),
             )
         )
+    if variables is not None:
+        choices.extend(dynamic_choices(command, variables))
     return choices
 
 
@@ -1458,10 +1511,10 @@ def choice_picker_curses_loop(stdscr: Any, command: Command, choices: list[Choic
             selected = 0
 
 
-def pick_choice(command: Command) -> str | None:
+def pick_choice(command: Command, variables: dict[str, str] | None = None) -> str | None:
     import curses
 
-    choices = command_choices(command)
+    choices = command_choices(command, variables)
     try:
         return curses.wrapper(choice_picker_curses_loop, command, choices)
     except KeyboardInterrupt:
@@ -1787,7 +1840,7 @@ def run_command(command: Command, config_path: Path) -> tuple[int, str, bool]:
     pause = bool(raw.get("pause", False))
 
     if command.kind == "select":
-        value = pick_choice(command)
+        value = pick_choice(command, variables)
         if value is None:
             return 0, "", False
         child_raw = interactive_run_raw(command)

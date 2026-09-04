@@ -1477,6 +1477,41 @@ function test_palette_065_worktree_commands_refuse_a_target_outside_a_repo() {
   done
 }
 
+function test_palette_066_open_worktree_lists_existing_checkouts() {
+  _bats_test_init 66 'Open worktree lists existing branches and checkout paths'
+  local fixture="$PALETTE_WORK/worktree choices"
+  local primary="$fixture/repo" linked="$fixture/linked"
+  mkdir -p "$primary"
+
+  run git init -q -b main "$primary"
+  assert_success
+  run git -C "$primary" -c user.email=t@example.com -c user.name=T \
+    commit -q --allow-empty -m init
+  assert_success
+  run git -C "$primary" worktree add -q -b fixture/linked "$linked"
+  assert_success
+
+  run env HERDR_TARGET_CWD="$linked" HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" \
+    EXPECTED_PRIMARY="$(git -C "$primary" rev-parse --show-toplevel)" \
+    EXPECTED_LINKED="$(git -C "$linked" rev-parse --show-toplevel)" python3 - <<'PY'
+import os
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.title == "Open worktree")
+choices = palette.command_choices(command, palette.context_vars(config_path))
+actual = [(choice.value, choice.label, choice.description) for choice in choices]
+expected = [
+    ("main", "main", os.environ["EXPECTED_PRIMARY"]),
+    ("fixture/linked", "fixture/linked", os.environ["EXPECTED_LINKED"]),
+]
+assert actual == expected, actual
+PY
+  assert_success
+}
+
 function set_up_before_script() {
   :
 }
