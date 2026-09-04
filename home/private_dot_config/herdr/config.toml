@@ -59,21 +59,25 @@ sidebar_min_width = 32
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
 # labels, rebuilds tab labels, and publishes the Git location tokens.
-# The third row is the pane's location. `$space_origin` names the space a
-# worktree space was cut from; `$git_ref` carries the engine's composed
-# location string (place glyph + branch/worktree/short SHA, folder qualifier
-# when there is no ref, stale marker). herdr supplies the separator, so the
-# pair reads "my-mac-setup <sep> <worktree-glyph> branch" and a worktree pane
-# is distinguishable from a plain checkout at a glance. A space whose label
-# already is the repository name publishes no origin, so the main checkout
-# does not repeat what the first row said.
-# Location stays its own row on purpose: pane identity stays stable while Git
-# state moves underneath it, and a pane outside a checkout still names the
-# folder it sits in. It sits above the pane name because where a pane works
-# is what the eye looks for when scanning the sidebar; the allocator-owned
-# alias is the last line.
+# The second row pairs the pane's allocator-owned alias with `$space_origin`,
+# the space a worktree space was cut from, so an agent reads
+# "cc:olive-heron <sep> my-mac-setup". A space whose label already is the
+# repository name publishes no origin and the alias stands alone. The branch
+# itself lives in the space rows below, so it is not repeated here.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace"], ["$space_origin", "$git_ref"], ["pane"]]
+rows = [["state_icon", "workspace"], ["pane", "$space_origin"]]
+
+# Space rows read `$branch` and `$git_status` from workspace metadata, which
+# herdr-pane-labels publishes, rather than herdr's same-named built-ins. The
+# built-ins render only for a repository's primary checkout: a space on a
+# linked worktree leaves that row empty (herdrdev/herdr#2952, open against
+# 0.8.0 and still reproducing on 0.8.2), which is every worktree space here.
+# Custom tokens have no such gap, so every space shows its branch, and the
+# counts read ⇣pull ⇡push ~conflicts +staged !unstaged ?untracked with empty
+# positions omitted.
+[ui.sidebar.spaces]
+row_gap = 0
+rows = [["state_icon", "workspace"], ["$branch", "$git_status"]]
 
 # Native agent-status toasts are off: the herdr-focus-notify plugin sends its
 # own clickable notification (with `herdr agent focus` on click), and the two

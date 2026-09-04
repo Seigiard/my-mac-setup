@@ -38,6 +38,14 @@ ICON_BRANCH="$(printf '\356\261\257')"   # nf-cod-git_branch U+EC6F
 ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
 ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
+# The status vocabulary this repo used before 21aaaf0 removed it, restored
+# unchanged so a reader who learned it once still reads it the same way.
+ICON_PULL="$(printf '\342\207\243')"   # U+21E3 downwards dashed arrow
+ICON_PUSH="$(printf '\342\207\241')"   # U+21E1 upwards dashed arrow
+ICON_CONFLICT='~'
+ICON_STAGED='+'
+ICON_UNSTAGED='!'
+ICON_UNTRACKED='?'
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 # Worktree-token width math (text_length's `wc -m`, text_prefix's `cut -c`)
 # must count codepoints: under a non-UTF-8 locale both count bytes, so a cap
@@ -55,8 +63,14 @@ case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
     ;;
 esac
 FIELD_SEPARATOR=$'\037'
+STATUS_SEPARATOR=$'\036'
 WORKTREE_TOKEN_MAX_LEN=18
 LOCATION_GIT_BUDGET="${HERDR_PANE_LABELS_GIT_BUDGET:-0.075}"
+# The space probe scans the working tree, which the scan-free rev-parse budget
+# above is not calibrated for. Measured at or under 10 ms warm on this repo and
+# its main checkout; the budget is an order of magnitude above that so a cold
+# or large tree degrades to "no counts" instead of to wrong ones.
+SPACE_STATUS_BUDGET="${HERDR_PANE_LABELS_STATUS_BUDGET:-0.5}"
 # Seconds between two sweeps of the daemon. Five keeps a finished command
 # visible for at most one glance without hammering the herdr socket.
 SWEEP_INTERVAL="${HERDR_PANE_LABELS_SWEEP_INTERVAL:-5}"
@@ -384,11 +398,15 @@ admin_checkout_for_path() {
 }
 
 run_budgeted_command() {
-  local outfile="$1" errfile="$2"
-  shift 2
+  run_budgeted_command_within "$LOCATION_GIT_BUDGET" "$@"
+}
+
+run_budgeted_command_within() {
+  local budget="$1" outfile="$2" errfile="$3"
+  shift 3
   "$@" </dev/null >"$outfile" 2>"$errfile" &
   local command_pid=$!
-  ( sleep "$LOCATION_GIT_BUDGET"; kill -9 "$command_pid" ) >/dev/null 2>&1 &
+  ( sleep "$budget"; kill -9 "$command_pid" ) >/dev/null 2>&1 &
   local watchdog=$! status=0
   wait "$command_pid" || status=$?
   kill "$watchdog" >/dev/null 2>&1 || true
@@ -772,6 +790,136 @@ git_ref_for() {
   printf '%s' "$label"
 }
 
+# Counts are volatile where identity is stable, so they get their own probe,
+# their own budget and their own outcome: a status timeout must never make a
+# space's branch lie. `fresh` carries the count bundle (empty when clean),
+# `stale` means the probe did not answer in budget, `absent` means there is
+# nothing to count.
+resolve_checkout_status() {
+  local root="$1" outfile errfile status counts pull push conflicts staged unstaged untracked
+  [ -n "$root" ] || { printf 'absent\037'; return 0; }
+  command -v git >/dev/null 2>&1 || { printf 'stale\037'; return 0; }
+  outfile="$(mktemp "$(namespace_dir)/.git-status.XXXXXX" 2>/dev/null)" || {
+    printf 'stale\037'
+    return 0
+  }
+  errfile="$outfile.err"
+  # One call answers both halves: the changed paths and, as `# branch.ab`, the
+  # ahead/behind pair. Two probes would cost a second process launch.
+  #
+  # `--untracked-files=all` is what makes the count mean the same thing on
+  # every machine: without it `status.showUntrackedFiles` can hide untracked
+  # paths entirely, or collapse a new directory to a single entry while
+  # tracked edits still count one per file.
+  if run_budgeted_command_within "$SPACE_STATUS_BUDGET" "$outfile" "$errfile" \
+    env LC_ALL=C git -C "$root" --no-optional-locks status --porcelain=v2 --branch \
+    --untracked-files=all; then
+    status=0
+  else
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    rm -f "$outfile" "$errfile"
+    printf 'stale\037'
+    return 0
+  fi
+  # Parse every category in one pass. For ordinary and renamed records, X is
+  # the staged state and Y is the unstaged state. A partially staged path
+  # intentionally increments both; unmerged paths get their own count only.
+  counts="$(awk '
+    /^# branch\.ab / { push = substr($3, 2) + 0; pull = substr($4, 2) + 0; next }
+    $1 == "u" { conflicts++; next }
+    $1 == "?" { untracked++; next }
+    $1 == "1" || $1 == "2" {
+      if (substr($2, 1, 1) != ".") staged++
+      if (substr($2, 2, 1) != ".") unstaged++
+    }
+    END { print pull + 0, push + 0, conflicts + 0, staged + 0, unstaged + 0, untracked + 0 }
+  ' "$outfile" 2>/dev/null)"
+  rm -f "$outfile" "$errfile"
+  IFS=' ' read -r pull push conflicts staged unstaged untracked <<EOF
+$counts
+EOF
+  printf 'fresh\037%s' "$(git_status_counts_for "$pull" "$push" "$conflicts" "$staged" "$unstaged" "$untracked")"
+}
+
+# Six independent values behind one separator, so an all-zero status stays
+# wholly empty and a caller can still join only the parts it wants.
+git_status_counts_for() {
+  local pull="$1" push="$2" conflicts="$3" staged="$4" unstaged="$5" untracked="$6"
+  local git_pull="" git_push="" git_conflicts="" git_staged="" git_unstaged="" git_untracked=""
+  case "$pull" in '' | *[!0-9]*) pull=0 ;; esac
+  case "$push" in '' | *[!0-9]*) push=0 ;; esac
+  case "$conflicts" in '' | *[!0-9]*) conflicts=0 ;; esac
+  case "$staged" in '' | *[!0-9]*) staged=0 ;; esac
+  case "$unstaged" in '' | *[!0-9]*) unstaged=0 ;; esac
+  case "$untracked" in '' | *[!0-9]*) untracked=0 ;; esac
+  [ "$pull" -eq 0 ] || git_pull="$ICON_PULL$pull"
+  [ "$push" -eq 0 ] || git_push="$ICON_PUSH$push"
+  [ "$conflicts" -eq 0 ] || git_conflicts="$ICON_CONFLICT$conflicts"
+  [ "$staged" -eq 0 ] || git_staged="$ICON_STAGED$staged"
+  [ "$unstaged" -eq 0 ] || git_unstaged="$ICON_UNSTAGED$unstaged"
+  [ "$untracked" -eq 0 ] || git_untracked="$ICON_UNTRACKED$untracked"
+  [ -n "$git_pull$git_push$git_conflicts$git_staged$git_unstaged$git_untracked" ] || return 0
+  printf '%s\036%s\036%s\036%s\036%s\036%s' \
+    "$git_pull" "$git_push" "$git_conflicts" "$git_staged" "$git_unstaged" "$git_untracked"
+}
+
+# The space row renders one string, so the bundle joins on a single space in a
+# fixed order and empty positions simply disappear.
+status_line_for() {
+  local status="$1" pull push conflicts staged unstaged untracked line="" value
+  IFS="$STATUS_SEPARATOR" read -r pull push conflicts staged unstaged untracked <<EOF
+$status
+EOF
+  for value in "$pull" "$push" "$conflicts" "$staged" "$unstaged" "$untracked"; do
+    [ -n "$value" ] || continue
+    if [ -z "$line" ]; then line="$value"; else line="$line $value"; fi
+  done
+  printf '%s' "$line"
+}
+
+# Spaces routinely share a checkout, so the probe runs once per distinct root
+# rather than once per space, and distinct roots run concurrently: several slow
+# checkouts cost one status budget rather than one budget each.
+build_root_statuses() {
+  local roots="$1" table="" root result_file status_pid
+  local status_pids="" status_results="" status_child_failed=0
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    result_file="$(umask 077; mktemp "$(namespace_dir)/.status-result.XXXXXX" 2>/dev/null)" || {
+      status_child_failed=1
+      break
+    }
+    (
+      printf '%s%s' "$root" "$FIELD_SEPARATOR"
+      resolve_checkout_status "$root"
+    ) > "$result_file" &
+    status_pids="${status_pids}${status_pids:+
+}$!"
+    status_results="${status_results}${status_results:+
+}$result_file"
+  done <<EOF
+$roots
+EOF
+  while IFS= read -r status_pid; do
+    [ -n "$status_pid" ] || continue
+    wait "$status_pid" 2>/dev/null || status_child_failed=1
+  done <<EOF
+$status_pids
+EOF
+  while IFS= read -r result_file; do
+    [ -n "$result_file" ] || continue
+    [ "$status_child_failed" -eq 1 ] || table="${table}${table:+
+}$(cat "$result_file" 2>/dev/null)"
+    rm -f "$result_file"
+  done <<EOF
+$status_results
+EOF
+  [ "$status_child_failed" -eq 0 ] || return 1
+  printf '%s' "$table"
+}
+
 snapshot_is_complete() {
   jq -e '
     def safe_string:
@@ -816,6 +964,8 @@ snapshot_is_complete() {
         (.label | safe_string))
       and all($s.workspaces[];
         (.workspace_id | nonempty_string) and
+        (((.tokens // {}) | type) == "object") and
+        ((.tokens // {}) | all([.branch, .git_status][]; optional_safe_string)) and
         ((has("label") | not) or (.label | optional_safe_string)) and
         ((has("name") | not) or (.name | optional_safe_string)))
       and all($s.agents[];
@@ -1095,6 +1245,9 @@ EOF
 reconcile_presentation_pass() {
   local pass="$1" snapshot aliased alias_status final_snapshot initial_identity final_identity pool_json
   local pane_rows baselines legacy_label_panes presentations="" tab_intents workspace_origins
+  local workspace_tokens space_rows space_roots root_statuses space_row status_row
+  local space_id space_current_branch space_current_status space_root space_branch
+  local status_outcome status_counts space_status
   local id terminal tab_id workspace runtime revision session_json current alias pane_json_encoded pane_json
   local current_repo current_worktree current_branch current_status current_git_ref current_space_origin
   local location_file result outcome root anchor repo branch linked sha status intended
@@ -1150,6 +1303,10 @@ reconcile_presentation_pass() {
   # that parent as worktree.repo_name, so no Git probe is needed. A workspace
   # whose own label already is the repository name (the main checkout) would
   # only repeat itself, so it publishes nothing.
+  workspace_tokens="$(printf '%s' "$snapshot" | jq -r '
+    .result.snapshot.workspaces[]
+    | [.workspace_id, ((.tokens.branch) // ""), ((.tokens.git_status) // "")]
+    | join("\u001f")')" || return 1
   workspace_origins="$(printf '%s' "$snapshot" | jq -r '
     .result.snapshot.workspaces[]
     | (.label // .name // "") as $label
@@ -1374,6 +1531,58 @@ EOF
     fi
   done <<EOF
 $presentations
+EOF
+
+  # Space rows read workspace metadata. herdr fills its builtin `branch` token
+  # only for a repository's primary checkout — a space on a linked worktree
+  # renders that row empty (herdrdev/herdr#2952, open against 0.8.0 and still
+  # reproducing on 0.8.2), and no builtin can be forced from outside. This pass
+  # already resolved every pane's checkout, so it reports the branch and the
+  # counts for each space itself, and the rows read `$branch` / `$git_status`.
+  space_rows="$(printf '%s\n' "$presentations" | LC_ALL=C sort -t "$FIELD_SEPARATOR" -k1,1 |
+    awk -F "$FIELD_SEPARATOR" -v OFS="$FIELD_SEPARATOR" '
+      NF >= 19 && $10 == "git" && $11 != "" && !($4 in seen) {
+        seen[$4] = 1
+        print $4, $11, ($14 != "" ? $14 : $16)
+      }')"
+  space_roots="$(printf '%s\n' "$space_rows" | awk -F "$FIELD_SEPARATOR" 'NF { print $2 }' | LC_ALL=C sort -u)"
+  root_statuses=""
+  if [ -n "$space_roots" ]; then
+    root_statuses="$(build_root_statuses "$space_roots")" || return 1
+  fi
+  while IFS="$FIELD_SEPARATOR" read -r space_id space_current_branch space_current_status; do
+    [ -n "$space_id" ] || continue
+    space_row="$(table_row_for "$space_id" "$space_rows")"
+    IFS="$FIELD_SEPARATOR" read -r space_root space_branch <<EOF
+$space_row
+EOF
+    if [ -n "$space_root" ]; then
+      status_row="$(table_row_for "$space_root" "$root_statuses")"
+      IFS="$FIELD_SEPARATOR" read -r status_outcome status_counts <<EOF
+$status_row
+EOF
+      case "$status_outcome" in
+        fresh) space_status="$(status_line_for "$status_counts")" ;;
+        # A probe that ran out of budget must not erase a count the user is
+        # looking at; it keeps what is published until the next pass answers.
+        *) space_status="$space_current_status" ;;
+      esac
+    else
+      space_branch=""
+      space_status=""
+    fi
+    [ "$space_current_branch" != "$space_branch" ] || [ "$space_current_status" != "$space_status" ] ||
+      continue
+    presentation_generation_valid "$pass" || return 2
+    set -- herdr workspace report-metadata "$space_id" --source "$LOCATION_SOURCE_ID" --seq "$pass"
+    if [ -n "$space_branch" ]; then set -- "$@" --token "branch=$space_branch"; else set -- "$@" --clear-token branch; fi
+    if [ -n "$space_status" ]; then set -- "$@" --token "git_status=$space_status"; else set -- "$@" --clear-token git_status; fi
+    "$@" >/dev/null 2>&1 || {
+      [ "$STRICT_SWEEP" != 1 ] || return 1
+      continue
+    }
+  done <<EOF
+$workspace_tokens
 EOF
 
   while IFS="$FIELD_SEPARATOR" read -r tab_id workspace current intended; do
