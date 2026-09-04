@@ -1,0 +1,17 @@
+# Context Threshold Handoff — execution checklist
+
+Plan: `docs/plans/2026-09-04-0737-feat-context-threshold-handoff-plan.md` (the authority).
+One item = one commit; the checkbox lands in that same commit.
+
+## Progress
+
+- [x] U0 · land the plan document and its CONCEPTS.md vocabulary entry
+- [ ] U1 · measure the unverified platform behaviors, re-derive the turn-count baseline
+- [ ] U2 · shared context-usage library (`home/dot_local/lib/context-usage.sh`)
+- [ ] U3 · statusline publishes usage state
+- [ ] U6 · vendor the PreCompact handoff builder
+- [ ] U4 · Stop hook: detection and announcement (goal-less command)
+- [ ] U5 · goal extraction
+- [ ] U7 · vendor the SessionStart injector
+- [ ] U8 · prove the deployed wiring end to end
+- [ ] U9 · Definition of Done sweep: `make lint`, `make test-ubuntu`, plan amendments recorded

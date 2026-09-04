@@ -31,6 +31,11 @@ The rule that TUI theme files managed by this repo (Claude Code, opencode, pi) r
 ### Hooks core
 The shared dispatch layer for agent-client hook policies. A policy is written once in the core and declared applicable per client and tool in a static registry; per-client adapters (Claude Code hook, OpenCode plugin, Pi extension) perform transport only — event normalization in, decision translation out. Decisions are `allow`, `block(reason)` with a `<policy-name>:` prefix, or `context(text)` (Claude-only). Every failure path fails open.
 
+### Focused handoff
+A handoff built relative to the goal the next session must finish, rather than a summary of the session that produced it. It is extracted before compaction destroys the thread, by a separate cheap model that reads the full pre-compact session and keeps only what serves that goal — so decisions, rejected approaches, and verification state survive in proportion to their usefulness ahead, not their volume behind.
+
+Delivery is the half that silently fails. A handoff rendered to the operator's screen has not been handed off: only the hook field that injects into model context completes the transfer, and the two fields are easy to confuse because both surface text somewhere.
+
 ### External leg
 A single review or analysis pass executed by a separate, headless agent-CLI process that returns a report and nothing else. A leg is a subprocess, not a collaborator: it can die silently, return partially, or return a well-formed report describing work it never did, so its output is judged by payload rather than by any status word it reports about itself. Absence of a well-formed result is failure, never a clean pass.
 
