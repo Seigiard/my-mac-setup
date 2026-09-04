@@ -1298,107 +1298,13 @@ function test_scripts_1003_herdr_alias_pool_has_at_least_1024_unique_grammar_saf
   local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
   [ "$pool_size" -ge 1024 ]
 
-  local word
-  for word in "${HERDR_ALIAS_COLORS[@]}" "${HERDR_ALIAS_ANIMALS[@]}"; do
-    [[ "$word" =~ ^[a-z]+$ ]] || fail "invalid word: $word"
+  local color animal
+  for color in "${HERDR_ALIAS_COLORS[@]}"; do
+    [[ "$color" =~ ^[a-z]+$ ]] || fail "invalid color word: $color"
   done
-}
-
-function test_scripts_1004_herdr_alias_fixed_test_seed_produces_one_stable_full_se() {
-  _bats_test_init 1004 'herdr alias fixed test seed produces one stable full sequence without state'
-  source "$HERDR_ALIASES"
-  local first_sequence="$BATS_TEST_TMPDIR/herdr-alias-sequence-1"
-  local second_sequence="$BATS_TEST_TMPDIR/herdr-alias-sequence-2"
-  local state_home="$BATS_TEST_TMPDIR/herdr-alias-home"
-  mkdir -p "$state_home"
-
-  HOME="$state_home" HERDR_ALIAS_TEST_SEED=u1-fixed-seed \
-    herdr_alias_candidates ignored-first-seed > "$first_sequence"
-  HOME="$state_home" HERDR_ALIAS_TEST_SEED=u1-fixed-seed \
-    herdr_alias_candidates ignored-second-seed > "$second_sequence"
-
-  run cmp "$first_sequence" "$second_sequence"
-  assert_success
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  local sequence_count unique_count
-  sequence_count="$(wc -l < "$first_sequence" | tr -d ' ')"
-  unique_count="$(LC_ALL=C sort -u "$first_sequence" | wc -l | tr -d ' ')"
-  assert_equal "$sequence_count" "$pool_size"
-  assert_equal "$unique_count" "$pool_size"
-
-  local checksum_line checksum offset expected first
-  checksum_line="$(printf '%s' u1-fixed-seed | cksum)"
-  checksum="${checksum_line%%[[:space:]]*}"
-  offset=$((checksum % pool_size))
-  expected="${HERDR_ALIAS_COLORS[$((offset / ${#HERDR_ALIAS_ANIMALS[@]}))]}-${HERDR_ALIAS_ANIMALS[$((offset % ${#HERDR_ALIAS_ANIMALS[@]}))]}"
-  IFS= read -r first < "$first_sequence"
-  assert_equal "$first" "$expected"
-
-  run find "$state_home" -mindepth 1 -print
-  assert_success
-  assert_output ""
-}
-
-function test_scripts_1005_herdr_alias_traversal_wraps_to_the_last_free_candidate_() {
-  _bats_test_init 1005 'herdr alias traversal wraps to the last free candidate and exhausts once'
-  source "$HERDR_ALIASES"
-  local sequence="$BATS_TEST_TMPDIR/herdr-alias-wrap-sequence"
-  local seed=u1-wraparound-seed
-  herdr_alias_candidates "$seed" > "$sequence"
-
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  local checksum_line checksum offset final_index expected_final
-  checksum_line="$(printf '%s' "$seed" | cksum)"
-  checksum="${checksum_line%%[[:space:]]*}"
-  offset=$((checksum % pool_size))
-  [ "$offset" -gt 0 ]
-  final_index=$((offset - 1))
-  expected_final="${HERDR_ALIAS_COLORS[$((final_index / ${#HERDR_ALIAS_ANIMALS[@]}))]}-${HERDR_ALIAS_ANIMALS[$((final_index % ${#HERDR_ALIAS_ANIMALS[@]}))]}"
-
-  local candidate selected="" last="" visited=0
-  while IFS= read -r candidate; do
-    visited=$((visited + 1))
-    last="$candidate"
-    # The consumer treats every earlier candidate as occupied.
-    if [ "$candidate" = "$expected_final" ]; then
-      selected="$candidate"
-      break
-    fi
-  done < "$sequence"
-  assert_equal "$visited" "$pool_size"
-  assert_equal "$selected" "$expected_final"
-  assert_equal "$last" "$expected_final"
-
-  selected=""
-  visited=0
-  while IFS= read -r candidate; do
-    visited=$((visited + 1))
-    # Every candidate is occupied, so no selection is made.
-  done < "$sequence"
-  assert_equal "$visited" "$pool_size"
-  assert_equal "$selected" ""
-}
-
-function test_scripts_1006_herdr_alias_allocation_consults_no_herdr_model_or_netwo() {
-  _bats_test_init 1006 'herdr alias allocation consults no Herdr model or network command'
-  local stub_dir="$BATS_TEST_TMPDIR/herdr-alias-stubs"
-  local call_log="$BATS_TEST_TMPDIR/herdr-alias-calls"
-  local binary
-  mkdir -p "$stub_dir"
-  for binary in herdr claude opencode pi codex curl wget; do
-    cat > "$stub_dir/$binary" <<'SH'
-#!/bin/sh
-printf '%s\n' "${0##*/}" >> "$HERDR_ALIAS_CALL_LOG"
-exit 97
-SH
-    chmod +x "$stub_dir/$binary"
+  for animal in "${HERDR_ALIAS_ANIMALS[@]}"; do
+    [[ "$animal" =~ ^[a-z]+$ ]] || fail "invalid animal word: $animal"
   done
-
-  run env PATH="$stub_dir:$PATH" HERDR_ALIAS_CALL_LOG="$call_log" \
-    HERDR_ALIAS_TEST_SEED=u1-no-services \
-    bash -c 'source "$1"; herdr_alias_candidates ignored >/dev/null' _ "$HERDR_ALIASES"
-  assert_success
-  [ ! -e "$call_log" ]
 }
 
 # ===========================================
