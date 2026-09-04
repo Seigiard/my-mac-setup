@@ -8181,6 +8181,118 @@ PY
   assert_success
 }
 
+function test_scripts_2723_skills_denies_a_prompting_upstream_a_terminal_to_wait_on() {
+  _bats_test_init 2723 'skills finishes instead of waiting when upstream prompts for input'
+  local stub="$BATS_TEST_TMPDIR/skills-prompt-stub"
+  mkdir -p "$stub" "$BATS_TEST_TMPDIR/tmp"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'Would you like to remove the local copies of these deleted skills?'
+IFS= read -r _answer || exit 3
+exit 0
+SH
+  chmod +x "$stub/npx"
+
+  run python3 - "$SKILLS_WRAPPER" "$stub" "$BATS_TEST_TMPDIR" <<'PY'
+import glob
+import os
+import subprocess
+import sys
+
+wrapper, stub, root = sys.argv[1:]
+tmpdir = os.path.join(root, "tmp")
+env = {"PATH": f"{stub}:/usr/bin:/bin", "HOME": os.path.join(root, "home"), "TMPDIR": tmpdir}
+# An open pipe the parent never writes to: the wrapper inherits a stdin that
+# never reaches EOF, exactly as it inherits an idle terminal from a shell.
+read_fd, write_fd = os.pipe()
+process = subprocess.Popen(
+    ["bash", wrapper, "update"],
+    env=env,
+    stdin=read_fd,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    start_new_session=True,
+)
+os.close(read_fd)
+try:
+    try:
+        _, errors = process.communicate(timeout=20)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise SystemExit("wrapper waited on an upstream prompt")
+finally:
+    os.close(write_fd)
+if process.returncode == 0:
+    raise SystemExit("wrapper reported success for an unanswered prompt")
+if b"remove the local copies" not in errors:
+    raise SystemExit("wrapper hid the prompt that stopped the run")
+if glob.glob(os.path.join(tmpdir, "skills-output.*")):
+    raise SystemExit("captured output survived the run")
+PY
+  assert_success
+}
+
+function test_scripts_2724_skills_bounds_the_wait_and_terminates_the_upstream_tree() {
+  _bats_test_init 2724 'skills terminates a stalled upstream process tree after a bounded wait'
+  local stub="$BATS_TEST_TMPDIR/skills-stall-stub"
+  mkdir -p "$stub" "$BATS_TEST_TMPDIR/tmp"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'upstream started'
+sleep 300 &
+printf '%s\n' "$!" > "$TMPDIR/grandchild.pid"
+while :; do sleep 1; done
+SH
+  chmod +x "$stub/npx"
+
+  run python3 - "$SKILLS_WRAPPER" "$stub" "$BATS_TEST_TMPDIR" <<'PY'
+import glob
+import os
+import subprocess
+import sys
+import time
+
+wrapper, stub, root = sys.argv[1:]
+tmpdir = os.path.join(root, "tmp")
+env = {
+    "PATH": f"{stub}:/usr/bin:/bin",
+    "HOME": os.path.join(root, "home"),
+    "TMPDIR": tmpdir,
+    "SKILLS_TIMEOUT": "2",
+}
+process = subprocess.Popen(
+    ["bash", wrapper, "update"],
+    env=env,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    start_new_session=True,
+)
+try:
+    _, errors = process.communicate(timeout=40)
+except subprocess.TimeoutExpired:
+    process.kill()
+    raise SystemExit("wrapper did not bound its wait on a stalled upstream")
+if process.returncode != 124:
+    raise SystemExit(f"wrapper reported {process.returncode} instead of a timeout")
+if b"upstream started" not in errors:
+    raise SystemExit("wrapper discarded the captured output of the stalled run")
+grandchild = int(open(os.path.join(tmpdir, "grandchild.pid"), encoding="utf-8").read())
+deadline = time.monotonic() + 10
+while True:
+    try:
+        os.kill(grandchild, 0)
+    except ProcessLookupError:
+        break
+    if time.monotonic() >= deadline:
+        os.kill(grandchild, 9)
+        raise SystemExit("upstream grandchild survived the terminated run")
+    time.sleep(0.1)
+if glob.glob(os.path.join(tmpdir, "skills-output.*")):
+    raise SystemExit("captured output survived the terminated run")
+PY
+  assert_success
+}
+
 function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_remove_update() {
   _bats_test_init 273 'skills validates argv before npx and maps remove and update to global upstream calls'
   local stub="$BATS_TEST_TMPDIR/skills-stub" lock

@@ -13,6 +13,9 @@ REPOSITORY_OWNED_MANIFEST="${SKILLS_REPOSITORY_OWNED_MANIFEST:-$CONFIG_HOME/agen
 MAX_FILE_BYTES="${SKILLS_MAX_FILE_BYTES:-2097152}"
 TMPDIR="${TMPDIR:-/tmp}"
 SKILLS_VERBOSE="${SKILLS_VERBOSE:-0}"
+SKILLS_TIMEOUT="${SKILLS_TIMEOUT:-600}"
+SKILLS_HEARTBEAT="${SKILLS_HEARTBEAT:-30}"
+NPX_PID=''
 
 usage() {
   printf '%s\n' 'Usage: skills [--verbose] {add SOURCE [SKILL...]|remove SOURCE SKILL...|update [SKILL...]|sync}' >&2
@@ -90,6 +93,24 @@ invoke_npx() {
   )
 }
 
+signal_tree() {
+  local signal="$1" pid="$2" child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do
+    signal_tree "$signal" "$child"
+  done
+  kill "-$signal" "$pid" 2>/dev/null || true
+}
+
+terminate_tree() {
+  local pid="$1" waited=0
+  signal_tree TERM "$pid"
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 5 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  ! kill -0 "$pid" 2>/dev/null || signal_tree KILL "$pid"
+}
+
 run_npx() {
   local output status
   mkdir -p "$TMPDIR" "$CONFIG_HOME" "$STATE_HOME" "$DATA_HOME" "$CACHE_HOME" || return 1
@@ -97,10 +118,35 @@ run_npx() {
     invoke_npx "$@"
     return
   fi
+  local tick=0 waited=0 heartbeat_at="$SKILLS_HEARTBEAT" timed_out=0
   output="$(mktemp "$TMPDIR/skills-output.XXXXXX")" || return 1
-  trap 'status=$?; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
-  invoke_npx "$@" > "$output" 2>&1
+  trap 'status=$?; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
+  # Captured output cannot render a prompt, so deny the child a terminal to
+  # wait on. Upstream ignores CI=1 for its deleted-skill confirmation.
+  invoke_npx "$@" </dev/null > "$output" 2>&1 &
+  NPX_PID=$!
+  while kill -0 "$NPX_PID" 2>/dev/null; do
+    sleep 0.2
+    tick=$((tick + 1))
+    waited=$((tick / 5))
+    if [ "$SKILLS_TIMEOUT" -gt 0 ] && [ "$waited" -ge "$SKILLS_TIMEOUT" ]; then
+      timed_out=1
+      terminate_tree "$NPX_PID"
+      break
+    fi
+    if [ "$SKILLS_HEARTBEAT" -gt 0 ] && [ -t 2 ] && [ "$waited" -ge "$heartbeat_at" ]; then
+      printf 'skills: still running (%ss)\n' "$waited" >&2
+      heartbeat_at=$((heartbeat_at + SKILLS_HEARTBEAT))
+    fi
+  done
+  wait "$NPX_PID"
   status=$?
+  NPX_PID=''
+  if [ "$timed_out" -eq 1 ]; then
+    cat "$output" >&2
+    printf 'skills: upstream produced no result within %ss and was terminated\n' "$SKILLS_TIMEOUT" >&2
+    status=124
+  fi
   [ "$status" -eq 0 ] || cat "$output" >&2
   rm -f "$output"
   trap - EXIT HUP INT TERM
@@ -117,7 +163,10 @@ run_add() {
 }
 
 run_remove() { run_npx remove --global "$@" --yes; }
-run_update() { run_npx update --global "$@"; }
+run_update() {
+  [ "$SKILLS_VERBOSE" = 1 ] || [ ! -t 2 ] || printf 'Updating skills%s\n' "${*:+: $*}" >&2
+  run_npx update --global "$@"
+}
 
 parse_manifest() {
   local line source skill count had_noglob=0
@@ -333,6 +382,8 @@ if [ "${1:-}" = '--verbose' ]; then
   SKILLS_VERBOSE=1
   shift
 fi
+case "$SKILLS_TIMEOUT" in ''|*[!0-9]*) fail "invalid SKILLS_TIMEOUT: $SKILLS_TIMEOUT"; exit 2 ;; esac
+case "$SKILLS_HEARTBEAT" in ''|*[!0-9]*) fail "invalid SKILLS_HEARTBEAT: $SKILLS_HEARTBEAT"; exit 2 ;; esac
 command="${1:-}"
 shift || true
 case "$command" in
