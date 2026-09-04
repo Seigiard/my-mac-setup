@@ -9254,3 +9254,188 @@ function test_scripts_2814_statusline_renders_when_publishing_is_impossible() {
   ' _ "$library"
   assert_failure
 }
+
+# --- vendored handoff hooks (U6, U7) ---------------------------------------
+
+handoff_pre_compact_hook() {
+  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_handoff-pre-compact.sh"
+}
+
+# A `claude` on PATH that writes the text it was told to, so the hook's
+# storage and gating are exercised without a model call.
+handoff_stub_claude() {
+  local dir="$1" body="${2:-## Goal\nship the vendored hook\n}"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'printf "%%b" "%s"\n' "$body"
+    printf 'exit 0\n'
+  } > "$dir/claude"
+  chmod +x "$dir/claude"
+}
+
+handoff_payload() {
+  jq -nc --arg session "$1" --arg cwd "$2" --arg trigger "$3" --arg instructions "$4" \
+    '{session_id: $session, cwd: $cwd, trigger: $trigger,
+      custom_instructions: (if $instructions == "" then null else $instructions end),
+      hook_event_name: "PreCompact"}'
+}
+
+handoff_stored_goal() {
+  jq -r '.goal' < "$1"
+}
+
+function test_scripts_2815_handoff_pre_compact_stores_outside_the_git_directory() {
+  _bats_test_init 2815 'handoff pre-compact stores a handoff where .git is a file or absent'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local main="$root/main" linked="$root/linked" plain="$root/plain" file
+  handoff_stub_claude "$stub"
+  mkdir -p "$plain"
+
+  git init -q "$main"
+  git -C "$main" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+  git -C "$main" worktree add -q -b probe "$linked" > /dev/null 2>&1
+
+  # AE11, KTD5. `mkdir -p .git/handoff-pending` fails outright here: in a
+  # linked worktree `.git` is a file, not a directory.
+  assert_file_exists "$linked/.git"
+  run test -d "$linked/.git"
+  assert_failure
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload worktree-session "$linked" manual 'handoff:finish the vendoring')"
+  assert_success
+  file="$store/$(printf '%s' worktree-session | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  assert_file_exists "$file"
+  assert_equal "$(handoff_stored_goal "$file")" 'finish the vendoring'
+  assert_file_contains "$file" 'ship the vendored hook'
+
+  # And in a directory that is not a repository at all.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload plain-session "$plain" manual 'handoff:finish the vendoring')"
+  assert_success
+  assert_dir_not_exists "$plain/.git"
+  assert_file_exists "$store/$(printf '%s' plain-session | base64 | tr '/+' '_-' | tr -d '=\n').json"
+}
+
+function test_scripts_2816_handoff_pre_compact_keys_the_store_by_session() {
+  _bats_test_init 2816 'handoff pre-compact keeps concurrent sessions from overwriting each other'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local one two
+  handoff_stub_claude "$stub"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload session-a "$root" manual 'handoff:goal for a')"
+  assert_success
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload session-b "$root" manual 'handoff:goal for b')"
+  assert_success
+
+  one="$store/$(printf '%s' session-a | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  two="$store/$(printf '%s' session-b | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  assert_equal "$(handoff_stored_goal "$one")" 'goal for a'
+  assert_equal "$(handoff_stored_goal "$two")" 'goal for b'
+}
+
+function test_scripts_2817_handoff_pre_compact_ignores_and_clears_plain_compactions() {
+  _bats_test_init 2817 'handoff pre-compact writes nothing for a plain compaction and clears a stale handoff'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local file
+  handoff_stub_claude "$stub"
+  file="$store/$(printf '%s' reuse | base64 | tr '/+' '_-' | tr -d '=\n').json"
+
+  # No prefix at all, and an automatic compaction with no instructions.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload plain "$root" manual 'summarize the last hour')"
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$store"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< '{"session_id":"auto","cwd":"/tmp","trigger":"auto","custom_instructions":null,"hook_event_name":"PreCompact"}'
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$store"
+
+  # AE7, R16. A handoff left by an interrupted compaction must not survive into
+  # the next plain one. PreCompact is the only point that knows the difference.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload reuse "$root" manual 'handoff:the goal that was abandoned')"
+  assert_success
+  assert_file_exists "$file"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload reuse "$root" manual '')"
+  assert_success
+  assert_file_not_exists "$file"
+}
+
+function test_scripts_2818_handoff_pre_compact_fails_open() {
+  _bats_test_init 2818 'handoff pre-compact exits silently on malformed input and failed extraction'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  mkdir -p "$stub"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" <<< 'not json at all'
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$store"
+
+  # KTD9: an extractor that fails leaves no half-written handoff behind, and
+  # compaction still proceeds.
+  printf '#!/usr/bin/env bash\nexit 3\n' > "$stub/claude"
+  chmod +x "$stub/claude"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload broken "$root" manual 'handoff:a goal nobody can extract')"
+  assert_success
+  assert_file_not_exists "$store/$(printf '%s' broken | base64 | tr '/+' '_-' | tr -d '=\n').json"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload empty "$root" manual 'handoff:a goal with an empty answer')"
+  assert_success
+  assert_file_not_exists "$store/$(printf '%s' empty | base64 | tr '/+' '_-' | tr -d '=\n').json"
+}
+
+function test_scripts_2819_handoff_pre_compact_guards_the_extraction_fork() {
+  _bats_test_init 2819 'handoff pre-compact marks its fork so the threshold hook stays out of it'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  mkdir -p "$stub"
+
+  # KTD6. The fork inherits this session's settings, so its own Stop hook
+  # fires. Without the marker a long session's fork meets the threshold at
+  # once and extracts a goal of its own, recursively.
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'printf "guard=%%s\\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload guarded "$root" manual 'handoff:prove the fork is marked')"
+  assert_success
+  assert_file_contains "$store/$(printf '%s' guarded | base64 | tr '/+' '_-' | tr -d '=\n').json" 'guard=1'
+}

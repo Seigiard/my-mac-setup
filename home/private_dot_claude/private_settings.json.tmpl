@@ -73,6 +73,18 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/handoff-pre-compact.sh'",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "*",

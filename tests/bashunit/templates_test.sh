@@ -285,6 +285,23 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   assert_output --partial 'herdr-agent-state.sh'
 }
 
+function test_templates_0152_private_settings_register_the_precompact_handoff_builder() {
+  _bats_test_init 152 'private settings register the PreCompact handoff builder'
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  # A hook deployed but never registered is a tracked defect class here, so the
+  # registration is asserted alongside the hook rather than left to the smoke
+  # suite. See docs/issues/2026-09-03-004-user-prompt-skill-eval-hook-is-deployed-but-never-wired.md.
+  run jq -r '.hooks.PreCompact[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'handoff-pre-compact.sh'
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-pre-compact.sh"
+  assert_success
+  assert_file_exists "$output"
+}
+
 # ===========================================
 # Yazi plugin keymaps
 # ===========================================
