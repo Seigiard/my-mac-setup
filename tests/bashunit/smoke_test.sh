@@ -892,11 +892,10 @@ function test_smoke_1057_pi_brew_auto_updater_focused_tests_pass() {
   assert_success
 }
 
-assert_herdr_sidebar_deployment_contract() {
+assert_herdr_label_writer_contract() {
   local config="$1"
   local engine="$2"
   local plugin="$3"
-  local width
   local writer_files=(
     "$engine"
     "$plugin/herdr-plugin.toml"
@@ -908,23 +907,11 @@ assert_herdr_sidebar_deployment_contract() {
     "$(dirname "$config")"
   )
 
-  assert_file_contains "$config" '^\[ui.sidebar.agents\]$'
-  # Pane and tab identity stay stable when Git state changes. Location metadata
-  # remains available to integrations, but the sidebar renders identity only.
-  # The three identity fields and their order are the contract; how they are
-  # grouped into rows is a presentation preference the user changes directly.
-  assert_file_contains "$config" '^rows = \[\[.*"state_icon".*"workspace".*"pane".*\]\]$'
-  run grep -E '\$git_ref|\$location_label|\$location_status' "$config"
-  assert_failure
-  # Sole owner of sidebar_min_width: the awk scope proves the key both carries
-  # the value herdr reads and sits inside [ui], which a flat file grep cannot.
-  # No width-derived assertions here: nothing consumes a "width - 4" budget.
-  width="$(awk '
-    $0 == "[ui]" { in_ui = 1; next }
-    /^\[/ { in_ui = 0 }
-    in_ui && /^sidebar_min_width = [0-9]+$/ { print $3 }
-  ' "$config")"
-  [ "$width" -eq 32 ]
+  # Nothing here asserts config.toml content. Sidebar rows, widths, and which
+  # tokens a row renders are the user's presentation preferences in the user's
+  # own config; a test that froze them would fail on an intended edit and prove
+  # nothing about the label writer. The config path is kept only to locate the
+  # plugin directory below.
 
   run bash -c '
     pattern="$1"; shift
@@ -942,10 +929,9 @@ assert_herdr_sidebar_deployment_contract() {
   run grep -Ei 'reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
     "$engine" "$plugin/herdr-plugin.toml" "$plugin/ensure.sh" "$plugin/sweep.sh"
   assert_failure
-  run grep -hEi 'state_icon|(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
-    "$config" "${writer_files[@]}"
+  run grep -hEi '(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
+    "${writer_files[@]}"
   assert_success
-  assert_file_contains "$config" '"state_icon"'
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
   # files pass through editors or agents, so none may be committed verbatim.
@@ -954,23 +940,23 @@ assert_herdr_sidebar_deployment_contract() {
   assert_file_contains "$engine" '\\356\\253\\274' # nf-cod-git_commit U+EAFC
   assert_file_contains "$engine" '\\356\\252\\203' # nf-cod-folder U+EA83
   assert_file_contains "$engine" '\\356\\252\\202' # nf-cod-history U+EA82
-  run env LC_ALL=C grep -n "$(printf '\356')" "$engine" "$config"
+  run env LC_ALL=C grep -n "$(printf '\356')" "$engine"
   assert_failure
   assert_file_contains "$engine" 'LABEL_SEPARATOR=.* · '
   assert_file_contains "$engine" '…'
 }
 
-function test_smoke_1058_herdr_managed_source_preserves_the_u6_sidebar_and_owner() {
-  _bats_test_init 1058 'herdr managed source preserves the U6 sidebar and ownership boundaries'
-  assert_herdr_sidebar_deployment_contract \
+function test_smoke_1058_herdr_managed_source_preserves_label_writer_ownership() {
+  _bats_test_init 1058 'herdr managed source preserves label-writer ownership boundaries'
+  assert_herdr_label_writer_contract \
     "$SOURCE_ROOT/private_dot_config/herdr/config.toml" \
     "$SOURCE_ROOT/dot_local/bin/executable_herdr-pane-labels" \
     "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 }
 
-function test_smoke_1059_herdr_deployed_files_preserve_the_u6_sidebar_and_owners() {
-  _bats_test_init 1059 'herdr deployed files preserve the U6 sidebar and ownership boundaries'
-  assert_herdr_sidebar_deployment_contract \
+function test_smoke_1059_herdr_deployed_files_preserve_label_writer_ownership() {
+  _bats_test_init 1059 'herdr deployed files preserve label-writer ownership boundaries'
+  assert_herdr_label_writer_contract \
     "$HOME/.config/herdr/config.toml" \
     "$HOME/.local/bin/herdr-pane-labels" \
     "$HOME/.config/herdr/plugins/herdr-pane-labels"
