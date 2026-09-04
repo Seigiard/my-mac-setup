@@ -17,13 +17,12 @@ owners.
 
 | Ownership | Current inventory |
 | --- | --- |
-| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-code-review`, `se-doc-review`, `se-orchestrator`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary`, `writing-for-agents` |
+| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-code-review`, `se-doc-review`, `se-orchestrator`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary` |
 | Explicit-only | `eli5`, `open-questions`: Claude/Pi manual adapters and OpenCode command adapters only |
-| Upstream-managed | Compound Engineering `*`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `frontend-design`, `skill-creator` |
+| Upstream-managed | Compound Engineering `*`; `writing-for-agents`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `frontend-design`, `skill-creator` |
 
 `handoff` is absent and is not managed. `linear-cli`, not `linear`, is the
-selected upstream skill name. `writing-for-agents` is a repository-owned local
-fork and has no upstream update relationship.
+selected upstream skill name.
 
 ## Skills CLI
 

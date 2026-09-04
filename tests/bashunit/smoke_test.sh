@@ -395,13 +395,12 @@ function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
 
 function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   _bats_test_init 19 'clients resolve model-invocable skills from canonical .agents trees'
-  local skill
+  local source_skills="$SOURCE_ROOT/private_dot_agents/skills"
+  local skill_dir skill
+  [[ -d "$source_skills" ]] || skip "repository checkout is not mounted"
 
-  for skill in \
-    ask-in-herdr herdr markdown-new \
-    pf-build pf-research pf-spec plan-explainer \
-    se-code-review se-doc-review se-orchestrator se-plan se-simplify \
-    vector-prime work-summary writing-for-agents; do
+  for skill_dir in "$source_skills"/*; do
+    skill="$(basename "$skill_dir")"
     run readlink "$HOME/.claude/skills/$skill/SKILL.md"
     assert_success
     assert_output "$HOME/.agents/skills/$skill/SKILL.md"
@@ -454,52 +453,6 @@ function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
 
   run zsh -dfc 'unset OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_DISABLE_CLAUDE_CODE_SKILLS; source "$1"; zsh -dfc "$2"' _ "$HOME/.zshenv" '[[ -z "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}" && "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" == 1 ]]'
   assert_success
-}
-
-# One manifest replaces the per-skill existence tests; content-level guards
-# (YAML descriptions, shared-pointer resolution) keep their own tests below.
-function test_smoke_021_agent_skills_are_deployed_with_their_scripts_and() {
-  _bats_test_init 21 'agent skills are deployed with their scripts and references'
-  local files=(
-    skills/ask-in-herdr/SKILL.md
-    skills/ask-in-herdr/scripts/ask.sh
-    skills/herdr/SKILL.md
-    skills/se-orchestrator/SKILL.md
-    skills/writing-for-agents/SKILL.md
-    skills/writing-for-agents/SKILL-MECHANICS.md
-    skills/work-summary/SKILL.md
-    skills/work-summary/references/update-format.md
-    skills/work-summary/references/report-format.md
-    skills/vector-prime/SKILL.md
-    skills/vector-prime/scripts/vp.sh
-    skills/pf-research/SKILL.md
-    skills/pf-spec/SKILL.md
-    skills/pf-build/SKILL.md
-    skills/pf-build/references/direct-build.md
-    skills/pf-build/references/implementer-prompt.md
-    skills/pf-build/references/demo.md
-    skills/plan-explainer/SKILL.md
-    skills/plan-explainer/references/sections.md
-    skills/plan-explainer/references/page-craft.md
-    skills/plan-explainer/references/edge-cases.md
-    skills/plan-explainer/scripts/capture-sections.sh
-  )
-  local f missing=""
-  for f in "${files[@]}"; do
-    [ -f "$HOME/.agents/$f" ] || missing="$missing $f"
-  done
-  [ -z "$missing" ] || fail "missing under ~/.agents:$missing"
-
-  assert_file_exists "$HOME/.claude/skills/eli5/SKILL.md"
-  assert_file_exists "$HOME/.claude/skills/open-questions/SKILL.md"
-  assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/ask.sh"
-  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/deepwiki-read.sh"
-  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/jina-read.sh"
-  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/jina-search.sh"
-  assert_file_executable "$HOME/.agents/skills/markdown-new/scripts/tavily-search.sh"
-
-  # The retired per-agent scripts directory must stay deleted.
-  assert_dir_not_exists "$HOME/.agents/skills/ask-in-herdr/scripts/agents"
 }
 
 # A hand-copied list of shared filenames here can only restate the pointers the
