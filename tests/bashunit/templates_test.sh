@@ -240,24 +240,22 @@ function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_an
   assert_equal "$(wc -l < "$work/home/.zshenv" | tr -d ' ')" 1
 }
 
-function test_templates_0093_zshenv_interactive_no_op_keeps_credentials_unset() {
-  _bats_test_init 93 'zshenv interactive rendering without op leaves all API credentials unset'
+function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixture() {
+  _bats_test_init 93 'zshenv shared render helper supplies the complete full fixture'
   command_exists zsh || skip "zsh not installed"
   local work="$BATS_TEST_TMPDIR/zshenv-interactive"
   mkdir -p "$work/home"
 
-  unset MMS_CHEZMOI_UNATTENDED MMS_CHEZMOI_UNATTENDED_PROFILE
   run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
   assert_success
   printf '%s\n' "$output" > "$work/zshenv.rendered"
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
-    unset LINEAR_API_KEY TAVILY_API_KEY JINA_API_KEY CONTEXT7_API_KEY VECTOR_PRIME_API_KEY
     source "$1"
-    print -r -- "${LINEAR_API_KEY-unset}|${TAVILY_API_KEY-unset}|${JINA_API_KEY-unset}|${CONTEXT7_API_KEY-unset}|${VECTOR_PRIME_API_KEY-unset}"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY"
   ' _ "$work/zshenv.rendered"
   assert_success
-  assert_output 'unset|unset|unset|unset|unset'
+  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary'
 }
 
 function test_templates_0094_zshenv_skip_secrets_omits_state_but_execute_template_fails() {
@@ -325,11 +323,11 @@ FAKE_OP
     PATH="$work/bin:$PATH" \
     FAKE_OP_MARKER="$work/op-launched" \
     MMS_CHEZMOI_UNATTENDED=1 \
-    MMS_CHEZMOI_UNATTENDED_PROFILE=invalid \
-    "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template \
+    "$CHEZMOI_UNATTENDED" --profile invalid --finite-stdin -- \
+    execute-template --source "$SOURCE_ROOT" \
     < "$SOURCE_ROOT/dot_zshenv.tmpl"
   assert_failure
-  assert_output --partial 'invalid unattended chezmoi profile'
+  assert_output --partial '--profile must be full-fixture or host-partial'
   # oracle: fake op creates this marker only if the invalid branch reaches it.
   assert_file_not_exists "$work/op-launched"
 }
@@ -422,7 +420,7 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 
   while IFS= read -r entry; do
     [[ "$entry" == "~/"* ]] || fail "instructions entry '$entry' is not home-relative, so it cannot be checked against the source tree"
-    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+    run chezmoi_host_partial source-path \
       --source "$SOURCE_ROOT" "$HOME/${entry#\~/}"
     assert_success
     assert_file_exists "$output"
@@ -647,7 +645,7 @@ function test_templates_026_no_rendered_brew_cask_or_tap_entry_is_indented_i() {
 
 render_with_source() {
   local template_file="$1"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
+  chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template < "$template_file"
 }
 
 function test_templates_027_every_hash_trigger_include_in_the_install_script() {
@@ -692,7 +690,7 @@ function test_templates_028_the_minimal_render_deploys_brewfile_macos_empty() {
   # chezmoi does not create ancestor directories for a scoped apply.
   mkdir -p "$dest/.config"
 
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" apply \
+  run chezmoi_full_fixture apply \
     --source "$SOURCE_ROOT" --destination "$dest" --config "$cfg" \
     "$dest/.config/brewfiles"
   assert_success
@@ -715,15 +713,15 @@ function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_inpu
     "$source/private_dot_config/agent-skills/manifest"
   cp "$SOURCE_ROOT/dot_local/bin/executable_skills" "$source/dot_local/bin/executable_skills"
 
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$source" execute-template < "$hook"
+  run chezmoi_full_fixture_finite_stdin --source "$source" execute-template < "$hook"
   assert_success
   first="$output"
   printf '\n# manifest probe\n' >> "$source/private_dot_config/agent-skills/manifest"
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$source" execute-template < "$hook"
+  run chezmoi_full_fixture_finite_stdin --source "$source" execute-template < "$hook"
   assert_success
   manifest_changed="$output"
   printf '\n# wrapper probe\n' >> "$source/dot_local/bin/executable_skills"
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$source" execute-template < "$hook"
+  run chezmoi_full_fixture_finite_stdin --source "$source" execute-template < "$hook"
   assert_success
   wrapper_changed="$output"
 
@@ -738,13 +736,15 @@ function test_templates_031_agent_skills_clients_use_portable_providers() {
   skip_if_no_chezmoi
   local home="$BATS_TEST_TMPDIR/client-home" claude opencode
 
-  run env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
+  HOME="$home" run chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template \
+    < "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
   assert_success
   claude="$output"
   run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$claude"
   assert_success
 
-  run env HOME="$home" PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
+  HOME="$home" run chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template \
+    < "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
   assert_success
   opencode="$output"
   run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$opencode"

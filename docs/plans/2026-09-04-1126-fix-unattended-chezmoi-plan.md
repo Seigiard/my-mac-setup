@@ -28,7 +28,7 @@ deepened: 2026-09-04
 - [x] U1 · unattended launcher and credential-sensitive target inventory (`13f114e`)
 - [x] U2 · profile-aware secret-backed template rendering (`0339751`)
 - [x] U3 · credential-preserving Claude modifier
-- [ ] U4 · test-owned chezmoi call migration
+- [x] U4 · test-owned chezmoi call migration
 - [ ] U5 · Make, CI, and Docker migration
 - [ ] U6 · verification policy and issue closure
 

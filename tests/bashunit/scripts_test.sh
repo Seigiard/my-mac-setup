@@ -1419,7 +1419,7 @@ render_install_packages() {
   if [[ -n "${1:-}" ]]; then
     config_args=(--config "$1")
   fi
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" "${config_args[@]}" \
+  chezmoi_full_fixture_finite_stdin "${config_args[@]}" \
     --source "$SOURCE_ROOT" execute-template \
     < "$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
 }
@@ -1494,7 +1494,7 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   _bats_test_init 8 'darwin scripts excluded from managed list on Linux'
   is_linux || skip "Only relevant on Linux"
   skip_if_no_chezmoi
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
+  run chezmoi_host_partial managed
   # A failed `chezmoi managed` emits an error string that would satisfy the
   # refutation, so status and a known-managed line come first.
   assert_success
@@ -4498,7 +4498,7 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
+  chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial "skipping agent-state integration refresh"
@@ -4584,7 +4584,7 @@ function test_scripts_100_settings_template_registers_both_pretooluse_hook() {
   skip_if_no_chezmoi
   local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/claude-settings.json"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
+  chezmoi_full_fixture_finite_stdin execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
   run python3 - "$BATS_TEST_TMPFILE" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1]))
@@ -8495,7 +8495,7 @@ function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_w
 AGENT_SKILLS_SYNC_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_9-sync-agent-skills.sh.tmpl"
 
 render_agent_skills_sync() {
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$AGENT_SKILLS_SYNC_TMPL"
+  chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template < "$AGENT_SKILLS_SYNC_TMPL"
 }
 
 function test_scripts_280_agent_skills_sync_hook_renders_valid_bash_and_skips_disposable_homes() {
