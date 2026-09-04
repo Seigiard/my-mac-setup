@@ -279,8 +279,15 @@ jobs:
             echo "no Brewfile change; the minimal install stands"
           fi
 
+      # The workflow-wide HOMEBREW_NO_AUTO_UPDATE freezes formula resolution at
+      # the runner image's snapshot, which lags upstream by weeks — it served
+      # chezmoi 2.71.1 for days after 2.72.1 shipped. tests/helpers/chezmoi-unattended
+      # enforces a minimum chezmoi version and exits 2 below it, so this step
+      # refreshes the index or every later chezmoi step fails on a stale build.
+      # The ubuntu job needs no equivalent: it installs from get.chezmoi.io,
+      # which always resolves the current release.
       - name: Install chezmoi
-        run: brew install chezmoi
+        run: brew update && brew install chezmoi
 
       # See the ubuntu job: fzf is the command palette's scorer, not optional.
       - name: Install fzf

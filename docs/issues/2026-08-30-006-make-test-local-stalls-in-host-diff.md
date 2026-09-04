@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["chezmoi","host-verification"]
 date: "2026-08-30"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-04"
 ---
 
 ## Why this exists
@@ -43,3 +44,7 @@ wait is an invalid verification contract rather than an ordinary slow lookup.
 - Whether unattended mode should reject secret-backed rendering before diff or
   render it through a deterministic non-secret substitute; silently omitting
   secrets would make the diff verdict misleading.
+
+## Resolution
+
+Resolved by merged PR #165 (cbccaa6): make test-local now runs through the unattended host-partial launcher, prevents interactive 1Password access, and explicitly reports omitted credential-backed targets. Verified on 2026-09-04: make test-local completed successfully without an authorization prompt.

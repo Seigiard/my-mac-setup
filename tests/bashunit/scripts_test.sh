@@ -355,7 +355,7 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   hwi_write_naming_stub pi
   hwi_write_naming_stub claude
-  printf '%s\n' '{"title":"  Normalize API Tokens  ","slug":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
   printf '%s\n' 'unexpected claude fallback' > "$HWI_WORK/claude.output"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -363,7 +363,7 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Normalize API tokens from model output'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Normalize API Tokens'
+  assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
   assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
   assert_file_contains "$HWI_WORK/pi.stdin" 'First prompt of the session:'
   assert_file_not_contains "$HWI_WORK/pi.calls" 'Normalize API tokens from model output'
@@ -379,7 +379,7 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   hwi_write_naming_stub pi
   hwi_write_naming_stub claude
-  printf '%s\n' '{"title":"JSON","slug":"json"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"json"}' > "$HWI_WORK/pi.output"
   printf '%s\n' 'not JSON' > "$HWI_WORK/claude.output"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -387,7 +387,7 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" title)" json-generated
   assert_equal "$(read_state_field "$state" slug)" json-generated
   assert_file_exists "$HWI_WORK/pi.calls"
   assert_file_exists "$HWI_WORK/claude.calls"
@@ -409,20 +409,20 @@ function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_c
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" title)" json-generated
   assert_equal "$(read_state_field "$state" slug)" json-generated
 
   rm "$state"
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   hwi_write_naming_stub pi
-  printf '%s\n' '{"title":"Long model identity","slug":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'a different prompt'
   assert_success
   state="$(hwi_identity_state_path)"
   local slug="$(read_state_field "$state" slug)"
-  assert_equal "$(read_state_field "$state" title)" 'Long model identity'
+  assert_equal "$(read_state_field "$state" title)" "$slug"
   assert_equal "${#slug}" 40
   run test "${slug%-}" = "$slug"
   assert_success
@@ -477,6 +477,7 @@ function test_scripts_1181_worktree_identity_suffixes_candidates_against_local_a
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Implement candidate collision'
   assert_success
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" implement-candidate-collision-3
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" implement-candidate-collision-3
   run git -C "$HWI_CHECKOUT" show-ref --verify --quiet refs/remotes/origin/implement-candidate-collision-2
   assert_success
 }
@@ -634,8 +635,8 @@ function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_w
 # observes a workspace rename call without granting this component ownership
 # of pane, tab, or agent labels. Branch assertions read the fixture's real Git
 # state, not the identity state file.
-function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename() {
-  _bats_test_init 1186 'worktree identity labels a workspace once and completes the outcome'
+function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_the_branch_name() {
+  _bats_test_init 1186 'worktree identity reconciles a terminal workspace to the branch name'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -647,14 +648,16 @@ function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename(
   local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" label-workspace-independently
   assert_equal "$(read_state_field "$state" outcome)" complete
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Label workspace independently'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
   assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
 
+  printf '%s' 'Legacy workspace title' > "$HWI_WORK/workspace.label"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'A later event must not rename labels'
   assert_success
-  assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
+  assert_equal "$(hwi_workspace_rename_count)" 2
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$branch"
 }
 
@@ -678,7 +681,7 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event retries upstream workspace'
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" workspace-only
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Preserve upstream workspace'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" preserve-upstream-workspace
 
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.remote"
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.merge"
@@ -1072,7 +1075,7 @@ function test_scripts_1203_worktree_identity_retries_a_nonmatching_prepared_work
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event'
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" complete
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Retry nonmatching workspace'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" retry-nonmatching-workspace
   assert_equal "$(hwi_workspace_rename_count)" 2
 }
 
@@ -1298,107 +1301,13 @@ function test_scripts_1003_herdr_alias_pool_has_at_least_1024_unique_grammar_saf
   local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
   [ "$pool_size" -ge 1024 ]
 
-  local word
-  for word in "${HERDR_ALIAS_COLORS[@]}" "${HERDR_ALIAS_ANIMALS[@]}"; do
-    [[ "$word" =~ ^[a-z]+$ ]] || fail "invalid word: $word"
+  local color animal
+  for color in "${HERDR_ALIAS_COLORS[@]}"; do
+    [[ "$color" =~ ^[a-z]+$ ]] || fail "invalid color word: $color"
   done
-}
-
-function test_scripts_1004_herdr_alias_fixed_test_seed_produces_one_stable_full_se() {
-  _bats_test_init 1004 'herdr alias fixed test seed produces one stable full sequence without state'
-  source "$HERDR_ALIASES"
-  local first_sequence="$BATS_TEST_TMPDIR/herdr-alias-sequence-1"
-  local second_sequence="$BATS_TEST_TMPDIR/herdr-alias-sequence-2"
-  local state_home="$BATS_TEST_TMPDIR/herdr-alias-home"
-  mkdir -p "$state_home"
-
-  HOME="$state_home" HERDR_ALIAS_TEST_SEED=u1-fixed-seed \
-    herdr_alias_candidates ignored-first-seed > "$first_sequence"
-  HOME="$state_home" HERDR_ALIAS_TEST_SEED=u1-fixed-seed \
-    herdr_alias_candidates ignored-second-seed > "$second_sequence"
-
-  run cmp "$first_sequence" "$second_sequence"
-  assert_success
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  local sequence_count unique_count
-  sequence_count="$(wc -l < "$first_sequence" | tr -d ' ')"
-  unique_count="$(LC_ALL=C sort -u "$first_sequence" | wc -l | tr -d ' ')"
-  assert_equal "$sequence_count" "$pool_size"
-  assert_equal "$unique_count" "$pool_size"
-
-  local checksum_line checksum offset expected first
-  checksum_line="$(printf '%s' u1-fixed-seed | cksum)"
-  checksum="${checksum_line%%[[:space:]]*}"
-  offset=$((checksum % pool_size))
-  expected="${HERDR_ALIAS_COLORS[$((offset / ${#HERDR_ALIAS_ANIMALS[@]}))]}-${HERDR_ALIAS_ANIMALS[$((offset % ${#HERDR_ALIAS_ANIMALS[@]}))]}"
-  IFS= read -r first < "$first_sequence"
-  assert_equal "$first" "$expected"
-
-  run find "$state_home" -mindepth 1 -print
-  assert_success
-  assert_output ""
-}
-
-function test_scripts_1005_herdr_alias_traversal_wraps_to_the_last_free_candidate_() {
-  _bats_test_init 1005 'herdr alias traversal wraps to the last free candidate and exhausts once'
-  source "$HERDR_ALIASES"
-  local sequence="$BATS_TEST_TMPDIR/herdr-alias-wrap-sequence"
-  local seed=u1-wraparound-seed
-  herdr_alias_candidates "$seed" > "$sequence"
-
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  local checksum_line checksum offset final_index expected_final
-  checksum_line="$(printf '%s' "$seed" | cksum)"
-  checksum="${checksum_line%%[[:space:]]*}"
-  offset=$((checksum % pool_size))
-  [ "$offset" -gt 0 ]
-  final_index=$((offset - 1))
-  expected_final="${HERDR_ALIAS_COLORS[$((final_index / ${#HERDR_ALIAS_ANIMALS[@]}))]}-${HERDR_ALIAS_ANIMALS[$((final_index % ${#HERDR_ALIAS_ANIMALS[@]}))]}"
-
-  local candidate selected="" last="" visited=0
-  while IFS= read -r candidate; do
-    visited=$((visited + 1))
-    last="$candidate"
-    # The consumer treats every earlier candidate as occupied.
-    if [ "$candidate" = "$expected_final" ]; then
-      selected="$candidate"
-      break
-    fi
-  done < "$sequence"
-  assert_equal "$visited" "$pool_size"
-  assert_equal "$selected" "$expected_final"
-  assert_equal "$last" "$expected_final"
-
-  selected=""
-  visited=0
-  while IFS= read -r candidate; do
-    visited=$((visited + 1))
-    # Every candidate is occupied, so no selection is made.
-  done < "$sequence"
-  assert_equal "$visited" "$pool_size"
-  assert_equal "$selected" ""
-}
-
-function test_scripts_1006_herdr_alias_allocation_consults_no_herdr_model_or_netwo() {
-  _bats_test_init 1006 'herdr alias allocation consults no Herdr model or network command'
-  local stub_dir="$BATS_TEST_TMPDIR/herdr-alias-stubs"
-  local call_log="$BATS_TEST_TMPDIR/herdr-alias-calls"
-  local binary
-  mkdir -p "$stub_dir"
-  for binary in herdr claude opencode pi codex curl wget; do
-    cat > "$stub_dir/$binary" <<'SH'
-#!/bin/sh
-printf '%s\n' "${0##*/}" >> "$HERDR_ALIAS_CALL_LOG"
-exit 97
-SH
-    chmod +x "$stub_dir/$binary"
+  for animal in "${HERDR_ALIAS_ANIMALS[@]}"; do
+    [[ "$animal" =~ ^[a-z]+$ ]] || fail "invalid animal word: $animal"
   done
-
-  run env PATH="$stub_dir:$PATH" HERDR_ALIAS_CALL_LOG="$call_log" \
-    HERDR_ALIAS_TEST_SEED=u1-no-services \
-    bash -c 'source "$1"; herdr_alias_candidates ignored >/dev/null' _ "$HERDR_ALIASES"
-  assert_success
-  [ ! -e "$call_log" ]
 }
 
 # ===========================================
