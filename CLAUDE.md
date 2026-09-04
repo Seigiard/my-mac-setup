@@ -140,7 +140,7 @@ Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCo
 
 ## Repository issues
 
-Use the `repository-issues` skill and `python3 scripts/issues` for `docs/issues/` lifecycle operations. Create a repository issue only for unresolved, concrete follow-up work owned by this repository. Do not mirror upstream-only defects; report the upstream issue URL instead.
+For repository issue queries, lifecycle changes, validation, or unresolved work, load the `repository-issues` skill. Apply its ownership gate before creating a `docs/issues/` record, and use `python3 scripts/issues` for mutations.
 
 Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 

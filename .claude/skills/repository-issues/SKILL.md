@@ -1,6 +1,6 @@
 ---
 name: repository-issues
-description: Manage repository issues in docs/issues with scripts/issues. Use for issue queries, lifecycle changes, validation, or accepted follow-up work owned by this repository.
+description: Repository issue ownership and lifecycle management for docs/issues. Use when querying, changing, or validating issues, or deciding whether unresolved work belongs in this repository's backlog.
 ---
 
 # Repository Issues
@@ -90,21 +90,18 @@ Success exits `0`. Strict validation violations exit `1`. CLI contract errors ex
 
 Use `validate` to check the complete current corpus without rewriting records.
 
-## Escalation
+## Ownership gate
 
-Use repository issues as a backlog of concrete follow-up work owned by this repository, not as a log of every problem observed during a task.
+`docs/issues/` is the backlog for concrete work accepted by this repository, not a log of every problem observed during a task.
 
-Create a repository issue only when all of these are true:
+Before creating an issue:
 
-- The problem will remain unresolved after the current task.
-- This repository owns a concrete next action.
-- That action is requested, selected, or required by another repository rule.
-- No existing local issue already tracks it.
+1. Search existing local issues. Continue only when none already tracks the same work.
+2. Name the concrete repository change that will remain after the current task. Continue only when this repository owns that change.
+3. Confirm that the user requested the change, an accepted plan includes it, or an explicit repository rule requires it. A merely possible workaround does not qualify.
 
-Do not create a local issue for an upstream-only defect. Search for or create the upstream issue and report its URL without modifying this repository.
+Create the issue through the CLI only after all three checks pass.
 
-Create a local issue linked to the upstream issue only after this repository accepts specific follow-up work, such as a workaround, dependency pin, migration, regression check, or monitoring change.
+For an upstream-only defect, search for or create the upstream issue and report its URL without modifying this repository. When accepted local work depends on an upstream defect, create a local issue and link the upstream issue.
 
 When ownership is unclear, do not create an issue. Report the ambiguity and ask the user only when deciding whether to accept local follow-up work blocks the task.
-
-Use the CLI instead of manually changing lifecycle fields or filenames.
