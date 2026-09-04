@@ -1,6 +1,6 @@
 ---
 name: repository-issues
-description: Manage repository issues in docs/issues with scripts/issues. Use for issue queries, lifecycle changes, validation, or unresolved work.
+description: Manage repository issues in docs/issues with scripts/issues. Use for issue queries, lifecycle changes, validation, or accepted follow-up work owned by this repository.
 ---
 
 # Repository Issues
@@ -92,4 +92,19 @@ Use `validate` to check the complete current corpus without rewriting records.
 
 ## Escalation
 
-Create a repository issue for every unresolved problem. Use the CLI instead of manually changing lifecycle fields or filenames.
+Use repository issues as a backlog of concrete follow-up work owned by this repository, not as a log of every problem observed during a task.
+
+Create a repository issue only when all of these are true:
+
+- The problem will remain unresolved after the current task.
+- This repository owns a concrete next action.
+- That action is requested, selected, or required by another repository rule.
+- No existing local issue already tracks it.
+
+Do not create a local issue for an upstream-only defect. Search for or create the upstream issue and report its URL without modifying this repository.
+
+Create a local issue linked to the upstream issue only after this repository accepts specific follow-up work, such as a workaround, dependency pin, migration, regression check, or monitoring change.
+
+When ownership is unclear, do not create an issue. Report the ambiguity and ask the user only when deciding whether to accept local follow-up work blocks the task.
+
+Use the CLI instead of manually changing lifecycle fields or filenames.
