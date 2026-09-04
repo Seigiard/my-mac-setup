@@ -7772,7 +7772,7 @@ function test_scripts_268_herdr_child_checkout_help_resolves_runtime_module() {
 }
 
 function test_scripts_269_herdr_child_modules_source_cleanly_without_source_time_effects() {
-  _bats_test_init 269 'herdr-child modules source cleanly without source-time effects'
+  _bats_test_init 269 'sourced library modules cause no source-time side effects'
   local lib_dir="$SOURCE_ROOT/dot_local/lib"
 
   run /bin/bash -s -- "$lib_dir" "$BATS_TEST_TMPDIR/module-loading" <<'BASH'
@@ -7870,6 +7870,7 @@ herdr-child-watcher.sh
 herdr-child-launch.sh
 herdr-child-continuation.sh
 herdr-child-reap.sh
+context-usage.sh
 EOF
 BASH
   assert_success
@@ -8758,4 +8759,411 @@ TS
     HWI_ADAPTER_TEST_DIR="$root/reentry" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   assert_file_not_exists "$root/reentry"
+}
+
+# --- context-usage library (U2) -------------------------------------------
+#
+# Coverage owner for the two growth numbers the context-threshold hook and the
+# statusline both read. The oracles are outside this library: transcript
+# fixtures use Claude Code's own entry shape (`type`, `compactMetadata`), and
+# the fullness percentage is compared against the statusline's existing
+# arithmetic rather than against a number restated from the library.
+
+context_usage_lib() {
+  printf '%s' "$SOURCE_ROOT/dot_local/lib/context-usage.sh"
+}
+
+# Write a transcript in Claude Code's own line-per-entry shape. Each argument
+# is an entry kind: `assistant`, `user`, `tool`, or `compact`.
+context_usage_fixture_transcript() {
+  local path="$1" kind
+  shift
+  : > "$path"
+  for kind in "$@"; do
+    case "$kind" in
+      assistant)
+        printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":100}}}' >> "$path"
+        ;;
+      user)
+        printf '%s\n' '{"type":"user","message":{"role":"user","content":"go on"}}' >> "$path"
+        ;;
+      tool)
+        printf '%s\n' '{"type":"user","toolUseResult":{"stdout":"grep found \"type\":\"assistant\" in the log"},"message":{"role":"user","content":[{"type":"tool_result","content":"\"type\":\"assistant\""}]}}' >> "$path"
+        ;;
+      compact)
+        printf '%s\n' '{"type":"user","isCompactSummary":true,"compactMetadata":{"trigger":"manual","preTokens":412000},"message":{"role":"user","content":"summary"}}' >> "$path"
+        ;;
+    esac
+  done
+}
+
+function test_scripts_2801_context_usage_turn_count_restarts_at_the_compaction_boundary() {
+  _bats_test_init 2801 'context-usage turn count restarts at the compaction boundary'
+  local transcript="$BATS_TEST_TMPDIR/transcript.jsonl"
+
+  # AE5: turns from before the boundary never reach the count, so a session
+  # above the hard threshold before compaction is below it after.
+  context_usage_fixture_transcript "$transcript" \
+    assistant user assistant user assistant user assistant \
+    compact \
+    user assistant user assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '2'
+
+  # No boundary at all: the whole file counts.
+  context_usage_fixture_transcript "$transcript" assistant user assistant user assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  # Only the last boundary matters.
+  context_usage_fixture_transcript "$transcript" \
+    assistant compact assistant assistant compact assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '1'
+}
+
+function test_scripts_2802_context_usage_turn_count_ignores_non_assistant_entries() {
+  _bats_test_init 2802 'context-usage turn count ignores user and tool-result entries'
+  local transcript="$BATS_TEST_TMPDIR/interleaved.jsonl"
+
+  # The `tool` fixture carries the literal text `"type":"assistant"` inside a
+  # tool result. A line-oriented text scan counts those as turns; parsing the
+  # entry does not. Real transcripts quote each other constantly.
+  context_usage_fixture_transcript "$transcript" \
+    user assistant tool assistant tool tool user assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  # An unreadable or absent transcript is zero turns, never an error: the hook
+  # must stay silent rather than fail loudly on the hot path.
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$BATS_TEST_TMPDIR/absent.jsonl"
+  assert_success
+  assert_output '0'
+  run bash -c '. "$1"; context_usage_turn_count ""' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '0'
+}
+
+function test_scripts_2803_context_usage_fullness_matches_the_statusline_arithmetic() {
+  _bats_test_init 2803 'context-usage fullness matches the statusline bar arithmetic'
+  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
+  local state="$BATS_TEST_TMPDIR/state" current=372000 window=1000000 expected
+
+  # AE8, R2. The oracle is the statusline's own computation, read out of the
+  # deployed script rather than restated here, so a change to the allowance in
+  # one place and not the other fails this test.
+  expected="$(
+    raw_pct=$((current * 100 / window))
+    allowance="$(sed -n 's/.*adjusted_pct=\$((raw_pct + \([0-9]*\))).*/\1/p' "$statusline" | head -1)"
+    [ -n "$allowance" ] || allowance=missing
+    printf '%s' "$((raw_pct + allowance))"
+  )"
+  assert_equal "$expected" '57'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_write_usage sess-bar "$2" "$3" "$(date +%s)" || exit 1
+    context_usage_read_fullness sess-bar
+  ' _ "$(context_usage_lib)" "$current" "$window"
+  assert_success
+  assert_output "$expected"
+
+  # The cap holds: a full window plus the allowance never exceeds 100.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_fullness_pct 990000 1000000
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '100'
+}
+
+function test_scripts_2804_context_usage_fullness_degrades_to_unavailable() {
+  _bats_test_init 2804 'context-usage fullness degrades to unavailable and leaves turns computable'
+  local state="$BATS_TEST_TMPDIR/state" transcript="$BATS_TEST_TMPDIR/t.jsonl"
+  context_usage_fixture_transcript "$transcript" assistant assistant assistant
+
+  # KTD3: absent, truncated, and stale each report unavailable rather than
+  # zero, and none of them stops the turn count from being computed.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_read_fullness never-rendered && exit 9
+    context_usage_turn_count "$2"
+  ' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    file="$(context_usage_usage_file truncated)"
+    mkdir -p "$(dirname "$file")"
+    printf "current_tokens=400000\n" > "$file"
+    context_usage_read_fullness truncated && exit 9
+    context_usage_turn_count "$2"
+  ' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    now="$(date +%s)"
+    context_usage_write_usage stale 400000 1000000 "$((now - 4000))" || exit 1
+    context_usage_read_fullness stale "$now" && exit 9
+    context_usage_read_fullness stale "$((now - 3999))"
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '60'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    file="$(context_usage_usage_file unreadable)"
+    mkdir -p "$(dirname "$file")"
+    printf "current_tokens=x\nwindow_size=0\nwritten_at=abc\n" > "$file"
+    context_usage_read_fullness unreadable && exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+}
+
+function test_scripts_2805_context_usage_warning_budgets_are_per_dimension_and_spent_once() {
+  _bats_test_init 2805 'context-usage warning budgets are per dimension and spend once'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # Both dimensions crossing warn in one call is one crossing naming both
+  # (R22), and spending it silences that level (AE4, R9).
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_evaluate both 72 160
+    context_usage_spend both warn fullness,turns 160 "finish the unit" ok
+    context_usage_evaluate both 72 161 && exit 9
+    context_usage_evaluate both 99 400 > /dev/null || exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=fullness,turns'
+
+  # R10: a spent fullness budget never suppresses the turn-count dimension.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend split warn fullness 40 "finish the unit" ok
+    context_usage_evaluate split 72 40 && exit 9
+    context_usage_evaluate split 72 160
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=turns'
+}
+
+function test_scripts_2806_context_usage_hard_crossing_consumes_the_warning_budget() {
+  _bats_test_init 2806 'context-usage hard crossing consumes the same dimension warning budget'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # R22: a session that reaches hard without ever announcing warn does not get
+  # a warn announcement afterwards for that dimension. The other dimension's
+  # budget is untouched.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_evaluate jump "" 300
+    context_usage_spend jump hard turns 300 "finish the unit" ok
+    file="$(context_usage_announce_file jump)"
+    grep -q "^warn_turns_spent=1$" "$file" || exit 9
+    grep -q "^warn_fullness_spent=" "$file" && exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=hard'
+  assert_line --index 1 'dimensions=turns'
+}
+
+function test_scripts_2807_context_usage_hard_threshold_repeats_at_shrinking_gaps() {
+  _bats_test_init 2807 'context-usage hard threshold repeats at shrinking gaps down to every turn'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # AE12, R25, KTD12. Walk a session forward one turn at a time from the hard
+  # threshold and assert the shape the requirement fixes rather than the exact
+  # schedule the current curve happens to produce: the crossing announces at
+  # once, the gap never grows, and it reaches every turn. A curve retuned in
+  # U4 must still satisfy all three.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    announced=""
+    turn=300
+    while [ "$turn" -le 400 ]; do
+      if context_usage_evaluate cadence "" "$turn" > /dev/null; then
+        context_usage_spend cadence hard turns "$turn"
+        announced="${announced:+$announced }$turn"
+      fi
+      turn=$((turn + 1))
+    done
+    previous=""
+    last_gap=""
+    for t in $announced; do
+      if [ -n "$previous" ]; then
+        gap=$((t - previous))
+        if [ -n "$last_gap" ] && [ "$gap" -gt "$last_gap" ]; then
+          printf "gap grew from %s to %s in: %s\n" "$last_gap" "$gap" "$announced"
+          exit 9
+        fi
+        last_gap="$gap"
+      fi
+      previous="$t"
+    done
+    set -- $announced
+    [ "$1" = 300 ] || { printf "first announcement at %s\n" "$1"; exit 9; }
+    [ "$last_gap" = 1 ] || { printf "final gap %s in: %s\n" "$last_gap" "$announced"; exit 9; }
+    printf "%s announcements over 101 turns\n" "$#"
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output --partial 'announcements over 101 turns'
+
+  # The cadence is a function of distance, not a stored counter: a state file
+  # carried across a resume or a fork produces the same next announcement.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend resumed hard turns 300
+    context_usage_evaluate resumed "" 307 && exit 9
+    context_usage_evaluate resumed "" 308 > /dev/null || exit 9
+    context_usage_spend forked hard turns 300
+    context_usage_evaluate forked "" 328 > /dev/null || exit 9
+    context_usage_spend forked hard turns 328
+    context_usage_evaluate forked "" 331 && exit 9
+    context_usage_evaluate forked "" 332 > /dev/null || exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+}
+
+function test_scripts_2808_context_usage_between_hard_announcements_says_nothing() {
+  _bats_test_init 2808 'context-usage says nothing between two hard announcement points'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_evaluate quiet "" 300 > /dev/null || exit 9
+    context_usage_spend quiet hard turns 300
+    for turn in 301 302 303 304 305 306 307; do
+      context_usage_evaluate quiet "" "$turn" > /dev/null && { printf "announced at %s\n" "$turn"; exit 9; }
+    done
+    context_usage_evaluate quiet "" 308
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=hard'
+  assert_line --index 1 'dimensions=turns'
+}
+
+function test_scripts_2809_context_usage_caches_the_goal_across_hard_repeats() {
+  _bats_test_init 2809 'context-usage returns the first goal unchanged on every hard repeat'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # KD5, R9, R25: the repeat costs no extraction, so a caller checking
+  # goal_status before extracting never asks for a second one, and a later
+  # spend that offers a different goal cannot overwrite the first.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_goal_status cached && exit 9
+    context_usage_spend cached hard turns 300 "land the shared usage library" ok
+    context_usage_spend cached hard turns 308 "something else entirely" ok
+    context_usage_spend cached hard turns 316
+    context_usage_goal cached
+    context_usage_goal_status cached
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'land the shared usage library'
+  assert_line --index 1 'ok'
+
+  # R23: a failed extraction is recorded as such and is equally sticky, so the
+  # repeats keep saying the same thing instead of re-running the extractor.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend failed hard turns 300 "" failed
+    context_usage_goal failed && exit 9
+    context_usage_spend failed hard turns 308 "a goal that arrived too late" ok
+    context_usage_goal failed && exit 9
+    context_usage_goal_status failed
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output 'failed'
+}
+
+function test_scripts_2810_context_usage_state_files_have_one_writer_each() {
+  _bats_test_init 2810 'context-usage usage and announcement state do not overwrite each other'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # KTD10. Both files are replaced whole by rename. Sharing one would let the
+  # statusline's next render erase a budget the hook had just spent -- a bug
+  # invisible to any test that stages the file by hand.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    now="$(date +%s)"
+    context_usage_spend writers warn fullness,turns 160 "keep both writers apart" ok
+    context_usage_write_usage writers 700000 1000000 "$now" || exit 1
+    context_usage_evaluate writers 90 161 > /dev/null
+    hard_only=$?
+    context_usage_goal writers
+    context_usage_read_fullness writers "$now"
+    printf "\n"
+    context_usage_evaluate writers 72 161 && exit 9
+    [ "$hard_only" -eq 0 ] || exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'keep both writers apart'
+  assert_line --index 1 '90'
+
+  # And the reverse: publishing usage again leaves the announcement file alone.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_write_usage writers 100 1000000 "$(date +%s)" || exit 1
+    context_usage_goal writers
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output 'keep both writers apart'
+}
+
+function test_scripts_2811_context_usage_clear_rearms_every_budget() {
+  _bats_test_init 2811 'context-usage clear re-arms every announcement budget'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # R11: compaction hands the session back able to announce again.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend rearm warn fullness,turns 160 "before compaction" ok
+    context_usage_evaluate rearm 72 161 && exit 9
+    context_usage_clear rearm || exit 1
+    context_usage_goal_status rearm && exit 9
+    context_usage_evaluate rearm 72 161
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=fullness,turns'
+}
+
+function test_scripts_2812_context_usage_thresholds_are_environment_tunable() {
+  _bats_test_init 2812 'context-usage thresholds and allowance are environment tunable'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # KTD11, R5: all four thresholds and the allowance move without a code edit.
+  run env CONTEXT_USAGE_STATE_DIR="$state" \
+    CONTEXT_USAGE_ALLOWANCE_PCT=0 \
+    CONTEXT_USAGE_FULLNESS_WARN_PCT=10 \
+    CONTEXT_USAGE_FULLNESS_HARD_PCT=12 \
+    CONTEXT_USAGE_TURNS_WARN=2 \
+    CONTEXT_USAGE_TURNS_HARD=4 \
+    bash -c '
+      . "$1"
+      context_usage_fullness_pct 130000 1000000
+      printf "\n"
+      context_usage_evaluate tuned 11 1
+      context_usage_spend tuned warn fullness 1
+      context_usage_evaluate tuned 13 1
+    ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 '13'
+  assert_line --index 1 'level=warn'
+  assert_line --index 2 'dimensions=fullness'
+  assert_line --index 3 'level=hard'
+  assert_line --index 4 'dimensions=fullness'
 }
