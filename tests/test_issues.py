@@ -306,14 +306,14 @@ class WriteTests(IssueFixtures):
         self.assertEqual("docs/issues/%s-002-new-issue-title.md\n" % today, result.stdout)
 
     def test_create_external_id_retry_returns_original_path(self):
-        arguments = ("create", "--title", "Original title", "--short-description", "Idempotent create.", "--type", "chore", "--category", "repository-maintenance", "--priority", "low", "--external-id", "smithers-run-42")
+        arguments = ("create", "--title", "Original title", "--short-description", "Idempotent create.", "--type", "chore", "--category", "repository-maintenance", "--priority", "low", "--external-id", "external-run-42")
         first = self.run_issues(*arguments)
         second = self.run_issues(*(arguments[:2] + ("Changed retry title",) + arguments[3:]))
         self.assertEqual(0, first.returncode, first.stderr)
         self.assertEqual((0, first.stdout), (second.returncode, second.stdout), second.stderr)
         paths = self.module().discover_issue_paths(self.root)
         self.assertEqual(1, len(paths))
-        self.assertEqual("smithers-run-42", self.module().parse_document(paths[0]).metadata["external-id"])
+        self.assertEqual("external-run-42", self.module().parse_document(paths[0]).metadata["external-id"])
 
     def test_start_close_and_wontfix_enforce_lifecycle_rules(self):
         open_path = self.write_issue("2026-08-21-001-open.md", issue_text())
