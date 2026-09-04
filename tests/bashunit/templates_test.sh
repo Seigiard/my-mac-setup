@@ -443,7 +443,7 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   assert_success
   assert_output --partial 'herdr-agent-state.sh'
   assert_output --partial 'handoff-session-start.sh'
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+  run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-session-start.sh"
   assert_success
   assert_file_exists "$output"
@@ -460,7 +460,7 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
   run jq -r '.hooks.PreCompact[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'handoff-pre-compact.sh'
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+  run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-pre-compact.sh"
   assert_success
   assert_file_exists "$output"
@@ -489,7 +489,7 @@ function test_templates_0154_private_settings_carry_every_context_handoff_regist
   # home/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl
   # and it has no chezmoi source path of its own.
   while IFS= read -r command; do
-    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+    run chezmoi_host_partial source-path \
       --source "$SOURCE_ROOT" "$HOME/.claude/hooks/$command"
     assert_success
     assert_file_exists "$output"
@@ -509,7 +509,7 @@ function test_templates_0153_private_settings_register_the_context_threshold_sto
   run jq -r '.hooks.Stop[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'context-threshold.sh'
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+  run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/context-threshold.sh"
   assert_success
   assert_file_exists "$output"
