@@ -6143,6 +6143,83 @@ function test_scripts_1152_herdr_pane_labels_formatter_qualifies_a_divergent_wor
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
+function test_scripts_1206_herdr_pane_labels_names_the_space_a_worktree_space_ca() {
+  _bats_test_init 1206 'herdr-pane-labels names the space a worktree space came from, and only when it adds something'
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  # given: a worktree space labelled by its task, a worktree space whose label
+  # already is the repository name, and a space herdr reports no worktree for
+  local work="$HPL_WORK/work" state
+  mkdir -p "$work"
+  hpl_git_fixture "$work" "" 1 ready 'fatal: not a git repository'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$work")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-2 "$work" | jq -c '.workspace_id = "ws-2"')"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-3 "$work" | jq -c '.workspace_id = "ws-3"')"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-2","workspace_id":"ws-2","label":""}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-3","workspace_id":"ws-3","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"Task Name","worktree":{"repo_name":"repository","is_linked_worktree":true}}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-2","label":"repository","worktree":{"repo_name":"repository","is_linked_worktree":false}}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-3","label":"IronVault"}'
+  hpl_set_process_label pane-1 one
+  hpl_set_process_label pane-2 two
+  hpl_set_process_label pane-3 three
+
+  # when: one location/presentation pass runs
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+
+  # then: only the space whose label differs from its repository names the parent
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.space_origin' "$state")" repository
+  run jq -e '.panes[] | select(.pane_id == "pane-2") | .tokens.space_origin == null' "$state"
+  assert_success
+  run jq -e '.panes[] | select(.pane_id == "pane-3") | .tokens.space_origin == null' "$state"
+  assert_success
+}
+
+function test_scripts_1207_herdr_pane_labels_reports_branch_and_counts_as_space_() {
+  _bats_test_init 1207 'herdr-pane-labels reports branch and status counts as space metadata, and clears them off a non-Git space'
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  # given: a worktree checkout whose status carries every category, and a
+  # second space whose pane sits outside any checkout
+  local root="$HPL_WORK/wt" common="$HPL_WORK/repository/.git" outside="$HPL_WORK/outside" state
+  mkdir -p "$root" "$common" "$outside"
+  hpl_mark_linked_worktree "$root" "$common/worktrees/wt"
+  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/feature
+  hpl_git_status_fixture "$root" '# branch.oid abc
+# branch.head feature
+# branch.upstream origin/feature
+# branch.ab +2 -1
+1 M. N... 100644 100644 100644 aaa bbb staged-only.txt
+1 .M N... 100644 100644 100644 aaa bbb unstaged-only.txt
+1 MM N... 100644 100644 100644 aaa bbb both.txt
+u UU N... 100644 100644 100644 100644 aaa bbb ccc conflicted.txt
+? untracked.txt'
+  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-2 "$outside" | jq -c '.workspace_id = "ws-2"')"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-2","workspace_id":"ws-2","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"Task Name"}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-2","label":"Elsewhere","tokens":{"branch":"stale","git_status":"stale"}}'
+  hpl_set_process_label pane-1 one
+  hpl_set_process_label pane-2 two
+
+  # when: one location/presentation pass runs
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+
+  # then: the worktree space carries its branch and one count per category,
+  # ordered pull, push, conflicts, staged, unstaged, untracked
+  assert_equal "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .tokens.branch' "$state")" feature
+  assert_equal "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .tokens.git_status' "$state")" \
+    "${HPL_ICON_PULL}1 ${HPL_ICON_PUSH}2 ~1 +2 !2 ?1"
+  # then: the space with no checkout sheds the tokens it was carrying
+  run jq -e '.workspaces[] | select(.workspace_id == "ws-2") | (.tokens // {}) == {}' "$state"
+  assert_success
+}
+
 function test_scripts_1153_herdr_pane_labels_formatter_keeps_mixed_git_identities_() {
   _bats_test_init 1153 'herdr-pane-labels formatter keeps mixed Git identities out of tabs and repairs external labels'
   command -v jq >/dev/null || skip "jq not available"

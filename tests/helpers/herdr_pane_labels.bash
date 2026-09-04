@@ -31,6 +31,8 @@ HPL_ICON_COMMIT="$(hpl_icon COMMIT)"     # nf-cod-git_commit U+EAFC
 # shellcheck disable=SC2034
 HPL_ICON_FOLDER="$(hpl_icon FOLDER)"     # nf-cod-folder U+EA83
 # shellcheck disable=SC2034
+HPL_ICON_PULL="$(hpl_icon PULL)"         # U+21E3 downwards dashed arrow
+HPL_ICON_PUSH="$(hpl_icon PUSH)"         # U+21E1 upwards dashed arrow
 HPL_ICON_STALE="$(hpl_icon STALE)"       # nf-cod-history U+EA82
 
 hpl_teardown() {
@@ -310,6 +312,31 @@ elif [ "$1" = "tab" ] && [ "$2" = "rename" ]; then
   result=$?
   hpl_fixture_state_unlock "$dir"
   [ "$result" -eq 0 ] || exit "$result"
+elif [ "$1" = "workspace" ] && [ "$2" = "report-metadata" ]; then
+  [ ! -f "$HPL_WORK/fail-workspace-report" ] || exit 1
+  shift 2
+  source_id= workspace_id= report_seq= tokens='{}' clear_tokens='[]'
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --source) source_id="$2"; shift 2 ;;
+      --seq) report_seq="$2"; shift 2 ;;
+      --token) tokens="$(jq -c --arg pair "$2" '. + {($pair | split("=")[0]): ($pair | split("=")[1:] | join("="))}' <<< "$tokens")"; shift 2 ;;
+      --clear-token) clear_tokens="$(jq -c --arg name "$2" '. + [$name]' <<< "$clear_tokens")"; shift 2 ;;
+      --*) shift 2 ;;
+      *) workspace_id="$1"; shift ;;
+    esac
+  done
+  [ -n "$source_id" ] && [ -n "$workspace_id" ] || exit 2
+  tmp="$state.tmp.$$"
+  hpl_fixture_state_lock "$dir" || exit 1
+  jq --arg ws "$workspace_id" --argjson tokens "$tokens" --argjson clears "$clear_tokens" '
+      .workspaces |= map(if .workspace_id == $ws then
+        .tokens = ((reduce $clears[] as $key ((.tokens // {}); del(.[$key]))) + $tokens)
+        | if (.tokens | length) == 0 then del(.tokens) else . end
+      else . end)' "$state" > "$tmp" && mv "$tmp" "$state"
+  result=$?
+  hpl_fixture_state_unlock "$dir"
+  [ "$result" -eq 0 ] || exit "$result"
 elif [ "$1" = "pane" ] && [ "$2" = "report-metadata" ]; then
   [ ! -f "$HPL_WORK/fail-pane-report" ] || exit 1
   [ ! -f "$HPL_WORK/drop-pane-report" ] || exit 0
@@ -390,6 +417,7 @@ if [ -d "$fixture" ]; then
   out="$fixture/stdout"
   case "$command_args" in
     *"--short=7"*) [ ! -f "$fixture/stdout.short" ] || out="$fixture/stdout.short" ;;
+    *"--porcelain=v2"*) [ ! -f "$fixture/stdout.status" ] || out="$fixture/stdout.status" ;;
   esac
   cat "$out"
   exit "$(cat "$fixture/status")"
@@ -828,6 +856,15 @@ hpl_process_pane_json() {
     --arg mode "$foreground_mode" '
       {pane_id:$id,tab_id:$tab,workspace_id:"ws-1",terminal_id:("term-" + $id),agent:null,label:"",tokens:{},cwd:$cwd}
       | if $mode == "absent" then . else .foreground_cwd = $fg end'
+}
+
+# Attaches a `status --porcelain=v2` body to the fixture already registered for
+# this cwd, so one fixture answers both the identity probe and the status probe.
+hpl_git_status_fixture() {
+  local fixture
+  fixture="$(hpl_git_fixture_dir "$1")"
+  [ -n "$fixture" ] || return 1
+  printf '%s\n' "$2" > "$fixture/stdout.status"
 }
 
 hpl_set_process_label() {
