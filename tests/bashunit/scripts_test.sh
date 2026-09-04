@@ -263,6 +263,21 @@ function test_scripts_1139_worktree_identity_keeps_unresolved_events_retryable_a
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" retry-later
 }
 
+function test_scripts_1206_worktree_identity_waits_for_the_first_opencode_session_publication() {
+  _bats_test_init 1206 'worktree identity waits for the first opencode session publication'
+  hwi_setup
+  hwi_create_generated_worktree
+  hwi_delay_pane_session_publication pane-1 opencode session-1 workspace-1 "$HWI_CHECKOUT"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_PANE_SESSION_RETRY_DELAY=0 \
+    bash "$HWI_ENGINE" --worker --agent opencode --session session-1 --pane pane-1 --workspace workspace-1 \
+    <<< 'Rename on first OpenCode prompt'
+  assert_success
+  assert_file_exists "$HWI_WORK/pane-session-published"
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" rename-on-first-opencode-prompt
+}
+
 function test_scripts_1140_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
   _bats_test_init 1140 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
   hwi_setup
