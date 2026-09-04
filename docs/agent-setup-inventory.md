@@ -5,21 +5,18 @@ Codex, Gemini CLI, and GitHub Copilot are intentionally out of scope.
 
 ## Skill Ownership
 
-`home/private_dot_config/agent-skills/manifest` is the source of truth for
-selected upstream skills. `~/.local/bin/skills` installs them globally under
-`~/.agents/skills`; its global lock owns those upstream children at
-`${XDG_STATE_HOME:-$HOME/.local/state}/skills/.skill-lock.json`.
+[The upstream skills manifest](../home/private_dot_config/agent-skills/manifest)
+is the source of truth for selected upstream skills. `~/.local/bin/skills`
+installs them globally under `~/.agents/skills`; its global lock owns those
+upstream children at `${XDG_STATE_HOME:-$HOME/.local/state}/skills/.skill-lock.json`.
 
-`home/private_dot_agents/skills/` owns repository model-invocable skills.
-Claude Code receives symlink adapters under `~/.claude/skills`; OpenCode and Pi
-discover `~/.agents/skills` natively. No effective skill name may have both
-owners.
+[The repository-owned skills manifest](../home/private_dot_config/agent-skills/repository-owned)
+reserves names managed from `home/private_dot_agents/skills/`. Claude Code
+receives symlink adapters under `~/.claude/skills`; OpenCode and Pi discover
+`~/.agents/skills` natively. No effective skill name may have both owners.
 
-| Ownership | Current inventory |
-| --- | --- |
-| Repository-owned | `ask-in-herdr`, `herdr`, `markdown-new`, `pf-build`, `pf-research`, `pf-spec`, `plan-explainer`, `se-code-review`, `se-doc-review`, `se-orchestrator`, `se-plan`, `se-simplify`, `vector-prime`, `work-summary` |
-| Explicit-only | `eli5`, `open-questions`: Claude/Pi manual adapters and OpenCode command adapters only |
-| Upstream-managed | Compound Engineering `*`; `writing-for-agents`; `linear-cli`; `improve-claude-md`; `orca-cli`, `orchestration`; `find-skills`; `frontend-design`, `skill-creator` |
+`eli5` and `open-questions` are explicit-only: Claude and Pi receive manual
+skill adapters, while OpenCode receives command adapters only.
 
 `handoff` is absent and is not managed. `linear-cli`, not `linear`, is the
 selected upstream skill name.
