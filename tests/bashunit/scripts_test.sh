@@ -7154,154 +7154,180 @@ function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_wit
 # Claude settings modifier
 # ===========================================
 
-function test_scripts_245_claude_settings_modifier_registers_the_executor() {
-  _bats_test_init 245 'Claude settings modifier registers the executor MCP server over stdio'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-bin"
-
-  # executor registers with or without 1Password; the stub is here so one run
-  # also covers the credentialed servers, whose entries exist only when `op`
-  # answers.
-  mkdir -p "$stub_bin"
-  cat > "$stub_bin/op" <<'STUB'
+claude_modifier_setup() {
+  CLAUDE_MODIFIER="$SOURCE_ROOT/modify_dot_claude.json"
+  CLAUDE_MODIFIER_BIN="$BATS_TEST_TMPDIR/claude-modifier-bin"
+  CLAUDE_MODIFIER_OP_MARKER="$BATS_TEST_TMPDIR/claude-modifier-op-launched"
+  mkdir -p "$CLAUDE_MODIFIER_BIN"
+  cat > "$CLAUDE_MODIFIER_BIN/op" <<'STUB'
 #!/bin/sh
-echo "stub-credential"
+printf '%s\n' "$2" >> "$MMS_TEST_OP_MARKER"
+case "$2" in
+  *Jina*) printf '%s\n' 'interactive-jina' ;;
+  *Tavily*) printf '%s\n' 'interactive-tavily' ;;
+esac
 STUB
-  chmod +x "$stub_bin/op"
+  chmod +x "$CLAUDE_MODIFIER_BIN/op"
+}
 
-  run env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+function test_scripts_245_claude_settings_modifier_preserves_existing_credentials_unattended() {
+  _bats_test_init 245 'Claude settings modifier preserves both existing credentialed entries unattended'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"},"stale":{"type":"stdio"}},"other":{"preserved":true}}'
+
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+    PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
-  # stdio rather than the daemon's HTTP endpoint: the CLI resolves the scope and
-  # token from ~/.executor itself, so no rotating secret lands in a tracked file.
   run jq -e '
-    (.mcpServers.executor == {
-      "type": "stdio",
-      "command": "/stub/home/.local/bin/executor",
-      "args": ["mcp"],
-      "env": {}
-    })
-    and (.mcpServers["tavily-mcp"].url ==
-      "https://mcp.tavily.com/mcp/?tavilyApiKey=stub-credential")
+    (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
+    and (.mcpServers.executor == {"type":"stdio","command":"/stub/home/.local/bin/executor","args":["mcp"],"env":{}})
     and (.mcpServers | has("stale") | not)
-    and (.other == "preserved")
+    and (.other == {"preserved":true})
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_246_claude_settings_modifier_registers_the_credentia() {
-  _bats_test_init 246 'Claude settings modifier registers the credential-free MCP servers without 1Password'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local jq_bin="$BATS_TEST_TMPDIR/claude-modifier-jq-bin"
+function test_scripts_246_claude_settings_modifier_keeps_clean_credentials_absent_unattended() {
+  _bats_test_init 246 'Claude settings modifier keeps credentialed entries absent on clean unattended input'
+  claude_modifier_setup
 
-  # Control for the test above. deepwiki, fff, and executor carry no credential,
-  # so a machine where `op` never resolves must still get them; only jina and
-  # tavily-mcp depend on 1Password and stay out rather than registering with an
-  # empty key. A bare `op` absence is how CI and Docker run, so it stays silent.
-  #
-  # PATH_WITHOUT_OP drops every directory that holds an `op`, jq included when
-  # the two share one. Re-front jq so this lands in the credential-free branch
-  # rather than the no-jq guard the test below owns.
-  mkdir -p "$jq_bin"
-  ln -s "$(command -v jq)" "$jq_bin/jq"
-
-  run --separate-stderr env PATH="$jq_bin:$PATH_WITHOUT_OP" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+    PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< '{"mcpServers":{}}'
 
   assert_success
-  assert_stderr ""
+  run jq -e '((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])' <<< "$output"
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
+}
+
+function test_scripts_247_claude_settings_modifier_replaces_only_jina_unattended() {
+  _bats_test_init 247 'Claude settings modifier replaces only Jina from an unattended fixture'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://old.jina"},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"}}}'
+
+  run env -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary bash "$CLAUDE_MODIFIER" <<< "$input"
+
+  assert_success
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])
-    and (.mcpServers.executor.command == "/stub/home/.local/bin/executor")
-    and (.other == "preserved")
+    (.mcpServers.jina == {"type":"http","url":"https://mcp.jina.ai/v1","headers":{"Authorization":"Bearer jina-canary"}})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_247_claude_settings_modifier_registers_each_credenti() {
-  _bats_test_init 247 'Claude settings modifier registers each credentialed MCP server independently'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-partial-bin"
+function test_scripts_248_claude_settings_modifier_replaces_only_tavily_unattended() {
+  _bats_test_init 248 'Claude settings modifier replaces only Tavily from an unattended fixture'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}},"tavily-mcp":{"type":"http","url":"https://old.tavily"}}}'
 
-  # One key resolves and the other comes back empty. The two servers must not
-  # share a fate: the credential that exists is no reason to withhold its server
-  # because the other one is missing.
-  mkdir -p "$stub_bin"
-  cat > "$stub_bin/op" <<'STUB'
-#!/bin/sh
-case "$2" in
-  *Jina*) echo "jina-credential" ;;
-  *) exit 1 ;;
-esac
-STUB
-  chmod +x "$stub_bin/op"
-
-  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{}}'
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
-  # `op` is installed yet answered nothing, which is a missing sign-in rather
-  # than a deliberately credential-free machine. Say so without failing the
-  # apply, and name the credential so the cause is readable.
-  assert_stderr --partial "Tavily API Key"
-  refute_stderr --partial "Jina API Key"
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","jina"])
-    and (.mcpServers.jina.headers.Authorization == "Bearer jina-credential")
+    (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary"})
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_248_claude_settings_modifier_registers_tavily_mcp_wh() {
-  _bats_test_init 248 'Claude settings modifier registers tavily-mcp when only its credential resolves'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-tavily-bin"
+function test_scripts_249_claude_settings_modifier_creates_both_credentials_unattended() {
+  _bats_test_init 249 'Claude settings modifier creates both credentialed entries from unattended fixtures'
+  claude_modifier_setup
 
-  # The mirror of the test above. The two credentialed servers are built by
-  # different jq expressions -- one a headers object, one a URL carrying the key
-  # inline -- so covering one direction does not cover the other.
-  mkdir -p "$stub_bin"
-  cat > "$stub_bin/op" <<'STUB'
-#!/bin/sh
-case "$2" in
-  *Tavily*) echo "tavily-credential" ;;
-  *) exit 1 ;;
-esac
-STUB
-  chmod +x "$stub_bin/op"
-
-  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{}}'
+  run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$CLAUDE_MODIFIER" <<< '{}'
 
   assert_success
-  assert_stderr --partial "Jina API Key"
-  refute_stderr --partial "Tavily API Key"
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
-    and (.mcpServers["tavily-mcp"].url ==
-      "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-credential")
+    (.mcpServers.jina.headers.Authorization == "Bearer jina-canary")
+    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary")
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_249_claude_settings_modifier_passes_settings_through() {
-  _bats_test_init 249 'Claude settings modifier passes settings through untouched without jq'
+function test_scripts_1324_claude_settings_modifier_treats_empty_fixtures_as_unavailable() {
+  _bats_test_init 1324 'Claude settings modifier treats empty unattended fixtures as unavailable'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"sentinel":"existing-jina"},"tavily-mcp":{"sentinel":"existing-tavily"}}}'
+
+  run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY= MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY= \
+    bash "$CLAUDE_MODIFIER" <<< "$input"
+
+  assert_success
+  run jq -e '
+    (.mcpServers.jina == {"sentinel":"existing-jina"})
+    and (.mcpServers["tavily-mcp"] == {"sentinel":"existing-tavily"})
+  ' <<< "$output"
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
+}
+
+function test_scripts_1325_claude_settings_modifier_requires_exact_unattended_selector() {
+  _bats_test_init 1325 'Claude settings modifier keeps interactive behavior for invalid unattended selectors'
+  claude_modifier_setup
+  local selector
+
+  for selector in unset 0 true; do
+    rm -f "$CLAUDE_MODIFIER_OP_MARKER"
+    if [[ "$selector" == unset ]]; then
+      run env -u MMS_CHEZMOI_UNATTENDED PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+        MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" bash "$CLAUDE_MODIFIER" <<< '{}'
+    else
+      run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+        MMS_CHEZMOI_UNATTENDED="$selector" bash "$CLAUDE_MODIFIER" <<< '{}'
+    fi
+
+    assert_success
+    run jq -e '
+      (.mcpServers.jina.headers.Authorization == "Bearer interactive-jina")
+      and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=interactive-tavily")
+    ' <<< "$output"
+    assert_success
+    assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
+  done
+}
+
+function test_scripts_1326_claude_settings_modifier_passes_settings_through_without_jq() {
+  _bats_test_init 1326 'Claude settings modifier passes settings through without jq in both contexts'
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
+  local input='{"mcpServers":{"kept":{"type":"stdio"}},"other":"preserved"}'
   local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-nojq-bin"
-
-  # The modifier builds every server entry with jq, so a machine without it has
-  # no way to write the file. Echoing stdin unchanged is the only safe answer,
-  # and it is the one guard that must survive the credential-free split above.
+  local selector
   mkdir -p "$stub_bin"
   ln -s "$(command -v cat)" "$stub_bin/cat"
   ln -s "$(command -v bash)" "$stub_bin/bash"
 
-  run env PATH="$stub_bin" bash "$modifier" <<< "$input"
+  for selector in interactive unattended; do
+    if [[ "$selector" == interactive ]]; then
+      run env -u MMS_CHEZMOI_UNATTENDED PATH="$stub_bin" bash "$modifier" <<< "$input"
+    else
+      run env PATH="$stub_bin" MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$modifier" <<< "$input"
+    fi
 
-  assert_success
-  assert_output "$input"
+    assert_success
+    assert_output "$input"
+  done
 }
 
 # ===========================================
