@@ -307,6 +307,40 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
   assert_file_exists "$output"
 }
 
+function test_templates_0154_private_settings_carry_every_context_handoff_registration() {
+  _bats_test_init 154 'private settings carry all three context-handoff registrations at once'
+  local command
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  # Each unit asserts its own registration. This one catches a later edit that
+  # drops one of them while leaving the others in place -- the failure mode no
+  # single-hook assertion can see.
+  run jq -e '
+    ([.hooks.Stop[]?.hooks[]?.command] | any(contains("context-threshold.sh")))
+    and ([.hooks.PreCompact[]?.hooks[]?.command] | any(contains("handoff-pre-compact.sh")))
+    and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("handoff-session-start.sh")))
+    and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("herdr-agent-state.sh")))
+  ' "$BATS_TEST_TMPFILE"
+  assert_success
+
+  # Every hook this work registers must resolve to a chezmoi-managed source, or
+  # it is deployed by nothing. herdr-agent-state.sh is deliberately outside
+  # this loop: `herdr integration install` writes it from
+  # home/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl
+  # and it has no chezmoi source path of its own.
+  while IFS= read -r command; do
+    run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+      --source "$SOURCE_ROOT" "$HOME/.claude/hooks/$command"
+    assert_success
+    assert_file_exists "$output"
+  done <<'EOF'
+context-threshold.sh
+handoff-pre-compact.sh
+handoff-session-start.sh
+EOF
+}
+
 function test_templates_0153_private_settings_register_the_context_threshold_stop_hook() {
   _bats_test_init 153 'private settings register the context threshold Stop hook with room for extraction'
   local bound declared
