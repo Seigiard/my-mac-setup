@@ -173,6 +173,167 @@ PROBE
   assert_output --partial "$work/toolbin"
 }
 
+function test_templates_0091_zshenv_full_fixture_exports_all_canaries_without_op() {
+  _bats_test_init 91 'zshenv full fixture exports all five canaries without invoking op'
+  command_exists zsh || skip "zsh not installed"
+  local work="$BATS_TEST_TMPDIR/zshenv-full"
+  local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
+  local cfg="$work/chezmoi.yaml"
+  mkdir -p "$work/bin" "$work/home"
+  write_test_config "$cfg"
+  cat > "$work/bin/op" <<'FAKE_OP'
+#!/bin/sh
+printf launched > "$FAKE_OP_MARKER"
+exit 99
+FAKE_OP
+  chmod +x "$work/bin/op"
+
+  run env \
+    HOME="$work/home" \
+    PATH="$work/bin:$PATH" \
+    FAKE_OP_MARKER="$work/op-launched" \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_DISPOSABLE_HOME=1 \
+    MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=linear-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-zshenv-canary \
+    "$launcher" --profile full-fixture -- \
+    apply --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" \
+    --refresh-externals=never "$work/home/.zshenv"
+  assert_success
+  assert_file_exists "$work/home/.zshenv"
+  run grep -F '{{' "$work/home/.zshenv"
+  assert_failure
+  # oracle: fake op creates this marker only if template rendering launches it.
+  assert_file_not_exists "$work/op-launched"
+
+  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    source "$1"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY"
+  ' _ "$work/home/.zshenv"
+  assert_success
+  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary'
+}
+
+function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_and_reports_work() {
+  _bats_test_init 92 'zshenv host partial diff preserves its sentinel while reporting omission and ordinary work'
+  local work="$BATS_TEST_TMPDIR/zshenv-host-diff"
+  local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
+  local cfg="$work/chezmoi.yaml"
+  mkdir -p "$work/home"
+  printf 'zshenv-host-sentinel\n' > "$work/home/.zshenv"
+  write_test_config "$cfg"
+
+  run env \
+    HOME="$work/home" \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    "$launcher" --profile host-partial -- \
+    diff --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" --color=false
+  assert_success
+  assert_output --partial 'partial coverage'
+  assert_output --partial 'home/dot_zshenv.tmpl'
+  assert_output --partial '~/.zshenv'
+  assert_output --partial '.zprofile'
+  assert_file_contains "$work/home/.zshenv" '^zshenv-host-sentinel$'
+  assert_equal "$(wc -l < "$work/home/.zshenv" | tr -d ' ')" 1
+}
+
+function test_templates_0093_zshenv_interactive_no_op_keeps_credentials_unset() {
+  _bats_test_init 93 'zshenv interactive rendering without op leaves all API credentials unset'
+  command_exists zsh || skip "zsh not installed"
+  local work="$BATS_TEST_TMPDIR/zshenv-interactive"
+  mkdir -p "$work/home"
+
+  unset MMS_CHEZMOI_UNATTENDED MMS_CHEZMOI_UNATTENDED_PROFILE
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_success
+  printf '%s\n' "$output" > "$work/zshenv.rendered"
+
+  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    unset LINEAR_API_KEY TAVILY_API_KEY JINA_API_KEY CONTEXT7_API_KEY VECTOR_PRIME_API_KEY
+    source "$1"
+    print -r -- "${LINEAR_API_KEY-unset}|${TAVILY_API_KEY-unset}|${JINA_API_KEY-unset}|${CONTEXT7_API_KEY-unset}|${VECTOR_PRIME_API_KEY-unset}"
+  ' _ "$work/zshenv.rendered"
+  assert_success
+  assert_output 'unset|unset|unset|unset|unset'
+}
+
+function test_templates_0094_zshenv_skip_secrets_omits_state_but_execute_template_fails() {
+  _bats_test_init 94 'zshenv skip secrets omits state while execute-template still fails on its secret function'
+  local work="$BATS_TEST_TMPDIR/zshenv-compatibility"
+  local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
+  local cfg="$work/chezmoi.yaml"
+  mkdir -p "$work/bin" "$work/home"
+  write_test_config "$cfg"
+  cat > "$work/bin/op" <<'FAKE_OP'
+#!/bin/sh
+printf launched > "$FAKE_OP_MARKER"
+exit 99
+FAKE_OP
+  chmod +x "$work/bin/op"
+
+  printf '{{ "execute-template-control" }}' > "$work/non-secret.tmpl"
+  run env \
+    HOME="$work/home" \
+    PATH="$work/bin:$PATH" \
+    FAKE_OP_MARKER="$work/op-launched" \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    "$launcher" --profile host-partial --finite-stdin -- \
+    execute-template --source "$SOURCE_ROOT" --config "$cfg" \
+    < "$work/non-secret.tmpl"
+  assert_success
+  assert_output 'execute-template-control'
+
+  run env \
+    HOME="$work/home" \
+    PATH="$work/bin:$PATH" \
+    FAKE_OP_MARKER="$work/op-launched" \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    "$launcher" --profile host-partial --finite-stdin -- \
+    execute-template --source "$SOURCE_ROOT" --config "$cfg" \
+    < "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_failure
+  assert_output --partial 'onepasswordRead'
+  # oracle: fake op creates this marker only if skip-secrets fails before helper launch.
+  assert_file_not_exists "$work/op-launched"
+
+  run env \
+    HOME="$work/home" \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    "$launcher" --profile host-partial -- \
+    diff --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" --color=false
+  assert_success
+  assert_output --partial 'partial coverage'
+  assert_output --partial 'home/dot_zshenv.tmpl'
+  assert_output --partial '~/.zshenv'
+}
+
+function test_templates_0095_zshenv_invalid_unattended_profile_fails_before_op() {
+  _bats_test_init 95 'zshenv invalid unattended profile fails before invoking op'
+  local work="$BATS_TEST_TMPDIR/zshenv-invalid-profile"
+  mkdir -p "$work/bin"
+  cat > "$work/bin/op" <<'FAKE_OP'
+#!/bin/sh
+printf launched > "$FAKE_OP_MARKER"
+exit 99
+FAKE_OP
+  chmod +x "$work/bin/op"
+
+  run env \
+    PATH="$work/bin:$PATH" \
+    FAKE_OP_MARKER="$work/op-launched" \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_UNATTENDED_PROFILE=invalid \
+    "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template \
+    < "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_failure
+  assert_output --partial 'invalid unattended chezmoi profile'
+  # oracle: fake op creates this marker only if the invalid branch reaches it.
+  assert_file_not_exists "$work/op-launched"
+}
+
 function test_templates_010_zshrc_cached_init_never_splices_two_concurrent_g() {
   _bats_test_init 10 'zshrc cached_init never splices two concurrent generators'
   command_exists zsh || skip "zsh not installed"

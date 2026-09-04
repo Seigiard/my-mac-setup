@@ -181,6 +181,7 @@ chezmoi_args=(--no-tty --no-pager)
 if [ "$profile" = "host-partial" ]; then
   chezmoi_args+=(--skip-secrets)
 fi
+export MMS_CHEZMOI_UNATTENDED_PROFILE="$profile"
 for passthrough_arg in "$@"; do
   chezmoi_args+=("$passthrough_arg")
 done

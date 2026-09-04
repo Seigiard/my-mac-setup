@@ -41,6 +41,7 @@ done
 
 printf 'final\n' >> "$FAKE_STATE/invocations"
 printf '%s' "$PATH" > "$FAKE_STATE/path"
+printf '%s' "${MMS_CHEZMOI_UNATTENDED_PROFILE:-}" > "$FAKE_STATE/profile"
 printf '%s\0' "$@" > "$FAKE_STATE/argv"
 neighbor
 cat > "$FAKE_STATE/stdin"
@@ -144,6 +145,7 @@ function test_chezmoi_unattended_003_profiles_inject_global_flags_and_preserve_p
   run_host verify 'quoted value'
   assert_success
   assert_recorded_args --no-tty --no-pager --skip-secrets verify 'quoted value'
+  assert_equal "$(< "$FAKE_STATE/profile")" host-partial
   assert_equal "$(< "$FAKE_STATE/path")" "$TEST_PATH"
   assert_file_exists "$FAKE_STATE/neighbor-reached"
   # oracle: fake op creates this independent launch marker if executed.
@@ -153,6 +155,7 @@ function test_chezmoi_unattended_003_profiles_inject_global_flags_and_preserve_p
   run_full verify
   assert_success
   assert_recorded_args --no-tty --no-pager verify
+  assert_equal "$(< "$FAKE_STATE/profile")" full-fixture
   assert_file_exists "$FAKE_STATE/neighbor-reached"
   # oracle: fake op creates this independent launch marker if executed.
   assert_file_not_exists "$FAKE_STATE/op-launched"
