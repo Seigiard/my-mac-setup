@@ -41,6 +41,14 @@ Reference docs (read on demand):
 
 </important>
 
+<important if="you are about to run make test-local">
+
+- Run `make test-local` as a one-shot command in the current Bash tool with enough transport time to reach its own terminal verdict; never run it in a Herdr pane.
+- Invoke only the canonical target. Do not reconstruct its chezmoi command or add ad hoc flags.
+- If the target stalls or transport expires, determine the previous process's state and diagnose the stall before retrying.
+
+</important>
+
 <important if="you are about to run make test-templates, make test-ubuntu, make test-docker, or make build-docker">
 
 - Treat these targets as long-running Docker workloads, including cached runs. Read `~/.claude/shared/long-running-work.md` before launch.
