@@ -273,6 +273,12 @@ jobs:
             echo "no Brewfile change; the minimal install stands"
           fi
 
+      # Hosted macOS images can carry Homebrew metadata older than a formula's
+      # minimum version required by the managed configuration.
+      - name: Refresh Homebrew metadata for the full install
+        if: env.MMS_CI_MINIMAL == ''
+        run: brew update
+
       - name: Install chezmoi
         run: brew install chezmoi
 
