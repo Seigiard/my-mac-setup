@@ -29,7 +29,7 @@ test-ubuntu: test-issues build-docker
 test-templates: test-issues build-docker
 	docker compose -f docker/docker-compose.yml run --rm -T test-ubuntu \
 		'set -e && (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/) && \
-		chezmoi init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
+		tests/helpers/chezmoi-unattended --profile full-fixture -- init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
 		tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh'
 
 test-pi-agents-local:
@@ -42,7 +42,7 @@ shell-ubuntu: build-docker
 	docker compose -f docker/docker-compose.yml run --rm ubuntu /bin/zsh
 
 test-local:
-	chezmoi diff --source=./home
+	@MMS_CHEZMOI_UNATTENDED=1 tests/helpers/chezmoi-unattended --profile host-partial -- diff --source=./home
 
 # This host-safe target excludes tests/bashunit/idempotent_test.sh and applies
 # nothing. It reports on the already-applied $$HOME, not the working checkout.

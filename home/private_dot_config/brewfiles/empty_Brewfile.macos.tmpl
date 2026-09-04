@@ -5,10 +5,6 @@
 {{- /* renders to zero bytes; see the note below. The casks are 291 s of the                         */ -}}
 {{- /* 400 s macOS apply step, so this file is where nearly all of the saving is.                     */ -}}
 {{- /*                                                                                                */ -}}
-{{- /* Guarding the 1password-cli cask has a second effect worth knowing: it                          */ -}}
-{{- /* removes `op` from the macOS CI PATH, which is the condition                                    */ -}}
-{{- /* PATH_WITHOUT_OP in tests/helpers/common.bash exists to construct.                              */ -}}
-{{- /*                                                                                                */ -}}
 {{- /* See Brewfile.tmpl for why the flag is read with `get` rather than as                           */ -}}
 {{- /* `.ci_minimal`, and for why every comment here is a template comment.                           */ -}}
 {{- /*                                                                                                */ -}}

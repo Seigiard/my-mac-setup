@@ -29,7 +29,7 @@ deepened: 2026-09-04
 - [x] U2 · profile-aware secret-backed template rendering (`0339751`)
 - [x] U3 · credential-preserving Claude modifier
 - [x] U4 · test-owned chezmoi call migration
-- [ ] U5 · Make, CI, and Docker migration
+- [x] U5 · Make, CI, and Docker migration
 - [ ] U6 · verification policy and issue closure
 
 ---

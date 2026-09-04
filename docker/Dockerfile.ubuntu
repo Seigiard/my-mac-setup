@@ -82,10 +82,25 @@ RUN brew install chezmoi
 RUN brew install fzf
 
 # Bake the full cross-platform Brewfile so apply-time brew bundle only verifies
-# installed formulae. The assertion guards the implicit full render selected by
-# the intentionally absent ci_minimal template value.
+# installed formulae. Build arguments are deterministic test credentials and
+# remain scoped to the unattended render process rather than the image runtime.
+ARG MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY
+ARG MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY
+ARG MMS_CHEZMOI_FIXTURE_JINA_API_KEY
+ARG MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY
+ARG MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY
+COPY --chown=testuser tests/helpers/chezmoi-unattended /tmp/chezmoi-helpers/chezmoi-unattended
+COPY --chown=testuser tests/helpers/chezmoi-unattended-targets.tsv /tmp/chezmoi-helpers/chezmoi-unattended-targets.tsv
 COPY --chown=testuser home/private_dot_config/brewfiles/Brewfile.tmpl /tmp/Brewfile.tmpl
-RUN chezmoi execute-template --file /tmp/Brewfile.tmpl > /tmp/Brewfile && \
+RUN MMS_DISPOSABLE_HOME=1 \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY="$MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY" \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY="$MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY" \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY="$MMS_CHEZMOI_FIXTURE_JINA_API_KEY" \
+    MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY="$MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY" \
+    MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY="$MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY" \
+    /tmp/chezmoi-helpers/chezmoi-unattended --profile full-fixture -- \
+      execute-template --file /tmp/Brewfile.tmpl > /tmp/Brewfile && \
     grep -Fq 'brew "lazywalker/tap/rgrc"' /tmp/Brewfile && \
     brew bundle --file=/tmp/Brewfile && \
     rm -rf "$(brew --cache)"

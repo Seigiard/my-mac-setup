@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# post-apply: excluded
 # chezmoi-unattended launcher suite. The controlled child process and its
 # filesystem markers are the oracle; no assertion inspects launcher source.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"

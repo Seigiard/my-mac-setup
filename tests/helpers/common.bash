@@ -8,19 +8,6 @@ HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./disposable-home.bash
 source "${HELPERS_DIR}/disposable-home.bash"
 
-# Build a PATH without 1Password CLI for chezmoi commands that render
-# all templates (apply, verify). op triggers auth prompts in tests.
-# Individual tools remain available via full path.
-CHEZMOI_BIN="$(command -v chezmoi 2>/dev/null || true)"
-PATH_WITHOUT_OP=""
-IFS=':' read -ra _path_dirs <<< "$PATH"
-for _dir in "${_path_dirs[@]}"; do
-  [[ -d "$_dir" ]] && [[ -x "$_dir/op" ]] && continue
-  PATH_WITHOUT_OP="${PATH_WITHOUT_OP:+$PATH_WITHOUT_OP:}$_dir"
-done
-unset _path_dirs _dir
-export CHEZMOI_BIN PATH_WITHOUT_OP
-
 CHEZMOI_UNATTENDED="$HELPERS_DIR/chezmoi-unattended"
 export CHEZMOI_UNATTENDED
 
