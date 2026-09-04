@@ -5,8 +5,9 @@ type: "bug"
 category: "herdr"
 tags: ["ask-in-herdr","claude","model-selection"]
 date: "2026-09-04"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-04"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ Allow managed Claude children to receive supported native effort levels through 
 ## Open decisions
 
 Whether herdr-child should maintain a per-agent effort capability matrix or pass through effort whenever the installed client advertises native support.
+
+## Resolution
+
+herdr-child now forwards --effort to Claude's native CLI, keeps OpenCode fail-closed, and documents and tests the corrected mapping.

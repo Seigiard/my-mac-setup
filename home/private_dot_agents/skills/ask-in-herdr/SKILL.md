@@ -21,7 +21,7 @@ bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh <agent> "<question>" [flags]
 |---|---|
 | `--rw` | Give the child a read-write posture. The default is read-only. |
 | `--model M` | Override the model. |
-| `--effort L` | Set pi's reasoning effort. The default is `medium`. |
+| `--effort L` | Set Claude effort or Pi thinking level. Pi defaults to `medium`. |
 | `--cwd DIR` | Set the child working directory. |
 | `--skills DIR` | Add a claude or pi skill directory. Repeat the flag for multiple directories. |
 | `--agent NAME` | Select a configured opencode agent. |
@@ -34,7 +34,7 @@ If the caller supplies no model, opencode uses `openai/gpt-5.5` and pi uses `ope
 
 | Agent | Read-only posture | Extra options |
 |---|---|---|
-| `claude` | Denies `Edit`, `Write`, `NotebookEdit`, and `AskUserQuestion`. Keeps Bash for the return channel. | `--skills` maps to `--add-dir`. |
+| `claude` | Denies `Edit`, `Write`, `NotebookEdit`, and `AskUserQuestion`. Keeps Bash for the return channel. | `--effort` is native; `--skills` maps to `--add-dir`. |
 | `opencode` | Denies `edit` and `question` through the child process environment. Keeps Bash for the return channel. | `--agent` selects a configured agent. |
 | `pi` | Refused. Pi cannot keep the callback shell while withholding its write-capable shell. | Under `--rw`, excludes `ask_user`; `--skills` maps to `--skill`. |
 
