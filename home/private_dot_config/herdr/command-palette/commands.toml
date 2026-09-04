@@ -66,13 +66,12 @@ placeholder = "worktree/my-feature"
 [[commands]]
 group = "Worktrees"
 title = "Open worktree"
-description = "Open and focus an existing worktree by branch name"
-type = "form"
+description = "Choose and focus an existing worktree"
+type = "select"
+options_command = "git -C {target_cwd_q} worktree list --porcelain | awk '/^worktree / { path = substr($0, 10) } index($0, \"branch refs/heads/\") == 1 { branch = substr($0, 19); printf \"%s\\t%s\\t%s\\n\", branch, branch, path }'"
 run_type = "shell"
 pause = false
 command = "root=$(git -C {target_cwd_q} worktree list --porcelain | head -n 1 | cut -d ' ' -f 2-); if [ -z \"$root\" ]; then printf '%s\\n' 'Not inside a Git repository.' >&2; exit 1; fi; exec \"$HERDR_BIN_PATH\" worktree open --cwd \"$root\" --branch {value_q} --focus"
-prompt = "Existing worktree branch"
-placeholder = "feature/my-feature"
 
 [[commands]]
 group = "Worktrees"

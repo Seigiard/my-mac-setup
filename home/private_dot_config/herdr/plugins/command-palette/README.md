@@ -162,6 +162,19 @@ value = "seigiard/my-mac-setup"
 description = "dotfiles"
 ```
 
+Use `options_command` when the choices must be loaded at invocation time. Each
+non-empty output line is `value<TAB>label<TAB>description`; a line without tabs
+uses the same text for its value and label. Dynamic choices are appended after
+any static `[[options]]`. The command receives the palette environment and
+placeholders, runs from `{target_cwd}`, and fails after 10 seconds.
+
+```toml
+name = "Open branch"
+type = "select"
+options_command = "git -C {target_cwd_q} branch --format='%(refname:short)'"
+command = "git -C {target_cwd_q} switch {value_q}"
+```
+
 For `select`/`form`, either place the nested runnable command fields at the top
 level, or use an explicit `run` table:
 

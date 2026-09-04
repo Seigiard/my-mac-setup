@@ -25,9 +25,15 @@ selected upstream skill name.
 
 Use `skills add <source> [skill...]`, `skills remove <source> <skill...>`,
 `skills update [skill...]`, or `skills sync`. `sync` installs every manifest
-entry and reports unmanaged or obsolete lock entries with explicit `skills
-remove` commands. It never removes drift automatically. Restart Claude Code,
-OpenCode, and Pi after installation or discovery configuration changes.
+entry and reports unmanaged or obsolete lock entries with explicit commands to
+remove them or preserve them through `skills add`. Before a managed `add` or
+`remove`, the wrapper requires a clean chezmoi source branch, pulls it with
+`--ff-only`, and refreshes the live manifest. After the local operation, it
+captures the manifest with `chezmoi add`, commits only that file, and pushes the
+commit. Removing one skill from a wildcard source is rejected because the
+manifest cannot represent "all except this skill". `sync` never removes drift
+automatically. Restart Claude Code, OpenCode, and Pi after installation or
+discovery configuration changes.
 Successful upstream CLI output is hidden by default; use `skills --verbose
 <command>` to restore it. Failed commands always replay the captured diagnostics.
 

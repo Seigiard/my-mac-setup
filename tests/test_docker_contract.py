@@ -9,7 +9,19 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[1]
 MAKEFILE = REPOSITORY / "Makefile"
 COMPOSE = REPOSITORY / "docker" / "docker-compose.yml"
+DOCKERFILE = REPOSITORY / "docker" / "Dockerfile.ubuntu"
+WORKFLOW = REPOSITORY / ".github" / "workflows" / "test-dotfiles.yml"
 RUNNER = REPOSITORY / "tests" / "run-post-apply.sh"
+LAUNCHER = REPOSITORY / "tests" / "helpers" / "chezmoi-unattended"
+INVENTORY = REPOSITORY / "tests" / "helpers" / "chezmoi-unattended-targets.tsv"
+COMMON_HELPERS = REPOSITORY / "tests" / "helpers" / "common.bash"
+FIXTURE_CANARIES = dict(
+    re.findall(
+        r"^\s*(MMS_CHEZMOI_FIXTURE_[A-Z0-9_]+)=([^\s\\]+)\s*\\$",
+        COMMON_HELPERS.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+)
 
 
 class TestDockerContract(unittest.TestCase):
@@ -17,6 +29,10 @@ class TestDockerContract(unittest.TestCase):
     def setUpClass(cls):
         cls.makefile = MAKEFILE.read_text(encoding="utf-8")
         cls.compose = COMPOSE.read_text(encoding="utf-8")
+        cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+        cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        if len(FIXTURE_CANARIES) != 5:
+            raise AssertionError("common.bash must define the five canonical fixture canaries")
 
     def service_names(self):
         names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", self.compose, re.MULTILINE)
@@ -47,7 +63,26 @@ class TestDockerContract(unittest.TestCase):
         )
         self.assertIsNotNone(block, "service must declare an environment block")
         return dict(
-            re.findall(r"^      - ([A-Za-z_]+)=(.*)$", block.group("body"), re.MULTILINE)
+            re.findall(r"^      - ([A-Za-z0-9_]+)=(.*)$", block.group("body"), re.MULTILINE)
+        )
+
+    def service_build_args(self, service):
+        block = re.search(
+            r"^    build:\n(?P<body>.*?)(?=^    [a-zA-Z0-9_-]+:)",
+            service,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(block, "service must declare a build block")
+        args = re.search(
+            r"^      args:\n(?P<body>(?:^        .*\n)+)",
+            block.group("body"),
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(args, "service build must declare args")
+        return dict(
+            re.findall(
+                r"^        ([A-Za-z0-9_]+):\s*(.*)$", args.group("body"), re.MULTILINE
+            )
         )
 
     def service_volumes(self, service):
@@ -63,7 +98,10 @@ class TestDockerContract(unittest.TestCase):
         names = [
             name
             for name in self.service_names()
-            if "chezmoi apply" in (self.service_command_script(self.service_block(name)) or "")
+            if re.search(
+                r"(?m)^\s*tests/helpers/chezmoi-unattended\b.*\s--\s+apply\b",
+                self.service_command_script(self.service_block(name)) or "",
+            )
         ]
         # An empty selection would let every caller pass vacuously.
         self.assertGreaterEqual(len(names), 2, "expected at least two full-apply services")
@@ -86,7 +124,10 @@ class TestDockerContract(unittest.TestCase):
         self.assertIsNotNone(script, "%s must run a scripted command, not an interactive shell" % service_name)
         # Line-anchored so a comment or an echo that merely mentions the
         # command cannot satisfy the assertion.
-        self.assertRegex(script, r"(?m)^\s*chezmoi apply\b")
+        self.assertRegex(
+            script,
+            r"(?m)^\s*tests/helpers/chezmoi-unattended\b.*\s--\s+apply\b",
+        )
         self.assertRegex(script, r"(?m)^\s*tests/run-post-apply\.sh full\b")
 
     def test_apply_services_declare_disposable_home_and_frozen_brew_bundle(self):
@@ -111,6 +152,176 @@ class TestDockerContract(unittest.TestCase):
                 env = self.service_env(self.service_block(name))
                 self.assertEqual(env.get(marker), "1")
                 self.assertEqual(env.get("HOMEBREW_BUNDLE_NO_UPGRADE"), "1")
+
+    def test_disposable_services_supply_the_complete_fixture_set(self):
+        disposable = []
+        for name in self.service_names():
+            env = self.service_env(self.service_block(name))
+            if env.get("MMS_DISPOSABLE_HOME") != "1":
+                continue
+            disposable.append(name)
+            with self.subTest(service=name):
+                self.assertEqual(env.get("MMS_CHEZMOI_UNATTENDED"), "1")
+                build_args = self.service_build_args(self.service_block(name))
+                for fixture, canary in FIXTURE_CANARIES.items():
+                    self.assertEqual(env.get(fixture), canary)
+                    self.assertEqual(build_args.get(fixture), canary)
+        self.assertTrue(disposable, "expected at least one disposable Docker service")
+
+    def test_ci_apply_jobs_inherit_complete_fixtures_and_use_unsuppressed_launcher(self):
+        top_env = re.search(
+            r"^env:\n(?P<body>.*?)(?=^jobs:)", self.workflow, re.MULTILINE | re.DOTALL
+        )
+        self.assertIsNotNone(top_env, "workflow must declare top-level env")
+        workflow_env = dict(
+            (key, value.strip('"'))
+            for key, value in re.findall(
+                r"^  ([A-Za-z0-9_]+):\s*(.+)$", top_env.group("body"), re.MULTILINE
+            )
+        )
+        self.assertEqual(workflow_env.get("MMS_CHEZMOI_UNATTENDED"), "1")
+        for fixture, canary in FIXTURE_CANARIES.items():
+            self.assertEqual(workflow_env.get(fixture), canary)
+
+        jobs = re.findall(
+            r"^  ([a-zA-Z0-9_-]+):\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+            self.workflow,
+            re.MULTILINE | re.DOTALL,
+        )
+        applying = []
+        for name, body in jobs:
+            if not re.search(r"chezmoi-unattended\b[^\n]*\s--\s+apply\b", body):
+                continue
+            applying.append(name)
+            self.assertRegex(body, r"chezmoi-unattended\b[^\n]*\s--\s+init\b")
+            diff = re.search(
+                r"^\s*run:\s*(?P<command>.*chezmoi-unattended\b.*\s--\s+diff\b.*)$",
+                body,
+                re.MULTILINE,
+            )
+            self.assertIsNotNone(diff, "%s must run a launcher-based dry-run" % name)
+            self.assertNotIn("||", diff.group("command"))
+        self.assertGreaterEqual(len(applying), 2)
+
+    def test_make_test_local_executes_host_partial_and_propagates_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake = bin_dir / "chezmoi"
+            fake.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = --version ]; then echo 'chezmoi version 2.72.1'; exit 0; fi\n"
+                "for arg in \"$@\"; do\n"
+                "  if [ \"$arg\" = managed ]; then\n"
+                "    [ \"${MMS_TEST_MANAGED_RC:-0}\" -eq 0 ] || exit \"$MMS_TEST_MANAGED_RC\"\n"
+                "    printf '%s\\0' \"$HOME/.zshenv\" \"$HOME/.claude.json\" \"$HOME/.gitconfig\"\n"
+                "    exit 0\n"
+                "  fi\n"
+                "done\n"
+                "echo checked-non-sensitive-state\n"
+            )
+            fake.chmod(0o755)
+            env = os.environ.copy()
+            env["HOME"] = str(root / "home")
+            env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+
+            passed = subprocess.run(
+                ["make", "test-local"],
+                cwd=REPOSITORY,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(passed.returncode, 0, passed.stderr)
+            self.assertIn("checked-non-sensitive-state", passed.stdout)
+            self.assertIn("home/dot_zshenv.tmpl", passed.stderr)
+            self.assertIn("~/.zshenv", passed.stderr)
+            self.assertIn("home/modify_dot_claude.json", passed.stderr)
+            self.assertIn("~/.claude.json", passed.stderr)
+
+            env["MMS_TEST_MANAGED_RC"] = "19"
+            failed = subprocess.run(
+                ["make", "test-local"],
+                cwd=REPOSITORY,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+
+    def run_template_override(self, root, env_overrides=None):
+        target = re.search(
+            r"^test-templates:.*?(?=^\S|\Z)",
+            self.makefile,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(target, "Makefile must define test-templates")
+        quoted = re.search(r"'(?P<script>set -e.*?)'", target.group(0), re.DOTALL)
+        self.assertIsNotNone(quoted, "test-templates must pass a command override")
+
+        home = root / "home/testuser"
+        (home / "dotfiles").mkdir(parents=True)
+        (home / "dotfiles/source-marker").write_text("source")
+        (home / ".local/share/chezmoi").mkdir(parents=True)
+        self.populate_launcher_files(home / "tests")
+        (home / "tests/lib").mkdir()
+        template_marker = root / "template-tests-ran"
+        (home / "tests/lib/bashunit").write_text(
+            "#!/bin/sh\ntouch \"$MMS_TEST_TEMPLATE_MARKER\"\n"
+        )
+        (home / "tests/lib/bashunit").chmod(0o755)
+
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        calls = root / "chezmoi-calls"
+        (bin_dir / "chezmoi").write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = --version ]; then echo 'chezmoi version 2.72.1'; exit 0; fi\n"
+            "printf '%s\\n' \"$*\" >> \"$MMS_TEST_CHEZMOI_CALLS\"\n"
+        )
+        (bin_dir / "chezmoi").chmod(0o755)
+
+        env = os.environ.copy()
+        env.update(self.service_env(self.service_block("test-ubuntu")))
+        env["HOME"] = str(home)
+        env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+        env["MMS_TEST_CHEZMOI_CALLS"] = str(calls)
+        env["MMS_TEST_TEMPLATE_MARKER"] = str(template_marker)
+        for key, value in (env_overrides or {}).items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
+
+        completed = subprocess.run(
+            [
+                "bash",
+                "-c",
+                quoted.group("script").replace("/home/testuser", str(home)),
+            ],
+            cwd=home,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        return completed, calls, template_marker
+
+    def test_template_override_preflights_fixtures_before_init(self):
+        missing_fixture = next(iter(FIXTURE_CANARIES))
+        with tempfile.TemporaryDirectory() as tmp:
+            failed, calls, template_marker = self.run_template_override(
+                Path(tmp), {missing_fixture: None}
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertFalse(calls.exists(), failed.stdout + failed.stderr)
+            self.assertFalse(template_marker.exists(), failed.stdout + failed.stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            passed, calls, template_marker = self.run_template_override(Path(tmp))
+            self.assertEqual(passed.returncode, 0, passed.stderr)
+            self.assertIn(" init ", " " + calls.read_text() + " ")
+            self.assertTrue(template_marker.exists(), passed.stdout + passed.stderr)
 
     def stage_service_volumes(self, service, root, overrides=None):
         """Populate fake mount sources for `service`'s volumes at `root`, so
@@ -137,6 +348,17 @@ class TestDockerContract(unittest.TestCase):
             else:
                 target.write_text(source)
 
+    def populate_launcher_files(self, target):
+        target.mkdir(parents=True)
+        (target / "helpers").mkdir()
+        (target / "helpers" / "chezmoi-unattended").write_bytes(
+            LAUNCHER.read_bytes()
+        )
+        (target / "helpers" / "chezmoi-unattended").chmod(0o755)
+        (target / "helpers" / "chezmoi-unattended-targets.tsv").write_bytes(
+            INVENTORY.read_bytes()
+        )
+
     def test_staging_lands_issue_cli_docs_and_makefile_in_the_worktree(self):
         # Sources are created where the declared volume mounts put them, so a
         # cp referencing a path no mount provides — or a dropped mount — fails
@@ -155,7 +377,11 @@ class TestDockerContract(unittest.TestCase):
 
                 with tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
-                    self.stage_service_volumes(service, root)
+                    self.stage_service_volumes(
+                        service,
+                        root,
+                        overrides={"/home/testuser/tests": self.populate_launcher_files},
+                    )
 
                     result = subprocess.run(
                         ["bash", "-c", staging.replace("/home/testuser", str(root / "home/testuser"))],
@@ -168,8 +394,14 @@ class TestDockerContract(unittest.TestCase):
                     self.assertTrue((worktree / "scripts/issues").is_file())
                     self.assertTrue((worktree / "docs/issues/mount-marker").is_file())
                     self.assertTrue((worktree / "Makefile").is_file())
+                    self.assertTrue((worktree / "tests/helpers/chezmoi-unattended").is_file())
+                    self.assertTrue(
+                        (worktree / "tests/helpers/chezmoi-unattended-targets.tsv").is_file()
+                    )
 
-    def run_apply_service_script(self, service, root, wrapper_exit_code):
+    def run_apply_service_script(
+        self, service, root, wrapper_exit_code, env_overrides=None
+    ):
         """Run `service`'s complete command script (staging, chezmoi, both
         test gates) against a fake worktree at `root`, under a stubbed PATH.
 
@@ -185,8 +417,18 @@ class TestDockerContract(unittest.TestCase):
         test_run_post_apply_propagates_a_failing_suite below.
         """
         bin_dir = root / "stub-bin"
-        bin_dir.mkdir()
-        (bin_dir / "chezmoi").write_text("#!/bin/sh\nexit 0\n")
+        bin_dir.mkdir(parents=True)
+        calls = root / "chezmoi-calls"
+        post_apply_marker = root / "post-apply-ran"
+        (bin_dir / "chezmoi").write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = --version ]; then\n"
+            "  echo 'chezmoi version 2.72.1'\n"
+            "  exit 0\n"
+            "fi\n"
+            "printf '%s\\n' \"$*\" >> \"$MMS_TEST_CHEZMOI_CALLS\"\n"
+            "exit 0\n"
+        )
         (bin_dir / "chezmoi").chmod(0o755)
         # docker/Dockerfile.ubuntu pre-creates this at image build time
         # (`RUN mkdir -p .../.local/share/chezmoi`); the script's own first
@@ -195,12 +437,14 @@ class TestDockerContract(unittest.TestCase):
         (root / "home/testuser/.local/share/chezmoi").mkdir(parents=True)
 
         def populate_tests_mount(target):
-            target.mkdir(parents=True)
+            self.populate_launcher_files(target)
             (target / "lib").mkdir()
             (target / "lib" / "bashunit").write_text("#!/bin/sh\nexit 0\n")
             (target / "lib" / "bashunit").chmod(0o755)
             (target / "run-post-apply.sh").write_text(
-                "#!/bin/sh\nexit %d\n" % wrapper_exit_code
+                "#!/bin/sh\n"
+                "touch \"$MMS_TEST_POST_APPLY_MARKER\"\n"
+                "exit %d\n" % wrapper_exit_code
             )
             (target / "run-post-apply.sh").chmod(0o755)
 
@@ -212,12 +456,43 @@ class TestDockerContract(unittest.TestCase):
         script = self.service_command_script(service_block)
         env = os.environ.copy()
         env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
-        return subprocess.run(
+        env.update(self.service_env(service_block))
+        env["MMS_TEST_CHEZMOI_CALLS"] = str(calls)
+        env["MMS_TEST_POST_APPLY_MARKER"] = str(post_apply_marker)
+        for key, value in (env_overrides or {}).items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
+        completed = subprocess.run(
             ["bash", "-c", script.replace("/home/testuser", str(root / "home/testuser"))],
             capture_output=True,
             text=True,
             env=env,
         )
+        return completed, calls, post_apply_marker
+
+    def test_apply_services_fail_before_chezmoi_when_a_fixture_is_missing(self):
+        missing_fixture = next(iter(FIXTURE_CANARIES))
+        for name in self.apply_service_names():
+            with self.subTest(service=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    failed, calls, post_apply = self.run_apply_service_script(
+                        name,
+                        Path(tmp),
+                        wrapper_exit_code=0,
+                        env_overrides={missing_fixture: None},
+                    )
+                    self.assertNotEqual(failed.returncode, 0)
+                    self.assertFalse(calls.exists(), failed.stdout + failed.stderr)
+                    self.assertFalse(post_apply.exists(), failed.stdout + failed.stderr)
+
+                    passed, calls, post_apply = self.run_apply_service_script(
+                        name, Path(tmp) / "control", wrapper_exit_code=0
+                    )
+                    self.assertEqual(passed.returncode, 0, passed.stderr)
+                    self.assertTrue(calls.exists(), passed.stdout + passed.stderr)
+                    self.assertTrue(post_apply.exists(), passed.stdout + passed.stderr)
 
     def test_apply_service_scripts_propagate_a_failing_post_apply_suite(self):
         # Catches a `|| true`, `set +e`, or trailing `; true` added after the
@@ -227,7 +502,9 @@ class TestDockerContract(unittest.TestCase):
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 with tempfile.TemporaryDirectory() as tmp:
-                    failing = self.run_apply_service_script(name, Path(tmp), wrapper_exit_code=1)
+                    failing, _, _ = self.run_apply_service_script(
+                        name, Path(tmp), wrapper_exit_code=1
+                    )
                 self.assertNotEqual(
                     failing.returncode,
                     0,
@@ -241,13 +518,39 @@ class TestDockerContract(unittest.TestCase):
                 # injected exit code, not by unrelated staging/setup noise
                 # that would fail regardless of run-post-apply.sh's result.
                 with tempfile.TemporaryDirectory() as tmp:
-                    passing = self.run_apply_service_script(name, Path(tmp), wrapper_exit_code=0)
+                    passing, _, _ = self.run_apply_service_script(
+                        name, Path(tmp), wrapper_exit_code=0
+                    )
                 self.assertEqual(
                     passing.returncode,
                     0,
                     "%s's command script must succeed when tests/run-post-apply.sh full "
                     "succeeds:\nstdout=%s\nstderr=%s" % (name, passing.stdout, passing.stderr),
                 )
+
+    def test_docker_build_uses_the_launcher_with_the_compose_canaries(self):
+        copy_launcher = self.dockerfile.index(
+            "COPY --chown=testuser tests/helpers/chezmoi-unattended "
+        )
+        copy_inventory = self.dockerfile.index(
+            "COPY --chown=testuser tests/helpers/chezmoi-unattended-targets.tsv "
+        )
+        render = self.dockerfile.index(
+            "/tmp/chezmoi-helpers/chezmoi-unattended",
+            self.dockerfile.index("RUN MMS_DISPOSABLE_HOME=1"),
+        )
+        self.assertLess(copy_launcher, render)
+        self.assertLess(copy_inventory, render)
+
+        for fixture, canary in FIXTURE_CANARIES.items():
+            with self.subTest(fixture=fixture):
+                self.assertIn("ARG %s" % fixture, self.dockerfile)
+                self.assertRegex(
+                    self.compose,
+                    r"(?m)^\s{%d}%s:\s*%s\s*$"
+                    % (8, re.escape(fixture), re.escape(canary)),
+                )
+                self.assertIn('%s="$%s"' % (fixture, fixture), self.dockerfile)
 
     def test_run_post_apply_propagates_a_failing_suite(self):
         # The innermost gate: tests/run-post-apply.sh tracks each suite
@@ -263,6 +566,12 @@ class TestDockerContract(unittest.TestCase):
             stub.chmod(0o755)
             env = os.environ.copy()
             env["MMS_BASHUNIT_BIN"] = str(stub)
+            suite_dir = Path(tmp) / "suite"
+            suite_dir.mkdir()
+            (suite_dir / "control_test.sh").write_text(
+                "#!/usr/bin/env bash\n# post-apply: 10 host-safe\n"
+            )
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(suite_dir)
             # The wrapper's own suite-end orphan-watcher guard
             # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
             # scans the live `ps` table and can independently

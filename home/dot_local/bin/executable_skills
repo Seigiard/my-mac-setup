@@ -168,6 +168,142 @@ run_update() {
   run_npx update --global "$@"
 }
 
+managed_manifest() {
+  [ -z "${SKILLS_MANIFEST+x}" ]
+}
+
+prepare_managed_manifest() {
+  local dirty upstream ahead temporary
+  managed_manifest || return 0
+  command -v chezmoi >/dev/null 2>&1 || { fail 'chezmoi is required for managed skill changes'; return 1; }
+  dirty="$(chezmoi git -- status --porcelain)" || { fail 'could not inspect chezmoi source repository'; return 1; }
+  [ -z "$dirty" ] || { fail 'chezmoi source repository has uncommitted changes'; return 1; }
+  upstream="$(chezmoi git -- rev-parse --abbrev-ref --symbolic-full-name '@{u}')" || {
+    fail 'chezmoi source branch has no upstream'; return 1
+  }
+  chezmoi git -- pull --ff-only || { fail 'could not fast-forward chezmoi source repository'; return 1; }
+  ahead="$(chezmoi git -- rev-list --count "$upstream..HEAD")" || {
+    fail 'could not inspect unpushed chezmoi commits'; return 1
+  }
+  [ "$ahead" = 0 ] || { fail 'chezmoi source branch has unpushed commits'; return 1; }
+  mkdir -p "$(dirname "$MANIFEST")" || return 1
+  temporary="$(mktemp "$(dirname "$MANIFEST")/.skills-manifest.XXXXXX")" || return 1
+  if [ -e "$MANIFEST" ]; then
+    cp -p "$MANIFEST" "$temporary" || { rm -f "$temporary"; return 1; }
+  fi
+  if ! chezmoi cat "$MANIFEST" > "$temporary"; then
+    rm -f "$temporary"
+    fail 'could not render managed skills manifest'
+    return 1
+  fi
+  mv "$temporary" "$MANIFEST" || { rm -f "$temporary"; return 1; }
+}
+
+update_manifest_skills() {
+  local action="$1" source="$2"
+  shift 2
+  python3 - "$MANIFEST" "$action" "$source" "$@" <<'PY'
+import os
+import sys
+import tempfile
+
+manifest, action, source, *skills = sys.argv[1:]
+
+
+def write_atomic(path, content):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    try:
+        mode = os.stat(path).st_mode
+    except FileNotFoundError:
+        mode = None
+    descriptor, temporary = tempfile.mkstemp(prefix=".skills-manifest.", dir=directory, text=True)
+    try:
+        if mode is not None:
+            os.chmod(temporary, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+try:
+    with open(manifest, encoding="utf-8") as stream:
+        previous = stream.read()
+except FileNotFoundError:
+    previous = ""
+lines = previous.splitlines()
+
+found = False
+for index, line in enumerate(lines):
+    body, separator, comment = line.partition("#")
+    fields = body.split()
+    if not fields or fields[0] != source:
+        continue
+    found = True
+    current = fields[1:]
+    if action == "add":
+        if "*" in skills:
+            current = ["*"]
+        elif "*" not in current:
+            for skill in skills:
+                if skill not in current:
+                    current.append(skill)
+    else:
+        current = [skill for skill in current if skill not in skills]
+        if not current:
+            del lines[index]
+            break
+    leading = body[:len(body) - len(body.lstrip())]
+    trailing = body[len(body.rstrip()):]
+    updated = leading + " ".join([source] + current) + trailing
+    if separator:
+        updated += separator + comment
+    lines[index] = updated
+    break
+
+if not found and action == "add":
+    lines.append(" ".join([source] + skills))
+
+content = "\n".join(lines) + "\n"
+if content != previous:
+    write_atomic(manifest, content)
+PY
+}
+
+publish_managed_manifest() {
+  local action="$1" source_manifest message
+  shift
+  managed_manifest || return 0
+  chezmoi add "$MANIFEST" || { fail 'could not capture skills manifest in chezmoi source'; return 1; }
+  source_manifest="$(chezmoi source-path "$MANIFEST")" || {
+    fail 'could not resolve chezmoi source manifest'; return 1
+  }
+  chezmoi git -- add -- "$source_manifest" || { fail 'could not stage chezmoi skills manifest'; return 1; }
+  if ! chezmoi git -- diff --cached --quiet -- "$source_manifest"; then
+    message="chore(skills): $action $*"
+    chezmoi git -- commit -m "$message" -- "$source_manifest" || {
+      fail 'could not commit chezmoi skills manifest'; return 1
+    }
+  fi
+  chezmoi git -- push || {
+    fail 'skills manifest is committed locally but could not be pushed'; return 1
+  }
+}
+
+manifest_source_uses_wildcard() {
+  local entry
+  for entry in "${MANIFEST_SKILLS[@]:-}"; do
+    [ "$entry" != "$1:*" ] || return 0
+  done
+  return 1
+}
+
 parse_manifest() {
   local line source skill count had_noglob=0
   MANIFEST_SOURCES=()
@@ -287,7 +423,10 @@ report_drift() {
       [ "${entry#*:}" != '*' ] || wildcard=1
       [ "${entry#*:}" != "$name" ] || desired=1
     done
-    [ "$desired" -eq 1 ] || [ "$wildcard" -eq 1 ] || printf 'drift: skills remove %s %s\n' "$source" "$name"
+    if [ "$desired" -eq 0 ] && [ "$wildcard" -eq 0 ]; then
+      printf 'drift: skills remove %s %s\n' "$source" "$name"
+      printf 'keep:  skills add %s %s\n' "$source" "$name"
+    fi
   done < <(lock_records)
 }
 
@@ -352,8 +491,10 @@ add() {
   local skill
   for skill in "$@"; do [ "$skill" = '*' ] || valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }; done
   validate_live_lock || return 1
+  prepare_managed_manifest || return 1
   run_add "$source" "$@" || return "$?"
-  grep -Fqx "$source $*" "$MANIFEST" 2>/dev/null || printf 'warning: add diverges from managed manifest\n' >&2
+  update_manifest_skills add "$source" "$@" || { fail "could not save skills in manifest: $MANIFEST"; return 1; }
+  publish_managed_manifest add "$@"
 }
 
 remove() {
@@ -367,8 +508,15 @@ remove() {
     owner="$(lock_source_for_skill "$skill")"
     [ "$owner" = "$source" ] || { fail "lock does not own $skill as $source"; return 1; }
   done
+  prepare_managed_manifest || return 1
+  parse_manifest || return 1
+  manifest_source_uses_wildcard "$source" && {
+    fail "cannot persist removal from wildcard manifest source: $source"
+    return 1
+  }
   run_remove "$@" || return "$?"
-  printf 'warning: remove diverges from managed manifest\n' >&2
+  update_manifest_skills remove "$source" "$@" || { fail "could not update skills manifest: $MANIFEST"; return 1; }
+  publish_managed_manifest remove "$@"
 }
 
 update() {

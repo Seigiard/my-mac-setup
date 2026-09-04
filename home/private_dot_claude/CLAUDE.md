@@ -28,7 +28,7 @@ Ask the user when:
 - Multiple interpretations with 2x+ effort difference
 - Missing critical info (file, error, context)
 - User's design seems flawed
-- Script timeout (>2min), sudo needed, or any blocker
+- Process state remains indeterminate after timeout or stall diagnosis, sudo is needed, or another blocker requires a user decision
 
 ### Multi-step tasks
 
@@ -109,6 +109,13 @@ Pick one (more recent / more tested), state why in one line, and flag the other 
 
 **Long-running work**
 
+<important if="a one-shot command may exceed the tool's default timeout, or a prior one-shot invocation timed out">
+
+- Size the tool transport timeout to the command's expected runtime before launch; elapsed time does not determine whether work is long-running.
+- If transport expires, determine whether the previous process is still running or has terminated before waiting, retrying, or escalating.
+
+</important>
+
 <important if="you are about to start, background, or wait on a long-running process — build, test run, dev server, migration, background agent, remote job">
 
 - Read `~/.claude/shared/long-running-work.md` before launching. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
@@ -116,14 +123,12 @@ Pick one (more recent / more tested), state why in one line, and flag the other 
 
 </important>
 
-<important if="you are about to start a long-running or observable process — dev server, test watcher, log tail, build — and HERDR_ENV=1 is set">
+<important if="you are deciding where to run a command or process and HERDR_ENV=1 is set">
 
-- You are inside herdr, a terminal multiplexer. The user watches panes, not your background processes.
-- Load the `herdr` skill, then run the process in a sibling pane of the current tab. The pane stays visible to the user and survives your session.
-- Do not start it as a background Bash process — the user cannot see those.
-- Read the process output through the herdr CLI (the skill documents it), not by re-running the command in your own shell.
-- Short one-shot commands (a single test run, lint, typecheck) stay in your own Bash tool. Do not create panes for them.
-- If HERDR_ENV is not set, this block does not apply; use normal background processes.
+- The user observes long-running work through visible panes.
+- Classify work by its execution model before launch. Run long-running or observable work such as a dev server, test watcher, log tail, or build in a sibling pane after loading the `herdr` skill; the pane stays visible and survives your session.
+- Keep one-shot checks such as a single test run, lint, or typecheck in the current Bash tool. A Bash transport timeout does not change their placement.
+- Read pane output through the herdr CLI and keep the original invocation as the source of truth.
 
 </important>
 

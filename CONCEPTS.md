@@ -8,13 +8,13 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 The agreement between a parent agent and child agents launched into sibling panes or their own `--tab`. `herdr-child` allocates each child a registered `color-animal` alias and returns it with the pane ID. Attached `--wait` keeps the result inside the current parent turn and arms no watcher. Managed `--detach` captures parent and child terminal/session identity, a fresh-state baseline, and a generation; an external per-child watcher then wakes the parent with generation-and-event markers for settlement, blockage, timeout, or unplanned disappearance. A child decision uses `ask`/`reply`; ordinary follow-ups use pair-addressed `prompt --wait|--detach`; reap requires the verified alias-plus-pane pair, invalidates supervision before pane closure, and preserves sibling panes in a child-owned tab. Lifecycle settlement is a wake signal, not a task verdict. Markers and metadata coordinate cooperative same-user clients and are not authorization credentials.
 
 ### herdr-worktree-identity
-The component that derives a task title and multi-word branch slug from a generated worktree session's prompt, renames the authorized branch once with attribution, and labels the workspace. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
+The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
 
 ### Generated-worktree marker
 The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It is the sole authorization boundary for automated ref mutation in that worktree: a component may rename the generated branch only when the marker is present and matches — branch name text alone never authorizes. Later lines appended to the marker carry attribution for mutations already made.
 
 ### Workspace-only outcome
-A terminal worktree-identity outcome in which the herdr workspace receives its task-derived title but the branch is left untouched, because the branch is no longer eligible for renaming (upstream set, moved by an agent, or a prior rename was reverted). Workspace labeling is decoupled from branch eligibility by design; the outcome is final, not a retry state.
+A terminal worktree-identity outcome in which the Herdr workspace receives the derived normalized branch name but the Git branch is left untouched, because the branch is no longer eligible for renaming (upstream set, moved by an agent, or a prior rename was reverted). Workspace labeling is decoupled from branch eligibility by design; the outcome is final, not a retry state.
 
 ### Detached worker
 A background process a component forks so its caller can return immediately. Detachment has two halves and both are load-bearing: the worker takes its own session, and it closes every file descriptor it inherited above standard error.
@@ -82,6 +82,9 @@ A post-apply suite file that executes no real deployment command, so it is safe 
 An environment's explicit declaration that its home directory may be overwritten by real deployment commands. Only the declaration grants permission — being inside a container or on a continuous-integration runner never does, because a developer who exports a CI variable, or a long-lived development container holding real work, would otherwise receive a live overwrite.
 
 The guard fails closed. An environment that looks like a runner but carries no declaration is reported as misconfigured rather than run or silently skipped.
+
+### Unattended chezmoi mode
+The repository-owned execution contract selected by `MMS_CHEZMOI_UNATTENDED=1` for agent, continuous-integration, and test invocations of chezmoi. Its explicit full-fixture profile requires disposable-home authority and renders credential-sensitive targets with non-secret canaries; its host-partial profile omits those targets from comparison and names what was not checked. Both profiles prevent interactive credential access before a helper subprocess starts and preserve the ordinary `PATH`.
 
 ## Retired
 

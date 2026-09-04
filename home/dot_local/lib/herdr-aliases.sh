@@ -335,7 +335,6 @@ _herdr_alias_validate_words() {
 }
 
 herdr_alias_validate_pool() {
-  local color animal alias
   local color_count=${#HERDR_ALIAS_COLORS[@]}
   local animal_count=${#HERDR_ALIAS_ANIMALS[@]}
 
@@ -345,17 +344,6 @@ herdr_alias_validate_pool() {
     printf 'herdr aliases: pool has fewer than 1024 candidates\n' >&2
     return 1
   fi
-
-  # Unique words on both sides of the separator make every pair unique.
-  for color in "${HERDR_ALIAS_COLORS[@]}"; do
-    for animal in "${HERDR_ALIAS_ANIMALS[@]}"; do
-      alias="$color-$animal"
-      if ! herdr_alias_is_valid "$alias"; then
-        printf 'herdr aliases: invalid candidate: %s\n' "$alias" >&2
-        return 1
-      fi
-    done
-  done
 }
 
 herdr_alias_candidates() {

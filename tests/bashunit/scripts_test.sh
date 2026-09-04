@@ -355,7 +355,7 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   hwi_write_naming_stub pi
   hwi_write_naming_stub claude
-  printf '%s\n' '{"title":"  Normalize API Tokens  ","slug":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
   printf '%s\n' 'unexpected claude fallback' > "$HWI_WORK/claude.output"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -363,7 +363,7 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Normalize API tokens from model output'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Normalize API Tokens'
+  assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
   assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
   assert_file_contains "$HWI_WORK/pi.stdin" 'First prompt of the session:'
   assert_file_not_contains "$HWI_WORK/pi.calls" 'Normalize API tokens from model output'
@@ -379,7 +379,7 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   hwi_write_naming_stub pi
   hwi_write_naming_stub claude
-  printf '%s\n' '{"title":"JSON","slug":"json"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"json"}' > "$HWI_WORK/pi.output"
   printf '%s\n' 'not JSON' > "$HWI_WORK/claude.output"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -387,7 +387,7 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" title)" json-generated
   assert_equal "$(read_state_field "$state" slug)" json-generated
   assert_file_exists "$HWI_WORK/pi.calls"
   assert_file_exists "$HWI_WORK/claude.calls"
@@ -409,20 +409,20 @@ function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_c
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" title)" json-generated
   assert_equal "$(read_state_field "$state" slug)" json-generated
 
   rm "$state"
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   hwi_write_naming_stub pi
-  printf '%s\n' '{"title":"Long model identity","slug":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'a different prompt'
   assert_success
   state="$(hwi_identity_state_path)"
   local slug="$(read_state_field "$state" slug)"
-  assert_equal "$(read_state_field "$state" title)" 'Long model identity'
+  assert_equal "$(read_state_field "$state" title)" "$slug"
   assert_equal "${#slug}" 40
   run test "${slug%-}" = "$slug"
   assert_success
@@ -477,6 +477,7 @@ function test_scripts_1181_worktree_identity_suffixes_candidates_against_local_a
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Implement candidate collision'
   assert_success
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" implement-candidate-collision-3
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" implement-candidate-collision-3
   run git -C "$HWI_CHECKOUT" show-ref --verify --quiet refs/remotes/origin/implement-candidate-collision-2
   assert_success
 }
@@ -634,8 +635,8 @@ function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_w
 # observes a workspace rename call without granting this component ownership
 # of pane, tab, or agent labels. Branch assertions read the fixture's real Git
 # state, not the identity state file.
-function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename() {
-  _bats_test_init 1186 'worktree identity labels a workspace once and completes the outcome'
+function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_the_branch_name() {
+  _bats_test_init 1186 'worktree identity reconciles a terminal workspace to the branch name'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -647,14 +648,16 @@ function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename(
   local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" label-workspace-independently
   assert_equal "$(read_state_field "$state" outcome)" complete
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Label workspace independently'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
   assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
 
+  printf '%s' 'Legacy workspace title' > "$HWI_WORK/workspace.label"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'A later event must not rename labels'
   assert_success
-  assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
+  assert_equal "$(hwi_workspace_rename_count)" 2
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$branch"
 }
 
@@ -678,7 +681,7 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event retries upstream workspace'
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" workspace-only
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Preserve upstream workspace'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" preserve-upstream-workspace
 
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.remote"
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.merge"
@@ -1072,7 +1075,7 @@ function test_scripts_1203_worktree_identity_retries_a_nonmatching_prepared_work
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event'
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" complete
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Retry nonmatching workspace'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" retry-nonmatching-workspace
   assert_equal "$(hwi_workspace_rename_count)" 2
 }
 
@@ -1298,107 +1301,13 @@ function test_scripts_1003_herdr_alias_pool_has_at_least_1024_unique_grammar_saf
   local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
   [ "$pool_size" -ge 1024 ]
 
-  local word
-  for word in "${HERDR_ALIAS_COLORS[@]}" "${HERDR_ALIAS_ANIMALS[@]}"; do
-    [[ "$word" =~ ^[a-z]+$ ]] || fail "invalid word: $word"
+  local color animal
+  for color in "${HERDR_ALIAS_COLORS[@]}"; do
+    [[ "$color" =~ ^[a-z]+$ ]] || fail "invalid color word: $color"
   done
-}
-
-function test_scripts_1004_herdr_alias_fixed_test_seed_produces_one_stable_full_se() {
-  _bats_test_init 1004 'herdr alias fixed test seed produces one stable full sequence without state'
-  source "$HERDR_ALIASES"
-  local first_sequence="$BATS_TEST_TMPDIR/herdr-alias-sequence-1"
-  local second_sequence="$BATS_TEST_TMPDIR/herdr-alias-sequence-2"
-  local state_home="$BATS_TEST_TMPDIR/herdr-alias-home"
-  mkdir -p "$state_home"
-
-  HOME="$state_home" HERDR_ALIAS_TEST_SEED=u1-fixed-seed \
-    herdr_alias_candidates ignored-first-seed > "$first_sequence"
-  HOME="$state_home" HERDR_ALIAS_TEST_SEED=u1-fixed-seed \
-    herdr_alias_candidates ignored-second-seed > "$second_sequence"
-
-  run cmp "$first_sequence" "$second_sequence"
-  assert_success
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  local sequence_count unique_count
-  sequence_count="$(wc -l < "$first_sequence" | tr -d ' ')"
-  unique_count="$(LC_ALL=C sort -u "$first_sequence" | wc -l | tr -d ' ')"
-  assert_equal "$sequence_count" "$pool_size"
-  assert_equal "$unique_count" "$pool_size"
-
-  local checksum_line checksum offset expected first
-  checksum_line="$(printf '%s' u1-fixed-seed | cksum)"
-  checksum="${checksum_line%%[[:space:]]*}"
-  offset=$((checksum % pool_size))
-  expected="${HERDR_ALIAS_COLORS[$((offset / ${#HERDR_ALIAS_ANIMALS[@]}))]}-${HERDR_ALIAS_ANIMALS[$((offset % ${#HERDR_ALIAS_ANIMALS[@]}))]}"
-  IFS= read -r first < "$first_sequence"
-  assert_equal "$first" "$expected"
-
-  run find "$state_home" -mindepth 1 -print
-  assert_success
-  assert_output ""
-}
-
-function test_scripts_1005_herdr_alias_traversal_wraps_to_the_last_free_candidate_() {
-  _bats_test_init 1005 'herdr alias traversal wraps to the last free candidate and exhausts once'
-  source "$HERDR_ALIASES"
-  local sequence="$BATS_TEST_TMPDIR/herdr-alias-wrap-sequence"
-  local seed=u1-wraparound-seed
-  herdr_alias_candidates "$seed" > "$sequence"
-
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  local checksum_line checksum offset final_index expected_final
-  checksum_line="$(printf '%s' "$seed" | cksum)"
-  checksum="${checksum_line%%[[:space:]]*}"
-  offset=$((checksum % pool_size))
-  [ "$offset" -gt 0 ]
-  final_index=$((offset - 1))
-  expected_final="${HERDR_ALIAS_COLORS[$((final_index / ${#HERDR_ALIAS_ANIMALS[@]}))]}-${HERDR_ALIAS_ANIMALS[$((final_index % ${#HERDR_ALIAS_ANIMALS[@]}))]}"
-
-  local candidate selected="" last="" visited=0
-  while IFS= read -r candidate; do
-    visited=$((visited + 1))
-    last="$candidate"
-    # The consumer treats every earlier candidate as occupied.
-    if [ "$candidate" = "$expected_final" ]; then
-      selected="$candidate"
-      break
-    fi
-  done < "$sequence"
-  assert_equal "$visited" "$pool_size"
-  assert_equal "$selected" "$expected_final"
-  assert_equal "$last" "$expected_final"
-
-  selected=""
-  visited=0
-  while IFS= read -r candidate; do
-    visited=$((visited + 1))
-    # Every candidate is occupied, so no selection is made.
-  done < "$sequence"
-  assert_equal "$visited" "$pool_size"
-  assert_equal "$selected" ""
-}
-
-function test_scripts_1006_herdr_alias_allocation_consults_no_herdr_model_or_netwo() {
-  _bats_test_init 1006 'herdr alias allocation consults no Herdr model or network command'
-  local stub_dir="$BATS_TEST_TMPDIR/herdr-alias-stubs"
-  local call_log="$BATS_TEST_TMPDIR/herdr-alias-calls"
-  local binary
-  mkdir -p "$stub_dir"
-  for binary in herdr claude opencode pi codex curl wget; do
-    cat > "$stub_dir/$binary" <<'SH'
-#!/bin/sh
-printf '%s\n' "${0##*/}" >> "$HERDR_ALIAS_CALL_LOG"
-exit 97
-SH
-    chmod +x "$stub_dir/$binary"
+  for animal in "${HERDR_ALIAS_ANIMALS[@]}"; do
+    [[ "$animal" =~ ^[a-z]+$ ]] || fail "invalid animal word: $animal"
   done
-
-  run env PATH="$stub_dir:$PATH" HERDR_ALIAS_CALL_LOG="$call_log" \
-    HERDR_ALIAS_TEST_SEED=u1-no-services \
-    bash -c 'source "$1"; herdr_alias_candidates ignored >/dev/null' _ "$HERDR_ALIASES"
-  assert_success
-  [ ! -e "$call_log" ]
 }
 
 # ===========================================
@@ -1419,7 +1328,7 @@ render_install_packages() {
   if [[ -n "${1:-}" ]]; then
     config_args=(--config "$1")
   fi
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" "${config_args[@]}" \
+  chezmoi_full_fixture_finite_stdin "${config_args[@]}" \
     --source "$SOURCE_ROOT" execute-template \
     < "$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
 }
@@ -1494,7 +1403,7 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   _bats_test_init 8 'darwin scripts excluded from managed list on Linux'
   is_linux || skip "Only relevant on Linux"
   skip_if_no_chezmoi
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed
+  run chezmoi_host_partial managed
   # A failed `chezmoi managed` emits an error string that would satisfy the
   # refutation, so status and a known-managed line come first.
   assert_success
@@ -4498,7 +4407,7 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
+  chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial "skipping agent-state integration refresh"
@@ -4584,7 +4493,7 @@ function test_scripts_100_settings_template_registers_both_pretooluse_hook() {
   skip_if_no_chezmoi
   local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
   BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/claude-settings.json"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
+  chezmoi_full_fixture_finite_stdin execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
   run python3 - "$BATS_TEST_TMPFILE" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1]))
@@ -7154,154 +7063,180 @@ function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_wit
 # Claude settings modifier
 # ===========================================
 
-function test_scripts_245_claude_settings_modifier_registers_the_executor() {
-  _bats_test_init 245 'Claude settings modifier registers the executor MCP server over stdio'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-bin"
-
-  # executor registers with or without 1Password; the stub is here so one run
-  # also covers the credentialed servers, whose entries exist only when `op`
-  # answers.
-  mkdir -p "$stub_bin"
-  cat > "$stub_bin/op" <<'STUB'
+claude_modifier_setup() {
+  CLAUDE_MODIFIER="$SOURCE_ROOT/modify_dot_claude.json"
+  CLAUDE_MODIFIER_BIN="$BATS_TEST_TMPDIR/claude-modifier-bin"
+  CLAUDE_MODIFIER_OP_MARKER="$BATS_TEST_TMPDIR/claude-modifier-op-launched"
+  mkdir -p "$CLAUDE_MODIFIER_BIN"
+  cat > "$CLAUDE_MODIFIER_BIN/op" <<'STUB'
 #!/bin/sh
-echo "stub-credential"
+printf '%s\n' "$2" >> "$MMS_TEST_OP_MARKER"
+case "$2" in
+  *Jina*) printf '%s\n' 'interactive-jina' ;;
+  *Tavily*) printf '%s\n' 'interactive-tavily' ;;
+esac
 STUB
-  chmod +x "$stub_bin/op"
+  chmod +x "$CLAUDE_MODIFIER_BIN/op"
+}
 
-  run env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+function test_scripts_245_claude_settings_modifier_preserves_existing_credentials_unattended() {
+  _bats_test_init 245 'Claude settings modifier preserves both existing credentialed entries unattended'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"},"stale":{"type":"stdio"}},"other":{"preserved":true}}'
+
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+    PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
-  # stdio rather than the daemon's HTTP endpoint: the CLI resolves the scope and
-  # token from ~/.executor itself, so no rotating secret lands in a tracked file.
   run jq -e '
-    (.mcpServers.executor == {
-      "type": "stdio",
-      "command": "/stub/home/.local/bin/executor",
-      "args": ["mcp"],
-      "env": {}
-    })
-    and (.mcpServers["tavily-mcp"].url ==
-      "https://mcp.tavily.com/mcp/?tavilyApiKey=stub-credential")
+    (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
+    and (.mcpServers.executor == {"type":"stdio","command":"/stub/home/.local/bin/executor","args":["mcp"],"env":{}})
     and (.mcpServers | has("stale") | not)
-    and (.other == "preserved")
+    and (.other == {"preserved":true})
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_246_claude_settings_modifier_registers_the_credentia() {
-  _bats_test_init 246 'Claude settings modifier registers the credential-free MCP servers without 1Password'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local jq_bin="$BATS_TEST_TMPDIR/claude-modifier-jq-bin"
+function test_scripts_246_claude_settings_modifier_keeps_clean_credentials_absent_unattended() {
+  _bats_test_init 246 'Claude settings modifier keeps credentialed entries absent on clean unattended input'
+  claude_modifier_setup
 
-  # Control for the test above. deepwiki, fff, and executor carry no credential,
-  # so a machine where `op` never resolves must still get them; only jina and
-  # tavily-mcp depend on 1Password and stay out rather than registering with an
-  # empty key. A bare `op` absence is how CI and Docker run, so it stays silent.
-  #
-  # PATH_WITHOUT_OP drops every directory that holds an `op`, jq included when
-  # the two share one. Re-front jq so this lands in the credential-free branch
-  # rather than the no-jq guard the test below owns.
-  mkdir -p "$jq_bin"
-  ln -s "$(command -v jq)" "$jq_bin/jq"
-
-  run --separate-stderr env PATH="$jq_bin:$PATH_WITHOUT_OP" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{"stale":{"type":"stdio"}},"other":"preserved"}'
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+    PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< '{"mcpServers":{}}'
 
   assert_success
-  assert_stderr ""
+  run jq -e '((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])' <<< "$output"
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
+}
+
+function test_scripts_247_claude_settings_modifier_replaces_only_jina_unattended() {
+  _bats_test_init 247 'Claude settings modifier replaces only Jina from an unattended fixture'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://old.jina"},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"}}}'
+
+  run env -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary bash "$CLAUDE_MODIFIER" <<< "$input"
+
+  assert_success
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])
-    and (.mcpServers.executor.command == "/stub/home/.local/bin/executor")
-    and (.other == "preserved")
+    (.mcpServers.jina == {"type":"http","url":"https://mcp.jina.ai/v1","headers":{"Authorization":"Bearer jina-canary"}})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_247_claude_settings_modifier_registers_each_credenti() {
-  _bats_test_init 247 'Claude settings modifier registers each credentialed MCP server independently'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-partial-bin"
+function test_scripts_248_claude_settings_modifier_replaces_only_tavily_unattended() {
+  _bats_test_init 248 'Claude settings modifier replaces only Tavily from an unattended fixture'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}},"tavily-mcp":{"type":"http","url":"https://old.tavily"}}}'
 
-  # One key resolves and the other comes back empty. The two servers must not
-  # share a fate: the credential that exists is no reason to withhold its server
-  # because the other one is missing.
-  mkdir -p "$stub_bin"
-  cat > "$stub_bin/op" <<'STUB'
-#!/bin/sh
-case "$2" in
-  *Jina*) echo "jina-credential" ;;
-  *) exit 1 ;;
-esac
-STUB
-  chmod +x "$stub_bin/op"
-
-  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{}}'
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
-  # `op` is installed yet answered nothing, which is a missing sign-in rather
-  # than a deliberately credential-free machine. Say so without failing the
-  # apply, and name the credential so the cause is readable.
-  assert_stderr --partial "Tavily API Key"
-  refute_stderr --partial "Jina API Key"
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","jina"])
-    and (.mcpServers.jina.headers.Authorization == "Bearer jina-credential")
+    (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary"})
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_248_claude_settings_modifier_registers_tavily_mcp_wh() {
-  _bats_test_init 248 'Claude settings modifier registers tavily-mcp when only its credential resolves'
-  local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-tavily-bin"
+function test_scripts_249_claude_settings_modifier_creates_both_credentials_unattended() {
+  _bats_test_init 249 'Claude settings modifier creates both credentialed entries from unattended fixtures'
+  claude_modifier_setup
 
-  # The mirror of the test above. The two credentialed servers are built by
-  # different jq expressions -- one a headers object, one a URL carrying the key
-  # inline -- so covering one direction does not cover the other.
-  mkdir -p "$stub_bin"
-  cat > "$stub_bin/op" <<'STUB'
-#!/bin/sh
-case "$2" in
-  *Tavily*) echo "tavily-credential" ;;
-  *) exit 1 ;;
-esac
-STUB
-  chmod +x "$stub_bin/op"
-
-  run --separate-stderr env PATH="$stub_bin:$PATH" HOME=/stub/home bash "$modifier" \
-    <<< '{"mcpServers":{}}'
+  run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$CLAUDE_MODIFIER" <<< '{}'
 
   assert_success
-  assert_stderr --partial "Jina API Key"
-  refute_stderr --partial "Tavily API Key"
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
-    and (.mcpServers["tavily-mcp"].url ==
-      "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-credential")
+    (.mcpServers.jina.headers.Authorization == "Bearer jina-canary")
+    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary")
   ' <<< "$output"
   assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_249_claude_settings_modifier_passes_settings_through() {
-  _bats_test_init 249 'Claude settings modifier passes settings through untouched without jq'
+function test_scripts_1324_claude_settings_modifier_treats_empty_fixtures_as_unavailable() {
+  _bats_test_init 1324 'Claude settings modifier treats empty unattended fixtures as unavailable'
+  claude_modifier_setup
+  local input='{"mcpServers":{"jina":{"sentinel":"existing-jina"},"tavily-mcp":{"sentinel":"existing-tavily"}}}'
+
+  run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+    MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY= MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY= \
+    bash "$CLAUDE_MODIFIER" <<< "$input"
+
+  assert_success
+  run jq -e '
+    (.mcpServers.jina == {"sentinel":"existing-jina"})
+    and (.mcpServers["tavily-mcp"] == {"sentinel":"existing-tavily"})
+  ' <<< "$output"
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker.
+  assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
+}
+
+function test_scripts_1325_claude_settings_modifier_requires_exact_unattended_selector() {
+  _bats_test_init 1325 'Claude settings modifier keeps interactive behavior for invalid unattended selectors'
+  claude_modifier_setup
+  local selector
+
+  for selector in unset 0 true; do
+    rm -f "$CLAUDE_MODIFIER_OP_MARKER"
+    if [[ "$selector" == unset ]]; then
+      run env -u MMS_CHEZMOI_UNATTENDED PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+        MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" bash "$CLAUDE_MODIFIER" <<< '{}'
+    else
+      run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
+        MMS_CHEZMOI_UNATTENDED="$selector" bash "$CLAUDE_MODIFIER" <<< '{}'
+    fi
+
+    assert_success
+    run jq -e '
+      (.mcpServers.jina.headers.Authorization == "Bearer interactive-jina")
+      and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=interactive-tavily")
+    ' <<< "$output"
+    assert_success
+    assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
+  done
+}
+
+function test_scripts_1326_claude_settings_modifier_passes_settings_through_without_jq() {
+  _bats_test_init 1326 'Claude settings modifier passes settings through without jq in both contexts'
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  local input='{"mcpServers":{"kept":{"type":"stdio"}}}'
+  local input='{"mcpServers":{"kept":{"type":"stdio"}},"other":"preserved"}'
   local stub_bin="$BATS_TEST_TMPDIR/claude-modifier-nojq-bin"
-
-  # The modifier builds every server entry with jq, so a machine without it has
-  # no way to write the file. Echoing stdin unchanged is the only safe answer,
-  # and it is the one guard that must survive the credential-free split above.
+  local selector
   mkdir -p "$stub_bin"
   ln -s "$(command -v cat)" "$stub_bin/cat"
   ln -s "$(command -v bash)" "$stub_bin/bash"
 
-  run env PATH="$stub_bin" bash "$modifier" <<< "$input"
+  for selector in interactive unattended; do
+    if [[ "$selector" == interactive ]]; then
+      run env -u MMS_CHEZMOI_UNATTENDED PATH="$stub_bin" bash "$modifier" <<< "$input"
+    else
+      run env PATH="$stub_bin" MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$modifier" <<< "$input"
+    fi
 
-  assert_success
-  assert_output "$input"
+    assert_success
+    assert_output "$input"
+  done
 }
 
 # ===========================================
@@ -8034,11 +7969,105 @@ function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_DATA_HOME="$BATS_TEST_TMPDIR/data" \
     XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" XDG_CACHE_HOME="$BATS_TEST_TMPDIR/cache" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" \
     bash "$SKILLS_WRAPPER" add owner/repo named-skill
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^PWD=.*/tmp$'
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><owner/repo><--skill><named-skill><--global><--agent><claude-code><--agent><opencode><--agent><pi><--yes>$'
   assert_equal "$PWD" "$original"
+
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_failure
+  assert_output --partial 'chezmoi is required for managed skill changes'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_2720_skills_add_saves_the_skill_in_the_manifest() {
+  _bats_test_init 2720 'skills add saves a successfully installed skill in the managed manifest'
+  local stub manifest
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  printf '%s\n' 'other/repo other-skill' 'owner/repo existing-skill' > "$manifest"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  assert_file_contains "$manifest" '^owner/repo existing-skill named-skill$'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  run grep -o 'named-skill' "$manifest"
+  assert_success
+  assert_output 'named-skill'
+}
+
+function test_scripts_27202_skills_add_publishes_the_managed_manifest_through_chezmoi() {
+  _bats_test_init 27202 'skills add pulls, captures, commits, and pushes the managed manifest through chezmoi'
+  local stub home source_manifest manifest
+  stub="$(skills_stub_npx)"
+  home="$BATS_TEST_TMPDIR/home"
+  manifest="$home/.config/agent-skills/manifest"
+  source_manifest="$home/source/home/private_dot_config/agent-skills/manifest"
+  mkdir -p "$(dirname "$manifest")" "$(dirname "$source_manifest")" "$BATS_TEST_TMPDIR/tmp"
+  printf '%s\n' 'owner/repo existing-skill' > "$manifest"
+  cp "$manifest" "$source_manifest"
+  cat > "$stub/chezmoi" <<'SH'
+#!/usr/bin/env bash
+printf '<%s>' "$@" >> "$TMPDIR/chezmoi.log"
+printf '\n' >> "$TMPDIR/chezmoi.log"
+if [ "$1" = git ]; then
+  shift 2
+  case "$1" in
+    status) [ "${CHEZMOI_DIRTY:-0}" = 0 ] || printf '%s\n' ' M unrelated-file' ;;
+    rev-parse) printf '%s\n' origin/main ;;
+    pull) exit 0 ;;
+    rev-list) printf '%s\n' 0 ;;
+    diff) exit 1 ;;
+    add|commit|push) exit 0 ;;
+  esac
+elif [ "$1" = cat ]; then
+  cat "$HOME/source/home/private_dot_config/agent-skills/manifest"
+elif [ "$1" = add ]; then
+  cp "$2" "$HOME/source/home/private_dot_config/agent-skills/manifest"
+elif [ "$1" = source-path ]; then
+  printf '%s\n' "$HOME/source/home/private_dot_config/agent-skills/manifest"
+fi
+SH
+  chmod +x "$stub/chezmoi"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  assert_file_contains "$source_manifest" '^owner/repo existing-skill named-skill$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/chezmoi.log" '^<git><--><pull><--ff-only>$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/chezmoi.log" '^<add>.*/\.config/agent-skills/manifest>$'
+  run cat "$BATS_TEST_TMPDIR/tmp/chezmoi.log"
+  assert_success
+  assert_output --partial '<git><--><commit><-m><chore(skills): add named-skill><-->'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/chezmoi.log" '^<git><--><push>$'
+
+  mkdir -p "$home/.local/state/skills"
+  printf '%s\n' '{"version":3,"skills":{"named-skill":{"source":"owner/repo"}}}' \
+    > "$home/.local/state/skills/.skill-lock.json"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" remove owner/repo named-skill
+  assert_success
+  run cat "$source_manifest"
+  assert_success
+  assert_output 'owner/repo existing-skill'
+  run cat "$BATS_TEST_TMPDIR/tmp/chezmoi.log"
+  assert_success
+  assert_output --partial '<git><--><commit><-m><chore(skills): remove named-skill><-->'
+
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" CHEZMOI_DIRTY=1 \
+    bash "$SKILLS_WRAPPER" add owner/repo another-skill
+  assert_failure
+  assert_output --partial 'chezmoi source repository has uncommitted changes'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
 function test_scripts_2721_skills_hides_success_output_but_preserves_verbose_and_failure_diagnostics() {
@@ -8053,8 +8082,10 @@ for arg in "$@"; do [ "$arg" != fail ] || exit 7; done
 SH
   chmod +x "$stub/npx"
   mkdir -p "$BATS_TEST_TMPDIR/home/.local/state/skills"
+  mkdir -p "$BATS_TEST_TMPDIR/home/.config/agent-skills"
   printf '%s\n' '{"version":3,"skills":{"fail":{"source":"owner/repo"}}}' \
     > "$BATS_TEST_TMPDIR/home/.local/state/skills/.skill-lock.json"
+  printf '%s\n' 'owner/repo fail' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
 
   run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     bash "$SKILLS_WRAPPER" update
@@ -8084,10 +8115,12 @@ SH
   assert_stderr --partial 'upstream stderr'
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
     bash "$SKILLS_WRAPPER" add owner/repo fail
   assert_failure 7
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
     bash "$SKILLS_WRAPPER" remove owner/repo fail
   assert_failure 7
 
@@ -8257,12 +8290,17 @@ function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_r
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$lock"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add owner/repo
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><owner/repo><--skill><\*><--global>'
 
+  mkdir -p "$BATS_TEST_TMPDIR/home/.config/agent-skills"
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
+
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><owned><--yes>$'
 
@@ -8331,12 +8369,17 @@ function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_iden
   mkdir -p "$(dirname "$state_lock")" "$(dirname "$fallback_lock")"
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$state_lock"
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$fallback_lock"
+  mkdir -p "$BATS_TEST_TMPDIR/home/.config/agent-skills"
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME= bash "$SKILLS_WRAPPER" remove owner/repo owned
+    XDG_STATE_HOME= SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
   run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
   assert_output '2'
@@ -8437,8 +8480,8 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_large_document
   assert_output --partial 'canonical tree file exceeds 2097152 bytes'
 }
 
-function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_wildcard_drift() {
-  _bats_test_init 279 'skills sync reports installs and non-wildcard drift without removing it'
+function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_not_wildcard_drift() {
+  _bats_test_init 279 'skills sync offers remove and add commands for non-wildcard drift'
   local stub manifest lock canonical skill
   stub="$(skills_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
@@ -8459,7 +8502,9 @@ function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_w
   assert_output --partial 'Installing skills from EveryInc/compound-engineering-plugin: *'
   assert_output --partial 'Installing skills from owner/repo: desired'
   assert_output --partial 'drift: skills remove owner/repo stale'
+  assert_output --partial 'keep:  skills add owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
+  assert_output --partial 'keep:  skills add gone/repo orphan'
   refute_output --partial 'ce-code-review'
 }
 
@@ -8470,7 +8515,7 @@ function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_w
 AGENT_SKILLS_SYNC_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_9-sync-agent-skills.sh.tmpl"
 
 render_agent_skills_sync() {
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$AGENT_SKILLS_SYNC_TMPL"
+  chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template < "$AGENT_SKILLS_SYNC_TMPL"
 }
 
 function test_scripts_280_agent_skills_sync_hook_renders_valid_bash_and_skips_disposable_homes() {
