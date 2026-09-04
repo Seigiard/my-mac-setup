@@ -52,6 +52,77 @@ CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-$HOME/.local/lib/context-usage.s
 # shellcheck source=home/dot_local/lib/context-usage.sh
 . "$CONTEXT_USAGE_LIBRARY" || exit 0
 
+# Run a command with a wall-clock bound, without depending on `timeout` being
+# installed. Returns the command's status, or 124 when the bound was reached.
+context_threshold_bounded() {
+  local seconds="$1" output="$2"
+  shift 2
+  local pid waited=0 status
+  # Job control puts the child in its own process group, so an overrun can be
+  # ended together with anything it spawned. Killing the leader alone leaves
+  # orphans holding the pipe the caller is waiting on.
+  set -m
+  # stdin is closed deliberately: the hook has already consumed its payload,
+  # and `claude --print` waits three seconds for input it will never get.
+  "$@" > "$output" 2>/dev/null < /dev/null &
+  pid=$!
+  set +m
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$seconds" ]; then
+      kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid"
+  status=$?
+  return "$status"
+}
+
+# Reduce whatever the extractor said to something safe to paste after
+# `handoff:`. One line, within the word cap, and stripped of the sequences
+# that would change what the command means in a shell-adjacent prompt.
+context_threshold_normalize_goal() {
+  tr '\n\r\t' '   ' |
+    tr -d '`$\\"'"'"';|&<>(){}[]' |
+    awk '{
+      $1 = $1
+      n = NF > 20 ? 20 : NF
+      out = ""
+      for (i = 1; i <= n; i++) out = out (i == 1 ? "" : " ") $i
+      print out
+    }'
+}
+
+# Fork the session and ask a cheap model what it is trying to finish. The fork
+# inherits these settings, so its own Stop hook fires; the guard marker keeps
+# this hook out of it (KTD6). Any failure returns nothing and the caller
+# announces without a goal rather than not announcing at all (R23).
+context_threshold_extract_goal() {
+  local session="$1" answer extracted status=0
+  command -v claude > /dev/null 2>&1 || return 1
+  extracted=$(mktemp "${TMPDIR:-/tmp}/context-goal.XXXXXX" 2>/dev/null) || return 1
+
+  context_threshold_bounded "$CONTEXT_USAGE_EXTRACTION_TIMEOUT" "$extracted" \
+    env CONTEXT_THRESHOLD_GUARD=1 claude --resume "$session" --fork-session \
+    --model haiku --print "$CONTEXT_THRESHOLD_GOAL_PROMPT" || status=$?
+
+  if [ "$status" -ne 0 ] || [ ! -s "$extracted" ]; then
+    rm -f "$extracted" 2>/dev/null
+    return 1
+  fi
+  answer="$(context_threshold_normalize_goal < "$extracted")"
+  rm -f "$extracted" 2>/dev/null
+  [ -n "$answer" ] || return 1
+  printf '%s' "$answer"
+}
+
+CONTEXT_THRESHOLD_GOAL_PROMPT="Name what this session is currently trying to finish, as one short imperative phrase of at most 20 words.
+
+Write the goal, not a summary of what happened. Include a constraint the user gave only when that constraint changes what finishing means. Output the phrase alone, on one line, with no quotes, no punctuation at the end, and no preamble."
+
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null) || exit 0
 [ -n "$session_id" ] || exit 0
 transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null) || exit 0
@@ -85,22 +156,44 @@ case ",$dimensions," in
     ;;
 esac
 
-# Goal extraction lands in a later change. Until then the command is correctly
-# formed and the operator supplies the goal.
-command_line="/compact handoff:<what you are trying to finish>"
+# The goal is extracted once per session and reused by every later
+# announcement, including every hard-threshold repeat. Knowing whether the
+# goal has changed would require extracting it again, which would fork the
+# whole session on every turn of exactly the sessions this hook exists to
+# make cheaper. A goal that has gone stale costs the operator one edit.
+goal=""
+goal_status="$(context_usage_goal_status "$session_id" 2>/dev/null)" || goal_status=""
+if [ -n "$goal_status" ]; then
+  [ "$goal_status" = ok ] && goal="$(context_usage_goal "$session_id" 2>/dev/null)"
+else
+  goal="$(context_threshold_extract_goal "$session_id")" || goal=""
+  if [ -n "$goal" ]; then
+    goal_status=ok
+  else
+    goal_status=failed
+  fi
+fi
+
+if [ -n "$goal" ]; then
+  command_line="/compact handoff:$goal"
+  note=""
+else
+  command_line="/compact handoff:<what you are trying to finish>"
+  note=" Goal extraction failed, so fill the goal in yourself."
+fi
 
 if [ "$level" = hard ]; then
-  message="Context limit reached: $detail. Compact now, editing the goal as you like:
+  message="Context limit reached: $detail.$note Compact now, editing the goal as you like:
 $command_line"
   reason="Stopped at the context limit: $detail. Run $command_line to carry the current goal through compaction, or send another prompt to continue anyway."
-  context_usage_spend "$session_id" hard "$dimensions" "$turns" > /dev/null 2>&1 || true
+  context_usage_spend "$session_id" hard "$dimensions" "$turns" "$goal" "$goal_status" > /dev/null 2>&1 || true
   jq -n --arg message "$message" --arg reason "$reason" \
     '{continue: false, stopReason: $reason, systemMessage: $message}' 2>/dev/null || exit 0
   exit 0
 fi
 
-message="Context growing: $detail. Compact when convenient, editing the goal as you like:
+message="Context growing: $detail.$note Compact when convenient, editing the goal as you like:
 $command_line"
-context_usage_spend "$session_id" warn "$dimensions" "$turns" > /dev/null 2>&1 || true
+context_usage_spend "$session_id" warn "$dimensions" "$turns" "$goal" "$goal_status" > /dev/null 2>&1 || true
 jq -n --arg message "$message" '{systemMessage: $message}' 2>/dev/null || exit 0
 exit 0

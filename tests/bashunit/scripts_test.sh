@@ -9699,3 +9699,149 @@ function test_scripts_2826_context_threshold_fails_open() {
   assert_success
   assert_output ''
 }
+
+# --- goal extraction (U5) ---------------------------------------------------
+
+# A `claude` on PATH standing in for the extraction fork.
+context_threshold_stub_extractor() {
+  local dir="$1"
+  shift
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } > "$dir/claude"
+  chmod +x "$dir/claude"
+}
+
+# Run the hook with a stubbed extractor and a short extraction bound.
+context_threshold_run_extracting() {
+  local session="$1" transcript="$2"
+  shift 2
+  env PATH="$BATS_TEST_TMPDIR/stub:$PATH" \
+    HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    CONTEXT_USAGE_EXTRACTION_TIMEOUT=3 \
+    CLAUDE_CODE_ENTRYPOINT=cli \
+    "$@" bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload "$session" "$transcript")"
+}
+
+function test_scripts_2827_context_threshold_carries_the_extracted_goal() {
+  _bats_test_init 2827 'context threshold carries the extracted goal into the command'
+  local long="$BATS_TEST_TMPDIR/long.jsonl"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "land the goal extraction unit\n"'
+
+  run context_threshold_run_extracting extracted "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:land the goal extraction unit'
+  refute_output --partial 'extraction failed'
+
+  # KD5, R25: the goal is extracted once. A repeat that finds the extractor
+  # replaced still shows the first goal, which proves no second call was made.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "a completely different goal\n"'
+  local hard="$BATS_TEST_TMPDIR/hard.jsonl"
+  context_threshold_transcript "$hard" 305
+  run context_threshold_run_extracting extracted "$hard"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:land the goal extraction unit'
+  refute_output --partial 'a completely different goal'
+}
+
+function test_scripts_2828_context_threshold_announces_when_extraction_fails() {
+  _bats_test_init 2828 'context threshold still announces when goal extraction fails'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" message
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE10, R23. Extraction failure costs the goal, never the announcement. A
+  # non-zero exit, an empty answer, and an overrun all land the same way.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'exit 3'
+  run context_threshold_run_extracting failed-exit "$long"
+  assert_success
+  message="$(jq -r '.systemMessage' <<< "$output")"
+  assert_equal "${message#*Goal extraction failed}" "${message#*Goal extraction failed}"
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'Goal extraction failed'
+  assert_output --partial '/compact handoff:'
+  assert_output --partial '160 turns since the last compaction'
+
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'printf ""'
+  run context_threshold_run_extracting failed-empty "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'Goal extraction failed'
+
+  # The bound is the hook's own, not the platform's: an extractor that hangs
+  # must not hold the turn open until Claude Code kills the hook.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'sleep 60'
+  run context_threshold_run_extracting failed-slow "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'Goal extraction failed'
+}
+
+function test_scripts_2829_context_threshold_normalizes_the_extracted_goal() {
+  _bats_test_init 2829 'context threshold normalizes the goal before the operator sees it'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" goal
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R24. The goal is pasted after `handoff:` into a shell-adjacent prompt, so
+  # it arrives as one line, within the cap, and without the sequences that
+  # would change what the command means.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "first line\nsecond line\nthird line\n"'
+  run context_threshold_run_extracting multiline "$long"
+  assert_success
+  goal="$(jq -r '.systemMessage' <<< "$output" | sed -n 's|^/compact handoff:||p')"
+  assert_equal "$goal" 'first line second line third line'
+
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "%s\n" "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo"'
+  run context_threshold_run_extracting capped "$long"
+  assert_success
+  goal="$(jq -r '.systemMessage' <<< "$output" | sed -n 's|^/compact handoff:||p')"
+  run bash -c 'set -- $1; printf "%s" "$#"' _ "$goal"
+  assert_success
+  assert_output '20'
+
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "%s\n" "finish \$(id) the \`whoami\` job; echo x | tee y && z > w"'
+  run context_threshold_run_extracting metachars "$long"
+  assert_success
+  goal="$(jq -r '.systemMessage' <<< "$output" | sed -n 's|^/compact handoff:||p')"
+  run bash -c 'case "$1" in *[\`\$\;\|\&\<\>\"\(\)]*) exit 1 ;; esac; printf "%s" "$1"' _ "$goal"
+  assert_success
+  assert_output --partial 'finish'
+}
+
+function test_scripts_2830_context_threshold_guards_its_own_extraction_fork() {
+  _bats_test_init 2830 'context threshold marks its extraction fork so it does not recurse'
+  local long="$BATS_TEST_TMPDIR/long.jsonl"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # KTD6. The fork inherits these settings, so its own Stop hook fires. A fork
+  # of an already-long session meets the threshold at once, and without the
+  # marker would extract a goal of its own, recursively.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "guard is %s\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"'
+  run context_threshold_run_extracting forked "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:guard is 1'
+}
