@@ -355,7 +355,7 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   hwi_write_naming_stub pi
   hwi_write_naming_stub claude
-  printf '%s\n' '{"title":"  Normalize API Tokens  ","slug":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
   printf '%s\n' 'unexpected claude fallback' > "$HWI_WORK/claude.output"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -363,7 +363,7 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Normalize API tokens from model output'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Normalize API Tokens'
+  assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
   assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
   assert_file_contains "$HWI_WORK/pi.stdin" 'First prompt of the session:'
   assert_file_not_contains "$HWI_WORK/pi.calls" 'Normalize API tokens from model output'
@@ -379,7 +379,7 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   hwi_write_naming_stub pi
   hwi_write_naming_stub claude
-  printf '%s\n' '{"title":"JSON","slug":"json"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"json"}' > "$HWI_WORK/pi.output"
   printf '%s\n' 'not JSON' > "$HWI_WORK/claude.output"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -387,7 +387,7 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" title)" json-generated
   assert_equal "$(read_state_field "$state" slug)" json-generated
   assert_file_exists "$HWI_WORK/pi.calls"
   assert_file_exists "$HWI_WORK/claude.calls"
@@ -409,20 +409,20 @@ function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_c
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'json'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" title)" 'Json generated'
+  assert_equal "$(read_state_field "$state" title)" json-generated
   assert_equal "$(read_state_field "$state" slug)" json-generated
 
   rm "$state"
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   hwi_write_naming_stub pi
-  printf '%s\n' '{"title":"Long model identity","slug":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' '{"branch":"unusuallylongword-verylongsecondword-verylongthirdword-verylongfourthword-verylongfifthword"}' > "$HWI_WORK/pi.output"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'a different prompt'
   assert_success
   state="$(hwi_identity_state_path)"
   local slug="$(read_state_field "$state" slug)"
-  assert_equal "$(read_state_field "$state" title)" 'Long model identity'
+  assert_equal "$(read_state_field "$state" title)" "$slug"
   assert_equal "${#slug}" 40
   run test "${slug%-}" = "$slug"
   assert_success
@@ -477,6 +477,7 @@ function test_scripts_1181_worktree_identity_suffixes_candidates_against_local_a
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Implement candidate collision'
   assert_success
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" implement-candidate-collision-3
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" implement-candidate-collision-3
   run git -C "$HWI_CHECKOUT" show-ref --verify --quiet refs/remotes/origin/implement-candidate-collision-2
   assert_success
 }
@@ -634,8 +635,8 @@ function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_w
 # observes a workspace rename call without granting this component ownership
 # of pane, tab, or agent labels. Branch assertions read the fixture's real Git
 # state, not the identity state file.
-function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename() {
-  _bats_test_init 1186 'worktree identity labels a workspace once and completes the outcome'
+function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_the_branch_name() {
+  _bats_test_init 1186 'worktree identity reconciles a terminal workspace to the branch name'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -647,14 +648,16 @@ function test_scripts_1186_worktree_identity_labels_workspace_once_after_rename(
   local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" label-workspace-independently
   assert_equal "$(read_state_field "$state" outcome)" complete
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Label workspace independently'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
   assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
 
+  printf '%s' 'Legacy workspace title' > "$HWI_WORK/workspace.label"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'A later event must not rename labels'
   assert_success
-  assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
+  assert_equal "$(hwi_workspace_rename_count)" 2
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$branch"
 }
 
@@ -678,7 +681,7 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event retries upstream workspace'
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" workspace-only
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Preserve upstream workspace'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" preserve-upstream-workspace
 
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.remote"
   git -C "$HWI_CHECKOUT" config --unset "branch.$HWI_BRANCH.merge"
@@ -1072,7 +1075,7 @@ function test_scripts_1203_worktree_identity_retries_a_nonmatching_prepared_work
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event'
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" complete
-  assert_equal "$(cat "$HWI_WORK/workspace.label")" 'Retry nonmatching workspace'
+  assert_equal "$(cat "$HWI_WORK/workspace.label")" retry-nonmatching-workspace
   assert_equal "$(hwi_workspace_rename_count)" 2
 }
 
