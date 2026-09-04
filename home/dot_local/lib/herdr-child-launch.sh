@@ -16,7 +16,7 @@ start_child() {
   local baseline_json="" baseline_snapshot="" baseline_seq=""
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
   local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
-  local -a skills=() split_args=() native_args=() alias_candidates=()
+  local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -97,9 +97,10 @@ start_child() {
     printf 'herdr-child: could not build alias candidates\n' >&2
     return 1
   fi
-  while IFS= read -r candidate; do alias_candidates+=("$candidate"); done < "$candidate_file"
-  rm -f "$candidate_file"
-  for candidate in "${alias_candidates[@]}"; do
+  # Walk the candidate file where it lies. Reading all 8064 entries into a
+  # bash array first cost ~180ms per launch, and the walk stops at the first
+  # unoccupied alias regardless.
+  while IFS= read -r candidate; do
     occupied=0
     while IFS= read -r name; do
       if [ "$name" = "$candidate" ]; then occupied=1; break; fi
@@ -107,7 +108,8 @@ start_child() {
 $occupied_names
 EOF
     if [ "$occupied" -eq 0 ]; then name="$candidate"; break; fi
-  done
+  done < "$candidate_file"
+  rm -f "$candidate_file"
   [ -n "$name" ] || {
     printf 'herdr-child: alias pool is exhausted\n' >&2
     return 1
