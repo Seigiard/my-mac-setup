@@ -8,22 +8,50 @@ HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./disposable-home.bash
 source "${HELPERS_DIR}/disposable-home.bash"
 
-# Build a PATH without 1Password CLI for chezmoi commands that render
-# all templates (apply, verify). op triggers auth prompts in tests.
-# Individual tools remain available via full path.
-CHEZMOI_BIN="$(command -v chezmoi 2>/dev/null || true)"
-PATH_WITHOUT_OP=""
-IFS=':' read -ra _path_dirs <<< "$PATH"
-for _dir in "${_path_dirs[@]}"; do
-  [[ -d "$_dir" ]] && [[ -x "$_dir/op" ]] && continue
-  PATH_WITHOUT_OP="${PATH_WITHOUT_OP:+$PATH_WITHOUT_OP:}$_dir"
-done
-unset _path_dirs _dir
-export CHEZMOI_BIN PATH_WITHOUT_OP
+CHEZMOI_UNATTENDED="$HELPERS_DIR/chezmoi-unattended"
+export CHEZMOI_UNATTENDED
+
+chezmoi_unattended() {
+  local profile="$1"
+  shift
+  MMS_CHEZMOI_UNATTENDED=1 "$CHEZMOI_UNATTENDED" \
+    --profile "$profile" -- "$@"
+}
+
+chezmoi_unattended_finite_stdin() {
+  local profile="$1"
+  shift
+  MMS_CHEZMOI_UNATTENDED=1 "$CHEZMOI_UNATTENDED" \
+    --profile "$profile" --finite-stdin -- "$@"
+}
+
+chezmoi_full_fixture() {
+  MMS_DISPOSABLE_HOME=1 \
+    MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
+    MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
+    MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
+    chezmoi_unattended full-fixture "$@"
+}
+
+chezmoi_full_fixture_finite_stdin() {
+  MMS_DISPOSABLE_HOME=1 \
+    MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
+    MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
+    MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
+    chezmoi_unattended_finite_stdin full-fixture "$@"
+}
+
+chezmoi_host_partial() {
+  chezmoi_unattended host-partial "$@"
+}
 
 # Source directory for chezmoi (auto-detect from chezmoi config or use default)
 if command -v chezmoi >/dev/null 2>&1; then
-  CHEZMOI_SOURCE="$(chezmoi source-path 2>/dev/null || echo "$HOME/.local/share/chezmoi")"
+  CHEZMOI_SOURCE="$(chezmoi_host_partial source-path 2>/dev/null || echo "$HOME/.local/share/chezmoi")"
 else
   CHEZMOI_SOURCE="${CHEZMOI_SOURCE:-$HOME/.local/share/chezmoi}"
 fi
@@ -58,7 +86,8 @@ CHEZMOI_TEST_CONFIG="/tmp/chezmoi-test.yaml"
 export CHEZMOI_TEST_CONFIG
 
 chezmoi_test_init() {
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" init \
+  require_disposable_home
+  chezmoi_full_fixture init \
     --config "$CHEZMOI_TEST_CONFIG" \
     --config-path "$CHEZMOI_TEST_CONFIG" \
     "$@"
@@ -161,7 +190,7 @@ require_disposable_home() {
 
 render_template() {
   local template_file="$1"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" --source "$SOURCE_ROOT" execute-template < "$template_file"
+  chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template < "$template_file"
 }
 
 # Write the config that `chezmoi init` would generate, using the caller's
@@ -179,7 +208,7 @@ render_template() {
 # template with no side effects and no write access required.
 write_test_config() {
   local out="$1"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" execute-template --init \
+  chezmoi_full_fixture_finite_stdin execute-template --init \
     --source "$SOURCE_ROOT" < "$SOURCE_ROOT/.chezmoi.yaml.tmpl" > "$out"
 }
 
@@ -189,7 +218,7 @@ write_test_config() {
 render_with_config() {
   local config_file="$1"
   local template_file="$2"
-  PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" \
+  chezmoi_full_fixture \
     --config "$config_file" --source "$SOURCE_ROOT" \
-    execute-template < "$template_file"
+    execute-template --file "$template_file"
 }

@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+
+# Usage:
+#   MMS_CHEZMOI_UNATTENDED=1 chezmoi-unattended \
+#     --profile full-fixture|host-partial [--finite-stdin] -- <chezmoi args...>
+#
+# Wrapper options end at the required `--`. Standard mode closes stdin;
+# --finite-stdin forwards a finite, non-terminal stream to chezmoi.
+
+fail() {
+  printf 'chezmoi-unattended: %s\n' "$*" >&2
+  exit 2
+}
+
+if [ "${MMS_CHEZMOI_UNATTENDED:-}" != "1" ]; then
+  fail "MMS_CHEZMOI_UNATTENDED must equal 1"
+fi
+
+profile=""
+finite_stdin=0
+saw_delimiter=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --profile)
+      [ "$#" -ge 2 ] || fail "--profile requires full-fixture or host-partial"
+      profile="$2"
+      shift 2
+      ;;
+    --finite-stdin)
+      finite_stdin=1
+      shift
+      ;;
+    --)
+      saw_delimiter=1
+      shift
+      break
+      ;;
+    *)
+      fail "unknown launcher option before --: $1"
+      ;;
+  esac
+done
+
+[ "$saw_delimiter" -eq 1 ] || fail "launcher options must end with --"
+case "$profile" in
+  full-fixture|host-partial) ;;
+  *) fail "--profile must be full-fixture or host-partial" ;;
+esac
+[ "$#" -gt 0 ] || fail "a chezmoi command is required after --"
+if [ "$finite_stdin" -eq 1 ] && [ -t 0 ]; then
+  fail "--finite-stdin requires non-terminal stdin"
+fi
+
+script_path=$0
+case "$script_path" in
+  */*) ;;
+  *) script_path=$(command -v -- "$script_path") || fail "cannot resolve launcher path" ;;
+esac
+script_dir=$(CDPATH='' cd -- "${script_path%/*}" && pwd) || \
+  fail "cannot resolve launcher directory"
+inventory="$script_dir/chezmoi-unattended-targets.tsv"
+[ -r "$inventory" ] || fail "inventory is missing or unreadable: $inventory"
+
+inventory_sources=()
+inventory_destinations=()
+required_fixtures=""
+inventory_line_number=0
+while IFS= read -r inventory_line || [ -n "$inventory_line" ]; do
+  inventory_line_number=$((inventory_line_number + 1))
+  case "$inventory_line" in
+    ''|'#'*) continue ;;
+  esac
+
+  field_source=${inventory_line%%$'\t'*}
+  [ "$field_source" != "$inventory_line" ] || \
+    fail "malformed inventory row $inventory_line_number: expected five tab-separated fields"
+  inventory_rest=${inventory_line#*$'\t'}
+  field_destination=${inventory_rest%%$'\t'*}
+  [ "$field_destination" != "$inventory_rest" ] || \
+    fail "malformed inventory row $inventory_line_number: expected five tab-separated fields"
+  inventory_rest=${inventory_rest#*$'\t'}
+  field_class=${inventory_rest%%$'\t'*}
+  [ "$field_class" != "$inventory_rest" ] || \
+    fail "malformed inventory row $inventory_line_number: expected five tab-separated fields"
+  inventory_rest=${inventory_rest#*$'\t'}
+  field_policy=${inventory_rest%%$'\t'*}
+  [ "$field_policy" != "$inventory_rest" ] || \
+    fail "malformed inventory row $inventory_line_number: expected five tab-separated fields"
+  field_fixtures=${inventory_rest#*$'\t'}
+  case "$field_fixtures" in *$'\t'*)
+    fail "malformed inventory row $inventory_line_number: expected five tab-separated fields"
+  esac
+
+  case "$field_source" in home/*) ;; *)
+    fail "malformed inventory row $inventory_line_number: source must start with home/"
+  esac
+  case "$field_destination" in \~/*) ;; *)
+    fail "malformed inventory row $inventory_line_number: destination must start with ~/"
+  esac
+  case "$field_class" in secret-template|credential-modifier) ;; *)
+    fail "malformed inventory row $inventory_line_number: invalid target class"
+  esac
+  [ "$field_policy" = "omit" ] || \
+    fail "malformed inventory row $inventory_line_number: host policy must be omit"
+  case "$field_fixtures" in ''|,*|*,|*,,*)
+    fail "malformed inventory row $inventory_line_number: fixture list is invalid"
+  esac
+
+  fixture_rest=$field_fixtures
+  while [ -n "$fixture_rest" ]; do
+    fixture_name=${fixture_rest%%,*}
+    if [ "$fixture_name" = "$fixture_rest" ]; then
+      fixture_rest=""
+    else
+      fixture_rest=${fixture_rest#*,}
+    fi
+    if [[ ! "$fixture_name" =~ ^MMS_CHEZMOI_FIXTURE_[A-Z0-9_]+$ ]]; then
+      fail "malformed inventory row $inventory_line_number: invalid fixture identity $fixture_name"
+    fi
+    case $'\n'"$required_fixtures"$'\n' in
+      *$'\n'"$fixture_name"$'\n'*) ;;
+      *) required_fixtures="${required_fixtures}${required_fixtures:+$'\n'}$fixture_name" ;;
+    esac
+  done
+
+  inventory_sources+=("$field_source")
+  inventory_destinations+=("$field_destination")
+done < "$inventory"
+
+[ "${#inventory_sources[@]}" -gt 0 ] || fail "inventory contains no target rows"
+fixture_count=0
+while IFS= read -r fixture_name; do
+  [ -n "$fixture_name" ] || continue
+  fixture_count=$((fixture_count + 1))
+done <<< "$required_fixtures"
+[ "$fixture_count" -eq 5 ] || \
+  fail "inventory must register exactly five distinct fixture identities"
+
+command_name="$1"
+if [ "$profile" = "full-fixture" ]; then
+  [ "${MMS_DISPOSABLE_HOME:-}" = "1" ] || \
+    fail "MMS_DISPOSABLE_HOME must equal 1 for full-fixture"
+  while IFS= read -r fixture_name; do
+    [ -n "$fixture_name" ] || continue
+    [ -n "${!fixture_name:-}" ] || fail "required fixture is empty or unset: $fixture_name"
+  done <<< "$required_fixtures"
+else
+  case "$command_name" in
+    diff|verify|managed|list|source-path|dump-config|execute-template) ;;
+    *)
+      [ "${MMS_DISPOSABLE_HOME:-}" = "1" ] || \
+        fail "MMS_DISPOSABLE_HOME must equal 1 for write-capable command: $command_name"
+      ;;
+  esac
+fi
+
+chezmoi_bin=$(command -v chezmoi 2>/dev/null) || \
+  fail "chezmoi executable is not available on PATH"
+version_output=$("$chezmoi_bin" --version 2>&1) || \
+  fail "chezmoi version probe failed"
+case "$version_output" in
+  'chezmoi version '*) version_token=${version_output#chezmoi version } ;;
+  *) fail "malformed chezmoi version output: $version_output" ;;
+esac
+version_token=${version_token%%,*}
+version_token=${version_token#v}
+if [[ ! "$version_token" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  fail "malformed chezmoi version: $version_token"
+fi
+version_major=${version_token%%.*}
+version_rest=${version_token#*.}
+version_minor=${version_rest%%.*}
+version_patch=${version_rest#*.}
+if (( 10#$version_major < 2 || \
+      (10#$version_major == 2 && 10#$version_minor < 72) || \
+      (10#$version_major == 2 && 10#$version_minor == 72 && 10#$version_patch < 1) )); then
+  fail "chezmoi version $version_token is older than required 2.72.1"
+fi
+
+chezmoi_args=(--no-tty --no-pager)
+if [ "$profile" = "host-partial" ]; then
+  chezmoi_args+=(--skip-secrets)
+fi
+export MMS_CHEZMOI_UNATTENDED_PROFILE="$profile"
+for passthrough_arg in "$@"; do
+  chezmoi_args+=("$passthrough_arg")
+done
+
+if [ "$profile" = "host-partial" ] && [ "$command_name" = "diff" ]; then
+  managed_file="${TMPDIR:-/tmp}/chezmoi-unattended-managed.$$.$RANDOM"
+  trap 'rm -f "$managed_file"' EXIT
+  managed_args=(--no-tty --no-pager --skip-secrets managed)
+  shift
+  for passthrough_arg in "$@"; do
+    managed_args+=("$passthrough_arg")
+  done
+  managed_args+=(--path-style=absolute --nul-path-separator)
+  "$chezmoi_bin" "${managed_args[@]}" </dev/null > "$managed_file"
+  managed_rc=$?
+  [ "$managed_rc" -eq 0 ] || exit "$managed_rc"
+
+  included_target_count=0
+  while IFS= read -r -d '' managed_target; do
+    omit_target=0
+    inventory_index=0
+    while [ "$inventory_index" -lt "${#inventory_destinations[@]}" ]; do
+      inventory_destination=${inventory_destinations[$inventory_index]}
+      absolute_destination="$HOME/${inventory_destination#\~/}"
+      if [ "$managed_target" = "$absolute_destination" ]; then
+        omit_target=1
+        break
+      fi
+      inventory_index=$((inventory_index + 1))
+    done
+    if [ "$omit_target" -eq 0 ]; then
+      chezmoi_args+=("$managed_target")
+      included_target_count=$((included_target_count + 1))
+    fi
+  done < "$managed_file"
+  rm -f "$managed_file"
+  trap - EXIT
+  [ "$included_target_count" -gt 0 ] || \
+    fail "no non-sensitive managed targets remain after host-partial filtering"
+
+  inventory_index=0
+  while [ "$inventory_index" -lt "${#inventory_sources[@]}" ]; do
+    printf 'chezmoi-unattended: partial coverage; omitted source %s -> destination %s\n' \
+      "${inventory_sources[$inventory_index]}" \
+      "${inventory_destinations[$inventory_index]}" >&2
+    inventory_index=$((inventory_index + 1))
+  done
+fi
+
+if [ "$finite_stdin" -eq 1 ]; then
+  exec "$chezmoi_bin" "${chezmoi_args[@]}"
+fi
+exec "$chezmoi_bin" "${chezmoi_args[@]}" </dev/null

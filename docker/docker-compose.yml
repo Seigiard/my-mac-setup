@@ -4,6 +4,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ubuntu
+      args:
+        MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: mms-test-linear-canary
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: mms-test-tavily-canary
+        MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
+        MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
+        MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -29,6 +35,12 @@ services:
       # absent from the test-ubuntu service. tests/bashunit/idempotent_test.sh hard-fails when
       # /.dockerenv exists and this is missing.
       - MMS_DISPOSABLE_HOME=1
+      - MMS_CHEZMOI_UNATTENDED=1
+      - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
+      - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
+      - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
+      - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
+      - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
     tty: true
 
   # Full test with package installation
@@ -36,6 +48,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ubuntu
+      args:
+        MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: mms-test-linear-canary
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: mms-test-tavily-canary
+        MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
+        MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
+        MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -61,6 +79,12 @@ services:
       - MMS_CI_MINIMAL=${MMS_CI_MINIMAL:-}
       # See the ubuntu service above for why this is written literally.
       - MMS_DISPOSABLE_HOME=1
+      - MMS_CHEZMOI_UNATTENDED=1
+      - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
+      - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
+      - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
+      - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
+      - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -80,7 +104,8 @@ services:
         (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
 
         echo "=== Initializing chezmoi ==="
-        chezmoi init --source=/home/testuser/.local/share/chezmoi \
+        tests/helpers/chezmoi-unattended --profile full-fixture -- init \
+          --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
 
@@ -88,7 +113,8 @@ services:
         tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
 
         echo "=== Applying dotfiles (with package installation) ==="
-        chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
+        tests/helpers/chezmoi-unattended --profile full-fixture -- apply \
+          --source=/home/testuser/.local/share/chezmoi --verbose
 
         echo "=== Running post-apply tests ==="
         tests/run-post-apply.sh full
@@ -100,6 +126,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ubuntu
+      args:
+        MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: mms-test-linear-canary
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: mms-test-tavily-canary
+        MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
+        MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
+        MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -119,6 +151,12 @@ services:
       # that MMS_CI_MINIMAL stays absent here on purpose; only the
       # disposable-$HOME marker is shared.
       - MMS_DISPOSABLE_HOME=1
+      - MMS_CHEZMOI_UNATTENDED=1
+      - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
+      - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
+      - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
+      - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
+      - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -133,9 +171,11 @@ services:
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         cd /home/testuser/worktree
         (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
-        chezmoi init --source=/home/testuser/.local/share/chezmoi \
+        tests/helpers/chezmoi-unattended --profile full-fixture -- init \
+          --source=/home/testuser/.local/share/chezmoi \
           --promptString name="Test User" \
           --promptString email="test@example.com"
         tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
-        chezmoi apply --source=/home/testuser/.local/share/chezmoi --verbose
+        tests/helpers/chezmoi-unattended --profile full-fixture -- apply \
+          --source=/home/testuser/.local/share/chezmoi --verbose
         tests/run-post-apply.sh full

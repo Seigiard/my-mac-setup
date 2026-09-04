@@ -154,7 +154,7 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
 
   command_exists chezmoi || return 0
   local managed unmanaged=""
-  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" managed
+  run chezmoi_host_partial managed
   assert_success
   managed="$output"
   for p in "${paths[@]}"; do

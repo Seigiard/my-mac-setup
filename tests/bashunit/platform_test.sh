@@ -20,7 +20,7 @@ setup() {
 function test_platform_001_chezmoiignore_filters_macos_files_on_linux() {
   _bats_test_init 1 'chezmoiignore filters macOS files on Linux'
   is_linux || skip "Only relevant on Linux"
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed --source "$SOURCE_ROOT"
+  run chezmoi_host_partial managed --source "$SOURCE_ROOT"
   assert_success
   refute_output --partial ".hammerspoon"
   refute_output --partial "Library"
@@ -33,7 +33,7 @@ function test_platform_001_chezmoiignore_filters_macos_files_on_linux() {
 function test_platform_002_chezmoiignore_includes_macos_files_on_macos() {
   _bats_test_init 2 'chezmoiignore includes macOS files on macOS'
   is_macos || skip "Only relevant on macOS"
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" managed --source "$SOURCE_ROOT"
+  run chezmoi_host_partial managed --source "$SOURCE_ROOT"
   assert_success
   assert_output --partial ".hammerspoon"
   assert_output --partial ".config/ghostty"

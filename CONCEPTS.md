@@ -78,6 +78,9 @@ An environment's explicit declaration that its home directory may be overwritten
 
 The guard fails closed. An environment that looks like a runner but carries no declaration is reported as misconfigured rather than run or silently skipped.
 
+### Unattended chezmoi mode
+The repository-owned execution contract selected by `MMS_CHEZMOI_UNATTENDED=1` for agent, continuous-integration, and test invocations of chezmoi. Its explicit full-fixture profile requires disposable-home authority and renders credential-sensitive targets with non-secret canaries; its host-partial profile omits those targets from comparison and names what was not checked. Both profiles prevent interactive credential access before a helper subprocess starts and preserve the ordinary `PATH`.
+
 ## Retired
 
 ### Sandbox-scoped takeover

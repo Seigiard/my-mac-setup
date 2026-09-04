@@ -32,9 +32,6 @@ load 'helpers/common'
 # so serializing it costs nothing measurable.
 BATS_NO_PARALLELIZE_WITHIN_FILE=true
 
-# All chezmoi commands use PATH_WITHOUT_OP to prevent 1Password auth
-# prompts during testing. CHEZMOI_BIN holds the resolved chezmoi path.
-
 # ===========================================
 # Idempotency tests
 # ===========================================
@@ -42,14 +39,14 @@ BATS_NO_PARALLELIZE_WITHIN_FILE=true
 function test_idempotent_001_chezmoi_apply_is_idempotent_and_leaves_no_pendin() {
   _bats_test_init 1 'chezmoi apply is idempotent and leaves no pending diff'
   require_disposable_home
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" apply --source="$CHEZMOI_SOURCE" --force --verbose
+  run chezmoi_full_fixture apply --source="$CHEZMOI_SOURCE" --force --verbose
   assert_success
 
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" apply --source="$CHEZMOI_SOURCE" --force
+  run chezmoi_full_fixture apply --source="$CHEZMOI_SOURCE" --force
   assert_success
   assert_output ""
 
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" diff --source="$CHEZMOI_SOURCE"
+  run chezmoi_full_fixture diff --source="$CHEZMOI_SOURCE"
   assert_success
   assert_output ""
 }
@@ -60,7 +57,7 @@ function test_idempotent_002_chezmoi_verify_succeeds() {
   # clone rather than this checkout -- a weaker and different claim. Guarded
   # with the apply scenario so the file has one rule, not two.
   require_disposable_home
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" verify --source="$CHEZMOI_SOURCE"
+  run chezmoi_full_fixture verify --source="$CHEZMOI_SOURCE"
   assert_success
 }
 
@@ -75,7 +72,7 @@ function test_idempotent_0021_chezmoi_apply_preserves_skills_owned_outside_chezm
     printf 'manual %s\n' "$skill" > "$HOME/.agents/skills/$skill/SKILL.md"
   done
 
-  PATH="$PATH_WITHOUT_OP" run "$CHEZMOI_BIN" apply --source="$CHEZMOI_SOURCE" --force
+  run chezmoi_full_fixture apply --source="$CHEZMOI_SOURCE" --force
   assert_success
   for skill in unmanaged-alpha unmanaged-beta unmanaged-gamma unmanaged-delta; do
     run cat "$HOME/.agents/skills/$skill/SKILL.md"
@@ -192,7 +189,7 @@ function test_idempotent_011_guard_the_marker_s_claim_covers_chezmoi_s_real_d() 
   # The marker says "$HOME is disposable". These tests are only safe if that is
   # also where chezmoi writes -- which --source never controls.
   local config dest
-  config="$(PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" dump-config --format=json)"
+  config="$(chezmoi_host_partial dump-config --format=json)"
   dest="$(printf '%s' "$config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["destDir"])')"
   assert_equal "$dest" "$HOME"
 }

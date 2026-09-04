@@ -44,6 +44,12 @@ env:
   # coverage. tests/bashunit/idempotent_test.sh hard-fails when GITHUB_ACTIONS is set and
   # this is absent, so a deletion here turns the suite red rather than green.
   MMS_DISPOSABLE_HOME: "1"
+  MMS_CHEZMOI_UNATTENDED: "1"
+  MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: "mms-test-linear-canary"
+  MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: "mms-test-tavily-canary"
+  MMS_CHEZMOI_FIXTURE_JINA_API_KEY: "mms-test-jina-canary"
+  MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: "mms-test-context7-canary"
+  MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: "mms-test-vector-prime-canary"
   # Runners lack node's release GPG key, so mise's signature check on
   # `node@lts` fails. Skip it in CI; local installs keep verification.
   MISE_NODE_VERIFY: "false"
@@ -169,7 +175,7 @@ jobs:
 
       # Stage 1: Initialize chezmoi (non-interactive via env vars)
       - name: Initialize chezmoi
-        run: chezmoi init --source=./home
+        run: tests/helpers/chezmoi-unattended --profile full-fixture -- init --source=./home
 
       # Stage 2: Fast pre-check gate (no apply needed)
       - name: Run template tests (pre-apply gate)
@@ -177,10 +183,10 @@ jobs:
 
       # Stage 4: Apply dotfiles
       - name: Apply dotfiles (dry-run first)
-        run: chezmoi diff --source=./home || true
+        run: tests/helpers/chezmoi-unattended --profile full-fixture -- diff --source=./home
 
       - name: Apply dotfiles
-        run: chezmoi apply --source=./home --verbose
+        run: tests/helpers/chezmoi-unattended --profile full-fixture -- apply --source=./home --verbose
 
       # Stage 5: Post-apply tests
       - name: Run post-apply tests
@@ -281,16 +287,16 @@ jobs:
         run: brew install fzf
 
       - name: Initialize chezmoi
-        run: chezmoi init --source=./home
+        run: tests/helpers/chezmoi-unattended --profile full-fixture -- init --source=./home
 
       - name: Run template tests (pre-apply gate)
         run: tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
 
       - name: Apply dotfiles (dry-run first)
-        run: chezmoi diff --source=./home || true
+        run: tests/helpers/chezmoi-unattended --profile full-fixture -- diff --source=./home
 
       - name: Apply dotfiles
-        run: chezmoi apply --source=./home --verbose
+        run: tests/helpers/chezmoi-unattended --profile full-fixture -- apply --source=./home --verbose
 
       # Post-apply Pi and TypeScript tests use the pinned setup action on both
       # platforms rather than depending on Homebrew's shell environment.

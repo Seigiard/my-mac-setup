@@ -1071,8 +1071,8 @@ esac
 SH
   chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-task-sync"
 
-  "$CHEZMOI_BIN" execute-template -S "$SOURCE_ROOT" --file "$HPL_CUTOVER_BEFORE_TEMPLATE" > "$HPL_CUTOVER_BEFORE"
-  "$CHEZMOI_BIN" execute-template -S "$SOURCE_ROOT" --file "$HPL_CUTOVER_AFTER_TEMPLATE" > "$HPL_CUTOVER_AFTER"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$HPL_CUTOVER_BEFORE_TEMPLATE" > "$HPL_CUTOVER_BEFORE"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$HPL_CUTOVER_AFTER_TEMPLATE" > "$HPL_CUTOVER_AFTER"
   chmod +x "$HPL_CUTOVER_BEFORE" "$HPL_CUTOVER_AFTER"
 }
 

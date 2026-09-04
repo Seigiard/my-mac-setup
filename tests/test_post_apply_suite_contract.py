@@ -13,8 +13,8 @@ COMPOSE = REPOSITORY / "docker" / "docker-compose.yml"
 RUNNER = REPOSITORY / "tests" / "run-post-apply.sh"
 GENERATED = REPOSITORY / "tests" / "bashunit"
 POST_APPLY_DECLARATION = re.compile(
-    r"^# post-apply: (?P<order>[1-9][0-9]*) "
-    r"(?P<eligibility>host-safe|needs-disposable-home)$"
+    r"^# post-apply: (?:(?P<excluded>excluded)|(?P<order>[1-9][0-9]*) "
+    r"(?P<eligibility>host-safe|needs-disposable-home))$"
 )
 
 
@@ -48,7 +48,9 @@ class TestPostApplySuiteContract(unittest.TestCase):
                 re.MULTILINE | re.DOTALL,
             )
             body = block.group("body")
-            if "chezmoi apply" not in body:
+            if not re.search(
+                r"tests/helpers/chezmoi-unattended\b[^\n]*\s--\s+apply\b", body
+            ):
                 continue
             applying.append(name)
             self.assertIn(
@@ -193,12 +195,13 @@ class TestPostApplySuiteContract(unittest.TestCase):
             WORKFLOW.read_text(encoding="utf-8"),
             COMPOSE.read_text(encoding="utf-8"),
         ]
-        return [
+        candidates = [
             f
             for f in candidates
             if not self.wired_outside_the_wrapper(f.name, outside_sources)
             and not self.nested_inside_a_sibling(f.name, texts)
         ]
+        return [f for f in candidates if self.post_apply_declaration(f) is not None]
 
     def post_apply_declaration(self, path):
         declarations = []
@@ -216,10 +219,9 @@ class TestPostApplySuiteContract(unittest.TestCase):
             declarations[0],
             f"{path.name} has an invalid post-apply declaration",
         )
-        return (
-            int(declarations[0].group("order")),
-            declarations[0].group("eligibility"),
-        )
+        if declarations[0].group("excluded"):
+            return None
+        return int(declarations[0].group("order")), declarations[0].group("eligibility")
 
     def wired_outside_the_wrapper(self, name, outside_sources):
         """templates_test.sh is the case in point: the Makefile, workflow,
@@ -294,6 +296,8 @@ class TestPostApplySuiteContract(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
+            for suite in GENERATED.glob("*_test.sh"):
+                (temp_path / suite.name).symlink_to(suite)
             argv_file = temp_path / "argv"
             fake_bashunit = temp_path / "bashunit"
             fake_bashunit.write_text(
@@ -308,6 +312,7 @@ class TestPostApplySuiteContract(unittest.TestCase):
             env = os.environ.copy()
             env["BASHUNIT_ARGV_FILE"] = str(argv_file)
             env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(temp_path)
             if jobs is None:
                 env.pop("MMS_BASHUNIT_JOBS", None)
             else:
@@ -319,11 +324,14 @@ class TestPostApplySuiteContract(unittest.TestCase):
                 check=True,
             )
             raw = argv_file.read_text(encoding="utf-8")
-            return [
+            invocations = [
                 call.split("\036")[:-1]
                 for call in raw.split("\037")
                 if call
             ]
+            for argv in invocations:
+                argv[-1] = str(GENERATED / Path(argv[-1]).name)
+            return invocations
 
 
 if __name__ == "__main__":

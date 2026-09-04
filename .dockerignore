@@ -3,3 +3,9 @@
 *
 !docker
 !home/private_dot_config/brewfiles
+!tests
+tests/*
+!tests/helpers
+tests/helpers/*
+!tests/helpers/chezmoi-unattended
+!tests/helpers/chezmoi-unattended-targets.tsv
