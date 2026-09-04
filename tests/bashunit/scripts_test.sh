@@ -2182,6 +2182,10 @@ child_start() {
     bash "$HERDR_CHILD" start "$@" --prompt "test task"
 }
 
+child_started_name() {
+  cat "$CHILD_STUB/started-name"
+}
+
 child_lifecycle_stub_herdr() {
   child_stub_herdr
   printf 'working 10\n' > "$CHILD_STUB/baseline-state"
@@ -2644,7 +2648,7 @@ function test_scripts_026_herdr_child_attached_mode_starts_no_watcher() {
   child_stub_herdr
   run child_start --kind claude --wait
   assert_success
-  assert_output '{"agent":"orange-panda","pane":"wT:p9"}'
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_not_exists "$CHILD_STUB/watcher.pid"
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_LAUNCH_MODE=wait'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_TERMINAL=term-parent'
@@ -2681,7 +2685,7 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   child_stub_herdr
   run child_start --kind claude --detach --supervision-timeout 60000
   assert_success
-  assert_output --partial '"agent":"orange-panda"'
+  assert_output --partial "\"agent\":\"$(child_started_name)\""
   assert_output --partial '"supervision":{"status":"armed"'
   assert_output --partial '"timeout_ms":60000'
   assert_file_exists "$CHILD_STUB/watcher.pid"
@@ -2691,7 +2695,7 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   assert_success
   assert_output "$(printf '%s\n' 'mode=detach' "generation=$generation" 'timeout_ms=60000' \
     'parent_pane=wT:p0' 'parent_terminal=term-parent' 'parent_session=parent-session' \
-    'child_name=orange-panda' 'child_pane=wT:p9' 'child_terminal=term-child' \
+    "child_name=$(child_started_name)" 'child_pane=wT:p9' 'child_terminal=term-child' \
     'child_session=child-session' 'baseline_seq=10')"
 
   local metadata_call prompt_call
@@ -2709,7 +2713,7 @@ function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   child_stub_herdr
   HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --detach
   assert_failure
-  assert_output --partial '"agent":"orange-panda","pane":"wT:p9"'
+  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
   assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   assert_file_contains "$CHILD_STUB/calls.log" 'state-label supervision\\ failed='
@@ -3098,7 +3102,7 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/new-watcher.pid" \
     HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED="$CHILD_STUB/takeover-metadata-published" \
     HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_RETRY_INTERVAL=0.01 \
-    bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 "Use path A" \
+    bash "$HERDR_CHILD" reply --to "$(child_started_name)" --pane wT:p9 "Use path A" \
     >"$CHILD_STUB/reply.out" 2>"$CHILD_STUB/reply.err" &
   reply_pid=$!
   printf '%s\n' "$reply_pid" > "$CHILD_STUB/reply.pid"
@@ -3228,7 +3232,7 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
   : > "$CHILD_STUB/require-reap-invalidation"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
   assert_success
   assert_file_exists "$CHILD_STUB/reap-invalidation-observed"
   assert_file_not_exists "$CHILD_STUB/close-before-invalidation"
@@ -3268,7 +3272,7 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
 
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9 >"$CHILD_STUB/reap.out" 2>&1 &
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9 >"$CHILD_STUB/reap.out" 2>&1 &
   reap_pid=$!
   child_wait_for_file "$CHILD_STUB/pane-close.ready"
   assert_file_contains "$run_dir/invalidated.state" '^reason=reap$'
@@ -3279,7 +3283,7 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   assert_file_not_exists "$CHILD_STUB/parent-prompt-accepted"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
   assert_success
   assert_output --partial 'supervision generation could not be invalidated'
   assert_file_exists "$run_dir/invalidated.state"
@@ -3355,7 +3359,7 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=orange-panda \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -3400,7 +3404,7 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
 
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=orange-panda \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
@@ -3440,7 +3444,7 @@ function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
   run_dir="$CHILD_STUB/state/runs/$generation"
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=orange-panda \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -3455,7 +3459,7 @@ function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
   printf 'done\n' > "$CHILD_STUB/child-list-status"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
   assert_success
   assert_output --partial 'has a waiting state label'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
@@ -3468,7 +3472,7 @@ function test_scripts_051_herdr_child_detached_callbacks_fail_closed_when() {
   assert_success
   rm -f "$CHILD_STUB/generation"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=orange-panda \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -3486,7 +3490,7 @@ function test_scripts_051_herdr_child_detached_callbacks_fail_closed_when() {
   prompts_before="$(grep -c '^agent prompt' "$CHILD_STUB/calls.log")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 "Use path A"
+    bash "$HERDR_CHILD" reply --to "$(child_started_name)" --pane wT:p9 "Use path A"
   assert_failure
   assert_output --partial 'pane metadata was malformed'
   run grep -c '^agent prompt' "$CHILD_STUB/calls.log"
@@ -3507,7 +3511,7 @@ function test_scripts_052_herdr_child_detached_reply_advances_generation_a() {
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_RETRY_INTERVAL=0.01 \
-    bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 "Use path A"
+    bash "$HERDR_CHILD" reply --to "$(child_started_name)" --pane wT:p9 "Use path A"
   assert_success
   new_generation="$(cat "$CHILD_STUB/generation")"
   [ "$new_generation" != "$old_generation" ]
@@ -3577,7 +3581,7 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_RETRY_INTERVAL=0.01 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --detach \
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach \
     --supervision-timeout 5000 "ordinary follow-up"
   assert_success
   new_generation="$(cat "$CHILD_STUB/generation")"
@@ -3586,7 +3590,7 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_success
   assert_output "$(printf '%s\n' 'mode=detach' "generation=$new_generation" 'timeout_ms=5000' \
     'parent_pane=wT:p0' 'parent_terminal=term-parent' 'parent_session=parent-session' \
-    'child_name=orange-panda' 'child_pane=wT:p9' 'child_terminal=term-child' \
+    "child_name=$(child_started_name)" 'child_pane=wT:p9' 'child_terminal=term-child' \
     'child_session=child-session' 'baseline_seq=11')"
   printf 'done 12\n' > "$CHILD_STUB/child-state"
   child_wait_for_log 'event=settled-12'
@@ -3602,7 +3606,7 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_ARM_FAIL=1 HERDR_CHILD_POLL_INTERVAL=0.01 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --detach \
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach \
     --supervision-timeout 5000 "ordinary follow-up"
   assert_failure
   assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
@@ -3641,7 +3645,7 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/new-watcher.pid" \
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
     HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=120 HERDR_CHILD_POLL_INTERVAL=0.01 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --detach \
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach \
     --supervision-timeout 5000 "take over held watcher"
   assert_success
   assert_file_not_exists "$CHILD_STUB/release-watcher"
@@ -3673,7 +3677,7 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_BASELINE_FAIL=1 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --detach "next task"
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
   assert_failure
   assert_output --partial 'baseline state could not be read'
   assert_file_not_exists "$old_run/invalidated.state"
@@ -3691,7 +3695,7 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_SETUP_FAIL=1 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --detach "next task"
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
   assert_failure
   assert_output --partial 'setup failed before supervision takeover'
   assert_file_not_exists "$old_run/invalidated.state"
@@ -3709,7 +3713,7 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_PREPARE_FAIL=1 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --detach "next task"
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
   assert_failure
   assert_output --partial 'watcher failed before supervision takeover'
   assert_file_not_exists "$old_run/invalidated.state"
@@ -3819,7 +3823,7 @@ function test_scripts_060_herdr_child_maps_claude_postures_and_skill_direc() {
   child_stub_herdr
   run child_start --kind claude --skills A --skills B --wait
   assert_success
-  assert_output '{"agent":"orange-panda","pane":"wT:p9"}'
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--add-dir A --add-dir B.*--disallowed-tools Edit Write NotebookEdit AskUserQuestion'
 
   : > "$CHILD_STUB/calls.log"
@@ -3879,7 +3883,8 @@ function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   child_stub_herdr
   STUB_REQUIRE_SPLIT=1 run child_start --kind claude --wait --timeout 5000
   assert_success
-  local call1 call2 call3 call4 call5 call6
+  local child_name call1 call2 call3 call4 call5 call6
+  child_name="$(child_started_name)"
   call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
@@ -3887,11 +3892,11 @@ function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
   call6="$(sed -n '6p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == agent\ list* ]] || fail "unexpected first herdr-child call: $call1"
-  [[ "$call2" == pane\ split*HERDR_CHILD_NAME=orange-panda*HERDR_CHILD_PARENT_PANE=wT:p0* ]] || fail "unexpected second herdr-child call: $call2"
+  [[ "$call2" == pane\ split*HERDR_CHILD_NAME="$child_name"*HERDR_CHILD_PARENT_PANE=wT:p0* ]] || fail "unexpected second herdr-child call: $call2"
   [[ "$call3" == agent\ start* ]] || fail "unexpected third herdr-child call: $call3"
   [[ "$call4" == agent\ list* ]] || fail "unexpected fourth herdr-child call: $call4"
   [[ "$call5" == pane\ get*wT:p9* ]] || fail "unexpected fifth herdr-child call: $call5"
-  [[ "$call6" == agent\ prompt*orange-panda*wT:p9*wT:p0*--wait*--timeout\ 5000* ]] || fail "unexpected sixth herdr-child call: $call6"
+  [[ "$call6" == agent\ prompt*"$child_name"*wT:p9*wT:p0*--wait*--timeout\ 5000* ]] || fail "unexpected sixth herdr-child call: $call6"
 }
 
 function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
@@ -3900,8 +3905,9 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   STUB_REQUIRE_SPLIT=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --label mylabel --wait
   assert_success
-  assert_output '{"agent":"orange-panda","pane":"wT:p9","tab":"wT:tA"}'
-  local call1 call2 call3 call4 call5 call6 call7
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\"}"
+  local child_name call1 call2 call3 call4 call5 call6 call7
+  child_name="$(child_started_name)"
   call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
@@ -3910,7 +3916,7 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   call6="$(sed -n '6p' "$CHILD_STUB/calls.log")"
   call7="$(sed -n '7p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == agent\ list* ]] || fail "unexpected first tab-mode call: $call1"
-  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME=orange-panda*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]] || fail "unexpected second tab-mode call: $call2"
+  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME="$child_name"*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]] || fail "unexpected second tab-mode call: $call2"
   [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab*child-tab=wT:tA* ]] || fail "unexpected third tab-mode call: $call3"
   [[ "$call4" == agent\ start* ]] || fail "unexpected fourth tab-mode call: $call4"
   [[ "$call5" == agent\ list* ]] || fail "unexpected fifth tab-mode call: $call5"
@@ -3997,7 +4003,7 @@ function test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
   STUB_PROMPT_TIMEOUT=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
   assert_failure 124
-  assert_output --partial '{"agent":"orange-panda","pane":"wT:p9","tab":"wT:tA"}'
+  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 
@@ -4065,7 +4071,7 @@ function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --wait
   assert_failure 124
-  assert_output --partial '{"agent":"orange-panda","pane":"wT:p9"}'
+  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_output --partial "wait timed out"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
@@ -4319,7 +4325,7 @@ function test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv() {
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
   assert_success
   assert_output --partial "closed pane wT:p9 and tab wT:tA"
   assert_file_exists "$CHILD_STUB/reap-invalidation-observed"
@@ -7538,7 +7544,7 @@ function test_scripts_264_herdr_child_reap_invalidation_suppresses_delivery_alre
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER="$CHILD_STUB/reap-invalidated" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9 >"$CHILD_STUB/reap.out" 2>&1 &
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9 >"$CHILD_STUB/reap.out" 2>&1 &
   reap_pid=$!
   CHILD_REAP_PID="$reap_pid"
   child_wait_for_file "$CHILD_STUB/reap-invalidated.ready"
@@ -7587,7 +7593,7 @@ function test_scripts_265_herdr_child_delivery_claim_keeps_reap_fail_closed_with
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
   assert_success
   assert_output --partial 'supervision generation could not be invalidated'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
@@ -7625,7 +7631,7 @@ function test_scripts_266_herdr_child_reap_recovers_a_delivery_claim_owned_by_a_
   [ "$attempt" -lt 500 ]
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
   assert_success
   assert_output --partial 'closed pane wT:p9'
   assert_file_exists "$CHILD_STUB/pane-closed"
@@ -7783,7 +7789,7 @@ function test_scripts_270_herdr_child_reap_invalidation_barrier_is_bounded() {
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER="$CHILD_STUB/reap-invalidated" \
     HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
-    bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9 > "$CHILD_STUB/reap-bounded.out" 2>&1 &
+    bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9 > "$CHILD_STUB/reap-bounded.out" 2>&1 &
   reap_pid=$!
   CHILD_REAP_PID="$reap_pid"
   child_wait_for_file "$CHILD_STUB/reap-invalidated.ready"
