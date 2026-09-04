@@ -302,6 +302,33 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
   assert_file_exists "$output"
 }
 
+function test_templates_0153_private_settings_register_the_context_threshold_stop_hook() {
+  _bats_test_init 153 'private settings register the context threshold Stop hook with room for extraction'
+  local bound declared
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  run jq -r '.hooks.Stop[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'context-threshold.sh'
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/context-threshold.sh"
+  assert_success
+  assert_file_exists "$output"
+
+  # The hook bounds its own goal extraction. A declared timeout at or below
+  # that bound lets the platform truncate a call the hook is already managing,
+  # so the two numbers are compared rather than both restated.
+  bound="$(bash -c '. "$1"; printf "%s" "$CONTEXT_USAGE_EXTRACTION_TIMEOUT"' \
+    _ "$SOURCE_ROOT/dot_local/lib/context-usage.sh")"
+  run test -n "$bound"
+  assert_success
+  declared="$(jq -r '[.hooks.Stop[]?.hooks[]?
+    | select(.command | contains("context-threshold.sh")) | .timeout] | first' "$BATS_TEST_TMPFILE")"
+  run test "$declared" -gt "$bound"
+  assert_success
+}
+
 # ===========================================
 # Yazi plugin keymaps
 # ===========================================

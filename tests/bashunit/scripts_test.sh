@@ -9439,3 +9439,263 @@ function test_scripts_2819_handoff_pre_compact_guards_the_extraction_fork() {
   assert_success
   assert_file_contains "$store/$(printf '%s' guarded | base64 | tr '/+' '_-' | tr -d '=\n').json" 'guard=1'
 }
+
+# --- context-threshold Stop hook (U4) --------------------------------------
+
+context_threshold_hook() {
+  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_context-threshold.sh"
+}
+
+# A transcript of exactly N assistant turns since the last compaction.
+context_threshold_transcript() {
+  local path="$1" turns="$2" i=0
+  : > "$path"
+  while [ "$i" -lt "$turns" ]; do
+    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}' >> "$path"
+    i=$((i + 1))
+  done
+}
+
+context_threshold_payload() {
+  jq -nc --arg session "$1" --arg transcript "$2" --argjson active "${3:-false}" \
+    '{session_id: $session, transcript_path: $transcript,
+      hook_event_name: "Stop", stop_hook_active: $active}'
+}
+
+# Run the hook with the state directory and library this suite controls.
+context_threshold_run() {
+  local session="$1" transcript="$2"
+  shift 2
+  env HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    CLAUDE_CODE_ENTRYPOINT=cli \
+    "$@" bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload "$session" "$transcript")"
+}
+
+function test_scripts_2820_context_threshold_names_the_dimension_that_crossed() {
+  _bats_test_init 2820 'context threshold names the dimension that crossed'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" short="$BATS_TEST_TMPDIR/short.jsonl"
+  local library state="$BATS_TEST_TMPDIR/state"
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$long" 160
+  context_threshold_transcript "$short" 12
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE1. A long session on a nearly empty window announces on turn count, and
+  # the message says so rather than reporting a percentage nobody is worried
+  # about. This is the common case on this machine.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage long-session 130000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run long-session "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '160 turns since the last compaction'
+  refute_output --partial 'context window'
+  assert_output --partial '/compact handoff:'
+
+  # AE2. The mirror case: a short session that pulled in several large files
+  # announces on fullness.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage short-session 600000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run short-session "$short"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'context window 80% full'
+  refute_output --partial 'turns since the last compaction'
+}
+
+function test_scripts_2821_context_threshold_announces_without_a_usage_file() {
+  _bats_test_init 2821 'context threshold announces on turn count when no usage file exists'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" library
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # KTD3 and KTD7 together. A resumed session has no state file until its
+  # first status-line render. Reading that absence as "headless" would
+  # silence exactly the long session this feature exists for.
+  run context_threshold_run resumed "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '160 turns since the last compaction'
+  refute_output --partial 'context window'
+
+  # A file too old to describe the current turn behaves the same way.
+  run env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
+    . "$1"; context_usage_write_usage stale-session 900000 1000000 "$(( $(date +%s) - 4000 ))"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run stale-session "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '160 turns since the last compaction'
+  refute_output --partial 'context window'
+}
+
+function test_scripts_2822_context_threshold_stays_out_of_sessions_nobody_is_watching() {
+  _bats_test_init 2822 'context threshold stays silent in headless and re-entrant sessions'
+  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
+  context_threshold_transcript "$huge" 500
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE9, R21. This repository runs headless legs routinely; halting one
+  # mid-task would be a regression in unrelated work, and no human is there.
+  # Every case below sits past both hard thresholds.
+  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=sdk-cli
+  assert_success
+  assert_output ''
+  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=sdk-py
+  assert_success
+  assert_output ''
+  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=mcp-cli
+  assert_success
+  assert_output ''
+
+  # KTD6: the extraction subprocess inherits these settings, so its own Stop
+  # hook fires. Both re-entrancy signals must silence it.
+  run context_threshold_run guarded "$huge" CONTEXT_THRESHOLD_GUARD=1
+  assert_success
+  assert_output ''
+  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload reentrant "$huge" true)"
+  assert_success
+  assert_output ''
+
+  # And an IDE session is a person watching, so it does announce.
+  run context_threshold_run ide "$huge" CLAUDE_CODE_ENTRYPOINT=vscode
+  assert_success
+  refute_output ''
+}
+
+function test_scripts_2823_context_threshold_hard_crossing_carries_halt_and_message() {
+  _bats_test_init 2823 'context threshold hard crossing carries the halt and the message together'
+  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
+  context_threshold_transcript "$huge" 305
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R20. Claude Code drops a Stop-hook halt on the end-turn paths that do not
+  # re-invoke the model, while still rendering the hook's message. Emitting
+  # both means the crossing stays visible exactly where the halt vanishes.
+  local response
+  run context_threshold_run halting "$huge"
+  assert_success
+  response="$output"
+  run jq -e '.continue == false and (.stopReason | length > 0) and (.systemMessage | length > 0)' <<< "$response"
+  assert_success
+  run jq -r '.stopReason' <<< "$response"
+  assert_success
+  assert_output --partial '/compact handoff:'
+  assert_output --partial '305 turns since the last compaction'
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output --partial '305 turns since the last compaction'
+}
+
+function test_scripts_2824_context_threshold_sends_one_message_per_turn() {
+  _bats_test_init 2824 'context threshold sends one message per turn however many thresholds crossed'
+  local both="$BATS_TEST_TMPDIR/both.jsonl" library state="$BATS_TEST_TMPDIR/state"
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$both" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R22. Two dimensions crossing in one turn is one message carrying one
+  # command, not two announcements the operator has to reconcile.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage combined 600000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  local response
+  run context_threshold_run combined "$both"
+  assert_success
+  response="$output"
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output --partial '160 turns since the last compaction (warn at 150) and context window 80% full'
+  run jq -r '[.systemMessage | scan("/compact handoff:")] | length' <<< "$response"
+  assert_success
+  assert_output '1'
+}
+
+function test_scripts_2825_context_threshold_warns_once_but_keeps_halting() {
+  _bats_test_init 2825 'context threshold warns once per dimension and keeps announcing past the limit'
+  local warn_level="$BATS_TEST_TMPDIR/warn.jsonl" library state="$BATS_TEST_TMPDIR/state"
+  local past="$BATS_TEST_TMPDIR/past.jsonl" further="$BATS_TEST_TMPDIR/further.jsonl"
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$warn_level" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE4, R9. The warning is not repeated at the same level.
+  run context_threshold_run repeat "$warn_level"
+  assert_success
+  refute_output ''
+  run context_threshold_run repeat "$warn_level"
+  assert_success
+  assert_output ''
+
+  # R10. The spent turn-count budget does not suppress fullness.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage repeat 600000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run repeat "$warn_level"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'context window 80% full'
+  refute_output --partial 'turns since the last compaction'
+
+  # AE12, R25. Held above the hard threshold the session is told again, and
+  # the second telling comes sooner than the cadence at the crossing.
+  context_threshold_transcript "$past" 300
+  context_threshold_transcript "$further" 308
+  run context_threshold_run cadence "$past"
+  assert_success
+  refute_output ''
+  run context_threshold_run cadence "$past"
+  assert_success
+  assert_output ''
+  run context_threshold_run cadence "$further"
+  assert_success
+  run jq -e '.continue == false' <<< "$output"
+  assert_success
+}
+
+function test_scripts_2826_context_threshold_fails_open() {
+  _bats_test_init 2826 'context threshold exits silently on malformed input and unreadable state'
+  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
+  context_threshold_transcript "$huge" 500
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # KTD9: everything except the deliberate halt fails open and silent.
+  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" <<< 'not json at all'
+  assert_success
+  assert_output ''
+
+  # An unavailable library is a partially applied home, not a reason to fail.
+  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent.sh" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload nolib "$huge")"
+  assert_success
+  assert_output ''
+
+  # A transcript that cannot be read counts zero turns, which announces
+  # nothing rather than announcing a wrong number.
+  run context_threshold_run missing "$BATS_TEST_TMPDIR/no-such-transcript.jsonl"
+  assert_success
+  assert_output ''
+}

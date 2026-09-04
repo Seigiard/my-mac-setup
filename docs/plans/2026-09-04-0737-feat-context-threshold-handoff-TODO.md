@@ -10,7 +10,7 @@ One item = one commit; the checkbox lands in that same commit.
 - [x] U2 · shared context-usage library (`home/dot_local/lib/context-usage.sh`)
 - [x] U3 · statusline publishes usage state
 - [x] U6 · vendor the PreCompact handoff builder
-- [ ] U4 · Stop hook: detection and announcement (goal-less command)
+- [x] U4 · Stop hook: detection and announcement (goal-less command)
 - [ ] U5 · goal extraction
 - [ ] U7 · vendor the SessionStart injector
 - [ ] U8 · prove the deployed wiring end to end
