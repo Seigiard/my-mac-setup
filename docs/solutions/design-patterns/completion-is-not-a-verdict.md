@@ -2,7 +2,7 @@
 title: Completion is not a verdict — render the decision where the operator acts
 date: 2026-08-15
 category: design-patterns
-module: se-pipeline
+module: agent-platform
 problem_type: design_pattern
 component: development_workflow
 severity: high
@@ -37,6 +37,10 @@ tags:
 # Completion is not a verdict — render the decision where the operator acts
 
 ## Context
+
+> **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
+> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> `dot_smithers/**` path cited below is readable only in git history. The rule is now settled vocabulary in this repo: `CONCEPTS.md` (*Child-agent contract*) states "Lifecycle settlement is a wake signal, not a task verdict", enforced at `home/dot_local/lib/herdr-child-watcher.sh:85` and `home/private_dot_claude/shared/child-agent-contract.md:215`.
 
 `se-pipeline` is a durable multi-stage workflow on the Smithers engine, driven by the bash launcher `se` (source: `home/private_dot_claude/dot_smithers/`, deployed to `~/.claude/.smithers/`). Each stage ends in a *gate*: a pure predicate returning `green`, `failed`, or `degraded`. A non-green gate parks the run at an approval pause and waits for a human.
 
@@ -113,7 +117,7 @@ The renderer is best-effort and never fatal: a missing `sqlite3` or `jq`, a bad 
 
 **5. An absent reason must not read as an absent problem.** Empty reasons render `(no reason recorded — this is itself a defect, please report it)` (`gate-announce.ts:38`). Reasons arrive joined with `"; "`, and one of them carries a multi-line command tail; the tail stays attached to its own reason as indented continuation lines rather than becoming fake extra `why:` entries (`gate-announce.ts:24-28,34-43`). Blank space and mis-attributed detail are both ways a rendered verdict lies.
 
-**6. The wording of the action is part of the decision surface — so pin it with a test.** The false help line was rewritten to state what approve actually does (`executable_se:77-88`), and a bats test asserts the old promise cannot return: `refute_output --partial 'approve a paused run (continue past the gate)'` (`tests/scripts.bats:1564-1570`). Prose that describes an affordance is as load-bearing as the affordance; without a test, it drifts back. This is the second instance of misleading CLI help in the same tool — a `se resume` hint once named a flag that did not exist (`docs/issues/2026-08-14-006-se-resume-hint-names-a-flag-that-does-not-exist.md`) — which is what makes it a pattern rather than a slip.
+**6. The wording of the action is part of the decision surface — so pin it with a test.** The false help line was rewritten to state what approve actually does (`executable_se:77-88`), and a bats test asserts the old promise cannot return: `refute_output --partial 'approve a paused run (continue past the gate)'` (the then-current `tests/scripts.bats:1564-1570`). Prose that describes an affordance is as load-bearing as the affordance; without a test, it drifts back. This is the second instance of misleading CLI help in the same tool — a `se resume` hint once named a flag that did not exist (`2026-08-14-006`) — which is what makes it a pattern rather than a slip.
 
 **7. A decision that is recorded but drives nothing is still not a decision.** Adjacent, same theme, shipped just after in `9350484`: the owner process exits when a run parks, so a recorded approval moved nothing until someone ran `se resume` — measured on the same run, approved 16:42:24, no progress until a manual resume at 16:44:47 (`executable_se:189-206`). `se approve` and `se deny` now resume the run themselves, and only when no live process owns it (`:175-187`), because two engines on one run corrupt its state. The decision surface ends where the decision takes effect, not where it is stored.
 
@@ -139,7 +143,7 @@ The generalizable claim: **in any system where a machine step both completes and
 
 ## Examples
 
-**The trap, verbatim.** Log shows `✓ gate-work-extra` then `⏸ Approval requested: approve-work-2`; the durable row for that node says `failed | validate-cmd exited with code 1; …`. Two check marks, no reason, two approvals — full narrative in `docs/issues/2026-08-14-016-run-log-marks-a-failed-gate-as-passed.md` (status: done).
+**The trap, verbatim.** Log shows `✓ gate-work-extra` then `⏸ Approval requested: approve-work-2`; the durable row for that node says `failed | validate-cmd exited with code 1; …`. Two check marks, no reason, two approvals — full narrative in `2026-08-14-016` (status: done).
 
 **The fix, rendered from that same persisted verdict:**
 
@@ -157,26 +161,28 @@ GATE work: FAILED — the run is about to pause for your decision
 
 A green gate stays one quiet line — `GATE work: GREEN` (`gate-announce.ts:22`) — so the reader can distinguish a gate that announced itself from one that never ran, without a wall of text on the happy path.
 
-**Mutation check (the proof the fix does something).** The same fixture run against the OLD deployed `se show` prints ten dashes and no decision block; against the new one it prints the `DECISION REQUIRED` block with the request's title and reasons. Fixture and assertions: `tests/scripts.bats:1457-1470` (block present), `:1472-1483` (approve echoes "approve stops the run WITH a report" before recording), `:1485-1496` (no block when nothing is pending).
+**Mutation check (the proof the fix does something).** The same fixture run against the OLD deployed `se show` prints ten dashes and no decision block; against the new one it prints the `DECISION REQUIRED` block with the request's title and reasons. Fixture and assertions: the then-current `tests/scripts.bats:1457-1470` (block present), `:1472-1483` (approve echoes "approve stops the run WITH a report" before recording), `:1485-1496` (no block when nothing is pending).
 
 **Wording under test.** `gate-announce.test.ts` (9 tests) asserts the exact failure modes of the incident rather than the format: the state appears as a word not a mark (`:9-15`), the reason reaches the screen (`:17-20`), approve is named as a stage retry (`:22-29`), the multi-line tail stays a continuation of its own reason (`:42-52`), and an empty reason does not pass for "no problem" (`:54-57`).
 
-**Verification of the shipped change:** commit `393aaed` added 9 tests to `home/private_dot_claude/dot_smithers/workflows/lib/gate-announce.test.ts` and 4 to `tests/scripts.bats`, with the whole suite green and shellcheck clean at that point. Absolute suite totals are deliberately not quoted here — they moved twice the same day and would read as false to the next person who checks. Not covered: no live pipeline run has printed the announcement yet — it is proven by rendering real persisted verdicts through the same function the pipeline calls.
+**Verification of the shipped change:** commit `393aaed` added 9 tests to `home/private_dot_claude/dot_smithers/workflows/lib/gate-announce.test.ts` and 4 to the then-current `tests/scripts.bats`, with the whole suite green and shellcheck clean at that point. Absolute suite totals are deliberately not quoted here — they moved twice the same day and would read as false to the next person who checks. Not covered: no live pipeline run has printed the announcement yet — it is proven by rendering real persisted verdicts through the same function the pipeline calls.
 
-**Docs as a surface.** The runbook now names the wrong reading explicitly (`docs/se-pipeline.md`, "галочка в логе — не вердикт", with this run as the example), and the `se-work` skill tells an agent never to read `se logs` check marks as verdicts (`home/private_dot_claude/skills/se-work/SKILL.md`) — it previously told the agent to gather context from those logs with no such warning.
+**Docs as a surface.** The runbook now names the wrong reading explicitly (the then-current `docs/se-pipeline.md`, "галочка в логе — не вердикт", with this run as the example), and the `se-work` skill tells an agent never to read `se logs` check marks as verdicts (the then-current `se-work/SKILL.md` (removed with the Smithers runtime; its live successors are `se-orchestrator` and `se-code-review`)) — it previously told the agent to gather context from those logs with no such warning.
 
 ## What this does not fix
 
-A rendered verdict is only as honest as the verdict itself. A gate that goes **green** having verified nothing still misleads, and the announcement will faithfully print `GATE work: GREEN` for it — see `docs/issues/2026-08-14-018-validate-segment-can-pass-covering-nothing.md` (status: open), where a validate segment matching zero files exits 0. Rendering the decision fixes the surface, not the predicate behind it.
+A rendered verdict is only as honest as the verdict itself. A gate that goes **green** having verified nothing still misleads, and the announcement will faithfully print `GATE work: GREEN` for it — see `2026-08-14-018` (status: open), where a validate segment matching zero files exits 0. Rendering the decision fixes the surface, not the predicate behind it.
 
-Informed approval is also only half of the cost control. The other half is a spend ceiling, which `se pipeline` does not have — `docs/issues/2026-08-14-015-run-budgets.md` (status: open).
+Informed approval is also only half of the cost control. The other half is a spend ceiling, which `se pipeline` does not have — `2026-08-14-015` (status: open).
 
 ## Related
 
-- `docs/issues/2026-08-14-016-run-log-marks-a-failed-gate-as-passed.md` — the incident, the rejected options, and the resolution (status: done).
-- `docs/issues/2026-08-14-017-run-stalls-after-every-approval.md` — the sibling defect on the same CLI path: the decision was recorded and nothing drove the run (status: done).
-- `docs/issues/2026-08-14-019-worktree-missing-built-dists-is-not-detected.md` — why that gate was legitimately red; only its presentation failed (status: done).
-- `docs/issues/2026-08-14-020-pipeline-launch-surface.md` — the same honesty rule one stage earlier, at launch (status: open).
-- `docs/se-pipeline.md` — runbook: check-mark-is-not-a-verdict, and the per-gate table of what `approve` means at each gate.
+- `2026-08-14-016` — the incident, the rejected options, and the resolution (status: done).
+- `2026-08-14-017` — the sibling defect on the same CLI path: the decision was recorded and nothing drove the run (status: done).
+- `2026-08-14-019` — why that gate was legitimately red; only its presentation failed (status: done).
+- `2026-08-14-020` — the same honesty rule one stage earlier, at launch (status: open).
+- `docs/se-pipeline.md` (removed 2026-09-01 with the Smithers runtime; git history only) — runbook: check-mark-is-not-a-verdict, and the per-gate table of what `approve` means at each gate.
 - `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md` — sibling pattern: a step that dies quietly must not read as a clean pass. Same family, one layer earlier — there the *machine* misread the evidence, here the *human* did.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — fail-closed at a different boundary; a scanner crash is never a clean pass.
+- Closed issues above are bare IDs, for archaeology in git history: `2026-08-14-006`, `2026-08-14-015`, `2026-08-14-016`, `2026-08-14-017`, `2026-08-14-018`, `2026-08-14-019`, `2026-08-14-020`.
+  Those files were removed in the closed-issue cleanup; the evidence they carried is reproduced inline above.

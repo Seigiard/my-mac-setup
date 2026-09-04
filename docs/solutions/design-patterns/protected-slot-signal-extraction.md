@@ -2,7 +2,7 @@
 title: Machine signals live in one protected slot, never in a scan
 date: 2026-08-21
 category: design-patterns
-module: se-pipeline
+module: agent-platform
 problem_type: design_pattern
 component: development_workflow
 severity: medium
@@ -33,11 +33,15 @@ tags:
 
 ## Context
 
+> **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
+> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> `dot_smithers/**` path cited below is readable only in git history. The threat model is documented nowhere else in this repo. Of its five rules only rule 2 has a live consumer today (`se-doc-review/SKILL.md:107`, "its counts reconcile"); the rest are retained as the reasoning a future extractor should start from, not as descriptions of shipped code.
+
 The se-pipeline's verify-doc stage needed a blocking gate: two external review legs (claude, opencode) each produce a free-form markdown review envelope, and the pipeline must block work when a review finds a P0. The envelope stays prose by design — the only machine-readable part is a single line, `SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N}`, which the leg is instructed to emit immediately before its terminal `Review complete` line (prompt contract in `home/private_dot_claude/dot_smithers/workflows/se-doc-review.tsx:133`).
 
 The naive extraction — grep the envelope for `SEVERITY:` and take the first, last, or any regex match — is spoofable by the text itself. LLM reviews quote things: suggested edits, code fences, examples of the very format under review. During the review of this feature, envelopes literally contained decoy `SEVERITY:` lines as quoted examples. Under a last-match scan, a review that quotes `SEVERITY: {"p0Count":0,...}` *after* stating a real P0 would silently zero the real P0 and green-light the gate. The plan names this threat explicitly (KTD-B, `docs/plans/2026-07-24-002-feat-verify-doc-blocking-gate-plan.md:71`): "a position-independent last-match scan is spoofable by a later decoy line zeroing out a real P0."
 
-The design that shipped (commits `af1a79d` work run → `33bf8f2` merge, hardened in `4b22d20` with a cross-field consistency check, P2 tails closed in `3d28f09` per `docs/issues/2026-08-14-003-severity-gate-p2-tails.md`) rejects scanning entirely.
+The design that shipped (commits `af1a79d` work run → `33bf8f2` merge, hardened in `4b22d20` with a cross-field consistency check, P2 tails closed in `3d28f09` per `2026-08-14-003`) rejects scanning entirely.
 
 ## Guidance
 
@@ -81,7 +85,7 @@ The compensating control for fail-open: per-leg parse status is surfaced every r
 
 Smoke runs inject `smokeSeverity` to stamp both legs' output fields directly, bypassing envelope parsing (`se-doc-review.tsx:23-25,197-208`; mirrored input at `se-pipeline.tsx:77-79`, threaded at `se-pipeline.tsx:623`) — so the gate/waive wiring is exercisable without teaching a test to fabricate a "real" SEVERITY line.
 
-**Boundary of the pattern: protect the slot when you own the envelope contract; judge the payload when you cannot.** The cousin case (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, absorbed into `external-review-legs-as-unreliable-subprocesses.md` Guidance 5): a free-text status adjective could not be slot-protected across both legs, so the resolution there was payload evidence — a classifier over the findings array as independent proof, after a constrained-enum alternative was rejected as unreachable for the opencode leg — instead of a cleverer text scan.
+**Boundary of the pattern: protect the slot when you own the envelope contract; judge the payload when you cannot.** The cousin case (`2026-08-14-002`, absorbed into `external-review-legs-as-unreliable-subprocesses.md` Guidance 5): a free-text status adjective could not be slot-protected across both legs, so the resolution there was payload evidence — a classifier over the findings array as independent proof, after a constrained-enum alternative was rejected as unreachable for the opencode leg — instead of a cleverer text scan.
 
 ## Why This Matters
 
@@ -141,7 +145,9 @@ Additive-ladder gate, distinct causes (`gates.ts:109-141`): availability failure
 - `gate-bias-follows-blast-radius.md` — the general bias-placement principle; the tolerance rule here is that principle applied to a parse-failure default instead of a run/skip default.
 - `../architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — the fail-closed counterpart: a subtractive security boundary can never fail open, which is why the additive-only condition is load-bearing in this doc's tolerance rule.
 - `../../plans/2026-07-24-002-feat-verify-doc-blocking-gate-plan.md` — origin decisions KTD-B (protected slot, decoy-spoofability rationale) and KTD-D (tolerance layering + parse-status observability); the superseded requirements doc is `../../plans/2026-07-24-001-feat-verify-doc-blocking-gate-requirements.md`.
-- `../../issues/2026-08-14-003-severity-gate-p2-tails.md` — done: `stripSeverityLine` converged on the same protected-slot rule the parser uses — the second, write-direction application of the slot idea.
-- `../../issues/2026-08-14-008-doc-review-path-has-no-live-coverage.md` — the live-coverage run recording that the slot parse, stripped advisory, and per-leg severity read work on the green-gate path; still open because the waive-note strip path (same slot mechanism, different consumer) remains unproven live.
-- `../../se-pipeline.md` — runbook carrying the operational gate semantics (P0 blocks, P1 advisory, missing severity degrades to advisory).
+- `2026-08-14-003` — done: `stripSeverityLine` converged on the same protected-slot rule the parser uses — the second, write-direction application of the slot idea.
+- `2026-08-14-008` — the live-coverage run recording that the slot parse, stripped advisory, and per-leg severity read work on the green-gate path; still open because the waive-note strip path (same slot mechanism, different consumer) remains unproven live.
+- `docs/se-pipeline.md` (removed 2026-09-01 with the Smithers runtime; git history only) — runbook carrying the operational gate semantics (P0 blocks, P1 advisory, missing severity degrades to advisory).
 - Commits: `af1a79d` (work-stage run), `33bf8f2` (merge), `4b22d20` (cross-field consistency hardening), `3d28f09` (P2 tails).
+- Closed issues above are bare IDs, for archaeology in git history: `2026-08-14-002`, `2026-08-14-003`, `2026-08-14-008`.
+  Those files were removed in the closed-issue cleanup; the evidence they carried is reproduced inline above.

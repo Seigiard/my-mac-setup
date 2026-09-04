@@ -173,9 +173,10 @@ the reap-guard stall a full 20-minute harness limit — each ending in manual pr
 archaeology (`ps -axo pid=,args=`, `/proc/<pid>/fd`, `docker top`) rather than in a test
 report.
 
-`make test-ubuntu` is the only target in this repository that applies the checkout before
-asserting. While a hang is reachable in it, no change to a managed file under `home/` can
-be proven at all — the class blocks verification of unrelated work, not just its own.
+`make test-ubuntu` and `make test-docker` are the only targets in this repository that apply
+the checkout before asserting (`docker/docker-compose.yml:91` and `:140`). While a hang is
+reachable in them, no change to a managed file under `home/` can be proven at all — the class
+blocks verification of unrelated work, not just its own.
 
 The orphan-accumulation variant is worse than a hang because it never stops anything. It
 degrades the machine and the measurements taken on it, so a performance session draws

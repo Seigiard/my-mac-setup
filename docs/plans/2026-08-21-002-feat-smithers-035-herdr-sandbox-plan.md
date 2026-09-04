@@ -247,7 +247,6 @@ The host remains responsible for staging, secret scanning, deterministic merge, 
 
 ### Sources and Research
 
-- `docs/solutions/architecture-patterns/resume-safe-dynamic-composition-durable-workflow.md` - zero-in-flight and workflow identity constraints.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` - mandatory scanning before external review.
 - `docs/solutions/design-patterns/absolute-paths-beat-prose-in-agent-isolation.md` - guest-local path and frozen-input requirements.
 - `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md` - failed-leg and timeout semantics.

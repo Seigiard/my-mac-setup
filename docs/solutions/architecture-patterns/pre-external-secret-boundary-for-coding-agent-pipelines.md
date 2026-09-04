@@ -3,7 +3,7 @@ title: Pre-external secret boundary for coding-agent pipelines
 date: 2026-08-14
 last_updated: 2026-08-21
 category: architecture-patterns
-module: se-pipeline
+module: agent-platform
 problem_type: architecture_pattern
 component: development_workflow
 severity: high
@@ -33,6 +33,10 @@ tags:
 # Pre-external secret boundary for coding-agent pipelines
 
 ## Context
+
+> **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
+> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> `dot_smithers/**` path cited below is readable only in git history. The boundary itself did not go away: `home/private_dot_claude/shared/herdr-peer-launch.md` still ships checkout content to two third-party model providers, and `se-doc-review/SKILL.md:27` still runs the fail-closed `gitleaks` scan. See **Coverage regression** below for what no longer holds.
 
 The se-pipeline (the durable Smithers pipeline under `home/private_dot_claude/dot_smithers/workflows/`) ships repo content to external LLM legs: the simplify stage and verify-code each dispatch full independent claude/opencode runs that read the staged worktree. Anything committed on the run branch — including an accidentally committed credential — would leave the machine with them.
 
@@ -95,7 +99,7 @@ Six transferable rules for any pipeline that sends repo content to an external s
 
 3. **Redact scanner output before persisting it — the report must not become the leak.** The pipeline stores scan details in durable run summaries and report files, so it runs gitleaks with `--redact` (`envelopes.ts:92-95`). A secret boundary that copies the detected secret verbatim into its own logs has just moved the leak, not stopped it.
 
-4. **Scope the scan to the run's own commits (`baseSha..HEAD`).** The `--log-opts=<baseSha>..HEAD` range means pre-existing tracked secrets that were already in the repo — and are not part of what this run produced — don't false-block every run. Trade-off, named: this deliberately does NOT protect content that predates the run. If the external leg reads the whole worktree (it does), tracked secrets from before `baseSha` still ship; the diff scan only guarantees the run added no new ones. Full-tree exposure got its own control on 2026-08-15: a two-tier boundary in `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` — tier 1 `preExternalRepoGate` (range scan) plus tier 2 `preExternalTreeGate` (`git archive` + gitleaks over the whole tree at the snapshot commit, `pre-external-gate.ts:103`) — wired into se-code-review, se-simplify, and the pipeline's secret-scan stage (`docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md`, done).
+4. **Scope the scan to the run's own commits (`baseSha..HEAD`).** The `--log-opts=<baseSha>..HEAD` range means pre-existing tracked secrets that were already in the repo — and are not part of what this run produced — don't false-block every run. Trade-off, named: this deliberately does NOT protect content that predates the run. If the external leg reads the whole worktree (it does), tracked secrets from before `baseSha` still ship; the diff scan only guarantees the run added no new ones. Full-tree exposure got its own control on 2026-08-15: a two-tier boundary in `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` — tier 1 `preExternalRepoGate` (range scan) plus tier 2 `preExternalTreeGate` (`git archive` + gitleaks over the whole tree at the snapshot commit, `pre-external-gate.ts:103`) — wired into se-code-review, se-simplify, and the pipeline's secret-scan stage (`2026-08-14-009`, done).
 
 5. **Never let untrusted input choose the scan scope, and fail an empty scan closed.** The scan base comes from the trusted staged worktree, never from flow-spec data — the spec-controlled base was a P0 precisely because it let a composer neutralize the scan (session history; fix in commit `46d3a46` "Fix three P0 findings in the compute-effect bodies", empty-range-fails-closed covered by tests in `block-effects.test.ts`).
 
@@ -123,14 +127,33 @@ Six transferable rules for any pipeline that sends repo content to an external s
 
 **Known operational hole (session history).** Because secret-scan is nested inside the work stage's green branch, a run parked at the work gate never scans; merging a branch from such a run means the diff was never scanned. The observed compensation was a manual grep pass over the diff (api key/token/`sk-`/`ghp_`/`AKIA`/private-key headers/`op://` patterns) before merging.
 
-**Former gap (standalone harnesses) — CLOSED 2026-08-14** (`docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md`, done). Standalone `se-code-review` / `se-simplify` used to snapshot the repo via `git stash create` and ship it to external legs with no scan. The shared pre-external gate shipped in `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` (`enforcePreExternalGate`, `pre-external-gate.ts:197`; callers hold a `preScanned` flag and skip the gate on the already-scanned pipeline path, so it is not double-scanned) and both standalone harnesses now pass through it before their `Parallel` legs dispatch (tests: `pre-external-gate.test.ts`, `standalone-secret-gate.test.ts`). The follow-up tree-tier (`preExternalTreeGate`) closed the pre-`baseSha` exposure on 2026-08-15 (`docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md`, done).
+**Coverage regression (standalone harnesses) — REOPENED 2026-09-01.** This gap was closed on
+2026-08-14 (`2026-07-27-002`, done) by a shared pre-external gate, `enforcePreExternalGate` in
+`dot_smithers/workflows/lib/pre-external-gate.ts`, which both standalone harnesses passed through
+before dispatching their legs; the follow-up tree-tier (`preExternalTreeGate`) closed the
+pre-`baseSha` exposure on 2026-08-15 (`2026-08-14-009`, done). **That gate was deleted with the
+Smithers runtime and nothing replaced it.**
+
+Current state, verified against the tree: five skills launch external peers through
+`home/private_dot_claude/shared/herdr-peer-launch.md` — `se-doc-review`, `se-code-review`,
+`se-simplify`, `se-plan`, and `ask-in-herdr`. The launch starts a Claude peer and an OpenCode peer
+rooted at the live checkout with permission prompts suppressed, so two third-party model providers
+read repository content. Only `se-doc-review/SKILL.md:27` scans first, and it scans a single
+document (`gitleaks dir` over `$DOC_PATH`), not a diff range or the tree. `gitleaks` appears in
+exactly three tracked files: that skill, `Brewfile.tmpl`, and `templates_test.sh`.
+
+Rule 1 below therefore states a boundary the repository does not currently hold at every crossing.
+The guidance is unchanged and still correct; the implementation stopped satisfying it. This is a
+potential product regression, not doc drift, and no repository issue tracks it.
 
 ## Related
 
-- `docs/issues/2026-07-27-002-standalone-harness-secret-boundary.md` — the standalone-harness gap (done, closed 2026-08-14).
-- `docs/issues/2026-08-14-009-snapshot-base-tree-unscanned.md` — the tree-tier scope decision (done, closed 2026-08-15).
+- `2026-07-27-002` — the standalone-harness gap (done, closed 2026-08-14).
+- `2026-08-14-009` — the tree-tier scope decision (done, closed 2026-08-15).
 - `docs/plans/2026-07-16-001-feat-se-pipeline-provenance-rescan-plan.md` — the plan (status: done) behind rule 6: `scannedHead` threading, `rescanGate`, provenance binds; its KTD-C (`waiveOnApprove: true`) is superseded on that one point by the shipped `waiveOnApprove: false`.
-- `docs/se-pipeline.md` — runbook: secret-scan required before every external block (se flow catalog), "Провенанс и пост-approval рескан" (`:657-713`) with the `BOUND_STALE` recovery notes and acceptance recipes.
+- `docs/se-pipeline.md` (removed 2026-09-01 with the Smithers runtime; git history only) — runbook: secret-scan required before every external block (se flow catalog), "Провенанс и пост-approval рескан" (`:657-713`) with the `BOUND_STALE` recovery notes and acceptance recipes.
 - `docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md` — the plan (status: done) that fixed the boundary ordering and deferred the standalone case.
 - `home/private_dot_claude/dot_smithers/workflows/lib/envelopes.ts` — `secretScanDiff` implementation; `home/private_dot_claude/dot_smithers/workflows/lib/gates.ts` — `rescanGate` (`:406-436`); `home/private_dot_claude/dot_smithers/workflows/lib/pre-external-gate.ts` — the two-tier standalone gate.
 - `../design-patterns/gate-bias-follows-blast-radius.md` — the fail-closed bias family this boundary's gates inherit; also covers why only applied simplify edits trigger the commit+rescan machinery.
+- Closed issues above are bare IDs, for archaeology in git history: `2026-07-27-002`, `2026-08-14-009`.
+  Those files were removed in the closed-issue cleanup; the evidence they carried is reproduced inline above.

@@ -77,34 +77,49 @@ Arithmetic assertions follow the same rule:
 
 PR [#91](https://github.com/Seigiard/my-mac-setup/pull/91) converted all 29 first-party standalone checks and added `scripts/check_bats_assertions.py` to `make lint`. The checker recursively inspects first-party `.bats` files and rejects covered `[[ ... ]]` and `(( ... ))` command shapes without explicit status handling. It excludes vendored Bats libraries and distinguishes executable conditionals from quoted text, comments, heredocs, here-strings, arithmetic expansions, multiline conditionals, and normal `if` or `while` control flow.
 
-The checker resumes after each recognized compound conditional and inspects later same-line command segments. [`2026-08-28-004`](../../issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md) records the regression coverage that prevents an explicitly handled first conditional from hiding a later bare conditional.
+The checker resumes after each recognized compound conditional and inspects later same-line command segments. `2026-08-28-004` records the regression coverage that prevents an explicitly handled first conditional from hiding a later bare conditional.
 
 Behavioral tests in `tests/test_bats_assertion_contract.py` prove both sides of the checker contract. Unsafe fixtures return nonzero with file and line diagnostics, while explicit handlers, control flow, shell payloads, and vendored fixtures remain accepted. Each converted assertion was also calibrated with an always-false mutation and observed failing at its new handler before its real condition was restored.
 
 ## Why This Works
 
-Bats preprocesses each `@test` block into a generated Bash function. Conceptually, the unsafe example becomes:
+The quirk is a property of **macOS system Bash 3.2**, not of any particular test runner, which is why
+it survived this repository's migration off bats. Under a runner that installs an `ERR` trap and
+relies on the test body's final exit status:
 
-```bash
-bats_test_function --description "returns the expected value" -- test_returns_the_expected_value
-test_returns_the_expected_value() {
-  actual="$(produce_value)"
-  [[ "$actual" == "expected" ]]
-  printf 'checked\n'
-}
-```
-
-`bats-exec-test` starts with `set -eET`, installs Bats' `ERR` trap, and invokes the generated function from `bats_perform_test`. The verified causal chain on macOS Bash 3.2 is:
-
-1. The generated function executes a false mid-function `[[ ... ]]` or `(( ... ))` command.
-2. Bash 3.2 neither exits nor invokes the inherited `ERR` trap for that compound conditional in this position.
+1. The test body executes a false mid-body `[[ ... ]]` or `(( ... ))` command.
+2. Bash 3.2 neither exits nor invokes the inherited `ERR` trap for that compound conditional in this
+   position.
 3. Execution continues to the next command.
-4. A later successful command becomes the function's final status.
-5. Bats reaches `BATS_TEST_COMPLETED=1` and reports the test as passing.
+4. A later successful command becomes the body's final status.
+5. The runner sees a zero final status and reports the test as passing.
 
-With `[[ ... ]] || fail "..."`, false selects the explicit failure branch. `fail` returns nonzero with a useful diagnostic, so the test no longer depends on Bash preserving the compound conditional's intermediate status.
+This held under bats, whose `bats-exec-test` ran generated `@test` functions under `set -eET`, and it
+holds today under the house DSL. `tests/bashunit/test-dsl.bash:16-21` documents the inheritance
+explicitly, and names this document as the reason:
 
-This bug is specific to the compound conditional commands tested here. A false simple `[ ... ]` command in the same mid-function position was empirically observed to trigger `ERR` and `errexit` under macOS Bash 3.2. The lint guard therefore targets standalone `[[ ... ]]` and `(( ... ))`, not every `[` simple command. Explicit assertion helpers or `|| fail` are still preferable whenever a command is intended to communicate an assertion.
+> Failure detection is an ERR trap with errtrace (`set -E`, no errexit) plus the body's final exit
+> status. This matches bats' `set -eET` on the same interpreter — helper-depth command failures fail
+> the test, while the bash-3.2 quirk stays: a mid-body `[[ ]]`/`(( ))` false is inert.
+
+The DSL installs that trap as `_BATS_ERR_TRAP` (`test-dsl.bash:37`, armed at `:59` and `:129`). Because
+it deliberately reproduces bats' semantics on the same interpreter, it reproduces this defect too.
+
+With `[[ ... ]] || fail "..."`, false selects the explicit failure branch. `fail` returns nonzero with
+a useful diagnostic, so the test no longer depends on Bash preserving the compound conditional's
+intermediate status. `fail` still exists in the DSL with bats-support semantics, so the prescribed fix
+is unchanged.
+
+This bug is specific to the compound conditional commands tested here. A false simple `[ ... ]` command
+in the same mid-function position was empirically observed to trigger `ERR` and `errexit` under macOS
+Bash 3.2. The lint guard therefore targets standalone `[[ ... ]]` and `(( ... ))`, not every `[` simple
+command. Explicit assertion helpers or `|| fail` are still preferable whenever a command is intended to
+communicate an assertion.
+
+> **Naming note.** The title and slug of this document say "Bats" because bats was the runner when the
+> defect was found. The repository migrated to bashunit in `051d3de`; the defect, the guard, and the fix
+> are unchanged. The slug is retained because `tests/bashunit/test-dsl.bash` and
+> `scripts/check_bats_assertions.py` both cite this file by path.
 
 ## Prevention
 
@@ -114,16 +129,21 @@ This bug is specific to the compound conditional commands tested here. A false s
 - Keep rejection fixtures beside valid controls so the guard proves it recognizes executable conditionals without rejecting control flow, generated shell payloads, or vendored tests.
 - Run macOS and Linux gates because shell-version differences are part of the supported environment, not interchangeable evidence.
 
-Verification for the fix completed successfully:
+Verification recorded when the fix landed (2026-08-28, on the then-current bats suite): `make test-issues`
+44 tests, `make lint`, all 14 affected test bodies after restoring their real conditions, and
+`make test-ubuntu` at 403 cases with expected skips. Those counts have moved since the bashunit
+migration and are kept as the historical record, not as current expected values.
 
-- `make test-issues`: 44 tests.
-- `make lint`.
-- All 14 affected Bats test bodies after restoring their real conditions.
-- `make test-ubuntu`: 403 cases with expected skips.
+The guard's scope grew with the migration. `scripts/check_bats_assertions.py:229-247` now globs
+`bashunit/*_test.sh`, `helpers/*.bash` and `bashunit/*.bash` alongside any remaining `*.bats`, with the
+comment "`.bats` files disappear in a later migration stage; their absence is fine." It scans whole
+files rather than only `test_*` bodies, because helpers run in the same test context.
 
 ## Related Issues
 
-- [`docs/issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md`](../../issues/2026-08-27-002-bare-mid-test-assertions-are-silently-inert-in-bats.md) records the repository issue and resolution.
-- [`docs/issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md`](../../issues/2026-08-28-004-bats-assertion-checker-misses-a-second-same-line-conditional.md) records the resolved same-line false negative.
+- `2026-08-27-002` records the repository issue and resolution.
+- Closed issues above are bare IDs, for archaeology in git history: `2026-08-27-002`, `2026-08-28-004`.
+  Both files were removed in the closed-issue cleanup.
+- `2026-08-28-004` records the resolved same-line false negative.
 - [PR #91: Enforce Bats conditional assertions](https://github.com/Seigiard/my-mac-setup/pull/91) contains the implementation and verification evidence.
 - [`semantic-regression-tests-over-source-shape.md`](../design-patterns/semantic-regression-tests-over-source-shape.md) defines the broader red/green calibration and behavioral-control pattern used here.

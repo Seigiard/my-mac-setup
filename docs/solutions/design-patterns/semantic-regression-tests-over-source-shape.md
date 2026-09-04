@@ -21,7 +21,7 @@ symptoms:
   - "A subprocess error message satisfies an output assertion because status was never checked"
   - "A fixture called valid never reaches the success path it claims to exercise"
   - "A required package is declared or installed, but the process running the gate cannot resolve its binary"
-- "A partial or isolated run is reported as proof that the complete suite passed"
+  - "A partial or isolated run is reported as proof that the complete suite passed"
 tags:
   - semantic-tests
   - regression-tests
@@ -29,7 +29,7 @@ tags:
   - source-shape
   - control-fixtures
   - coverage-ownership
-  - bats
+  - bashunit
 ---
 
 # Semantic regression tests over source shape
@@ -38,7 +38,7 @@ tags:
 
 A test-suite audit found many green checks but less independent evidence than the pass count implied. Some tests searched source files for method names or wiring strings, several repeated facts already enforced by TypeScript or a stronger neighboring test, and some subprocess assertions inspected output without first proving the command succeeded. Other fixtures carried a success-oriented name while never reaching the validator or aggregation branch they claimed to cover.
 
-The audit also found verification drift. Different CI and Docker paths invoked selected Smithers commands directly, so a green path could omit the frozen install, secret scan, typecheck, or part of the Bun suite. At the repository level, `make test-suite` can pass while testing the already-deployed home directory rather than an unapplied checkout. A complete `tests/scripts.bats` run then stalled even though the blocked test passed alone, demonstrating that isolated success is not a suite verdict.
+The audit also found verification drift. Different CI and Docker paths invoked selected Smithers commands directly, so a green path could omit the frozen install, secret scan, typecheck, or part of the Bun suite. At the repository level, `make test-suite` can pass while testing the already-deployed home directory rather than an unapplied checkout. A complete run of the full script suite then stalled even though the blocked test passed alone, demonstrating that isolated success is not a suite verdict. (That suite has since migrated from bats to bashunit; the audit's Smithers examples describe a codebase that was removed on 2026-09-01, but the pattern is unchanged.)
 
 These failures share one cause: the check proves that some implementation shape or execution fragment exists, not that the intended contract survives regression.
 
@@ -96,6 +96,16 @@ Use the smallest canonical `make` target that covers the changed contract. A can
 
 For managed files under `home/`, `make test-ubuntu` applies the checkout inside a disposable environment. `make test-suite` is host-safe by design and observes the already-deployed home directory, so it cannot prove an unapplied managed-file change.
 
+**The negative-assertion case is now mechanized.** `home/dot_local/bin/executable_test-oracle-guard`
+is a deployed gate — shared by a Claude Code hook, an opencode plugin and a pi extension — that
+inspects proposed edits to test files and flags assertions of *absence*, because those usually
+restate the patch that removed a string instead of protecting behavior. Its header names this
+document as the standard it enforces. The escape hatch is an `oracle:` comment on or just above the
+flagged line, naming the independent oracle; the gate fails open so a broken guard never blocks an
+agent. Its behavioral coverage is `tests/bashunit/oracle_guard_test.sh`. A known gap is open:
+`docs/issues/2026-09-02-011-test-oracle-guard-misses-positive-tautological-tests.md` — the guard
+catches tautological *negative* assertions but not tautological positive ones.
+
 Dependency presence is not command reachability. Verify required binaries from the exact process that runs the gate. A package declaration, a successful installer log, or a `shellenv` export in an earlier subprocess does not prove that a later CI step can resolve the command.
 
 Check what actually ran as well as its exit code. Skips can remove coverage while preserving green, and a partial run can stop before the relevant test. When dependencies or environments change, compare skip identities and reasons rather than only pass counts.
@@ -124,7 +134,8 @@ The 2026-08-24 audit applied these rules in several forms:
 - Cost aggregation moved to real SQLite-backed events with child, unrelated, shared-prefix, and wrong-event controls.
 - Platform subprocess checks now require successful status before accepting output.
 - Repeated apply/idempotency paths were consolidated under one state-transition owner.
-- The stalled `tests/scripts.bats` run was reported as incomplete even though its active test passed in isolation.
+- The stalled full-suite run was reported as incomplete even though its active test passed in isolation.
+  (That suite was `tests/scripts.bats`; it is now `tests/bashunit/scripts_test.sh` after the bashunit migration.)
 
 The important result is not fewer tests by itself. The resulting suite has fewer assertions whose verdict can remain green while the protected behavior is absent.
 
@@ -139,4 +150,8 @@ Do not replace exact-format contract tests merely because they inspect text. Fir
 - `skip-set-parity-proves-reduced-dependencies.md` — why a green suite does not prove unchanged coverage when skips can expand.
 - `completion-is-not-a-verdict.md` — why execution completion and an acceptance verdict are separate states.
 - `idle-machine-wall-clock-bounds-are-latent-flakes.md` — why timing observations need a bounded, state-aware contract.
-- `../../issues/2026-08-24-001-full-scripts-suite-hangs-after-socket-namespace-test.md` — unresolved full-suite stall discovered during the audit.
+- `2026-08-24-001` — the full-suite stall discovered during the audit. Closed and compounded into
+  `outliving-processes-hang-the-suite.md`, which owns that failure class; the issue file was removed
+  in the closed-issue cleanup.
+- `outliving-processes-hang-the-suite.md` — the sibling class: a suite that never returns rather than
+  one that returns a dishonest verdict.

@@ -3,7 +3,7 @@ title: External review legs as unreliable subprocesses
 date: 2026-08-14
 last_updated: 2026-08-23
 category: design-patterns
-module: se-pipeline
+module: agent-platform
 problem_type: design_pattern
 component: development_workflow
 severity: high
@@ -35,7 +35,11 @@ tags:
 
 ## Context
 
-The se-pipeline dispatches external review legs — independent headless claude and opencode CLI runs (CONCEPTS.md "External leg") — whose JSON reports are merged deterministically before a gate counts P0/P1 findings. Each leg is a subprocess running a full multi-persona review inside another agent harness, and the pipeline has accumulated hard-won rules about how such legs die: silently, partially, or while wearing a valid-looking report.
+> **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
+> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> `dot_smithers/**` path cited below is readable only in git history. The leg contract was re-implemented in prose rather than abandoned: `home/private_dot_claude/shared/herdr-peer-launch.md` carries the report-file transport, the symlink refusal and the degrade ladder. See **Successor gap** below for the one rule that did not survive.
+
+The se-pipeline dispatches **external legs** — a single review pass executed by a separate, headless agent CLI process (claude or opencode) that returns a report and nothing else — whose JSON reports are merged deterministically before a gate counts P0/P1 findings. Each leg is a subprocess running a full multi-persona review inside another agent harness, and the pipeline has accumulated hard-won rules about how such legs die: silently, partially, or while wearing a valid-looking report.
 
 The original incidents (session history, 2026-07-24): two dead `review-claude` legs in one day, with different causes. The smithers run with id prefix 9925bb0d hung — log heartbeats showed `(0 bytes)` from ~minute 35 while the CLI burned the entire 45-minute wall-clock cap; the run with id prefix 89938dd6 emitted garbage instead of a valid envelope (`AGENT_CLI_ERROR`). Both runs "succeeded" with the review riding on the surviving opencode leg alone. `retries: 0` on review legs is deliberate (a prior budget incident: 4 attempts × ~$15 on one diff), which makes any false-positive kill an unrecoverable loss of a live review. The stall fix is the origin plan `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` (status: done).
 
@@ -75,6 +79,14 @@ The surrounding comment (`agents.ts:128-141`) records two layers: a system-promp
 
 The `work` profile deliberately has no idle timeout — long locally-silent commands (installs, test suites) are legitimate there.
 
+> **Successor gap — this rule has no implementation today.** The peer launch that replaced the
+> Smithers legs waits with a single flat wall clock: `herdr agent wait "$PANE" --timeout 1800000`
+> (`home/private_dot_claude/shared/herdr-peer-launch.md:119-120`), 30 minutes, with no idle-timeout
+> equivalent anywhere. Against the healthy-leg distribution measured above (median 13.7 min, p75
+> 23.7, max 80.8), a flat 30-minute cap does both things this rule exists to prevent: it kills
+> healthy long legs, and it lets a silent one burn the entire budget instead of dying at an idle
+> threshold. The guidance stands; the successor does not implement it.
+
 **4. Validate reports at the boundary; fail closed on missing/unparseable — and salvage before schema validation.**
 `review-merge.ts:22-37` (`parseLeg`): missing raw → failed; JSON parse error → failed (never throws); no `findings` array → failed; a status that claims failure or an unfinished state → failed. The gate turns all-legs-failed into `degraded` and one failed leg into an advisory reason. Two sub-rules:
 
@@ -84,7 +96,7 @@ The `work` profile deliberately has no idle timeout — long locally-silent comm
 **5. Fail closed on absence of evidence, not on an unfamiliar adjective.**
 Fail-closed has a price when it is applied to a model's free text, and the price was measured: on the identical `fixture-reverse-plan` fixture, run-1786539437958 (status `completed`) went green while run-1786700241899 (status `findings`) had its healthy leg discarded, its well-formed P3 finding dropped from the merged report, and the run parked for a needless approval — the exact interruption cost the pipeline exists to remove. The second-order cost is worse than the pause: a real P0 from a leg that said `findings` would have vanished from the merged report while the run degraded for an apparently unrelated reason.
 
-The resolution (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, status: done, fix commit `186b6a8`) inverted the rule rather than widening the word list: **health is judged by the payload, not by the adjective.** `isUsableReviewLegStatus` (`review-schema.ts:62-71`) replaced the success allowlist at the merge call site, and asks in order — a missing, non-string, or empty status fails the leg (this is where the fail-closed intent survives: no evidence is not health); a negated success word ("not completed") fails; a known success word passes; an explicit failure or progress state fails; and **anything else passes**, because the caller has already required a parsed `findings` array, and that array is the evidence the leg ran. Replayed against the recorded run, the discarded leg comes back with its P3 finding and the run no longer parks.
+The resolution (`2026-08-14-002`, status: done, fix commit `186b6a8`) inverted the rule rather than widening the word list: **health is judged by the payload, not by the adjective.** `isUsableReviewLegStatus` (`review-schema.ts:62-71`) replaced the success allowlist at the merge call site, and asks in order — a missing, non-string, or empty status fails the leg (this is where the fail-closed intent survives: no evidence is not health); a negated success word ("not completed") fails; a known success word passes; an explicit failure or progress state fails; and **anything else passes**, because the caller has already required a parsed `findings` array, and that array is the evidence the leg ran. Replayed against the recorded run, the discarded leg comes back with its P3 finding and the run no longer parks.
 
 Two rejected alternatives are worth keeping visible. Widening the allowlist was the cheapest change and the least durable — the next unseen synonym reintroduces the identical failure. Constraining the status to an enum the model cannot paraphrase is genuinely better *where it reaches*: the claude leg already takes `reviewLegJsonSchema` (`review-schema.ts:77-83`), but the opencode path could not be shown to carry the same constraint, and a rule covering one leg of two is not a rule. Prefer the schema constraint when every leg can take it; fall back to payload evidence when they cannot.
 
@@ -107,15 +119,20 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
 - Dead leg wearing a valid shape: status `waiting_for_reviewers` with an empty findings array, salvaged from a session killed at the 10-min background-wait ceiling — rejected by `parseLeg` (`review-merge.ts:32`), fix commit `2c4f533`. Still rejected after the payload-health inversion, and covered by a test that says so.
 - Harness pin: `agents.ts:142` `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` applied to every spawned claude review/apply agent (`agents.ts:156,182`), layered under the synchronous-dispatch system prompt (`agents.ts:144-145`).
 - Liveness vs wall-clock: opencode profile `timeoutMs: 25 * 60_000`, `idleTimeoutMs: 10 * 60_000` (`agents.ts:87-92`) — raised cap after killing a healthy streaming leg (commit `42329df`), kept idle threshold for genuine stalls.
-- Measured fail-closed cost, then the inversion: two runs on one fixture, `completed` → green vs `findings` → leg discarded and run parked; fixed by judging the payload (`docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md`, done; commit `186b6a8`). The fix was verified by replaying the recorded run's legs out of `smithers.db` through the merge, before and after — 0 merged findings and a pause became 1 merged finding and no pause. A unit test alone would not have shown that the finding had been disappearing.
+- Measured fail-closed cost, then the inversion: two runs on one fixture, `completed` → green vs `findings` → leg discarded and run parked; fixed by judging the payload (`2026-08-14-002`, done; commit `186b6a8`). The fix was verified by replaying the recorded run's legs out of `smithers.db` through the merge, before and after — 0 merged findings and a pause became 1 merged finding and no pause. A unit test alone would not have shown that the finding had been disappearing.
 - Leg-death forensics entry points (session history): the run's `stream.ndjson` heartbeat log under the smithers executions directory, `_smithers_attempts.response_text` in `smithers.db`, and the leg's own session JSONL.
 
 ## Related
 
-- `docs/issues/2026-08-14-002-review-leg-status-allowlist-false-failures.md` — the false-fail bug: measured cost of fail-closed on free text, the three candidate directions, and why payload-based health won (status: done, commit `186b6a8`).
+- `2026-08-14-002` — the false-fail bug: measured cost of fail-closed on free text, the three candidate directions, and why payload-based health won (status: done, commit `186b6a8`).
 - `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` — the original stall/unwrap fix (status: done).
-- `docs/se-pipeline.md:590-656` — runbook: the present-tense failure taxonomy of a review leg (PROCESS_IDLE_TIMEOUT, PROCESS_TIMEOUT + reap lag, AGENT_CLI_ERROR, non-terminal report status) plus the payload-over-adjective status rule; thresholds and env pins live there, this doc carries the transferable pattern and its history.
+- `home/private_dot_claude/shared/herdr-peer-launch.md` — the successor contract: report-file transport,
+  symlink refusal, "a settled state is only a wake-up signal", and the degrade ladder its callers
+  (`se-code-review`, `se-doc-review`, `se-simplify`) restate. It replaced `docs/se-pipeline.md`, which
+  was removed with the Smithers runtime.
 - `docs/solutions/design-patterns/protected-slot-signal-extraction.md` — the full development of the severity-layer paragraph above: protected-slot extraction (decoys inert by position), cross-field consistency, and why the additive layer may fail open to advisory while leg availability stays fail-closed.
 - `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
 - `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` — sibling test-harness pattern: prefer causal assertions, or separate a generous hang guard from the narrow behavioral assertion when elapsed time is unavoidable.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).
+- Closed issues above are bare IDs, for archaeology in git history: `2026-08-14-002`. The file was
+  removed in the closed-issue cleanup; the evidence it carried is reproduced inline above.

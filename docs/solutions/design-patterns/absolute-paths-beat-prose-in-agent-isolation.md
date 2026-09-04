@@ -2,7 +2,7 @@
 title: A path in the prompt outranks prose about the sandbox
 date: 2026-08-15
 category: design-patterns
-module: se-pipeline
+module: agent-platform
 problem_type: design_pattern
 component: development_workflow
 severity: high
@@ -38,13 +38,17 @@ Paths shortened to `lib/…`, `se-pipeline.tsx` or `se-flow.tsx` are relative to
 
 ## Context
 
+> **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
+> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> `dot_smithers/**` path cited below is readable only in git history. The transferable rule outlived the incident: it is why child-agent coordinates are exported into the pane environment (`home/dot_local/lib/herdr-child-launch.sh`) rather than only described in a prompt, and why `se-doc-review/SKILL.md:36-41` stages a frozen `DOC_COPY` outside the working tree.
+
 The se-pipeline stages an isolated `git worktree` on a run branch and dispatches the work agent with that worktree as its cwd. The prompt said so in plain words — "your cwd is an ISOLATED git worktree of the target repository, already on the run branch … do NOT create worktrees" (`home/private_dot_claude/dot_smithers/workflows/se-pipeline.tsx:238`) — and in the same prompt handed the agent an absolute path to the plan file in the operator's **main checkout**, by design: `inputSchema.planPath` was "read from the launcher, never from the worktree (KTD11)" so a plan edited mid-run could not change the contract the run was gated on.
 
-On `run-1786717826270` the agent wrote both changed files into that main checkout (`/Users/andrew.b/Projects/platform-2`) on `main`. The run branch stayed empty at the base commit. Those two facts are what the run recorded. The mechanism behind them — the agent resolving every repository path against the plan's repository rather than against its cwd — was inferred from the prompt at the time and never instrumented (`docs/issues/2026-08-14-012-work-agent-escapes-the-isolated-worktree.md` says "the likely mechanism"). It is the only reading consistent with where the files landed, and both fixes are built on it, but it is an inference.
+On `run-1786717826270` the agent wrote both changed files into that main checkout (`/Users/andrew.b/Projects/platform-2`) on `main`. The run branch stayed empty at the base commit. Those two facts are what the run recorded. The mechanism behind them — the agent resolving every repository path against the plan's repository rather than against its cwd — was inferred from the prompt at the time and never instrumented (`2026-08-14-012` says "the likely mechanism"). It is the only reading consistent with where the files landed, and both fixes are built on it, but it is an inference.
 
-What caught it was not a guard against escape — there was none — but an unrelated proof-of-work invariant. `workGate` compares the worktree's tree object against the base commit's and fails a leg that produced no content (`home/private_dot_claude/dot_smithers/workflows/lib/gates.ts:313-314`, via `treeHash` in `lib/staging.ts:378`). The run parked with `worktree tree hash equals base — no content change, agent produced no work (KTD14)`: a message that names the symptom and blames the agent. The operator pays for a full agent leg, gets a red gate, and finds their real changes uncommitted on `main` — the one place the pipeline promises not to touch (`docs/issues/2026-08-14-012-work-agent-escapes-the-isolated-worktree.md`).
+What caught it was not a guard against escape — there was none — but an unrelated proof-of-work invariant. `workGate` compares the worktree's tree object against the base commit's and fails a leg that produced no content (`home/private_dot_claude/dot_smithers/workflows/lib/gates.ts:313-314`, via `treeHash` in `lib/staging.ts:378`). The run parked with `worktree tree hash equals base — no content change, agent produced no work (KTD14)`: a message that names the symptom and blames the agent. The operator pays for a full agent leg, gets a red gate, and finds their real changes uncommitted on `main` — the one place the pipeline promises not to touch (`2026-08-14-012`).
 
-The same one-line prompt shape existed in a second interpreter in the same repo: se-flow's `work` block built `Execute the plan at ${i.planPath} …` from an operator-supplied spec field (`docs/issues/2026-08-15-002-se-flow-work-block-hands-the-agent-a-launcher-plan-path.md`). Nothing about the mechanism was specific to se-pipeline; both were closed in commits `1c3c164` and `89ed25a`.
+The same one-line prompt shape existed in a second interpreter in the same repo: se-flow's `work` block built `Execute the plan at ${i.planPath} …` from an operator-supplied spec field (`2026-08-15-002`). Nothing about the mechanism was specific to se-pipeline; both were closed in commits `1c3c164` and `89ed25a`.
 
 ## Guidance
 
@@ -82,14 +86,15 @@ The same one-line prompt shape existed in a second interpreter in the same repo:
 
 **Still not solved — nothing confines the agent to its cwd.** The third option in the issue ("confine the agent to its cwd rather than relying on prompt prose") was not taken: the agent CLI offers no filesystem boundary to lean on. The fix removes the pointer instead of building a fence, so an agent that decides to write outside its worktree for any other reason still can, and only the advisory digest will hint at it. Treat rule 1 as mitigation, not enforcement.
 
-**Open gap in se-flow.** se-flow has no escape diagnosis at all: its proof-of-work comparison reports only "no content change" (`lib/blocks/index.ts:98-102`, over the trees `commitWorkEffect` computes at `lib/block-effects.ts:113-117`). The digest check was deliberately not ported, because se-flow can legitimately run with `worktreePath === repoPath` (no workspace needed), where a dirty main checkout is expected and the comparison would be actively wrong without a suppression signal. Tracked as `docs/issues/2026-08-15-005-se-flow-has-no-main-checkout-escape-diagnosis.md` (status: open).
+**Open gap in se-flow.** se-flow has no escape diagnosis at all: its proof-of-work comparison reports only "no content change" (`lib/blocks/index.ts:98-102`, over the trees `commitWorkEffect` computes at `lib/block-effects.ts:113-117`). The digest check was deliberately not ported, because se-flow can legitimately run with `worktreePath === repoPath` (no workspace needed), where a dirty main checkout is expected and the comparison would be actively wrong without a suppression signal. Tracked as `2026-08-15-005` (status: open).
 
 **Verification status.** The pipeline fix is covered by `lib/staging.test.ts` (copy placement outside the worktree, the explicit regression guard that `commitWorkGuarded` after staging commits nothing and leaves the tree hash at base, hash-mismatch refusal, idempotent re-staging) and `lib/gates.test.ts` (the escape reason only ever adds to a verdict). The se-flow half is proven by unit tests only — editing the interpreter's module graph is forbidden while a run is live or parked (KTD1), so a live re-run is the operator's call.
 
 ## Related
 
-- `docs/issues/2026-08-14-012-work-agent-escapes-the-isolated-worktree.md` — the original incident and its resolution (commit `1c3c164`).
-- `docs/issues/2026-08-15-002-se-flow-work-block-hands-the-agent-a-launcher-plan-path.md` — the same doorway in se-flow (commit `89ed25a`).
-- `docs/issues/2026-08-15-005-se-flow-has-no-main-checkout-escape-diagnosis.md` — open: no escape diagnosis on the flow path.
-- `docs/se-pipeline.md` — runbook: frozen plan copy beside the worktree, per-render re-verification, substitution in the interpreter.
-- `docs/solutions/architecture-patterns/resume-safe-dynamic-composition-durable-workflow.md` — sibling se-pipeline/se-flow pattern; the same "variation lives in validated input, code stays fixed" seam is where the plan-path substitution had to land.
+- `2026-08-14-012` — the original incident and its resolution (commit `1c3c164`).
+- `2026-08-15-002` — the same doorway in se-flow (commit `89ed25a`).
+- `2026-08-15-005` — open: no escape diagnosis on the flow path.
+- `docs/se-pipeline.md` (removed 2026-09-01 with the Smithers runtime; git history only) — runbook: frozen plan copy beside the worktree, per-render re-verification, substitution in the interpreter.
+- Closed issues above are bare IDs, for archaeology in git history: `2026-08-14-012`, `2026-08-15-002`, `2026-08-15-005`.
+  Those files were removed in the closed-issue cleanup; the evidence they carried is reproduced inline above.
