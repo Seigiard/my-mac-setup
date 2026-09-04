@@ -32,6 +32,13 @@ brew "terminal-notifier"
 brew "schpet/tap/linear"
 brew "letstri/tap/druk"
 
+# ImageMagick delegates. imagemagick lives in Brewfile, but it reaches these
+# two by shelling out at runtime (`gs` for the pdf/ps/eps delegates,
+# `rsvg-convert` for svg), not by linking them — so brew records no dependency
+# and a clean machine gets an imagemagick that fails only at conversion time.
+brew "ghostscript"  # gs
+brew "librsvg"      # rsvg-convert
+
 # AI coding agents (macOS-only casks; cross-platform ones live in Brewfile)
 cask "claude-code"
 cask "codex"
