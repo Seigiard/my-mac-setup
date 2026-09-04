@@ -6143,6 +6143,40 @@ function test_scripts_1152_herdr_pane_labels_formatter_qualifies_a_divergent_wor
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
+function test_scripts_1206_herdr_pane_labels_names_the_space_a_worktree_space_ca() {
+  _bats_test_init 1206 'herdr-pane-labels names the space a worktree space came from, and only when it adds something'
+  command -v jq >/dev/null || skip "jq not available"
+  hpl_setup
+  # given: a worktree space labelled by its task, a worktree space whose label
+  # already is the repository name, and a space herdr reports no worktree for
+  local work="$HPL_WORK/work" state
+  mkdir -p "$work"
+  hpl_git_fixture "$work" "" 1 ready 'fatal: not a git repository'
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$work")"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-2 "$work" | jq -c '.workspace_id = "ws-2"')"
+  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-3 "$work" | jq -c '.workspace_id = "ws-3"')"
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-2","workspace_id":"ws-2","label":""}'
+  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-3","workspace_id":"ws-3","label":""}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"Task Name","worktree":{"repo_name":"repository","is_linked_worktree":true}}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-2","label":"repository","worktree":{"repo_name":"repository","is_linked_worktree":false}}'
+  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-3","label":"IronVault"}'
+  hpl_set_process_label pane-1 one
+  hpl_set_process_label pane-2 two
+  hpl_set_process_label pane-3 three
+
+  # when: one location/presentation pass runs
+  hpl_location_pass
+  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
+
+  # then: only the space whose label differs from its repository names the parent
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.space_origin' "$state")" repository
+  run jq -e '.panes[] | select(.pane_id == "pane-2") | .tokens.space_origin == null' "$state"
+  assert_success
+  run jq -e '.panes[] | select(.pane_id == "pane-3") | .tokens.space_origin == null' "$state"
+  assert_success
+}
+
 function test_scripts_1153_herdr_pane_labels_formatter_keeps_mixed_git_identities_() {
   _bats_test_init 1153 'herdr-pane-labels formatter keeps mixed Git identities out of tabs and repairs external labels'
   command -v jq >/dev/null || skip "jq not available"

@@ -59,12 +59,21 @@ sidebar_min_width = 32
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
 # labels, rebuilds tab labels, and publishes the Git location tokens.
-# The third row renders `$git_ref` — the engine's composed location string
-# (place glyph + branch/worktree/short SHA, folder qualifier, stale marker).
-# It is a separate row on purpose: pane identity stays stable while Git state
-# moves underneath it, and a pane outside a checkout simply renders no row.
+# The third row is the pane's location. `$space_origin` names the space a
+# worktree space was cut from; `$git_ref` carries the engine's composed
+# location string (place glyph + branch/worktree/short SHA, folder qualifier
+# when there is no ref, stale marker). herdr supplies the separator, so the
+# pair reads "my-mac-setup <sep> <worktree-glyph> branch" and a worktree pane
+# is distinguishable from a plain checkout at a glance. A space whose label
+# already is the repository name publishes no origin, so the main checkout
+# does not repeat what the first row said.
+# Location stays its own row on purpose: pane identity stays stable while Git
+# state moves underneath it, and a pane outside a checkout still names the
+# folder it sits in. It sits above the pane name because where a pane works
+# is what the eye looks for when scanning the sidebar; the allocator-owned
+# alias is the last line.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace"], ["pane"], ["$git_ref"]]
+rows = [["state_icon", "workspace"], ["$space_origin", "$git_ref"], ["pane"]]
 
 # Native agent-status toasts are off: the herdr-focus-notify plugin sends its
 # own clickable notification (with `herdr agent focus` on click), and the two
