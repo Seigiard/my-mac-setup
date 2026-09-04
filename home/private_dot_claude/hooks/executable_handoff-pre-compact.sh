@@ -32,12 +32,14 @@ set -uo pipefail
 command -v jq > /dev/null 2>&1 || exit 0
 
 # The library owns the state path, the key encoding, and the extraction bound.
-CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-$HOME/.local/lib/context-usage.sh}"
+# ${HOME:-} rather than $HOME: under `set -u` an unset HOME would abort the
+# hook with a non-zero status, which is the opposite of failing open.
+CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-${HOME:-}/.local/lib/context-usage.sh}"
 [ -r "$CONTEXT_USAGE_LIBRARY" ] || exit 0
 # shellcheck source=home/dot_local/lib/context-usage.sh
 . "$CONTEXT_USAGE_LIBRARY" || exit 0
 
-HANDOFF_STORE="${HANDOFF_STORE_DIR:-$HOME/.cache/claude-handoff}"
+HANDOFF_STORE="${HANDOFF_STORE_DIR:-${HOME:-}/.cache/claude-handoff}"
 
 handoff_file() {
   printf '%s/%s.json' "$HANDOFF_STORE" "$(context_usage_encode_key "$1")"
@@ -66,6 +68,12 @@ esac
 goal="${instructions#handoff:}"
 goal="${goal#"${goal%%[![:space:]]*}"}"
 [ -n "$goal" ] || { rm -f "$store" 2> /dev/null || true; exit 0; }
+
+# Clear before extracting, not only on the non-handoff path. Otherwise a
+# second goal-carrying compaction whose extraction fails leaves the first
+# compaction's handoff in place, and the injector delivers a goal the operator
+# has already moved on from.
+rm -f "$store" 2> /dev/null || true
 
 command -v claude > /dev/null 2>&1 || exit 0
 
@@ -134,7 +142,7 @@ trap 'rm -f "$extracted"' EXIT
 # guard marker keeps the threshold hook out of it (KTD6).
 status=0
 CONTEXT_THRESHOLD_GUARD=1 claude --resume "$session_id" --fork-session \
-  --model haiku --print "$prompt" > "$extracted" 2> /dev/null || status=$?
+  --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null || status=$?
 
 [ "$status" -eq 0 ] || exit 0
 [ -s "$extracted" ] || exit 0

@@ -26,12 +26,14 @@ set -uo pipefail
 
 command -v jq > /dev/null 2>&1 || exit 0
 
-CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-$HOME/.local/lib/context-usage.sh}"
+# ${HOME:-} rather than $HOME: under `set -u` an unset HOME would abort the
+# hook with a non-zero status, which is the opposite of failing open.
+CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-${HOME:-}/.local/lib/context-usage.sh}"
 [ -r "$CONTEXT_USAGE_LIBRARY" ] || exit 0
 # shellcheck source=home/dot_local/lib/context-usage.sh
 . "$CONTEXT_USAGE_LIBRARY" || exit 0
 
-HANDOFF_STORE="${HANDOFF_STORE_DIR:-$HOME/.cache/claude-handoff}"
+HANDOFF_STORE="${HANDOFF_STORE_DIR:-${HOME:-}/.cache/claude-handoff}"
 
 input=$(cat) || exit 0
 
@@ -46,6 +48,11 @@ session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null) ||
 # happens whether or not a handoff was waiting, because a plain `/compact`
 # resets the session just as much as a goal-carrying one does.
 context_usage_clear "$session_id" > /dev/null 2>&1 || true
+
+# The published fullness number describes the window that was just emptied.
+# Leaving it would let the very next turn halt on occupancy that no longer
+# exists, before the status line has rendered once in the new window.
+rm -f "$(context_usage_usage_file "$session_id" 2>/dev/null)" 2> /dev/null || true
 
 store="$HANDOFF_STORE/$(context_usage_encode_key "$session_id").json"
 [ -f "$store" ] || exit 0

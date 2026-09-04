@@ -15,7 +15,9 @@
 # Both are replaced whole by rename, so a shared file would let one writer
 # erase the other's fields.
 
-CONTEXT_USAGE_STATE_DIR="${CONTEXT_USAGE_STATE_DIR:-$HOME/.cache/context-usage}"
+# ${HOME:-} rather than $HOME: a caller running under `set -u` with no HOME
+# must not abort here. Every path built from it is guarded at use.
+CONTEXT_USAGE_STATE_DIR="${CONTEXT_USAGE_STATE_DIR:-${HOME:-}/.cache/context-usage}"
 
 # Percentage points added to raw window occupancy to stand in for the system
 # prompt, which Claude Code does not report (R2). Empirical; one definition
@@ -33,6 +35,16 @@ CONTEXT_USAGE_TURNS_HARD="${CONTEXT_USAGE_TURNS_HARD:-300}"
 # 350-turn forks; the default leaves room for a slower model or a larger
 # session without letting the hook hang a turn.
 CONTEXT_USAGE_EXTRACTION_TIMEOUT="${CONTEXT_USAGE_EXTRACTION_TIMEOUT:-30}"
+# The declared Stop-hook timeout is the outer bound. An override above it would
+# let the platform truncate a call the hook is already managing, so an
+# out-of-range or non-numeric value falls back to the default rather than
+# silently taking effect.
+CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX="${CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX:-40}"
+case "$CONTEXT_USAGE_EXTRACTION_TIMEOUT" in
+  '' | *[!0-9]* | 0) CONTEXT_USAGE_EXTRACTION_TIMEOUT=30 ;;
+esac
+[ "$CONTEXT_USAGE_EXTRACTION_TIMEOUT" -le "$CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX" ] ||
+  CONTEXT_USAGE_EXTRACTION_TIMEOUT="$CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX"
 
 # A rendered fullness number is trusted only while it can still describe the
 # current turn (KTD3). The statusline renders many times per turn, so an older
@@ -158,10 +170,15 @@ context_usage_turn_count() {
   local transcript="$1"
   [ -n "$transcript" ] && [ -r "$transcript" ] || { printf '0'; return 0; }
   command -v jq > /dev/null 2>&1 || { printf '0'; return 0; }
-  jq -r 'if (.compactMetadata // null) != null then "C"
-         elif .type == "assistant" then "A"
-         else empty end' "$transcript" 2>/dev/null |
-    awk '/^C$/ { n = 0; next } /^A$/ { n++ } END { printf "%d", n + 0 }'
+  # A malformed line makes jq exit non-zero. The count from the lines that did
+  # parse is still the best available answer, and propagating the failure would
+  # take the caller's fullness dimension down with it under `set -o pipefail`.
+  {
+    jq -r 'if (.compactMetadata // null) != null then "C"
+           elif .type == "assistant" then "A"
+           else empty end' "$transcript" 2>/dev/null || true
+  } | awk '/^C$/ { n = 0; next } /^A$/ { n++ } END { printf "%d", n + 0 }'
+  return 0
 }
 
 # Turns to wait before announcing a hard threshold again, given how far past
@@ -214,11 +231,6 @@ context_usage_evaluate() {
       hard="${hard:+$hard,}turns"
     fi
   fi
-  if [ -n "$hard" ]; then
-    printf 'level=hard\ndimensions=%s\n' "$hard"
-    return 0
-  fi
-
   # Warn level: once per session per dimension (R9), and one dimension having
   # spent its budget never suppresses the other (R10).
   if [ -n "$fullness" ] && [ "$fullness" -ge "$CONTEXT_USAGE_FULLNESS_WARN_PCT" ] &&
@@ -229,6 +241,23 @@ context_usage_evaluate() {
     ! context_usage_field "$file" warn_turns_spent > /dev/null; then
     warn="${warn:+$warn,}turns"
   fi
+
+  if [ -n "$hard" ]; then
+    # R22 allows one message per turn, so a dimension crossing warn in the same
+    # turn as another crosses hard is named in that one message rather than
+    # held back for the next one. It is reported separately because it did not
+    # cross hard and must not record a hard announcement point.
+    case ",$hard," in
+      *,fullness,*) warn="$(printf '%s' "$warn" | sed -e 's/^fullness,//' -e 's/,fullness$//' -e 's/^fullness$//')" ;;
+    esac
+    case ",$hard," in
+      *,turns,*) warn="$(printf '%s' "$warn" | sed -e 's/^turns,//' -e 's/,turns$//' -e 's/^turns$//')" ;;
+    esac
+    printf 'level=hard\ndimensions=%s\n' "$hard"
+    [ -z "$warn" ] || printf 'warn_dimensions=%s\n' "$warn"
+    return 0
+  fi
+
   if [ -n "$warn" ]; then
     printf 'level=warn\ndimensions=%s\n' "$warn"
     return 0
@@ -310,6 +339,9 @@ context_usage_goal() {
 context_usage_clear() {
   local file
   file="$(context_usage_announce_file "$1")" || return 1
-  rm -f "$file" 2>/dev/null || return 1
-  return 0
+  rm -f "$file" 2>/dev/null
+  # The post-condition is what matters, not which call removed it. A caller
+  # that treats a failed unlink as fatal would leave the budgets spent and the
+  # session unable to announce again for the rest of its life.
+  [ ! -e "$file" ]
 }

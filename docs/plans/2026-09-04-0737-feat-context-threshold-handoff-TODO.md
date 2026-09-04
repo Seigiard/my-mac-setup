@@ -14,4 +14,4 @@ One item = one commit; the checkbox lands in that same commit.
 - [x] U5 · goal extraction
 - [x] U7 · vendor the SessionStart injector
 - [x] U8 · prove the deployed wiring end to end
-- [ ] U9 · Definition of Done sweep: `make lint`, `make test-ubuntu`, plan amendments recorded
+- [x] U9 · Definition of Done sweep: `make lint`, `make test-ubuntu`, plan amendments recorded
