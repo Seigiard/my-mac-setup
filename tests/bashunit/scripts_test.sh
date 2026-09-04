@@ -9845,3 +9845,136 @@ function test_scripts_2830_context_threshold_guards_its_own_extraction_fork() {
   assert_success
   assert_output --partial '/compact handoff:guard is 1'
 }
+
+# --- handoff SessionStart injector (U7) ------------------------------------
+
+handoff_session_start_hook() {
+  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_handoff-session-start.sh"
+}
+
+handoff_store_path() {
+  printf '%s/%s.json' "$1" "$(printf '%s' "$2" | base64 | tr '/+' '_-' | tr -d '=\n')"
+}
+
+handoff_stage_stored() {
+  local store="$1" session="$2" content="$3" file
+  file="$(handoff_store_path "$store" "$session")"
+  mkdir -p "$store"
+  jq -n --arg content "$content" \
+    '{handoff_content: $content, goal: "staged", trigger: "manual", type: "compact"}' > "$file"
+  printf '%s' "$file"
+}
+
+handoff_session_start_payload() {
+  jq -nc --arg session "$1" --arg source "$2" \
+    '{session_id: $session, cwd: "/tmp", source: $source, hook_event_name: "SessionStart"}'
+}
+
+handoff_session_start_run() {
+  env HOME="$BATS_TEST_TMPDIR/home" \
+    HANDOFF_STORE_DIR="$BATS_TEST_TMPDIR/cache" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    bash "$(handoff_session_start_hook)" \
+    <<< "$(handoff_session_start_payload "$1" "$2")"
+}
+
+function test_scripts_2831_handoff_injector_places_the_handoff_in_model_context() {
+  _bats_test_init 2831 'handoff injector emits additionalContext and never systemMessage'
+  local store="$BATS_TEST_TMPDIR/cache" file
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  file="$(handoff_stage_stored "$store" injected '## Goal
+finish the injector
+## Key Details
+the build id is 7731-ZARBLAX')"
+
+  # KTD8, R15. This is the field the whole vendoring exists for: systemMessage
+  # renders to the operator and never reaches the model, which is a handoff
+  # that was shown rather than handed off.
+  run handoff_session_start_run injected compact
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'SessionStart'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial '7731-ZARBLAX'
+  run jq -e 'has("systemMessage") | not' <<< "$response"
+  assert_success
+
+  # Consumed once. A second start finds nothing to inject.
+  assert_file_not_exists "$file"
+  run handoff_session_start_run injected compact
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_2832_handoff_injector_takes_only_this_sessions_handoff() {
+  _bats_test_init 2832 'handoff injector leaves another session handoff untouched'
+  local store="$BATS_TEST_TMPDIR/cache" other
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  other="$(handoff_stage_stored "$store" neighbour 'belongs to the other session')"
+
+  # AE7, R16. Two worktree sessions compact independently; neither may consume
+  # the other's handoff, and neither may inject a handoff it did not ask for.
+  run handoff_session_start_run mine compact
+  assert_success
+  assert_output ''
+  assert_file_exists "$other"
+  assert_file_contains "$other" 'belongs to the other session'
+}
+
+function test_scripts_2833_handoff_injector_ignores_ordinary_session_starts() {
+  _bats_test_init 2833 'handoff injector ignores session starts that are not compactions'
+  local store="$BATS_TEST_TMPDIR/cache" file
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  file="$(handoff_stage_stored "$store" startup 'should survive a plain startup')"
+
+  run handoff_session_start_run startup startup
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+
+  run handoff_session_start_run startup resume
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+
+  run env HOME="$BATS_TEST_TMPDIR/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    bash "$(handoff_session_start_hook)" <<< 'not json at all'
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+}
+
+function test_scripts_2834_handoff_injector_rearms_the_announcement_budgets() {
+  _bats_test_init 2834 'handoff injector re-arms the announcement budgets after compaction'
+  local state="$BATS_TEST_TMPDIR/state" library
+  library="$(context_usage_lib)"
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R11. The window is empty again, so the session must be able to announce
+  # again -- including after a plain compaction that left no handoff.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend rearmed warn fullness,turns 160 "before compaction" ok
+    context_usage_evaluate rearmed 72 161 && exit 9
+    exit 0
+  ' _ "$library"
+  assert_success
+
+  run handoff_session_start_run rearmed compact
+  assert_success
+  assert_output ''
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_goal_status rearmed && exit 9
+    context_usage_evaluate rearmed 72 161
+  ' _ "$library"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=fullness,turns'
+}

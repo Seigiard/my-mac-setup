@@ -283,6 +283,11 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'herdr-agent-state.sh'
+  assert_output --partial 'handoff-session-start.sh'
+  run env PATH="$PATH_WITHOUT_OP" "$CHEZMOI_BIN" source-path \
+    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-session-start.sh"
+  assert_success
+  assert_file_exists "$output"
 }
 
 function test_templates_0152_private_settings_register_the_precompact_handoff_builder() {

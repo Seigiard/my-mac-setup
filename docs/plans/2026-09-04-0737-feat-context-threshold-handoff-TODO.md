@@ -12,6 +12,6 @@ One item = one commit; the checkbox lands in that same commit.
 - [x] U6 · vendor the PreCompact handoff builder
 - [x] U4 · Stop hook: detection and announcement (goal-less command)
 - [x] U5 · goal extraction
-- [ ] U7 · vendor the SessionStart injector
+- [x] U7 · vendor the SessionStart injector
 - [ ] U8 · prove the deployed wiring end to end
 - [ ] U9 · Definition of Done sweep: `make lint`, `make test-ubuntu`, plan amendments recorded
