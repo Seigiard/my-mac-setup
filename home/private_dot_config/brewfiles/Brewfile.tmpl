@@ -79,8 +79,7 @@ brew "herdr"        # agent multiplexer
 brew "act"          # run GitHub Actions locally
 
 # Testing
-brew "bats-core"    # bats
-{{/* tests/scripts.bats asserts the anchored pattern ^brew "shellcheck" against this template's source, so this entry must stay at column zero */ -}}
+{{/* templates_test.sh asserts the whole line `brew "shellcheck"` in the full render, so this entry must stay at column zero */ -}}
 brew "shellcheck"
 
 # System monitoring

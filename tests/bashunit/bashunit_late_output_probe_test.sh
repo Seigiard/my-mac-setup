@@ -4,7 +4,7 @@
 # result parsing" (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): a test's background child that
 # inherits the captured stdout can append output after the ##...## payload
 # line, which stock upstream 0.50.1 parses as the result line. The guard is
-# owned by test_scripts_259 in tests/bashunit/scripts_test.sh.
+# owned by test_scripts_260 in tests/bashunit/scripts_test.sh.
 # Vocabulary (run, assert_*, BATS_* contract) comes from
 # tests/bashunit/test-dsl.bash.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"

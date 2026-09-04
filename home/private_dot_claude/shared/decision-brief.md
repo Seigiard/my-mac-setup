@@ -2,7 +2,7 @@
 
 The shape of every request for a user decision produced by the se-pipeline skills — a paused gate, an open finding in a review envelope, a plan ambiguity. The reader has not followed the run: they have not read the log, the envelope, or the plan, and they do not know the vocabulary the run used internally.
 
-> **Why this file exists, given that the writing-style rules already define the brief.** Those rules are always loaded, but session analysis showed they stop being followed once the chain gets long and the context fills. This file is the re-anchor at the point of use, reached by a pointer exactly when a decision is being asked. It is not a duplication defect — do not delete it as one. The writing-style output style (`home/.chezmoitemplates/writing-style.md` → "Asking for a decision") remains the source of the rule; what follows adds the run-specific option semantics it cannot carry.
+> **Why this file exists, given that the writing-style rules already define the brief.** Those rules are always loaded, but session analysis showed they stop being followed once the chain gets long and the context fills. This file is the re-anchor at the point of use, reached by a pointer exactly when a decision is being asked. It is not a duplication defect — do not delete it as one. The writing-style output style (`home/.chezmoitemplates/writing-style.md` → "Ask for one decision at a time") remains the source of the rule; what follows adds the run-specific option semantics it cannot carry.
 
 Four parts, in this order:
 

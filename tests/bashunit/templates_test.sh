@@ -352,7 +352,6 @@ assert_minimal_brewfile() {
   refute_line 'brew "shellcheck"'
   refute_line 'brew "herdr"'
   refute_line 'brew "fzf"'
-  refute_line 'brew "bats-core"'
 }
 
 function test_templates_019_mms_ci_minimal_1_renders_only_the_entries_the_te() {
