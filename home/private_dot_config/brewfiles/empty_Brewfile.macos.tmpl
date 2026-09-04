@@ -27,20 +27,25 @@
 # Third-party taps (declare before their formulas; trusted so `brew bundle`
 # will install formulas from them on a clean machine)
 tap "schpet/tap", trusted: true
+tap "letstri/tap", trusted: true
+tap "kamillobinski/thock", trusted: true
 
 # CLI tools (macOS only)
 brew "elio"         # terminal file manager (theme synced under Library/)
 brew "terminal-notifier"
 brew "schpet/tap/linear"
+brew "letstri/tap/druk"
 
 # AI coding agents (macOS-only casks; cross-platform ones live in Brewfile)
 cask "claude-code"
+cask "codex"
 # Ships the executor CLI inside the app bundle; ~/.local/bin/executor symlinks to it.
 cask "executor"
 
 # Fonts
 cask "font-jetbrains-mono-nerd-font"
 cask "font-iosevka-term-nerd-font"
+cask "font-symbols-only-nerd-font"
 
 # Terminal & editors
 cask "ghostty"
@@ -54,12 +59,15 @@ cask "marta"
 cask "ticktick"
 cask "setapp"
 cask "dropbox"
+cask "syncthing-app"
 
 # Utilities
 cask "1password-cli"
 cask "karabiner-elements"
 cask "the-unarchiver"
 cask "imageoptim"
+cask "tailscale-app"
+cask "kamillobinski/thock/thock"
 
 # Media
 cask "spotify"
