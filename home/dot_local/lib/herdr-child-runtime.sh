@@ -17,7 +17,7 @@ Start options:
   --posture <ro|rw>       Child tool posture (default: ro)
   --cwd <dir>             Child working directory (default: current directory)
   --model <model>         Native model selector
-  --effort <level>        Pi thinking level
+  --effort <level>        Claude effort or Pi thinking level
   --skills <dir>          Skill directory; repeatable
   --agent <name>          Opencode configured agent
   --prompt <text>         Initial task

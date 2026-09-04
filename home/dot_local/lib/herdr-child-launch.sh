@@ -78,7 +78,7 @@ start_child() {
   if [ "$kind" = pi ] && [ "$posture" = ro ]; then
     fail_usage 'pi does not support read-only posture: its return channel requires bash (R10)'
   fi
-  if [ -n "$effort" ] && [ "$kind" != pi ]; then fail_usage "--effort is not supported for $kind"; fi
+  if [ -n "$effort" ] && [ "$kind" = opencode ]; then fail_usage "--effort is not supported for $kind"; fi
   if [ "$skills_count" -gt 0 ] && [ "$kind" = opencode ]; then fail_usage '--skills is not supported for opencode'; fi
   if [ -n "$configured_agent" ] && [ "$kind" != opencode ]; then fail_usage "--agent is not supported for $kind"; fi
 
@@ -274,6 +274,7 @@ except Exception: raise SystemExit(1)')" || {
   case "$kind" in
     claude)
       [ -z "$model" ] || native_args+=(--model "$model")
+      [ -z "$effort" ] || native_args+=(--effort "$effort")
       local skill
       set +u
       for skill in "${skills[@]}"; do native_args+=(--add-dir "$skill"); done

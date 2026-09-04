@@ -3818,13 +3818,13 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   done
 }
 
-function test_scripts_060_herdr_child_maps_claude_postures_and_skill_direc() {
-  _bats_test_init 60 'herdr-child maps claude postures and skill directories'
+function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_direc() {
+  _bats_test_init 60 'herdr-child maps claude postures, effort, and skill directories'
   child_stub_herdr
-  run child_start --kind claude --skills A --skills B --wait
+  run child_start --kind claude --effort high --skills A --skills B --wait
   assert_success
   assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--add-dir A --add-dir B.*--disallowed-tools Edit Write NotebookEdit AskUserQuestion'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--effort high --add-dir A --add-dir B.*--disallowed-tools Edit Write NotebookEdit AskUserQuestion'
 
   : > "$CHILD_STUB/calls.log"
   run child_start --kind claude --posture rw --wait
@@ -3866,9 +3866,9 @@ function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
 function test_scripts_063_herdr_child_rejects_native_options_that_the_sele() {
   _bats_test_init 63 'herdr-child rejects native options that the selected kind cannot map'
   child_stub_herdr
-  run child_start --kind claude --effort high --wait
+  run child_start --kind opencode --effort high --wait
   assert_failure 2
-  assert_output --partial "--effort is not supported for claude"
+  assert_output --partial "--effort is not supported for opencode"
   run child_start --kind pi --posture rw --agent reviewer --wait
   assert_failure 2
   assert_output --partial "--agent is not supported for pi"
