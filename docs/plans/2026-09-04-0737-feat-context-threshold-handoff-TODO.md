@@ -6,7 +6,7 @@ One item = one commit; the checkbox lands in that same commit.
 ## Progress
 
 - [x] U0 · land the plan document and its CONCEPTS.md vocabulary entry
-- [ ] U1 · measure the unverified platform behaviors, re-derive the turn-count baseline
+- [x] U1 · measure the unverified platform behaviors, re-derive the turn-count baseline
 - [ ] U2 · shared context-usage library (`home/dot_local/lib/context-usage.sh`)
 - [ ] U3 · statusline publishes usage state
 - [ ] U6 · vendor the PreCompact handoff builder
