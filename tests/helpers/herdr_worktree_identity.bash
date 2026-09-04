@@ -24,6 +24,13 @@ hwi_setup() {
 if [ "$1" = pane ] && [ "$2" = get ]; then
   printf '%s\n' "$*" >> "$HWI_WORK/herdr.calls"
   [ ! -e "$HWI_WORK/fail-pane-get" ] || exit 1
+  if [ -e "$HWI_WORK/delay-pane-session-publication" ] && [ ! -e "$HWI_WORK/pane-session-published" ]; then
+    payload="$(cat "$HWI_PANE_JSON")"
+    cp "$HWI_WORK/published-pane.json" "$HWI_PANE_JSON"
+    : > "$HWI_WORK/pane-session-published"
+    printf '%s\n' "$payload"
+    exit 0
+  fi
   if [ -e "$HWI_WORK/block-pane-get-with-descendant" ]; then
     bash -c 'trap "" TERM; printf "%s\n" "$$" > "$HWI_WORK/pane-child.pid"; while :; do sleep 1; done' &
     trap 'exit 0' TERM
@@ -69,6 +76,18 @@ hwi_write_pane() {
     --arg workspace "$workspace" --arg cwd "$cwd" \
     '{result:{pane:{pane_id:$pane,agent:$agent,agent_session:{value:$session},workspace_id:$workspace,cwd:$cwd}}}' \
     > "$HWI_PANE_JSON"
+}
+
+hwi_delay_pane_session_publication() {
+  local pane="$1" agent="$2" session="$3" workspace="$4" cwd="$5"
+  jq -cn --arg pane "$pane" --arg agent "$agent" --arg workspace "$workspace" --arg cwd "$cwd" \
+    '{result:{pane:{pane_id:$pane,agent:$agent,workspace_id:$workspace,cwd:$cwd}}}' \
+    > "$HWI_PANE_JSON"
+  jq -cn --arg pane "$pane" --arg agent "$agent" --arg session "$session" \
+    --arg workspace "$workspace" --arg cwd "$cwd" \
+    '{result:{pane:{pane_id:$pane,agent:$agent,agent_session:{value:$session},workspace_id:$workspace,cwd:$cwd}}}' \
+    > "$HWI_WORK/published-pane.json"
+  : > "$HWI_WORK/delay-pane-session-publication"
 }
 
 hwi_write_snapshot_without_match() {

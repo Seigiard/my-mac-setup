@@ -14,6 +14,8 @@ TITLE_MAX_LEN=48
 BRANCH_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS:-3}"
 FIRST_PROMPT_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_FIRST_PROMPT_CLAIM_ATTEMPTS:-3}"
 LIFECYCLE_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_LIFECYCLE_CLAIM_ATTEMPTS:-260}"
+PANE_SESSION_RETRY_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_PANE_SESSION_RETRY_ATTEMPTS:-20}"
+PANE_SESSION_RETRY_DELAY="${HERDR_WORKTREE_IDENTITY_PANE_SESSION_RETRY_DELAY:-0.05}"
 ENGINE_TIMEOUT="${HERDR_WORKTREE_IDENTITY_TIMEOUT:-30}"
 HERDR_RPC_TIMEOUT="${HERDR_WORKTREE_IDENTITY_HERDR_TIMEOUT:-5}"
 PI_MODEL="${HERDR_WORKTREE_IDENTITY_PI_MODEL:-openai-codex/gpt-5.4-mini}"
@@ -356,7 +358,7 @@ pane_fields() {
     | if ($pane | type) != "object" then error("missing pane") else
         [($pane.pane_id // ""), ($pane.agent // ""), ($pane.agent_session.value // ""),
          ($pane.workspace_id // ""), ($pane.foreground_cwd // $pane.cwd // "")]
-        | map(if type == "string" then . else "" end) | @tsv
+        | map(if type == "string" then . else "" end) | join("\u001f")
       end
   ' 2>/dev/null
 }
@@ -626,7 +628,7 @@ label_workspace() {
     record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-malformed "pane=$expected_pane workspace=$workspace" || true
     return 1
   }
-  IFS=$'\t' read -r final_pane final_agent final_session final_workspace _ <<< "$fields"
+  IFS=$'\037' read -r final_pane final_agent final_session final_workspace _ <<< "$fields"
   if [ "$final_pane" != "$expected_pane" ] || [ "$final_agent" != "$agent" ] || \
     [ "$final_session" != "$session" ] || [ "$final_workspace" != "$workspace" ]; then
     write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
@@ -906,7 +908,7 @@ process_worktree() {
 
 worker() {
   local prompt="$1" payload fields resolved_pane pane_agent pane_session pane_workspace pane_cwd cwd root common status
-  local first_prompt
+  local first_prompt pane_session_retry=0
   if ! first_prompt="$(recorded_first_prompt "$prompt")"; then
     record_unresolved first-prompt-unavailable "agent=$agent session=$session"
     return 0
@@ -920,26 +922,36 @@ worker() {
     record_unresolved jq-unavailable "pane=${pane:-missing}"
     return 0
   }
-  payload="$(resolve_pane_payload)"
-  status=$?
-  if [ "$status" -eq 2 ]; then
-    record_unresolved pane-unreachable "pane=${pane:-missing} session=$session"
-    return 0
-  fi
-  if [ "$status" -ne 0 ]; then
-    record_unresolved pane-unresolved "pane=missing session=$session"
-    return 0
-  fi
-  fields="$(printf '%s' "$payload" | pane_fields)" || {
-    record_unresolved pane-malformed "pane=${pane:-missing} session=$session"
-    return 0
-  }
-  IFS=$'\t' read -r resolved_pane pane_agent pane_session pane_workspace pane_cwd <<< "$fields"
-  if { [ -n "$pane" ] && [ "$resolved_pane" != "$pane" ]; } || \
-    [ "$pane_agent" != "$agent" ] || [ "$pane_session" != "$session" ]; then
+  while :; do
+    payload="$(resolve_pane_payload)"
+    status=$?
+    if [ "$status" -eq 2 ]; then
+      record_unresolved pane-unreachable "pane=${pane:-missing} session=$session"
+      return 0
+    fi
+    if [ "$status" -ne 0 ]; then
+      record_unresolved pane-unresolved "pane=missing session=$session"
+      return 0
+    fi
+    fields="$(printf '%s' "$payload" | pane_fields)" || {
+      record_unresolved pane-malformed "pane=${pane:-missing} session=$session"
+      return 0
+    }
+    IFS=$'\037' read -r resolved_pane pane_agent pane_session pane_workspace pane_cwd <<< "$fields"
+    if { [ -z "$pane" ] || [ "$resolved_pane" = "$pane" ]; } && \
+      [ "$pane_agent" = "$agent" ] && [ "$pane_session" = "$session" ]; then
+      break
+    fi
+    if [ "$agent" = opencode ] && [ -n "$pane" ] && [ "$resolved_pane" = "$pane" ] && \
+      [ "$pane_agent" = "$agent" ] && [ -z "$pane_session" ] && \
+      [ "$pane_session_retry" -lt "$PANE_SESSION_RETRY_ATTEMPTS" ]; then
+      pane_session_retry=$((pane_session_retry + 1))
+      sleep "$PANE_SESSION_RETRY_DELAY"
+      continue
+    fi
     record_unresolved pane-mismatched "pane=${resolved_pane:-missing} agent=$pane_agent session=$pane_session"
     return 0
-  fi
+  done
   [ -n "$workspace" ] || workspace="$pane_workspace"
   cwd="$(reported_cwd)"
   [ -n "$cwd" ] || cwd="$pane_cwd"
