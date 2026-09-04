@@ -75,7 +75,7 @@ RUN brew --version
 RUN mkdir -p /home/testuser/.local/bin /home/testuser/.local/share/chezmoi /home/testuser/.config
 
 # Install chezmoi via brew
-RUN brew install chezmoi
+RUN brew update && brew install chezmoi
 
 # fzf is the command palette's scorer, so the palette refuses to start without
 # it. Homebrew ships a current fzf; Ubuntu's apt package predates --accept-nth.
