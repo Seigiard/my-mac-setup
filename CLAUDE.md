@@ -28,11 +28,11 @@ Reference docs (read on demand):
 | Command | What it does |
 |---|---|
 | `make test-issues` | Strictly validate repository issues and run issue CLI tests |
-| `make test-ubuntu` | Full test in Docker |
+| `make test-ubuntu` | Full source render, disposable-home apply, and test suite in Docker |
 | `make test-docker` | Build + run full Docker test suite |
-| `make test-suite` | Post-apply suite in parallel, host-safe files only. It keeps `tests/bashunit/idempotent_test.sh` excluded as redundant defense behind that file's `MMS_DISPOSABLE_HOME` guard. Asserts against the **already-applied** `~/`, not this checkout — an unapplied edit under `home/` is not covered and still goes green |
-| `make test-templates` | Template tests in Docker; may rebuild images and take several minutes |
-| `make test-local` | `chezmoi diff` (dry-run, no changes) |
+| `make test-suite` | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
+| `make test-templates` | Focused source-render tests in Docker; included in `make test-ubuntu` |
+| `make test-local` | Diff this checkout's `home/` against the current home (dry-run, no changes) |
 | `make lint` | shellcheck |
 | `make shell-ubuntu` | Interactive shell in Ubuntu container |
 | `make build-docker` | Build Docker image only |
@@ -65,10 +65,10 @@ Edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file i
 
 <important if="you edited a managed file and expect the change to take effect, or you ran chezmoi and got surprising results">
 
-**chezmoi reads its own clone, NOT this working checkout.** There are THREE copies of every managed file:
+**By default, chezmoi reads its own clone, NOT this working checkout.** `make test-local` is the deliberate exception: it passes `--source=./home` to compare this checkout. There are THREE copies of every managed file:
 
 1. **This repo checkout** (`~/Projects/my-mac-setup/home/...`) — where you edit and commit. `chezmoi` does **not** read it.
-2. **chezmoi source** (`~/.local/share/chezmoi/home/...`) — a **separate git clone** of the same repo. Every `chezmoi` command (`source-path`, `managed`, `diff`, `apply`) reads this, not copy 1.
+2. **chezmoi source** (`~/.local/share/chezmoi/home/...`) — a **separate git clone** of the same repo. Raw `chezmoi` commands without an explicit `--source` read this, not copy 1.
 3. **Live file** (`~/.config/...`, `~/.claude/...`) — what tools actually run. `chezmoi apply` deploys it from copy 2.
 
 Consequence: an edit in this checkout is **commit-ready but NOT live** — it hasn't reached copy 2 or 3. The path to live is commit here → sync into copy 2 (`git pull` there) → `chezmoi apply` (forbidden on host per the rule above, so the user runs it). Never assume your edit took effect in-session. Verify a file's chezmoi source with `chezmoi source-path ~/<live-path>` — it returns a path under `~/.local/share/chezmoi`, confirming the split.
@@ -92,7 +92,7 @@ Adding a managed config, step by step:
 2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
 3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
 4. Coverage passes the test-oracle gate first: state the oracle line (consumer, observable failure, oracle independent of this change) — when it cannot be completed, zero new tests is the correct outcome. When it can, extend the narrowest test that proves deployment behavior; use `tests/bashunit/smoke_test.sh` only for cross-component coverage.
-5. Verify: `make test-local` (diff only), then `make test-ubuntu`.
+5. A new managed path is deployment-sensitive; follow `docs/agent-verification.md`.
 
 `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
 
@@ -118,7 +118,7 @@ Package the canonical content through three thin adapters:
 
 Use raw `include` with the explicit `.chezmoitemplates/<file>` path so literal Markdown and Go-template syntax remain data. Do not use `includeTemplate`, which executes the included content. Treat `$ARGUMENTS`, `$<digits>`, and unquoted `@path` as reserved OpenCode command syntax; a workflow that must preserve these sequences literally needs client-specific content instead.
 
-Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCode cannot discover the Claude-only adapters. Do not set `OPENCODE_DISABLE_EXTERNAL_SKILLS`; OpenCode must discover shared `~/.agents/skills` natively. After deployment, restart each client from the managed zsh environment before checking discovery. Add the workflow name to the `explicit-only workflows keep manual invocation boundaries` case in `tests/bashunit/smoke_test.sh`, then run `make test-templates` and `make test-ubuntu`.
+Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCode cannot discover the Claude-only adapters. Do not set `OPENCODE_DISABLE_EXTERNAL_SKILLS`; OpenCode must discover shared `~/.agents/skills` natively. After deployment, restart each client from the managed zsh environment before checking discovery. Add the workflow name to the `explicit-only workflows keep manual invocation boundaries` case in `tests/bashunit/smoke_test.sh`. These template and managed-path changes are deployment-sensitive; follow `docs/agent-verification.md`.
 
 </important>
 
@@ -149,12 +149,12 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 - Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`; it defines semantic regression tests, control fixtures, coverage ownership, and honest verification.
 - Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
 - Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/bashunit/smoke_test.sh` for deployed cross-component behavior.
-- Run the smallest canonical `make` target that covers the change instead of reconstructing its component commands.
-- Run `make test-suite` for the parallel host-safe files, or `make test-ubuntu` for the full Docker suite including `tests/bashunit/idempotent_test.sh`.
-- `tests/bashunit/idempotent_test.sh` guards every real chezmoi command with `MMS_DISPOSABLE_HOME=1`. Direct workstation runs skip those commands; `make test-ubuntu` declares a disposable `$HOME` and runs them.
-- `make test-suite` reads the deployed `~/` and applies nothing, so it cannot see an edit under `home/` that has not been applied yet. For a change to a managed file, `make test-ubuntu` is the one that proves it — it applies the checkout first.
-- Treat skips, partial runs, and isolated passes as incomplete evidence. If a required suite stalls, record the exact boundary, isolate the case, create a repository issue, and report the suite as incomplete.
-- CI runs both ubuntu and macos jobs.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.
+
+</important>
+
+<important if="you are selecting or running checks, reusing evidence after edits, deciding whether to skip a broad check, preparing to publish, or verifying merge readiness">
+
+- **Verification:** Read `docs/agent-verification.md` before selecting, running, reusing, or skipping checks. It defines risk classes, evidence validity, and publish and merge gates.
 
 </important>
