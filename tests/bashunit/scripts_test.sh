@@ -8848,31 +8848,22 @@ function test_scripts_2802_context_usage_turn_count_ignores_non_assistant_entrie
   assert_output '0'
 }
 
-function test_scripts_2803_context_usage_fullness_matches_the_statusline_arithmetic() {
-  _bats_test_init 2803 'context-usage fullness matches the statusline bar arithmetic'
-  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
-  local state="$BATS_TEST_TMPDIR/state" current=372000 window=1000000 expected
+function test_scripts_2803_context_usage_fullness_adds_the_allowance_and_caps() {
+  _bats_test_init 2803 'context-usage fullness adds the system-prompt allowance and caps at 100'
+  local state="$BATS_TEST_TMPDIR/state"
 
-  # AE8, R2. The oracle is the statusline's own computation, read out of the
-  # deployed script rather than restated here, so a change to the allowance in
-  # one place and not the other fails this test.
-  expected="$(
-    raw_pct=$((current * 100 / window))
-    allowance="$(sed -n 's/.*adjusted_pct=\$((raw_pct + \([0-9]*\))).*/\1/p' "$statusline" | head -1)"
-    [ -n "$allowance" ] || allowance=missing
-    printf '%s' "$((raw_pct + allowance))"
-  )"
-  assert_equal "$expected" '57'
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+  # R2. The expected value comes from the test's own inputs -- a raw occupancy
+  # and an allowance both named here -- not from the library's default, so this
+  # asserts the relationship rather than restating the constant.
+  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_PCT=17 bash -c '
     . "$1"
-    context_usage_write_usage sess-bar "$2" "$3" "$(date +%s)" || exit 1
+    context_usage_write_usage sess-bar 372000 1000000 "$(date +%s)" || exit 1
     context_usage_read_fullness sess-bar
-  ' _ "$(context_usage_lib)" "$current" "$window"
+  ' _ "$(context_usage_lib)"
   assert_success
-  assert_output "$expected"
+  assert_output '54'
 
-  # The cap holds: a full window plus the allowance never exceeds 100.
+  # The cap holds: a nearly full window plus any allowance never exceeds 100.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
     . "$1"; context_usage_fullness_pct 990000 1000000
   ' _ "$(context_usage_lib)"
@@ -9166,4 +9157,100 @@ function test_scripts_2812_context_usage_thresholds_are_environment_tunable() {
   assert_line --index 2 'dimensions=fullness'
   assert_line --index 3 'level=hard'
   assert_line --index 4 'dimensions=fullness'
+}
+
+# --- statusline publishes usage state (U3) ---------------------------------
+
+context_usage_statusline_payload() {
+  jq -nc --arg session "$1" --argjson current "$2" --argjson window "$3" \
+    '{workspace: {current_dir: "/tmp"},
+      session_id: $session,
+      model: {display_name: "Opus 5"},
+      context_window: {
+        current_usage: {input_tokens: $current, cache_creation_input_tokens: 0, cache_read_input_tokens: 0},
+        context_window_size: $window}}'
+}
+
+function test_scripts_2813_statusline_bar_and_library_report_the_same_fullness() {
+  _bats_test_init 2813 'statusline bar and the usage library report the same fullness'
+  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
+  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
+  local reported with_allowance without_allowance
+  library="$(context_usage_lib)"
+  mkdir -p "$home"
+
+  # AE8, R1. The oracle is agreement between the two consumers, not a number
+  # restated from either. Render the bar once with the allowance the library
+  # owns, then render it again with the allowance forced off and a raw
+  # occupancy already equal to what the library reported. Identical bars mean
+  # the operator's bar and the announcement describe the same percentage.
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload agree 372000 1000000)"
+  assert_success
+  with_allowance="$output"
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_read_fullness agree
+  ' _ "$library"
+  assert_success
+  reported="$output"
+  assert_equal "$reported" '57'
+
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_PCT=0 bash "$statusline" \
+    <<< "$(context_usage_statusline_payload mirror "${reported}0000" 1000000)"
+  assert_success
+  without_allowance="$output"
+  assert_equal "$with_allowance" "$without_allowance"
+
+  # The published numbers are the raw ones Claude Code handed over, untouched.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    file="$(context_usage_usage_file agree)"
+    context_usage_number_field "$file" current_tokens
+    printf " "
+    context_usage_number_field "$file" window_size
+  ' _ "$library"
+  assert_success
+  assert_output '372000 1000000'
+}
+
+function test_scripts_2814_statusline_renders_when_publishing_is_impossible() {
+  _bats_test_init 2814 'statusline renders when it cannot publish usage state'
+  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
+  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
+  local readonly_root="$BATS_TEST_TMPDIR/readonly" baseline
+  library="$(context_usage_lib)"
+  mkdir -p "$home" "$readonly_root"
+
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload ok 372000 1000000)"
+  assert_success
+  baseline="$output"
+
+  # The status line is the most frequently executed script in this setup. A
+  # state directory it cannot write must cost the hook a dimension and the
+  # operator nothing.
+  chmod 500 "$readonly_root"
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$readonly_root/state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload blocked 372000 1000000)"
+  chmod 700 "$readonly_root"
+  assert_success
+  assert_equal "$output" "$baseline"
+  assert_dir_not_exists "$readonly_root/state"
+
+  # A payload without a context window renders the zero-percent bar and
+  # publishes nothing, so the hook sees no number rather than a wrong one.
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< '{"workspace":{"current_dir":"/tmp"},"session_id":"empty","model":{"display_name":"Opus 5"}}'
+  assert_success
+  assert_output --partial '░░░░░░░░░░'
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_read_fullness empty
+  ' _ "$library"
+  assert_failure
 }
