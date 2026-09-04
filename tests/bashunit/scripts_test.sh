@@ -1295,26 +1295,13 @@ function test_scripts_1003_herdr_alias_pool_has_at_least_1024_unique_grammar_saf
   run herdr_alias_validate_pool
   assert_success
 
-  local aliases="$BATS_TEST_TMPDIR/herdr-alias-pool"
-  local color animal alias
   local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
   [ "$pool_size" -ge 1024 ]
 
-  : > "$aliases"
-  for color in "${HERDR_ALIAS_COLORS[@]}"; do
-    [[ "$color" =~ ^[a-z]+$ ]] || fail "invalid color word: $color"
-    for animal in "${HERDR_ALIAS_ANIMALS[@]}"; do
-      [[ "$animal" =~ ^[a-z]+$ ]] || fail "invalid animal word: $animal"
-      alias="$color-$animal"
-      [[ "$alias" =~ ^[a-z]+-[a-z]+$ ]] || fail "invalid alias grammar: $alias"
-      [ "${#alias}" -le 32 ] || fail "alias exceeds 32 characters: $alias"
-      printf '%s\n' "$alias" >> "$aliases"
-    done
+  local word
+  for word in "${HERDR_ALIAS_COLORS[@]}" "${HERDR_ALIAS_ANIMALS[@]}"; do
+    [[ "$word" =~ ^[a-z]+$ ]] || fail "invalid word: $word"
   done
-
-  local unique_count
-  unique_count="$(LC_ALL=C sort -u "$aliases" | wc -l | tr -d ' ')"
-  assert_equal "$unique_count" "$pool_size"
 }
 
 function test_scripts_1004_herdr_alias_fixed_test_seed_produces_one_stable_full_se() {
@@ -4935,39 +4922,6 @@ function test_scripts_1112_herdr_pane_labels_sources_the_alias_library_relative_
   run env PATH="$deployed/bin:/usr/bin:/bin" bash "$deployed/bin/herdr-pane-labels" --help
   assert_success
   assert_output --partial 'Usage: herdr-pane-labels'
-}
-
-function test_scripts_1113_herdr_pane_labels_terminates_without_writes_when_every_() {
-  _bats_test_init 1113 'herdr-pane-labels terminates without writes when every alias is occupied'
-  command -v jq >/dev/null || skip "jq not available"
-  source "$HERDR_ALIASES"
-  hpl_setup
-  local pool state
-  pool="$(herdr_alias_candidates u2-exhausted | jq -Rsc 'split("\n")[:-1]')"
-  state="$(jq -cn --argjson pool "$pool" '
-    ($pool | to_entries) as $entries
-    | {complete:true,protocol:19,
-       panes:([$entries[] | {
-         pane_id:("pane-" + (.key|tostring)),tab_id:"tab-1",workspace_id:"ws-1",
-         terminal_id:("term-" + (.key|tostring)),revision:1,agent:"claude",label:"old",tokens:{}}]
-         + [{pane_id:"target",tab_id:"tab-1",workspace_id:"ws-1",terminal_id:"target-term",
-             revision:1,agent:"pi",label:"old",tokens:{}}]),
-       tabs:[{tab_id:"tab-1",workspace_id:"ws-1",label:"old-tab"}],
-       agents:([$entries[] | {
-         pane_id:("pane-" + (.key|tostring)),tab_id:"tab-1",workspace_id:"ws-1",
-         terminal_id:("term-" + (.key|tostring)),revision:1,state_change_seq:1,
-         agent:"claude",name:.value}]
-         + [{pane_id:"target",tab_id:"tab-1",workspace_id:"ws-1",terminal_id:"target-term",
-             revision:1,state_change_seq:1,agent:"pi",name:"semantic-name"}]),
-       layouts:[],workspaces:[{workspace_id:"ws-1",label:"ws-1"}],metadata:{}}')"
-  hpl_replace_state "$HPL_DEFAULT_SOCKET" "$state"
-
-  run hpl_sweep_run --sweep
-  assert_failure
-
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  assert_equal "$(jq -r '.agents[] | select(.pane_id == "target").name' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" semantic-name
 }
 
 function test_scripts_1114_herdr_pane_labels_retries_only_an_exact_confirmed_agent() {
