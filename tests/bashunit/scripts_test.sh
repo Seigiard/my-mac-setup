@@ -5488,17 +5488,19 @@ function test_scripts_1132_herdr_pane_labels_location_resolves_main_linked_neste
 
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.repo' "$state" | sort -u)" repository
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
-  # Main checkout: branch icon; folder qualifier suppressed because the
-  # worktree token equals the workspace name.
+  # Main checkout: branch icon and the ref, nothing else — a pane with a ref
+  # never carries a folder qualifier.
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
-  # Linked worktree (.git file at root): worktree icon; folder qualifier
-  # suppressed because the worktree token equals the branch.
+  # Linked worktree (.git file at root): worktree icon and the ref; the
+  # directory the worktree occupies stays out of the row.
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE feature"
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.branch' "$state")" feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.worktree' "$state")" feature
-  run jq -e '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == null)' "$state"
+  # Foreground cwd outside any checkout: no Git tokens at all, and the folder
+  # name is the whole row.
+  run jq -e --arg ref "$HPL_ICON_FOLDER outside" '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == $ref)' "$state"
   assert_success
   assert_equal "$(cat "$(hpl_git_fixture_dir "$nongit")/locale")" C
 }
@@ -5566,8 +5568,9 @@ function test_scripts_1134_herdr_pane_labels_location_detached_publishes_a_commi
   hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
   HERDR_PANE_LABELS_TEST_NOW_SEQ=0 hpl_location_pass
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # The non-Git arm clears only presentation-owned location tokens.
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" '{"foreign":"kept"}'
+  # The non-Git arm clears every Git token, keeps a foreign source's token, and
+  # publishes the directory name as the only thing this pane can report.
+  assert_equal "$(jq -c '.panes[0].tokens' "$state")" "$(jq -nc --arg ref "$HPL_ICON_FOLDER non-git" '{foreign:"kept",git_ref:$ref}')"
   run test "$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)" -gt "$second_seq"
   assert_success
 }
@@ -5704,8 +5707,9 @@ function test_scripts_1138_herdr_pane_labels_location_clears_the_retired_locatio
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label == null' "$state"
   assert_success
-  # then: the non-Git clear path sheds it alongside the other location tokens
-  run jq -e '.panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == null)' "$state"
+  # then: the non-Git path sheds the legacy token and overwrites the stale
+  # git_ref it was carrying with this pane's own directory name
+  run jq -e --arg ref "$HPL_ICON_FOLDER non-git" '.panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == $ref)' "$state"
   assert_success
 }
 
@@ -5840,8 +5844,11 @@ function test_scripts_1140_herdr_pane_labels_coordinator_resolves_eight_pane_loc
   run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.branch == "initial-1" and .tokens.location_status == "stale"' "$state"
   assert_success
   for i in $(seq 2 8); do
-    run jq -e --arg pane "pane-$i" \
-      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == null)' "$state"
+    # Non-Git panes publish no Git token at all. Their directories all end in
+    # "work", so the folder row carries the disambiguating path suffix the
+    # token builder assigns, exactly as it does for same-named checkouts.
+    run jq -e --arg pane "pane-$i" --arg ref "$HPL_ICON_FOLDER repo-$i/work" \
+      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == $ref)' "$state"
     assert_success
     fixture="$(hpl_git_fixture_dir "$HPL_WORK/repos/repo-$i/work")"
     assert_file_exists "$fixture/started"
@@ -5904,10 +5911,11 @@ function test_scripts_1142_herdr_pane_labels_transient_location_preserves_live_t
   hpl_location_pass
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   # Token-only evidence carries no is_linked proof, so the place icon falls
-  # back to the branch icon; without any ref evidence the folder icon plus
-  # worktree token is the whole $git_ref.
+  # back to the branch icon. Pane one has a ref, so the ref is the whole row;
+  # pane two has none, and there the folder icon plus worktree token is all
+  # $git_ref can say.
   run jq -e \
-    --arg ref_one "$HPL_ICON_BRANCH topic-one $HPL_ICON_FOLDER live-token $HPL_ICON_STALE" \
+    --arg ref_one "$HPL_ICON_BRANCH topic-one $HPL_ICON_STALE" \
     --arg ref_two "$HPL_ICON_FOLDER live-token $HPL_ICON_STALE" '
     (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one})
     and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two})
@@ -6025,7 +6033,7 @@ function test_scripts_1147_herdr_pane_labels_formatter_keeps_a_git_backed_all_id
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "~ 1"
   assert_equal "$(jq -r '.panes[] | .label' "$state" | sort -u)" "~"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main $HPL_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
 }
 
 function test_scripts_1148_herdr_pane_labels_git_only_location_changes_do_not_rena() {
@@ -6069,7 +6077,7 @@ function test_scripts_1149_herdr_pane_labels_formatter_keeps_the_folder_qualifie
   hpl_set_process_label pane-1 task
   hpl_location_pass
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH main $HPL_ICON_FOLDER setup-copy"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH main"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
@@ -6109,7 +6117,7 @@ function test_scripts_1151_herdr_pane_labels_formatter_gives_a_detached_head_ins
   hpl_set_process_label pane-1 task
   hpl_location_pass
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT a1b2c3d $HPL_ICON_FOLDER wt-detached"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT a1b2c3d"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
 }
 
@@ -6131,7 +6139,7 @@ function test_scripts_1152_herdr_pane_labels_formatter_qualifies_a_divergent_wor
   hpl_set_process_label pane-2 beta
   hpl_location_pass
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE fix-login $HPL_ICON_FOLDER wt-hotfix"
+  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE fix-login"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
@@ -6208,8 +6216,8 @@ function test_scripts_1155_herdr_pane_labels_worktree_tokens_use_shortest_unique
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" team/feature
   assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")" release/feature
   # The slash-suffix folder token appears only in the sidebar qualifier.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE one $HPL_ICON_FOLDER team/feature"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE two $HPL_ICON_FOLDER release/feature"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE one"
+  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE two"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
 }
 
@@ -6293,7 +6301,7 @@ function test_scripts_1158_herdr_pane_labels_long_branch_refs_stay_in_metadata_a
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.tabs[0].label' "$state")" task
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" "$long_ref"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE $long_ref $HPL_ICON_FOLDER worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE $long_ref"
 }
 
 function test_scripts_1159_herdr_pane_labels_long_repository_names_do_not_alter_a_() {
@@ -6330,7 +6338,7 @@ function test_scripts_1160_herdr_pane_labels_location_clears_a_retired_location_
   # given: one pass has already published every current token
   hpl_location_pass
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic $HPL_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
   # given: a stale daemon of the retired version puts location_label back while
   # leaving every token this version compares untouched. It reports under the
@@ -6347,7 +6355,7 @@ function test_scripts_1160_herdr_pane_labels_location_clears_a_retired_location_
   # then: the legacy token is gone and the live tokens are unharmed
   state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
   assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic $HPL_ICON_FOLDER repository"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
   assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
 }
 
@@ -6374,7 +6382,7 @@ function test_scripts_1161_herdr_pane_labels_location_and_formatter_add_only_app
   ' "$state"
   assert_success
   assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE plain $HPL_ICON_FOLDER plain-worktree"
+  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE plain"
   # pane_inline stays deferred per the label-system plan: no pass publishes it.
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }

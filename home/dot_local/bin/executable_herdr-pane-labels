@@ -439,7 +439,9 @@ authoritative_worktree_deleted() {
 # Prints outcome, canonical checkout root, common Git directory, repository,
 # symbolic branch, linked-worktree flag, and detached short SHA separated by
 # unit separators. A transient result carries retained evidence when one
-# exists; confirmed non-Git carries empty evidence.
+# exists; confirmed non-Git carries the probed directory in the root field and
+# nothing else — outside a checkout the directory name is the only thing a pane
+# can report, and it is the sole reason that field is populated for non-Git.
 resolve_pane_location() {
   local pane_json="$1" state_file="$2" has_agent has_foreground cwd prior_root prior_anchor
   local prior_repo prior_branch prior_is_linked prior_sha candidate outfile errfile status
@@ -506,7 +508,7 @@ resolve_pane_location() {
     if { [ "$status" -eq 1 ] || [ "$status" -eq 128 ]; } && \
       grep -Eqi 'not a git repository|not inside a work tree' "$errfile" 2>/dev/null; then
       rm -f "$outfile" "$errfile"
-      printf 'non_git\037\037\037\037\037\037'
+      printf 'non_git\037%s\037\037\037\037\037' "$cwd"
     else
       rm -f "$outfile" "$errfile"
       bail_transient
@@ -1092,12 +1094,12 @@ EOF
 
 reconcile_presentation_pass() {
   local pass="$1" snapshot aliased alias_status final_snapshot initial_identity final_identity pool_json
-  local pane_rows workspace_rows baselines legacy_label_panes presentations="" tab_intents
+  local pane_rows baselines legacy_label_panes presentations="" tab_intents
   local id terminal tab_id workspace runtime revision session_json current alias pane_json_encoded pane_json
   local current_repo current_worktree current_branch current_status current_git_ref
   local location_file result outcome root anchor repo branch linked sha status intended
   local location_pids="" location_results="" result_file pid probe_results="" child_failed=0
-  local roots root_tokens worktree git_ref ref place folder workspace_name baseline
+  local roots root_tokens worktree git_ref ref place folder baseline
   local pane_id state_file retained_pane presented_ids
   local final_payload final_label final_tokens final_repo final_worktree final_branch final_status final_git_ref final_legacy
   local location_changed location_seq
@@ -1143,7 +1145,6 @@ reconcile_presentation_pass() {
     | join("\u001f")' | filter_records_of_width 15 "$pane_count")" || return 1
   baselines="$(printf '%s\n' "$pane_rows" | awk -F "$FIELD_SEPARATOR" -v OFS="$FIELD_SEPARATOR" 'NF {print $1,$10,$11,$12,$13,$14}')"
   legacy_label_panes="$(printf '%s' "$snapshot" | jq -r '.result.snapshot.panes[] | select((.tokens.location_label // "") != "") | .pane_id')"
-  workspace_rows="$(printf '%s' "$snapshot" | jq -r '.result.snapshot.workspaces[] | [.workspace_id,(.label // .name // "")] | join("\u001f")')"
   trace_presentation_phase rows
 
   while IFS="$FIELD_SEPARATOR" read -r id terminal tab_id workspace runtime revision session_json current alias current_repo current_worktree current_branch current_status current_git_ref pane_json_encoded; do
@@ -1197,7 +1198,9 @@ EOF
     status=""
     case "$outcome" in
       git) ;;
-      non_git) root=""; anchor=""; repo=""; branch=""; linked=""; sha="" ;;
+      # root survives: it is the directory this pane sits in, and outside a
+      # checkout it is the whole of what the location row can say.
+      non_git) anchor=""; repo=""; branch=""; linked=""; sha="" ;;
       transient)
         if [ -n "$root" ]; then status=stale
         elif [ -n "$current_repo" ] && [ -n "$current_worktree" ]; then
@@ -1233,11 +1236,14 @@ EOF
     ref="$branch"; place=branch
     if [ -z "$ref" ] && [ -n "$sha" ]; then ref="$sha"; place=commit
     elif [ "$linked" = 1 ]; then place=worktree; fi
-    folder="$worktree"
-    if [ -n "$ref" ]; then
-      workspace_name="$(table_value_for "$workspace" "$workspace_rows")"
-      if [ "$worktree" = "$ref" ] || [ "$worktree" = "$workspace_name" ]; then folder=""; fi
-    fi
+    # Inside a checkout the ref answers the only question the row is asked:
+    # which branch, worktree, or commit this pane works on. Which directory
+    # that checkout happens to occupy is not something the user acts on, and
+    # for a generated worktree the directory name carries no meaning at all.
+    # The folder is therefore a fallback for panes with no ref, never a
+    # qualifier beside one.
+    folder=""
+    [ -n "$ref" ] || folder="$worktree"
     git_ref="$(git_ref_for "$place" "$ref" "$folder" "$status")"
     probe_results="${probe_results}${probe_results:+
 }${id}${FIELD_SEPARATOR}${terminal}${FIELD_SEPARATOR}${tab_id}${FIELD_SEPARATOR}${workspace}${FIELD_SEPARATOR}${runtime}${FIELD_SEPARATOR}${revision}${FIELD_SEPARATOR}${session_json}${FIELD_SEPARATOR}${current}${FIELD_SEPARATOR}${intended}${FIELD_SEPARATOR}${outcome}${FIELD_SEPARATOR}${root}${FIELD_SEPARATOR}${anchor}${FIELD_SEPARATOR}${repo}${FIELD_SEPARATOR}${branch}${FIELD_SEPARATOR}${linked}${FIELD_SEPARATOR}${sha}${FIELD_SEPARATOR}${status}${FIELD_SEPARATOR}${git_ref}${FIELD_SEPARATOR}${worktree}"
@@ -1287,8 +1293,11 @@ EOF
       [ "$current_repo" = "$repo" ] && [ "$current_worktree" = "$worktree" ] &&
         [ "$current_branch" = "$branch" ] && [ "$current_status" = "$status" ] &&
         [ "$current_git_ref" = "$git_ref" ] || location_changed=1
-    elif [ "$outcome" = non_git ] && { [ -n "$current_repo$current_worktree$current_branch$current_status$current_git_ref" ]; }; then
-      location_changed=1
+    elif [ "$outcome" = non_git ]; then
+      # Outside a checkout only git_ref is published; every other token must be
+      # absent, and a leftover from a previous Git location is a change.
+      [ -z "$current_repo$current_worktree$current_branch$current_status" ] &&
+        [ "$current_git_ref" = "$git_ref" ] || location_changed=1
     fi
     # A pane whose location hasn't changed and whose label is already correct
     # needs no live pane fetch at all; skip the fork+parse for that steady-
@@ -1316,6 +1325,11 @@ EOF
             set -- "$@" --token "repo=$repo" --token "worktree=$worktree" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token location_label
             if [ -n "$branch" ]; then set -- "$@" --token "branch=$branch"; else set -- "$@" --clear-token branch; fi
             if [ -n "$status" ]; then set -- "$@" --token "location_status=$status"; else set -- "$@" --clear-token location_status; fi
+          elif [ "$outcome" = non_git ] && [ -n "$git_ref" ]; then
+            # A directory outside any checkout: the folder name is the row, and
+            # the Git tokens stay cleared so no integration reads a repository
+            # relationship that does not exist.
+            set -- "$@" --token "git_ref=$git_ref" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token location_label
           else
             set -- "$@" --clear-token pane_inline --clear-token repo --clear-token worktree --clear-token branch --clear-token location_status --clear-token git_ref --clear-token location_label
           fi
@@ -1390,8 +1404,9 @@ EOF
               (($panes[0].tokens.git_ref // "") == $git_ref) and
               (($panes[0].tokens.location_label // "") == "")
             elif $outcome == "non_git" then
-              (["repo","worktree","branch","location_status","git_ref","location_label"]
+              (["repo","worktree","branch","location_status","location_label"]
                 | all(.[]; . as $key | (($panes[0].tokens[$key] // "") == "")))
+              and (($panes[0].tokens.git_ref // "") == $git_ref)
             else true end)
         ' >/dev/null 2>&1 || {
           printf 'herdr-pane-labels: strict sweep did not converge pane %s\n' "$id" >&2
