@@ -8033,11 +8033,105 @@ function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_DATA_HOME="$BATS_TEST_TMPDIR/data" \
     XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" XDG_CACHE_HOME="$BATS_TEST_TMPDIR/cache" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" \
     bash "$SKILLS_WRAPPER" add owner/repo named-skill
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^PWD=.*/tmp$'
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><owner/repo><--skill><named-skill><--global><--agent><claude-code><--agent><opencode><--agent><pi><--yes>$'
   assert_equal "$PWD" "$original"
+
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_failure
+  assert_output --partial 'chezmoi is required for managed skill changes'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_2720_skills_add_saves_the_skill_in_the_manifest() {
+  _bats_test_init 2720 'skills add saves a successfully installed skill in the managed manifest'
+  local stub manifest
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  printf '%s\n' 'other/repo other-skill' 'owner/repo existing-skill' > "$manifest"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  assert_file_contains "$manifest" '^owner/repo existing-skill named-skill$'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  run grep -o 'named-skill' "$manifest"
+  assert_success
+  assert_output 'named-skill'
+}
+
+function test_scripts_27202_skills_add_publishes_the_managed_manifest_through_chezmoi() {
+  _bats_test_init 27202 'skills add pulls, captures, commits, and pushes the managed manifest through chezmoi'
+  local stub home source_manifest manifest
+  stub="$(skills_stub_npx)"
+  home="$BATS_TEST_TMPDIR/home"
+  manifest="$home/.config/agent-skills/manifest"
+  source_manifest="$home/source/home/private_dot_config/agent-skills/manifest"
+  mkdir -p "$(dirname "$manifest")" "$(dirname "$source_manifest")" "$BATS_TEST_TMPDIR/tmp"
+  printf '%s\n' 'owner/repo existing-skill' > "$manifest"
+  cp "$manifest" "$source_manifest"
+  cat > "$stub/chezmoi" <<'SH'
+#!/usr/bin/env bash
+printf '<%s>' "$@" >> "$TMPDIR/chezmoi.log"
+printf '\n' >> "$TMPDIR/chezmoi.log"
+if [ "$1" = git ]; then
+  shift 2
+  case "$1" in
+    status) [ "${CHEZMOI_DIRTY:-0}" = 0 ] || printf '%s\n' ' M unrelated-file' ;;
+    rev-parse) printf '%s\n' origin/main ;;
+    pull) exit 0 ;;
+    rev-list) printf '%s\n' 0 ;;
+    diff) exit 1 ;;
+    add|commit|push) exit 0 ;;
+  esac
+elif [ "$1" = cat ]; then
+  cat "$HOME/source/home/private_dot_config/agent-skills/manifest"
+elif [ "$1" = add ]; then
+  cp "$2" "$HOME/source/home/private_dot_config/agent-skills/manifest"
+elif [ "$1" = source-path ]; then
+  printf '%s\n' "$HOME/source/home/private_dot_config/agent-skills/manifest"
+fi
+SH
+  chmod +x "$stub/chezmoi"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" add owner/repo named-skill
+  assert_success
+  assert_file_contains "$source_manifest" '^owner/repo existing-skill named-skill$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/chezmoi.log" '^<git><--><pull><--ff-only>$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/chezmoi.log" '^<add>.*/\.config/agent-skills/manifest>$'
+  run cat "$BATS_TEST_TMPDIR/tmp/chezmoi.log"
+  assert_success
+  assert_output --partial '<git><--><commit><-m><chore(skills): add named-skill><-->'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/chezmoi.log" '^<git><--><push>$'
+
+  mkdir -p "$home/.local/state/skills"
+  printf '%s\n' '{"version":3,"skills":{"named-skill":{"source":"owner/repo"}}}' \
+    > "$home/.local/state/skills/.skill-lock.json"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    bash "$SKILLS_WRAPPER" remove owner/repo named-skill
+  assert_success
+  run cat "$source_manifest"
+  assert_success
+  assert_output 'owner/repo existing-skill'
+  run cat "$BATS_TEST_TMPDIR/tmp/chezmoi.log"
+  assert_success
+  assert_output --partial '<git><--><commit><-m><chore(skills): remove named-skill><-->'
+
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" CHEZMOI_DIRTY=1 \
+    bash "$SKILLS_WRAPPER" add owner/repo another-skill
+  assert_failure
+  assert_output --partial 'chezmoi source repository has uncommitted changes'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
 function test_scripts_2721_skills_hides_success_output_but_preserves_verbose_and_failure_diagnostics() {
@@ -8052,8 +8146,10 @@ for arg in "$@"; do [ "$arg" != fail ] || exit 7; done
 SH
   chmod +x "$stub/npx"
   mkdir -p "$BATS_TEST_TMPDIR/home/.local/state/skills"
+  mkdir -p "$BATS_TEST_TMPDIR/home/.config/agent-skills"
   printf '%s\n' '{"version":3,"skills":{"fail":{"source":"owner/repo"}}}' \
     > "$BATS_TEST_TMPDIR/home/.local/state/skills/.skill-lock.json"
+  printf '%s\n' 'owner/repo fail' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
 
   run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     bash "$SKILLS_WRAPPER" update
@@ -8083,10 +8179,12 @@ SH
   assert_stderr --partial 'upstream stderr'
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
     bash "$SKILLS_WRAPPER" add owner/repo fail
   assert_failure 7
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
     bash "$SKILLS_WRAPPER" remove owner/repo fail
   assert_failure 7
 
@@ -8256,12 +8354,17 @@ function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_r
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$lock"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add owner/repo
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><owner/repo><--skill><\*><--global>'
 
+  mkdir -p "$BATS_TEST_TMPDIR/home/.config/agent-skills"
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
+
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><owned><--yes>$'
 
@@ -8330,12 +8433,17 @@ function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_iden
   mkdir -p "$(dirname "$state_lock")" "$(dirname "$fallback_lock")"
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$state_lock"
   printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"}}}' > "$fallback_lock"
+  mkdir -p "$BATS_TEST_TMPDIR/home/.config/agent-skills"
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" remove owner/repo owned
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME= bash "$SKILLS_WRAPPER" remove owner/repo owned
+    XDG_STATE_HOME= SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
   run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
   assert_output '2'
@@ -8436,8 +8544,8 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_large_document
   assert_output --partial 'canonical tree file exceeds 2097152 bytes'
 }
 
-function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_wildcard_drift() {
-  _bats_test_init 279 'skills sync reports installs and non-wildcard drift without removing it'
+function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_not_wildcard_drift() {
+  _bats_test_init 279 'skills sync offers remove and add commands for non-wildcard drift'
   local stub manifest lock canonical skill
   stub="$(skills_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
@@ -8458,7 +8566,9 @@ function test_scripts_279_skills_sync_reports_installs_and_named_drift_but_not_w
   assert_output --partial 'Installing skills from EveryInc/compound-engineering-plugin: *'
   assert_output --partial 'Installing skills from owner/repo: desired'
   assert_output --partial 'drift: skills remove owner/repo stale'
+  assert_output --partial 'keep:  skills add owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
+  assert_output --partial 'keep:  skills add gone/repo orphan'
   refute_output --partial 'ce-code-review'
 }
 
