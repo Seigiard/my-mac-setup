@@ -58,9 +58,13 @@ sidebar_min_width = 32
 
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
-# labels, rebuilds tab labels, and publishes Git metadata for integrations.
+# labels, rebuilds tab labels, and publishes the Git location tokens.
+# The third row renders `$git_ref` — the engine's composed location string
+# (place glyph + branch/worktree/short SHA, folder qualifier, stale marker).
+# It is a separate row on purpose: pane identity stays stable while Git state
+# moves underneath it, and a pane outside a checkout simply renders no row.
 [ui.sidebar.agents]
-rows = [["state_icon", "workspace"], ["pane"]]
+rows = [["state_icon", "workspace"], ["pane"], ["$git_ref"]]
 
 # Native agent-status toasts are off: the herdr-focus-notify plugin sends its
 # own clickable notification (with `herdr agent focus` on click), and the two
