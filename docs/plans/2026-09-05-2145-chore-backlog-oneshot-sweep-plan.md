@@ -168,7 +168,7 @@ to them first if the goal shifts to maximizing closures per hour.
 
 ### Environment papercuts
 
-- [ ] 11 · `2026-09-03-001` — `make lint` walks leftover agent worktrees.
+- [x] 11 · `2026-09-03-001` — `make lint` walks leftover agent worktrees.
       The `find` at `Makefile:62` excludes `./.git`, `./.worktrees`, `*/node_modules`, and
       `./.context`, but not `./.claude/worktrees`, so any leftover agent worktree's shellcheck
       findings can fail lint on an otherwise clean tree. `.gitignore` cannot fix it — `find` consults

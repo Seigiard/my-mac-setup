@@ -5,8 +5,9 @@ type: "chore"
 category: "repository-maintenance"
 tags: ["lint","worktree"]
 date: "2026-09-03"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -45,3 +46,7 @@ lint's input set depends only on repository source.
 - Whether the other three `find` invocations in the target (`Makefile:63-64`,
   rooted at `home`) need the same treatment. They are rooted outside
   `.claude/`, so they appear unaffected; confirm before deciding.
+
+## Resolution
+
+Added -not -path "./.claude/worktrees/*" to the root-rooted shellcheck find in the lint target, so lint's input set depends only on repository source. The open decision is settled: the other three find invocations are rooted at home, which cannot reach ./.claude/ at the repository root, and the reproduction below implicated only the first sweep; they are unchanged. Reproduced on macOS before fixing: with a single SC2164 file at .claude/worktrees/probe-dirty/bad.sh in an otherwise clean tree, make lint exited 2 reporting that file; with the exclusion added and the same file still present, make lint exited 0. Guarded by a new scripts_test.sh test 0021, which strengthens the existing lint-target test 002 by reusing its shellcheck stub to capture the argv the real make lint hands to shellcheck: it asserts a probe file under .claude/worktrees is absent from that argv while home/dot_local/lib/herdr-process.sh is still present, so the exclusion cannot be satisfied by linting nothing. Removing the exclusion turns it red on the absence assertion; restored it passes with 4 assertions. The probe is deliberately shellcheck-clean so a leaked probe cannot fail a later real lint run. make lint (exit 0), tests/lib/bashunit -j 8 tests/bashunit/scripts_test.sh (341 passed, 1 pre-existing skip, 342 total), and make test-issues (58 tests OK) all pass. No managed file under home/ changed, so this is checkout-logic risk class and make test-local does not apply.

@@ -1250,6 +1250,39 @@ function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   assert_success
 }
 
+function test_scripts_0021_lint_input_set_excludes_agent_worktrees() {
+  _bats_test_init 0021 'lint input set excludes agent worktrees but keeps repository source'
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
+
+  # Agent worktrees are checkouts of this repository living under
+  # .claude/worktrees, so their .sh files look exactly like repository source to
+  # find(1). Linting them makes the target's verdict depend on whichever
+  # worktree happens to be left over rather than on the tree being linted. The
+  # probe stays shellcheck-clean on purpose: this asserts on the input set, and
+  # a leaked probe must not be able to fail a later real lint run.
+  local stubdir="$BATS_TEST_TMPDIR/lint-scope-stub"
+  local invocations="$BATS_TEST_TMPDIR/shellcheck.scope-invocations"
+  local probe_dir="$repo_root/.claude/worktrees/lint-scope-probe-$$"
+  mkdir -p "$stubdir" "$probe_dir"
+  printf '#!/bin/bash\nprintf %%s "linted"\n' > "$probe_dir/probe.sh"
+
+  write_shellcheck_stub "$stubdir" "$invocations" 0
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
+  local lint_status="$status"
+  rm -f "$probe_dir/probe.sh"
+  rmdir "$probe_dir" 2>/dev/null || true
+
+  # #then
+  assert_equal 0 "$lint_status"
+  assert_file_exists "$invocations"
+  run grep -q "lint-scope-probe-$$" "$invocations"
+  assert_failure
+  # Control: the same sweep still reaches ordinary repository source, so the
+  # exclusion above cannot be satisfied by linting nothing at all.
+  assert_file_contains "$invocations" 'home/dot_local/lib/herdr-process\.sh'
+}
+
 # Herdr alias allocator
 # ===========================================
 
