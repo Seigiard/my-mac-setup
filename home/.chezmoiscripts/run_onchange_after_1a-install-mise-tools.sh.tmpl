@@ -1,0 +1,13 @@
+#!/bin/bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Install mise-managed tool versions declared in config.toml.
+#
+# Hash triggers (re-run when the mise config changes):
+# # {{ include "private_dot_config/mise/config.toml" | sha256sum }}
+
+set -e
+
+if command -v mise &> /dev/null; then
+    echo "=== Installing mise-managed tools ==="
+    mise install
+fi

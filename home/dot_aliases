@@ -295,8 +295,7 @@ update-all() {
   brew update &&
     brew upgrade --no-ask &&
     skills update &&
-    mise upgrade &&
-    omz update
+    mise upgrade
 }
 
 # -------------------------------------------

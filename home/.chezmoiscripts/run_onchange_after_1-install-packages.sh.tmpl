@@ -48,34 +48,16 @@ brew bundle --file="$BREWFILES_DIR/Brewfile.macos"
 echo "=== Package installation complete! ==="
 # # {{ end }}
 
-# Install Oh My Zsh if not present
-if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-    echo "Installing Oh My Zsh..."
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-fi
-
-# Install Oh My Zsh plugins
+# Oh My Zsh and its plugins are pinned chezmoi externals (.chezmoiexternal.toml).
 ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
-if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
-    git clone https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
-fi
-if [[ ! -d "$ZSH_CUSTOM/plugins/fast-syntax-highlighting" ]]; then
-    git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git "$ZSH_CUSTOM/plugins/fast-syntax-highlighting"
-fi
 # Remove deprecated zsh-syntax-highlighting (replaced by fast-syntax-highlighting)
 if [[ -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
     rm -rf "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
 fi
-if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-history-substring-search" ]]; then
-    git clone https://github.com/zsh-users/zsh-history-substring-search "$ZSH_CUSTOM/plugins/zsh-history-substring-search"
-fi
-if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-defer" ]]; then
-    git clone https://github.com/romkatv/zsh-defer.git "$ZSH_CUSTOM/plugins/zsh-defer"
-fi
-
-# Initialize mise
-if command -v mise &> /dev/null; then
-    mise use --global node@lts
+# Remove the old vendor-installer clone metadata; the pinned archive external
+# owns the ~/.oh-my-zsh tree now and this .git would be inert but stale.
+if [[ -d "$HOME/.oh-my-zsh/.git" ]]; then
+    rm -rf "$HOME/.oh-my-zsh/.git"
 fi
 
 # # {{ if eq .chezmoi.os "darwin" }}
@@ -86,10 +68,6 @@ if command -v ya &> /dev/null; then
 fi
 # # {{ end }}
 
-# Install fff-mcp (fast file finder for AI agents)
-if [[ ! -x "$HOME/.local/bin/fff-mcp" ]]; then
-    echo "--- Installing fff-mcp ---"
-    curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
-fi
+# fff-mcp is a pinned chezmoi external (.chezmoiexternal.toml).
 
 echo "=== Setup complete! ==="
