@@ -191,26 +191,60 @@ EOF
     pane=""
     launch_terminal=""
   }
-  owned_launch_signal() {
-    local signal="$1" status=1 parsed_identity="" manual_tab=""
-    case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
-    if [ "$tab_mode" -eq 1 ] && [ -z "$pane" ] && [ -n "$split_json" ]; then
-      parsed_identity="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
-      if [ -n "$parsed_identity" ]; then
-        IFS=$'\t' read -r pane tab <<EOF
-$parsed_identity
+  # Both launch branches create their tab or pane, parse the response, then
+  # assign. Anything that interrupts that window finds pane and launch_terminal
+  # still empty, so re-derive both from the buffered response before teardown
+  # decides what it owns — cleanup_pane refuses to close a pane whose launch
+  # terminal it cannot confirm.
+  recover_launch_identity() {
+    local parsed=""
+    { [ -z "$pane" ] && [ -n "$split_json" ]; } || return 0
+    if [ "$tab_mode" -eq 1 ]; then
+      parsed="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
+      [ -n "$parsed" ] || return 0
+      IFS=$'\t' read -r pane launch_terminal tab <<EOF
+$parsed
 EOF
-      else
-        manual_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
-      fi
+    else
+      parsed="$(printf '%s' "$split_json" | json_pane_identity 2>/dev/null || true)"
+      [ -n "$parsed" ] || return 0
+      IFS=$'\t' read -r pane launch_terminal <<EOF
+$parsed
+EOF
     fi
+  }
+  # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md):
+  # an expired hold means the harness died without releasing the barrier, so the
+  # launcher unwinds through the same teardown an interrupted launcher performs.
+  hold_launch_barrier() {
+    local barrier="$1" context="$2" hold_started="$SECONDS"
+    [ -n "$barrier" ] || return 0
+    : > "$barrier.ready"
+    while [ ! -e "$barrier.release" ]; do
+      if watcher_hold_expired "$hold_started"; then
+        recover_launch_identity
+        cleanup_pane "$context" || true
+        exit 1
+      fi
+      sleep 0.01
+    done
+  }
+  owned_launch_signal() {
+    local signal="$1" status=1 manual_tab=""
+    case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+    recover_launch_identity
     stop_owned_watcher "${run_dir:-}" "${watcher_pid:-}" "launch-signal-$signal"
     rm -f "${start_err:-}" "${start_out:-}" "${prompt_err:-}" "${prompt_out:-}" 2>/dev/null || true
     if [ -n "$pane" ]; then
       cleanup_pane "signal-$signal" || true
-    elif [ "$tab_mode" -eq 1 ] && [ -n "$split_json" ]; then
-      printf 'herdr-child: signal after tab creation left tab %s with unknown pane identity; manual cleanup required\n' \
-        "${manual_tab:-unknown}" >&2
+    elif [ -n "$split_json" ]; then
+      if [ "$tab_mode" -eq 1 ]; then
+        manual_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
+        printf 'herdr-child: signal after tab creation left tab %s with unknown pane identity; manual cleanup required\n' \
+          "$manual_tab" >&2
+      else
+        printf 'herdr-child: signal after pane creation left an unknown pane identity; manual cleanup required\n' >&2
+      fi
     fi
     trap - HUP INT TERM
     exit "$status"
@@ -224,47 +258,22 @@ EOF
       printf 'herdr-child: tab create failed\n' >&2
       exit 1
     }
-    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
-try:
- result=json.load(sys.stdin)["result"]
- pane=result["root_pane"]
- pane_id=pane["pane_id"]; terminal_id=pane["terminal_id"]; tab_id=result["tab"]["tab_id"]
- if not pane_id or not terminal_id or not tab_id: raise ValueError()
- print("%s\t%s\t%s" % (pane_id,terminal_id,tab_id))
-except Exception: raise SystemExit(1)')" || {
+    hold_launch_barrier "${HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER:-}" test-capture-barrier-expired
+    identity="$(printf '%s' "$split_json" | json_tab_identity)" || {
       preserved_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
       printf 'herdr-child: tab create returned no usable pane/tab identity; tab %s was preserved and needs manual cleanup\n' "$preserved_tab" >&2
       exit 1
     }
     IFS=$'\t' read -r pane launch_terminal tab <<< "$identity"
     tab_note=" (tab $tab)"
-    # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
-    # expired hold means the harness died without releasing the barrier. Only
-    # the freshly created tab exists here, so the launcher unwinds through the
-    # same pane teardown an interrupted launcher performs at this point.
-    if [ -n "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" ]; then
-      local tab_created_hold_started="$SECONDS"
-      : > "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.release" ]; do
-        if watcher_hold_expired "$tab_created_hold_started"; then
-          cleanup_pane test-barrier-expired || true
-          exit 1
-        fi
-        sleep 0.01
-      done
-    fi
+    hold_launch_barrier "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" test-barrier-expired
   else
     split_json="$(herdr "${split_args[@]}")" || {
       printf 'herdr-child: pane split failed\n' >&2
       exit 1
     }
-    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
-try:
- pane=json.load(sys.stdin)["result"]["pane"]
- pane_id=pane["pane_id"]; terminal_id=pane["terminal_id"]
- if not pane_id or not terminal_id: raise ValueError()
- print("%s\t%s" % (pane_id,terminal_id))
-except Exception: raise SystemExit(1)')" || {
+    hold_launch_barrier "${HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER:-}" test-capture-barrier-expired
+    identity="$(printf '%s' "$split_json" | json_pane_identity)" || {
       printf 'herdr-child: pane split returned no pane and terminal identity; pane was preserved\n' >&2
       exit 1
     }

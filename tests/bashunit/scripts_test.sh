@@ -4245,6 +4245,68 @@ PY
   assert_success
 }
 
+# Delivers SIGTERM to a launcher parked between the herdr response and the
+# identity read, so the trap runs while pane and launch_terminal are still empty.
+child_signal_before_identity_capture() {
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_WORKSPACE_ID=w1 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER="$CHILD_STUB/split-captured" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=10 \
+    CHILD_EXTRA_ARGS="$1" CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import os
+from pathlib import Path
+import shlex
+import signal
+import subprocess
+import time
+
+stub = Path(os.environ["CHILD_STUB"])
+extra = shlex.split(os.environ["CHILD_EXTRA_ARGS"])
+proc = subprocess.Popen(
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--wait",
+     "--prompt", "test task"] + extra,
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
+for _ in range(1000):
+    if (stub / "split-captured.ready").exists():
+        break
+    time.sleep(0.01)
+else:
+    proc.kill()
+    raise AssertionError("launcher did not reach the identity-capture barrier")
+proc.send_signal(signal.SIGTERM)
+stdout, stderr = proc.communicate(timeout=30)
+if proc.returncode == 0:
+    raise AssertionError("signaled launcher returned success")
+calls = (stub / "calls.log").read_text()
+if "pane close wT:p9" not in calls:
+    raise AssertionError("created pane was left running: %s | %s" % (calls, stderr))
+if "pane report-metadata" in calls or "agent start" in calls:
+    raise AssertionError("signal crossed the ownership publication barrier: %s" % calls)
+if "manual cleanup" in stderr:
+    raise AssertionError("parseable identity was reported as unknown: %s" % stderr)
+PY
+}
+
+function test_scripts_0801_herdr_child_tab_signal_before_identity_capture() {
+  _bats_test_init 0801 'herdr-child tab signal before identity capture closes the created tab root pane'
+  # #given — a tab-mode launcher parked between tab create and the identity read
+  child_stub_herdr
+  # #when — SIGTERM lands inside that window
+  run child_signal_before_identity_capture --tab
+  # #then — the recovered identity still passes the terminal check and the pane closes
+  assert_success
+}
+
+function test_scripts_0802_herdr_child_pane_signal_before_identity_capture() {
+  _bats_test_init 0802 'herdr-child pane signal before identity capture closes the created pane'
+  # #given — a pane-mode launcher parked between pane split and the identity read
+  child_stub_herdr
+  # #when — SIGTERM lands inside that window
+  run child_signal_before_identity_capture ''
+  # #then — pane mode recovers the same identity and closes the split pane
+  assert_success
+}
+
 function test_scripts_0661_herdr_child_tab_created_barrier_is_bounded() {
   _bats_test_init 0661 'herdr-child tab launcher held after creation self-terminates and drops the owned tab'
   # #given — a tab-mode launcher parked at the post-create ownership barrier

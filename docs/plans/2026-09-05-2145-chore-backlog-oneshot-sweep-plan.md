@@ -187,7 +187,7 @@ to them first if the goal shifts to maximizing closures per hour.
 
 ### Low priority — herdr
 
-- [ ] 13 · `2026-08-26-001` — signal race can orphan a tab before pane capture.
+- [x] 13 · `2026-08-26-001` — signal race can orphan a tab before pane capture.
       Tab mode re-parses the buffered response (`herdr-child-launch.sh:197-206`), but
       `json_tab_identity` (`herdr-child-runtime.sh:267-277`) extracts the terminal id and prints only
       `pane\ttab`, so `launch_terminal` stays empty and `cleanup_pane` refuses the close at `:183`.

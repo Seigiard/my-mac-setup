@@ -5,8 +5,9 @@ type: "follow-up"
 category: "herdr"
 tags: ["herdr-child","tab-mode","signal-handling","code-review-residual"]
 date: "2026-08-26"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -77,3 +78,17 @@ signals around the `herdr` call.
   or tab mode only.
 - Whether extending `json_tab_identity` to a three-field record is preferable to
   adding a separate terminal-only accessor, given its other callers.
+
+## Resolution
+
+Fixed. json_tab_identity (home/dot_local/lib/herdr-child-runtime.sh) already extracted and validated the terminal id but printed only pane and tab, so a launcher signaled before it captured its identity recovered a pane with no launch_terminal, and cleanup_pane then refused the close with 'terminal identity changed'. The helper now prints pane, terminal and tab, and a new json_pane_identity gives pane mode the same accessor.
+
+In herdr-child-launch.sh, owned_launch_signal's tab-only inline recovery is replaced by recover_launch_identity, which re-derives pane and launch_terminal from the buffered response for either mode; pane mode previously had no recovery at all and was silent, and now recovers or reports its own diagnostic. Both main launch paths call the shared helpers instead of the inline python duplicates they carried; the tab-mode duplicate was the copy that had already drifted from the helper, so this removes a second source of truth rather than adding a third. The test-only barriers in this path are now one bounded hold_launch_barrier helper, which the pre-existing tab-created barrier also uses.
+
+Coverage: two tests (0801 tab, 0802 pane) park the launcher at a new bounded barrier placed between the herdr response and the identity read, deliver a real SIGTERM there, and take their oracle from the herdr stub's recorded call log and the launcher's real exit status. Each requires 'pane close wT:p9' to appear, requires the process to exit nonzero, and requires that ownership publication ('pane report-metadata', 'agent start') was never reached.
+
+Verified by the orchestrator rather than taken on report: make lint exit 0, make test-issues exit 0, and tests/bashunit/scripts_test.sh 354 passed / 1 skipped / 0 failed. Two mutations confirm the tests can fail and are specific: reverting json_tab_identity to two fields turns only 0801 red with 'terminal identity changed after signal-TERM', and re-gating recover_launch_identity on tab mode turns only 0802 red with the pane-mode diagnostic. The four bounded-barrier tests from the earlier barrier work still pass, which was the real risk in folding their hold into the shared helper.
+
+Left open deliberately: a signal arriving during the herdr command substitution leaves split_json empty, so no shell-side recovery is possible. Neither new test claims to cover that.
+
+Not verified: make test-local could not run. A chezmoi apply from the user's own interactive shell (PID 92614) holds the persistent state lock and was left alone. This change touches only existing non-template .sh files, so it carries no new managed path or template-rendering risk; make test-ubuntu covers the sweep at the end.

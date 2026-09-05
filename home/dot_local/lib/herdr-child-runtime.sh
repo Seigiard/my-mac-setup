@@ -272,7 +272,19 @@ try:
  terminal=result["root_pane"]["terminal_id"]
  tab=result["tab"]["tab_id"]
  if not pane or not terminal or not tab: raise ValueError()
- print("%s\t%s" % (pane,tab))
+ print("%s\t%s\t%s" % (pane,terminal,tab))
+except Exception:
+ raise SystemExit(1)'
+}
+
+json_pane_identity() {
+  python3 -c 'import json,sys
+try:
+ pane=json.load(sys.stdin)["result"]["pane"]
+ pane_id=pane["pane_id"]
+ terminal_id=pane["terminal_id"]
+ if not pane_id or not terminal_id: raise ValueError()
+ print("%s\t%s" % (pane_id,terminal_id))
 except Exception:
  raise SystemExit(1)'
 }
