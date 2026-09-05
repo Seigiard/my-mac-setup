@@ -9645,6 +9645,7 @@ function test_scripts_2823_context_threshold_hard_crossing_carries_halt_and_mess
   assert_success
   assert_output --partial '/compact handoff:'
   assert_output --partial '305 turns since the last compaction'
+  assert_output --partial $'Run this command to carry the current goal through compaction:\n/compact handoff:'
   run jq -r '.systemMessage' <<< "$response"
   assert_success
   assert_output --partial '305 turns since the last compaction'
