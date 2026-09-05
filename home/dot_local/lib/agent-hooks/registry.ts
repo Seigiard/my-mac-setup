@@ -14,8 +14,10 @@ import type {
   ToolKind,
 } from "./types.ts";
 
-// mcp__fff__grep has no verified identifier in opencode or pi yet, so those
-// profiles omit it: the derivation then declares the policy inapplicable there
+// The fff MCP tool is spelled per client: Claude namespaces it mcp__fff__grep,
+// opencode flattens the server name to fff_grep (observed against the shipped
+// fff MCP server, U4). Pi's spelling is still unverified, so its profile omits
+// the tool and the derivation declares the policy inapplicable there
 // statically instead of missing it silently (R3).
 export const CLIENT_PROFILES: ClientProfile[] = [
   {
@@ -33,7 +35,7 @@ export const CLIENT_PROFILES: ClientProfile[] = [
   },
   {
     client: "opencode",
-    tools: { edit: "edit", write: "write", bash: "bash" },
+    tools: { edit: "edit", write: "write", bash: "bash", fff_grep: "fff-grep" },
     outcomes: ["block"],
   },
   {

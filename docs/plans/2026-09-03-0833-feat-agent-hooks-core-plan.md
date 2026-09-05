@@ -16,7 +16,7 @@ deepened: 2026-09-03
 - [x] U1 · core module: types, registry, normalization, dispatch, selfcheck
 - [x] U2 · port the four tool-call policies into the core
 - [x] U3 · Claude adapter: shim, dispatcher, matcher union, anti-vacuity tests
-- [ ] U4 · OpenCode adapter plugin
+- [x] U4 · OpenCode adapter plugin
 - [ ] U5 · Pi adapter extension
 - [ ] U6 · agents-local port to OpenCode with shared selection module
 - [ ] U7 · retirement apply: remove old Claude scripts and engines, assert absence

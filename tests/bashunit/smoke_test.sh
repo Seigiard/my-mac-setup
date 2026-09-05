@@ -116,6 +116,7 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .local/lib/agent-hooks/registry.ts
     .local/lib/agent-hooks/selfcheck.ts
     .local/lib/agent-hooks/policies/index.ts
+    .config/opencode/plugins/agent-hooks.ts
     .config/herdr/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
@@ -942,6 +943,21 @@ EOF
 EOF
   assert_success
   assert_output ""
+}
+
+# The checkout suite proves the adapter source. Only the applied home proves the
+# plugin opencode will actually load against the core it will actually import:
+# a .chezmoiignore rule, a lost plugin directory, or a core that stopped
+# rendering leaves the checkout green while every deployed policy is gone.
+function test_smoke_1068_deployed_opencode_agent_hooks_plugin_enforces_the_core() {
+  _bats_test_init 1068 'deployed opencode agent-hooks plugin enforces the deployed core'
+  local plugin="$HOME/.config/opencode/plugins/agent-hooks.ts"
+  local core="$HOME/.local/lib/agent-hooks"
+  assert_file_exists "$plugin"
+  assert_file_exists "$core/index.ts"
+  run env AGENT_HOOKS_OPENCODE_PLUGIN_PATH="$plugin" AGENT_HOOKS_CORE_PATH="$core" \
+    bun test "$BATS_TEST_DIRNAME/agent-hooks-opencode-adapter.test.ts"
+  assert_success
 }
 
 assert_herdr_label_writer_contract() {

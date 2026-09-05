@@ -30,3 +30,10 @@ Library/marta
 # stays under .claude. Earlier applies left a stale copy of the script at the
 # old path, where it would still run without the report transport.
 .claude/skills/ask-in-herdr/scripts
+
+# One agent-hooks plugin replaces the per-policy opencode guards; both of the
+# retired adapters spawned ~/.local/bin engines that the shared core absorbed.
+# A session that already loaded them keeps running them until it restarts, so
+# removing the files here costs a running session nothing.
+.config/opencode/plugins/test-oracle-guard.ts
+.config/opencode/plugins/zsh-reserved-name-guard.ts

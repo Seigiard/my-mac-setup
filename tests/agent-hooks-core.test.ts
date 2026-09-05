@@ -316,7 +316,7 @@ describe("applicability derivation", () => {
   });
 
   test("a tool absent from a profile makes its policy inapplicable there", () => {
-    // #given the shipped profiles, where only one client has a verified fff tool
+    // #given the shipped profiles, where pi still has no verified fff tool
     const policy = {
       name: "fixture-query-guard",
       tools: ["fff-grep"],
@@ -328,7 +328,7 @@ describe("applicability derivation", () => {
     const clients = core.applicableClients(registryWith([policy]), policy);
 
     // #then it is declared statically, not missed at runtime
-    expect(clients).toEqual(["claude"]);
+    expect(clients).toEqual(["claude", "opencode"]);
   });
 });
 
@@ -758,6 +758,7 @@ describe("selfcheck canary over the shipped registry (R8)", () => {
     // #then every derived route exists and blocks
     expect(results.map((result: any) => `${result.policy}@${result.client}`).sort()).toEqual([
       "fff-grep-guard@claude",
+      "fff-grep-guard@opencode",
       "test-oracle-guard@claude",
       "test-oracle-guard@opencode",
       "test-oracle-guard@pi",
