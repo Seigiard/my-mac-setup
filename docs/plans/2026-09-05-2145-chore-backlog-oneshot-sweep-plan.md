@@ -117,7 +117,7 @@ to them first if the goal shifts to maximizing closures per hour.
       Decision the user owns: which spelling and membership the reconciled chart uses, and whether
       a rejected transition aborts the naming event or records a diagnostic. No code was changed.
 
-- [ ] 5 · `2026-08-30-010` — research simplifying the herdr-child lifecycle.
+- [x] 5 · `2026-08-30-010` — research simplifying the herdr-child lifecycle.
       2,701 lines and 79 functions across the entrypoint and six modules.
       **Not a one-shot coding task** — it is a research deliverable, and it depends on items 1-3
       landing first. Skip it in this sweep unless items 1-3 all closed, and even then expect a
