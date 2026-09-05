@@ -5,7 +5,7 @@ type: "chore"
 category: "testing-ci"
 tags: ["performance","poll-interval","fork-overhead"]
 date: "2026-09-05"
-status: "open"
+status: "in-progress"
 priority: "medium"
 ---
 

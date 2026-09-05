@@ -30,7 +30,13 @@ setup() {
   PALETTE_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette.XXXXXX")"
   # Docker mounts the source tree read-only, so __pycache__ cannot live beside
   # the sources. py_compile reports that as a failure; redirect the cache.
-  export PYTHONPYCACHEPREFIX="$PALETTE_WORK/pycache"
+  #
+  # The cache is file-scoped, not per-test: palette.py is 2000 lines and every
+  # test that imports it was recompiling from source, at 316ms cold against
+  # 58ms warm. CPython writes each .pyc to a temp name and renames it, and the
+  # loader revalidates against mtime and size, so concurrent workers sharing
+  # this directory behave exactly as they would with an ordinary __pycache__.
+  export PYTHONPYCACHEPREFIX="${PALETTE_FILE_PYCACHE:-$PALETTE_WORK/pycache}"
 }
 
 teardown() {
@@ -1513,10 +1519,12 @@ PY
 }
 
 function set_up_before_script() {
-  :
+  PALETTE_FILE_PYCACHE="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette-pycache.XXXXXX")"
+  export PALETTE_FILE_PYCACHE
 }
 
 function tear_down_after_script() {
+  [[ -z "${PALETTE_FILE_PYCACHE:-}" ]] || rm -rf "$PALETTE_FILE_PYCACHE"
   _bats_file_cleanup
 }
 

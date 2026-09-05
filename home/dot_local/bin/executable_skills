@@ -15,6 +15,9 @@ TMPDIR="${TMPDIR:-/tmp}"
 SKILLS_VERBOSE="${SKILLS_VERBOSE:-0}"
 SKILLS_TIMEOUT="${SKILLS_TIMEOUT:-600}"
 SKILLS_HEARTBEAT="${SKILLS_HEARTBEAT:-30}"
+# Sampling granularity for the wait below, not the timeout. SKILLS_TIMEOUT
+# stays the deadline and is measured against elapsed wall time.
+SKILLS_POLL_INTERVAL="${SKILLS_POLL_INTERVAL:-0.2}"
 NPX_PID=''
 
 usage() {
@@ -102,11 +105,11 @@ signal_tree() {
 }
 
 terminate_tree() {
-  local pid="$1" waited=0
+  local pid="$1" started
   signal_tree TERM "$pid"
-  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 5 ]; do
-    sleep 1
-    waited=$((waited + 1))
+  started=$SECONDS
+  while kill -0 "$pid" 2>/dev/null && [ "$((SECONDS - started))" -lt 5 ]; do
+    sleep "$SKILLS_POLL_INTERVAL"
   done
   ! kill -0 "$pid" 2>/dev/null || signal_tree KILL "$pid"
 }
@@ -118,17 +121,17 @@ run_npx() {
     invoke_npx "$@"
     return
   fi
-  local tick=0 waited=0 heartbeat_at="$SKILLS_HEARTBEAT" timed_out=0
+  local waited=0 started heartbeat_at="$SKILLS_HEARTBEAT" timed_out=0
   output="$(mktemp "$TMPDIR/skills-output.XXXXXX")" || return 1
   trap 'status=$?; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
   # Captured output cannot render a prompt, so deny the child a terminal to
   # wait on. Upstream ignores CI=1 for its deleted-skill confirmation.
   invoke_npx "$@" </dev/null > "$output" 2>&1 &
   NPX_PID=$!
+  started=$SECONDS
   while kill -0 "$NPX_PID" 2>/dev/null; do
-    sleep 0.2
-    tick=$((tick + 1))
-    waited=$((tick / 5))
+    sleep "$SKILLS_POLL_INTERVAL"
+    waited=$((SECONDS - started))
     if [ "$SKILLS_TIMEOUT" -gt 0 ] && [ "$waited" -ge "$SKILLS_TIMEOUT" ]; then
       timed_out=1
       terminate_tree "$NPX_PID"

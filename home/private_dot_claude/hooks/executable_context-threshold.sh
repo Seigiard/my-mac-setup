@@ -50,6 +50,13 @@ esac
 # ${HOME:-} rather than $HOME: under `set -u` an unset HOME would abort the
 # hook with a non-zero status, which is the opposite of failing open.
 CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-${HOME:-}/.local/lib/context-usage.sh}"
+# How often the bound below samples the child. It is not the bound itself:
+# both deadlines are measured against elapsed wall time, so shortening this
+# only changes sampling granularity. Tests set it low so a stub extractor
+# that exits in milliseconds is not billed a full second.
+CONTEXT_THRESHOLD_POLL_INTERVAL="${CONTEXT_THRESHOLD_POLL_INTERVAL:-1}"
+# How long a process that ignores TERM is given before KILL.
+CONTEXT_THRESHOLD_KILL_GRACE_SECONDS="${CONTEXT_THRESHOLD_KILL_GRACE_SECONDS:-3}"
 [ -r "$CONTEXT_USAGE_LIBRARY" ] || exit 0
 # shellcheck source=home/dot_local/lib/context-usage.sh
 . "$CONTEXT_USAGE_LIBRARY" || exit 0
@@ -59,7 +66,7 @@ CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-${HOME:-}/.local/lib/context-usa
 context_threshold_bounded() {
   local seconds="$1" output="$2"
   shift 2
-  local pid waited=0 status
+  local pid status started grace_started
   # Job control puts the child in its own process group, so an overrun can be
   # ended together with anything it spawned. Killing the leader alone leaves
   # orphans holding the pipe the caller is waiting on.
@@ -69,16 +76,21 @@ context_threshold_bounded() {
   "$@" > "$output" 2>/dev/null < /dev/null &
   pid=$!
   set +m
+  # SECONDS is bash's elapsed-time counter, so the deadline holds however often
+  # the loop samples. Counting iterations made the poll interval double as the
+  # clock, which is why the interval could not be shortened without moving the
+  # deadline with it.
+  started=$SECONDS
   while kill -0 "$pid" 2>/dev/null; do
-    if [ "$waited" -ge "$seconds" ]; then
+    if [ "$((SECONDS - started))" -ge "$seconds" ]; then
       kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
       # A process that ignores TERM would otherwise hold the turn open past
       # the bound the hook exists to enforce. Escalate the way
       # home/dot_local/lib/herdr-child-supervision.sh already does.
-      local grace=0
-      while kill -0 "$pid" 2>/dev/null && [ "$grace" -lt 3 ]; do
-        sleep 1
-        grace=$((grace + 1))
+      grace_started=$SECONDS
+      while kill -0 "$pid" 2>/dev/null \
+        && [ "$((SECONDS - grace_started))" -lt "$CONTEXT_THRESHOLD_KILL_GRACE_SECONDS" ]; do
+        sleep "$CONTEXT_THRESHOLD_POLL_INTERVAL"
       done
       if kill -0 "$pid" 2>/dev/null; then
         kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
@@ -86,8 +98,7 @@ context_threshold_bounded() {
       wait "$pid" 2>/dev/null
       return 124
     fi
-    sleep 1
-    waited=$((waited + 1))
+    sleep "$CONTEXT_THRESHOLD_POLL_INTERVAL"
   done
   wait "$pid"
   status=$?
