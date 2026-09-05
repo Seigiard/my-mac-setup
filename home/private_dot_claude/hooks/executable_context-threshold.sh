@@ -307,7 +307,9 @@ fi
 if [ "$level" = hard ]; then
   message="Context limit reached: $detail.$note Compact now, editing the goal as you like:
 $command_line"
-  reason="Stopped at the context limit: $detail. Run $command_line to carry the current goal through compaction, or send another prompt to continue anyway."
+  reason="Stopped at the context limit: $detail. Run this command to carry the current goal through compaction:
+$command_line
+Or send another prompt to continue anyway."
   context_usage_spend "$session_id" hard "$dimensions" "$turns" "$goal" "$goal_status" > /dev/null 2>&1 || true
   [ -z "$warn_dimensions" ] ||
     context_usage_spend "$session_id" warn "$warn_dimensions" "$turns" > /dev/null 2>&1 || true
