@@ -461,7 +461,9 @@ _bats_test_init() {
   BATS_TEST_DESCRIPTION="$2"
   BATS_TEST_NAME="$2"
   bashunit::set_test_title "$2"
-  BATS_TEST_TMPDIR="$_BATS_FILE_TMPROOT/test-$1"
+  # Historical Bats numbers can repeat after suites are merged. Bashunit's
+  # runtime identity is unique per test, including under parallel execution.
+  BATS_TEST_TMPDIR="$_BATS_FILE_TMPROOT/$BASHUNIT_CURRENT_TEST_ID"
   mkdir -p "$BATS_TEST_TMPDIR"
   export BATS_TEST_NUMBER BATS_TEST_DESCRIPTION BATS_TEST_NAME BATS_TEST_TMPDIR
   # -E: inherit the ERR trap into helper functions (bats runs tests with
