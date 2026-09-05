@@ -70,3 +70,35 @@ function is acceptable friction is answered no by the evidence above. What
 remains open is whether the engine should gain a diff-aware positive check at
 all, given that it would need session or patch state the stateless hook does
 not have, or whether the positive class stays prose-plus-review.
+
+## Engine contract measured (2026-09-05)
+
+The engine's interface is `test-oracle-guard <file-path>` with proposed content
+on stdin, and all three adapters were read directly to confirm what they can
+supply:
+
+| Adapter | Path | Content it sends |
+|---|---|---|
+| Claude Code | `home/private_dot_claude/hooks/executable_test-oracle-guard.sh` | `.tool_input.content`, else `.new_string`, else the joined `new_string` of each `edits[]` entry |
+| OpenCode | `home/private_dot_config/opencode/plugins/test-oracle-guard.ts` | `args.content` and `args.newString`, joined |
+| Pi | `home/dot_pi/agent/extensions/test-oracle-guard.ts` | `event.input.content`, else the joined edits |
+
+Two consequences constrain any positive check built on this contract:
+
+- **On an `Edit` the engine sees a fragment, not a file.** Every adapter sends
+  only the replacement text. A rule phrased over "every new test function" cannot
+  reliably find a function boundary, because the opening line, the closing line,
+  or both may sit outside the fragment. The `oracle:`-comment mechanism the audit
+  already rejected on blast-radius grounds is also not implementable as specified.
+- **The engine has no second side to compare against.** The check the audit
+  recommends — flag an expected literal that also appears in a non-test file
+  changed by the same patch — needs the rest of the patch. Nothing in the
+  contract carries it.
+
+The engine could reach for patch state itself rather than receive it: read the
+on-disk file for the pre-edit side, or shell out to `git diff` for the
+concurrently changed non-test files. Both are real options and both are a design
+change, not a fix. Reading the working tree makes the gate's verdict depend on
+whether the source change is still uncommitted, so in a repository that commits
+per unit — the convention here — the same test edit is flagged or cleared
+depending only on commit timing. That is the tradeoff the open decision turns on.

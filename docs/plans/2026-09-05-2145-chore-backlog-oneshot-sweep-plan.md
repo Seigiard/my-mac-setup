@@ -156,6 +156,7 @@ to them first if the goal shifts to maximizing closures per hour.
       it and rejected the `oracle:`-comment mechanism on blast-radius grounds. What remains is
       whether the engine should gain a diff-aware positive check at all, given it needs patch state
       the stateless hook does not have — a design decision, not a one-shot fix.
+      blocked 2026-09-05: needs a design decision from the user — whether the engine may reach for patch state (read the on-disk file, or shell out to `git diff`) to gain a positive check, accepting that its verdict then depends on commit timing, or whether the positive class stays prose-plus-review. The `oracle:`-comment mechanism is doubly dead: rejected on blast radius by the audit, and unimplementable because every adapter sends only the edit fragment.
 
 - [ ] 10 · `2026-09-02-009` — superseded-watcher barrier test flaked once in CI.
       Test 040 (`tests/bashunit/scripts_test.sh:3068`) failed once in PR #135's `test-ubuntu` job
