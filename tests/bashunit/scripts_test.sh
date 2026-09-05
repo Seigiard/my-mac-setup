@@ -3004,7 +3004,7 @@ function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
   assert_file_exists "$CHILD_STUB/parent-blocked-observed"
   assert_file_not_exists "$CHILD_STUB/successful-prompts.log"
   printf 'working\n' > "$CHILD_STUB/parent-status"
-  child_wait_for_log 'event=settled-11'
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output 1
@@ -3016,13 +3016,7 @@ function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
-  child_wait_for_log 'event=settled-11'
-  attempt=0
-  while [ ! -s "$CHILD_STUB/successful-prompts.log" ] && [ "$attempt" -lt 500 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-  done
-  assert_file_exists "$CHILD_STUB/successful-prompts.log"
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output 1
@@ -3059,7 +3053,7 @@ function test_scripts_039_herdr_child_transient_pane_reads_never_become_ch() {
   : > "$CHILD_STUB/pane-transient-after-settlement"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_file "$CHILD_STUB/pane-get-transient-observed"
-  child_wait_for_log 'event=settled-11'
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   run grep -q 'event=child-gone' "$CHILD_STUB/calls.log"
   assert_failure
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
@@ -7449,6 +7443,16 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
   assert_success
   assert_output --partial "Assertions: 1 passed, 1 total"
+}
+
+function test_scripts_2841_test_dsl_isolates_parallel_tests_with_the_same_historical_number() {
+  _bats_test_init 2841 'test DSL isolates parallel tests with the same historical number'
+  local probe_file="$BATS_TEST_DIRNAME/bashunit/test_dsl_parallel_isolation_probe_test.sh"
+  assert_file_exists "$probe_file"
+
+  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  assert_success
+  assert_output --partial "Tests:      2 passed, 2 total"
 }
 
 # watcher orphan self-termination (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
