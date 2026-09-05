@@ -5,8 +5,9 @@ type: "bug"
 category: "herdr"
 tags: ["regression","testing"]
 date: "2026-09-04"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -36,3 +37,7 @@ chezmoi issue `2026-08-30-006`.
 ## Open decisions
 
 None.
+
+## Resolution
+
+Fixed by 68d8894 (fix(tests): follow allocated herdr child aliases, #167). Root cause was the test harness, not the reap lifecycle: tests 264/270 invoked reap --to orange-panda, a hardcoded alias that no longer matched the allocated child, so reap bailed out before begin_reap_invalidation and reap-invalidated.ready was never written. The call sites now read --to "$(child_started_name)" at tests/bashunit/scripts_test.sh:7556 and :7800. Verified on macOS with the record's own repro: tests/lib/bashunit -f reap_invalidation tests/bashunit/scripts_test.sh gives 2 passed, 17 assertions. Not re-run under make test-ubuntu; the fix lives in shared harness code with no platform-dependent behaviour. The stated blocker 2026-08-30-006 is also closed (done, 2026-09-04).

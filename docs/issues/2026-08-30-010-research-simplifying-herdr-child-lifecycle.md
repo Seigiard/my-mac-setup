@@ -1,6 +1,6 @@
 ---
 title: "Research simplifying herdr-child lifecycle"
-short_description: "After module extraction and preliminary serializer consolidation, the herdr-child lifecycle still spans 2,507 physical lines and 72 function definitions; map its state machines before attempting behavioral simplification."
+short_description: "After module extraction and preliminary serializer consolidation, the herdr-child lifecycle still spans 2,701 physical lines and 79 function definitions (measured 2026-09-05, up from 2,507/72 at filing); map its state machines before attempting behavioral simplification."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr-child","maintainability","research"]
@@ -15,9 +15,11 @@ parent-plan: "docs/plans/2026-08-30-001-refactor-herdr-child-lifecycle-modules-p
 The lifecycle engine grew from 405 lines when detached supervision added
 generation tracking, watcher delivery, callbacks, retries, continuation, and
 reap recovery, followed by several race-condition fixes. The extracted source
-now spans 2,507 physical lines across the entrypoint and six modules.
+now spans 2,701 physical lines across the entrypoint and six modules
+(measured 2026-09-05; 2,507 at filing, grown by `a59c3b4` and `9f1b017`).
 
-The current source defines 72 functions, including four nested definitions.
+The current source defines 79 functions, including four nested definitions
+(`herdr-child-launch.sh:166,194,480` and `herdr-child-continuation.sh:97`).
 The module follow-up already centralized watcher-state polling and
 `launch.state` serialization, reducing ten physical lines, but it did not
 simplify the state machines, retry policies, embedded Python predicates, or

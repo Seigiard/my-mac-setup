@@ -89,5 +89,5 @@ The regression assertion observes the filesystem boundary rather than trusting s
 
 - [Semantic regression tests over source shape](../design-patterns/semantic-regression-tests-over-source-shape.md)
 - [Herdr git-status playground plan](../../plans/2026-08-25-001-feat-herdr-git-status-playground-plan.md)
-- [Task-sync tests measure only an unverified Herdr protocol fake](../../issues/2026-09-02-012-herdr-task-sync-tests-measure-only-an-unverified-herdr-protocol-fake.md)
+- [Pane-label herdr stub is an unverified protocol fake](../../issues/2026-09-02-012-pane-label-herdr-stub-is-an-unverified-protocol-fake.md)
 - [Palette dynamic plugin action source](../../issues/2026-08-18-008-palette-dynamic-plugin-action-source.md)

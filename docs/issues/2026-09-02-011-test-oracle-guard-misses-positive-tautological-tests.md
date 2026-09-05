@@ -1,6 +1,6 @@
 ---
 title: "test-oracle-guard misses positive tautological tests"
-short_description: "The shared guard engine denies only negative-assertion patterns, so the 2026-09-02 ghostty-shortcuts incident's positive tests with expected values from the same patch passed all three client hooks silently; extending it needs a low-false-positive signal such as requiring an oracle: comment on new test functions."
+short_description: "The shared guard engine denies only negative-assertion patterns, leaving positive tests whose expected values come from the same patch unflagged by all three client hooks; the repository-wide audit in this record falsified the incident originally cited and rejected the oracle:-comment mechanism, so what stays open is whether the engine gains a diff-aware positive check at all, given it would need patch state the stateless hook lacks."
 type: "follow-up"
 category: "testing-ci"
 tags: ["test-oracle","hooks"]
