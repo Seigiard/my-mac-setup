@@ -50,3 +50,18 @@ Out of scope: replacing `herdr-child ask`, the current per-child watcher, or att
 - How a parent registers and deregisters generation-scoped interest without turning ephemeral watcher state into a stale machine-wide ownership registry.
 - Whether one subscriber serves every parent on the machine or each parent runs its own, and how duplicates are avoided either way.
 - How subscriber delivery interoperates with the current timeout-then-settlement semantics and confirmed generation-and-event receipts.
+
+## Upstream surface measured (2026-09-06)
+
+Checked against the installed herdr rather than taken from the record: `herdr --version` reports
+0.8.2, `herdr api --help` lists exactly two subcommands, `snapshot` and `schema`, and
+`herdr api schema --json` does contain all three of `events.subscribe`, `events.wait` and
+`pane_agent_status_changed`. Both halves of this record's framing therefore still hold — the socket
+protocol carries the events, and no CLI surface exposes them, so a subscriber has to speak the
+protocol directly.
+
+That leaves the item's cost where the record already put it: something must outlive an agent turn to
+hold the subscription, which means a long-lived daemon with its own install, restart and
+crash-recovery story. This is a feature to design, not a defect to fix, and the record itself states
+that concrete use cases for the supervision tree are not yet established. Whether that daemon is
+wanted at all is the decision this needs.

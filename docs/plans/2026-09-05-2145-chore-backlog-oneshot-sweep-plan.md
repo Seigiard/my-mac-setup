@@ -209,6 +209,12 @@ to them first if the goal shifts to maximizing closures per hour.
       `api schema --json` already carries `events.subscribe`, `events.wait`, and
       `pane_agent_status_changed`.
       **Feature, not a defect.** Expect `failed` or a deferral from a one-shot attempt.
+      blocked 2026-09-06: needs the user's decision on whether a long-lived supervision daemon is
+      wanted at all. Verified against the installed herdr 0.8.2: `api` exposes only `snapshot` and
+      `schema`, while `api schema --json` does carry `events.subscribe`, `events.wait` and
+      `pane_agent_status_changed`. So a subscriber is possible but must speak the socket protocol
+      directly and outlive an agent turn — a daemon with its own install, restart and crash-recovery
+      story. The record itself says concrete use cases are not established yet.
 
 - [ ] 16 · `2026-08-18-003` — consulting a peer agent from outside herdr.
       `ask.sh:47-50` refuses when `HERDR_ENV != 1`; there is no headless mode.
