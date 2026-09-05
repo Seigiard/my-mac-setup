@@ -29,6 +29,16 @@ for arg in "$@"; do
       printf '%s\0' "$HOME/.zshenv" "$HOME/.claude.json"
       exit 0
     fi
+    if [ -n "${FAKE_MANAGED_TARGET_COUNT:-}" ]; then
+      managed_index=1
+      while [ "$managed_index" -le "$FAKE_MANAGED_TARGET_COUNT" ]; do
+        managed_target="$HOME/.config/generated-target-$managed_index-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        printf '%s\0' "$managed_target"
+        printf '%s\0' "$managed_target" >> "$FAKE_STATE/managed-targets"
+        managed_index=$((managed_index + 1))
+      done
+      exit 0
+    fi
     printf '%s\0' \
       "$HOME/.zshenv" \
       "$HOME/.claude.json" \
@@ -40,10 +50,28 @@ break"
   fi
 done
 
+serialized_args="$0"
+for arg in "$@"; do
+  serialized_args="$serialized_args $arg"
+done
+if [ -n "${FAKE_MAX_CHEZMOI_ARGS_BYTES:-}" ] &&
+   [ "${#serialized_args}" -gt "$FAKE_MAX_CHEZMOI_ARGS_BYTES" ]; then
+  printf 'simulated CHEZMOI_ARGS limit exceeded: %s bytes\n' "${#serialized_args}" >&2
+  exit 88
+fi
+
 printf 'final\n' >> "$FAKE_STATE/invocations"
 printf '%s' "$PATH" > "$FAKE_STATE/path"
 printf '%s' "${MMS_CHEZMOI_UNATTENDED_PROFILE:-}" > "$FAKE_STATE/profile"
 printf '%s\0' "$@" > "$FAKE_STATE/argv"
+printf '%s\n' "${#serialized_args}" >> "$FAKE_STATE/serialized-args-sizes"
+for arg in "$@"; do
+  case "$arg" in
+    "$HOME/.config/generated-target-"*)
+      printf '%s\0' "$arg" >> "$FAKE_STATE/received-targets"
+      ;;
+  esac
+done
 neighbor
 cat > "$FAKE_STATE/stdin"
 printf '%s' "${FAKE_STDOUT:-}"
@@ -329,6 +357,32 @@ function test_chezmoi_unattended_010_diff_omits_exact_inventory_destinations() {
     '/tmp/source tree' "$HOME/.zshenv.backup" \
     "$HOME/.config/ordinary target" "$HOME/.config/line
 break"
+}
+
+function test_chezmoi_unattended_0101_large_host_diff_stays_below_linux_exec_string_limit() {
+  _bats_test_init 101 'large host diff keeps CHEZMOI_ARGS below the Linux exec string limit'
+  local target_count=2000 final_invocations=0 invocation serialized_size
+  local linux_max_env_string_bytes=$((128 * 1024))
+  local chezmoi_args_name_and_nul_bytes=14
+  local max_chezmoi_args_bytes=$((linux_max_env_string_bytes - chezmoi_args_name_and_nul_bytes))
+
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    FAKE_MANAGED_TARGET_COUNT="$target_count" \
+    FAKE_MAX_CHEZMOI_ARGS_BYTES="$max_chezmoi_args_bytes" \
+    run "$LAUNCHER" --profile host-partial -- diff --source '/tmp/source tree'
+  assert_success
+
+  while IFS= read -r invocation; do
+    [ "$invocation" = final ] && final_invocations=$((final_invocations + 1))
+  done < "$FAKE_STATE/invocations"
+  assert_equal "$((final_invocations > 1))" 1
+
+  run cmp "$FAKE_STATE/managed-targets" "$FAKE_STATE/received-targets"
+  assert_success
+
+  while IFS= read -r serialized_size; do
+    assert_equal "$((serialized_size <= max_chezmoi_args_bytes))" 1
+  done < "$FAKE_STATE/serialized-args-sizes"
 }
 
 function test_chezmoi_unattended_011_malformed_inventory_fails_closed() {

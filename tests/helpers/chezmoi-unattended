@@ -12,6 +12,11 @@ fail() {
   exit 2
 }
 
+set_argument_byte_count() {
+  local LC_ALL=C
+  argument_byte_count=${#1}
+}
+
 if [ "${MMS_CHEZMOI_UNATTENDED:-}" != "1" ]; then
   fail "MMS_CHEZMOI_UNATTENDED must equal 1"
 fi
@@ -187,6 +192,18 @@ for passthrough_arg in "$@"; do
 done
 
 if [ "$profile" = "host-partial" ] && [ "$command_name" = "diff" ]; then
+  # Chezmoi flattens argv into CHEZMOI_ARGS. Stay below Linux's 128 KiB
+  # per-string exec limit with enough headroom for the variable name and NUL.
+  max_chezmoi_args_bytes=$((96 * 1024))
+  diff_batch_args=()
+  set_argument_byte_count "$chezmoi_bin"
+  diff_batch_base_bytes=$argument_byte_count
+  for diff_arg in "${chezmoi_args[@]}"; do
+    set_argument_byte_count "$diff_arg"
+    diff_batch_base_bytes=$((diff_batch_base_bytes + argument_byte_count + 1))
+  done
+  diff_batch_bytes=$diff_batch_base_bytes
+
   managed_file="${TMPDIR:-/tmp}/chezmoi-unattended-managed.$$.$RANDOM"
   trap 'rm -f "$managed_file"' EXIT
   managed_args=(--no-tty --no-pager --skip-secrets managed)
@@ -213,7 +230,19 @@ if [ "$profile" = "host-partial" ] && [ "$command_name" = "diff" ]; then
       inventory_index=$((inventory_index + 1))
     done
     if [ "$omit_target" -eq 0 ]; then
-      chezmoi_args+=("$managed_target")
+      set_argument_byte_count "$managed_target"
+      target_bytes=$((argument_byte_count + 1))
+      if [ "$((diff_batch_bytes + target_bytes))" -gt "$max_chezmoi_args_bytes" ]; then
+        [ "${#diff_batch_args[@]}" -gt 0 ] || \
+          fail "managed target is too long to invoke safely: $managed_target"
+        "$chezmoi_bin" "${chezmoi_args[@]}" "${diff_batch_args[@]}" </dev/null
+        diff_rc=$?
+        [ "$diff_rc" -eq 0 ] || exit "$diff_rc"
+        diff_batch_args=()
+        diff_batch_bytes=$diff_batch_base_bytes
+      fi
+      diff_batch_args+=("$managed_target")
+      diff_batch_bytes=$((diff_batch_bytes + target_bytes))
       included_target_count=$((included_target_count + 1))
     fi
   done < "$managed_file"
@@ -221,6 +250,7 @@ if [ "$profile" = "host-partial" ] && [ "$command_name" = "diff" ]; then
   trap - EXIT
   [ "$included_target_count" -gt 0 ] || \
     fail "no non-sensitive managed targets remain after host-partial filtering"
+  chezmoi_args+=("${diff_batch_args[@]}")
 
   inventory_index=0
   while [ "$inventory_index" -lt "${#inventory_sources[@]}" ]; do

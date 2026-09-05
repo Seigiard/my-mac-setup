@@ -1,12 +1,13 @@
 ---
 title: "test-ubuntu oracle fails on herdr --version argument-list-too-long"
-short_description: "make test-ubuntu deterministically fails 2 templates_test.sh assertions (zshenv host-partial diff and skip-secrets cases) because chezmoi's output template function execs /home/linuxbrew/.linuxbrew/bin/herdr --version via run_onchange_after_3-setup-herdr-integrations.sh.tmpl:10 and hits an OS argument-list-too-long error; reproduced identically across a plan's diff present/absent and a --no-cache image rebuild, so it is environment/harness-level (suspected: bashunit's exported shell functions bloating the inherited env past ARG_MAX under nested env/chezmoi-diff calls), not a code regression, and it currently blocks the make test-ubuntu deployment-sensitive gate for every PR."
+short_description: "Host-partial full-tree diffs flattened 464,434 bytes of explicit targets into chezmoi's single CHEZMOI_ARGS environment entry, exceeding Linux MAX_ARG_STRLEN before template subprocesses could start; bounded diff batching now preserves every filtered target below the limit, and make test-ubuntu passes."
 type: "bug"
 category: "testing-ci"
 tags: ["test-ubuntu","chezmoi","herdr","argument-list-too-long"]
 date: "2026-09-05"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -74,3 +75,7 @@ itself.
 - Whether the fix belongs in the test harness (`tests/helpers/chezmoi-unattended`)
   or in the affected run script itself — depends on which side is confirmed
   as the actual source of the oversized environment.
+
+## Resolution
+
+Confirmed CHEZMOI_ARGS, not bashunit function exports, as the oversized environment entry. Batched host-partial diff targets below 96 KiB per chezmoi invocation, added behavioral coverage for Linux's per-string exec limit and complete target delivery, and verified the focused suites plus make test-ubuntu.
