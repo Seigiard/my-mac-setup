@@ -6559,6 +6559,30 @@ function test_scripts_1161_herdr_pane_labels_location_and_formatter_add_only_app
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
+function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_th() {
+  _bats_test_init 1208 'herdr-pane-labels icon constants stay independent of the engine glyph table'
+  # Every HPL_ICON_* comparison above is only a test while its expected bytes
+  # come from somewhere the engine cannot reach. A harness that read the ICON_
+  # table out of the engine was removed once and then carried back in by a
+  # rename, and while it was in place a changed codepoint moved both sides at
+  # once and every icon assertion stayed green. Load the harness against a source
+  # tree whose engine declares a different ICON_BRANCH: a derived constant
+  # follows the mutation, a pinned one does not. Rewriting the whole assignment
+  # keeps this test independent of whichever codepoint ICON_BRANCH holds today.
+  local root="$BATS_TEST_TMPDIR/mutated-engine" harness
+  harness="$BATS_TEST_DIRNAME/helpers/herdr_pane_labels.bash"
+  mkdir -p "$root/dot_local/bin"
+  # U+2714 heavy check mark — a glyph the pane-label grammar never uses.
+  sed "s|^ICON_BRANCH=.*|ICON_BRANCH=\"\$(printf '\\\\342\\\\234\\\\224')\"|" \
+    "$HPL_ENGINE" > "$root/dot_local/bin/executable_herdr-pane-labels"
+  assert_file_contains "$root/dot_local/bin/executable_herdr-pane-labels" \
+    'ICON_BRANCH=.*\\342\\234\\224'
+
+  run env SOURCE_ROOT="$root" bash -c 'source "$1"; printf %s "$HPL_ICON_BRANCH"' _ "$harness"
+  assert_success
+  assert_output "$HPL_ICON_BRANCH"
+}
+
 function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
   _bats_test_init 1162 'herdr-pane-labels plugin exposes only the approved pane and tab invalidations'
   local manifest="$HPL_PLUGIN_DIR/herdr-plugin.toml"

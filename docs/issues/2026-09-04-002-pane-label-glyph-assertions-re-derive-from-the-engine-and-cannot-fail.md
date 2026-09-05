@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["test-integrity","test-oracle","herdr-pane-labels","pua-glyphs","regression"]
 date: "2026-09-04"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -73,3 +74,7 @@ swung both ways here and the reasoning should be written down where the next edi
   independent pinning to cover the formatter assertions too?
 - Does the widened guard need to prevent a future rename from silently reintroducing the
   derivation, and if so what asserts that?
+
+## Resolution
+
+hpl_icon() is deleted and all seven HPL_ICON_* constants in tests/helpers/herdr_pane_labels.bash are now literal octal printf sequences, so the icon assertions hold a copy the engine cannot move. Open decision 1 is resolved as PR #140's approach, pinning literals in the helper. The helper's comment stated the reasoning backwards, arguing the generator rule for an oracle; it is replaced with a block explaining why the duplication is deliberate, recording the PR #140 to rename revert history, and pointing at generate-pua-glyphs-from-octal-printf.md. Open decision 2 is answered with a real oracle rather than a source grep: new scripts_test.sh test 1208 loads the harness against a synthetic source tree whose engine declares a different ICON_BRANCH and asserts the constant does not move, so a derived constant follows the perturbation while a pinned one does not. Its limit is stated: it catches reintroduced derivation, not a rewrite deleting both the pins and the guard, which is why the durable comment exists as well. Verified on macOS by mutating ICON_BRANCH in the engine from U+EC6F to U+EC6E and re-running the suite. With the old derived helper the mutation left every icon assertion green (1793 passed, only test 1208 red), reproducing the defect; with the pinned literals 12 pane-label tests go red; restoring the engine returns 342 passed, 1 pre-existing platform skip, 343 total. The smoke_test.sh pin is complementary, not redundant, and also went red under the same mutation: it owns encoding hygiene, asserting each glyph appears as octal and no raw lead byte is committed, which the harness pins cannot catch, while the harness pins own rendered output reaching the right token position, which smoke never exercises. A deliberate codepoint change now requires editing the engine and the harness and will surface in both suites. make lint (exit 0), scripts_test.sh, smoke_test.sh (247 assertions), and make test-issues (58 tests OK) all pass. Only test files changed, so this is checkout-logic risk class and make test-local does not apply.

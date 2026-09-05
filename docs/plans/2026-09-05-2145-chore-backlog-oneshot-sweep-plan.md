@@ -125,7 +125,7 @@ to them first if the goal shifts to maximizing closures per hour.
 
 ### Tests that cannot fail
 
-- [ ] 6 · `2026-09-04-002` — pane-label glyph assertions re-derive from the engine.
+- [x] 6 · `2026-09-04-002` — pane-label glyph assertions re-derive from the engine.
       `hpl_icon()` (`tests/helpers/herdr_pane_labels.bash:18-24`) seds each octal sequence out of the
       very engine it checks, so 26 `HPL_ICON_*` assertions in `scripts_test.sh` compare the engine
       against itself. The fix landed in PR #140 and was reverted seven hours later by the
