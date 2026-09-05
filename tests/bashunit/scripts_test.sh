@@ -9881,9 +9881,10 @@ function test_scripts_2830_context_threshold_guards_its_own_extraction_fork() {
   context_threshold_transcript "$long" 160
   mkdir -p "$BATS_TEST_TMPDIR/home"
 
-  # KTD6. The fork inherits these settings, so its own Stop hook fires. A fork
-  # of an already-long session meets the threshold at once, and without the
-  # marker would extract a goal of its own, recursively.
+  # KTD6. The extractor inherits these settings, so its own Stop hook fires.
+  # It reads a transcript excerpt rather than resuming the session, so it can no
+  # longer meet a threshold by itself; the marker is what keeps that true if the
+  # extractor ever goes back to reading a session.
   context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
     'printf "guard is %s\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"'
   run context_threshold_run_extracting forked "$long"
@@ -10187,4 +10188,81 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
     <<< "$(handoff_payload replaced "$root" manual 'handoff:a second and different goal')"
   assert_success
   assert_file_not_exists "$file"
+}
+
+# --- extraction input size (R26) -------------------------------------------
+
+# A transcript whose conversation dwarfs any extraction budget: `entries`
+# alternating turns of `size` bytes each, the oldest and the newest marked, and
+# a tool result among the newest entries so that the budget alone cannot be
+# what leaves it out.
+context_threshold_bulky_transcript() {
+  local path="$1" entries="$2" size="$3" filler i=1
+  filler="$(LC_ALL=C awk -v n="$size" \
+    'BEGIN { while (length(s) < n) s = s "lorem ipsum "; printf "%s", substr(s, 1, n) }')"
+  : > "$path"
+  printf '{"type":"user","message":{"role":"user","content":"OLDESTMARKER %s"}}\n' \
+    "$filler" >> "$path"
+  while [ "$i" -lt "$((entries - 2))" ]; do
+    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"turn %s %s"}]}}\n' \
+      "$i" "$filler" >> "$path"
+    i=$((i + 1))
+  done
+  printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"TOOLMARKER %s"}]}}\n' \
+    "$filler" >> "$path"
+  printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"NEWESTMARKER"}]}}\n' \
+    >> "$path"
+}
+
+function test_scripts_2841_context_threshold_bounds_what_it_hands_the_extractor() {
+  _bats_test_init 2841 'context threshold bounds the extraction input whatever the session length'
+  local prompt="$BATS_TEST_TMPDIR/extraction-prompt.txt"
+  local small="$BATS_TEST_TMPDIR/bulky-small.jsonl"
+  local large="$BATS_TEST_TMPDIR/bulky-large.jsonl"
+  local budget=4000 ceiling=6000 bytes
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  context_threshold_bulky_transcript "$small" 200 1000
+  context_threshold_bulky_transcript "$large" 1000 1000
+
+  # R26. The extraction model rejects a prompt larger than its window, and the
+  # sessions this hook fires for are the long ones -- the case where a session
+  # resumed into a small model is rejected outright and the operator is handed
+  # an empty goal. What the extractor receives follows the budget the caller
+  # set, not the size of the transcript. The ceiling is that budget plus room
+  # for the fixed instruction the excerpt is appended to.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'last=""; for arg in "$@"; do last="$arg"; done' \
+    "printf '%s' \"\$last\" > \"$prompt\"" \
+    'printf "bounded goal\n"'
+
+  run context_threshold_run_extracting bounded-small "$small" \
+    CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES="$budget"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:bounded goal'
+
+  bytes="$(LC_ALL=C wc -c < "$prompt" | tr -d ' ')"
+  run bash -c '[ "$1" -le "$2" ] && printf within || printf "%s bytes past the %s ceiling" "$1" "$2"' \
+    _ "$bytes" "$ceiling"
+  assert_output 'within'
+
+  # The tail, not the head: the newest turn survives, the oldest is gone.
+  assert_file_contains "$prompt" 'NEWESTMARKER'
+  run grep -c 'OLDESTMARKER' "$prompt"
+  assert_failure
+
+  # Tool traffic stays out even when it sits among the newest entries, so the
+  # budget is spent on what the session said rather than on what it read.
+  run grep -c 'TOOLMARKER' "$prompt"
+  assert_failure
+
+  # Five times the session, the same budget, the same ceiling.
+  run context_threshold_run_extracting bounded-large "$large" \
+    CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES="$budget"
+  assert_success
+  bytes="$(LC_ALL=C wc -c < "$prompt" | tr -d ' ')"
+  run bash -c '[ "$1" -le "$2" ] && printf within || printf "%s bytes past the %s ceiling" "$1" "$2"' \
+    _ "$bytes" "$ceiling"
+  assert_output 'within'
 }
