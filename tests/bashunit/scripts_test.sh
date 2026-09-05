@@ -6583,6 +6583,34 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
   assert_output "$HPL_ICON_BRANCH"
 }
 
+function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr() {
+  _bats_test_init 1209 'pane-label stub api snapshot envelope matches the installed herdr'
+  command_exists herdr || skip "herdr is not installed"
+  # The stub herdr in helpers/herdr_pane_labels.bash fakes an upstream contract,
+  # so nothing written here can say whether it still matches -- only the binary
+  # it impersonates can, and it is the oracle for this test. Compare the two at
+  # the boundary the engine consumes, the top-level result keys of
+  # `api snapshot`. Everything below that key set belongs to herdr; restating it
+  # here would be reimplementing upstream semantics locally, which is the
+  # failure mode this test exists to avoid rather than repeat.
+  local herdr_bin real_snapshot real_keys
+  herdr_bin="$(command -v herdr)"
+  # A real snapshot needs a running herdr server. Without one there is no
+  # oracle, so say why instead of falling back to a locally invented shape.
+  real_snapshot="$("$herdr_bin" api snapshot 2>&1)" \
+    || skip "real herdr returned no snapshot: $real_snapshot"
+  run jq -S -c '.result | keys' <<<"$real_snapshot"
+  assert_success
+  real_keys="$output"
+
+  hpl_setup
+  run env PATH="$HPL_STUB:/usr/bin:/bin" herdr api snapshot
+  assert_success
+  run jq -S -c '.result | keys' <<<"$output"
+  assert_success
+  assert_output "$real_keys"
+}
+
 function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
   _bats_test_init 1162 'herdr-pane-labels plugin exposes only the approved pane and tab invalidations'
   local manifest="$HPL_PLUGIN_DIR/herdr-plugin.toml"

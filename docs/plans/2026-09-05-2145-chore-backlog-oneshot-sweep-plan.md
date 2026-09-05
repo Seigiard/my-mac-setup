@@ -133,7 +133,7 @@ to them first if the goal shifts to maximizing closures per hour.
       *Done when:* the assertions compare against literals independent of the engine, and mutating a
       glyph in the engine turns them red.
 
-- [ ] 7 · `2026-09-02-012` — pane-label herdr stub is an unverified protocol fake.
+- [x] 7 · `2026-09-02-012` — pane-label herdr stub is an unverified protocol fake.
       The stub bakes herdr's envelope shapes, its jq-built snapshot skeleton (`:265-267`), and the
       `--seq`/`--token` high-water merge semantics; nothing compares it to the real binary, and
       `d080d31` proved the drift class is realized.

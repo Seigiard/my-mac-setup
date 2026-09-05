@@ -79,10 +79,18 @@ hpl_setup_assets() {
   # The mutable fixture uses exact socket paths as identities. Numeric storage
   # directories avoid the collision caused by replacing punctuation in names.
   cat > "$HPL_ASSETS/fixture-lib.sh" <<'SH'
+# The stub emulates the `herdr api snapshot` envelope of herdr 0.8.2, which
+# reports protocol 20. Both numbers come from the installed binary rather than
+# from an assumption: `herdr --version`, and
+# `herdr api snapshot | jq .result.snapshot.protocol`. The engine never reads
+# .protocol, so this literal records what the fake claims to be rather than
+# behaviour under test. Test 1209 in scripts_test.sh is what keeps the record
+# honest -- it compares this stub's top-level result keys against the real
+# binary's, and skips where herdr is absent.
 hpl_fixture_init_dir() {
   mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
   [ -f "$1/state.json" ] || printf '%s\n' \
-    '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
+    '{"complete":true,"protocol":20,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
     > "$1/state.json"
   [ -f "$1/call-seq" ] || printf '%s' 0 > "$1/call-seq"
   [ -f "$1/herdr.log" ] || : > "$1/herdr.log"
@@ -544,10 +552,11 @@ hpl_tab_list() {
   ' "$state" > "$tmp" && mv "$tmp" "$state"
 }
 
+# herdr 0.8.2 / protocol 20 -- see the note above hpl_fixture_init_dir.
 hpl_init_socket_dir() {
   mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
   printf '%s\n' \
-    '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
+    '{"complete":true,"protocol":20,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
     > "$1/state.json"
   printf '%s' 0 > "$1/call-seq"
   : > "$1/herdr.log"
