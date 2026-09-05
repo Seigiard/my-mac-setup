@@ -12,7 +12,7 @@ parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.m
 
 ## Why this exists
 
-The peer-consult skill can be run from anywhere today. Inside herdr it opens a visible pane; outside herdr — a plain terminal, an editor, a scheduled run — it falls back to a headless subprocess and still returns an answer. That fallback is what the mode detection in `home/private_dot_claude/skills/ask-agent/scripts/ask.sh:58-70` is for.
+The peer-consult skill can be run from anywhere today. Inside herdr it opens a visible pane; outside herdr — a plain terminal, an editor, a scheduled run — it falls back to a headless subprocess and still returns an answer. That fallback is what the skill's mode detection was for. The path this record originally cited, `home/private_dot_claude/skills/ask-agent/scripts/ask.sh`, no longer exists: R28 renamed the skill and it now lives at `home/private_dot_agents/skills/ask-in-herdr/scripts/executable_ask.sh`, where the mode detection has been replaced by the outright refusal at `:47-50` (`ask.sh: peer consults require HERDR_ENV=1`).
 
 The child agent launch contract deletes it. The plan's requirement R7 removes the headless mode and the three per-kind adapter scripts under `scripts/agents/`, and R28 renames the skill `ask-in-herdr` so the name stops promising something it no longer does. After that change, a consult outside herdr does not degrade — it refuses.
 
@@ -36,3 +36,13 @@ Two constraints any shape has to satisfy. The per-kind option mapping and the tw
 - Whether a headless consult is needed at all, or whether every context that consults a peer already runs inside herdr.
 - Whether the launch command grows an argv-printing mode so both paths share one option table.
 - Whether the restored path keeps the shell-denying read-only posture, given that it has no callback to preserve.
+
+## Sweep note (2026-09-06)
+
+Confirmed against the tree: `home/private_dot_claude/skills/ask-agent/` does not exist, and the live
+refusal is `executable_ask.sh:47-50`, guarded on `HERDR_ENV != 1` and followed by two further
+refusals for a missing `herdr-child` or `herdr` on PATH. The record's dead path is corrected above.
+
+The sweep did not attempt an implementation. All three of the Open decisions below are genuine design
+choices with no default the sweep could pick — in particular whether a headless consult is wanted at
+all, which the record itself raises first and which decides whether the other two matter.

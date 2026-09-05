@@ -221,6 +221,10 @@ to them first if the goal shifts to maximizing closures per hour.
       **Feature, not a defect.** Its body also cites the dead path
       `home/private_dot_claude/skills/ask-agent/scripts/ask.sh` — fix that reference whatever the
       outcome.
+      blocked 2026-09-06: needs the user's decision on whether a headless consult is wanted at all,
+      which the record raises first and which decides whether its other two decisions matter. Dead
+      reference repaired: the skill is now `ask-in-herdr` and the live refusal is
+      `home/private_dot_agents/skills/ask-in-herdr/scripts/executable_ask.sh:47-50`.
 
 - [ ] 17 · `2026-08-18-019` — add manual AgentBox sessions to Herdr.
       Zero AgentBox adoption in the tree. Depends on two open `agent-platform` records that are out
