@@ -20,6 +20,9 @@ deepened: 2026-09-03
 - [x] U5 · Pi adapter extension
 - [x] U6 · agents-local port to OpenCode with shared selection module
 - [ ] U7 · retirement apply: remove old Claude scripts and engines, assert absence
+      blocked 2026-09-06: needs apply 1 on the host plus a restart of Claude Code,
+      OpenCode and Pi (KTD9). Retiring the Claude hook scripts before a running
+      session reloads its settings makes every matched tool call exit 127.
 
 ## Goal Capsule
 
@@ -75,9 +78,9 @@ Every cross-client policy today is written up to three times by hand (bash for C
 
 - Out: herdr plugins and herdr's own event system; `brew-auto-update` (Pi-specific startup job); capability negotiation / `defineHook({requires})`-style machinery; session-cwd reporters (the channel is dead — issue `2026-09-03-003` — and blocks issues `2026-08-27-004`/`-005`); `pi-hooks` as a dependency; the Claude `SessionStart` entry for `herdr-agent-state.sh` (herdr-owned, unmanaged).
 - Subagent enforcement is a per-client statement, not a single-client footnote. Results table (filled by U3/U5 manual checks; an observed bypass in Claude Code or Pi files a repository issue and is recorded here as an accepted known gap — recording alone does not close the item):
-  - Claude Code: [unverified — U3]
+  - Claude Code: [unverified] — needs a restarted Claude Code against an applied `$HOME`; deferred to the apply cycle, not attempted.
   - OpenCode: known bypassed (`tool.execute.before` does not intercept task-tool subagent calls, anomalyco/opencode#5894; includes herdr-child panes); no workaround attempted.
-  - Pi: [unverified — U5]
+  - Pi: [unverified] — three headless attempts produced no usable signal (one 10-minute timeout, two empty exits) while ordinary tool calls in the same home worked; deny vs. bypass undetermined.
 - Durable logging of caught policy exceptions is out of scope: the selfcheck canary (R8) detects a fully dead route only; an input-dependent policy exception fails open on real traffic with no detector — an explicitly accepted residual risk of the fail-open design (R4).
 
 #### Deferred to Follow-Up Work
@@ -342,6 +345,7 @@ Any test that lets chezmoi address `$HOME` stays behind `MMS_DISPOSABLE_HOME=1` 
 ## Definition of Done
 
 - The four tool-call policies dispatch through the core in every client where the registry derives them applicable; `agents-local` consumes the shared `local-instructions` module in both its Pi and OpenCode adapters (KTD11). The selfcheck liveness case is green in the post-apply suite (R8).
+- **Pi parity is explicitly out of this plan's Done (amended 2026-09-06, user-approved).** Under the deployed Pi provider (`openai-codex` + `pi-codex-conversion`) the tool surface is `exec_command` / `apply_patch`, not `bash` / `edit` / `write`, so the registry's Pi profile matches nothing and every policy is inert there — see `docs/issues/2026-09-05-005`. The guard extensions U5 replaced keyed on `toolName === "bash"` and were inert for the same reason, so nothing regressed; but R3's cross-client parity claim holds for Claude Code and OpenCode only. Pi's `fff` route is separately unresolved (`ffgrep` carries its query in `input.pattern`, `docs/issues/2026-09-05-004`); the profile omits the tool rather than declaring coverage it does not have.
 - The empirical checks passed: OpenCode transform semantics and native-read question (U6), Pi loader and promise handling (U5), loader import shape (U4/U5), Claude timeout-expiry semantics (U3); the fff registry entries for OpenCode and Pi are resolved to a verified identifier or evidence of absence — never left "unverified" (a leftover unresolved identifier has a filed repository issue).
 - The two-apply migration completed: the apply-1 state was fully green standalone, verified through deployed paths in all three restarted clients before apply 2 landed; all absence assertions green.
 - The per-client subagent-enforcement statement in Scope Boundaries is filled in with observed results for all three clients.
