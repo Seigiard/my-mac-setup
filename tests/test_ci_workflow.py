@@ -1,5 +1,9 @@
 from pathlib import Path
+import os
 import re
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 
@@ -172,6 +176,147 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 self.assertTrue(
                     any(save_key.startswith(prefix) for prefix in prefixes),
                     "no restore-keys prefix can find the key the save step writes: %s" % save_key,
+                )
+
+    def gate_script(self, text, job_name):
+        """The shell body of the Brewfile-diff gate, ready to execute."""
+        step = self.named_step_block(
+            self.job_block(text, job_name),
+            "Install the full Brewfiles when the diff touches one",
+        )
+        match = re.search(r"^        run: \|\n(?P<body>(?:^ {10}.*\n|^\n)+)", step, re.MULTILINE)
+        self.assertIsNotNone(match, "gate step must declare a literal run: block")
+        return textwrap.dedent(match.group("body"))
+
+    def git_environment(self, home):
+        """A git environment that cannot read the developer's own config."""
+        environment = dict(os.environ)
+        environment.update(
+            HOME=str(home),
+            GIT_CONFIG_GLOBAL=os.devnull,
+            GIT_CONFIG_SYSTEM=os.devnull,
+            GIT_AUTHOR_NAME="Gate Test",
+            GIT_AUTHOR_EMAIL="gate@example.com",
+            GIT_COMMITTER_NAME="Gate Test",
+            GIT_COMMITTER_EMAIL="gate@example.com",
+        )
+        return environment
+
+    def build_pull_request_checkout(self, root, pr_touches_brewfile):
+        """A checkout shaped like actions/checkout on a `pull_request` event:
+        HEAD is the merge of the PR head with a main tip that has moved on.
+        Main's newer commit edits a Brewfile; the PR's own commit edits one
+        only when asked. Returns (base_sha, head_sha)."""
+        repository = root / "repo"
+        repository.mkdir()
+        brewfile = repository / "home" / "private_dot_config" / "brewfiles"
+        brewfile.mkdir(parents=True)
+        environment = self.git_environment(root)
+
+        def git(*arguments):
+            return subprocess.run(
+                ("git",) + arguments,
+                cwd=repository,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        def commit(path, contents, message):
+            path.write_text(contents, encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", message)
+            return git("rev-parse", "HEAD")
+
+        git("init", "-q")
+        base = commit(brewfile / "Brewfile", 'brew "git"\n', "base")
+        git("branch", "feature")
+        main_tip = commit(brewfile / "Brewfile", 'brew "git"\nbrew "imagemagick"\n', "main edits a Brewfile")
+
+        git("checkout", "-q", "feature")
+        if pr_touches_brewfile:
+            # A different file under brewfiles/ than main edited, so the merge
+            # stays clean and the fixture tests the gate, not conflict handling.
+            head = commit(
+                brewfile / "Brewfile.macos", 'cask "ghostty"\n', "the PR edits a Brewfile"
+            )
+        else:
+            head = commit(repository / "README.md", "unrelated\n", "the PR edits nothing under brewfiles")
+
+        # The merge commit actions/checkout leaves in the working tree.
+        git("checkout", "-q", "--detach", main_tip)
+        git("merge", "-q", "--no-ff", "-m", "merge", head)
+        return repository, base, head
+
+    def run_gate(self, script, repository, event_name, base_sha, head_sha):
+        """The gate's decision: (selects_full_install, stdout)."""
+        github_env = repository.parent / "github_env"
+        github_env.write_text("", encoding="utf-8")
+        environment = self.git_environment(repository.parent)
+        environment.update(
+            GITHUB_EVENT_NAME=event_name,
+            GITHUB_ENV=str(github_env),
+            BASE_SHA=base_sha,
+            HEAD_SHA=head_sha,
+        )
+        result = subprocess.run(
+            ["bash", "-e", "-c", script],
+            cwd=repository,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            "gate script failed: %s%s" % (result.stdout, result.stderr),
+        )
+        return "MMS_CI_MINIMAL=" in github_env.read_text(encoding="utf-8"), result.stdout
+
+    def test_gate_reads_the_pull_request_head_not_the_merge_commit(self):
+        # On a `pull_request` run, HEAD is the merge of the PR head with the
+        # current main, so a Brewfile commit merged into main after the PR's
+        # recorded base sits inside a diff that ends at HEAD. That charged
+        # every unrelated PR a full Brewfile install (~4.5 min per job) until
+        # the base pointer advanced. The oracle is the synthetic history below,
+        # not the workflow text: only the PR's own commits may decide this.
+        text = self.workflow_text()
+        for job_name in ("test-ubuntu", "test-macos"):
+            with self.subTest(job=job_name):
+                script = self.gate_script(text, job_name)
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    repository, base, head = self.build_pull_request_checkout(
+                        root, pr_touches_brewfile=False
+                    )
+                    full, output = self.run_gate(
+                        script, repository, "pull_request", base, head
+                    )
+                self.assertFalse(
+                    full,
+                    "a PR that touches no Brewfile must keep the minimal "
+                    "install even when main has since edited one: %s" % output,
+                )
+
+    def test_gate_still_selects_the_full_install_for_a_brewfile_pull_request(self):
+        # Control for the test above: the narrowed diff must not cost a
+        # Brewfile-editing PR its only pre-merge install proof.
+        text = self.workflow_text()
+        for job_name in ("test-ubuntu", "test-macos"):
+            with self.subTest(job=job_name):
+                script = self.gate_script(text, job_name)
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    repository, base, head = self.build_pull_request_checkout(
+                        root, pr_touches_brewfile=True
+                    )
+                    full, output = self.run_gate(
+                        script, repository, "pull_request", base, head
+                    )
+                self.assertTrue(
+                    full,
+                    "a PR that edits a Brewfile must install the full set: %s" % output,
                 )
 
     def test_every_job_declares_a_timeout(self):

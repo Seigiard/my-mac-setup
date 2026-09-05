@@ -108,6 +108,14 @@ jobs:
           # SHAs from the event payload, read through the environment rather
           # than interpolated into the script.
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          # On `pull_request`, actions/checkout leaves HEAD at the merge of the
+          # PR head with the current main, while BASE_SHA is the base recorded
+          # for the PR. Diffing to HEAD therefore also reports every Brewfile
+          # commit merged into main after that base, and forces the full
+          # install on unrelated PRs until the base pointer advances. Name the
+          # PR's own head instead. `github.sha` covers `push`, where it is the
+          # pushed commit and already equals HEAD.
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           install_full() {
             echo "MMS_CI_MINIMAL=" >> "$GITHUB_ENV"
@@ -125,13 +133,20 @@ jobs:
             exit 0
           fi
 
-          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            install_full "base commit $BASE_SHA is not in this checkout"
+          if [ -z "$HEAD_SHA" ]; then
+            install_full "no head commit for this event"
             exit 0
           fi
 
-          if ! changed=$(git diff --name-only "${BASE_SHA}...HEAD"); then
-            install_full "could not diff against $BASE_SHA"
+          for sha in "$BASE_SHA" "$HEAD_SHA"; do
+            if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+              install_full "commit $sha is not in this checkout"
+              exit 0
+            fi
+          done
+
+          if ! changed=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}"); then
+            install_full "could not diff ${BASE_SHA}...${HEAD_SHA}"
             exit 0
           fi
 
@@ -246,6 +261,14 @@ jobs:
           # SHAs from the event payload, read through the environment rather
           # than interpolated into the script.
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          # On `pull_request`, actions/checkout leaves HEAD at the merge of the
+          # PR head with the current main, while BASE_SHA is the base recorded
+          # for the PR. Diffing to HEAD therefore also reports every Brewfile
+          # commit merged into main after that base, and forces the full
+          # install on unrelated PRs until the base pointer advances. Name the
+          # PR's own head instead. `github.sha` covers `push`, where it is the
+          # pushed commit and already equals HEAD.
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           install_full() {
             echo "MMS_CI_MINIMAL=" >> "$GITHUB_ENV"
@@ -263,13 +286,20 @@ jobs:
             exit 0
           fi
 
-          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            install_full "base commit $BASE_SHA is not in this checkout"
+          if [ -z "$HEAD_SHA" ]; then
+            install_full "no head commit for this event"
             exit 0
           fi
 
-          if ! changed=$(git diff --name-only "${BASE_SHA}...HEAD"); then
-            install_full "could not diff against $BASE_SHA"
+          for sha in "$BASE_SHA" "$HEAD_SHA"; do
+            if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+              install_full "commit $sha is not in this checkout"
+              exit 0
+            fi
+          done
+
+          if ! changed=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}"); then
+            install_full "could not diff ${BASE_SHA}...${HEAD_SHA}"
             exit 0
           fi
 
