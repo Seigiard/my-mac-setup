@@ -1353,7 +1353,7 @@ function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
   # (.chezmoiexternal.toml), not installed by this script; the retained
   # cleanup block is the positive control proving the plugin-cleanup section
   # of the script still renders.
-  assert_output --partial 'Remove deprecated zsh-syntax-highlighting'
+  assert_output --partial 'rm -rf "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"'
 }
 
 function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
