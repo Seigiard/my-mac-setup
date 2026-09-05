@@ -109,6 +109,13 @@ to them first if the goal shifts to maximizing closures per hour.
       `branch-failed`; `pending` never written; `contended` only a diagnostic), so encoding the
       diagram as written would reject most live writes. Reconciling the chart is a naming decision
       the user owns. Dispatch only to confirm the divergence list is complete, then block on it.
+      blocked 2026-09-05: audit complete — the divergence list was incomplete and is now nine
+      outcomes wide in the record. Two additions: the engine's own spelling is mixed
+      (`attribution_failed` underscored against four hyphenated names), so no chart can accept the
+      shipped set unchanged; and the source plan's prose contradicts its own diagram, with the
+      underscores most likely a mermaid `-->` syntax constraint rather than a naming intent.
+      Decision the user owns: which spelling and membership the reconciled chart uses, and whether
+      a rejected transition aborts the naming event or records a diagnostic. No code was changed.
 
 - [ ] 5 · `2026-08-30-010` — research simplifying the herdr-child lifecycle.
       2,701 lines and 79 functions across the entrypoint and six modules.

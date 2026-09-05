@@ -1,6 +1,6 @@
 ---
 title: "Enforce identity outcome transitions as a whitelist, not convention"
-short_description: "The outcome state machine in docs/plans/2026-09-03-0043-feat-worktree-task-naming-plan.md (stateDiagram-v2 lines 203-222) is still documentation only now that the plan has shipped (64f42fe, cfe2e40): no whitelist exists, write_identity_state (executable_herdr-worktree-identity:289-301) accepts any outcome string from ad-hoc branches, and the shipped vocabulary already diverges from the diagram (hyphenated workspace-only and workspace-failed, undocumented workspace-prepared and branch-failed, pending never written, contended only a diagnostic), so reconciling the chart precedes encoding it as a runtime whitelist via shuckster/statebot-sh chart dispatch over the per-worktree state file rather than the library's shared /tmp CSV."
+short_description: "A 2026-09-05 audit enumerated all nine outcomes write_identity_state can persist and found the shipped vocabulary cannot be whitelisted as documented: the engine mixes spellings (attribution_failed underscored, workspace-failed/-only/-prepared and branch-failed hyphenated), writes workspace-prepared and branch-failed which the diagram omits, never writes pending, treats contended as a diagnostic only, and the source plan's prose contradicts its own diagram, so reconciling the chart is a user naming decision that blocks encoding it."
 type: "idea"
 category: "herdr"
 tags: ["herdr-worktree-identity","state-machine","design-improvement"]
@@ -37,6 +37,26 @@ chart is encoded:
 - `pending` is never written as an outcome.
 - `contended` is not an outcome. It appears only as a diagnostic through `record_diagnostic`
   (`:729`, and `lifecycle-contended` at `:873`).
+- The engine's own spelling is mixed, so no whitelist can accept the shipped set unchanged:
+  `attribution_failed` (`:535`) uses an underscore while `workspace-failed`, `workspace-only`,
+  `workspace-prepared`, and `branch-failed` use hyphens. Whichever spelling the chart adopts,
+  at least one live outcome name has to change, or the chart must accept both spellings.
+- The plan document contradicts itself. Its prose immediately above the diagram (line 200) names
+  the terminal states `complete`, `workspace-only`, and `declined` with a hyphen, while the
+  diagram directly below spells the same state `workspace_only`. The underscores are most likely
+  a mermaid constraint rather than a naming decision: `-->` is the transition operator in
+  `stateDiagram-v2`, so a bare hyphenated state id is ambiguous. That makes "the engine's hyphens
+  are correct and the diagram was working around mermaid syntax" the most probable reading,
+  but it is still the user's call.
+
+A 2026-09-05 audit enumerated every outcome the engine can write, to confirm the divergence list
+is complete: `unresolved` (`:319`), `declined` (`:390`, `:395`, `:401`, `:949`), `prepared`
+(`:533`, `:775`), `attribution_failed` (`:535`), `workspace-failed` (`:572`, `:595`, `:600`,
+`:607`, `:633`), `workspace-prepared` (`:611`), `branch-failed` (`:811`), `workspace-only`
+(`:840`), and `complete`. The last two also arrive through `label_workspace`'s `desired_outcome`
+parameter (`:584`, `:616`, `:627`), whose only call sites pass `complete` (`:858`) or
+`workspace-only` (`:832`, `:859`, and `:846` via `terminal_outcome`). Nine outcomes in total; no
+others exist.
 
 The predecessor engine's defect history is exactly this failure class: the 2026-09-02 debug
 findings included silent `return 0` bails at decline sites — a missed or wrong branch in the
