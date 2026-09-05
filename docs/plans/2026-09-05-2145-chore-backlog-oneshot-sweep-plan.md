@@ -230,6 +230,14 @@ to them first if the goal shifts to maximizing closures per hour.
       Zero AgentBox adoption in the tree. Depends on two open `agent-platform` records that are out
       of this sweep's scope, and on upstream AgentBox's CLI surface, which nobody has verified here.
       **Expect `blocked`.** Verify the upstream surface before deciding anything.
+      blocked 2026-09-06: upstream verified — `madarco/agentbox`, MIT, ships `herdr-plugin.toml` and
+      a `create/attach/fork/claude/codex/opencode/pi` CLI, so the capability is real (and covers Pi,
+      which the record does not mention). Two decisions the sweep cannot make, both the user's:
+      distribution is npm-global and this repo has no managed path for a pinned npm package
+      (Brewfiles, mise and `.chezmoiexternal.toml` are the three that exist); and `agentbox install`
+      writes host agent skills into chezmoi-owned destinations, so vendoring versus running the
+      vendor installer has to be settled first. The scope also reaches into another repository and
+      depends on two open `agent-platform` records.
 
 ## Finish
 
