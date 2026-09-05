@@ -196,7 +196,7 @@ to them first if the goal shifts to maximizing closures per hour.
       *Done when:* `json_tab_identity` emits the terminal id, pane mode gets the same fallback, and a
       signal-injection test fires before the `read` in both modes.
 
-- [ ] 14 · `2026-08-26-002` — launch-failure cleanup does not report tab state.
+- [x] 14 · `2026-08-26-002` — launch-failure cleanup does not report tab state.
       `cleanup_pane` (`herdr-child-launch.sh:166-192`, reached from ~18 sites) ends at
       `herdr pane close` and never calls `tab_reap_status`, unlike `reap`
       (`herdr-child-reap.sh:158-164`).

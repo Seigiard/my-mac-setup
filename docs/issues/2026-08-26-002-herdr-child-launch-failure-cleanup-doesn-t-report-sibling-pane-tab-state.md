@@ -5,8 +5,9 @@ type: "follow-up"
 category: "herdr"
 tags: ["herdr-child","tab-mode","observability","code-review-residual"]
 date: "2026-08-26"
-status: "open"
+status: "wontfix"
 priority: "low"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -64,3 +65,13 @@ surfacing which outcome occurred.
   genuinely never, `wontfix` beats implementing.
 - If implemented, should the messages reuse `reap`'s exact wording for
   consistency, or stay distinct given the different call sites?
+
+## Resolution
+
+Confirmed the no-sibling assumption against the current tree, which is the open decision this record hung on.
+
+In tab mode the launcher runs 'herdr tab create' exactly once (home/dot_local/lib/herdr-child-launch.sh:140-144) and the tab comes back with a single root pane. The only 'pane split' anywhere in the repository is the non-tab branch of that same construction (:146), and it splits $HERDR_PANE_ID — the parent's pane, in the parent's tab. Nothing in this tree ever adds a second pane to a child's freshly created tab, so on every reachable launch-failure path the report would be the constant 'closed pane X and tab Y'. In pane mode the question does not arise at all: there is no child tab, and cleanup_pane has no tab id to ask about.
+
+The cost is not free. tab_reap_status (herdr-child-runtime.sh:446) shells out to 'herdr tab get' and starts a python3 interpreter to parse it. cleanup_pane is reached from roughly eighteen sites, including owned_launch_signal during signal teardown and, since the test barriers were bounded, the barrier-expiry path. Adding a herdr round-trip and an interpreter start to signal-time teardown, to print a string that is provably constant, trades a real failure mode for no information.
+
+One residue is recorded rather than denied: a human could split a pane into the child's tab by hand during the few hundred milliseconds between tab creation and a launch failure. herdr's last-pane-close semantics already handle that correctly — the tab survives with its sibling — so what is lost is only the report of an event nobody can practically hit. If a future feature ever adds a sibling pane before a child's launch settles, this record's reasoning is the thing to revisit, and the change remains the single site it is today.
