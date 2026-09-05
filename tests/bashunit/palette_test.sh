@@ -1314,7 +1314,24 @@ function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions()
   local home="$PALETTE_WORK/herdr-home"
   mkdir -p "$home"
 
-  run env HOME="$home" herdr plugin link "$PALETTE_DIR" --enabled
+  # Keep this real CLI validation independent of inherited Herdr session and
+  # config overrides, which can otherwise relink the live plugin.
+  run env -i HOME="$home" PATH="$PATH" herdr plugin link "$PALETTE_DIR" --enabled
+  assert_success
+  local link_json="$output"
+
+  local registry="$home/.config/herdr/plugins.json"
+  assert_file_exists "$registry"
+  run env PALETTE_REGISTRY="$registry" PALETTE_DIR="$PALETTE_DIR" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["PALETTE_REGISTRY"], encoding="utf-8") as handle:
+    plugins = json.load(handle)
+plugin = next((item for item in plugins if item["plugin_id"] == "seigi.command-palette"), None)
+assert plugin is not None, plugins
+assert plugin["plugin_root"] == os.environ["PALETTE_DIR"], plugin
+PY
   assert_success
 
   # assert_success above owns the real regression: herdr refusing a manifest
@@ -1324,7 +1341,7 @@ function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions()
   # surfaces a dangling binding only at keypress time, so nothing else here
   # catches a renamed or deleted action. Asserting that the link report echoes
   # an id typed in the manifest it just read would prove nothing.
-  run env PALETTE_LINK_JSON="$output" \
+  run env PALETTE_LINK_JSON="$link_json" \
     HERDR_CONFIG="$SOURCE_ROOT/private_dot_config/herdr/config.toml" python3 - <<'PY'
 import json
 import os
