@@ -46,6 +46,17 @@ esac
 [ "$CONTEXT_USAGE_EXTRACTION_TIMEOUT" -le "$CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX" ] ||
   CONTEXT_USAGE_EXTRACTION_TIMEOUT="$CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX"
 
+# Ceiling on the transcript excerpt handed to the extractor (R13, R26). Bytes,
+# not tokens: the hook has no tokenizer, and the byte-to-token ratio moves by a
+# factor of two between English and Cyrillic. 120 KB is about 60k tokens in the
+# worst case, which sits well inside the extraction model's window instead of
+# aiming at its edge -- a prompt that overshoots is rejected outright, so the
+# margin buys a working extraction rather than a slightly better goal.
+CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES="${CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES:-120000}"
+case "$CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES" in
+  '' | *[!0-9]* | 0) CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES=120000 ;;
+esac
+
 # A rendered fullness number is trusted only while it can still describe the
 # current turn (KTD3). The statusline renders many times per turn, so an older
 # file means rendering stopped — a resumed session before its first render, or
