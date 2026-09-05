@@ -599,3 +599,191 @@ describe("selfcheck report", () => {
     expect(text).toContain("FAIL");
   });
 });
+
+// --- scenario 10: the ported policy corpus (U2, KTD3) -----------------------
+//
+// The fixtures come from the two bashunit suites that predate the port, plus
+// the two inline hook rules; the expected strings are transcribed from the
+// shipped engines' stdout. Both sides of every comparison below are therefore
+// independent of the policy modules under test.
+
+const SHIPPED_POLICIES = [
+  "fff-grep-guard",
+  "test-oracle-guard",
+  "webfetch-markdown-hint",
+  "zsh-reserved-name-guard",
+];
+
+function policyByName(name: string): any {
+  const found = core.CORE_REGISTRY.policies.find((policy: any) => policy.name === name);
+  if (!found) throw new Error(`policy not registered in CORE_POLICIES: ${name}`);
+  return found;
+}
+
+function dispatchFixture(fixture: any): any[] {
+  const policy = policyByName(fixture.policy);
+  const clients = core.applicableClients(core.CORE_REGISTRY, policy);
+  expect(clients.length).toBeGreaterThan(0);
+  return clients.map((client: string) => {
+    const raw = normalize.encodeEvent(client, fixture.tool, fixture.payload, core.CORE_REGISTRY);
+    expect(raw).toBeDefined();
+    return core.dispatch(client, raw, { registry: core.CORE_REGISTRY, env: {} });
+  });
+}
+
+describe("ported policy corpus (KTD3)", () => {
+  test("the four shipped policies are registered", () => {
+    // #given the deployed registry
+    // #when its policy names are read
+    const names = core.CORE_REGISTRY.policies.map((policy: any) => policy.name).sort();
+
+    // #then the four tool-call policies in scope are all present
+    expect(names).toEqual(SHIPPED_POLICIES);
+  });
+
+  for (const fixture of corpus.POLICY_FIXTURES) {
+    test(fixture.name, () => {
+      // #given a fixture translated from the pre-existing corpus
+      // #when it is dispatched through every client route the registry derives
+      const decisions = dispatchFixture(fixture);
+
+      // #then every route reaches the shipped verdict and the shipped text
+      for (const decision of decisions) {
+        expect(`${fixture.name}: ${decision.verdict}`).toBe(`${fixture.name}: ${fixture.verdict}`);
+        if (fixture.verdict === "block") expect(decision.reason).toBe(fixture.text);
+        if (fixture.verdict === "context") expect(decision.text).toBe(fixture.text);
+        expect(decision).toEqual(decisions[0]);
+      }
+    });
+  }
+});
+
+describe("escape hatches (KTD3)", () => {
+  test("removing the escape token flips each escaped fixture to a deny", () => {
+    // #given the two fixtures the corpus expects to pass only because they are escaped
+    const escaped = [
+      { fixture: corpus.fixture, name: "oracle/oracle comment within three lines passes", field: "content", token: "oracle:" },
+      { fixture: corpus.fixture, name: "zsh/zsh-ok comment releases the command", field: "command", token: "zsh-ok:" },
+    ];
+
+    for (const entry of escaped) {
+      const original = corpus.POLICY_FIXTURES.find((candidate: any) => candidate.name === entry.name);
+      expect(original.verdict).toBe("allow");
+      expect(policyByName(original.policy).escapeHatch).toBe(entry.token);
+
+      // #when the escape token alone is replaced by an ordinary word
+      const mutated = {
+        ...original,
+        payload: {
+          ...original.payload,
+          [entry.field]: original.payload[entry.field].replace(entry.token, "note-only:"),
+        },
+      };
+      const decisions = dispatchFixture(mutated);
+
+      // #then the same content denies, so the token is what admitted it
+      for (const decision of decisions) {
+        expect(`${entry.name}: ${decision.verdict}`).toBe(`${entry.name}: block`);
+        expect(decision.reason).toContain(entry.token);
+      }
+    }
+  });
+});
+
+describe("fff-grep-guard fail-open (R4)", () => {
+  test("a non-string query allows rather than throwing", () => {
+    // #given a wire event whose query field is not a string
+    const malformed = { tool_name: "mcp__fff__grep", tool_input: { query: 42 } };
+
+    // #when it is dispatched
+    const decision = core.dispatch("claude", malformed, { registry: core.CORE_REGISTRY, env: {} });
+
+    // #then the call proceeds
+    expect(decision.verdict).toBe("allow");
+  });
+});
+
+describe("webfetch-markdown-hint applicability (KTD8)", () => {
+  test("the context-only policy is derived Claude-only", () => {
+    // #given the shipped registry
+    // #when applicability is derived for the hint policy
+    const clients = core.applicableClients(core.CORE_REGISTRY, policyByName("webfetch-markdown-hint"));
+
+    // #then only the profile that can express additionalContext carries it
+    expect(clients).toEqual(["claude"]);
+  });
+
+  test("a profile that has the tool but not the outcome never runs it", () => {
+    // #given a profile carrying a web-fetch spelling but only the block outcome
+    const policy = policyByName("webfetch-markdown-hint");
+    let calls = 0;
+    const counted = { ...policy, evaluate: (event: any) => { calls += 1; return policy.evaluate(event); } };
+    const base = core.CORE_REGISTRY.profiles.find((profile: any) => profile.client === "opencode");
+    const registry = core.createRegistry({
+      policies: [counted],
+      profiles: [{ ...base, tools: { ...base.tools, webfetch: "web-fetch" }, outcomes: ["block"] }],
+    });
+
+    // #when a hint-worthy url is dispatched there
+    const raw = normalize.encodeEvent("opencode", "web-fetch", { url: "https://example.com/docs" }, registry);
+    const decision = core.dispatch("opencode", raw, { registry, env: {} });
+
+    // #then the policy never ran and the call proceeds
+    expect(decision.verdict).toBe("allow");
+    expect(calls).toBe(0);
+  });
+
+  test("the hint policy is not block-capable, so it can never deny", () => {
+    // #given every corpus fixture for the hint policy
+    const fixtures = corpus.policyFixtures("webfetch-markdown-hint");
+    expect(fixtures.length).toBeGreaterThan(1);
+
+    // #when each is dispatched
+    // #then no route ever produces a deny
+    for (const fixture of fixtures) {
+      for (const decision of dispatchFixture(fixture)) expect(decision.verdict).not.toBe("block");
+    }
+    expect(core.isBlockCapable(policyByName("webfetch-markdown-hint"))).toBe(false);
+  });
+});
+
+// --- scenario 11: selfcheck canary over the shipped policies ----------------
+
+describe("selfcheck canary over the shipped registry (R8)", () => {
+  test("every block-capable route of the shipped registry blocks", () => {
+    // #given the shipped registry
+    // #when its registry-derived canaries run
+    const results = selfcheck.runCanaries(core.CORE_REGISTRY);
+
+    // #then every derived route exists and blocks
+    expect(results.map((result: any) => `${result.policy}@${result.client}`).sort()).toEqual([
+      "fff-grep-guard@claude",
+      "test-oracle-guard@claude",
+      "test-oracle-guard@opencode",
+      "test-oracle-guard@pi",
+      "zsh-reserved-name-guard@claude",
+      "zsh-reserved-name-guard@opencode",
+      "zsh-reserved-name-guard@pi",
+    ]);
+    expect(results.filter((result: any) => !result.ok).map((result: any) => `${result.policy}@${result.client}: ${result.detail}`)).toEqual([]);
+  });
+
+  test("a deliberately broken route is reported as a failure", () => {
+    // #given the shipped registry with one policy's evaluation removed
+    const broken = core.CORE_REGISTRY.policies.map((policy: any) =>
+      policy.name === "zsh-reserved-name-guard" ? { ...policy, evaluate: () => undefined } : policy,
+    );
+
+    // #when the canaries run against it
+    const results = selfcheck.runCanaries(core.createRegistry({ policies: broken }));
+
+    // #then exactly that policy's routes are named as failures
+    const failures = results.filter((result: any) => !result.ok);
+    expect(failures.map((result: any) => `${result.policy}@${result.client}`)).toEqual([
+      "zsh-reserved-name-guard@claude",
+      "zsh-reserved-name-guard@opencode",
+      "zsh-reserved-name-guard@pi",
+    ]);
+    expect(failures[0].detail).toBe("expected block, got allow");
+  });
+});

@@ -14,7 +14,7 @@ deepened: 2026-09-03
 ## Progress
 
 - [x] U1 · core module: types, registry, normalization, dispatch, selfcheck
-- [ ] U2 · port the four tool-call policies into the core
+- [x] U2 · port the four tool-call policies into the core
 - [ ] U3 · Claude adapter: shim, dispatcher, matcher union, anti-vacuity tests
 - [ ] U4 · OpenCode adapter plugin
 - [ ] U5 · Pi adapter extension
