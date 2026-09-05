@@ -238,9 +238,20 @@ except Exception: raise SystemExit(1)')" || {
     }
     IFS=$'\t' read -r pane launch_terminal tab <<< "$identity"
     tab_note=" (tab $tab)"
+    # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
+    # expired hold means the harness died without releasing the barrier. Only
+    # the freshly created tab exists here, so the launcher unwinds through the
+    # same pane teardown an interrupted launcher performs at this point.
     if [ -n "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" ]; then
+      local tab_created_hold_started="$SECONDS"
       : > "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.release" ]; do sleep 0.01; done
+      while [ ! -e "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.release" ]; do
+        if watcher_hold_expired "$tab_created_hold_started"; then
+          cleanup_pane test-barrier-expired || true
+          exit 1
+        fi
+        sleep 0.01
+      done
     fi
   else
     split_json="$(herdr "${split_args[@]}")" || {
@@ -477,23 +488,30 @@ EOF
   if [ "$mode" = wait ]; then
     herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
   else
-    launch_signal_handler() {
-      local signal="$1" status=1 reason="launch-signal-$1" abort_status
-      case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
-      [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
-      [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
+    # The prompt has been submitted, so the pane may already hold a live child:
+    # unwinding resolves the watcher abort race and reports the outcome instead
+    # of closing the pane.
+    preserve_launched_child() {
+      local event="$1" reason="$2" exit_status="$3" abort_status
       set +e
       request_watcher_abort "$run_dir" "$reason"
       abort_status=$?
       set -e
-      printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$signal" >&2
+      printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$event" >&2
       if [ "$abort_status" -eq 0 ]; then
         print_start_result "$name" "$pane" "$tab" "$generation" "$supervision_timeout"
       else
         report_signal_supervision "$name" "$pane" "$tab" "$run_dir" "$generation" "$supervision_timeout" "$reason" "$watcher_pid"
       fi
       trap - HUP INT TERM
-      exit "$status"
+      exit "$exit_status"
+    }
+    launch_signal_handler() {
+      local signal="$1" signal_status=1
+      case "$signal" in HUP) signal_status=129 ;; INT) signal_status=130 ;; TERM) signal_status=143 ;; esac
+      [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
+      [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
+      preserve_launched_child "$signal" "launch-signal-$signal" "$signal_status"
     }
     trap 'launch_signal_handler HUP' HUP
     trap 'launch_signal_handler INT' INT
@@ -552,9 +570,19 @@ EOF
       trap - HUP INT TERM
       return 1
     fi
+    # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
+    # expired hold means the harness died without releasing the barrier. The
+    # watcher is armed over a live child by now, so the launcher takes the same
+    # preserve-and-abort path an interrupted launcher takes after submission.
     if [ -n "${HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER:-}" ]; then
+      local post_arm_hold_started="$SECONDS"
       : > "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.release" ]; do sleep 0.01; done
+      while [ ! -e "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.release" ]; do
+        if watcher_hold_expired "$post_arm_hold_started"; then
+          preserve_launched_child 'test barrier expiry' launch-barrier-expired 1
+        fi
+        sleep 0.01
+      done
     fi
     trap - HUP INT TERM
     print_start_result "$name" "$pane" "$tab" "$generation" "$supervision_timeout"

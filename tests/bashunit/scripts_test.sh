@@ -2971,6 +2971,43 @@ PY
   assert_success
 }
 
+function test_scripts_0331_herdr_child_post_arm_barrier_is_bounded() {
+  _bats_test_init 0331 'herdr-child launcher held past the watcher arm self-terminates once the hold bound expires'
+  # #given — a detached launcher parked at the post-arm barrier
+  child_stub_herdr
+  local launcher_pid launcher_status attempt=0
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER="$CHILD_STUB/post-arm" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" start --kind claude --detach --prompt "test task" \
+    >"$CHILD_STUB/post-arm.out" 2>"$CHILD_STUB/post-arm.err" &
+  launcher_pid=$!
+  child_wait_for_file "$CHILD_STUB/post-arm.ready"
+
+  # #when — the harness dies without ever writing the release signal
+  while kill -0 "$launcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the launcher leaves the process table and preserves the armed child
+  if kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -KILL "$launcher_pid" 2>/dev/null || true
+    wait "$launcher_pid" 2>/dev/null || true
+    : > "$CHILD_STUB/release-watcher"
+    fail 'post-arm barrier exceeded its test hold bound'
+  fi
+  if wait "$launcher_pid"; then launcher_status=0; else launcher_status=$?; fi
+  assert_equal "$launcher_status" 1
+  assert_file_contains "$CHILD_STUB/post-arm.out" '"supervision":{"status":"armed"'
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+  : > "$CHILD_STUB/release-watcher"
+}
+
 function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
   _bats_test_init 34 'herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome'
   child_lifecycle_stub_herdr
@@ -3959,6 +3996,40 @@ function test_scripts_059_herdr_child_expires_an_abandoned_callback_claim() {
   assert_file_exists "$CHILD_STUB/waiting-label"
 }
 
+function test_scripts_0592_herdr_child_callback_receipt_barrier_is_bounded() {
+  _bats_test_init 0592 'herdr-child ask held before its callback receipt self-terminates once the hold bound expires'
+  # #given — a detached child parked at the callback receipt barrier
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER="$CHILD_STUB/callback-receipt"
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local ask_pid ask_status attempt=0
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
+    HERDR_CHILD_PARENT_SESSION=parent-session \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
+  ask_pid=$!
+  child_wait_for_file "$CHILD_STUB/callback-receipt.ready"
+
+  # #when — the harness dies without ever writing the release signal
+  while kill -0 "$ask_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the ask process leaves the process table instead of polling forever
+  if kill -0 "$ask_pid" 2>/dev/null; then
+    kill -KILL "$ask_pid" 2>/dev/null || true
+    wait "$ask_pid" 2>/dev/null || true
+    fail 'callback receipt barrier exceeded its test hold bound'
+  fi
+  if wait "$ask_pid"; then ask_status=0; else ask_status=$?; fi
+  assert_equal "$ask_status" 1
+  assert_file_contains "$CHILD_STUB/ask.err" 'callback receipt barrier expired'
+}
+
 function test_scripts_0591_herdr_child_bounds_sustained_pane_read_failures() {
   _bats_test_init 591 'herdr-child bounds sustained pane-read failures into a reported terminal state'
   local generation run_dir watcher_pid attempt
@@ -4172,6 +4243,39 @@ if "manual cleanup" in stderr:
     raise AssertionError("parseable identity was reported as unknown: %s" % stderr)
 PY
   assert_success
+}
+
+function test_scripts_0661_herdr_child_tab_created_barrier_is_bounded() {
+  _bats_test_init 0661 'herdr-child tab launcher held after creation self-terminates and drops the owned tab'
+  # #given — a tab-mode launcher parked at the post-create ownership barrier
+  child_stub_herdr
+  local launcher_pid launcher_status attempt=0
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_WORKSPACE_ID=w1 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_TEST_TAB_CREATED_BARRIER="$CHILD_STUB/tab-created" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" start --kind claude --tab --wait --prompt "test task" \
+    >"$CHILD_STUB/tab-created.out" 2>"$CHILD_STUB/tab-created.err" &
+  launcher_pid=$!
+  child_wait_for_file "$CHILD_STUB/tab-created.ready"
+
+  # #when — the harness dies without ever writing the release signal
+  while kill -0 "$launcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the launcher leaves the process table without stranding a half-created tab
+  if kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -KILL "$launcher_pid" 2>/dev/null || true
+    wait "$launcher_pid" 2>/dev/null || true
+    fail 'tab-created barrier exceeded its test hold bound'
+  fi
+  if wait "$launcher_pid"; then launcher_status=0; else launcher_status=$?; fi
+  assert_equal "$launcher_status" 1
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -Eq '^(pane report-metadata|agent start)' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {

@@ -141,7 +141,7 @@ to them first if the goal shifts to maximizing closures per hour.
       a host-only, skip-if-absent check compares real `herdr api snapshot` result keys against the
       stub's. Do not reimplement herdr semantics locally to make them testable.
 
-- [ ] 8 · `2026-08-30-008` — bound the three remaining herdr-child test barriers.
+- [x] 8 · `2026-08-30-008` — bound the three remaining herdr-child test barriers.
       `HERDR_CHILD_TEST_TAB_CREATED_BARRIER`, `..._LAUNCH_POST_ARM_BARRIER`, and
       `..._CALLBACK_RECEIPT_BARRIER` still poll with no owner and no time bound
       (`herdr-child-launch.sh:243`, `:557`, `herdr-child-continuation.sh:317`), so a killed harness

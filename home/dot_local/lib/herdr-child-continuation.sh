@@ -324,9 +324,21 @@ raise SystemExit(0 if any(a.get("pane_id")==pane for a in agents) else 1)' "$HER
     exit 1
   fi
   if [ -n "$run_dir" ]; then
+    # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
+    # expired hold means the harness died without releasing the barrier. The
+    # in-progress claim is deliberately left behind, because that is exactly the
+    # state an owner killed here leaves, and the watcher already expires it into
+    # callback-owner-lost once this process is gone.
     if [ -n "${HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER:-}" ]; then
+      local receipt_hold_started="$SECONDS"
       : > "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.release" ]; do sleep 0.01; done
+      while [ ! -e "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.release" ]; do
+        if watcher_hold_expired "$receipt_hold_started"; then
+          printf 'herdr-child: callback receipt barrier expired; the unresolved claim is left for supervision to expire\n' >&2
+          exit 1
+        fi
+        sleep 0.01
+      done
     fi
     if ! persist_callback_state "$run_dir" confirmed "$event"; then
       persist_callback_state "$run_dir" failed "$event" || rm -f "$run_dir/callback.state" 2>/dev/null || true
