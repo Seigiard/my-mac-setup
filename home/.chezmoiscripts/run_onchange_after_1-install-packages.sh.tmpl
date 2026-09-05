@@ -73,11 +73,6 @@ if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-defer" ]]; then
     git clone https://github.com/romkatv/zsh-defer.git "$ZSH_CUSTOM/plugins/zsh-defer"
 fi
 
-# Initialize mise
-if command -v mise &> /dev/null; then
-    mise use --global node@lts
-fi
-
 # # {{ if eq .chezmoi.os "darwin" }}
 # Install Yazi plugins (macOS)
 if command -v ya &> /dev/null; then

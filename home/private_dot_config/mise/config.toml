@@ -1,0 +1,6 @@
+# Managed by chezmoi (home/private_dot_config/mise/config.toml).
+# Tool versions change here, never via `mise use --global`: the alias would
+# write straight to the deployed file, diverging from this source.
+
+[tools]
+node = "lts"

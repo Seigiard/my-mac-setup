@@ -94,6 +94,8 @@ Where new things go:
 | Config file from `~/` | `home/` via `chezmoi add` |
 | External repo/archive (skills) | `home/.chezmoiexternal.toml` |
 
+Tool versions (e.g. node) change only by editing `home/private_dot_config/mise/config.toml`, never via `mise use --global` — that writes straight to the deployed file and diverges from this source.
+
 Adding a managed config, step by step:
 
 1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
