@@ -442,6 +442,89 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'herdr-agent-state.sh'
+  assert_output --partial 'handoff-session-start.sh'
+  run chezmoi_host_partial source-path \
+    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-session-start.sh"
+  assert_success
+  assert_file_exists "$output"
+}
+
+function test_templates_0152_private_settings_register_the_precompact_handoff_builder() {
+  _bats_test_init 152 'private settings register the PreCompact handoff builder'
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  # A hook deployed but never registered is a tracked defect class here, so the
+  # registration is asserted alongside the hook rather than left to the smoke
+  # suite. See docs/issues/2026-09-03-004-user-prompt-skill-eval-hook-is-deployed-but-never-wired.md.
+  run jq -r '.hooks.PreCompact[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'handoff-pre-compact.sh'
+  run chezmoi_host_partial source-path \
+    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-pre-compact.sh"
+  assert_success
+  assert_file_exists "$output"
+}
+
+function test_templates_0154_private_settings_carry_every_context_handoff_registration() {
+  _bats_test_init 154 'private settings carry all three context-handoff registrations at once'
+  local command
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  # Each unit asserts its own registration. This one catches a later edit that
+  # drops one of them while leaving the others in place -- the failure mode no
+  # single-hook assertion can see.
+  run jq -e '
+    ([.hooks.Stop[]?.hooks[]?.command] | any(contains("context-threshold.sh")))
+    and ([.hooks.PreCompact[]?.hooks[]?.command] | any(contains("handoff-pre-compact.sh")))
+    and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("handoff-session-start.sh")))
+    and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("herdr-agent-state.sh")))
+  ' "$BATS_TEST_TMPFILE"
+  assert_success
+
+  # Every hook this work registers must resolve to a chezmoi-managed source, or
+  # it is deployed by nothing. herdr-agent-state.sh is deliberately outside
+  # this loop: `herdr integration install` writes it from
+  # home/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl
+  # and it has no chezmoi source path of its own.
+  while IFS= read -r command; do
+    run chezmoi_host_partial source-path \
+      --source "$SOURCE_ROOT" "$HOME/.claude/hooks/$command"
+    assert_success
+    assert_file_exists "$output"
+  done <<'EOF'
+context-threshold.sh
+handoff-pre-compact.sh
+handoff-session-start.sh
+EOF
+}
+
+function test_templates_0153_private_settings_register_the_context_threshold_stop_hook() {
+  _bats_test_init 153 'private settings register the context threshold Stop hook with room for extraction'
+  local bound declared
+  BATS_TEST_TMPFILE="$(mktemp)"
+  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+
+  run jq -r '.hooks.Stop[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_output --partial 'context-threshold.sh'
+  run chezmoi_host_partial source-path \
+    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/context-threshold.sh"
+  assert_success
+  assert_file_exists "$output"
+
+  # The hook bounds its own goal extraction. A declared timeout at or below
+  # that bound lets the platform truncate a call the hook is already managing,
+  # so the two numbers are compared rather than both restated.
+  bound="$(bash -c '. "$1"; printf "%s" "$CONTEXT_USAGE_EXTRACTION_TIMEOUT"' \
+    _ "$SOURCE_ROOT/dot_local/lib/context-usage.sh")"
+  run test -n "$bound"
+  assert_success
+  declared="$(jq -r '[.hooks.Stop[]?.hooks[]?
+    | select(.command | contains("context-threshold.sh")) | .timeout] | first' "$BATS_TEST_TMPFILE")"
+  run test "$declared" -gt "$bound"
+  assert_success
 }
 
 # ===========================================

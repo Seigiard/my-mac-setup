@@ -28,6 +28,17 @@ herdr_record_session_cwd() {
 }
 herdr_record_session_cwd
 
+# The shared context-usage library owns the system-prompt allowance and the
+# state file the context-threshold Stop hook reads (R1, R2, KTD2). Sourcing it
+# is best-effort: a partially applied home must still render a status line.
+# There is no second definition of the allowance here -- an unsourced library
+# means no allowance is known, not that 20 is assumed somewhere else too.
+CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-$HOME/.local/lib/context-usage.sh}"
+if [ -r "$CONTEXT_USAGE_LIBRARY" ]; then
+    # shellcheck source=home/dot_local/lib/context-usage.sh
+    . "$CONTEXT_USAGE_LIBRARY"
+fi
+
 BOLD='\033[1m'
 GREEN='\033[32m'
 PURPLE='\033[35m'
@@ -74,9 +85,17 @@ if [ "$usage" != "null" ]; then
     current=$(echo "$usage" | jq '.input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens')
     size=$(echo "$input" | jq '.context_window.context_window_size')
     raw_pct=$((current * 100 / size))
-    adjusted_pct=$((raw_pct + 20))
+    adjusted_pct=$((raw_pct + ${CONTEXT_USAGE_ALLOWANCE_PCT:-0}))
     [ "$adjusted_pct" -gt 100 ] && adjusted_pct=100
     CONTEXT_PCT="$adjusted_pct"
+    # Claude Code hands these counts to the status line and to nothing else, so
+    # publishing them is the only way the Stop hook can see fullness at all.
+    # A failed write costs the hook one dimension and the bar nothing.
+    if command -v context_usage_write_usage > /dev/null 2>&1; then
+        SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
+        [ -n "$SESSION_ID" ] &&
+            context_usage_write_usage "$SESSION_ID" "$current" "$size" > /dev/null 2>&1
+    fi
 else
     CONTEXT_PCT="0"
 fi

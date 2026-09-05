@@ -7667,7 +7667,7 @@ function test_scripts_268_herdr_child_checkout_help_resolves_runtime_module() {
 }
 
 function test_scripts_269_herdr_child_modules_source_cleanly_without_source_time_effects() {
-  _bats_test_init 269 'herdr-child modules source cleanly without source-time effects'
+  _bats_test_init 269 'sourced library modules cause no source-time side effects'
   local lib_dir="$SOURCE_ROOT/dot_local/lib"
 
   run /bin/bash -s -- "$lib_dir" "$BATS_TEST_TMPDIR/module-loading" <<'BASH'
@@ -7765,6 +7765,7 @@ herdr-child-watcher.sh
 herdr-child-launch.sh
 herdr-child-continuation.sh
 herdr-child-reap.sh
+context-usage.sh
 EOF
 BASH
   assert_success
@@ -8763,4 +8764,1406 @@ TS
     HWI_ADAPTER_TEST_DIR="$root/reentry" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   assert_file_not_exists "$root/reentry"
+}
+
+# --- context-usage library (U2) -------------------------------------------
+#
+# Coverage owner for the two growth numbers the context-threshold hook and the
+# statusline both read. The oracles are outside this library: transcript
+# fixtures use Claude Code's own entry shape (`type`, `compactMetadata`), and
+# the fullness percentage is compared against the statusline's existing
+# arithmetic rather than against a number restated from the library.
+
+context_usage_lib() {
+  printf '%s' "$SOURCE_ROOT/dot_local/lib/context-usage.sh"
+}
+
+# Write a transcript in Claude Code's own line-per-entry shape. Each argument
+# is an entry kind: `assistant`, `user`, `tool`, or `compact`.
+context_usage_fixture_transcript() {
+  local path="$1" kind
+  shift
+  : > "$path"
+  for kind in "$@"; do
+    case "$kind" in
+      assistant)
+        printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":100}}}' >> "$path"
+        ;;
+      user)
+        printf '%s\n' '{"type":"user","message":{"role":"user","content":"go on"}}' >> "$path"
+        ;;
+      tool)
+        printf '%s\n' '{"type":"user","toolUseResult":{"stdout":"grep found \"type\":\"assistant\" in the log"},"message":{"role":"user","content":[{"type":"tool_result","content":"\"type\":\"assistant\""}]}}' >> "$path"
+        ;;
+      compact)
+        printf '%s\n' '{"type":"user","isCompactSummary":true,"compactMetadata":{"trigger":"manual","preTokens":412000},"message":{"role":"user","content":"summary"}}' >> "$path"
+        ;;
+    esac
+  done
+}
+
+function test_scripts_2801_context_usage_turn_count_restarts_at_the_compaction_boundary() {
+  _bats_test_init 2801 'context-usage turn count restarts at the compaction boundary'
+  local transcript="$BATS_TEST_TMPDIR/transcript.jsonl"
+
+  # AE5: turns from before the boundary never reach the count, so a session
+  # above the hard threshold before compaction is below it after.
+  context_usage_fixture_transcript "$transcript" \
+    assistant user assistant user assistant user assistant \
+    compact \
+    user assistant user assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '2'
+
+  # No boundary at all: the whole file counts.
+  context_usage_fixture_transcript "$transcript" assistant user assistant user assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  # Only the last boundary matters.
+  context_usage_fixture_transcript "$transcript" \
+    assistant compact assistant assistant compact assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '1'
+}
+
+function test_scripts_2802_context_usage_turn_count_ignores_non_assistant_entries() {
+  _bats_test_init 2802 'context-usage turn count ignores user and tool-result entries'
+  local transcript="$BATS_TEST_TMPDIR/interleaved.jsonl"
+
+  # The `tool` fixture carries the literal text `"type":"assistant"` inside a
+  # tool result. A line-oriented text scan counts those as turns; parsing the
+  # entry does not. Real transcripts quote each other constantly.
+  context_usage_fixture_transcript "$transcript" \
+    user assistant tool assistant tool tool user assistant
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  # An unreadable or absent transcript is zero turns, never an error: the hook
+  # must stay silent rather than fail loudly on the hot path.
+  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$BATS_TEST_TMPDIR/absent.jsonl"
+  assert_success
+  assert_output '0'
+  run bash -c '. "$1"; context_usage_turn_count ""' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '0'
+}
+
+function test_scripts_2803_context_usage_fullness_adds_the_allowance_and_caps() {
+  _bats_test_init 2803 'context-usage fullness adds the system-prompt allowance and caps at 100'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # R2. The expected value comes from the test's own inputs -- a raw occupancy
+  # and an allowance both named here -- not from the library's default, so this
+  # asserts the relationship rather than restating the constant.
+  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_PCT=17 bash -c '
+    . "$1"
+    context_usage_write_usage sess-bar 372000 1000000 "$(date +%s)" || exit 1
+    context_usage_read_fullness sess-bar
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '54'
+
+  # The cap holds: a nearly full window plus any allowance never exceeds 100.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_fullness_pct 990000 1000000
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '100'
+}
+
+function test_scripts_2804_context_usage_fullness_degrades_to_unavailable() {
+  _bats_test_init 2804 'context-usage fullness degrades to unavailable and leaves turns computable'
+  local state="$BATS_TEST_TMPDIR/state" transcript="$BATS_TEST_TMPDIR/t.jsonl"
+  context_usage_fixture_transcript "$transcript" assistant assistant assistant
+
+  # KTD3: absent, truncated, and stale each report unavailable rather than
+  # zero, and none of them stops the turn count from being computed.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_read_fullness never-rendered && exit 9
+    context_usage_turn_count "$2"
+  ' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    file="$(context_usage_usage_file truncated)"
+    mkdir -p "$(dirname "$file")"
+    printf "current_tokens=400000\n" > "$file"
+    context_usage_read_fullness truncated && exit 9
+    context_usage_turn_count "$2"
+  ' _ "$(context_usage_lib)" "$transcript"
+  assert_success
+  assert_output '3'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    now="$(date +%s)"
+    context_usage_write_usage stale 400000 1000000 "$((now - 4000))" || exit 1
+    context_usage_read_fullness stale "$now" && exit 9
+    context_usage_read_fullness stale "$((now - 3999))"
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '60'
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    file="$(context_usage_usage_file unreadable)"
+    mkdir -p "$(dirname "$file")"
+    printf "current_tokens=x\nwindow_size=0\nwritten_at=abc\n" > "$file"
+    context_usage_read_fullness unreadable && exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+}
+
+function test_scripts_2805_context_usage_warning_budgets_are_per_dimension_and_spent_once() {
+  _bats_test_init 2805 'context-usage warning budgets are per dimension and spend once'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # Both dimensions crossing warn in one call is one crossing naming both
+  # (R22), and spending it silences that level (AE4, R9).
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_evaluate both 72 160
+    context_usage_spend both warn fullness,turns 160 "finish the unit" ok
+    context_usage_evaluate both 72 161 && exit 9
+    context_usage_evaluate both 99 400 > /dev/null || exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=fullness,turns'
+
+  # R10: a spent fullness budget never suppresses the turn-count dimension.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend split warn fullness 40 "finish the unit" ok
+    context_usage_evaluate split 72 40 && exit 9
+    context_usage_evaluate split 72 160
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=turns'
+}
+
+function test_scripts_2806_context_usage_hard_crossing_consumes_the_warning_budget() {
+  _bats_test_init 2806 'context-usage hard crossing consumes the same dimension warning budget'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # R22: a session that reaches hard without ever announcing warn does not get
+  # a warn announcement afterwards for that dimension. The other dimension's
+  # budget is untouched.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_evaluate jump "" 300
+    context_usage_spend jump hard turns 300 "finish the unit" ok
+    file="$(context_usage_announce_file jump)"
+    grep -q "^warn_turns_spent=1$" "$file" || exit 9
+    grep -q "^warn_fullness_spent=" "$file" && exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=hard'
+  assert_line --index 1 'dimensions=turns'
+}
+
+function test_scripts_2807_context_usage_hard_threshold_repeats_at_shrinking_gaps() {
+  _bats_test_init 2807 'context-usage hard threshold repeats at shrinking gaps down to every turn'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # AE12, R25, KTD12. Walk a session forward one turn at a time from the hard
+  # threshold and assert the shape the requirement fixes rather than the exact
+  # schedule the current curve happens to produce: the crossing announces at
+  # once, the gap never grows, and it reaches every turn. A curve retuned in
+  # U4 must still satisfy all three.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    announced=""
+    turn=300
+    while [ "$turn" -le 400 ]; do
+      if context_usage_evaluate cadence "" "$turn" > /dev/null; then
+        context_usage_spend cadence hard turns "$turn"
+        announced="${announced:+$announced }$turn"
+      fi
+      turn=$((turn + 1))
+    done
+    previous=""
+    last_gap=""
+    for t in $announced; do
+      if [ -n "$previous" ]; then
+        gap=$((t - previous))
+        if [ -n "$last_gap" ] && [ "$gap" -gt "$last_gap" ]; then
+          printf "gap grew from %s to %s in: %s\n" "$last_gap" "$gap" "$announced"
+          exit 9
+        fi
+        last_gap="$gap"
+      fi
+      previous="$t"
+    done
+    set -- $announced
+    [ "$1" = 300 ] || { printf "first announcement at %s\n" "$1"; exit 9; }
+    [ "$last_gap" = 1 ] || { printf "final gap %s in: %s\n" "$last_gap" "$announced"; exit 9; }
+    printf "%s announcements over 101 turns\n" "$#"
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output --partial 'announcements over 101 turns'
+
+  # The cadence is a function of distance, not a stored counter: a state file
+  # carried across a resume or a fork produces the same next announcement.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend resumed hard turns 300
+    context_usage_evaluate resumed "" 307 && exit 9
+    context_usage_evaluate resumed "" 308 > /dev/null || exit 9
+    context_usage_spend forked hard turns 300
+    context_usage_evaluate forked "" 328 > /dev/null || exit 9
+    context_usage_spend forked hard turns 328
+    context_usage_evaluate forked "" 331 && exit 9
+    context_usage_evaluate forked "" 332 > /dev/null || exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+}
+
+function test_scripts_2808_context_usage_between_hard_announcements_says_nothing() {
+  _bats_test_init 2808 'context-usage says nothing between two hard announcement points'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_evaluate quiet "" 300 > /dev/null || exit 9
+    context_usage_spend quiet hard turns 300
+    for turn in 301 302 303 304 305 306 307; do
+      context_usage_evaluate quiet "" "$turn" > /dev/null && { printf "announced at %s\n" "$turn"; exit 9; }
+    done
+    context_usage_evaluate quiet "" 308
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=hard'
+  assert_line --index 1 'dimensions=turns'
+}
+
+function test_scripts_2809_context_usage_caches_the_goal_across_hard_repeats() {
+  _bats_test_init 2809 'context-usage returns the first goal unchanged on every hard repeat'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # KD5, R9, R25: the repeat costs no extraction, so a caller checking
+  # goal_status before extracting never asks for a second one, and a later
+  # spend that offers a different goal cannot overwrite the first.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_goal_status cached && exit 9
+    context_usage_spend cached hard turns 300 "land the shared usage library" ok
+    context_usage_spend cached hard turns 308 "something else entirely" ok
+    context_usage_spend cached hard turns 316
+    context_usage_goal cached
+    context_usage_goal_status cached
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'land the shared usage library'
+  assert_line --index 1 'ok'
+
+  # R23: a failed extraction is recorded as such and is equally sticky, so the
+  # repeats keep saying the same thing instead of re-running the extractor.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend failed hard turns 300 "" failed
+    context_usage_goal failed && exit 9
+    context_usage_spend failed hard turns 308 "a goal that arrived too late" ok
+    context_usage_goal failed && exit 9
+    context_usage_goal_status failed
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output 'failed'
+}
+
+function test_scripts_2810_context_usage_state_files_have_one_writer_each() {
+  _bats_test_init 2810 'context-usage usage and announcement state do not overwrite each other'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # KTD10. Both files are replaced whole by rename. Sharing one would let the
+  # statusline's next render erase a budget the hook had just spent -- a bug
+  # invisible to any test that stages the file by hand.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    now="$(date +%s)"
+    context_usage_spend writers warn fullness,turns 160 "keep both writers apart" ok
+    context_usage_write_usage writers 700000 1000000 "$now" || exit 1
+    context_usage_evaluate writers 90 161 > /dev/null
+    hard_only=$?
+    context_usage_goal writers
+    context_usage_read_fullness writers "$now"
+    printf "\n"
+    context_usage_evaluate writers 72 161 && exit 9
+    [ "$hard_only" -eq 0 ] || exit 9
+    exit 0
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'keep both writers apart'
+  assert_line --index 1 '90'
+
+  # And the reverse: publishing usage again leaves the announcement file alone.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_write_usage writers 100 1000000 "$(date +%s)" || exit 1
+    context_usage_goal writers
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output 'keep both writers apart'
+}
+
+function test_scripts_2811_context_usage_clear_rearms_every_budget() {
+  _bats_test_init 2811 'context-usage clear re-arms every announcement budget'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # R11: compaction hands the session back able to announce again.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend rearm warn fullness,turns 160 "before compaction" ok
+    context_usage_evaluate rearm 72 161 && exit 9
+    context_usage_clear rearm || exit 1
+    context_usage_goal_status rearm && exit 9
+    context_usage_evaluate rearm 72 161
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=fullness,turns'
+}
+
+function test_scripts_2812_context_usage_thresholds_are_environment_tunable() {
+  _bats_test_init 2812 'context-usage thresholds and allowance are environment tunable'
+  local state="$BATS_TEST_TMPDIR/state"
+
+  # KTD11, R5: all four thresholds and the allowance move without a code edit.
+  run env CONTEXT_USAGE_STATE_DIR="$state" \
+    CONTEXT_USAGE_ALLOWANCE_PCT=0 \
+    CONTEXT_USAGE_FULLNESS_WARN_PCT=10 \
+    CONTEXT_USAGE_FULLNESS_HARD_PCT=12 \
+    CONTEXT_USAGE_TURNS_WARN=2 \
+    CONTEXT_USAGE_TURNS_HARD=4 \
+    bash -c '
+      . "$1"
+      context_usage_fullness_pct 130000 1000000
+      printf "\n"
+      context_usage_evaluate tuned 11 1
+      context_usage_spend tuned warn fullness 1
+      context_usage_evaluate tuned 13 1
+    ' _ "$(context_usage_lib)"
+  assert_success
+  assert_line --index 0 '13'
+  assert_line --index 1 'level=warn'
+  assert_line --index 2 'dimensions=fullness'
+  assert_line --index 3 'level=hard'
+  assert_line --index 4 'dimensions=fullness'
+}
+
+# --- statusline publishes usage state (U3) ---------------------------------
+
+context_usage_statusline_payload() {
+  jq -nc --arg session "$1" --argjson current "$2" --argjson window "$3" \
+    '{workspace: {current_dir: "/tmp"},
+      session_id: $session,
+      model: {display_name: "Opus 5"},
+      context_window: {
+        current_usage: {input_tokens: $current, cache_creation_input_tokens: 0, cache_read_input_tokens: 0},
+        context_window_size: $window}}'
+}
+
+function test_scripts_2813_statusline_bar_and_library_report_the_same_fullness() {
+  _bats_test_init 2813 'statusline bar and the usage library report the same fullness'
+  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
+  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
+  local reported with_allowance without_allowance
+  library="$(context_usage_lib)"
+  mkdir -p "$home"
+
+  # AE8, R1. The oracle is agreement between the two consumers, not a number
+  # restated from either. Render the bar once with the allowance the library
+  # owns, then render it again with the allowance forced off and a raw
+  # occupancy already equal to what the library reported. Identical bars mean
+  # the operator's bar and the announcement describe the same percentage.
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload agree 372000 1000000)"
+  assert_success
+  with_allowance="$output"
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_read_fullness agree
+  ' _ "$library"
+  assert_success
+  reported="$output"
+  assert_equal "$reported" '57'
+
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_PCT=0 bash "$statusline" \
+    <<< "$(context_usage_statusline_payload mirror "${reported}0000" 1000000)"
+  assert_success
+  without_allowance="$output"
+  assert_equal "$with_allowance" "$without_allowance"
+
+  # The published numbers are the raw ones Claude Code handed over, untouched.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    file="$(context_usage_usage_file agree)"
+    context_usage_number_field "$file" current_tokens
+    printf " "
+    context_usage_number_field "$file" window_size
+  ' _ "$library"
+  assert_success
+  assert_output '372000 1000000'
+}
+
+function test_scripts_2814_statusline_renders_when_publishing_is_impossible() {
+  _bats_test_init 2814 'statusline renders when it cannot publish usage state'
+  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
+  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
+  local readonly_root="$BATS_TEST_TMPDIR/readonly" baseline
+  library="$(context_usage_lib)"
+  mkdir -p "$home" "$readonly_root"
+
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload ok 372000 1000000)"
+  assert_success
+  baseline="$output"
+
+  # The status line is the most frequently executed script in this setup. A
+  # state directory it cannot write must cost the hook a dimension and the
+  # operator nothing.
+  chmod 500 "$readonly_root"
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$readonly_root/state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload blocked 372000 1000000)"
+  chmod 700 "$readonly_root"
+  assert_success
+  assert_equal "$output" "$baseline"
+  assert_dir_not_exists "$readonly_root/state"
+
+  # A partially applied home has the status line but not yet the library. The
+  # bar must still render: the operator's prompt is not a place to surface a
+  # deployment race.
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent-library.sh" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< "$(context_usage_statusline_payload nolib 372000 1000000)"
+  assert_success
+  refute_output ''
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_read_fullness nolib
+  ' _ "$library"
+  assert_failure
+
+  # A payload without a context window renders the zero-percent bar and
+  # publishes nothing, so the hook sees no number rather than a wrong one.
+  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
+    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    <<< '{"workspace":{"current_dir":"/tmp"},"session_id":"empty","model":{"display_name":"Opus 5"}}'
+  assert_success
+  assert_output --partial '░░░░░░░░░░'
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_read_fullness empty
+  ' _ "$library"
+  assert_failure
+}
+
+# --- vendored handoff hooks (U6, U7) ---------------------------------------
+
+handoff_pre_compact_hook() {
+  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_handoff-pre-compact.sh"
+}
+
+# A `claude` on PATH that writes the text it was told to, so the hook's
+# storage and gating are exercised without a model call.
+handoff_stub_claude() {
+  local dir="$1" body="${2:-## Goal\nship the vendored hook\n}"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'printf "%%b" "%s"\n' "$body"
+    printf 'exit 0\n'
+  } > "$dir/claude"
+  chmod +x "$dir/claude"
+}
+
+handoff_payload() {
+  jq -nc --arg session "$1" --arg cwd "$2" --arg trigger "$3" --arg instructions "$4" \
+    '{session_id: $session, cwd: $cwd, trigger: $trigger,
+      custom_instructions: (if $instructions == "" then null else $instructions end),
+      hook_event_name: "PreCompact"}'
+}
+
+handoff_stored_goal() {
+  jq -r '.goal' < "$1"
+}
+
+function test_scripts_2815_handoff_pre_compact_stores_outside_the_git_directory() {
+  _bats_test_init 2815 'handoff pre-compact stores a handoff where .git is a file or absent'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local main="$root/main" linked="$root/linked" plain="$root/plain" file
+  handoff_stub_claude "$stub"
+  mkdir -p "$plain"
+
+  git init -q "$main"
+  git -C "$main" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+  git -C "$main" worktree add -q -b probe "$linked" > /dev/null 2>&1
+
+  # AE11, KTD5. `mkdir -p .git/handoff-pending` fails outright here: in a
+  # linked worktree `.git` is a file, not a directory.
+  assert_file_exists "$linked/.git"
+  run test -d "$linked/.git"
+  assert_failure
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload worktree-session "$linked" manual 'handoff:finish the vendoring')"
+  assert_success
+  file="$store/$(printf '%s' worktree-session | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  assert_file_exists "$file"
+  assert_equal "$(handoff_stored_goal "$file")" 'finish the vendoring'
+  assert_file_contains "$file" 'ship the vendored hook'
+
+  # And in a directory that is not a repository at all.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload plain-session "$plain" manual 'handoff:finish the vendoring')"
+  assert_success
+  assert_dir_not_exists "$plain/.git"
+  assert_file_exists "$store/$(printf '%s' plain-session | base64 | tr '/+' '_-' | tr -d '=\n').json"
+}
+
+function test_scripts_2816_handoff_pre_compact_keys_the_store_by_session() {
+  _bats_test_init 2816 'handoff pre-compact keeps concurrent sessions from overwriting each other'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local one two
+  handoff_stub_claude "$stub"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload session-a "$root" manual 'handoff:goal for a')"
+  assert_success
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload session-b "$root" manual 'handoff:goal for b')"
+  assert_success
+
+  one="$store/$(printf '%s' session-a | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  two="$store/$(printf '%s' session-b | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  assert_equal "$(handoff_stored_goal "$one")" 'goal for a'
+  assert_equal "$(handoff_stored_goal "$two")" 'goal for b'
+}
+
+function test_scripts_2817_handoff_pre_compact_ignores_and_clears_plain_compactions() {
+  _bats_test_init 2817 'handoff pre-compact writes nothing for a plain compaction and clears a stale handoff'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local file
+  handoff_stub_claude "$stub"
+  file="$store/$(printf '%s' reuse | base64 | tr '/+' '_-' | tr -d '=\n').json"
+
+  # No prefix at all, and an automatic compaction with no instructions.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload plain "$root" manual 'summarize the last hour')"
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$store"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< '{"session_id":"auto","cwd":"/tmp","trigger":"auto","custom_instructions":null,"hook_event_name":"PreCompact"}'
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$store"
+
+  # AE7, R16. A handoff left by an interrupted compaction must not survive into
+  # the next plain one. PreCompact is the only point that knows the difference.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload reuse "$root" manual 'handoff:the goal that was abandoned')"
+  assert_success
+  assert_file_exists "$file"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload reuse "$root" manual '')"
+  assert_success
+  assert_file_not_exists "$file"
+}
+
+function test_scripts_2818_handoff_pre_compact_fails_open() {
+  _bats_test_init 2818 'handoff pre-compact exits silently on malformed input and failed extraction'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  mkdir -p "$stub"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" <<< 'not json at all'
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$store"
+
+  # KTD9: an extractor that fails leaves no half-written handoff behind, and
+  # compaction still proceeds.
+  printf '#!/usr/bin/env bash\nexit 3\n' > "$stub/claude"
+  chmod +x "$stub/claude"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload broken "$root" manual 'handoff:a goal nobody can extract')"
+  assert_success
+  assert_file_not_exists "$store/$(printf '%s' broken | base64 | tr '/+' '_-' | tr -d '=\n').json"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload empty "$root" manual 'handoff:a goal with an empty answer')"
+  assert_success
+  assert_file_not_exists "$store/$(printf '%s' empty | base64 | tr '/+' '_-' | tr -d '=\n').json"
+}
+
+function test_scripts_2819_handoff_pre_compact_guards_the_extraction_fork() {
+  _bats_test_init 2819 'handoff pre-compact marks its fork so the threshold hook stays out of it'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  mkdir -p "$stub"
+
+  # KTD6. The fork inherits this session's settings, so its own Stop hook
+  # fires. Without the marker a long session's fork meets the threshold at
+  # once and extracts a goal of its own, recursively.
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'printf "guard=%%s\\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload guarded "$root" manual 'handoff:prove the fork is marked')"
+  assert_success
+  assert_file_contains "$store/$(printf '%s' guarded | base64 | tr '/+' '_-' | tr -d '=\n').json" 'guard=1'
+}
+
+# --- context-threshold Stop hook (U4) --------------------------------------
+
+context_threshold_hook() {
+  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_context-threshold.sh"
+}
+
+# A transcript of exactly N assistant turns since the last compaction.
+context_threshold_transcript() {
+  local path="$1" turns="$2" i=0
+  : > "$path"
+  while [ "$i" -lt "$turns" ]; do
+    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}' >> "$path"
+    i=$((i + 1))
+  done
+}
+
+context_threshold_payload() {
+  jq -nc --arg session "$1" --arg transcript "$2" --argjson active "${3:-false}" \
+    '{session_id: $session, transcript_path: $transcript,
+      hook_event_name: "Stop", stop_hook_active: $active}'
+}
+
+# Run the hook with the state directory and library this suite controls, and
+# with a `claude` that always fails. A scenario crossing a threshold for the
+# first time runs goal extraction, and without this stub it would fork the real
+# binary installed on whatever machine is running the suite.
+context_threshold_run() {
+  local session="$1" transcript="$2"
+  shift 2
+  local stub="$BATS_TEST_TMPDIR/no-extractor"
+  if [ ! -x "$stub/claude" ]; then
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$stub/claude"
+    chmod +x "$stub/claude"
+  fi
+  env PATH="$stub:$PATH" \
+    HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    CLAUDE_CODE_ENTRYPOINT=cli \
+    "$@" bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload "$session" "$transcript")"
+}
+
+function test_scripts_2820_context_threshold_names_the_dimension_that_crossed() {
+  _bats_test_init 2820 'context threshold names the dimension that crossed'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" short="$BATS_TEST_TMPDIR/short.jsonl"
+  local library state="$BATS_TEST_TMPDIR/state"
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$long" 160
+  context_threshold_transcript "$short" 12
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE1. A long session on a nearly empty window announces on turn count, and
+  # the message says so rather than reporting a percentage nobody is worried
+  # about. This is the common case on this machine.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage long-session 130000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run long-session "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '160 turns since the last compaction'
+  refute_output --partial 'context window'
+  assert_output --partial '/compact handoff:'
+
+  # AE2. The mirror case: a short session that pulled in several large files
+  # announces on fullness.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage short-session 600000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run short-session "$short"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'context window 80% full'
+  refute_output --partial 'turns since the last compaction'
+}
+
+function test_scripts_2821_context_threshold_announces_without_a_usage_file() {
+  _bats_test_init 2821 'context threshold announces on turn count when no usage file exists'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" library
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # KTD3 and KTD7 together. A resumed session has no state file until its
+  # first status-line render. Reading that absence as "headless" would
+  # silence exactly the long session this feature exists for.
+  run context_threshold_run resumed "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '160 turns since the last compaction'
+  refute_output --partial 'context window'
+
+  # A file too old to describe the current turn behaves the same way.
+  run env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
+    . "$1"; context_usage_write_usage stale-session 900000 1000000 "$(( $(date +%s) - 4000 ))"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run stale-session "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '160 turns since the last compaction'
+  refute_output --partial 'context window'
+}
+
+function test_scripts_2822_context_threshold_stays_out_of_sessions_nobody_is_watching() {
+  _bats_test_init 2822 'context threshold stays silent in headless and re-entrant sessions'
+  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
+  context_threshold_transcript "$huge" 500
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE9, R21. This repository runs headless legs routinely; halting one
+  # mid-task would be a regression in unrelated work, and no human is there.
+  # Every case below sits past both hard thresholds.
+  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=sdk-cli
+  assert_success
+  assert_output ''
+  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=sdk-py
+  assert_success
+  assert_output ''
+  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=mcp-cli
+  assert_success
+  assert_output ''
+
+  # KTD6: the extraction subprocess inherits these settings, so its own Stop
+  # hook fires. Both re-entrancy signals must silence it.
+  run context_threshold_run guarded "$huge" CONTEXT_THRESHOLD_GUARD=1
+  assert_success
+  assert_output ''
+  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload reentrant "$huge" true)"
+  assert_success
+  assert_output ''
+
+  # And an IDE session is a person watching, so it does announce.
+  run context_threshold_run ide "$huge" CLAUDE_CODE_ENTRYPOINT=vscode
+  assert_success
+  refute_output ''
+}
+
+function test_scripts_2823_context_threshold_hard_crossing_carries_halt_and_message() {
+  _bats_test_init 2823 'context threshold hard crossing carries the halt and the message together'
+  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
+  context_threshold_transcript "$huge" 305
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R20. Claude Code drops a Stop-hook halt on the end-turn paths that do not
+  # re-invoke the model, while still rendering the hook's message. Emitting
+  # both means the crossing stays visible exactly where the halt vanishes.
+  local response
+  run context_threshold_run halting "$huge"
+  assert_success
+  response="$output"
+  run jq -e '.continue == false and (.stopReason | length > 0) and (.systemMessage | length > 0)' <<< "$response"
+  assert_success
+  run jq -r '.stopReason' <<< "$response"
+  assert_success
+  assert_output --partial '/compact handoff:'
+  assert_output --partial '305 turns since the last compaction'
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output --partial '305 turns since the last compaction'
+}
+
+function test_scripts_2824_context_threshold_sends_one_message_per_turn() {
+  _bats_test_init 2824 'context threshold sends one message per turn however many thresholds crossed'
+  local both="$BATS_TEST_TMPDIR/both.jsonl" library state="$BATS_TEST_TMPDIR/state"
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$both" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R22. Two dimensions crossing in one turn is one message carrying one
+  # command, not two announcements the operator has to reconcile.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage combined 600000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  local response
+  run context_threshold_run combined "$both"
+  assert_success
+  response="$output"
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output --partial '160 turns since the last compaction (warn at 150) and context window 80% full'
+  run jq -r '[.systemMessage | scan("/compact handoff:")] | length' <<< "$response"
+  assert_success
+  assert_output '1'
+}
+
+function test_scripts_2825_context_threshold_warns_once_but_keeps_halting() {
+  _bats_test_init 2825 'context threshold warns once per dimension and keeps announcing past the limit'
+  local warn_level="$BATS_TEST_TMPDIR/warn.jsonl" library state="$BATS_TEST_TMPDIR/state"
+  local past="$BATS_TEST_TMPDIR/past.jsonl" further="$BATS_TEST_TMPDIR/further.jsonl"
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$warn_level" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE4, R9. The warning is not repeated at the same level.
+  run context_threshold_run repeat "$warn_level"
+  assert_success
+  refute_output ''
+  run context_threshold_run repeat "$warn_level"
+  assert_success
+  assert_output ''
+
+  # R10. The spent turn-count budget does not suppress fullness.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage repeat 600000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run repeat "$warn_level"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'context window 80% full'
+  refute_output --partial 'turns since the last compaction'
+
+  # AE12, R25. Held above the hard threshold the session is told again, and
+  # the second telling comes sooner than the cadence at the crossing.
+  context_threshold_transcript "$past" 300
+  context_threshold_transcript "$further" 308
+  run context_threshold_run cadence "$past"
+  assert_success
+  refute_output ''
+  run context_threshold_run cadence "$past"
+  assert_success
+  assert_output ''
+  run context_threshold_run cadence "$further"
+  assert_success
+  run jq -e '.continue == false' <<< "$output"
+  assert_success
+}
+
+function test_scripts_2826_context_threshold_fails_open() {
+  _bats_test_init 2826 'context threshold exits silently on malformed input and unreadable state'
+  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
+  context_threshold_transcript "$huge" 500
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # KTD9: everything except the deliberate halt fails open and silent.
+  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" <<< 'not json at all'
+  assert_success
+  assert_output ''
+
+  # An unavailable library is a partially applied home, not a reason to fail.
+  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent.sh" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload nolib "$huge")"
+  assert_success
+  assert_output ''
+
+  # A transcript that cannot be read counts zero turns, which announces
+  # nothing rather than announcing a wrong number.
+  run context_threshold_run missing "$BATS_TEST_TMPDIR/no-such-transcript.jsonl"
+  assert_success
+  assert_output ''
+}
+
+# --- goal extraction (U5) ---------------------------------------------------
+
+# A `claude` on PATH standing in for the extraction fork.
+context_threshold_stub_extractor() {
+  local dir="$1"
+  shift
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } > "$dir/claude"
+  chmod +x "$dir/claude"
+}
+
+# Run the hook with a stubbed extractor and a short extraction bound.
+context_threshold_run_extracting() {
+  local session="$1" transcript="$2"
+  shift 2
+  env PATH="$BATS_TEST_TMPDIR/stub:$PATH" \
+    HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    CONTEXT_USAGE_EXTRACTION_TIMEOUT=3 \
+    CLAUDE_CODE_ENTRYPOINT=cli \
+    "$@" bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload "$session" "$transcript")"
+}
+
+function test_scripts_2827_context_threshold_carries_the_extracted_goal() {
+  _bats_test_init 2827 'context threshold carries the extracted goal into the command'
+  local long="$BATS_TEST_TMPDIR/long.jsonl"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "land the goal extraction unit\n"'
+
+  run context_threshold_run_extracting extracted "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:land the goal extraction unit'
+  refute_output --partial 'extraction failed'
+
+  # KD5, R25: the goal is extracted once. A repeat that finds the extractor
+  # replaced still shows the first goal, which proves no second call was made.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "a completely different goal\n"'
+  local hard="$BATS_TEST_TMPDIR/hard.jsonl"
+  context_threshold_transcript "$hard" 305
+  run context_threshold_run_extracting extracted "$hard"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:land the goal extraction unit'
+  refute_output --partial 'a completely different goal'
+}
+
+function test_scripts_2828_context_threshold_announces_when_extraction_fails() {
+  _bats_test_init 2828 'context threshold still announces when goal extraction fails'
+  local long="$BATS_TEST_TMPDIR/long.jsonl"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # AE10, R23. Extraction failure costs the goal, never the announcement. A
+  # non-zero exit, an empty answer, and an overrun all land the same way.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'exit 3'
+  run context_threshold_run_extracting failed-exit "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'Goal extraction failed'
+  assert_output --partial '/compact handoff:'
+  assert_output --partial '160 turns since the last compaction'
+
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'printf ""'
+  run context_threshold_run_extracting failed-empty "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'Goal extraction failed'
+
+  # The bound is the hook's own, not the platform's: an extractor that hangs
+  # must not hold the turn open until Claude Code kills the hook.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'sleep 60'
+  run context_threshold_run_extracting failed-slow "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial 'Goal extraction failed'
+}
+
+function test_scripts_2829_context_threshold_normalizes_the_extracted_goal() {
+  _bats_test_init 2829 'context threshold normalizes the goal before the operator sees it'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" goal
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R24. The goal is pasted after `handoff:` into a shell-adjacent prompt, so
+  # it arrives as one line, within the cap, and without the sequences that
+  # would change what the command means.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "first line\nsecond line\nthird line\n"'
+  run context_threshold_run_extracting multiline "$long"
+  assert_success
+  goal="$(jq -r '.systemMessage' <<< "$output" | sed -n 's|^/compact handoff:||p')"
+  assert_equal "$goal" 'first line second line third line'
+
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "%s\n" "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo"'
+  run context_threshold_run_extracting capped "$long"
+  assert_success
+  goal="$(jq -r '.systemMessage' <<< "$output" | sed -n 's|^/compact handoff:||p')"
+  run bash -c 'set -- $1; printf "%s" "$#"' _ "$goal"
+  assert_success
+  assert_output '20'
+
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "%s\n" "finish \$(id) the \`whoami\` job; echo x | tee y && z > w"'
+  run context_threshold_run_extracting metachars "$long"
+  assert_success
+  goal="$(jq -r '.systemMessage' <<< "$output" | sed -n 's|^/compact handoff:||p')"
+  run bash -c 'case "$1" in *[\`\$\;\|\&\<\>\"\(\)]*) exit 1 ;; esac; printf "%s" "$1"' _ "$goal"
+  assert_success
+  assert_output --partial 'finish'
+}
+
+function test_scripts_2830_context_threshold_guards_its_own_extraction_fork() {
+  _bats_test_init 2830 'context threshold marks its extraction fork so it does not recurse'
+  local long="$BATS_TEST_TMPDIR/long.jsonl"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # KTD6. The fork inherits these settings, so its own Stop hook fires. A fork
+  # of an already-long session meets the threshold at once, and without the
+  # marker would extract a goal of its own, recursively.
+  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
+    'printf "guard is %s\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"'
+  run context_threshold_run_extracting forked "$long"
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output --partial '/compact handoff:guard is 1'
+}
+
+# --- handoff SessionStart injector (U7) ------------------------------------
+
+handoff_session_start_hook() {
+  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_handoff-session-start.sh"
+}
+
+handoff_store_path() {
+  printf '%s/%s.json' "$1" "$(printf '%s' "$2" | base64 | tr '/+' '_-' | tr -d '=\n')"
+}
+
+handoff_stage_stored() {
+  local store="$1" session="$2" content="$3" file
+  file="$(handoff_store_path "$store" "$session")"
+  mkdir -p "$store"
+  jq -n --arg content "$content" \
+    '{handoff_content: $content, goal: "staged", trigger: "manual", type: "compact"}' > "$file"
+  printf '%s' "$file"
+}
+
+handoff_session_start_payload() {
+  jq -nc --arg session "$1" --arg source "$2" \
+    '{session_id: $session, cwd: "/tmp", source: $source, hook_event_name: "SessionStart"}'
+}
+
+handoff_session_start_run() {
+  env HOME="$BATS_TEST_TMPDIR/home" \
+    HANDOFF_STORE_DIR="$BATS_TEST_TMPDIR/cache" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    bash "$(handoff_session_start_hook)" \
+    <<< "$(handoff_session_start_payload "$1" "$2")"
+}
+
+function test_scripts_2831_handoff_injector_places_the_handoff_in_model_context() {
+  _bats_test_init 2831 'handoff injector emits additionalContext and never systemMessage'
+  local store="$BATS_TEST_TMPDIR/cache" file
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  file="$(handoff_stage_stored "$store" injected '## Goal
+finish the injector
+## Key Details
+the build id is 7731-ZARBLAX')"
+
+  # KTD8, R15. This is the field the whole vendoring exists for: systemMessage
+  # renders to the operator and never reaches the model, which is a handoff
+  # that was shown rather than handed off.
+  run handoff_session_start_run injected compact
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'SessionStart'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial '7731-ZARBLAX'
+  run jq -e 'has("systemMessage") | not' <<< "$response"
+  assert_success
+
+  # Consumed once. A second start finds nothing to inject.
+  assert_file_not_exists "$file"
+  run handoff_session_start_run injected compact
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_2832_handoff_injector_takes_only_this_sessions_handoff() {
+  _bats_test_init 2832 'handoff injector leaves another session handoff untouched'
+  local store="$BATS_TEST_TMPDIR/cache" other
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  other="$(handoff_stage_stored "$store" neighbour 'belongs to the other session')"
+
+  # AE7, R16. Two worktree sessions compact independently; neither may consume
+  # the other's handoff, and neither may inject a handoff it did not ask for.
+  run handoff_session_start_run mine compact
+  assert_success
+  assert_output ''
+  assert_file_exists "$other"
+  assert_file_contains "$other" 'belongs to the other session'
+}
+
+function test_scripts_2833_handoff_injector_ignores_ordinary_session_starts() {
+  _bats_test_init 2833 'handoff injector ignores session starts that are not compactions'
+  local store="$BATS_TEST_TMPDIR/cache" file
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  file="$(handoff_stage_stored "$store" startup 'should survive a plain startup')"
+
+  run handoff_session_start_run startup startup
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+
+  run handoff_session_start_run startup resume
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+
+  run env HOME="$BATS_TEST_TMPDIR/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    bash "$(handoff_session_start_hook)" <<< 'not json at all'
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+}
+
+function test_scripts_2834_handoff_injector_rearms_the_announcement_budgets() {
+  _bats_test_init 2834 'handoff injector re-arms the announcement budgets after compaction'
+  local state="$BATS_TEST_TMPDIR/state" library
+  library="$(context_usage_lib)"
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R11. The window is empty again, so the session must be able to announce
+  # again -- including after a plain compaction that left no handoff.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_spend rearmed warn fullness,turns 160 "before compaction" ok
+    context_usage_evaluate rearmed 72 161 && exit 9
+    exit 0
+  ' _ "$library"
+  assert_success
+
+  run handoff_session_start_run rearmed compact
+  assert_success
+  assert_output ''
+
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"
+    context_usage_goal_status rearmed && exit 9
+    context_usage_evaluate rearmed 72 161
+  ' _ "$library"
+  assert_success
+  assert_line --index 0 'level=warn'
+  assert_line --index 1 'dimensions=fullness,turns'
+}
+
+# --- review follow-ups -----------------------------------------------------
+
+function test_scripts_2835_context_threshold_keeps_dimensions_independent_under_damage() {
+  _bats_test_init 2835 'context threshold keeps the fullness dimension when the transcript will not parse'
+  local damaged="$BATS_TEST_TMPDIR/damaged.jsonl" library
+  library="$(context_usage_lib)"
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R4: the two dimensions are evaluated independently, so a transcript with a
+  # line that will not parse must cost the turn count and nothing else. Under
+  # `set -o pipefail` a non-zero jq is easy to let propagate, and the session
+  # then sails past a full window in silence.
+  printf '%s\n' '{"type":"assistant","message":{}}' > "$damaged"
+  printf '%s\n' 'this line is not json at all' >> "$damaged"
+  printf '%s\n' '{"type":"assistant","message":{}}' >> "$damaged"
+
+  run env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
+    . "$1"; context_usage_write_usage damaged 900000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run damaged "$damaged"
+  assert_success
+  local response="$output"
+  run jq -e '.continue == false' <<< "$response"
+  assert_success
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output --partial 'context window'
+  refute_output --partial 'turns since the last compaction'
+}
+
+function test_scripts_2836_context_threshold_reports_both_levels_in_one_message() {
+  _bats_test_init 2836 'context threshold names a same-turn warning on the other dimension'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" library
+  library="$(context_usage_lib)"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # R22 allows one message per turn. When one dimension reaches the limit while
+  # the other only reaches its warning, holding the warning back would leave
+  # the operator to discover it a turn later, in a second message.
+  run env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
+    . "$1"; context_usage_write_usage mixed 700000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run context_threshold_run mixed "$long"
+  assert_success
+  local response="$output"
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output --partial '160 turns since the last compaction (warn at 150)'
+  assert_output --partial 'context window 90% full (limit 85%)'
+  run jq -e '.continue == false' <<< "$response"
+  assert_success
+
+  # Both budgets are spent, so the next turn at the same levels says nothing.
+  run context_threshold_run mixed "$long"
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_2837_context_hooks_fail_open_without_a_home() {
+  _bats_test_init 2837 'context and handoff hooks fail open when HOME is unset'
+  local hook
+
+  # KTD9. `set -u` plus a path defaulted from $HOME aborts the hook with a
+  # non-zero status, which Claude Code surfaces as a hook error on every turn.
+  # An advisory gate over a mutating agent must fail open instead.
+  for hook in executable_context-threshold.sh executable_handoff-pre-compact.sh \
+    executable_handoff-session-start.sh; do
+    run env -u HOME -u CONTEXT_USAGE_LIBRARY -u CONTEXT_USAGE_STATE_DIR -u HANDOFF_STORE_DIR \
+      CLAUDE_CODE_ENTRYPOINT=cli bash "$SOURCE_ROOT/private_dot_claude/hooks/$hook" < /dev/null
+    assert_success
+    assert_output ''
+  done
+
+  # The library is sourced by all three and must survive the same condition.
+  run env -u HOME bash -c 'set -uo pipefail; . "$1"; printf "sourced"' _ "$(context_usage_lib)"
+  assert_success
+  assert_output 'sourced'
+}
+
+function test_scripts_2838_context_threshold_fails_open_when_it_cannot_remember() {
+  _bats_test_init 2838 'context threshold stays silent when it cannot record the announcement'
+  local long="$BATS_TEST_TMPDIR/long.jsonl" readonly_root="$BATS_TEST_TMPDIR/readonly"
+  context_threshold_transcript "$long" 160
+  mkdir -p "$BATS_TEST_TMPDIR/home" "$readonly_root"
+
+  # The announcement file is what makes "once per session" true. Announcing
+  # without being able to record it would re-extract a goal and re-issue the
+  # halt on every later turn -- worse than staying quiet.
+  chmod 500 "$readonly_root"
+  run env PATH="$BATS_TEST_TMPDIR/no-extractor:$PATH" HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$readonly_root/state" CLAUDE_CODE_ENTRYPOINT=cli \
+    bash "$(context_threshold_hook)" \
+    <<< "$(context_threshold_payload unwritable "$long")"
+  chmod 700 "$readonly_root"
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_2839_handoff_injector_drops_the_emptied_window_reading() {
+  _bats_test_init 2839 'handoff injector drops the fullness reading for the window compaction emptied'
+  local library state="$BATS_TEST_TMPDIR/state"
+  library="$(context_usage_lib)"
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # The published number describes the window that was just emptied. Left in
+  # place, the very next turn halts on occupancy that no longer exists, before
+  # the status line has rendered once in the new window.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage emptied 900000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_fullness emptied' _ "$library"
+  assert_success
+  assert_output '100'
+
+  run handoff_session_start_run emptied compact
+  assert_success
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_fullness emptied' _ "$library"
+  assert_failure
+
+  # A start that is not a compaction leaves the reading alone.
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+    . "$1"; context_usage_write_usage kept 900000 1000000 "$(date +%s)"
+  ' _ "$library"
+  assert_success
+  run handoff_session_start_run kept startup
+  assert_success
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_fullness kept' _ "$library"
+  assert_success
+  assert_output '100'
+}
+
+function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() {
+  _bats_test_init 2840 'handoff pre-compact discards the previous handoff before extracting a new one'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local file
+  handoff_stub_claude "$stub" 'the first goal handoff'
+  file="$(handoff_store_path "$store" replaced)"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload replaced "$root" manual 'handoff:the first goal')"
+  assert_success
+  assert_file_contains "$file" 'the first goal handoff'
+
+  # R16 in its harder form: the operator asked for a *different* goal and the
+  # extraction failed. Injecting the previous compaction's handoff would hand
+  # the next session a goal it has already finished with.
+  printf '#!/usr/bin/env bash\nexit 3\n' > "$stub/claude"
+  chmod +x "$stub/claude"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload replaced "$root" manual 'handoff:a second and different goal')"
+  assert_success
+  assert_file_not_exists "$file"
 }

@@ -799,6 +799,43 @@ PY
   assert_success
 }
 
+function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
+  _bats_test_init 1064 'deployed settings wire the context threshold and handoff hooks'
+  local settings="$HOME/.claude/settings.json"
+  assert_file_exists "$settings"
+
+  # Rendering a template proves the source is right; only the applied home
+  # proves the hooks a running session will actually load. A registration that
+  # renders but never lands is the defect this scenario exists to catch.
+  run python3 - "$settings" <<'HOOKCHECK'
+import json, sys
+
+hooks = json.load(open(sys.argv[1]))["hooks"]
+
+
+def commands(event):
+    return [h["command"] for entry in hooks.get(event, []) for h in entry["hooks"]]
+
+
+for event, script in (
+    ("Stop", "context-threshold.sh"),
+    ("PreCompact", "handoff-pre-compact.sh"),
+    ("SessionStart", "handoff-session-start.sh"),
+):
+    found = commands(event)
+    assert any(script in c for c in found), (event, script, found)
+
+session = commands("SessionStart")
+assert any("herdr-agent-state.sh" in c for c in session), session
+HOOKCHECK
+  assert_success
+
+  assert_file_executable "$HOME/.claude/hooks/context-threshold.sh"
+  assert_file_executable "$HOME/.claude/hooks/handoff-pre-compact.sh"
+  assert_file_executable "$HOME/.claude/hooks/handoff-session-start.sh"
+  assert_file_exists "$HOME/.local/lib/context-usage.sh"
+}
+
 function test_smoke_1063_worktree_identity_deploys_and_statusline_records_() {
   _bats_test_init 1063 'worktree identity deploys and Claude statusline records its cwd'
   local engine="$HOME/.local/bin/herdr-worktree-identity"
