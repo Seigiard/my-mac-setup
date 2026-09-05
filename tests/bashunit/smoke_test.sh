@@ -110,6 +110,12 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .claude
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
+    .claude/hooks/agent-hooks-dispatch.sh
+    .local/lib/agent-hooks/index.ts
+    .local/lib/agent-hooks/claude.ts
+    .local/lib/agent-hooks/registry.ts
+    .local/lib/agent-hooks/selfcheck.ts
+    .local/lib/agent-hooks/policies/index.ts
     .config/herdr/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
@@ -877,6 +883,65 @@ function test_smoke_1057_pi_brew_auto_updater_focused_tests_pass() {
   _bats_test_init 1057 'Pi brew auto updater focused tests pass'
   run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
   assert_success
+}
+
+# The focused suite proves the checkout's core. Only the applied home proves
+# the core a Claude tool call will actually load: chezmoi drops a file from
+# management, an ignore rule fires, a template stops rendering, and the
+# checkout stays green while every deployed policy is gone.
+function test_smoke_1065_deployed_agent_hooks_core_passes_the_dispatch_suite() {
+  _bats_test_init 1065 'deployed agent-hooks core passes the focused dispatch suite'
+  local core="$HOME/.local/lib/agent-hooks"
+  assert_file_exists "$core/index.ts"
+  run env AGENT_HOOKS_CORE_PATH="$core" bun test "$BATS_TEST_DIRNAME/agent-hooks-core.test.ts"
+  assert_success
+}
+
+# Liveness, not introspection (R8): every block-capable route dispatches its own
+# known-bad fixture and must come back with a block. A registry that lists four
+# policies while all four are dead passes introspection and fails this.
+function test_smoke_1066_deployed_agent_hooks_selfcheck_reports_live_routes() {
+  _bats_test_init 1066 'deployed agent-hooks selfcheck reports every block route live'
+  local selfcheck="$HOME/.local/lib/agent-hooks/selfcheck.ts"
+  assert_file_exists "$selfcheck"
+  run bun "$selfcheck" --json
+  assert_success
+  local report="$BATS_TEST_TMPDIR/agent-hooks-selfcheck.json"
+  printf '%s' "$output" > "$report"
+  run python3 - "$report" <<'PY'
+import json, sys
+
+report = json.load(open(sys.argv[1]))
+canaries = report["canaries"]
+assert canaries, report
+failed = [(c["policy"], c["client"], c["detail"]) for c in canaries if not c["ok"]]
+assert not failed, failed
+assert report["ok"], report
+PY
+  assert_success
+}
+
+# The end-to-end path a tool call really takes: Claude's JSON into the deployed
+# shim, bun into the deployed core, the deny envelope back out. The control
+# below differs from the denied command only in the variable name, so a shim
+# that answered nothing at all could not pass both halves.
+function test_smoke_1067_deployed_claude_shim_denies_the_known_bad_fixture() {
+  _bats_test_init 1067 'deployed Claude shim denies the known-bad zsh fixture and clears its control'
+  local shim="$HOME/.claude/hooks/agent-hooks-dispatch.sh"
+  assert_file_exists "$shim"
+
+  run bash "$shim" <<'EOF'
+{"tool_name":"Bash","tool_input":{"command":"make check; status=$?; exit $status"}}
+EOF
+  assert_success
+  assert_output --partial '"permissionDecision": "deny"'
+  assert_output --partial "zsh-reserved-name-guard:"
+
+  run bash "$shim" <<'EOF'
+{"tool_name":"Bash","tool_input":{"command":"make check; rc=$?; exit $rc"}}
+EOF
+  assert_success
+  assert_output ""
 }
 
 assert_herdr_label_writer_contract() {
