@@ -73,20 +73,40 @@ hpl_cutover_cleanup() {
 }
 
 hpl_cutover_encode_key() {
-  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+  # Parameter expansion rather than a tr pipeline. This runs on every state
+  # path resolution, so the two forks it saves outweigh the work it does.
+  # Deleting newlines before translating is safe: the classes '/+' and '=\n'
+  # are disjoint, so neither step can see the other's characters.
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  encoded="${encoded//$'\n'/}"
+  encoded="${encoded//\//_}"
+  encoded="${encoded//+/-}"
+  printf '%s' "${encoded//=/}"
 }
 
 hpl_cutover_encode_value() {
-  printf '%s' "$1" | base64 | tr -d '\n'
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  printf '%s' "${encoded//$'\n'/}"
 }
 
 hpl_cutover_raw_field() {
-  local file="$1" key="$2" count value
+  # One scan counts the matches and keeps the first; the old form grepped the
+  # same file twice per field to enforce the duplicate-key guard.
+  local file="$1" key="$2" line count=0 value=""
   [ -f "$file" ] || return 1
-  count="$(grep -c "^${key}=" "$file" 2>/dev/null || true)"
-  [ "$count" = 1 ] || return 1
-  value="$(grep "^${key}=" "$file" 2>/dev/null)"
-  printf '%s' "${value#*=}"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*)
+        count=$((count + 1))
+        [ "$count" -eq 1 ] || return 1
+        value="${line#*=}"
+        ;;
+    esac
+  done < "$file" 2>/dev/null
+  [ "$count" -eq 1 ] || return 1
+  printf '%s' "$value"
 }
 
 hpl_cutover_text_field() {

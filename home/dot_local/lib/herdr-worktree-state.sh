@@ -4,11 +4,22 @@
 HERDR_WORKTREE_IDENTITY_STATE_DIR="${HERDR_WORKTREE_IDENTITY_STATE_DIR:-$HOME/.cache/herdr-worktree-identity}"
 
 encode_key() {
-  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+  # Parameter expansion rather than a tr pipeline. This runs on every state
+  # path resolution, so the two forks it saves outweigh the work it does.
+  # Deleting newlines before translating is safe: the classes '/+' and '=\n'
+  # are disjoint, so neither step can see the other's characters.
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  encoded="${encoded//$'\n'/}"
+  encoded="${encoded//\//_}"
+  encoded="${encoded//+/-}"
+  printf '%s' "${encoded//=/}"
 }
 
 encode_value() {
-  printf '%s' "$1" | base64 | tr -d '\n'
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  printf '%s' "${encoded//$'\n'/}"
 }
 
 namespace_dir() {
@@ -19,8 +30,12 @@ namespace_dir() {
 atomic_write() {
   local file="$1" content="$2" dir tmp
   [ ! -d "$file" ] || return 1
-  dir="$(dirname "$file")"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  dir="${file%/*}"
+  [ "$dir" != "$file" ] || dir="."
+  [ -n "$dir" ] || dir="/"
+  # mkdir -p succeeds on an existing directory, so skipping it when the
+  # directory is already there drops a fork without changing any failure path.
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 1
   tmp="$(umask 077; mktemp "$dir/.record.XXXXXX" 2>/dev/null)" || return 1
   if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
     rm -f "$tmp"
@@ -34,17 +49,30 @@ atomic_write() {
 }
 
 read_state_field() {
-  local file="$1" key="$2" encoded
+  # One in-process scan instead of grep|cut. resolve_pane_location reads seven
+  # fields per pane and location_state_matches eight, so the old form grepped a
+  # ten-line file fifteen times per pane. Keys are literal identifiers, so
+  # dropping grep's regex semantics is not observable, and the trailing
+  # `|| [ -n "$line" ]` keeps a final line that has no newline.
+  local file="$1" key="$2" line encoded=""
   [ -f "$file" ] || return 0
-  encoded="$(grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2-)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) encoded="${line#*=}"; break ;;
+    esac
+  done < "$file" 2>/dev/null
   [ -n "$encoded" ] || return 0
   printf '%s' "$encoded" | base64 -d 2>/dev/null || true
 }
 
 record_number() {
-  local file="$1" key="$2" value
+  local file="$1" key="$2" line value=""
   [ -f "$file" ] || return 0
-  value="$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -1)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) value="${line#*=}"; break ;;
+    esac
+  done < "$file" 2>/dev/null
   case "$value" in
     '' | *[!0-9]*) return 0 ;;
   esac
@@ -98,8 +126,10 @@ acquire_claim() {
   case "$attempts" in
     '' | *[!0-9]* | 0) return 1 ;;
   esac
-  dir="$(dirname "$lock")"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  dir="${lock%/*}"
+  [ "$dir" != "${lock}" ] || dir="."
+  [ -n "$dir" ] || dir="/"
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 1
   while :; do
     if [ -e "$lock" ]; then
       recover_claim "$lock" "$((attempt + 1))"
@@ -156,7 +186,9 @@ release_claim() {
 # Diagnostics are append-only evidence. No state helper reads this log.
 record_diagnostic() {
   local file="$1" reason="$2" observed_state="$3" dir
-  dir="$(dirname "$file")"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  dir="${file%/*}"
+  [ "$dir" != "${file}" ] || dir="."
+  [ -n "$dir" ] || dir="/"
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 1
   printf 'reason=%s observed_state=%s\n' "$reason" "$observed_state" >> "$file" 2>/dev/null
 }

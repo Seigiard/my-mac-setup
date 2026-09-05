@@ -136,7 +136,9 @@ now_ms() {
 
 atomic_write() {
   local file="$1" content="$2" dir tmp
-  dir="$(dirname "$file")"
+  dir="${file%/*}"
+  [ "$dir" != "$file" ] || dir="."
+  [ -n "$dir" ] || dir="/"
   [ -d "$dir" ] || return 1
   tmp="$(umask 077; mktemp "$dir/.write.XXXXXX" 2>/dev/null)" || return 1
   if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null || ! mv "$tmp" "$file" 2>/dev/null; then
@@ -282,8 +284,13 @@ except Exception: print("unknown")'
 }
 
 state_value() {
-  local file="$1" key="$2"
-  sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -1
+  local file="$1" key="$2" line
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) printf '%s\n' "${line#*=}"; return 0 ;;
+    esac
+  done < "$file" 2>/dev/null
 }
 
 supervision_reason() {

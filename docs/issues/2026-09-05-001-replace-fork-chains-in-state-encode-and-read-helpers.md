@@ -5,8 +5,9 @@ type: "chore"
 category: "testing-ci"
 tags: ["performance","fork-overhead","shell-hot-path"]
 date: "2026-09-05"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -49,3 +50,7 @@ Every path here is chezmoi-managed and deployment-sensitive, so `docs/agent-veri
 ## Open decisions
 
 Whether to also collapse `$(namespace_dir)` at its eighteen call sites into a variable set once in the mode prologue. The fork count is exact at 2898 subshells per run, but the A/B was swamped by host noise of plus or minus 14 CPU-seconds against a predicted 2.5-second gain. Treat it as a correctness-neutral tidy, not a proven win.
+
+## Resolution
+
+Rewrote the four helper shapes across all five files: parameter expansion replaces the base64 translate pipelines, and a single in-process scan replaces grep|cut and sed|head field reads. Also removed six dirname forks and made mkdir -p conditional in the four atomic writers plus acquire_claim and record_diagnostic. An interleaved four-pair A/B measured 294.1 to 256.8 CPU-seconds (-12.7%) and 104.89 to 97.28 seconds wall (-7.3%), with every pair negative and a paired standard deviation of 5.7; that reproduces the -34.8 figure the original investigation reported. Equivalence was verified differentially against the previous implementations over 189 probe lines with zero differences, covering empty values, unicode, inputs long enough to make base64 wrap, values containing '=', duplicate keys, files without a trailing newline, empty files, and missing files. make test-ubuntu is green (scripts 336/336) and make lint is clean. process_start_token was left alone: it writes directly to a lock file at executable_herdr-pane-labels:1741, so changing its trailing newline carries a risk the 0.75 CPU-seconds do not justify.
