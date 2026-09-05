@@ -11,6 +11,16 @@ deepened: 2026-09-03
 
 # Cross-Agent Hooks Core - Plan
 
+## Progress
+
+- [x] U1 · core module: types, registry, normalization, dispatch, selfcheck
+- [ ] U2 · port the four tool-call policies into the core
+- [ ] U3 · Claude adapter: shim, dispatcher, matcher union, anti-vacuity tests
+- [ ] U4 · OpenCode adapter plugin
+- [ ] U5 · Pi adapter extension
+- [ ] U6 · agents-local port to OpenCode with shared selection module
+- [ ] U7 · retirement apply: remove old Claude scripts and engines, assert absence
+
 ## Goal Capsule
 
 - **Objective:** A hook policy written once yields, in each of Claude Code, OpenCode, and Pi, either identical enforcement or a statically declared inapplicability — never a silent miss — and adding the next policy costs one core entry plus registry data, not three hand-written client hooks. Today's asymmetric enforcement (three Claude-only policies, one Pi-only feature) closes to that standard for the policies in scope. Named carve-outs: OpenCode subagent tool calls (platform bypass, Scope Boundaries) and agents-local on Claude Code (stays prose-instruction by design).
