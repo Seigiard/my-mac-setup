@@ -37,3 +37,10 @@ Library/marta
 # removing the files here costs a running session nothing.
 .config/opencode/plugins/test-oracle-guard.ts
 .config/opencode/plugins/zsh-reserved-name-guard.ts
+
+# One agent-hooks extension replaces the per-policy pi guards; both of the
+# retired adapters spawned ~/.local/bin engines that the shared core absorbed.
+# A session that already loaded them keeps running them until it restarts, so
+# removing the files here costs a running session nothing.
+.pi/agent/extensions/test-oracle-guard.ts
+.pi/agent/extensions/zsh-reserved-name-guard.ts

@@ -1,4 +1,4 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode lint clean build-docker shell-ubuntu
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
@@ -11,6 +11,7 @@ help:
 	@echo "  make test-pi-herdr-worktree-identity  Run focused Pi worktree-identity extension tests"
 	@echo "  make test-agent-hooks-core  Run focused agent-hooks dispatch core tests"
 	@echo "  make test-agent-hooks-opencode  Run focused agent-hooks opencode adapter tests"
+	@echo "  make test-agent-hooks-pi  Run focused agent-hooks Pi adapter tests"
 	@echo "  make test-local       Diff checkout source against current home (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
 	@echo "  make lint             Run shellcheck on all scripts"
@@ -45,6 +46,9 @@ test-agent-hooks-core:
 
 test-agent-hooks-opencode:
 	bun test tests/agent-hooks-opencode-adapter.test.ts
+
+test-agent-hooks-pi:
+	bun test tests/agent-hooks-pi-adapter.test.ts
 
 shell-ubuntu: build-docker
 	docker compose -f docker/docker-compose.yml run --rm ubuntu /bin/zsh

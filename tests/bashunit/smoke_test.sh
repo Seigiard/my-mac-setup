@@ -110,6 +110,7 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .claude
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
+    .pi/agent/extensions/agent-hooks.ts
     .claude/hooks/agent-hooks-dispatch.sh
     .local/lib/agent-hooks/index.ts
     .local/lib/agent-hooks/claude.ts
@@ -957,6 +958,20 @@ function test_smoke_1068_deployed_opencode_agent_hooks_plugin_enforces_the_core(
   assert_file_exists "$core/index.ts"
   run env AGENT_HOOKS_OPENCODE_PLUGIN_PATH="$plugin" AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agent-hooks-opencode-adapter.test.ts"
+  assert_success
+}
+
+# Same reasoning as 1068 one client over: the checkout suite proves the adapter
+# source, only the applied home proves the extension pi will actually load
+# against the core it will actually import.
+function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
+  _bats_test_init 1069 'deployed pi agent-hooks extension enforces the deployed core'
+  local extension="$HOME/.pi/agent/extensions/agent-hooks.ts"
+  local core="$HOME/.local/lib/agent-hooks"
+  assert_file_exists "$extension"
+  assert_file_exists "$core/index.ts"
+  run env AGENT_HOOKS_PI_EXTENSION_PATH="$extension" AGENT_HOOKS_CORE_PATH="$core" \
+    bun test "$BATS_TEST_DIRNAME/agent-hooks-pi-adapter.test.ts"
   assert_success
 }
 
