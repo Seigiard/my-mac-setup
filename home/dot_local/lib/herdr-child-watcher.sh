@@ -144,7 +144,7 @@ watch_child() {
     done
   fi
 
-  refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-publish-failed
+  refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-publish-failed
   atomic_write "$run_dir/ready.state" "pid=$$" || watcher_fail "$run_dir" "$pane" "$generation" readiness-write-failed
 
   while [ ! -f "$run_dir/accepted.state" ]; do
@@ -215,7 +215,7 @@ watch_child() {
       fi
       now="$(now_ms)"
       if [ "$now" -ge "$next_refresh" ]; then
-        refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+        refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
         next_refresh=$((now + 30000))
       fi
       sleep 0.1
@@ -438,14 +438,25 @@ EOF
         20) remove_supervision_run "$run_dir"; exit 0 ;;
         *) sleep "$POLL_INTERVAL"; continue ;;
       esac
-      refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+      if [ -n "${HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER:-}" ]; then
+        : > "$HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER.ready"
+        local liveness_hold_started="$SECONDS"
+        while [ ! -e "$HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER.release" ]; do
+          if watcher_hold_expired "$liveness_hold_started"; then
+            remove_supervision_run "$run_dir"
+            exit 1
+          fi
+          sleep 0.01
+        done
+      fi
+      refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
       now="$(now_ms)"
       next_refresh=$((now + 30000))
       continue
     fi
 
     if [ "$now" -ge "$next_refresh" ]; then
-      refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+      refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
       next_refresh=$((now + 30000))
     fi
     sleep "$POLL_INTERVAL"

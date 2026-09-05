@@ -18,6 +18,7 @@ setup() {
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
+  unset HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER
   unset HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER
   unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
@@ -3187,6 +3188,66 @@ function test_scripts_042_herdr_child_sliced_wait_revalidates_generation_b() {
   assert_dir_not_exists "$old_run"
   run bash -c 'line=$1; file=$2; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "state-label supervised="' _ \
     "$wait_line" "$CHILD_STUB/calls.log"
+  assert_success
+}
+
+function test_scripts_0421_herdr_child_superseded_watcher_cannot_refresh_li() {
+  _bats_test_init 0421 'herdr-child superseded watcher cannot refresh liveness over a new generation'
+  child_lifecycle_stub_herdr
+  local old_generation new_generation watcher_pid new_watcher_pid reply_pid reply_status
+  local wait_line attempt=0
+  export HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER="$CHILD_STUB/liveness-publish"
+  export HERDR_CHILD_TEST_NOW_SEQ=100
+
+  # #given a detached watcher parked in a sliced agent wait
+  : > "$CHILD_STUB/wait-block"
+  run child_lifecycle_start --supervision-timeout 60000
+  assert_success
+  old_generation="$(cat "$CHILD_STUB/generation")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf 'working 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/wait-observed"
+  wait_line="$(grep -n '^agent wait' "$CHILD_STUB/calls.log" | cut -d: -f1 | head -1)"
+
+  # #when a real managed continuation completes between the watcher's ordinary
+  # generation check and its liveness publication
+  : > "$CHILD_STUB/wait-release"
+  child_wait_for_file "$CHILD_STUB/liveness-publish.ready"
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER= \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/new-watcher.pid" \
+    HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED="$CHILD_STUB/takeover-metadata-published" \
+    HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_RETRY_INTERVAL=0.01 \
+    bash "$HERDR_CHILD" reply --to "$(child_started_name)" --pane wT:p9 "Use path A" \
+    >"$CHILD_STUB/reply.out" 2>"$CHILD_STUB/reply.err" &
+  reply_pid=$!
+  printf '%s\n' "$reply_pid" > "$CHILD_STUB/reply.pid"
+  child_wait_for_file "$CHILD_STUB/takeover-metadata-published"
+  : > "$CHILD_STUB/liveness-publish.release"
+  if wait "$reply_pid"; then reply_status=0; else reply_status=$?; fi
+  assert_equal 0 "$reply_status"
+  new_generation="$(cat "$CHILD_STUB/generation")"
+  run test "$new_generation" != "$old_generation"
+  assert_success
+
+  # #then the superseded watcher retires without stamping its own generation,
+  # while the live generation keeps refreshing through the same boundary
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  # oracle: calls.log records the metadata calls the herdr boundary actually
+  # received, so a stale label is observable without reading watcher source.
+  run bash -c 'line=$1; generation=$2; file=$3; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "supervised=$generation"' _ \
+    "$wait_line" "$old_generation" "$CHILD_STUB/calls.log"
+  assert_success
+  run bash -c 'line=$1; generation=$2; file=$3; sed -n "$((line + 1)),\$p" "$file" | grep -q "supervised=$generation"' _ \
+    "$wait_line" "$new_generation" "$CHILD_STUB/calls.log"
+  assert_success
+  new_watcher_pid="$(cat "$CHILD_STUB/new-watcher.pid")"
+  run kill -0 "$new_watcher_pid"
   assert_success
 }
 

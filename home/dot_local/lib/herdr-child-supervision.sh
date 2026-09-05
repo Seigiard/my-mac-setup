@@ -213,7 +213,7 @@ watcher_invalidation_action() {
             : > "$HERDR_CHILD_TEST_REAP_OWNER_VERIFIED"
           ;;
         1|10)
-          refresh_supervision_liveness "$pane" "$generation" || return 21
+          refresh_supervision_liveness "$run_dir" "$pane" "$generation" || return 21
           return 0
           ;;
         3) return 0 ;;
@@ -223,7 +223,7 @@ watcher_invalidation_action() {
     fi
     attempt=$((attempt + 1))
     if [ $((attempt % 3000)) -eq 0 ]; then
-      refresh_supervision_liveness "$pane" "$generation" || return 21
+      refresh_supervision_liveness "$run_dir" "$pane" "$generation" || return 21
     fi
     sleep 0.01
   done
@@ -364,9 +364,14 @@ preserve_callback_waiting_label() {
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" >/dev/null 2>&1
 }
 
+# Liveness carries the same generation precondition as failure publication. A
+# watcher superseded between its ordinary generation check and this call would
+# otherwise stamp supervised=<old-generation> over the live one; the check runs
+# under the per-pane metadata lock, so a takeover cannot land inside the window
+# between revalidation and the write.
 refresh_supervision_liveness() {
-  local pane="$1" generation="$2"
-  metadata_report "$pane" --source "$SOURCE_ID" \
+  local run_dir="$1" pane="$2" generation="$3"
+  metadata_report_if_generation "$run_dir" "$pane" "$generation" --source "$SOURCE_ID" \
     --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" >/dev/null 2>&1
 }
 

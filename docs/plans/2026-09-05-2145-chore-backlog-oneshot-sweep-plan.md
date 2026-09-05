@@ -92,7 +92,7 @@ to them first if the goal shifts to maximizing closures per hour.
       *Done when:* both paths share one retry budget and a sustained pane-read failure ends in a
       reported terminal state.
 
-- [ ] 3 · `2026-08-30-005` — stop the superseded watcher refreshing stale liveness.
+- [x] 3 · `2026-08-30-005` — stop the superseded watcher refreshing stale liveness.
       `refresh_supervision_liveness` (`herdr-child-supervision.sh:354-358`) publishes
       `supervised=<old generation>` with no under-lock generation precondition, unlike the failure
       publication at `:288` and `:296` which uses `metadata_report_if_generation`. A watcher already
