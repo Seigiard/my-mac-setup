@@ -1314,9 +1314,9 @@ function test_palette_063_herdr_loads_the_command_palette_manifest_and_actions()
   local home="$PALETTE_WORK/herdr-home"
   mkdir -p "$home"
 
-  # A test launched inside Herdr inherits its live socket. Keep this real CLI
-  # validation confined to the disposable HOME instead of relinking the live plugin.
-  run env -u HERDR_SOCKET_PATH HOME="$home" herdr plugin link "$PALETTE_DIR" --enabled
+  # Keep this real CLI validation independent of inherited Herdr session and
+  # config overrides, which can otherwise relink the live plugin.
+  run env -i HOME="$home" PATH="$PATH" herdr plugin link "$PALETTE_DIR" --enabled
   assert_success
   local link_json="$output"
 
