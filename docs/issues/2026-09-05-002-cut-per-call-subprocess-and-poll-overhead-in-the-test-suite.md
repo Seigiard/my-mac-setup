@@ -5,8 +5,9 @@ type: "chore"
 category: "testing-ci"
 tags: ["performance","poll-interval","fork-overhead"]
 date: "2026-09-05"
-status: "in-progress"
+status: "done"
 priority: "medium"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -39,3 +40,7 @@ Each item lands and is measured separately. An earlier prediction of ~15 s from 
 ## Open decisions
 
 Two candidates are deliberately excluded until someone re-measures them. `hpl_set_pane` fans one small document out to sixteen `jq` forks (`tests/helpers/herdr_pane_labels.bash:560`); the slice rewrite measures 47.99 to 9.26 ms, but the agent that proposed it flagged the whole-suite figure as an upper bound after the `hpl_socket_dir` null result. And `HPL_GIT_BUDGET=2` is burned in full by three pane-labels tests, but there the wait is the behaviour under test and the helper comment at `herdr_pane_labels.bash:690` records two prior flakes from exactly that calibration.
+
+## Resolution
+
+Five of the six measured items landed. Three wait loops now take their budget from SECONDS and expose the poll interval as an override, so tests shorten sampling without moving deadlines: the context-threshold hook (8.98s to 6.22s on its family), run_npx and terminate_tree in the skills wrapper (3.90s to 3.61s), and the child launcher's pane-busy retry. palette_test.sh keeps a per-file Python bytecode cache (20.4 to 8.93 CPU-seconds, 6.71s to 5.40s wall). The pane-labels harness writes its four invariant stub scripts and its jq lookup once per file and links them into each test, taking that family from 58.3/59.1/57.6s to 54.4/52.1/53.3s across an interleaved three-pair A/B. The child-launcher retry measured no wall-clock win under -j 8 because its sleeps overlap other tests; it is kept as correct, not as a saving. The sixth item, rewriting the pure-JSON accessors in herdr-child-runtime.sh from python3 to jq, was declined: jq appears nowhere in the herdr-child code and python3 must stay for the 193 fcntl-locking calls, so the swap would add a second hard dependency to the agent launch path rather than replace one.

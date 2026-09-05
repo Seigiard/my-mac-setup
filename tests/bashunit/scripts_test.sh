@@ -8627,10 +8627,11 @@ SH
 }
 
 function set_up_before_script() {
-  :
+  hpl_setup_assets
 }
 
 function tear_down_after_script() {
+  hpl_teardown_assets
   _bats_file_cleanup
 }
 

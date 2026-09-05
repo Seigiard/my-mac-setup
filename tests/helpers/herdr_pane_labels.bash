@@ -59,26 +59,20 @@ hpl_teardown() {
   unset HPL_CUTOVER_HOME HPL_CUTOVER_BEFORE HPL_CUTOVER_AFTER HPL_CUTOVER_TRACE
 }
 
-hpl_setup() {
-  [[ -z "${HPL_WORK:-}" ]] || hpl_teardown
-  HPL_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hpl.XXXXXX")"
-  HPL_STUB="$HPL_WORK/stub"
-  HPL_STATE="$HPL_WORK/state"
-  HPL_LOG="$HPL_WORK/herdr.log"
-  HPL_DEFAULT_SOCKET="$HPL_WORK/session.sock"
-  HPL_SOCKET_ROOT="$HPL_WORK/sockets"
-  export HPL_WORK HPL_DEFAULT_SOCKET HPL_SOCKET_ROOT
-  export HERDR_SOCKET_PATH="$HPL_DEFAULT_SOCKET"
-  mkdir -p "$HPL_STUB" "$HPL_STATE" "$HPL_SOCKET_ROOT/socket-1"
-  : > "$HPL_LOG"
-  printf '%s' "$HPL_DEFAULT_SOCKET" > "$HPL_SOCKET_ROOT/socket-1/socket-path"
-  printf '%s' "$HPL_LOG" > "$HPL_SOCKET_ROOT/socket-1/log-path"
-  printf '%s' 2 > "$HPL_SOCKET_ROOT/next-id"
-  hpl_init_socket_dir "$HPL_SOCKET_ROOT/socket-1"
+# The four stub scripts and the fixture library are invariant: they read
+# HPL_WORK and the fixture registry at run time, so nothing in them depends on
+# which test is running. Writing them once per file and linking them into each
+# test's stub directory keeps every setup from rewriting them. The jq lookup is
+# hoisted for the same reason.
+hpl_setup_assets() {
+  [[ -z "${HPL_ASSETS:-}" ]] || hpl_teardown_assets
+  HPL_ASSETS="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hpl-assets.XXXXXX")"
+  HPL_JQ_BIN="$(command -v jq 2>/dev/null || true)"
+  export HPL_ASSETS HPL_JQ_BIN
 
   # The mutable fixture uses exact socket paths as identities. Numeric storage
   # directories avoid the collision caused by replacing punctuation in names.
-  cat > "$HPL_WORK/fixture-lib.sh" <<'SH'
+  cat > "$HPL_ASSETS/fixture-lib.sh" <<'SH'
 hpl_fixture_init_dir() {
   mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
   [ -f "$1/state.json" ] || printf '%s\n' \
@@ -154,7 +148,7 @@ SH
 
   # Every read is generated from current state. Rename and metadata calls
   # mutate that state before their exact per-socket completion marker appears.
-  cat > "$HPL_STUB/herdr" <<'SH'
+  cat > "$HPL_ASSETS/herdr" <<'SH'
 #!/usr/bin/env bash
 source "$HPL_WORK/fixture-lib.sh"
 if [ "$1" = "session" ] && [ "$2" = "list" ] && [ "${3:-}" = "--json" ]; then
@@ -373,11 +367,10 @@ elif [ "$1" = "pane" ] && [ "$2" = "report-metadata" ]; then
   [ "$result" -eq 0 ] || exit "$result"
 fi
 SH
-  chmod +x "$HPL_STUB/herdr"
 
   # Git fixtures are selected by exact CWD. A blocked target lets an actual
   # 75 ms watchdog expire while seven independent probes complete normally.
-  cat > "$HPL_STUB/git" <<'SH'
+  cat > "$HPL_ASSETS/git" <<'SH'
 #!/usr/bin/env bash
 cwd= command_args="$*"
 if [ "$1" = "-C" ]; then
@@ -424,10 +417,9 @@ if [ -d "$fixture" ]; then
 fi
 exit 1
 SH
-  chmod +x "$HPL_STUB/git"
-  "$HPL_STUB/git" --version >/dev/null 2>&1 || true
 
-  cat > "$HPL_STUB/hpl-crash-worker" <<'SH'
+
+  cat > "$HPL_ASSETS/hpl-crash-worker" <<'SH'
 #!/usr/bin/env bash
 set -e
 state="$1"
@@ -449,13 +441,44 @@ tmp="$state.tmp.$$"
 jq '.complete = true' "$state" > "$tmp"
 mv "$tmp" "$state"
 SH
-  chmod +x "$HPL_STUB/hpl-crash-worker"
+  chmod +x "$HPL_ASSETS/herdr" "$HPL_ASSETS/git" "$HPL_ASSETS/hpl-crash-worker"
+}
+
+hpl_teardown_assets() {
+  [[ -n "${HPL_ASSETS:-}" ]] && rm -rf "$HPL_ASSETS" || true
+  unset HPL_ASSETS HPL_JQ_BIN
+}
+
+hpl_setup() {
+  [[ -z "${HPL_WORK:-}" ]] || hpl_teardown
+  HPL_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hpl.XXXXXX")"
+  HPL_STUB="$HPL_WORK/stub"
+  HPL_STATE="$HPL_WORK/state"
+  HPL_LOG="$HPL_WORK/herdr.log"
+  HPL_DEFAULT_SOCKET="$HPL_WORK/session.sock"
+  HPL_SOCKET_ROOT="$HPL_WORK/sockets"
+  export HPL_WORK HPL_DEFAULT_SOCKET HPL_SOCKET_ROOT
+  export HERDR_SOCKET_PATH="$HPL_DEFAULT_SOCKET"
+  mkdir -p "$HPL_STUB" "$HPL_STATE" "$HPL_SOCKET_ROOT/socket-1"
+  : > "$HPL_LOG"
+  printf '%s' "$HPL_DEFAULT_SOCKET" > "$HPL_SOCKET_ROOT/socket-1/socket-path"
+  printf '%s' "$HPL_LOG" > "$HPL_SOCKET_ROOT/socket-1/log-path"
+  printf '%s' 2 > "$HPL_SOCKET_ROOT/next-id"
+  hpl_init_socket_dir "$HPL_SOCKET_ROOT/socket-1"
+  # A per-file asset directory holds the invariant stubs; each test gets links
+  # to them, so a test that renames one (herdr.unavailable) still only moves its
+  # own link. The lazy build covers a file that loads this harness without
+  # calling hpl_setup_assets from set_up_before_script.
+  [[ -n "${HPL_ASSETS:-}" && -d "${HPL_ASSETS:-}" ]] || hpl_setup_assets
+  ln -s "$HPL_ASSETS/fixture-lib.sh" "$HPL_WORK/fixture-lib.sh"
+  ln -s "$HPL_ASSETS/herdr" "$HPL_STUB/herdr"
+  ln -s "$HPL_ASSETS/git" "$HPL_STUB/git"
+  ln -s "$HPL_ASSETS/hpl-crash-worker" "$HPL_STUB/hpl-crash-worker"
+  "$HPL_STUB/git" --version >/dev/null 2>&1 || true
   # jq lives outside /usr/bin on Homebrew installs (macOS and the Linux test
   # container alike), so link it in rather than widening the pinned PATH — a
   # wider PATH would also expose the real pi and claude.
-  local jq_bin
-  jq_bin="$(command -v jq 2>/dev/null || true)"
-  [[ -n "$jq_bin" ]] && ln -s "$jq_bin" "$HPL_STUB/jq"
+  [[ -n "${HPL_JQ_BIN:-}" ]] && ln -s "$HPL_JQ_BIN" "$HPL_STUB/jq"
   return 0
 }
 
