@@ -113,11 +113,22 @@ now_seq() {
 }
 
 encode_key() {
-  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+  # Parameter expansion rather than a tr pipeline. This runs on every state
+  # path resolution, so the two forks it saves outweigh the work it does.
+  # Deleting newlines before translating is safe: the classes '/+' and '=\n'
+  # are disjoint, so neither step can see the other's characters.
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  encoded="${encoded//$'\n'/}"
+  encoded="${encoded//\//_}"
+  encoded="${encoded//+/-}"
+  printf '%s' "${encoded//=/}"
 }
 
 encode_value() {
-  printf '%s' "$1" | base64 | tr -d '\n'
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  printf '%s' "${encoded//$'\n'/}"
 }
 
 namespace_dir() {
@@ -131,8 +142,12 @@ namespace_dir() {
 atomic_write() {
   local file="$1" content="$2" dir tmp
   [ ! -d "$file" ] || return 1
-  dir="$(dirname "$file")"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  dir="${file%/*}"
+  [ "$dir" != "$file" ] || dir="."
+  [ -n "$dir" ] || dir="/"
+  # mkdir -p succeeds on an existing directory, so skipping it when the
+  # directory is already there drops a fork without changing any failure path.
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 1
   tmp="$(umask 077; mktemp "$dir/.record.XXXXXX" 2>/dev/null)" || return 1
   if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
     rm -f "$tmp"
@@ -146,9 +161,13 @@ atomic_write() {
 }
 
 record_number() {
-  local file="$1" key="$2" value
+  local file="$1" key="$2" line value=""
   [ -f "$file" ] || return 0
-  value="$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -1)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) value="${line#*=}"; break ;;
+    esac
+  done < "$file" 2>/dev/null
   case "$value" in
     '' | *[!0-9]*) return 0 ;;
   esac
@@ -267,9 +286,18 @@ command -v herdr >/dev/null 2>&1 || exit 0
 # ---------------------------------------------------------------- presentation
 
 read_state_field() {
-  local file="$1" key="$2" encoded
+  # One in-process scan instead of grep|cut. resolve_pane_location reads seven
+  # fields per pane and location_state_matches eight, so the old form grepped a
+  # ten-line file fifteen times per pane. Keys are literal identifiers, so
+  # dropping grep's regex semantics is not observable, and the trailing
+  # `|| [ -n "$line" ]` keeps a final line that has no newline.
+  local file="$1" key="$2" line encoded=""
   [ -f "$file" ] || return 0
-  encoded="$(grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2-)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) encoded="${line#*=}"; break ;;
+    esac
+  done < "$file" 2>/dev/null
   [ -n "$encoded" ] || return 0
   printf '%s' "$encoded" | base64 -d 2>/dev/null || true
 }
@@ -595,16 +623,6 @@ resolve_pane_location() {
   printf 'git\037%s\037%s\037%s\037%s\037%s\037%s' "$root" "$anchor" "$repo" "$branch" "$is_linked" "$sha"
 }
 
-path_suffix() {
-  printf '%s\n' "$1" | awk -F/ -v count="$2" '{
-    start = NF - count + 1
-    if (start < 1) start = 1
-    out = $start
-    for (i = start + 1; i <= NF; i++) out = out "/" $i
-    print out
-  }'
-}
-
 deterministic_digest() {
   local value="$1" file="${HERDR_PANE_LABELS_TEST_DIGEST_FILE:-}" digest round checksum
   if [ -n "$file" ] && [ -f "$file" ]; then
@@ -635,43 +653,64 @@ EOF
   return 1
 }
 
+# One awk pass over the whole root list, replacing the per-pair rescan that
+# forked once per comparison. It re-emits every row in input order, annotated
+# with how many rows share its basename and with the shallowest suffix of at
+# least two components that no other distinct root shares -- empty when every
+# depth collides. Distinctness matches the rescan it replaces: two identical
+# root strings never disqualify each other's suffix, while the basename count
+# still counts every row.
+worktree_root_analysis() {
+  printf '%s\n' "$1" | awk -F/ -v sep="$FIELD_SEPARATOR" '
+    $0 == "" { next }
+    {
+      rows[++row_count] = $0
+      row_base[row_count] = $NF
+      base_rows[$NF]++
+      if (!($0 in seen)) {
+        seen[$0] = 1
+        distinct[++distinct_count] = $0
+        fields[distinct_count] = NF
+        for (depth = 2; depth <= NF; depth++) {
+          suffix = $(NF - depth + 1)
+          for (part = NF - depth + 2; part <= NF; part++) suffix = suffix "/" $part
+          suffixes[distinct_count, depth] = suffix
+          sharing[depth, suffix]++
+        }
+      }
+    }
+    END {
+      for (index_ = 1; index_ <= distinct_count; index_++) {
+        chosen = ""
+        for (depth = 2; depth <= fields[index_]; depth++) {
+          if (sharing[depth, suffixes[index_, depth]] == 1) {
+            chosen = suffixes[index_, depth]
+            break
+          }
+        }
+        chosen_for[distinct[index_]] = chosen
+      }
+      for (index_ = 1; index_ <= row_count; index_++) {
+        printf "%s%s%s%s%s\n", rows[index_], sep, base_rows[row_base[index_]], \
+          sep, chosen_for[rows[index_]]
+      }
+    }
+  '
+}
+
 build_worktree_tokens() {
-  local roots="$1" mappings="" root other base candidate suffix components base_matches suffix_components unique
-  local digest digest_len fragment_len ordinal=0 ordinal_hex
-  while IFS= read -r root; do
+  local roots="$1" mappings="" analysis root base candidate suffix base_matches
+  local digest digest_len fragment_len ordinal=0 ordinal_hex ordinal_stem
+  analysis="$(worktree_root_analysis "$roots")"
+  while IFS="$FIELD_SEPARATOR" read -r root base_matches suffix; do
     [ -n "$root" ] || continue
     ordinal=$((ordinal + 1))
     base="${root##*/}"
-    base_matches=0
-    while IFS= read -r other; do
-      [ "${other##*/}" = "$base" ] && base_matches=$((base_matches + 1))
-    done <<EOF
-$roots
-EOF
     candidate=""
     if [ "$base_matches" -eq 1 ] && [ "$(text_length "$base")" -le "$WORKTREE_TOKEN_MAX_LEN" ]; then
       candidate="$base"
-    elif [ "$base_matches" -gt 1 ]; then
-      components="$(printf '%s' "$root" | awk -F/ '{print NF}')"
-      suffix_components=2
-      while [ "$suffix_components" -le "$components" ]; do
-        suffix="$(path_suffix "$root" "$suffix_components")"
-        unique=1
-        while IFS= read -r other; do
-          [ "$other" = "$root" ] && continue
-          if [ "$(path_suffix "$other" "$suffix_components")" = "$suffix" ]; then
-            unique=0
-            break
-          fi
-        done <<EOF
-$roots
-EOF
-        if [ "$unique" -eq 1 ]; then
-          [ "$(text_length "$suffix")" -le "$WORKTREE_TOKEN_MAX_LEN" ] && candidate="$suffix"
-          break
-        fi
-        suffix_components=$((suffix_components + 1))
-      done
+    elif [ "$base_matches" -gt 1 ] && [ -n "$suffix" ]; then
+      [ "$(text_length "$suffix")" -le "$WORKTREE_TOKEN_MAX_LEN" ] && candidate="$suffix"
     fi
     if [ -n "$candidate" ] && token_is_taken "$candidate" "$mappings"; then candidate=""; fi
     if [ -z "$candidate" ]; then
@@ -685,19 +724,21 @@ EOF
         digest_len=$((digest_len + 1))
       done
       if [ -z "$candidate" ]; then
+        # Neither prefix depends on the ordinal, so the retry loop reuses them.
+        ordinal_stem="$(text_prefix "$base" 1)~$(text_prefix "$digest" 12)"
         ordinal_hex="$(printf '%04x' "$ordinal")"
-        candidate="$(text_prefix "$base" 1)~$(text_prefix "$digest" 12)$ordinal_hex"
+        candidate="${ordinal_stem}${ordinal_hex}"
         while token_is_taken "$candidate" "$mappings"; do
           ordinal=$((ordinal + 1))
           ordinal_hex="$(printf '%04x' "$ordinal")"
-          candidate="$(text_prefix "$base" 1)~$(text_prefix "$digest" 12)$ordinal_hex"
+          candidate="${ordinal_stem}${ordinal_hex}"
         done
       fi
     fi
     mappings="${mappings}${mappings:+
 }${root}${FIELD_SEPARATOR}${candidate}"
   done <<EOF
-$roots
+$analysis
 EOF
   printf '%s' "$mappings"
 }

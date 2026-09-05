@@ -62,11 +62,22 @@ CONTEXT_USAGE_FULLNESS_REPEAT_STEP="${CONTEXT_USAGE_FULLNESS_REPEAT_STEP:-3}"
 CONTEXT_USAGE_TURNS_REPEAT_STEP="${CONTEXT_USAGE_TURNS_REPEAT_STEP:-25}"
 
 context_usage_encode_key() {
-  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+  # Parameter expansion rather than a tr pipeline. This runs on every state
+  # path resolution, so the two forks it saves outweigh the work it does.
+  # Deleting newlines before translating is safe: the classes '/+' and '=\n'
+  # are disjoint, so neither step can see the other's characters.
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  encoded="${encoded//$'\n'/}"
+  encoded="${encoded//\//_}"
+  encoded="${encoded//+/-}"
+  printf '%s' "${encoded//=/}"
 }
 
 context_usage_encode_value() {
-  printf '%s' "$1" | base64 | tr -d '\n'
+  local encoded
+  encoded="$(printf '%s' "$1" | base64)"
+  printf '%s' "${encoded//$'\n'/}"
 }
 
 context_usage_decode_value() {
@@ -76,8 +87,12 @@ context_usage_decode_value() {
 context_usage_atomic_write() {
   local file="$1" content="$2" dir tmp
   [ ! -d "$file" ] || return 1
-  dir="$(dirname "$file")"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  dir="${file%/*}"
+  [ "$dir" != "$file" ] || dir="."
+  [ -n "$dir" ] || dir="/"
+  # mkdir -p succeeds on an existing directory, so skipping it when the
+  # directory is already there drops a fork without changing any failure path.
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 1
   tmp="$(umask 077; mktemp "$dir/.record.XXXXXX" 2>/dev/null)" || return 1
   if ! printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
     rm -f "$tmp"
@@ -101,9 +116,13 @@ context_usage_announce_file() {
 }
 
 context_usage_field() {
-  local file="$1" key="$2" value
+  local file="$1" key="$2" line value=""
   [ -f "$file" ] || return 1
-  value="$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -1)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) value="${line#*=}"; break ;;
+    esac
+  done < "$file" 2>/dev/null
   [ -n "$value" ] || return 1
   printf '%s' "$value"
 }

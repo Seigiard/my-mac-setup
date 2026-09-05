@@ -320,7 +320,7 @@ except Exception: raise SystemExit(1)')" || {
     [ "$start_status" -eq 0 ] && { registered=1; break; }
     if ! json_error_file_is "$start_err" agent_pane_busy; then break; fi
     attempt=$((attempt + 1))
-    [ "$attempt" -le 3 ] && sleep 1
+    [ "$attempt" -le 3 ] && sleep "$PANE_BUSY_RETRY_DELAY"
   done
   if [ "$start_status" -ne 0 ]; then
     cat "$start_err" >&2

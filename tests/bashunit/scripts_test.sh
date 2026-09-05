@@ -2174,8 +2174,11 @@ SH
 }
 
 child_start() {
+  # The pane-busy tests assert how many start attempts happen, never how far
+  # apart they are, so the shipped one-second spacing is pure scaffolding here.
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     STUB_START_CONTEXT=1 \
+    HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
@@ -7948,6 +7951,12 @@ function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
 }
 
 SKILLS_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_skills"
+# Sampling granularity, not the bound. A stub npx exits in milliseconds, so
+# the shipped 0.2s default billed every wrapper call for a fifth of a second
+# it never needed. The one test that proves SKILLS_TIMEOUT builds its own
+# environment from scratch, so it keeps the shipped default and still burns
+# the real two seconds.
+export SKILLS_POLL_INTERVAL=0.01
 
 skills_stub_npx() {
   local stub="$BATS_TEST_TMPDIR/skills-stub"
@@ -8618,10 +8627,11 @@ SH
 }
 
 function set_up_before_script() {
-  :
+  hpl_setup_assets
 }
 
 function tear_down_after_script() {
+  hpl_teardown_assets
   _bats_file_cleanup
 }
 
@@ -9495,6 +9505,8 @@ context_threshold_run() {
   fi
   env PATH="$stub:$PATH" \
     HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_THRESHOLD_POLL_INTERVAL=0.02 \
+    CONTEXT_THRESHOLD_KILL_GRACE_SECONDS=1 \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
     CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
     CLAUDE_CODE_ENTRYPOINT=cli \
@@ -9748,6 +9760,8 @@ context_threshold_run_extracting() {
   shift 2
   env PATH="$BATS_TEST_TMPDIR/stub:$PATH" \
     HOME="$BATS_TEST_TMPDIR/home" \
+    CONTEXT_THRESHOLD_POLL_INTERVAL=0.02 \
+    CONTEXT_THRESHOLD_KILL_GRACE_SECONDS=1 \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
     CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
     CONTEXT_USAGE_EXTRACTION_TIMEOUT=3 \
