@@ -1,0 +1,40 @@
+# Pinned externals — updating any entry is an explicit edit of the ref (and,
+# for the file external below, its per-platform checksums), never an
+# automatic refresh. See docs/plans/2026-09-05-0906-refactor-mise-declarative-setup-plan.md.
+
+# Oh My Zsh itself, pinned to its master HEAD at implementation time
+# (2026-09-05). Non-exact: chezmoi applies externals in target-path order, so
+# this parent materializes before the plugin externals below: an exact
+# parent would delete their managed children out from under them.
+[".oh-my-zsh"]
+    type = "archive"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/421d95782d369f266b8087a0eae11eac2f6a6041.tar.gz"
+    exact = false
+    stripComponents = 1
+
+# Four zsh plugins, each pinned to its master HEAD at implementation time
+# (2026-09-05). exact = true: adoption on an existing machine replaces the
+# old unmanaged git clone (and its .git) wholesale.
+[".oh-my-zsh/custom/plugins/zsh-autosuggestions"]
+    type = "archive"
+    url = "https://github.com/zsh-users/zsh-autosuggestions/archive/85919cd1ffa7d2d5412f6d3fe437ebdbeeec4fc5.tar.gz"
+    exact = true
+    stripComponents = 1
+
+[".oh-my-zsh/custom/plugins/fast-syntax-highlighting"]
+    type = "archive"
+    url = "https://github.com/zdharma-continuum/fast-syntax-highlighting/archive/4672ad5dd9ad68a7effc1476d65afb7c584ce2b3.tar.gz"
+    exact = true
+    stripComponents = 1
+
+[".oh-my-zsh/custom/plugins/zsh-history-substring-search"]
+    type = "archive"
+    url = "https://github.com/zsh-users/zsh-history-substring-search/archive/14c8d2e0ffaee98f2df9850b19944f32546fdea5.tar.gz"
+    exact = true
+    stripComponents = 1
+
+[".oh-my-zsh/custom/plugins/zsh-defer"]
+    type = "archive"
+    url = "https://github.com/romkatv/zsh-defer/archive/53a26e287fbbe2dcebb3aa1801546c6de32416fa.tar.gz"
+    exact = true
+    stripComponents = 1
