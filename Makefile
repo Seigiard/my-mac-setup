@@ -1,4 +1,4 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests in Docker (may rebuild images)"
 	@echo "  make test-pi-agents-local  Run focused Pi local-instructions extension tests"
+	@echo "  make test-agents-local-opencode  Run focused opencode local-instructions plugin tests"
 	@echo "  make test-pi-herdr-worktree-identity  Run focused Pi worktree-identity extension tests"
 	@echo "  make test-agent-hooks-core  Run focused agent-hooks dispatch core tests"
 	@echo "  make test-agent-hooks-opencode  Run focused agent-hooks opencode adapter tests"
@@ -37,6 +38,9 @@ test-templates: test-issues build-docker
 
 test-pi-agents-local:
 	bun test tests/pi-agents-local-extension.test.ts
+
+test-agents-local-opencode:
+	bun test tests/agents-local-opencode-plugin.test.ts
 
 test-pi-herdr-worktree-identity:
 	bun test tests/pi-herdr-worktree-identity.test.ts

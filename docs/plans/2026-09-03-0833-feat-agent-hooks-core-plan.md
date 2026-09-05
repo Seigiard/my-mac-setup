@@ -18,7 +18,7 @@ deepened: 2026-09-03
 - [x] U3 · Claude adapter: shim, dispatcher, matcher union, anti-vacuity tests
 - [x] U4 · OpenCode adapter plugin
 - [x] U5 · Pi adapter extension
-- [ ] U6 · agents-local port to OpenCode with shared selection module
+- [x] U6 · agents-local port to OpenCode with shared selection module
 - [ ] U7 · retirement apply: remove old Claude scripts and engines, assert absence
 
 ## Goal Capsule

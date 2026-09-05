@@ -117,7 +117,9 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
     .local/lib/agent-hooks/registry.ts
     .local/lib/agent-hooks/selfcheck.ts
     .local/lib/agent-hooks/policies/index.ts
+    .local/lib/agent-hooks/local-instructions.ts
     .config/opencode/plugins/agent-hooks.ts
+    .config/opencode/plugins/agents-local.ts
     .config/herdr/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
@@ -871,7 +873,25 @@ function test_smoke_1063_worktree_identity_deploys_and_statusline_records_() {
 function test_smoke_1055_pi_local_private_instructions_focused_tests_pass() {
   _bats_test_init 1055 'Pi local private instructions focused tests pass'
   run env PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
+    AGENT_HOOKS_CORE_PATH="$HOME/.local/lib/agent-hooks" \
     bun test "$BATS_TEST_DIRNAME/pi-agents-local-extension.test.ts"
+  assert_success
+}
+
+# Same reasoning as 1068 for the other opencode plugin: the checkout suite
+# proves the plugin source, only the applied home proves the plugin opencode
+# will actually load against the shared selection module it will actually
+# import.
+function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_sh() {
+  _bats_test_init 1070 'deployed opencode agents-local plugin injects from the deployed shared module'
+  local plugin="$HOME/.config/opencode/plugins/agents-local.ts"
+  local core="$HOME/.local/lib/agent-hooks"
+  assert_file_exists "$plugin"
+  assert_file_exists "$core/local-instructions.ts"
+  run env AGENTS_LOCAL_OPENCODE_PLUGIN_PATH="$plugin" \
+    PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
+    AGENT_HOOKS_CORE_PATH="$core" \
+    bun test "$BATS_TEST_DIRNAME/agents-local-opencode-plugin.test.ts"
   assert_success
 }
 
