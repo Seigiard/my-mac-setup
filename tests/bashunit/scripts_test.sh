@@ -10633,3 +10633,273 @@ function test_scripts_2841_context_threshold_bounds_what_it_hands_the_extractor(
     _ "$bytes" "$ceiling"
   assert_output 'within'
 }
+
+# ===========================================
+# update-pins
+#
+# Consumer: the two chezmoi *source* files update-pins rewrites —
+# .chezmoiexternal.toml and private_dot_config/mise/config.toml. Observable
+# failure: a declined bump mutates a pin anyway, an accepted bump writes
+# something other than the value upstream returned, or a fff-mcp bump lands a
+# partial checksum set that breaks `chezmoi apply` on the platforms it did not
+# refresh. Oracle: the bytes of a fixture copy of those two real files before
+# and after a run, against the values a stubbed fetcher returned. GitHub's own
+# semantics belong to GitHub and are not asserted here — every upstream answer
+# and every `mise outdated` report comes from a stub, so the suite never
+# reaches the network.
+# ===========================================
+
+UPDATE_PINS="$SOURCE_ROOT/dot_local/bin/executable_update-pins"
+
+pins_fixture() {
+  PINS_ROOT="$BATS_TEST_TMPDIR/pins-source"
+  PINS_STUBS="$BATS_TEST_TMPDIR/pins-stubs"
+  PINS_BASELINE="$BATS_TEST_TMPDIR/pins-baseline"
+  mkdir -p "$PINS_ROOT/private_dot_config/mise" "$PINS_STUBS" "$PINS_BASELINE"
+
+  # The fixture is a copy of the repository's own pinned files, so the parsing
+  # under test faces the shapes it will actually meet.
+  cp "$SOURCE_ROOT/.chezmoiexternal.toml" "$PINS_ROOT/.chezmoiexternal.toml"
+  cp "$SOURCE_ROOT/private_dot_config/mise/config.toml" \
+    "$PINS_ROOT/private_dot_config/mise/config.toml"
+  PINS_EXTERNAL="$PINS_ROOT/.chezmoiexternal.toml"
+  PINS_MISE="$PINS_ROOT/private_dot_config/mise/config.toml"
+
+  PINS_STUB_HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
+  PINS_STUB_TAG="v99.0.0"
+  PINS_STUB_CHECKSUM_FAILS_FOR=""
+
+  PINS_FETCHER="$PINS_STUBS/upstream-stub"
+  cat >"$PINS_FETCHER" <<'STUB'
+#!/usr/bin/env bash
+# Stubbed upstream. Answers in the shapes the real fetcher sees: a
+# `git ls-remote` line, a bare release tag, and a `.sha256` asset line. An
+# unknown asset exits non-zero, so a renamed target surfaces instead of
+# silently borrowing another platform's checksum.
+case "$1" in
+  head-sha) printf '%s\tHEAD\n' "$STUB_HEAD_SHA" ;;
+  latest-tag) printf '%s\n' "$STUB_TAG" ;;
+  checksum)
+    # checksum REPO TAG ASSET
+    [ "$4" != "${STUB_CHECKSUM_FAILS_FOR:-}" ] || exit 1
+    case "$4" in
+      *aarch64-apple-darwin)
+        printf '%s  %s\n' "1111111111111111111111111111111111111111111111111111111111111111" "$4" ;;
+      *x86_64-apple-darwin)
+        printf '%s  %s\n' "2222222222222222222222222222222222222222222222222222222222222222" "$4" ;;
+      *aarch64-unknown-linux-musl)
+        printf '%s  %s\n' "3333333333333333333333333333333333333333333333333333333333333333" "$4" ;;
+      *x86_64-unknown-linux-musl)
+        printf '%s  %s\n' "4444444444444444444444444444444444444444444444444444444444444444" "$4" ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
+STUB
+  chmod +x "$PINS_FETCHER"
+
+  PINS_UNREACHABLE="$PINS_STUBS/unreachable-stub"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"$PINS_UNREACHABLE"
+  chmod +x "$PINS_UNREACHABLE"
+
+  # `mise outdated --bump -J`, stubbed. The default report mirrors what a real
+  # mise emits for a moving alias: no bump to offer.
+  PINS_MISE_JSON="$BATS_TEST_TMPDIR/mise-outdated.json"
+  printf '%s\n' \
+    '{"node": {"name": "node", "requested": "lts", "current": "24.20.0", "bump": null, "latest": "26.8.1"}}' \
+    >"$PINS_MISE_JSON"
+  printf '%s\n' '#!/usr/bin/env bash' 'cat "$STUB_MISE_JSON"' >"$PINS_STUBS/mise"
+  chmod +x "$PINS_STUBS/mise"
+
+  cp "$PINS_EXTERNAL" "$PINS_BASELINE/externals"
+  cp "$PINS_MISE" "$PINS_BASELINE/mise"
+}
+
+# run_pins ANSWERS [FETCHER]
+run_pins() {
+  local answers="$1" fetcher="${2:-$PINS_FETCHER}"
+  run env \
+    "PATH=$PINS_STUBS:$PATH" \
+    "UPDATE_PINS_SOURCE_ROOT=$PINS_ROOT" \
+    "UPDATE_PINS_FETCHER=$fetcher" \
+    "STUB_MISE_JSON=$PINS_MISE_JSON" \
+    "STUB_HEAD_SHA=$PINS_STUB_HEAD_SHA" \
+    "STUB_TAG=$PINS_STUB_TAG" \
+    "STUB_CHECKSUM_FAILS_FOR=$PINS_STUB_CHECKSUM_FAILS_FOR" \
+    bash -c 'printf "%s" "$2" | bash "$1"' bash "$UPDATE_PINS" "$answers"
+}
+
+assert_pins_files_unchanged() {
+  assert cmp -s "$PINS_BASELINE/externals" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+pins_baseline_value() {
+  sed -n "$1" "$PINS_BASELINE/externals" | head -1
+}
+
+# The externals file the fixture should hold after an accepted fff-mcp bump:
+# the pinned tag replaced, and each platform's checksum replaced by the one the
+# stub serves for that platform's asset.
+pins_expected_fff_bump() {
+  local out="$BATS_TEST_TMPDIR/expected-externals"
+  local work="$BATS_TEST_TMPDIR/expected-externals.work"
+  local old_tag template asset sum index=0
+  local targets=() shas=()
+
+  old_tag="$(pins_baseline_value 's|.*/releases/download/\([^/"]*\)/.*|\1|p')"
+  template="$(pins_baseline_value 's|.*/releases/download/[^/"]*/\([^"]*\)".*|\1|p')"
+  while IFS= read -r asset; do
+    targets[${#targets[@]}]="$asset"
+  done < <(sed -n 's|.*\$fffMcpTarget = "\([^"]*\)".*|\1|p' "$PINS_BASELINE/externals")
+  while IFS= read -r sum; do
+    shas[${#shas[@]}]="$sum"
+  done < <(sed -n 's|.*\$fffMcpSha256 = "\([0-9a-f]\{64\}\)".*|\1|p' "$PINS_BASELINE/externals")
+
+  sed "s|/releases/download/$old_tag/|/releases/download/$PINS_STUB_TAG/|" \
+    "$PINS_BASELINE/externals" >"$out"
+  while [ "$index" -lt "${#targets[@]}" ]; do
+    asset="${template%%\{\{*}${targets[$index]}${template##*\}\}}"
+    sum="$(STUB_CHECKSUM_FAILS_FOR= "$PINS_FETCHER" checksum repo "$PINS_STUB_TAG" "$asset" |
+      awk '{ print $1 }')"
+    sed "s|\"${shas[$index]}\"|\"$sum\"|" "$out" >"$work"
+    mv "$work" "$out"
+    index=$((index + 1))
+  done
+  printf '%s\n' "$out"
+}
+
+function test_scripts_1451_update_pins_declining_every_bump_leaves_the_pinned_files_byte_identical() {
+  _bats_test_init 1451 'update-pins declining every bump leaves the pinned files byte-identical'
+  # #given a source tree whose every pin has drifted upstream
+  pins_fixture
+
+  # #when every offer is declined
+  run_pins 'n
+n
+n
+n
+n
+n
+'
+
+  # #then the run reports the drift and writes nothing
+  assert_success
+  assert_output --partial 'ohmyzsh/ohmyzsh: 421d95782d36'
+  assert_output --partial 'kept'
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1452_update_pins_writes_exactly_the_fetched_sha_for_the_accepted_pin() {
+  _bats_test_init 1452 'update-pins writes exactly the fetched sha for the accepted pin'
+  # #given the drifted source tree and the sha the stubbed fetcher will return
+  pins_fixture
+  local old_sha expected="$BATS_TEST_TMPDIR/expected-externals"
+  old_sha="$(pins_baseline_value 's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+    "$PINS_BASELINE/externals" >"$expected"
+
+  # #when only the first offer is accepted
+  run_pins 'y
+n
+n
+n
+n
+n
+'
+
+  # #then that one pin carries the fetched sha and nothing else moved
+  assert_success
+  assert cmp -s "$expected" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+function test_scripts_1453_update_pins_bumps_fff_mcp_to_the_fetched_tag_and_all_four_checksums() {
+  _bats_test_init 1453 'update-pins bumps fff-mcp to the fetched tag and all four checksums'
+  # #given the drifted source tree and the four per-platform sums the stub serves
+  pins_fixture
+  local expected
+  expected="$(pins_expected_fff_bump)"
+
+  # #when every archive offer is declined and only the fff-mcp offer accepted
+  run_pins 'n
+n
+n
+n
+n
+y
+'
+
+  # #then the release tag and every platform checksum carry the fetched values
+  assert_success
+  assert cmp -s "$expected" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+function test_scripts_1454_update_pins_abandons_a_fff_mcp_bump_when_one_checksum_cannot_be_fetched() {
+  _bats_test_init 1454 'update-pins abandons a fff-mcp bump when one checksum cannot be fetched'
+  # #given one of the four platform checksums is unavailable upstream
+  pins_fixture
+  PINS_STUB_CHECKSUM_FAILS_FOR='fff-mcp-aarch64-unknown-linux-musl'
+
+  # #when the fff-mcp bump is accepted
+  run_pins 'n
+n
+n
+n
+n
+y
+'
+
+  # #then the pin keeps its whole consistent set and the run names what it needs
+  assert_success
+  assert_output --partial 'pin left unchanged'
+  assert_output --partial 'the values a manual bump needs'
+  assert_output --partial 'aarch64-unknown-linux-musl: unavailable'
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1455_update_pins_reports_unreachable_upstreams_and_still_succeeds() {
+  _bats_test_init 1455 'update-pins reports unreachable upstreams and still succeeds'
+  # #given every upstream query fails, as it would with no network
+  pins_fixture
+
+  # #when update-pins runs
+  run_pins '' "$PINS_UNREACHABLE"
+
+  # #then each pin reports as unknown, the run succeeds, and nothing is written
+  assert_success
+  assert_output --partial 'ohmyzsh/ohmyzsh: unknown'
+  assert_output --partial 'dmtrKovalenko/fff: unknown'
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1456_update_pins_rewrites_only_the_accepted_mise_tool_version() {
+  _bats_test_init 1456 'update-pins rewrites only the accepted mise tool version'
+  # #given mise reports a concrete bump for a tool pinned in the managed config
+  pins_fixture
+  printf '%s\n' \
+    '{"node": {"name": "node", "requested": "24", "current": "24.20.0", "bump": "26.8.1", "latest": "26.8.1"}}' \
+    >"$PINS_MISE_JSON"
+  sed 's|^node = ".*"$|node = "24"|' "$PINS_BASELINE/mise" >"$PINS_MISE"
+  cp "$PINS_MISE" "$PINS_BASELINE/mise"
+  assert_file_contains "$PINS_MISE" '^node = "24"$'
+  local expected="$BATS_TEST_TMPDIR/expected-mise"
+  sed 's|^node = "24"$|node = "26.8.1"|' "$PINS_BASELINE/mise" >"$expected"
+
+  # #when every externals offer is declined and the mise offer accepted
+  run_pins 'n
+n
+n
+n
+n
+n
+y
+'
+
+  # #then the managed mise config carries the reported bump and nothing else did
+  assert_success
+  assert cmp -s "$expected" "$PINS_MISE"
+  assert cmp -s "$PINS_BASELINE/externals" "$PINS_EXTERNAL"
+}

@@ -177,7 +177,7 @@ to them first if the goal shifts to maximizing closures per hour.
       *Done when:* `-not -path "./.claude/worktrees/*"` is added and `make lint` passes with a
       deliberately dirty worktree present. **One-line fix; take it first if you want an early close.**
 
-- [ ] 12 · `2026-09-05-005` — `update-all` should check pinned versions and offer bumps.
+- [x] 12 · `2026-09-05-005` — `update-all` should check pinned versions and offer bumps.
       `update-all` (`home/dot_aliases:294-299`) runs `brew update && brew upgrade --no-ask && skills
       update && mise upgrade` and never compares the pinned chezmoi-external refs (Oh My Zsh, four
       zsh plugins, fff-mcp) or mise tool versions against upstream. It replaces the removed
