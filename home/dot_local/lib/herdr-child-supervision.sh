@@ -345,6 +345,19 @@ clear_supervision_state_labels() {
   metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels >/dev/null 2>&1
 }
 
+# An in-progress callback claim keeps the watcher from waking the parent, so it
+# is only honoured while the process that made it is still running. A claim
+# written without a verifiable owner is treated as abandoned rather than trusted
+# forever.
+callback_owner_alive() {
+  local run_dir="$1" owner_pid owner_start current_start
+  owner_pid="$(state_value "$run_dir/callback.state" owner_pid)"
+  owner_start="$(state_value "$run_dir/callback.state" owner_start)"
+  [ -n "$owner_start" ] || return 1
+  current_start="$(process_start_marker "$owner_pid")" || return 1
+  [ "$current_start" = "$owner_start" ]
+}
+
 preserve_callback_waiting_label() {
   local pane="$1"
   metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels \

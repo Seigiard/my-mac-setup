@@ -316,6 +316,13 @@ EOF
       callback_status="$(state_value "$run_dir/callback.state" status)"
       case "$callback_status" in
         in-progress)
+          # An owner killed between claiming the callback and publishing its
+          # receipt can neither deliver the question nor release the claim, so
+          # the claim expires here into a terminal supervision failure. The
+          # waiting label survives it: the child is still blocked on a parent
+          # decision, and reap must keep refusing that pane.
+          callback_owner_alive "$run_dir" || \
+            watcher_fail "$run_dir" "$pane" "$generation" callback-owner-lost 1
           sleep "$POLL_INTERVAL"
           continue
           ;;

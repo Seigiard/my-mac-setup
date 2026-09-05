@@ -77,7 +77,7 @@ to them first if the goal shifts to maximizing closures per hour.
 
 ### Runtime defects — herdr supervision
 
-- [ ] 1 · `2026-08-30-007` — expire abandoned herdr-child callback claims.
+- [x] 1 · `2026-08-30-007` — expire abandoned herdr-child callback claims.
       `callback.state=in-progress` makes the watcher poll forever when the callback owner dies before
       publishing `confirmed`/`failed`. The state carries no owner PID, token, or timestamp
       (`herdr-child-continuation.sh:200-206`), so supervision can neither deliver nor recover.

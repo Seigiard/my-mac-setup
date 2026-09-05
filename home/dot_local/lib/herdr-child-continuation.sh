@@ -198,8 +198,20 @@ EOF
 }
 
 persist_callback_state() {
-  local run_dir="$1" status="$2" event="$3"
+  local run_dir="$1" status="$2" event="$3" owner_start
   [ -d "$run_dir" ] || return 1
+  if [ "$status" = in-progress ]; then
+    # The claim suspends the watcher's blocked wake, so it carries the identity
+    # of the process that must resolve it. Refusing an unidentifiable claim
+    # keeps the caller's fail-closed path instead of publishing a claim nothing
+    # can ever expire.
+    owner_start="$(process_start_marker "$$")" || return 1
+    atomic_write "$run_dir/callback.state" "status=$status
+event=$event
+owner_pid=$$
+owner_start=$owner_start"
+    return
+  fi
   atomic_write "$run_dir/callback.state" "status=$status
 event=$event"
 }

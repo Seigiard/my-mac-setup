@@ -3818,6 +3818,42 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   done
 }
 
+function test_scripts_059_herdr_child_expires_an_abandoned_callback_claim() {
+  _bats_test_init 59 'herdr-child expires an abandoned callback claim into a terminal supervision failure'
+  # #given — a detached child holding an unresolved callback claim
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER="$CHILD_STUB/callback-receipt"
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local generation run_dir ask_pid watcher_pid attempt=0
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
+    HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
+  ask_pid=$!
+  child_wait_for_file "$CHILD_STUB/callback-receipt.ready"
+
+  # #when — the process owning the claim dies before publishing its receipt
+  kill -KILL "$ask_pid"
+  wait "$ask_pid" 2>/dev/null || true
+  printf 'blocked 11\n' > "$CHILD_STUB/child-state"
+
+  # #then — supervision reaches a terminal outcome instead of polling forever
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 2000 ] || fail "watcher kept polling an abandoned callback claim"
+  assert_file_contains "$run_dir/failed.state" '^reason=callback-owner-lost$'
+  assert_file_contains "$CHILD_STUB/failure-reason" '^callback-owner-lost$'
+  assert_file_exists "$CHILD_STUB/waiting-label"
+}
+
 function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_direc() {
   _bats_test_init 60 'herdr-child maps claude postures, effort, and skill directories'
   child_stub_herdr
