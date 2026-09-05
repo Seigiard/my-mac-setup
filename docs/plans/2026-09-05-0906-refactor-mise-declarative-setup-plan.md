@@ -115,7 +115,7 @@ Existing machines hit the same sequence; the exact plugin archives replace the o
 
 - [x] U1 · declarative mise config + hash-triggered install (PR 1)
 - [x] U2 · Oh My Zsh + zsh plugins as pinned archive externals (PR 2, part 1)
-- [ ] U3 · fff-mcp as a pinned file external (PR 2, part 2)
+- [x] U3 · fff-mcp as a pinned file external (PR 2, part 2)
 - [ ] Finish · se-code-review pass + DoD closeout
 
 ---

@@ -1349,11 +1349,11 @@ function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
   # only when the install itself moves.
   refute_output --partial 'Homebrew/install/HEAD/install.sh'
   refute_output --partial 'brew bundle --file='
-  # Oh My Zsh itself is a pinned chezmoi external now (.chezmoiexternal.toml),
-  # not installed by this script; the retained cleanup block is the positive
-  # control proving the plugin-cleanup section of the script still renders.
+  # Oh My Zsh and fff-mcp are pinned chezmoi externals now
+  # (.chezmoiexternal.toml), not installed by this script; the retained
+  # cleanup block is the positive control proving the plugin-cleanup section
+  # of the script still renders.
   assert_output --partial 'Remove deprecated zsh-syntax-highlighting'
-  assert_output --partial 'fff.nvim/main/install-mcp.sh'
 }
 
 function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
