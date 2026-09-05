@@ -230,6 +230,12 @@ watch_child() {
   local event="" outcome="" reason="" timeout_delivered=0 delivery_failures=0 pending_event=""
   local delivery_status pane_get_status get_status wait_status wait_output slice remaining
   local wait_phase=0 retry_delay="$DELIVERY_RETRY_INITIAL" callback_status preserve_waiting
+  # Supervision polling and delivery-time identity revalidation read the same
+  # pane through the same transport, so they consume one shared budget. Without
+  # it a persistent herdr transport, permission, or malformed-response failure
+  # is indistinguishable from a short outage and keeps the watcher alive forever
+  # without ever delivering a lifecycle event.
+  local pane_read_failures=0 pane_read_retry_pending=0
   while :; do
     # Externally removed run state means supervision was torn down (test
     # teardown or reap); without this check a dead run dir turns the herdr
@@ -267,12 +273,26 @@ watch_child() {
         reason="child-gone"
       else
         rm -f "$pane_err"
+        pane_read_failures=$((pane_read_failures + 1))
+        if [ "$pane_read_failures" -ge "$MAX_DELIVERY_RETRIES" ]; then
+          watcher_fail "$run_dir" "$pane" "$generation" wait-error
+        fi
+        pane_read_retry_pending=1
         sleep "$POLL_INTERVAL"
         continue
       fi
       rm -f "$pane_err"
     else
       rm -f "$pane_err"
+      # A poll read that succeeds between two failing delivery-time reads must
+      # not refund the budget, or an outage confined to delivery revalidation
+      # would retry forever. The budget returns only after a whole iteration
+      # whose pane reads all succeeded.
+      if [ "$pane_read_retry_pending" -eq 1 ]; then
+        pane_read_retry_pending=0
+      else
+        pane_read_failures=0
+      fi
       set +e
       printf '%s' "$pane_json" | json_generation_status "$generation" "$child_terminal" "$child_session"
       generation_status=$?
@@ -357,6 +377,7 @@ EOF
       case "$delivery_status" in
         0)
           delivery_failures=0
+          pane_read_failures=0
           if [ "$event" = timeout ]; then
             timeout_delivered=1
           else
@@ -373,7 +394,15 @@ EOF
           delivery_retry_pause "$retry_delay"
           retry_delay="$(next_delivery_retry_delay "$retry_delay")"
           ;;
-        12) sleep "$POLL_INTERVAL"; continue ;;
+        12)
+          pane_read_failures=$((pane_read_failures + 1))
+          if [ "$pane_read_failures" -ge "$MAX_DELIVERY_RETRIES" ]; then
+            watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting"
+          fi
+          pane_read_retry_pending=1
+          sleep "$POLL_INTERVAL"
+          continue
+          ;;
         13) continue ;;
         20) remove_supervision_run "$run_dir"; exit 0 ;;
         *) watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting" ;;

@@ -2429,6 +2429,17 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"internal_error","message":"transient pane read"}}\n' >&2
       exit 1
     fi
+    if [ -f "$CHILD_STUB/pane-get-outage" ] && [ -f "$CHILD_STUB/settlement-observed" ]; then
+      # A herdr transport outage that starts at the first read after settlement,
+      # so the delivery-time revalidation read fails first and the poll reads
+      # that follow keep failing for the requested number of reads.
+      remaining="$(cat "$CHILD_STUB/pane-get-outage")"
+      if [ "$remaining" -gt 0 ]; then
+        printf '%s\n' "$((remaining - 1))" > "$CHILD_STUB/pane-get-outage"
+        printf '{"error":{"code":"internal_error","message":"pane read outage"}}\n' >&2
+        exit 1
+      fi
+    fi
     if [ -f "$CHILD_STUB/pane-transient-after-settlement" ] && \
        [ -f "$CHILD_STUB/settlement-observed" ] && \
        [ ! -f "$CHILD_STUB/pane-get-transient-observed" ]; then
@@ -3852,6 +3863,76 @@ function test_scripts_059_herdr_child_expires_an_abandoned_callback_claim() {
   assert_file_contains "$run_dir/failed.state" '^reason=callback-owner-lost$'
   assert_file_contains "$CHILD_STUB/failure-reason" '^callback-owner-lost$'
   assert_file_exists "$CHILD_STUB/waiting-label"
+}
+
+function test_scripts_0591_herdr_child_bounds_sustained_pane_read_failures() {
+  _bats_test_init 591 'herdr-child bounds sustained pane-read failures into a reported terminal state'
+  local generation run_dir watcher_pid attempt
+
+  # #given — a detached child settles while herdr drops a single pane read
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  printf '1\n' > "$CHILD_STUB/pane-get-outage"
+
+  # #when — the outage ends well inside the budget
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+
+  # #then — a recoverable outage still delivers the lifecycle event
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
+  assert_file_not_exists "$CHILD_STUB/failure-reason"
+
+  # #given — the same child under an outage that lasts the whole budget
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf '3\n' > "$CHILD_STUB/pane-get-outage"
+
+  # #when — every pane read the retry policy allows fails
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — supervision fails diagnostically instead of delivering the event
+  [ "$attempt" -lt 2000 ] || fail "watcher kept retrying an exhausted pane-read budget"
+  assert_file_contains "$CHILD_STUB/failure-reason" '^wait-error$'
+  assert_file_contains "$run_dir/failed.state" '^reason=wait-error$'
+  run grep -q 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
+  assert_failure
+
+  # #given — an outage that never recovers, so no diagnostic can be published
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf '100000\n' > "$CHILD_STUB/pane-get-outage"
+
+  # #when — herdr stops answering pane reads for good
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the watcher still reaches a terminal state instead of polling forever
+  [ "$attempt" -lt 2000 ] || fail "watcher polled a permanent pane-read outage forever"
+  assert_file_contains "$run_dir/failed.state" '^reason=wait-error$'
 }
 
 function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_direc() {

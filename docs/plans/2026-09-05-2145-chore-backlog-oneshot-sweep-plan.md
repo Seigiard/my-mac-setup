@@ -84,7 +84,7 @@ to them first if the goal shifts to maximizing closures per hour.
       *Done when:* a dead owner's claim expires and the watcher reaches a terminal outcome, proven by
       a test that kills the owner rather than by asserting on the state file's shape.
 
-- [ ] 2 · `2026-08-30-009` — bound transient herdr-child pane-read retries.
+- [x] 2 · `2026-08-30-009` — bound transient herdr-child pane-read retries.
       Neither the main poll loop (`herdr-child-watcher.sh:265-271`) nor delivery-time revalidation
       (return code 12 at `:368`, outside the `10|11` branch) counts failures against
       `MAX_DELIVERY_RETRIES`, so a persistent herdr transport or permission failure keeps supervision
