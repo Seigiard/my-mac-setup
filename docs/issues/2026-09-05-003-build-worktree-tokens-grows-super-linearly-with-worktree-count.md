@@ -5,8 +5,9 @@ type: "chore"
 category: "herdr"
 tags: ["performance","algorithmic-complexity","sweep-daemon"]
 date: "2026-09-05"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -38,3 +39,7 @@ The selection rule must not change: the existing tests, in particular `scripts_t
 ## Open decisions
 
 None.
+
+## Resolution
+
+One awk pass now annotates every root with its basename count and its shortest unique suffix, replacing the rescan that forked awk once per pair of roots. Output is byte-identical to the previous implementation over 198 corpora covering duplicate roots, leading and doubled slashes, unicode and space-bearing components, names long enough to force the digest path, and randomized lists of up to 30 roots. Measured on the colliding-basename shape: 6 roots 123ms to 38ms, 12 roots 406ms to 107ms, 24 roots 1600ms to 286ms, 48 roots 5782ms to 674ms. The digest retry loop also stops recomputing the two prefixes that do not vary with the ordinal. Growth is not linear yet: token_is_taken still rescans the assigned mappings per candidate, leaving roughly n^1.4 against the previous n^1.85, and a single root costs 2ms more because of the added awk fork.
