@@ -1,0 +1,74 @@
+# Pinned externals — updating any entry is an explicit edit of the ref (and,
+# for the file external below, its per-platform checksums), never an
+# automatic refresh. See docs/plans/2026-09-05-0906-refactor-mise-declarative-setup-plan.md.
+
+# Oh My Zsh itself, pinned to its master HEAD at implementation time
+# (2026-09-05). Non-exact: chezmoi applies externals in target-path order, so
+# this parent materializes before the plugin externals below: an exact
+# parent would delete their managed children out from under them.
+[".oh-my-zsh"]
+    type = "archive"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/421d95782d369f266b8087a0eae11eac2f6a6041.tar.gz"
+    exact = false
+    stripComponents = 1
+
+# Four zsh plugins, each pinned to its master HEAD at implementation time
+# (2026-09-05). exact = true: adoption on an existing machine replaces the
+# old unmanaged git clone (and its .git) wholesale.
+[".oh-my-zsh/custom/plugins/zsh-autosuggestions"]
+    type = "archive"
+    url = "https://github.com/zsh-users/zsh-autosuggestions/archive/85919cd1ffa7d2d5412f6d3fe437ebdbeeec4fc5.tar.gz"
+    exact = true
+    stripComponents = 1
+
+[".oh-my-zsh/custom/plugins/fast-syntax-highlighting"]
+    type = "archive"
+    url = "https://github.com/zdharma-continuum/fast-syntax-highlighting/archive/4672ad5dd9ad68a7effc1476d65afb7c584ce2b3.tar.gz"
+    exact = true
+    stripComponents = 1
+
+[".oh-my-zsh/custom/plugins/zsh-history-substring-search"]
+    type = "archive"
+    url = "https://github.com/zsh-users/zsh-history-substring-search/archive/14c8d2e0ffaee98f2df9850b19944f32546fdea5.tar.gz"
+    exact = true
+    stripComponents = 1
+
+[".oh-my-zsh/custom/plugins/zsh-defer"]
+    type = "archive"
+    url = "https://github.com/romkatv/zsh-defer/archive/53a26e287fbbe2dcebb3aa1801546c6de32416fa.tar.gz"
+    exact = true
+    stripComponents = 1
+
+# fff-mcp, pinned to release v0.10.6 with a per-platform sha256 taken from the
+# release's own .sha256 sibling assets. This file is always processed as a
+# template regardless of the .tmpl suffix, so the rust-style target and
+# checksum below branch on darwin/linux x amd64/arm64. Mirrors
+# https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh
+# (the vendor installer this external replaces), minus its `curl | bash` trust
+# step. Considered and rejected: mise's ubi/github backend — fff-mcp must
+# stay installable when mise is absent (CI-minimal), and the external carries
+# explicit per-platform checksums the backend does not.
+{{- $fffMcpTarget := "" -}}
+{{- $fffMcpSha256 := "" -}}
+{{- if eq .chezmoi.os "darwin" -}}
+  {{- if eq .chezmoi.arch "arm64" -}}
+    {{- $fffMcpTarget = "aarch64-apple-darwin" -}}
+    {{- $fffMcpSha256 = "02e0f57f5b88fa698494f310d8005a0c34d5bda5a1fcd069520b35f8e2319892" -}}
+  {{- else -}}
+    {{- $fffMcpTarget = "x86_64-apple-darwin" -}}
+    {{- $fffMcpSha256 = "12f374554f1930434cacee8221d9a76afd9e4dde0d9112c3bbc3ea59d5b56e83" -}}
+  {{- end -}}
+{{- else -}}
+  {{- if eq .chezmoi.arch "arm64" -}}
+    {{- $fffMcpTarget = "aarch64-unknown-linux-musl" -}}
+    {{- $fffMcpSha256 = "028b9e388716a8c0c39de3f153dd8e14e5ee998ffa70d4951f1cd2a3fc42f6ce" -}}
+  {{- else -}}
+    {{- $fffMcpTarget = "x86_64-unknown-linux-musl" -}}
+    {{- $fffMcpSha256 = "a44ef64015f1754aa63b690c24d9a748ed16298f05350da7b09554c4c98dfb0f" -}}
+  {{- end -}}
+{{- end }}
+[".local/bin/fff-mcp"]
+    type = "file"
+    executable = true
+    url = "https://github.com/dmtrKovalenko/fff/releases/download/v0.10.6/fff-mcp-{{ $fffMcpTarget }}"
+    checksum.sha256 = "{{ $fffMcpSha256 }}"

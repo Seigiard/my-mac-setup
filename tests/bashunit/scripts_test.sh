@@ -1344,13 +1344,16 @@ function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
   assert_success
   # Progress banners ("Installing Oh My Zsh...") are prose nothing consumes: a
   # reworded echo reddens the test while the install still runs, and deleting
-  # the install while keeping the echo stays green. The upstream installer URLs
-  # below are third-party constants this repo does not define, so they move
+  # the install while keeping the echo stays green. The upstream installer URL
+  # below is a third-party constant this repo does not define, so it moves
   # only when the install itself moves.
   refute_output --partial 'Homebrew/install/HEAD/install.sh'
   refute_output --partial 'brew bundle --file='
-  assert_output --partial 'ohmyzsh/ohmyzsh/master/tools/install.sh'
-  assert_output --partial 'fff.nvim/main/install-mcp.sh'
+  # Oh My Zsh and fff-mcp are pinned chezmoi externals now
+  # (.chezmoiexternal.toml), not installed by this script; the retained
+  # cleanup block is the positive control proving the plugin-cleanup section
+  # of the script still renders.
+  assert_output --partial 'rm -rf "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"'
 }
 
 function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
