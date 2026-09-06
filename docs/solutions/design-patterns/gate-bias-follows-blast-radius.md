@@ -71,13 +71,13 @@ shape it demonstrated — encode the bias in the type, so "undecided" is spelled
 smarter layer overrules me" — is preserved here because the repo now applies the same rule in
 three places that never ran under Smithers.
 
-**Advisory gate over a mutating agent → fail open.** `home/dot_local/bin/executable_test-oracle-guard`
+**Advisory gate over a mutating agent → fail open.** `home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts`
 inspects proposed test edits and flags negative assertions. It can only cost an agent context,
-never correctness, so its header states the bias outright:
+never correctness, so the dispatch core it runs in states the bias outright:
 
 ```
-# Fails open: missing input or tooling exits 0 so a broken guard never blocks
-# an agent.
+// Dispatch core: normalize, select applicable policies, run them in registry
+// order, first deny wins. Every failure path falls open (R4).
 ```
 
 **The same bias, pinned by a mutation test.** `docs/plans/2026-09-03-0833-feat-agent-hooks-core-plan.md:196`

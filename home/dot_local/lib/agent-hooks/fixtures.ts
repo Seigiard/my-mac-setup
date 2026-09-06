@@ -107,10 +107,24 @@ export function fixture(name: string): DialectFixture {
 // --- per-policy calibration corpus (KTD3) -----------------------------------
 //
 // Translated from the two bashunit suites that predate the port
-// (tests/bashunit/oracle_guard_test.sh, zsh_reserved_name_guard_test.sh) plus
-// the two inline hook rules. The expected strings below are transcribed from
-// the shipped engines' stdout, not generated from the policy modules, so the
-// two sides of every comparison stay independent.
+// (tests/bashunit/oracle_guard_test.sh, zsh_reserved_name_guard_test.sh, both
+// retired with the engines they drove — the `// <suite> NNN` markers below name
+// their case numbers, readable in git history) plus the two inline hook rules.
+// The expected strings below are transcribed from the shipped engines' stdout,
+// not generated from the policy modules, so the two sides of every comparison
+// stay independent.
+//
+// The `<policy-name>:` prefix on every non-allow text is pinned, not incidental.
+// Its consumer used to be the opencode guard plugins, which rethrew engine
+// stdout only when it passed `startsWith("<policy-name>:")`; those plugins are
+// gone. What reads the prefix now is the contract itself: R3 requires a policy
+// to deny with the same prefixed reason in every client where its target tool
+// exists, and R9's reason-contract test in tests/agent-hooks-core.test.ts
+// asserts `decision.reason.startsWith(`${policy.name}:`)` for every
+// block-capable policy in every client it is applicable to. Drop a prefix here
+// and the corpus stops agreeing with the cross-client parity check that keeps
+// one client from silently diverging. The rest of each text is prose for a
+// human reader; only the prefix is machine-load-bearing.
 
 export type PolicyFixture = {
   name: string;

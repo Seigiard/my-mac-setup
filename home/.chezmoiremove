@@ -44,3 +44,16 @@ Library/marta
 # removing the files here costs a running session nothing.
 .pi/agent/extensions/test-oracle-guard.ts
 .pi/agent/extensions/zsh-reserved-name-guard.ts
+
+# One agent-hooks dispatcher replaces the per-policy claude hook scripts, and
+# the shared core absorbed the two ~/.local/bin engines they and the retired
+# opencode/pi adapters spawned. Deployed settings.json already routes every
+# matched tool call through .claude/hooks/agent-hooks-dispatch.sh, so nothing
+# still resolves these paths; left behind they are dead executables a stale
+# hook registration or a hand-written call could still reach.
+.claude/hooks/test-oracle-guard.sh
+.claude/hooks/zsh-reserved-name-guard.sh
+.claude/hooks/fff-grep-guard.sh
+.claude/hooks/webfetch-markdown-hint.sh
+.local/bin/test-oracle-guard
+.local/bin/zsh-reserved-name-guard

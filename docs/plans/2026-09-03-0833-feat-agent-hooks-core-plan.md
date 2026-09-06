@@ -19,10 +19,7 @@ deepened: 2026-09-03
 - [x] U4 · OpenCode adapter plugin
 - [x] U5 · Pi adapter extension
 - [x] U6 · agents-local port to OpenCode with shared selection module
-- [ ] U7 · retirement apply: remove old Claude scripts and engines, assert absence
-      blocked 2026-09-06: needs apply 1 on the host plus a restart of Claude Code,
-      OpenCode and Pi (KTD9). Retiring the Claude hook scripts before a running
-      session reloads its settings makes every matched tool call exit 127.
+- [x] U7 · retirement apply: remove old Claude scripts and engines, assert absence
 
 ## Goal Capsule
 
