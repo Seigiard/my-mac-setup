@@ -7956,9 +7956,11 @@ function test_scripts_263_herdr_child_watcher_release_hold_is_bounded() {
   local watcher_pid
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   # No release file is ever written: an abandoned hold must expire on its own
-  # instead of orphaning a polling daemon.
+  # instead of orphaning a polling daemon. This hold carries the multiplied
+  # bound that keeps it outlasting a launcher's, so the ceiling clears four
+  # knob-seconds with room to spare; the watcher normally exits long before it.
   local attempt=0
-  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done

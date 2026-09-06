@@ -258,8 +258,16 @@ watcher_generation_current() {
 
 # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
 # expired hold means the harness died without releasing the barrier.
+# The optional second argument multiplies the bound for this hold only. Two
+# holds can be live at once — the watcher parked at its release barrier while
+# the launcher waits past the arm — and both read the same knob, so an equal
+# bound makes the winner a coin flip decided by poll phase. The hold whose
+# expiry the test is not measuring takes a multiple, so the one under test
+# always expires first and the knob stays single. The multiple has to cover the
+# head start too: the watcher arms before the launcher observes the arm, so an
+# equal or barely-larger bound ties again whenever that gap crosses a second.
 watcher_hold_expired() {
-  [ $((SECONDS - $1)) -ge "${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120}" ]
+  [ $((SECONDS - $1)) -ge $((${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120} * ${2:-1})) ]
 }
 
 watcher_publish_failed() {

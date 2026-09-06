@@ -198,7 +198,10 @@ watch_child() {
       # The launcher legitimately exits before this hold is released, so the
       # only abandonment signals are torn-down run state and the hold bound.
       [ -d "$run_dir" ] || exit 1
-      if watcher_hold_expired "$release_hold_started"; then
+      # Outlasts the launcher's post-arm hold on the same knob: tearing the run
+      # down first would strip armed.state from under a launcher that is still
+      # entitled to report the arm it observed.
+      if watcher_hold_expired "$release_hold_started" 4; then
         remove_supervision_run "$run_dir"
         exit 1
       fi
