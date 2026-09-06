@@ -28,7 +28,7 @@ class TestBatsAssertionContract(unittest.TestCase):
     def test_rejects_bare_conditional_commands(self):
         result = self.run_checker(
             {
-                "unsafe.bats": """@test "conditional" {
+                "bashunit/unsafe_test.sh": """function test_conditional() {
   local attempt=2
   local delay=$(( 1 << attempt ))
   printf '%s\n' 'quoted example: <<FAKE'
@@ -38,30 +38,30 @@ class TestBatsAssertionContract(unittest.TestCase):
   :
 }
 """,
-                "nested/unsafe.bats": """@test "arithmetic" {
+                "nested/bashunit/unsafe_test.sh": """function test_arithmetic() {
   (( 0 ))
 }
 """,
-                "nested/semicolon.bats": """@test "semicolon" {
+                "nested/bashunit/semicolon_test.sh": """function test_semicolon() {
   run true; [[ 1 == 2 ]]
   :
 }
 """,
-                "nested/second-conditional.bats": """@test "second conditional" {
+                "nested/bashunit/second_conditional_test.sh": """function test_second_conditional() {
   [[ 1 == 1 ]] || fail "first"; [[ 1 == 2 ]]
   :
 }
 """,
-                "nested/second-arithmetic.bats": """@test "second arithmetic" {
+                "nested/bashunit/second_arithmetic_test.sh": """function test_second_arithmetic() {
   (( 1 )) || fail "first"; (( 0 ))
   :
 }
 """,
-                "nested/second-and.bats": """@test "second after and" {
+                "nested/bashunit/second_and_test.sh": """function test_second_and() {
   [[ 1 == 1 ]] || fail "first" && [[ 1 == 2 ]]; :
 }
 """,
-                "nested/second-or.bats": """@test "second after or" {
+                "nested/bashunit/second_or_test.sh": """function test_second_or() {
   (( 0 )) && fail "first" || (( 0 )); :
 }
 """
@@ -69,18 +69,22 @@ class TestBatsAssertionContract(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("unsafe.bats:8: bare [[...]]", result.stdout)
-        self.assertIn("nested/unsafe.bats:2: bare ((...))", result.stdout)
-        self.assertIn("nested/semicolon.bats:2: bare [[...]]", result.stdout)
-        self.assertIn("nested/second-conditional.bats:2: bare [[...]]", result.stdout)
-        self.assertIn("nested/second-arithmetic.bats:2: bare ((...))", result.stdout)
-        self.assertIn("nested/second-and.bats:2: bare [[...]]", result.stdout)
-        self.assertIn("nested/second-or.bats:2: bare ((...))", result.stdout)
+        self.assertIn("bashunit/unsafe_test.sh:8: bare [[...]]", result.stdout)
+        self.assertIn("nested/bashunit/unsafe_test.sh:2: bare ((...))", result.stdout)
+        self.assertIn("nested/bashunit/semicolon_test.sh:2: bare [[...]]", result.stdout)
+        self.assertIn(
+            "nested/bashunit/second_conditional_test.sh:2: bare [[...]]", result.stdout
+        )
+        self.assertIn(
+            "nested/bashunit/second_arithmetic_test.sh:2: bare ((...))", result.stdout
+        )
+        self.assertIn("nested/bashunit/second_and_test.sh:2: bare [[...]]", result.stdout)
+        self.assertIn("nested/bashunit/second_or_test.sh:2: bare ((...))", result.stdout)
 
     def test_accepts_explicit_handlers_control_flow_and_heredocs(self):
         result = self.run_checker(
             {
-                "safe.bats": """@test "safe forms" {
+                "bashunit/safe_test.sh": """function test_safe_forms() {
   [[ 1 == 1 ]] || fail "expected equality"
   [[ 1 == 1 ]] || fail "literal ]] remains safe"
   [[ 1 == 1 ]] \\
@@ -115,11 +119,6 @@ PLAIN
   ' <<< "$output"
 }
 """,
-                "helpers/bats-libs/vendor.bats": """@test "vendored" {
-  [[ 1 == 2 ]]
-  :
-}
-""",
             }
         )
 
@@ -132,15 +131,6 @@ PLAIN
         # reported and this test fails for that class specifically.
         result = self.run_checker(
             {
-                "reachable.bats": """@test "reachable bats" {
-  [[ 1 == 2 ]]
-  :
-}
-""",
-                "reachable_clean.bats": """@test "reachable bats control" {
-  [[ 1 == 1 ]] || fail "control"
-}
-""",
                 "bashunit/reachable_test.sh": """function test_reachable() {
   [[ 1 == 2 ]]
   :
@@ -172,11 +162,9 @@ PLAIN
         )
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("reachable.bats:2: bare [[...]]", result.stdout)
         self.assertIn("bashunit/reachable_test.sh:2: bare [[...]]", result.stdout)
         self.assertIn("helpers/reachable.bash:2: bare [[...]]", result.stdout)
         self.assertIn("bashunit/reachable.bash:2: bare [[...]]", result.stdout)
-        self.assertNotIn("reachable_clean.bats", result.stdout)
         self.assertNotIn("reachable_clean_test.sh", result.stdout)
         self.assertNotIn("reachable_clean.bash", result.stdout)
 

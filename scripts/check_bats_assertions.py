@@ -226,11 +226,6 @@ def find_violations(path):
 
 
 def scanned_files(tests_dir):
-    # .bats files disappear in a later migration stage; their absence is fine.
-    for path in sorted(tests_dir.rglob("*.bats")):
-        if path.relative_to(tests_dir).parts[:2] == ("helpers", "bats-libs"):
-            continue
-        yield path
     # The bashunit DSL's ERR trap reproduces the same bash-3.2 quirk: a bare
     # mid-test [[ ]] or (( )) conditional is silently inert. Scan the whole
     # file, not only test_* bodies — helpers run in the same test context.

@@ -133,10 +133,11 @@ Verification recorded when the fix landed (2026-08-28, on the then-current bats 
 `make test-ubuntu` at 403 cases with expected skips. Those counts have moved since the bashunit
 migration and are kept as the historical record, not as current expected values.
 
-The guard's scope grew with the migration. `scripts/check_bats_assertions.py:229-247` now globs
-`bashunit/*_test.sh`, `helpers/*.bash` and `bashunit/*.bash` alongside any remaining `*.bats`, with the
-comment "`.bats` files disappear in a later migration stage; their absence is fine." It scans whole
-files rather than only `test_*` bodies, because helpers run in the same test context.
+The guard's scope moved with the migration. `scripts/check_bats_assertions.py:228-241` globs
+`bashunit/*_test.sh`, `helpers/*.bash` and `bashunit/*.bash`. The `*.bats` glob and its vendored
+`helpers/bats-libs/` exclusion were removed once no `.bats` file remained, so the checker no longer
+scans that extension at all; restoring it means restoring the glob. It scans whole files rather than
+only `test_*` bodies, because helpers run in the same test context.
 
 ## Related Issues
 
