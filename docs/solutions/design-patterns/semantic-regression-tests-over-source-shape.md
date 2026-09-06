@@ -155,3 +155,7 @@ Do not replace exact-format contract tests merely because they inspect text. Fir
   in the closed-issue cleanup.
 - `outliving-processes-hang-the-suite.md` — the sibling class: a suite that never returns rather than
   one that returns a dishonest verdict.
+- `fakes-need-the-real-binary-as-oracle.md` — the case this doc's one-owner rule cannot reach: when a
+  test double reproduces another program's contract, no assertion written beside the double can
+  adjudicate it, so the check compares the fake against the real binary at a deliberately shallow
+  boundary.

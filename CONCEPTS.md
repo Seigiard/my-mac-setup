@@ -41,6 +41,11 @@ A single review or analysis pass executed by a separate, headless agent-CLI proc
 
 One failed leg degrades a review's coverage; losing every leg fails it.
 
+### Captured child
+A subprocess whose output the caller captures instead of passing through, which makes the caller responsible for the child's input as well. Capturing is itself what hides a prompt: the question renders into a buffer nobody is reading while the child waits on an input channel it still holds. So a captured child is denied that channel, and a flag or environment variable asking the child not to prompt counts as a request the callee may decline, never as the guarantee.
+
+Denial applies only where nobody is watching; an attended path keeps the child interactive so a person can answer. The wait is bounded and terminates the child's whole process tree, reporting a status that distinguishes termination from the child's own failure, and progress output is emitted only when the caller's error stream is a terminal, so scripted callers stay silent. Because denial converts a possible hang into a certain failure, what that failure means is designed rather than inherited: a path that can no longer ask must report what it could not do, not produce a plausible answer without it.
+
 ### Blast-radius bias
 The rule that a gate's default answer under uncertainty is set by what a wrong answer costs, not by where the gate sits. A gate in front of something that mutates code, spends money, or publishes outside the run defaults to refusing; a gate in front of a read-only or advisory step defaults to running, because a false refusal there silently removes coverage. The bias belongs to the whole gate stack — a fuzzy fallback layer inherits the deterministic layer's default — and a biased refusal is always stated, never silent.
 
@@ -57,10 +62,25 @@ Its expected value comes from somewhere the change under test does not control. 
 ### Test oracle
 The independent source a test draws its expected value from. An oracle is valid only if it is outside the files the change under test edits — a real consumer, a deployment path, a published contract. When no such source can be named, the correct number of new tests is zero; behavior owned by an upstream tool or library has no valid local oracle and is exercised through its real interface rather than reimplemented to be testable.
 
-### Hang guard
-A deadline whose only job is to stop a run that has stopped making progress. It is deliberately generous and must never fire on a healthy run, which is what separates it from a behavioral assertion — a narrow bound that is itself the thing being proven. One number cannot be both: a deadline that doubles as an assertion either flakes under load or, once widened enough to stop flaking, no longer catches the regression it was written for.
+### Upstream fake
+A test double that reproduces the observable contract of a program this project does not own — a stub CLI, a replayed protocol, a fixture standing in for another tool's output format. It is a claim about that program rather than about this one, so no assertion written beside it can adjudicate it; only the program itself can, through a conformance check that compares the two in the same run.
 
-A bound calibrated on an idle machine is a latent flake, because the contention profile a full parallel suite creates is not the one it was measured against. Where an ordering or concurrency property can be proven by a barrier, a marker, or another causal signal, that signal replaces elapsed time entirely.
+A fake records which release of the original it emulates, read from the original rather than assumed. Its conformance check pins the boundary the local consumer actually reads and stops there, because a deeper comparison restates a shape the upstream program owns — the same failure at a finer grain. Where the original is unreachable the check skips, naming which oracle is missing, never falling back to a locally invented expected value. Where the two diverge below the pinned boundary, that divergence is recorded as unresolved work rather than encoded into the check.
+
+### Hang guard
+A deadline whose only job is to stop a run that has stopped making progress, in a test suite or in shipped code that waits on a subprocess. It is deliberately generous and must never fire on a healthy run, which is what separates it from a behavioral assertion — a narrow bound that is itself the thing being proven. One number cannot be both: a deadline that doubles as an assertion either flakes under load or, once widened enough to stop flaking, no longer catches the regression it was written for.
+
+A bound calibrated on an idle machine is a latent flake, because the contention profile a full parallel suite creates is not the one it was measured against. Where an ordering or concurrency property can be proven by a barrier, a marker, or another causal signal, that signal replaces elapsed time entirely. A guard is a deadline, never a Poll interval; a loop that conflates the two cannot be sped up without being weakened.
+
+### Poll interval
+The rate at which a wait loop re-checks its condition, held as a separate overridable value from the deadline that ends the wait. The deadline is measured from elapsed time, so it holds however often the loop wakes.
+
+Keeping them separate is what lets a test sample faster without moving the bound it asserts — shortening the interval is free, shortening the deadline changes what the test proves. A loop that decides expiry by counting its own iterations has fused the two: the sleep length becomes the clock, so every test that exercises the loop pays the production interval, and the cheapest available speedup is also a silent reduction in coverage. At least one test stays on the real interval, so the timeout path itself remains exercised.
+
+### Differential equivalence proof
+The evidence that a rewrite preserves behavior: its output compared against the previous implementation's, over a generated corpus, before the suite is consulted. The suite is the gate, not the proof — it asks whether anything a test pins changed, while the claim being made is that nothing changed at all.
+
+The corpus is built from the ways this particular rewrite could differ rather than from generic inputs, so each category names a suspected divergence — an encoding that wraps above a length threshold, a delimiter appearing inside a value, a file without a trailing newline. The proof is normally throwaway, because keeping it runnable means keeping the replaced implementation alive to diff against; that trade is recorded rather than assumed, since it decides whether a later reader can re-check the claim or only read it.
 
 ### Skip-set parity
 The proof that a reduced dependency set did not reduce coverage: the set of skipped tests, compared by identity, is unchanged between the two configurations. A green suite is not that proof, because a missing tool skips rather than fails, so a run can go green having silently stopped exercising whole files. Counts are not that proof either, since one skip swapped for another leaves the count intact.
@@ -69,6 +89,8 @@ When a dependency leaves the set, its absence is asserted rather than left unass
 
 ### Bats-compatible test vocabulary
 The assertion and capture surface the suites are written against — `run`, `$status`, `$lines`, the `assert_*` and `refute_*` helpers, per-test temporary directories — retained deliberately after the suite moved off the bats runner. It is a vocabulary, not a runner: the current runner reimplements these semantics on the same interpreter, which is why it also reproduces the interpreter's quirks, including the one where a bare mid-test compound conditional evaluates false without failing the test.
+
+The historical test numbers carried across from the bats suites are metadata, not identity: they repeat once suites are merged, so anything that must be unique per test is keyed on the current runner's own per-test identity instead.
 
 ### Post-apply suite
 The test suite that asserts against the already-deployed home directory rather than against the repository checkout. Each file in it declares its own run order and whether it is host-safe or needs a disposable home; a file that declares nothing fails the runner instead of being quietly skipped.
@@ -85,6 +107,8 @@ The guard fails closed. An environment that looks like a runner but carries no d
 
 ### Unattended chezmoi mode
 The repository-owned execution contract selected by `MMS_CHEZMOI_UNATTENDED=1` for agent, continuous-integration, and test invocations of chezmoi. Its explicit full-fixture profile requires disposable-home authority and renders credential-sensitive targets with non-secret canaries; its host-partial profile omits those targets from comparison and names what was not checked. Both profiles prevent interactive credential access before a helper subprocess starts and preserve the ordinary `PATH`.
+
+Because the host-partial profile names its surviving targets explicitly, its comparison is delivered across as many chezmoi invocations as an argument-size budget allows rather than assumed to fit in one, and a single target too large for an empty budget aborts the run instead of being sent. The budget exists because chezmoi re-exports its whole invocation as one environment string to every template subprocess it spawns, where the operating system's per-string limit — not its total argument limit — applies.
 
 ## Retired
 
