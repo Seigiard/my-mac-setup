@@ -79,8 +79,8 @@ teardown() {
 # herdr-worktree-identity state library
 # ===========================================
 
-function test_scripts_1134_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
-  _bats_test_init 1134 'worktree identity claims live owners and recovers dead owners'
+function test_scripts_1210_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
+  _bats_test_init 1210 'worktree identity claims live owners and recovers dead owners'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   local lock="$HWI_STATE/repositories/test/identity.claim" owner
@@ -110,8 +110,8 @@ function test_scripts_1134_worktree_identity_state_library_claims_live_owners_an
   assert_file_not_exists "$lock"
 }
 
-function test_scripts_1135_worktree_identity_state_library_recovers_malformed_claims_and_distinguishes_errors() {
-  _bats_test_init 1135 'worktree identity recovers malformed claims and distinguishes contention from errors'
+function test_scripts_1211_worktree_identity_state_library_recovers_malformed_claims_and_distinguishes_errors() {
+  _bats_test_init 1211 'worktree identity recovers malformed claims and distinguishes contention from errors'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   local malformed="$HWI_STATE/malformed.claim" interrupted="$HWI_STATE/interrupted.claim" held="$HWI_STATE/held.claim"
@@ -147,8 +147,8 @@ process_start=$(encode_value '')"
   assert_failure 1
 }
 
-function test_scripts_1136_worktree_identity_state_library_appends_diagnostics_and_preserves_preexisting_records() {
-  _bats_test_init 1136 'worktree identity diagnostics append and failed pre-rename writes preserve records'
+function test_scripts_1212_worktree_identity_state_library_appends_diagnostics_and_preserves_preexisting_records() {
+  _bats_test_init 1212 'worktree identity diagnostics append and failed pre-rename writes preserve records'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   local diagnostics="$HWI_STATE/worktree/diagnostics.log" record="$HWI_STATE/worktree/state"
@@ -180,8 +180,8 @@ SH
 # herdr-worktree-identity engine (U2)
 # ===========================================
 
-function test_scripts_1137_worktree_identity_authorizes_a_real_plugin_marker_and_reentry_after_rename() {
-  _bats_test_init 1137 'worktree identity authorizes the plugin marker after a real branch rename'
+function test_scripts_1213_worktree_identity_authorizes_a_real_plugin_marker_and_reentry_after_rename() {
+  _bats_test_init 1213 'worktree identity authorizes the plugin marker after a real branch rename'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -206,8 +206,8 @@ function test_scripts_1137_worktree_identity_authorizes_a_real_plugin_marker_and
   assert_equal "$(read_state_field "$state" authorization)" authorized
 }
 
-function test_scripts_1138_worktree_identity_declines_missing_or_mismatched_markers_without_ref_mutation() {
-  _bats_test_init 1138 'worktree identity declines absent and mismatched generated-worktree markers'
+function test_scripts_1214_worktree_identity_declines_missing_or_mismatched_markers_without_ref_mutation() {
+  _bats_test_init 1214 'worktree identity declines absent and mismatched generated-worktree markers'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -233,8 +233,8 @@ function test_scripts_1138_worktree_identity_declines_missing_or_mismatched_mark
   assert_file_contains "$diagnostics" 'reason=marker-mismatched .*marker_branch=different-branch'
 }
 
-function test_scripts_1139_worktree_identity_keeps_unresolved_events_retryable_and_prefers_reported_cwd() {
-  _bats_test_init 1139 'worktree identity records unresolved pane reads and prefers reported working directories'
+function test_scripts_1215_worktree_identity_keeps_unresolved_events_retryable_and_prefers_reported_cwd() {
+  _bats_test_init 1215 'worktree identity records unresolved pane reads and prefers reported working directories'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -264,8 +264,8 @@ function test_scripts_1139_worktree_identity_keeps_unresolved_events_retryable_a
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" retry-later
 }
 
-function test_scripts_1206_worktree_identity_waits_for_the_first_opencode_session_publication() {
-  _bats_test_init 1206 'worktree identity waits for the first opencode session publication'
+function test_scripts_1216_worktree_identity_waits_for_the_first_opencode_session_publication() {
+  _bats_test_init 1216 'worktree identity waits for the first opencode session publication'
   hwi_setup
   hwi_create_generated_worktree
   hwi_delay_pane_session_publication pane-1 opencode session-1 workspace-1 "$HWI_CHECKOUT"
@@ -279,8 +279,8 @@ function test_scripts_1206_worktree_identity_waits_for_the_first_opencode_sessio
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" rename-on-first-opencode-prompt
 }
 
-function test_scripts_1140_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
-  _bats_test_init 1140 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
+function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
+  _bats_test_init 1217 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -308,8 +308,8 @@ function test_scripts_1140_worktree_identity_declines_primary_checkouts_and_unma
   assert_equal "$(read_state_field "$(hwi_identity_state_path)" authorization)" authorized
 }
 
-function test_scripts_1141_worktree_identity_foreground_hands_off_to_a_detached_worker() {
-  _bats_test_init 1141 'worktree identity foreground hands prompt processing to a detached worker'
+function test_scripts_1218_worktree_identity_foreground_hands_off_to_a_detached_worker() {
+  _bats_test_init 1218 'worktree identity foreground hands prompt processing to a detached worker'
   hwi_setup
   hwi_create_generated_worktree
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
@@ -348,8 +348,8 @@ SH
   chmod +x "$HWI_STUB/$binary"
 }
 
-function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_identity() {
-  _bats_test_init 1142 'worktree identity uses a normalized multi-word pi identity'
+function test_scripts_1219_worktree_identity_uses_normalized_multi_word_pi_identity() {
+  _bats_test_init 1219 'worktree identity uses a normalized multi-word pi identity'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -372,8 +372,8 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
   assert_file_not_exists "$HWI_WORK/claude.calls"
 }
 
-function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model_slugs() {
-  _bats_test_init 1143 'worktree identity falls back for one-word and non-JSON model slugs'
+function test_scripts_1220_worktree_identity_rejects_one_word_and_non_json_model_slugs() {
+  _bats_test_init 1220 'worktree identity falls back for one-word and non-JSON model slugs'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -394,8 +394,8 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
   assert_file_exists "$HWI_WORK/claude.calls"
 }
 
-function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_caps_slugs() {
-  _bats_test_init 1144 'worktree identity falls back without model CLIs and caps long slugs'
+function test_scripts_1221_worktree_identity_falls_back_without_model_clis_and_caps_slugs() {
+  _bats_test_init 1221 'worktree identity falls back without model CLIs and caps long slugs'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -1250,8 +1250,8 @@ function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   assert_success
 }
 
-function test_scripts_0021_lint_input_set_excludes_agent_worktrees() {
-  _bats_test_init 0021 'lint input set excludes agent worktrees but keeps repository source'
+function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
+  _bats_test_init 9 'lint input set excludes agent worktrees but keeps repository source'
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
 
@@ -4572,8 +4572,8 @@ function test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery() {
   assert_output --partial "parent-side"
 }
 
-function test_scripts_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
-  _bats_test_init 82 'herdr-child reap closes an unfocused idle pane'
+function test_scripts_101_herdr_child_reap_closes_an_unfocused_idle_pane() {
+  _bats_test_init 101 'herdr-child reap closes an unfocused idle pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","terminal_id":"term-child","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -4585,8 +4585,8 @@ function test_scripts_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
   assert_output 1
 }
 
-function test_scripts_083_herdr_child_reap_rejects_an_empty_expected_pane() {
-  _bats_test_init 83 'herdr-child reap rejects an empty expected pane'
+function test_scripts_102_herdr_child_reap_rejects_an_empty_expected_pane() {
+  _bats_test_init 102 'herdr-child reap rejects an empty expected pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -4596,8 +4596,8 @@ function test_scripts_083_herdr_child_reap_rejects_an_empty_expected_pane() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
-function test_scripts_084_herdr_child_reap_preserves_a_reused_name_outside() {
-  _bats_test_init 84 'herdr-child reap preserves a reused name outside the expected pane'
+function test_scripts_103_herdr_child_reap_preserves_a_reused_name_outside() {
+  _bats_test_init 103 'herdr-child reap preserves a reused name outside the expected pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"reused-a","pane_id":"wT:p2","terminal_id":"term-child","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -4608,8 +4608,8 @@ function test_scripts_084_herdr_child_reap_preserves_a_reused_name_outside() {
   assert_failure
 }
 
-function test_scripts_085_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
-  _bats_test_init 85 'herdr-child reap preserves a pane when fresh state no longer matches'
+function test_scripts_104_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
+  _bats_test_init 104 'herdr-child reap preserves a pane when fresh state no longer matches'
   child_stub_herdr
   local initial='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p1","terminal_id":"term-child","agent_status":"done","focused":false}]}}'
   local fresh='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p2","terminal_id":"term-child","agent_status":"done","focused":false}]}}'
@@ -7435,8 +7435,8 @@ SH
 
 # The same retry must not paper over a sweep that never converges: every attempt
 # fails, so the cutover still disables the plugin and reports the failure.
-function test_scripts_1324_herdr_pane_label_after_script_still_fails_a_sweep_that_() {
-  _bats_test_init 1324 'herdr pane-label after script still fails a sweep that never converges'
+function test_scripts_1315_herdr_pane_label_after_script_still_fails_a_sweep_that_() {
+  _bats_test_init 1315 'herdr pane-label after script still fails a sweep that never converges'
   command -v jq >/dev/null || skip "jq not available"
   skip_if_no_chezmoi
   hpl_cutover_setup
@@ -7877,8 +7877,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   assert_output --partial "Assertions: 1 passed, 1 total"
 }
 
-function test_scripts_2841_test_dsl_isolates_parallel_tests_with_the_same_historical_number() {
-  _bats_test_init 2841 'test DSL isolates parallel tests with the same historical number'
+function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_historical_number() {
+  _bats_test_init 259 'test DSL isolates parallel tests with the same historical number'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/test_dsl_parallel_isolation_probe_test.sh"
   assert_file_exists "$probe_file"
 
@@ -9117,8 +9117,8 @@ hwi_wait_for_file() {
   return 1
 }
 
-function test_scripts_1200_claude_worktree_identity_hook_hands_off_prompt_on_stdin() {
-  _bats_test_init 1200 'claude worktree identity hook passes prompt on stdin and returns after handoff'
+function test_scripts_1222_claude_worktree_identity_hook_hands_off_prompt_on_stdin() {
+  _bats_test_init 1222 'claude worktree identity hook passes prompt on stdin and returns after handoff'
   local root="$BATS_TEST_TMPDIR/claude-adapter" prompt='Name this Claude task: stdin-only sentinel'
   hwi_adapter_stub_engine "$root"
 
@@ -9142,8 +9142,8 @@ function test_scripts_1200_claude_worktree_identity_hook_hands_off_prompt_on_std
   hwi_wait_for_file "$call/released" || fail 'the slow derivation was not released'
 }
 
-function test_scripts_1201_claude_worktree_identity_hook_fails_open_without_engine() {
-  _bats_test_init 1201 'claude worktree identity hook is quiet when unavailable or gated'
+function test_scripts_1223_claude_worktree_identity_hook_fails_open_without_engine() {
+  _bats_test_init 1223 'claude worktree identity hook is quiet when unavailable or gated'
   run env HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ENGINE="$BATS_TEST_TMPDIR/missing-engine" \
     bash "$HWI_CLAUDE_HOOK" <<< '{"session_id":"session-claude","prompt":"ignored"}'
   assert_success
@@ -9162,8 +9162,8 @@ function test_scripts_1201_claude_worktree_identity_hook_fails_open_without_engi
   assert_output ''
 }
 
-function test_scripts_1202_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
-  _bats_test_init 1202 'deployed opencode plugin gates and delivers every prompt on stdin'
+function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
+  _bats_test_init 1224 'deployed opencode plugin gates and delivers every prompt on stdin'
   command_exists bun || skip 'bun is required'
   local root home deployed
   root="$BATS_TEST_TMPDIR/opencode-adapter"
