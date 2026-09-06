@@ -10151,6 +10151,14 @@ function test_scripts_2822_context_threshold_stays_out_of_sessions_nobody_is_wat
   assert_success
   assert_output ''
 
+  # A herdr peer consult reaches the same "nobody is watching" state through a
+  # live TUI child, where the entrypoint above reads `cli`. Its parent blocks
+  # in `herdr-child start --wait`, so a halt here idles the pane until that
+  # wait expires instead of interrupting a person.
+  run context_threshold_run peer "$huge" HERDR_CHILD_NAME=peer-claude-1
+  assert_success
+  assert_output ''
+
   # KTD6: the extraction subprocess inherits these settings, so its own Stop
   # hook fires. Both re-entrancy signals must silence it.
   run context_threshold_run guarded "$huge" CONTEXT_THRESHOLD_GUARD=1

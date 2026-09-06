@@ -49,6 +49,16 @@ case "${CLAUDE_CODE_ENTRYPOINT:-cli}" in
   sdk-* | mcp-cli) exit 0 ;;
 esac
 
+# A herdr child is the same exemption reached by a different route. A peer
+# consult runs a full interactive `claude` in its own pane, so the entrypoint
+# above says `cli` and every check so far passes -- but nobody is reading that
+# pane, and the parent is blocked in `herdr-child start --wait` for up to
+# thirty minutes. A halt there does not interrupt a person; it idles the pane
+# until the parent's wait expires, and `se-code-review` starts two of them.
+# home/dot_local/lib/herdr-child-launch.sh puts HERDR_CHILD_NAME in every
+# child's environment, so the marker is already there to read.
+[ -n "${HERDR_CHILD_NAME:-}" ] && exit 0
+
 # ${HOME:-} rather than $HOME: under `set -u` an unset HOME would abort the
 # hook with a non-zero status, which is the opposite of failing open.
 CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-${HOME:-}/.local/lib/context-usage.sh}"
