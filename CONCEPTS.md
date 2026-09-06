@@ -21,10 +21,30 @@ A background process a component forks so its caller can return immediately. Det
 
 Holding an inherited descriptor keeps the caller's reader — an agent harness, a test runner — waiting on an end-of-file that never arrives, which surfaces as a silent stall rather than a failure. The closure runs inside the worker once its arguments validate, never in the forking shell, which still needs its own descriptors to reach the exec. Every wait a detached worker performs carries an exit for abandonment — its owner gone, the state directory it depends on removed, or an absolute bound — and not only an exit for success.
 
+### Command palette
+A Herdr plugin that opens an overlay pane listing declared commands and runs the one the user picks.
+
+Nothing in it is discovered. Its rows are hand-written configuration merged from a global set and a project-local set found by walking up from the invoking pane's working directory, so a capability appears in the palette only because someone declared it there — the usual assumption that a palette enumerates what an application can do is false here. It is reached by keybinding, dispatched as a plugin action rather than called directly. It is a singleton identified by a token on its own pane, so a second open focuses the existing one, and a pane that merely holds its source file open is not it. When its fuzzy-finder dependency is absent it refuses to start rather than degrading, because a silent fallback would hide a broken deployment.
+
+### Palette command
+One row inside the command palette: a title, a group, an origin, and a kind that decides how the row executes.
+
+A command is declared in the palette's own configuration, never in a plugin manifest, and one of its kinds dispatches a plugin action — so the two nest, and "add an action to the palette" is ambiguous until the speaker says which they mean. A command that offers choices may take them from statically declared options or by running a command at invocation time and reading its output lines, under a timeout. Dynamically sourced *actions* do not exist: the palette never enumerates what other plugins expose.
+
+### Plugin action
+An entry point a plugin declares in its manifest, addressed by plugin id and action id, which Herdr dispatches in response to a keybinding or an explicit invocation.
+
+Actions are the surface Herdr itself knows about, and a plugin declares a small fixed set of them. A palette command is not an action; it is a row that may dispatch one.
+
+### Plugin registry
+The record of which plugins a Herdr server has, keyed by plugin id.
+
+It stores each plugin's root path rather than a copy, so deleting the linked directory leaves the entry visible while stripping its actions from resolution — the breakage surfaces at keypress, not at registration. Registration is addressed by socket rather than by home directory, and that is the trap: a link command run against a redirected home still mutates the live server's registry, so isolating one means clearing the environment rather than repointing home. A manifest change reaches the server only by re-linking, which validates the new manifest before replacing the existing registration in place, so no unlink-first window is needed. Enabling or disabling a plugin only flips a flag, and reloading configuration does not touch the registry at all.
+
 ## Theming
 
 ### Palette-only contract
-The rule that TUI theme files managed by this repo (Claude Code, opencode, pi) reference the terminal's ANSI palette slots — indices 0–15, `ansi:` names, or "terminal default" — never baked hex, so every tool follows the terminal scheme automatically. Enforced syntactically by the test suite; the terminal-theme-playground project is its visual counterpart ("eyes", not enforcement).
+The rule that TUI theme files managed by this repo (Claude Code, opencode, pi) reference the terminal's ANSI palette slots — indices 0–15, `ansi:` names, or "terminal default" — never baked hex, so every tool follows the terminal scheme automatically. The "palette" here is the terminal's colour table and is unrelated to the Command palette. Enforced syntactically by the test suite; the terminal-theme-playground project is its visual counterpart ("eyes", not enforcement).
 
 ## Agent platform
 
@@ -119,6 +139,11 @@ The guard fails closed. An environment that looks like a runner but carries no d
 The repository-owned execution contract selected by `MMS_CHEZMOI_UNATTENDED=1` for agent, continuous-integration, and test invocations of chezmoi. Its explicit full-fixture profile requires disposable-home authority and renders credential-sensitive targets with non-secret canaries; its host-partial profile omits those targets from comparison and names what was not checked. Both profiles prevent interactive credential access before a helper subprocess starts and preserve the ordinary `PATH`.
 
 Because the host-partial profile names its surviving targets explicitly, its comparison is delivered across as many chezmoi invocations as an argument-size budget allows rather than assumed to fit in one, and a single target too large for an empty budget aborts the run instead of being sent. The budget exists because chezmoi re-exports its whole invocation as one environment string to every template subprocess it spawns, where the operating system's per-string limit — not its total argument limit — applies.
+
+## Flagged ambiguities
+
+- "palette" carried three unrelated readings. The **Command palette** is Herdr's overlay launcher; the **Palette-only contract** concerns the terminal's ANSI colour table. Inline `# palette:` comments inside terminal-emulator configuration belong to the first sense — they are a hint format the palette parses to render its keybinding panel, not a colour declaration.
+- "action" and "command" were used interchangeably for palette entries — these are distinct. A **Plugin action** is declared in a manifest and dispatched by Herdr; a **Palette command** is a row in the palette's own configuration, and only some kinds of row reach an action.
 
 ## Retired
 
