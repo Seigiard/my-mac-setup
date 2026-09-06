@@ -11,7 +11,8 @@
 #
 # Two state files, one writer each (KTD10):
 #   usage/<key>    written by the statusline, read by the hook
-#   announce/<key> written by the hook, removed by the SessionStart injector
+#   goal/<key>     written by the hook, read by the statusline, removed by the
+#                  SessionStart injector after a compaction
 # Both are replaced whole by rename, so a shared file would let one writer
 # erase the other's fields.
 
@@ -24,30 +25,32 @@ CONTEXT_USAGE_STATE_DIR="${CONTEXT_USAGE_STATE_DIR:-${HOME:-}/.cache/context-usa
 # of the window: the system prompt is a fixed cost, so a percentage grew it
 # with the window -- 40k tokens against 200k, 200k against 1M.
 #
-# The bar is its only consumer. The announcement compares thresholds against
-# the number Claude Code itself reports, so an operator setting a threshold
-# writes the same figure the client shows rather than one shifted by an
-# allowance they cannot see.
+# The bar is its only consumer. The hint thresholds compare against the number
+# Claude Code itself reports, so an operator setting a threshold writes the
+# same figure the client shows rather than one shifted by an allowance they
+# cannot see.
 CONTEXT_USAGE_ALLOWANCE_TOKENS="${CONTEXT_USAGE_ALLOWANCE_TOKENS:-40000}"
 case "$CONTEXT_USAGE_ALLOWANCE_TOKENS" in
   '' | *[!0-9]*) CONTEXT_USAGE_ALLOWANCE_TOKENS=40000 ;;
 esac
 
-# Thresholds (R5). The context dimension counts tokens, not a share of the
-# window: what degrades a session is the amount of context it carries, and
+# Hint thresholds (R5). The context dimension counts tokens, not a share of
+# the window: what degrades a session is the amount of context it carries, and
 # that amount does not change when the same work runs against a 1M window
-# instead of a 200k one. A share of the window put the announcement at 650k
-# tokens on a 1M model, long past the point the operator wanted it.
+# instead of a 200k one. A share of the window put the hint at 650k tokens on a
+# 1M model, long past the point the operator wanted it.
 #
-# Against a 200k window the hard threshold lands at 95%, too late to act on;
-# the warning at 75% and the turn count still cover that case, which is why
-# there is no second, window-relative ceiling here. Turn counts come from the
-# U1 re-derivation of the local session-length distribution under the rule
-# this library evaluates.
-CONTEXT_USAGE_TOKENS_WARN="${CONTEXT_USAGE_TOKENS_WARN:-150000}"
-CONTEXT_USAGE_TOKENS_HARD="${CONTEXT_USAGE_TOKENS_HARD:-190000}"
-CONTEXT_USAGE_TURNS_WARN="${CONTEXT_USAGE_TURNS_WARN:-150}"
-CONTEXT_USAGE_TURNS_HARD="${CONTEXT_USAGE_TURNS_HARD:-300}"
+# These are the point where carrying the session further starts costing real
+# money, not a ceiling. Nothing halts and nothing interrupts: crossing one only
+# makes the status line offer a ready-made compaction command. The token figure
+# is deliberately well below any window's limit, because the cost of context is
+# paid on every turn from the first token rather than at the edge.
+#
+# Stated as load -- the same figure the status line prints -- so the operator
+# reads the threshold off the screen rather than off a number only the library
+# sees.
+CONTEXT_USAGE_TOKENS_HINT="${CONTEXT_USAGE_TOKENS_HINT:-100000}"
+CONTEXT_USAGE_TURNS_HINT="${CONTEXT_USAGE_TURNS_HINT:-150}"
 
 # Bound on the goal-extraction subprocess (R13). U1 measured 8-9s on real
 # 350-turn forks; the default leaves room for a slower model or a larger
@@ -82,13 +85,13 @@ esac
 # turn count carries the decision alone.
 CONTEXT_USAGE_MAX_AGE_SECONDS="${CONTEXT_USAGE_MAX_AGE_SECONDS:-300}"
 
-# Hard-threshold repeat cadence (R25, KTD12). The gap halves for every step of
-# distance past the threshold and floors at every turn. Derived from the
-# current distance rather than from a stored counter, so a resume or a fork
-# cannot carry a stale cadence.
-CONTEXT_USAGE_REPEAT_FIRST_GAP="${CONTEXT_USAGE_REPEAT_FIRST_GAP:-8}"
-CONTEXT_USAGE_TOKENS_REPEAT_STEP="${CONTEXT_USAGE_TOKENS_REPEAT_STEP:-10000}"
-CONTEXT_USAGE_TURNS_REPEAT_STEP="${CONTEXT_USAGE_TURNS_REPEAT_STEP:-25}"
+# How many turns a stored goal stays in use before the hook extracts a fresh
+# one. The goal is a starting point the operator edits, not a claim about the
+# session, so some drift is the price of not forking a model every turn.
+CONTEXT_USAGE_GOAL_REFRESH_TURNS="${CONTEXT_USAGE_GOAL_REFRESH_TURNS:-10}"
+case "$CONTEXT_USAGE_GOAL_REFRESH_TURNS" in
+  '' | *[!0-9]* | 0) CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 ;;
+esac
 
 context_usage_encode_key() {
   # Parameter expansion rather than a tr pipeline. This runs on every state
@@ -139,9 +142,9 @@ context_usage_usage_file() {
   printf '%s/usage/%s' "$CONTEXT_USAGE_STATE_DIR" "$(context_usage_encode_key "$1")"
 }
 
-context_usage_announce_file() {
+context_usage_goal_file() {
   [ -n "${1:-}" ] || return 1
-  printf '%s/announce/%s' "$CONTEXT_USAGE_STATE_DIR" "$(context_usage_encode_key "$1")"
+  printf '%s/goal/%s' "$CONTEXT_USAGE_STATE_DIR" "$(context_usage_encode_key "$1")"
 }
 
 context_usage_field() {
@@ -181,15 +184,25 @@ window_size=$window
 written_at=$now"
 }
 
-# The operator's bar: occupancy plus the allowance, as a share of the window,
-# capped at 100. Presentation only -- the announcement decides on the tokens
-# themselves. Both come through this library so they cannot disagree about
-# either input (R1, R2); this is the only place a percentage is formed.
-context_usage_fullness_pct() {
-  local current="$1" window="$2" pct
+# The session's context load: the occupancy Claude Code reports plus the
+# allowance it does not. This is the quantity everything else is expressed in
+# -- the bar's percentage, the figure the status line prints beside it, and the
+# hint thresholds -- so that a reader who divides the figure by the window
+# arrives at the percentage shown, and an operator who moves a threshold moves
+# the number they can see (R1, R2).
+context_usage_load_tokens() {
+  local current="$1"
   case "$current" in '' | *[!0-9]*) return 1 ;; esac
+  printf '%s' "$((current + CONTEXT_USAGE_ALLOWANCE_TOKENS))"
+}
+
+# The operator's bar: the load as a share of the window, capped at 100. This is
+# the only place a percentage is formed.
+context_usage_fullness_pct() {
+  local current="$1" window="$2" load pct
+  load="$(context_usage_load_tokens "$current")" || return 1
   case "$window" in '' | *[!0-9]* | 0) return 1 ;; esac
-  pct=$(((current + CONTEXT_USAGE_ALLOWANCE_TOKENS) * 100 / window))
+  pct=$((load * 100 / window))
   [ "$pct" -gt 100 ] && pct=100
   printf '%s' "$pct"
 }
@@ -234,148 +247,72 @@ context_usage_turn_count() {
   return 0
 }
 
-# Turns to wait before announcing a hard threshold again, given how far past
-# it the session has gone. Halves each step, floors at every turn (R25).
-context_usage_repeat_gap() {
-  local distance="$1" step="$2" gap="$CONTEXT_USAGE_REPEAT_FIRST_GAP"
-  case "$distance" in '' | *[!0-9]*) distance=0 ;; esac
-  case "$step" in '' | *[!0-9]* | 0) step=1 ;; esac
-  while [ "$distance" -ge "$step" ] && [ "$gap" -gt 1 ]; do
-    gap=$((gap / 2))
-    distance=$((distance - step))
-  done
-  [ "$gap" -ge 1 ] || gap=1
-  printf '%s' "$gap"
-}
-
-# Decide what, if anything, to announce this turn. Read-only: spending the
-# budget is a separate call so the announcement file keeps one writer.
+# Whether the session has grown enough to be worth offering a compaction
+# command. Read-only and free of state: both numbers arrive from the caller,
+# so this answers the same way for the status line and for the hook.
 #
-# Usage: context_usage_evaluate <session> <tokens|""> <turns>
-# Prints `level=<warn|hard>` and `dimensions=<comma list>` and returns 0 when
-# there is something to announce; returns 1 when there is not.
-context_usage_evaluate() {
-  local session="$1" tokens="$2" turns="$3"
-  local file hard="" warn="" last gap
-  file="$(context_usage_announce_file "$session")" || return 1
+# Usage: context_usage_hint_due <tokens|""> <turns>
+# Returns 0 when either dimension has crossed its hint threshold. An empty
+# token count means the status line has not published one this turn, and the
+# turn count decides alone.
+context_usage_hint_due() {
+  local tokens="$1" turns="$2" load
   case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
-
-  # Hard level first: it outranks warn and, per R22, consumes the warn budget
-  # for the same dimension rather than producing a second message.
-  if [ -n "$tokens" ] && [ "$tokens" -ge "$CONTEXT_USAGE_TOKENS_HARD" ]; then
-    gap="$(context_usage_repeat_gap \
-      "$((tokens - CONTEXT_USAGE_TOKENS_HARD))" "$CONTEXT_USAGE_TOKENS_REPEAT_STEP")"
-    if last="$(context_usage_number_field "$file" hard_fullness_turn)"; then
-      if [ "$((turns - last))" -ge "$gap" ]; then
-        hard="fullness"
-      fi
-    else
-      hard="fullness"
-    fi
+  case "$tokens" in '' | *[!0-9]*) tokens="" ;; esac
+  if [ -n "$tokens" ]; then
+    # Compared as load, not as the raw report, so the threshold is stated in
+    # the same units the status line prints. A threshold measured against a
+    # number nobody displays cannot be reasoned about from the screen.
+    load="$(context_usage_load_tokens "$tokens")" || load=""
+    [ -n "$load" ] && [ "$load" -ge "$CONTEXT_USAGE_TOKENS_HINT" ] && return 0
   fi
-  if [ "$turns" -ge "$CONTEXT_USAGE_TURNS_HARD" ]; then
-    gap="$(context_usage_repeat_gap \
-      "$((turns - CONTEXT_USAGE_TURNS_HARD))" "$CONTEXT_USAGE_TURNS_REPEAT_STEP")"
-    if last="$(context_usage_number_field "$file" hard_turns_turn)"; then
-      if [ "$((turns - last))" -ge "$gap" ]; then
-        hard="${hard:+$hard,}turns"
-      fi
-    else
-      hard="${hard:+$hard,}turns"
-    fi
-  fi
-  # Warn level: once per session per dimension (R9), and one dimension having
-  # spent its budget never suppresses the other (R10).
-  if [ -n "$tokens" ] && [ "$tokens" -ge "$CONTEXT_USAGE_TOKENS_WARN" ] &&
-    ! context_usage_field "$file" warn_fullness_spent > /dev/null; then
-    warn="fullness"
-  fi
-  if [ "$turns" -ge "$CONTEXT_USAGE_TURNS_WARN" ] &&
-    ! context_usage_field "$file" warn_turns_spent > /dev/null; then
-    warn="${warn:+$warn,}turns"
-  fi
-
-  if [ -n "$hard" ]; then
-    # R22 allows one message per turn, so a dimension crossing warn in the same
-    # turn as another crosses hard is named in that one message rather than
-    # held back for the next one. It is reported separately because it did not
-    # cross hard and must not record a hard announcement point.
-    case ",$hard," in
-      *,fullness,*) warn="$(printf '%s' "$warn" | sed -e 's/^fullness,//' -e 's/,fullness$//' -e 's/^fullness$//')" ;;
-    esac
-    case ",$hard," in
-      *,turns,*) warn="$(printf '%s' "$warn" | sed -e 's/^turns,//' -e 's/,turns$//' -e 's/^turns$//')" ;;
-    esac
-    printf 'level=hard\ndimensions=%s\n' "$hard"
-    [ -z "$warn" ] || printf 'warn_dimensions=%s\n' "$warn"
-    return 0
-  fi
-
-  if [ -n "$warn" ]; then
-    printf 'level=warn\ndimensions=%s\n' "$warn"
-    return 0
-  fi
+  [ "$turns" -ge "$CONTEXT_USAGE_TURNS_HINT" ] && return 0
   return 1
 }
 
-# Record an announcement. Read-modify-write of the whole file; the Stop hook is
-# its only writer, so no merge with a concurrent writer is possible (KTD10).
+# Whether the stored goal is old enough to replace. A session with no goal
+# stored is always due, which is how the first extraction happens.
 #
-# Usage: context_usage_spend <session> <level> <dimensions> <turns> [goal] [goal_status]
-context_usage_spend() {
-  local session="$1" level="$2" dimensions="$3" turns="$4" goal="${5:-}" goal_status="${6:-}"
-  local file record="" warn_fullness warn_turns hard_fullness hard_turns stored_goal stored_status
-  file="$(context_usage_announce_file "$session")" || return 1
+# Turns, not seconds: a session idle overnight has not moved on, and a session
+# that ran twenty turns in five minutes has.
+context_usage_goal_stale() {
+  local session="$1" turns="$2" file stored
   case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
+  file="$(context_usage_goal_file "$session")" || return 0
+  stored="$(context_usage_number_field "$file" goal_turn)" || return 0
+  [ "$((turns - stored))" -ge "$CONTEXT_USAGE_GOAL_REFRESH_TURNS" ]
+}
 
-  warn_fullness="$(context_usage_field "$file" warn_fullness_spent || true)"
-  warn_turns="$(context_usage_field "$file" warn_turns_spent || true)"
-  hard_fullness="$(context_usage_number_field "$file" hard_fullness_turn || true)"
-  hard_turns="$(context_usage_number_field "$file" hard_turns_turn || true)"
-  stored_goal="$(context_usage_field "$file" goal || true)"
-  stored_status="$(context_usage_field "$file" goal_status || true)"
-
-  case ",$dimensions," in
-    *,fullness,*)
-      warn_fullness=1
-      if [ "$level" = hard ]; then
-        hard_fullness="$turns"
-      fi
-      ;;
-  esac
-  case ",$dimensions," in
-    *,turns,*)
-      warn_turns=1
-      if [ "$level" = hard ]; then
-        hard_turns="$turns"
-      fi
-      ;;
-  esac
-
-  # The goal is extracted once and thereafter reused (KD5, R9). A later call
-  # supplying nothing keeps what is already stored.
-  if [ -n "$goal_status" ] && [ -z "$stored_status" ]; then
-    stored_status="$goal_status"
-    stored_goal="$(context_usage_encode_value "$goal")"
-  fi
-
-  # An unset field is written as no line at all, so a reader never has to tell
-  # an empty value from an unspent budget.
+# Record the goal the hook extracted, and the turn it describes. The whole
+# record is rewritten, so this is the only writer of the announce file and a
+# failed extraction is stored as such rather than left looking absent.
+#
+# Usage: context_usage_store_goal <session> <goal> <status> <turn>
+context_usage_store_goal() {
+  local session="$1" goal="$2" status="$3" turns="$4" file record
+  file="$(context_usage_goal_file "$session")" || return 1
+  case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
+  [ -n "$status" ] || return 1
   record="$(
-    if [ -n "$warn_fullness" ]; then printf 'warn_fullness_spent=1\n'; fi
-    if [ -n "$warn_turns" ]; then printf 'warn_turns_spent=1\n'; fi
-    if [ -n "$hard_fullness" ]; then printf 'hard_fullness_turn=%s\n' "$hard_fullness"; fi
-    if [ -n "$hard_turns" ]; then printf 'hard_turns_turn=%s\n' "$hard_turns"; fi
-    if [ -n "$stored_status" ]; then printf 'goal_status=%s\n' "$stored_status"; fi
-    if [ -n "$stored_goal" ]; then printf 'goal=%s\n' "$stored_goal"; fi
+    printf 'goal_status=%s\n' "$status"
+    printf 'goal_turn=%s\n' "$turns"
+    if [ -n "$goal" ]; then printf 'goal=%s\n' "$(context_usage_encode_value "$goal")"; fi
   )"
   context_usage_atomic_write "$file" "$record"
+}
+
+# The turn count the stored goal was extracted at. Non-zero when none is
+# stored.
+context_usage_goal_turn() {
+  local file
+  file="$(context_usage_goal_file "$1")" || return 1
+  context_usage_number_field "$file" goal_turn
 }
 
 # Non-zero when no goal has been extracted for this session yet.
 context_usage_goal_status() {
   local file
-  file="$(context_usage_announce_file "$1")" || return 1
+  file="$(context_usage_goal_file "$1")" || return 1
   context_usage_field "$file" goal_status
 }
 
@@ -383,18 +320,21 @@ context_usage_goal_status() {
 # how a caller knows to run the extractor rather than reuse (KD5).
 context_usage_goal() {
   local file encoded
-  file="$(context_usage_announce_file "$1")" || return 1
+  file="$(context_usage_goal_file "$1")" || return 1
   encoded="$(context_usage_field "$file" goal)" || return 1
   printf '%s\n' "$(context_usage_decode_value "$encoded")"
 }
 
-# Compaction re-arms every budget (R11). The SessionStart injector owns this.
+# Compaction retires the stored goal (R11). The SessionStart injector owns
+# this: the goal named what the session was finishing before the compaction,
+# and it is also what makes the status line offer a command at all, so leaving
+# it behind would advertise a second compaction the moment the first finished.
 context_usage_clear() {
   local file
-  file="$(context_usage_announce_file "$1")" || return 1
+  file="$(context_usage_goal_file "$1")" || return 1
   rm -f "$file" 2>/dev/null
   # The post-condition is what matters, not which call removed it. A caller
-  # that treats a failed unlink as fatal would leave the budgets spent and the
-  # session unable to announce again for the rest of its life.
+  # that treats a failed unlink as fatal would leave the stale goal in place
+  # for the rest of the session's life.
   [ ! -e "$file" ]
 }

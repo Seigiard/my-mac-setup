@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
-# Stop hook: announce when a session has outgrown itself, and halt at the
-# hard threshold.
+# Stop hook: keep a ready-to-paste compaction command current for a session
+# that has grown enough to be worth compacting.
 #
-# Auto-compact is off in this setup, so a session that reaches the context
-# limit loses the conversation. Two independent signs are watched: how many
-# tokens of context the session carries, and how many turns have accumulated
-# since the last compaction. Either one is enough to act on.
+# This hook produces no output at all. It writes one goal into state; the
+# status line reads it and renders `/compact handoff:<goal>` where the
+# operator can see it every turn without scrolling. Nothing here interrupts a
+# turn, halts a session, or reaches the model.
 #
-# The announcement is addressed to the operator, not the model.
-# `systemMessage` renders in the operator's UI and never enters model
-# context, so it costs no tokens and the agent does not react to it. At the
-# hard level the same message is emitted alongside `continue: false`, because
-# Claude Code discards a Stop-hook halt on several end-turn paths while still
-# rendering the hook's message -- the message survives exactly the path that
-# swallows the halt.
+# That division is deliberate. Growth costs money on every turn from the first
+# token, so the signal has to be ambient rather than an event: an interruption
+# would have to pick a moment, and every moment it could pick is wrong for
+# somebody. The status line has no moment to pick.
+#
+# The goal is extracted by a cheap model and goes stale between refreshes by
+# design. It is a starting point the operator edits, not a claim about the
+# session -- which is what makes refreshing it every few turns affordable.
 #
 # This hook runs at the end of every turn of every session. Everything before
-# the announcement is file reads and integer arithmetic; the model call
-# happens once or twice in a session's life.
+# the refresh decision is file reads and integer arithmetic; the model call
+# happens once per refresh interval, and only past the hint threshold.
 #
-# Fails open: any missing dependency, unreadable input, parse error, or
-# unreadable state exits 0 and silent. The hard threshold's halt is the one
-# deliberate exception and the only non-silent path.
+# Fails open in every direction: any missing dependency, unreadable input,
+# parse error, or unwritable state exits 0 and silent. Silence costs the
+# operator a stale command line, never a turn.
 
 set -uo pipefail
 
@@ -245,98 +246,26 @@ turns=$(context_usage_turn_count "$transcript") || turns=0
 case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
 tokens=$(context_usage_read_tokens "$session_id") || tokens=""
 
-crossing=$(context_usage_evaluate "$session_id" "$tokens" "$turns") || exit 0
-level=$(printf '%s' "$crossing" | sed -n 's/^level=//p')
-dimensions=$(printf '%s' "$crossing" | sed -n 's/^dimensions=//p')
-warn_dimensions=$(printf '%s' "$crossing" | sed -n 's/^warn_dimensions=//p')
-[ -n "$level" ] && [ -n "$dimensions" ] || exit 0
+# Below the hint the session is not worth compacting yet, so there is nothing
+# to keep current and no reason to spend a model call.
+context_usage_hint_due "$tokens" "$turns" || exit 0
 
-# Announcement state is what makes "once per session" true. If it cannot be
-# recorded, every later turn would re-extract a goal and re-issue the halt, so
-# the hook fails open rather than announcing something it cannot remember.
-# Checked here, on the branch that is about to announce, rather than on the
-# silent path every turn of every session takes.
-context_usage_spend "$session_id" "$level" "" "$turns" > /dev/null 2>&1 || exit 0
+# Past the hint, the stored goal is refreshed on a fixed turn cadence rather
+# than kept for the life of the session. A goal extracted two hundred turns
+# ago names work that finished long ago, and pasting it would carry the wrong
+# instruction through the compaction it was meant to protect.
+context_usage_goal_stale "$session_id" "$turns" || exit 0
 
-# One message names everything that crossed this turn. A dimension that
-# reached only the warning level while another reached the limit is reported
-# here rather than held over to the next turn (R22).
-context_threshold_crossed_at() {
-  case ",$2," in
-    *,"$1",*) return 0 ;;
-  esac
-  return 1
-}
-
-detail=""
-if context_threshold_crossed_at turns "$dimensions"; then
-  if [ "$level" = hard ]; then
-    detail="$turns turns since the last compaction (limit $CONTEXT_USAGE_TURNS_HARD)"
-  else
-    detail="$turns turns since the last compaction (warn at $CONTEXT_USAGE_TURNS_WARN)"
-  fi
-elif context_threshold_crossed_at turns "$warn_dimensions"; then
-  detail="$turns turns since the last compaction (warn at $CONTEXT_USAGE_TURNS_WARN)"
-fi
-# Thousands, because the operator's own threshold is stated that way and the
-# exact token is never the point. Truncated rather than rounded: a message
-# saying 150k must mean the threshold was reached, not approached.
-context_threshold_thousands() {
-  printf '%sk' "$(($1 / 1000))"
-}
-
-if context_threshold_crossed_at fullness "$dimensions"; then
-  if [ "$level" = hard ]; then
-    detail="${detail:+$detail and }context at $(context_threshold_thousands "$tokens") tokens (limit $(context_threshold_thousands "$CONTEXT_USAGE_TOKENS_HARD"))"
-  else
-    detail="${detail:+$detail and }context at $(context_threshold_thousands "$tokens") tokens (warn at $(context_threshold_thousands "$CONTEXT_USAGE_TOKENS_WARN"))"
-  fi
-elif context_threshold_crossed_at fullness "$warn_dimensions"; then
-  detail="${detail:+$detail and }context at $(context_threshold_thousands "$tokens") tokens (warn at $(context_threshold_thousands "$CONTEXT_USAGE_TOKENS_WARN"))"
-fi
-
-# The goal is extracted once per session and reused by every later
-# announcement, including every hard-threshold repeat. Knowing whether the
-# goal has changed would require extracting it again, which would fork the
-# whole session on every turn of exactly the sessions this hook exists to
-# make cheaper. A goal that has gone stale costs the operator one edit.
-goal=""
-goal_status="$(context_usage_goal_status "$session_id" 2>/dev/null)" || goal_status=""
-if [ -n "$goal_status" ]; then
-  [ "$goal_status" = ok ] && goal="$(context_usage_goal "$session_id" 2>/dev/null)"
+if goal="$(context_threshold_extract_goal "$transcript")" && [ -n "$goal" ]; then
+  goal_status=ok
 else
-  goal="$(context_threshold_extract_goal "$transcript")" || goal=""
-  if [ -n "$goal" ]; then
-    goal_status=ok
-  else
-    goal_status=failed
-  fi
+  # A failed extraction is stored, not left absent. Storing it moves the turn
+  # marker forward, so a session whose extractor is broken retries on the
+  # cadence instead of on every turn -- and the status line still shows the
+  # command, with the goal left for the operator to fill in.
+  goal=""
+  goal_status=failed
 fi
 
-if [ -n "$goal" ]; then
-  command_line="/compact handoff:$goal"
-  note=""
-else
-  command_line="/compact handoff:<what you are trying to finish>"
-  note=" Goal extraction failed, so fill the goal in yourself."
-fi
-
-if [ "$level" = hard ]; then
-  message="Context limit reached: $detail.$note Compact now, editing the goal as you like:
-$command_line"
-  reason="Stopped at the context limit: $detail. Run this command to carry the current goal through compaction:
-$command_line
-Or send another prompt to continue anyway."
-  context_usage_spend "$session_id" hard "$dimensions" "$turns" "$goal" "$goal_status" > /dev/null 2>&1 || true
-  [ -z "$warn_dimensions" ] ||
-    context_usage_spend "$session_id" warn "$warn_dimensions" "$turns" > /dev/null 2>&1 || true
-  jq -n --arg message "$message" --arg reason "$reason" \
-    '{continue: false, stopReason: $reason, systemMessage: $message}' 2>/dev/null || exit 0
-  exit 0
-fi
-
-message="Context growing: $detail.$note Compact when convenient, editing the goal as you like:
-$command_line"
-context_usage_spend "$session_id" warn "$dimensions" "$turns" "$goal" "$goal_status" > /dev/null 2>&1 || true
-jq -n --arg message "$message" '{systemMessage: $message}' 2>/dev/null || exit 0
+context_usage_store_goal "$session_id" "$goal" "$goal_status" "$turns" > /dev/null 2>&1 || exit 0
 exit 0

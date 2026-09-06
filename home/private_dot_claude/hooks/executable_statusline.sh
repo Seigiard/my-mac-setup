@@ -72,6 +72,7 @@ progress_bar() {
 
 CURRENT_DIR=$(echo "$input" | jq -r '.workspace.current_dir // "."')
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
+SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
 
 FOLDER="${CURRENT_DIR##*/}"
 
@@ -95,7 +96,6 @@ if [ "$usage" != "null" ]; then
     # publishing them is the only way the Stop hook can see fullness at all.
     # A failed write costs the hook one dimension and the bar nothing.
     if command -v context_usage_write_usage > /dev/null 2>&1; then
-        SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
         [ -n "$SESSION_ID" ] &&
             context_usage_write_usage "$SESSION_ID" "$current" "$size" > /dev/null 2>&1
     fi
@@ -105,11 +105,47 @@ fi
 
 BAR=$(progress_bar "$CONTEXT_PCT")
 
+# Thousands, because the exact token is never the point and the figure has to
+# fit beside the bar. Truncated rather than rounded, so 190k never means a
+# session that has not reached 190k.
+CONTEXT_LOAD=""
+if command -v context_usage_load_tokens > /dev/null 2>&1; then
+    LOAD_TOKENS="$(context_usage_load_tokens "${current:-}" 2>/dev/null)" &&
+        CONTEXT_LOAD="$((LOAD_TOKENS / 1000))k · ${CONTEXT_PCT}%"
+fi
+
+# The percentage alone hides what the operator is paying for. On a 1M window
+# 190k tokens render as 19%, which reads as room to spare while every turn is
+# billed for all of it. The absolute figure is the one that tracks the cost.
 CC_INFO="${BOLD}${GREEN}${MODEL}${RESET} ${DIM}${GREEN}${BAR}${RESET}"
+[ -z "$CONTEXT_LOAD" ] || CC_INFO="${CC_INFO} ${DIM}${GRAY}${CONTEXT_LOAD}${RESET}"
 
 FOLDER_INFO="${BOLD}${FOLDER}${RESET}"
 [ -n "$GIT_BRANCH" ] && FOLDER_INFO="${FOLDER_INFO} ${PURPLE}[${GIT_BRANCH}]${RESET}"
 
 STATUS_LINE="${FOLDER_INFO}${DIM}${GRAY} ❯ ${RESET}${CC_INFO}"
 
-printf '%b\n' "${STATUS_LINE}\n "
+# The second line carries a compaction command the operator can read and adapt
+# without scrolling back for one. It appears only once the Stop hook has stored
+# a goal, which it does only past the hint threshold -- so the presence of the
+# goal is the whole condition, and this side needs no threshold of its own.
+#
+# The goal is capped here rather than in state. What is stored stays whole for
+# anyone who copies it; what is drawn has to survive a terminal that truncates
+# the line, and a cut mid-command would read as a shorter command rather than
+# as a longer one cut off.
+COMPACT_LINE=" "
+if [ -n "$SESSION_ID" ] && command -v context_usage_goal_status > /dev/null 2>&1; then
+    GOAL_STATUS="$(context_usage_goal_status "$SESSION_ID" 2>/dev/null)"
+    if [ "$GOAL_STATUS" = ok ]; then
+        GOAL="$(context_usage_goal "$SESSION_ID" 2>/dev/null)"
+        [ "${#GOAL}" -le 88 ] || GOAL="${GOAL:0:87}…"
+    elif [ "$GOAL_STATUS" = failed ]; then
+        GOAL="<what you are trying to finish>"
+    else
+        GOAL=""
+    fi
+    [ -z "$GOAL" ] || COMPACT_LINE="${DIM}${GRAY}/compact handoff:${RESET} ${DIM}${GOAL}${RESET}"
+fi
+
+printf '%b\n' "${STATUS_LINE}\n${COMPACT_LINE}"
