@@ -11,7 +11,7 @@ priority: "low"
 
 ## Why this exists
 
-`2026-09-02-012` added `tests/bashunit/scripts_test.sh` test 1209, which compares the stub
+PR #179 added `tests/bashunit/scripts_test.sh` test 1209, which compares the stub
 herdr's `api snapshot` envelope against the installed binary. It was deliberately scoped to the
 **top-level `result` keys**, because anything below that belongs to herdr and restating it locally
 would reimplement upstream semantics — the failure mode that issue exists to avoid.
@@ -35,7 +35,8 @@ of the four — `grep` for `focused_` and `.version` in the engine is empty — 
 assertion is wrong. It becomes live the moment the engine starts using focus information, and at
 that point every pane-label test would keep passing against a stub that cannot supply it.
 
-This is the same drift class `2026-09-02-012` documented, where `d080d31` had to correct the
+This is the same drift class `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md`
+documents, where PR #115 had to correct the
 stub's sequence comparison by hand because no test compared the fake to the real binary.
 
 ## Scope

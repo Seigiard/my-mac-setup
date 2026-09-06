@@ -57,3 +57,11 @@ Library/marta
 .claude/hooks/webfetch-markdown-hint.sh
 .local/bin/test-oracle-guard
 .local/bin/zsh-reserved-name-guard
+
+# The PreCompact handoff builder now derives the goal from the session itself,
+# so nothing measures context growth between turns. Deployed settings.json no
+# longer registers the Stop hook, and the state directory it kept is unread.
+# Left behind, the script is a dead executable a stale registration could still
+# reach.
+.claude/hooks/context-threshold.sh
+.cache/context-usage

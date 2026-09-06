@@ -199,7 +199,7 @@ herdr notification show "PM: decision ready" --body "pick 1 or 3" --sound reques
 
 - `herdr-plugin.toml` edits are picked up ONLY by re-running `herdr plugin link <dir>` (`server reload-config` reads config.toml only; `plugin disable`/`enable` flips a flag only).
 - `[[panes]] width/height` in the manifest are ignored by `plugin pane open` — pass `--width`/`--height` explicitly (PopupSize: cells or `"N%"`).
-- `defaults/commands.toml` seeds only the first run; the palette reads `~/.config/herdr/command-palette/commands.toml` (mutable user copy, not chezmoi-managed) — sync manually after editing defaults.
+- The palette reads `~/.config/herdr/command-palette/commands.toml`, which **is** chezmoi-managed — edit the source in the dotfiles repo, because `chezmoi apply` overwrites the live copy. The read-only `defaults/` seed that earlier applies left inside the plugin directory is gone; there is nothing to sync by hand.
 - Popups are a per-workspace singleton (`plugin_pane_open_failed: popup already open`). To open a popup from the palette (itself a popup): `type = "shell"`, `pause = false`, `nohup bash -c "sleep 0.4; herdr plugin pane open …" &` — the palette closes, the detached process opens the popup into the freed slot.
 
 ## Safety and coordination rules

@@ -29,10 +29,10 @@ herdr_record_session_cwd() {
 herdr_record_session_cwd
 
 # The shared context-usage library owns the system-prompt allowance and the
-# state file the context-threshold Stop hook reads (R1, R2, KTD2). Sourcing it
-# is best-effort: a partially applied home must still render a status line.
-# There is no second definition of the allowance here -- an unsourced library
-# means no allowance is known, not that 20 is assumed somewhere else too.
+# arithmetic that turns it into a percentage (R1, R2). Sourcing it is
+# best-effort: a partially applied home must still render a status line. There
+# is no second definition of the allowance here -- an unsourced library means
+# no allowance is known, not that 20 is assumed somewhere else too.
 CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-$HOME/.local/lib/context-usage.sh}"
 if [ -r "$CONTEXT_USAGE_LIBRARY" ]; then
     # shellcheck source=home/dot_local/lib/context-usage.sh
@@ -91,25 +91,30 @@ if [ "$usage" != "null" ]; then
     else
         CONTEXT_PCT=$((current * 100 / size))
     fi
-    # Claude Code hands these counts to the status line and to nothing else, so
-    # publishing them is the only way the Stop hook can see fullness at all.
-    # A failed write costs the hook one dimension and the bar nothing.
-    if command -v context_usage_write_usage > /dev/null 2>&1; then
-        SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
-        [ -n "$SESSION_ID" ] &&
-            context_usage_write_usage "$SESSION_ID" "$current" "$size" > /dev/null 2>&1
-    fi
 else
     CONTEXT_PCT="0"
 fi
 
 BAR=$(progress_bar "$CONTEXT_PCT")
 
+# Thousands, because the exact token is never the point and the figure has to
+# fit beside the bar. Truncated rather than rounded, so 190k never means a
+# session that has not reached 190k.
+CONTEXT_LOAD=""
+if command -v context_usage_load_tokens > /dev/null 2>&1; then
+    LOAD_TOKENS="$(context_usage_load_tokens "${current:-}" 2>/dev/null)" &&
+        CONTEXT_LOAD="$((LOAD_TOKENS / 1000))k · ${CONTEXT_PCT}%"
+fi
+
+# The percentage alone hides what the operator is paying for. On a 1M window
+# 190k tokens render as 19%, which reads as room to spare while every turn is
+# billed for all of it. The absolute figure is the one that tracks the cost.
 CC_INFO="${BOLD}${GREEN}${MODEL}${RESET} ${DIM}${GREEN}${BAR}${RESET}"
+[ -z "$CONTEXT_LOAD" ] || CC_INFO="${CC_INFO} ${DIM}${GRAY}${CONTEXT_LOAD}${RESET}"
 
 FOLDER_INFO="${BOLD}${FOLDER}${RESET}"
 [ -n "$GIT_BRANCH" ] && FOLDER_INFO="${FOLDER_INFO} ${PURPLE}[${GIT_BRANCH}]${RESET}"
 
 STATUS_LINE="${FOLDER_INFO}${DIM}${GRAY} ❯ ${RESET}${CC_INFO}"
 
-printf '%b\n' "${STATUS_LINE}\n "
+printf '%b\n' "${STATUS_LINE}"

@@ -467,7 +467,7 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
 }
 
 function test_templates_0154_private_settings_carry_every_context_handoff_registration() {
-  _bats_test_init 154 'private settings carry all three context-handoff registrations at once'
+  _bats_test_init 154 'private settings carry both handoff registrations at once'
   local command
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
@@ -476,8 +476,7 @@ function test_templates_0154_private_settings_carry_every_context_handoff_regist
   # drops one of them while leaving the others in place -- the failure mode no
   # single-hook assertion can see.
   run jq -e '
-    ([.hooks.Stop[]?.hooks[]?.command] | any(contains("context-threshold.sh")))
-    and ([.hooks.PreCompact[]?.hooks[]?.command] | any(contains("handoff-pre-compact.sh")))
+    ([.hooks.PreCompact[]?.hooks[]?.command] | any(contains("handoff-pre-compact.sh")))
     and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("handoff-session-start.sh")))
     and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("herdr-agent-state.sh")))
   ' "$BATS_TEST_TMPFILE"
@@ -494,37 +493,9 @@ function test_templates_0154_private_settings_carry_every_context_handoff_regist
     assert_success
     assert_file_exists "$output"
   done <<'EOF'
-context-threshold.sh
 handoff-pre-compact.sh
 handoff-session-start.sh
 EOF
-}
-
-function test_templates_0153_private_settings_register_the_context_threshold_stop_hook() {
-  _bats_test_init 153 'private settings register the context threshold Stop hook with room for extraction'
-  local bound declared
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-
-  run jq -r '.hooks.Stop[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
-  assert_success
-  assert_output --partial 'context-threshold.sh'
-  run chezmoi_host_partial source-path \
-    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/context-threshold.sh"
-  assert_success
-  assert_file_exists "$output"
-
-  # The hook bounds its own goal extraction. A declared timeout at or below
-  # that bound lets the platform truncate a call the hook is already managing,
-  # so the two numbers are compared rather than both restated.
-  bound="$(bash -c '. "$1"; printf "%s" "$CONTEXT_USAGE_EXTRACTION_TIMEOUT"' \
-    _ "$SOURCE_ROOT/dot_local/lib/context-usage.sh")"
-  run test -n "$bound"
-  assert_success
-  declared="$(jq -r '[.hooks.Stop[]?.hooks[]?
-    | select(.command | contains("context-threshold.sh")) | .timeout] | first' "$BATS_TEST_TMPFILE")"
-  run test "$declared" -gt "$bound"
-  assert_success
 }
 
 # ===========================================

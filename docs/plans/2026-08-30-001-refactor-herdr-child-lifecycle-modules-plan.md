@@ -337,7 +337,7 @@ Treat any full-suite stall as incomplete evidence even if an isolated case passe
 - Deployed `herdr-child --help` resolves every new module after disposable apply.
 - `make lint`, `make test-issues`, `make test-ubuntu`, and `git diff --check`
   pass. The incomplete host-only diff is recorded in
-  `2026-08-30-006-make-test-local-stalls-in-host-diff` and is not promoted to
+  PR #165 (`cbccaa6`), formerly issue `2026-08-30-006`, and is not promoted to
   checkout deployment evidence.
 - The repository issue is closed with the final verification evidence.
 - No abandoned compatibility shim, generated assembly, duplicate helper, or experimental test code remains.

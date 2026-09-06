@@ -184,5 +184,8 @@ Informed approval is also only half of the cost control. The other half is a spe
 - `docs/se-pipeline.md` (removed 2026-09-01 with the Smithers runtime; git history only) — runbook: check-mark-is-not-a-verdict, and the per-gate table of what `approve` means at each gate.
 - `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md` — sibling pattern: a step that dies quietly must not read as a clean pass. Same family, one layer earlier — there the *machine* misread the evidence, here the *human* did.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — fail-closed at a different boundary; a scanner crash is never a clean pass.
+- `home/private_dot_claude/shared/decision-brief.md:8-18` — the live successor of rule 3: the
+  four-part brief, one decision per turn, and per-option consequences, re-anchored at the point
+  where a decision is asked. It outlived the pipeline that produced it.
 - Closed issues above are bare IDs, for archaeology in git history: `2026-08-14-006`, `2026-08-14-015`, `2026-08-14-016`, `2026-08-14-017`, `2026-08-14-018`, `2026-08-14-019`, `2026-08-14-020`.
   Those files were removed in the closed-issue cleanup; the evidence they carried is reproduced inline above.

@@ -75,7 +75,7 @@ Arithmetic assertions follow the same rule:
 (( count > 0 )) || fail "expected a positive count: $count"
 ```
 
-PR [#91](https://github.com/Seigiard/my-mac-setup/pull/91) converted all 29 first-party standalone checks and added `scripts/check_bats_assertions.py` to `make lint`. The checker recursively inspects first-party `.bats` files and rejects covered `[[ ... ]]` and `(( ... ))` command shapes without explicit status handling. It excludes vendored Bats libraries and distinguishes executable conditionals from quoted text, comments, heredocs, here-strings, arithmetic expansions, multiline conditionals, and normal `if` or `while` control flow.
+PR [#91](https://github.com/Seigiard/my-mac-setup/pull/91) converted all 29 first-party standalone checks and added `scripts/check_bats_assertions.py` to `make lint`. At the time it inspected first-party `.bats` files and excluded vendored Bats libraries; no `.bats` file and no `tests/helpers/bats-libs/` remain today, and its live scope is `tests/bashunit/*_test.sh`, `tests/helpers/*.bash`, and `tests/bashunit/*.bash`. It rejects covered `[[ ... ]]` and `(( ... ))` command shapes without explicit status handling, and distinguishes executable conditionals from quoted text, comments, heredocs, here-strings, arithmetic expansions, multiline conditionals, and normal `if` or `while` control flow.
 
 The checker resumes after each recognized compound conditional and inspects later same-line command segments. `2026-08-28-004` records the regression coverage that prevents an explicitly handled first conditional from hiding a later bare conditional.
 
@@ -95,14 +95,14 @@ relies on the test body's final exit status:
 5. The runner sees a zero final status and reports the test as passing.
 
 This held under bats, whose `bats-exec-test` ran generated `@test` functions under `set -eET`, and it
-holds today under the house DSL. `tests/bashunit/test-dsl.bash:16-21` documents the inheritance
+holds today under the house DSL. `tests/bashunit/test-dsl.bash:17-21` documents the inheritance
 explicitly, and names this document as the reason:
 
 > Failure detection is an ERR trap with errtrace (`set -E`, no errexit) plus the body's final exit
 > status. This matches bats' `set -eET` on the same interpreter — helper-depth command failures fail
 > the test, while the bash-3.2 quirk stays: a mid-body `[[ ]]`/`(( ))` false is inert.
 
-The DSL installs that trap as `_BATS_ERR_TRAP` (`test-dsl.bash:37`, armed at `:59` and `:129`). Because
+The DSL installs that trap as `_BATS_ERR_TRAP` (`test-dsl.bash:37`), arms it per test in `_bats_test_init` at `:473` alongside `set -E`, and re-arms it after `_bats_assert_pass` at `:59` and `run` at `:129`. Because
 it deliberately reproduces bats' semantics on the same interpreter, it reproduces this defect too.
 
 With `[[ ... ]] || fail "..."`, false selects the explicit failure branch. `fail` returns nonzero with
@@ -118,8 +118,7 @@ communicate an assertion.
 
 > **Naming note.** The title and slug of this document say "Bats" because bats was the runner when the
 > defect was found. The repository migrated to bashunit in `051d3de`; the defect, the guard, and the fix
-> are unchanged. The slug is retained because `tests/bashunit/test-dsl.bash` and
-> `scripts/check_bats_assertions.py` both cite this file by path.
+> are unchanged. The slug is retained because `tests/bashunit/test-dsl.bash:21` cites this file by path.
 
 ## Prevention
 
@@ -134,16 +133,17 @@ Verification recorded when the fix landed (2026-08-28, on the then-current bats 
 `make test-ubuntu` at 403 cases with expected skips. Those counts have moved since the bashunit
 migration and are kept as the historical record, not as current expected values.
 
-The guard's scope grew with the migration. `scripts/check_bats_assertions.py:229-247` now globs
-`bashunit/*_test.sh`, `helpers/*.bash` and `bashunit/*.bash` alongside any remaining `*.bats`, with the
-comment "`.bats` files disappear in a later migration stage; their absence is fine." It scans whole
-files rather than only `test_*` bodies, because helpers run in the same test context.
+The guard's scope moved with the migration. `scripts/check_bats_assertions.py:228-241` globs
+`bashunit/*_test.sh`, `helpers/*.bash` and `bashunit/*.bash`. The `*.bats` glob and its vendored
+`helpers/bats-libs/` exclusion were removed once no `.bats` file remained, so the checker no longer
+scans that extension at all; restoring it means restoring the glob. It scans whole files rather than
+only `test_*` bodies, because helpers run in the same test context.
 
 ## Related Issues
 
 - `2026-08-27-002` records the repository issue and resolution.
-- Closed issues above are bare IDs, for archaeology in git history: `2026-08-27-002`, `2026-08-28-004`.
-  Both files were removed in the closed-issue cleanup.
 - `2026-08-28-004` records the resolved same-line false negative.
+- Both of those are bare IDs, for archaeology in git history: their files were removed in the
+  closed-issue cleanup.
 - [PR #91: Enforce Bats conditional assertions](https://github.com/Seigiard/my-mac-setup/pull/91) contains the implementation and verification evidence.
 - [`semantic-regression-tests-over-source-shape.md`](../design-patterns/semantic-regression-tests-over-source-shape.md) defines the broader red/green calibration and behavioral-control pattern used here.

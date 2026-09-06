@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # PreCompact handoff builder.
 #
-# When a compaction carries `/compact handoff:<goal>`, fork the session before
-# it is compacted and have a cheap model extract only what serves that goal.
-# The result is stored for the SessionStart injector to place in the model's
-# context once compaction finishes.
+# On any compaction, fork the session before it is compacted and have a cheap
+# model extract only what serves the goal. The result is stored for the
+# SessionStart injector to place in the model's context once compaction
+# finishes.
+#
+# `/compact <goal>` names the goal; a bare `/compact` leaves it to the fork,
+# which resumes the whole session and can read the goal out of it. Nothing
+# upstream of this hook has to know or store a goal in advance.
 #
 # Vendored from kylesnowschwartz/claude-handoff at 26f5b4c (MIT, Copyright (c)
 # 2025 Kyle Snow Schwartz). Upstream has been inactive since 2026-01-05, so
@@ -19,10 +23,10 @@
 #     in the non-repository directories this setup also works in. Keying by
 #     session also stops two concurrent worktree sessions overwriting each
 #     other (KTD5).
-#   - A compaction that did not ask for a goal deletes any handoff already
-#     stored for this session. PreCompact is the only point that knows whether
-#     a goal was asked for, so a handoff left behind by an interrupted
-#     compaction would otherwise be injected into the next plain one (R16).
+#   - Any handoff already stored for this session is deleted before extraction
+#     starts. An interrupted compaction leaves a handoff behind, and without
+#     this the injector would deliver it after the next compaction, describing
+#     a session state the operator has already moved past (R16).
 #
 # Fails open: any missing dependency, unreadable input, or failed extraction
 # exits 0 and lets compaction proceed unchanged.
@@ -55,34 +59,34 @@ instructions=$(printf '%s' "$input" | jq -r '.custom_instructions // ""' 2>/dev/
 
 store="$(handoff_file "$session_id")" || exit 0
 
-# Every compaction that is not goal-carrying clears the store first. An
-# automatic compaction and a plain `/compact` both land here.
-case "$instructions" in
-  handoff:*) ;;
-  *)
-    rm -f "$store" 2> /dev/null || true
-    exit 0
-    ;;
-esac
-
+# `handoff:` was this hook's original trigger word, and typing it is now
+# redundant. Strip it so a session that still opens with it does not hand the
+# extractor the literal string `handoff:` as its goal.
 goal="${instructions#handoff:}"
 goal="${goal#"${goal%%[![:space:]]*}"}"
-[ -n "$goal" ] || { rm -f "$store" 2> /dev/null || true; exit 0; }
+goal="${goal%"${goal##*[![:space:]]}"}"
 
-# Clear before extracting, not only on the non-handoff path. Otherwise a
-# second goal-carrying compaction whose extraction fails leaves the first
-# compaction's handoff in place, and the injector delivers a goal the operator
-# has already moved on from.
+# A bare `/compact` reaches here with nothing. The fork resumes the entire
+# session, so it is better placed to name the goal than anything this hook
+# could have stored in advance -- ask it for the goal instead of supplying one.
+if [ -n "$goal" ]; then
+  goal_block="$goal"
+else
+  goal_block="The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it."
+fi
+
+# Clear before extracting, never after. An extraction that fails from here on
+# must leave no handoff at all rather than the previous compaction's.
 rm -f "$store" 2> /dev/null || true
 
 command -v claude > /dev/null 2>&1 || exit 0
 
-# The extraction prompt is upstream's, unchanged. Rewriting it is deferred
-# follow-up work; this unit fixes storage and injection only.
+# The extraction prompt is upstream's, unchanged apart from what fills the
+# <goal> block, which upstream always took from the operator.
 prompt="You are generating a goal-focused Handoff for the next session. Context compaction is imminent.
 
 <goal>
-$goal
+$goal_block
 </goal>
 
 Your task: Extract ONLY the context from this session that the next agent needs to execute the goal above. Be ruthlessly selective—irrelevant context is worse than missing context.
@@ -138,10 +142,8 @@ Do not:
 extracted=$(mktemp "${TMPDIR:-/tmp}/handoff.XXXXXX" 2> /dev/null) || exit 0
 trap 'rm -f "$extracted"' EXIT
 
-# The fork inherits this session's settings, so its own Stop hook fires. The
-# guard marker keeps the threshold hook out of it (KTD6).
 status=0
-CONTEXT_THRESHOLD_GUARD=1 claude --resume "$session_id" --fork-session \
+claude --resume "$session_id" --fork-session \
   --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null || status=$?
 
 [ "$status" -eq 0 ] || exit 0

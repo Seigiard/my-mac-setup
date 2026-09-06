@@ -43,18 +43,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/context-threshold.sh'",
-            "timeout": 45
-          }
-        ]
-      }
-    ],
     "PreCompact": [
       {
         "matcher": "*",

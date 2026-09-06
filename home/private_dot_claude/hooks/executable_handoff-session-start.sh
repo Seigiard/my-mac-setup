@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart injector for the goal-focused handoff.
 #
-# After a `/compact handoff:<goal>` finishes, place the handoff the PreCompact
-# builder produced into the model's context, then delete it and re-arm the
-# context-threshold announcements for the emptied window.
+# After a compaction finishes, place the handoff the PreCompact builder
+# produced into the model's context, then delete it.
 #
 # Vendored from kylesnowschwartz/claude-handoff at 26f5b4c (MIT, Copyright (c)
 # 2025 Kyle Snow Schwartz), inactive since 2026-01-05.
@@ -42,17 +41,6 @@ source_kind=$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null) || ex
 
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null) || exit 0
 [ -n "$session_id" ] || exit 0
-
-# Compaction empties the window, so every announcement budget re-arms and the
-# turn count restarts at the boundary the transcript now carries (R11). This
-# happens whether or not a handoff was waiting, because a plain `/compact`
-# resets the session just as much as a goal-carrying one does.
-context_usage_clear "$session_id" > /dev/null 2>&1 || true
-
-# The published fullness number describes the window that was just emptied.
-# Leaving it would let the very next turn halt on occupancy that no longer
-# exists, before the status line has rendered once in the new window.
-rm -f "$(context_usage_usage_file "$session_id" 2>/dev/null)" 2> /dev/null || true
 
 store="$HANDOFF_STORE/$(context_usage_encode_key "$session_id").json"
 [ -f "$store" ] || exit 0

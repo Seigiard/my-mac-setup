@@ -116,7 +116,7 @@ The old engine also failed intermittently, and the 2026-09-02 debug session diag
 
 - Consolidating the state and claim primitives shared by `herdr-worktree-identity` and `herdr-pane-labels` onto one library (KTD6 defers this deliberately).
 - The duplicate issue ID: two files carry the `2026-09-02-011` prefix (`…-herdr-task-sync-gives-up-on-worktree-identity…` and `…-test-oracle-guard-misses-positive-tautological-tests`). Renumbering is repo hygiene outside R14.
-- Resolving `docs/issues/2026-09-02-012-pane-label-herdr-stub-is-an-unverified-protocol-fake.md`, which now also applies to this component's stub.
+- Applying the conformance-check pattern in `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md` to this component's stub as well.
 - Reporting the session working directory from opencode and pi (issues `2026-08-27-004` and `2026-08-27-005`), which would let those clients reach the same worktree-resolution accuracy the Claude adapter has.
 
 ### Sources / Research
@@ -124,7 +124,7 @@ The old engine also failed intermittently, and the 2026-09-02 debug session diag
 - The pre-deletion engine and its tests: `git show 1d8c640:home/dot_local/bin/executable_herdr-task-sync` (2882 lines) and `git show 1d8c640:tests/bashunit/scripts_test.sh`. **This source predates the 2026-09-02 fixes.** A search of every ref (`git log --all -- '*herdr-task-sync*'`) found no commit carrying them: the last committed engine has bare `return 0` at each decline site, no attribution write, workspace labeling gated behind branch eligibility, slug acceptance with no word-count floor, and claim exhaustion as a silent terminal skip. R2, R5, R8, R9, R10, and R13 are therefore written fresh; the old source is a structural reference for worktree resolution and candidate-name selection, not a fix to port.
 - `docs/issues/2026-09-02-011-herdr-task-sync-gives-up-on-worktree-identity-after-a-200-ms-claim-bound-silently.md` — carries the measurement that rules out raising the claim ceiling (a 2000-attempt ceiling produced `elapsed_ms=8395 allowed_ms=8136` against the fail-open guard). Governs KTD3.
 - `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` — the causal-assertion rule this plan's concurrency and timing tests follow.
-- `docs/issues/2026-09-02-012-pane-label-herdr-stub-is-an-unverified-protocol-fake.md` — why herdr's own protocol semantics get no local oracle.
+- `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md` — why herdr's own protocol semantics get no local oracle, and what pins the stub instead.
 - `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` — writes the marker as `<branch>\n` into the per-worktree admin dir. Its single-line format is what KTD5 appends to.
 - `home/private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml` — the full herdr 0.8.2 plugin event set. No prompt event exists, which is what forces KTD2.
 - `home/dot_local/bin/executable_herdr-pane-labels` — the surviving implementations of the state, claim, and budgeted-command primitives this component mirrors.
@@ -420,7 +420,7 @@ U1 and U2 build the foundation. U3, U4, and U5 are the behavior and depend on U2
 
 ## Verification Contract
 
-**Declare the test oracle before the first test edit.** The independent oracles available here are: real `git` in a fixture repository (branch names, upstream, description, reflog), the marker file as written by `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` (a different owner), and the filesystem for claim and diagnostic behavior. herdr's own protocol semantics have no valid local oracle — assert that the component issued the right call, never what herdr does with it (see `docs/issues/2026-09-02-012-…`).
+**Declare the test oracle before the first test edit.** The independent oracles available here are: real `git` in a fixture repository (branch names, upstream, description, reflog), the marker file as written by `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` (a different owner), and the filesystem for claim and diagnostic behavior. herdr's own protocol semantics have no valid local oracle — assert that the component issued the right call, never what herdr does with it (see `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md`).
 
 | Command | Applies to | What it proves |
 |---|---|---|

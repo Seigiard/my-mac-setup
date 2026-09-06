@@ -226,19 +226,13 @@ def find_violations(path):
 
 
 def scanned_files(tests_dir):
-    # .bats files disappear in a later migration stage; their absence is fine.
-    for path in sorted(tests_dir.rglob("*.bats")):
-        if path.relative_to(tests_dir).parts[:2] == ("helpers", "bats-libs"):
-            continue
-        yield path
     # The bashunit DSL's ERR trap reproduces the same bash-3.2 quirk: a bare
     # mid-test [[ ]] or (( )) conditional is silently inert. Scan the whole
     # file, not only test_* bodies — helpers run in the same test context.
     yield from sorted(tests_dir.rglob("bashunit/*_test.sh"))
     # tests/helpers/*.bash is sourced into that same test context (e.g. via
-    # `load 'helpers/common'`), so the identical quirk applies there. Only
-    # the flat directory: helpers/bats-libs is vendored and excluded above
-    # for *.bats, and this glob does not descend into it either.
+    # `load 'helpers/common'`), so the identical quirk applies there. The flat
+    # glob is deliberate: it does not descend into subdirectories.
     yield from sorted(tests_dir.glob("helpers/*.bash"))
     # tests/bashunit/test-dsl.bash is the shared bashunit ERR-trap DSL every
     # *_test.sh suite sources; its own header documents this exact quirk as

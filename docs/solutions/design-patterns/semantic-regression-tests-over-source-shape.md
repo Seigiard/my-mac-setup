@@ -86,7 +86,7 @@ Search existing tests before adding coverage. Choose the narrowest suite that ca
 - Template tests own rendered output across configuration branches.
 - Deployment or idempotency tests own filesystem effects after `chezmoi apply`.
 - Smoke tests own deployed cross-component behavior that no narrower suite can prove.
-- TypeScript and lint gates own type and static-analysis guarantees.
+- Lint and type gates own static-analysis guarantees where the language provides one; in this repository that is `make lint` (shellcheck).
 
 Repeating the same assertion in smoke, template, and unit suites does not create three independent proofs. It creates three maintenance sites with correlated blind spots. Keep additional layers only when each catches a distinct failure mode.
 
@@ -100,11 +100,15 @@ For managed files under `home/`, `make test-ubuntu` applies the checkout inside 
 is a deployed gate — one policy in the shared dispatch core, reached from the Claude Code, OpenCode
 and Pi adapters — that inspects proposed edits to test files and flags assertions of *absence*,
 because those usually restate the patch that removed a string instead of protecting behavior. Its
-header names this document as the standard it enforces. The escape hatch is an `oracle:` comment on
-or just above the flagged line, naming the independent oracle; the gate fails open so a broken guard
+header names this document as the standard it enforces. The escape hatch is an `oracle:` comment on the
+flagged line or within the three lines above it, naming the independent oracle; the gate fails open so a broken guard
 never blocks an agent. Its behavioral coverage is `tests/agent-hooks-core.test.ts`. A known gap is open:
 `docs/issues/2026-09-02-011-test-oracle-guard-misses-positive-tautological-tests.md` — the guard
-catches tautological *negative* assertions but not tautological positive ones.
+catches tautological *negative* assertions but not tautological positive ones. Do not read that as a
+queued extension: the issue has since rejected an `oracle:`-comment-per-new-test rule on blast-radius
+grounds, and shown it is not implementable on an `Edit`, where the policy sees a replacement fragment
+with no reliable function boundary and no second side of the patch. What stays open is narrower —
+whether the policy gains a diff-aware positive check at all.
 
 Dependency presence is not command reachability. Verify required binaries from the exact process that runs the gate. A package declaration, a successful installer log, or a `shellenv` export in an earlier subprocess does not prove that a later CI step can resolve the command.
 
@@ -129,7 +133,7 @@ Semantic ownership also lowers maintenance cost. One calibrated test at the corr
 
 The 2026-08-24 audit applied these rules in several forms:
 
-- Source-grep smoke checks for Smithers type and wiring details were removed because `tsc --noEmit` and behavior tests own those contracts.
+- Source-grep smoke checks for Smithers type and wiring details were removed because `tsc --noEmit` and behavior tests own those contracts (that typecheck gate left with the Smithers codebase; this repository has no `tsc` gate today).
 - Validator success fixtures were changed to satisfy the real success contract instead of merely avoiding one rejection branch.
 - Cost aggregation moved to real SQLite-backed events with child, unrelated, shared-prefix, and wrong-event controls.
 - Platform subprocess checks now require successful status before accepting output.
@@ -147,6 +151,8 @@ Do not replace exact-format contract tests merely because they inspect text. Fir
 
 ## Related
 
+- `docs/agent-verification.md` — the owner of risk classes, evidence validity, and the publish and merge
+  gates. This document owns test *design*; that one owns which checks to run and when to trust them.
 - `skip-set-parity-proves-reduced-dependencies.md` — why a green suite does not prove unchanged coverage when skips can expand.
 - `completion-is-not-a-verdict.md` — why execution completion and an acceptance verdict are separate states.
 - `idle-machine-wall-clock-bounds-are-latent-flakes.md` — why timing observations need a bounded, state-aware contract.
@@ -155,3 +161,7 @@ Do not replace exact-format contract tests merely because they inspect text. Fir
   in the closed-issue cleanup.
 - `outliving-processes-hang-the-suite.md` — the sibling class: a suite that never returns rather than
   one that returns a dishonest verdict.
+- `fakes-need-the-real-binary-as-oracle.md` — the case this doc's one-owner rule cannot reach: when a
+  test double reproduces another program's contract, no assertion written beside the double can
+  adjudicate it, so the check compares the fake against the real binary at a deliberately shallow
+  boundary.

@@ -73,14 +73,14 @@ three places that never ran under Smithers.
 
 **Advisory gate over a mutating agent → fail open.** `home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts`
 inspects proposed test edits and flags negative assertions. It can only cost an agent context,
-never correctness, so the dispatch core it runs in states the bias outright:
+never correctness, so the dispatch core it runs in (`home/dot_local/lib/agent-hooks/index.ts:1-2`) states the bias outright:
 
 ```
 // Dispatch core: normalize, select applicable policies, run them in registry
 // order, first deny wins. Every failure path falls open (R4).
 ```
 
-**The same bias, pinned by a mutation test.** `docs/plans/2026-09-03-0833-feat-agent-hooks-core-plan.md:196`
+**The same bias, pinned by a mutation test.** `docs/plans/2026-09-03-0833-feat-agent-hooks-core-plan.md:206`
 carries the acceptance criterion for the hook-policy dispatch layer:
 
 > A policy that throws yields allow, and the mutation test proves the bias pin: inverting the
@@ -89,7 +89,7 @@ carries the acceptance criterion for the hook-policy dispatch layer:
 That is rule 3 applied without a pipeline: the standing answer is written into a test, so a later
 edit that flips it goes red rather than silently inverting the gate.
 
-**Subtractive boundary over an irreversible export → fail closed.** `se-doc-review/SKILL.md:27`
+**Subtractive boundary over an irreversible export → fail closed.** `home/private_dot_agents/skills/se-doc-review/SKILL.md:27`
 gates the peer launch on a secret scan: "require `gitleaks` and run this fail-closed scan before
 creating tabs." Content that reaches a third-party model cannot be recalled, so an unavailable
 scanner refuses the launch instead of waving it through. Same doc, opposite default — the blast

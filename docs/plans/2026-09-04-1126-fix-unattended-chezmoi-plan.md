@@ -16,7 +16,7 @@ deepened: 2026-09-04
 
 - **Objective:** agents, continuous integration, and repository tests can run every repository-owned chezmoi operation to completion without interactive credential access, while reporting exactly which managed state was and was not checked.
 - **Means:** one unattended launcher selects an explicit full-fixture or host-partial profile and applies the profile contract at the subprocess boundary (KTD1-KTD4).
-- **Authority:** this plan governs product and implementation scope. `docs/issues/2026-08-30-006-make-test-local-stalls-in-host-diff.md` governs the confirmed failure evidence. `AGENTS.md` governs repository conventions and outranks this plan where they conflict.
+- **Authority:** this plan governs product and implementation scope. PR #165 (`cbccaa6`) carries the confirmed failure evidence; the originating issue record `2026-08-30-006` was removed after closure. `AGENTS.md` governs repository conventions and outranks this plan where they conflict.
 - **Execution profile:** six dependency-ordered units across test infrastructure, managed templates and modifiers, CI, Docker, verification policy, and issue lifecycle.
 - **Stop conditions:** stop if any repository-owned unattended invocation still reaches `op`; stop if full-fixture automation can omit a registered credential-sensitive target and remain green; stop if `make test-local` can report complete coverage while `.zshenv` or `.claude.json` is unchecked.
 - **Tail ownership:** the implementation workflow owns verification, issue closure, commit, push, and pull-request lifecycle.
@@ -154,7 +154,7 @@ flowchart TB
 
 ### Sources / Research
 
-- `docs/issues/2026-08-30-006-make-test-local-stalls-in-host-diff.md` — confirmed reproduction, impact, and existing issue boundary.
+- PR #165 (`cbccaa6`) — confirmed reproduction, impact, and the issue boundary formerly recorded in `2026-08-30-006` (record removed after closure).
 - `tests/helpers/common.bash:11-22` — current directory-removing `PATH_WITHOUT_OP` workaround.
 - `tests/helpers/common.bash:60-65,162-194` — current helper-owned `init` and `execute-template` paths.
 - `tests/bashunit/idempotent_test.sh:42-64` — direct test-owned `apply`, `diff`, and `verify` operations.
@@ -388,7 +388,7 @@ U1 establishes the launcher and inventory contract. U2 and U3 make the two curre
 - **Goal:** make partial evidence actionable for agents, close the tracked defect after complete local deployment evidence exists, and retain pull-request jobs as the publish and merge gate.
 - **Requirements:** R7-R9, R13-R15. Covers AE2-AE3, AE7. Cites KTD4, KTD7-KTD9.
 - **Dependencies:** U1-U5.
-- **Files:** modify `docs/agent-verification.md`, `CONCEPTS.md`, and `docs/issues/2026-08-30-006-make-test-local-stalls-in-host-diff.md`.
+- **Files:** modify `docs/agent-verification.md`, `CONCEPTS.md`, and the issue record `2026-08-30-006` (since removed after closure).
 - **Approach:**
   1. Define target-scoped evidence: host-partial can satisfy checked non-secret paths, but an inventory-listed changed path requires full-fixture evidence.
   2. Align the canonical unattended chezmoi mode definition with both explicit profiles.

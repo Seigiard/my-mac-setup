@@ -35,7 +35,7 @@ tags:
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
 > removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
-> `dot_smithers/**` path cited below is readable only in git history. The threat model is documented nowhere else in this repo. Of its five rules only rule 2 has a live consumer today (`se-doc-review/SKILL.md:107`, "its counts reconcile"); the rest are retained as the reasoning a future extractor should start from, not as descriptions of shipped code.
+> `dot_smithers/**` path cited below is readable only in git history. The threat model is documented nowhere else in this repo. Of its five rules only rule 2 has a live consumer today (`home/private_dot_agents/skills/se-doc-review/SKILL.md:107`, "its counts reconcile"); the rest are retained as the reasoning a future extractor should start from, not as descriptions of shipped code.
 
 The se-pipeline's verify-doc stage needed a blocking gate: two external review legs (claude, opencode) each produce a free-form markdown review envelope, and the pipeline must block work when a review finds a P0. The envelope stays prose by design — the only machine-readable part is a single line, `SEVERITY: {"maxSeverity":"P0|P1|P2|none","p0Count":N,"p1Count":N}`, which the leg is instructed to emit immediately before its terminal `Review complete` line (prompt contract in `home/private_dot_claude/dot_smithers/workflows/se-doc-review.tsx:133`).
 
