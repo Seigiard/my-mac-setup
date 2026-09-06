@@ -96,13 +96,13 @@ Use the smallest canonical `make` target that covers the changed contract. A can
 
 For managed files under `home/`, `make test-ubuntu` applies the checkout inside a disposable environment. `make test-suite` is host-safe by design and observes the already-deployed home directory, so it cannot prove an unapplied managed-file change.
 
-**The negative-assertion case is now mechanized.** `home/dot_local/bin/executable_test-oracle-guard`
-is a deployed gate — shared by a Claude Code hook, an opencode plugin and a pi extension — that
-inspects proposed edits to test files and flags assertions of *absence*, because those usually
-restate the patch that removed a string instead of protecting behavior. Its header names this
-document as the standard it enforces. The escape hatch is an `oracle:` comment on or just above the
-flagged line, naming the independent oracle; the gate fails open so a broken guard never blocks an
-agent. Its behavioral coverage is `tests/bashunit/oracle_guard_test.sh`. A known gap is open:
+**The negative-assertion case is now mechanized.** `home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts`
+is a deployed gate — one policy in the shared dispatch core, reached from the Claude Code, OpenCode
+and Pi adapters — that inspects proposed edits to test files and flags assertions of *absence*,
+because those usually restate the patch that removed a string instead of protecting behavior. Its
+header names this document as the standard it enforces. The escape hatch is an `oracle:` comment on
+or just above the flagged line, naming the independent oracle; the gate fails open so a broken guard
+never blocks an agent. Its behavioral coverage is `tests/agent-hooks-core.test.ts`. A known gap is open:
 `docs/issues/2026-09-02-011-test-oracle-guard-misses-positive-tautological-tests.md` — the guard
 catches tautological *negative* assertions but not tautological positive ones.
 

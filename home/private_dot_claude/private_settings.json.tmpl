@@ -33,41 +33,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__fff__grep",
+        "matcher": "Edit|MultiEdit|Write|Bash|mcp__fff__grep|WebFetch",
         "hooks": [
           {
             "type": "command",
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/fff-grep-guard.sh'",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/webfetch-markdown-hint.sh'",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/test-oracle-guard.sh'",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/zsh-reserved-name-guard.sh'",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/agent-hooks-dispatch.sh'",
             "timeout": 5
           }
         ]

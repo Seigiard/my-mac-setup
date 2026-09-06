@@ -4799,26 +4799,50 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
 # ===========================================
 # Claude Code PreToolUse hooks
 # ===========================================
+#
+# One shim serves every tool-call policy through the shared dispatch core, so
+# these cases drive the shim end to end rather than a per-policy script. The
+# shim resolves the core through $HOME; pointing a temporary home at this
+# checkout runs the source under test instead of whatever is deployed, which is
+# what keeps this suite a source-tree gate.
 
 HOOKS_DIR="$SOURCE_ROOT/private_dot_claude/hooks"
-FFF_GUARD="$HOOKS_DIR/executable_fff-grep-guard.sh"
-WEBFETCH_HINT="$HOOKS_DIR/executable_webfetch-markdown-hint.sh"
+AGENT_HOOKS_SHIM="$HOOKS_DIR/agent-hooks-dispatch.sh"
+AGENT_HOOKS_CORE="$SOURCE_ROOT/dot_local/lib/agent-hooks"
 
-function test_scripts_094_fff_grep_guard_denies_a_query_of_several_bare_wo() {
-  _bats_test_init 94 'fff-grep-guard denies a query of several bare words'
-  command -v jq >/dev/null || skip "jq not available"
-  run bash "$FFF_GUARD" <<'EOF'
+agent_hooks_checkout_home() {
+  local root="$BATS_TEST_TMPDIR/agent-hooks-home"
+  mkdir -p "$root/.local/lib"
+  ln -sfn "$AGENT_HOOKS_CORE" "$root/.local/lib/agent-hooks"
+  printf '%s' "$root"
+}
+
+# The shim exits 0 silently whenever bun is missing, so every case below would
+# be green and vacuous without this gate.
+require_bun_for_shim() {
+  command_exists bun || skip "bun not available"
+}
+
+function test_scripts_094_dispatcher_denies_a_fff_query_of_several_bare_wo() {
+  _bats_test_init 94 'dispatcher denies a fff query of several bare words'
+  require_bun_for_shim
+  run env HOME="$(agent_hooks_checkout_home)" bash "$AGENT_HOOKS_SHIM" <<'EOF'
 {"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
 EOF
   assert_success
   assert_output --partial '"permissionDecision": "deny"'
-  assert_output --partial "mcp__fff__multi_grep"
+  assert_output --partial "fff-grep-guard:"
+  # R9 wants a named alternative, not a client's spelling of one. The reason is
+  # shown to every client the policy is applicable to, so pinning Claude's
+  # mcp__fff__multi_grep here would re-assert the bug that made an OpenCode deny
+  # point at a tool OpenCode does not have.
+  assert_output --partial "fff multi-grep tool"
 }
 
-function test_scripts_095_fff_grep_guard_stays_silent_on_a_single_identifi() {
-  _bats_test_init 95 'fff-grep-guard stays silent on a single identifier'
-  command -v jq >/dev/null || skip "jq not available"
-  run bash "$FFF_GUARD" <<'EOF'
+function test_scripts_095_dispatcher_stays_silent_on_a_single_identifier() {
+  _bats_test_init 95 'dispatcher stays silent on a single fff identifier'
+  require_bun_for_shim
+  run env HOME="$(agent_hooks_checkout_home)" bash "$AGENT_HOOKS_SHIM" <<'EOF'
 {"tool_name":"mcp__fff__grep","tool_input":{"query":"AGENT_PROFILES"}}
 EOF
   assert_success
@@ -4827,66 +4851,141 @@ EOF
 
 # Path-scoped and glob-scoped queries were the multi-token calls that actually
 # returned hits, so the guard must let them through.
-function test_scripts_096_fff_grep_guard_stays_silent_on_a_path_scoped_or() {
-  _bats_test_init 96 'fff-grep-guard stays silent on a path-scoped or glob-scoped query'
-  command -v jq >/dev/null || skip "jq not available"
-  run bash "$FFF_GUARD" <<'EOF'
+function test_scripts_096_dispatcher_stays_silent_on_a_path_scoped_or_glob() {
+  _bats_test_init 96 'dispatcher stays silent on a path-scoped or glob-scoped fff query'
+  require_bun_for_shim
+  local fake_home
+  fake_home="$(agent_hooks_checkout_home)"
+  run env HOME="$fake_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
 {"tool_name":"mcp__fff__grep","tool_input":{"query":"KnowledgeContextField console/"}}
 EOF
   assert_success
   assert_output ""
-  run bash "$FFF_GUARD" <<'EOF'
+  run env HOME="$fake_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
 {"tool_name":"mcp__fff__grep","tool_input":{"query":"useRouter *.tsx"}}
 EOF
   assert_success
   assert_output ""
 }
 
-function test_scripts_097_fff_grep_guard_fails_open_on_malformed_input() {
-  _bats_test_init 97 'fff-grep-guard fails open on malformed input'
-  run bash "$FFF_GUARD" <<<'not json at all'
+function test_scripts_097_dispatcher_fails_open_on_malformed_input() {
+  _bats_test_init 97 'dispatcher fails open on malformed input'
+  require_bun_for_shim
+  run env HOME="$(agent_hooks_checkout_home)" bash "$AGENT_HOOKS_SHIM" <<<'not json at all'
   assert_success
   assert_output ""
 }
 
-function test_scripts_098_webfetch_markdown_hint_adds_context_for_a_plain() {
-  _bats_test_init 98 'webfetch-markdown-hint adds context for a plain URL'
-  command -v jq >/dev/null || skip "jq not available"
-  run bash "$WEBFETCH_HINT" <<'EOF'
+function test_scripts_098_dispatcher_adds_context_for_a_plain_webfetch_url() {
+  _bats_test_init 98 'dispatcher adds context for a plain WebFetch URL'
+  require_bun_for_shim
+  run env HOME="$(agent_hooks_checkout_home)" bash "$AGENT_HOOKS_SHIM" <<'EOF'
 {"tool_name":"WebFetch","tool_input":{"url":"https://example.com/docs"}}
 EOF
   assert_success
   assert_output --partial '"additionalContext"'
   assert_output --partial "/markdown-new"
+  # A context-only policy routed through a deny would turn a hint into a wall.
   refute_output --partial "permissionDecision"
 }
 
-function test_scripts_099_webfetch_markdown_hint_stays_silent_when_the_url() {
-  _bats_test_init 99 'webfetch-markdown-hint stays silent when the URL already uses markdown.new'
-  command -v jq >/dev/null || skip "jq not available"
-  run bash "$WEBFETCH_HINT" <<'EOF'
+function test_scripts_099_dispatcher_stays_silent_when_the_url_already_uses() {
+  _bats_test_init 99 'dispatcher stays silent when the URL already uses markdown.new'
+  require_bun_for_shim
+  run env HOME="$(agent_hooks_checkout_home)" bash "$AGENT_HOOKS_SHIM" <<'EOF'
 {"tool_name":"WebFetch","tool_input":{"url":"https://markdown.new/https://example.com/docs"}}
 EOF
   assert_success
   assert_output ""
 }
 
-function test_scripts_100_settings_template_registers_both_pretooluse_hook() {
-  _bats_test_init 100 'settings template registers both PreToolUse hooks with their matchers'
+# The two sides compared here are independent by construction: the matcher set
+# comes from the rendered settings template, the tool names from the core's one
+# machine-readable registry export (KTD6). Adding a tool to either side alone
+# turns this red, which is the whole point — a policy deployed behind a matcher
+# nobody wired is silently dead.
+function test_scripts_100_claude_matchers_equal_the_registry_tool_union() {
+  _bats_test_init 100 'Claude PreToolUse matchers equal the registry Claude tool union'
   skip_if_no_chezmoi
+  if ! command_exists bun; then
+    # bun is a cross-platform Brewfile dependency baked into the Docker image
+    # the authoritative gate runs, so its absence there is a broken environment,
+    # not a reason to drop the only check binding wiring to the registry.
+    case "$(mms_disposable_home_verdict)" in
+      run)
+        fail "bun is missing inside a disposable-home gate, where it is a declared Brewfile dependency. The registry/matcher union check cannot skip here -- it is the check make test-ubuntu owns."
+        return 1
+        ;;
+      *) skip "bun not available" ;;
+    esac
+  fi
+  assert_file_exists "$AGENT_HOOKS_SHIM"
+
   local tmpl="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
-  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/claude-settings.json"
-  chezmoi_full_fixture_finite_stdin execute-template < "$tmpl" > "$BATS_TEST_TMPFILE"
-  run python3 - "$BATS_TEST_TMPFILE" <<'PY'
+  local rendered="$BATS_TEST_TMPDIR/claude-settings.json"
+  local snapshot="$BATS_TEST_TMPDIR/agent-hooks-registry.json"
+  chezmoi_full_fixture_finite_stdin execute-template < "$tmpl" > "$rendered"
+
+  run env AGENT_HOOKS_CORE="$AGENT_HOOKS_CORE" bun --eval '
+const { registrySnapshot } = await import(`${process.env.AGENT_HOOKS_CORE}/registry.ts`);
+process.stdout.write(JSON.stringify(registrySnapshot()));
+'
+  assert_success
+  printf '%s' "$output" > "$snapshot"
+
+  run python3 - "$rendered" "$snapshot" <<'PY'
 import json, sys
-s = json.load(open(sys.argv[1]))
-matchers = {e["matcher"]: e for e in s["hooks"]["PreToolUse"]}
-assert "mcp__fff__grep" in matchers, matchers.keys()
-assert "WebFetch" in matchers, matchers.keys()
-assert "fff-grep-guard.sh" in matchers["mcp__fff__grep"]["hooks"][0]["command"]
-assert "webfetch-markdown-hint.sh" in matchers["WebFetch"]["hooks"][0]["command"]
+
+settings = json.load(open(sys.argv[1]))
+snapshot = json.load(open(sys.argv[2]))
+
+claude = next(c for c in snapshot["clients"] if c["client"] == "claude")
+registry_tools = set(claude["tools"])
+assert registry_tools, snapshot
+
+entries = settings["hooks"]["PreToolUse"]
+shim_entries = [
+    e for e in entries
+    if any("agent-hooks-dispatch.sh" in h["command"] for h in e["hooks"])
+]
+assert shim_entries, entries
+
+wired = set()
+for entry in shim_entries:
+    wired.update(entry["matcher"].split("|"))
+
+assert wired >= registry_tools, ("registry tools with no matcher", sorted(registry_tools - wired))
+assert registry_tools >= wired, ("matcher alternatives absent from the registry", sorted(wired - registry_tools))
+
+# Every PreToolUse entry runs through the one shim: a surviving per-policy hook
+# would enforce a second copy of a policy the registry no longer describes.
+assert len(shim_entries) == len(entries), [e["matcher"] for e in entries]
 PY
   assert_success
+}
+
+function test_scripts_101_shim_exits_0_silently_when_bun_is_absent_from_pat() {
+  _bats_test_init 101 'dispatch shim exits 0 silently when bun is absent from PATH'
+  run env HOME="$(agent_hooks_checkout_home)" PATH="/usr/bin:/bin" bash "$AGENT_HOOKS_SHIM" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output ""
+}
+
+# The same known-bad input test_scripts_094 denies: with the core file gone the
+# shim must let it through, and say nothing while doing so. A degraded state
+# that printed would put a line of noise on every matched tool call.
+function test_scripts_102_shim_exits_0_silently_when_the_core_file_is_absen() {
+  _bats_test_init 102 'dispatch shim exits 0 silently when the deployed core file is absent'
+  require_bun_for_shim
+  local empty_home="$BATS_TEST_TMPDIR/agent-hooks-empty-home"
+  mkdir -p "$empty_home"
+  run env HOME="$empty_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output ""
 }
 
 # herdr-pane-labels engine

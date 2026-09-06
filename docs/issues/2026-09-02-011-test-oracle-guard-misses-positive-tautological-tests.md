@@ -1,6 +1,6 @@
 ---
 title: "test-oracle-guard misses positive tautological tests"
-short_description: "The shared guard engine denies only negative-assertion patterns, leaving positive tests whose expected values come from the same patch unflagged by all three client hooks; the repository-wide audit in this record falsified the incident originally cited and rejected the oracle:-comment mechanism, so what stays open is whether the engine gains a diff-aware positive check at all, given it would need patch state the stateless hook lacks."
+short_description: "The shared test-oracle-guard policy, now home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts in the agent-hooks dispatch core, denies only negative-assertion patterns, leaving positive tests whose expected values come from the same patch unflagged in every client; the repository-wide audit in this record falsified the incident originally cited and rejected the oracle:-comment mechanism, so what stays open is whether the policy gains a diff-aware positive check at all, given it would need patch state the stateless core lacks."
 type: "follow-up"
 category: "testing-ci"
 tags: ["test-oracle","hooks"]
@@ -11,11 +11,11 @@ priority: "medium"
 
 ## Why this exists
 
-The shared engine `home/dot_local/bin/executable_test-oracle-guard` fires only on negative-assertion patterns (`assert_not_contains`, `refute_match`, `! grep`, ...). In the 2026-09-02 ghostty-workspace-shortcuts session, an agent added two positive tests to `tests/bashunit/palette_test.sh` whose expected values (new command-kind names) came from the same patch that introduced them — the textbook tautology the CLAUDE.md gate forbids — and all three client hooks (Claude Code, OpenCode, Pi) stayed silent because no negative pattern was present. Prose alone did not stop it; the enforcement layer has a structural blind spot.
+The shared policy `home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts` fires only on negative-assertion patterns (`assert_not_contains`, `refute_match`, `! grep`, ...). In the 2026-09-02 ghostty-workspace-shortcuts session, an agent added two positive tests to `tests/bashunit/palette_test.sh` whose expected values (new command-kind names) came from the same patch that introduced them — the textbook tautology the CLAUDE.md gate forbids — and all three client hooks (Claude Code, OpenCode, Pi) stayed silent because no negative pattern was present. Prose alone did not stop it; the enforcement layer has a structural blind spot.
 
 ## Scope
 
-Extend the engine with a low-false-positive signal for positive tautologies, or explicitly decide the class stays prose-only. Candidate mechanism: require an `oracle:` comment within N lines above every *new* test function in a proposed edit (the existing escape-hatch convention, applied at function granularity instead of only on flagged negative lines). Weigh blast radius per `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md` — this would touch every new test in every repo across all three clients. Update the three thin adapters only if the engine's stdin/argv contract changes.
+Extend the policy with a low-false-positive signal for positive tautologies, or explicitly decide the class stays prose-only. Candidate mechanism: require an `oracle:` comment within N lines above every *new* test function in a proposed edit (the existing escape-hatch convention, applied at function granularity instead of only on flagged negative lines). Weigh blast radius per `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md` — this would touch every new test in every repo across all three clients. The three client adapters carry no policy logic; touch `home/dot_local/lib/agent-hooks/normalize.ts` only if the check needs a field the normalized event does not already carry.
 
 ## Audit result (2026-09-02)
 
@@ -31,7 +31,7 @@ ever contained the string `ghostty`. The closest real match is
 `worktrunk.open`, `worktrunk.remove`, `worktrunk.merge`) did come from the
 `commands.toml` entries added in the same patch — the exact tautology shape —
 and which `4adc681` deleted on 2026-09-02. Nothing matching the description
-survives in the file. The engine extension is therefore the only live item
+survives in the file. The policy extension is therefore the only live item
 here; the incident is not evidence for it.
 
 **The audit is evidence, though, and it argues against the candidate
@@ -67,35 +67,40 @@ reviewable gap — every fix in this audit carried one.
 
 **Superseded in part.** The question of whether `oracle:` on every new test
 function is acceptable friction is answered no by the evidence above. What
-remains open is whether the engine should gain a diff-aware positive check at
-all, given that it would need session or patch state the stateless hook does
-not have, or whether the positive class stays prose-plus-review.
+remains open is whether the policy should gain a diff-aware positive check at
+all, given that it would need session or patch state the stateless dispatch core
+does not have, or whether the positive class stays prose-plus-review.
 
-## Engine contract measured (2026-09-05)
+## Input contract measured (2026-09-05, re-pointed after the core port)
 
-The engine's interface is `test-oracle-guard <file-path>` with proposed content
-on stdin, and all three adapters were read directly to confirm what they can
-supply:
+The policy's interface is `evaluate(event: NormalizedEvent)`, reading
+`event.filePath` and `event.content`. The bash engine and the three hand-written
+per-client adapters this section originally measured are retired; the same
+per-dialect reads now happen once, in
+`home/dot_local/lib/agent-hooks/normalize.ts`, which joins the full-content and
+edit fields into `content`:
 
-| Adapter | Path | Content it sends |
-|---|---|---|
-| Claude Code | `home/private_dot_claude/hooks/executable_test-oracle-guard.sh` | `.tool_input.content`, else `.new_string`, else the joined `new_string` of each `edits[]` entry |
-| OpenCode | `home/private_dot_config/opencode/plugins/test-oracle-guard.ts` | `args.content` and `args.newString`, joined |
-| Pi | `home/dot_pi/agent/extensions/test-oracle-guard.ts` | `event.input.content`, else the joined edits |
+| Client dialect | Content the core aggregates into `event.content` |
+|---|---|
+| Claude Code | `tool_input.content`, `tool_input.new_string`, and the `new_string` of each `edits[]` entry |
+| OpenCode | `args.content` and `args.newString` |
+| Pi | `input.content` and the `newText` of each `edits[]` entry |
 
-Two consequences constrain any positive check built on this contract:
+The consolidation changed where the reads live, not what reaches the policy, so
+both consequences below survive the port intact and still constrain any positive
+check built on this contract:
 
-- **On an `Edit` the engine sees a fragment, not a file.** Every adapter sends
+- **On an `Edit` the policy sees a fragment, not a file.** Every dialect carries
   only the replacement text. A rule phrased over "every new test function" cannot
   reliably find a function boundary, because the opening line, the closing line,
   or both may sit outside the fragment. The `oracle:`-comment mechanism the audit
   already rejected on blast-radius grounds is also not implementable as specified.
-- **The engine has no second side to compare against.** The check the audit
+- **The policy has no second side to compare against.** The check the audit
   recommends — flag an expected literal that also appears in a non-test file
   changed by the same patch — needs the rest of the patch. Nothing in the
   contract carries it.
 
-The engine could reach for patch state itself rather than receive it: read the
+The policy could reach for patch state itself rather than receive it: read the
 on-disk file for the pre-edit side, or shell out to `git diff` for the
 concurrently changed non-test files. Both are real options and both are a design
 change, not a fix. Reading the working tree makes the gate's verdict depend on

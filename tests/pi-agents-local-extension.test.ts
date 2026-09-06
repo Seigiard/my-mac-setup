@@ -1,15 +1,31 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const extensionPath =
   process.env.PI_AGENTS_LOCAL_EXTENSION_PATH ?? join(import.meta.dir, "../home/dot_pi/agent/extensions/agents-local.ts");
-const {
-  default: registerAgentsLocalExtension,
-  inspectLocalInstructions,
-  MAX_LOCAL_INSTRUCTIONS_BYTES,
-} = await import(extensionPath);
+const coreDir = process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
+
+const { inspectLocalInstructions, MAX_LOCAL_INSTRUCTIONS_BYTES } = await import(
+  join(coreDir, "local-instructions.ts")
+);
+
+// The extension resolves the shared selection module from $HOME once, at
+// import time, so it has to be loaded under a home pointing at the core under
+// test — the checkout's by default, the applied one when smoke passes its path.
+const extensionHome = mkdtempSync(join(tmpdir(), "pi-agents-local-home-"));
+mkdirSync(join(extensionHome, ".local", "lib"), { recursive: true });
+symlinkSync(coreDir, join(extensionHome, ".local", "lib", "agent-hooks"));
+const previousHome = process.env.HOME;
+process.env.HOME = extensionHome;
+const { default: registerAgentsLocalExtension } = await import(extensionPath);
+process.env.HOME = previousHome;
+
+afterAll(() => {
+  rmSync(extensionHome, { recursive: true, force: true });
+});
 
 const cleanupPaths: string[] = [];
 
