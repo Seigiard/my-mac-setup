@@ -1,6 +1,6 @@
 ---
 title: "Pi codex-conversion tool names bypass the agent-hooks pi profile"
-short_description: "With the deployed default provider openai-codex, the @howaboua/pi-codex-conversion extension replaces Pi's builtin bash/edit/write with exec_command (input.cmd) and apply_patch, so every tool_call the agent-hooks pi adapter sees carries a name absent from the registry's pi profile and no policy fires in the user's actual configuration."
+short_description: "Under the deployed openai-codex provider Pi's tool surface is exec_command/apply_patch, not the bash/edit/write names the registry's pi profile lists, so every policy is inert there; confirmed live on 2026-09-06 when a reserved-name command that Claude Code and OpenCode both deny executed normally in Pi while selfcheck still reported pi: current with green canaries, because the canaries dispatch registry tool names no real Pi call carries."
 type: "bug"
 category: "agent-platform"
 tags: ["agent-hooks","pi","tool-identifiers","codex"]
@@ -73,3 +73,27 @@ and pi enforces none.
 - Whether apply_patch edits are in scope for test-oracle-guard at all. Declining
   is defensible, but it must be recorded as evidence-backed inapplicability
   rather than left as an unmapped tool.
+
+## Confirmed live (2026-09-06)
+
+Previously inferred from reading the provider configuration. Now observed
+directly in a running Pi session against the applied core:
+
+```
+> run this exact bash: status=$(echo hi)
+  • Ran  status=$(echo hi)
+  Command completed with exit code 0.
+```
+
+The identical prompt is denied in Claude Code and in OpenCode with
+`zsh-reserved-name-guard:`. In Pi it executed.
+
+The same session's selfcheck reports `pi: current` with three green `@ pi`
+canaries. Both statements are true and neither contradicts the other: the
+adapter loads, the core is the deployed one, and the canaries dispatch synthetic
+events carrying the registry's tool names. No real Pi tool call ever carries
+those names, so every canary-green route is unreachable in practice.
+
+That is the sharpest form of this issue. R8 says selfcheck detects a fully dead
+path, not an unreachable one, and this is what an unreachable path looks like
+from the outside: entirely green.
