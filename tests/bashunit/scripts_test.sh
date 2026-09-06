@@ -4988,6 +4988,44 @@ EOF
   assert_output ""
 }
 
+# R4 names a failed core import as its own fail-open path, and test_scripts_102
+# cannot reach it: deleting claude.ts makes the shim's `[ -f "$core" ]` return
+# before bun ever attempts the import. The adapter's own guard needs a core that
+# is present and unimportable. claude.ts imports "./index.ts" relative to itself
+# and takes no core-path override, so the only way to degrade it is a copied
+# core directory whose index.ts throws, run as a subprocess -- which is also how
+# Claude Code invokes it, so the exit status is part of what this pins.
+# The sibling adapters pin the same state in-process
+# (tests/agent-hooks-opencode-adapter.test.ts,
+# tests/agent-hooks-pi-adapter.test.ts: "a core directory whose import throws
+# also registers nothing"); this adapter runs per matched tool call, so a
+# regression here is a stack trace and a nonzero status on every one of them.
+function test_scripts_1021_claude_adapter_exits_0_silently_when_the_core_will_not_import() {
+  _bats_test_init 1021 'claude adapter exits 0 silently when the deployed core will not import'
+  require_bun_for_shim
+  local copied_home="$BATS_TEST_TMPDIR/agent-hooks-broken-core-home"
+  mkdir -p "$copied_home/.local/lib"
+  cp -R "$AGENT_HOOKS_CORE" "$copied_home/.local/lib/agent-hooks"
+
+  # Control on the intact copy: it proves the input below is the known-bad one
+  # test_scripts_094 denies and that a copied core still reaches the policy.
+  # Without it, a fixture that never got as far as running claude.ts would be
+  # indistinguishable from the fail-open this case is about to assert.
+  run env HOME="$copied_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output --partial '"permissionDecision": "deny"'
+
+  printf "throw new Error('core is broken');\n" \
+    > "$copied_home/.local/lib/agent-hooks/index.ts"
+  run env HOME="$copied_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output ""
+}
+
 # herdr-pane-labels engine
 # ===========================================
 
