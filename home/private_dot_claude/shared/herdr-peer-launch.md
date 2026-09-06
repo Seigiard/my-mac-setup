@@ -163,6 +163,18 @@ fi
 
 A settled state is only a wake-up signal. Pane-backed reads can silently omit alternate-screen history and are diagnostic only; never accept `CLAUDE_DIAGNOSTIC` or `OPENCODE_DIAGNOSTIC` as a report. A failed transport degrades that peer. The calling skill must still validate the complete file-backed report before accepting it.
 
+Two delivered reports are not yet two reviews. Compare them before synthesis, while both files still exist:
+
+```bash
+PEER_REPORTS_IDENTICAL=0
+if [ "$CLAUDE_TRANSPORT_OK" -eq 1 ] && [ "$OPENCODE_TRANSPORT_OK" -eq 1 ] \
+  && cmp -s "$CLAUDE_REPORT_PATH" "$OPENCODE_REPORT_PATH"; then
+  PEER_REPORTS_IDENTICAL=1
+fi
+```
+
+A byte-identical pair is one review delivered twice: one peer performed no independent work, whatever the cause. It degrades exactly like one failed or malformed peer — the run carries single-source coverage, and the surviving report is the single source. It is never consensus, never agreement, and never corroboration of any finding it contains. The calling skill must state the degraded single-source coverage plainly in its synthesis output, name the run as one peer's review rather than two, and grade every finding as unique to that one source. This comparison is exact: a near-identical pair — the same review re-wrapped, reindented, or reserialized — is not detected here and still reads as agreement.
+
 ## Close and clean before synthesis
 
 After collecting every available report into memory, close both tabs and remove the transport directory before synthesis:

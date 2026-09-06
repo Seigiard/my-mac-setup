@@ -1,12 +1,13 @@
 ---
 title: "se-code-review accepts two identical peer reports as cross-model consensus"
-short_description: "Nothing in the peer lifecycle compares the two reports, so a peer that returns the other's text is read as perfect agreement and silently halves coverage; the 2026-09-06 agent-hooks review produced byte-identical claude.report and opencode.report, and the run_id collision originally blamed is disproved - run_id is timestamp plus four random bytes, and identical inputs demonstrably produced distinct run directories."
+short_description: "Resolved: the shared peer lifecycle now compares the two collected reports with cmp before synthesis and requires a byte-identical pair to be reported as degraded single-source coverage, so a peer returning the other's text can no longer read as cross-model consensus; near-identical pairs are an explicit non-goal recorded in the guard."
 type: "bug"
 category: "se-pipeline"
 tags: ["se-code-review","herdr-peers","review-coverage"]
 date: "2026-09-06"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-06"
 ---
 
 ## Why this exists
@@ -106,3 +107,7 @@ deleted in `b880a43` on 2026-08-31 and only a symlink stub remains there.
 - Whether the same detection guard should also flag a near-identical pair, not
   only a byte-identical one. A peer returning the other's report through a
   re-wrap would differ in whitespace and defeat an exact comparison.
+
+## Resolution
+
+Detection guard added to the Wait and collect step of home/private_dot_claude/shared/herdr-peer-launch.md, so all three se-* workflows inherit it from one place. It reuses the existing CLAUDE_TRANSPORT_OK/OPENCODE_TRANSPORT_OK flags and the existing degraded-peer vocabulary rather than introducing a parallel mechanism, and sits before the transport cleanup so both report files still exist when compared. Guarding on both transport flags means a degraded peer plus a same-path artifact cannot trip it. The open decision about near-identical pairs is answered in place: the comparison is exact, and the guard says so, so a re-wrapped or reserialized copy is a known undetected case rather than a silent one. No test - the only available assertion would check that this patch's own wording is present in the file this patch changes, which the repository's test-oracle gate rejects. Verified: make lint clean, make test-local rc=0 with the file mapping to .claude/shared/herdr-peer-launch.md, shared-surface smoke tests 4 passed.
