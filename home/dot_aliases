@@ -291,11 +291,20 @@ omc() {
 # Updates
 # -------------------------------------------
 
+# update-pins closes the gap the pinned externals opened: Oh My Zsh, the four
+# zsh plugins and fff-mcp have no auto-refresh, so nothing else here would
+# ever tell you an update exists. It only reports and offers — every accepted
+# bump edits the chezmoi source and needs a `chezmoi apply` afterwards.
 update-all() {
   brew update &&
     brew upgrade --no-ask &&
     skills update &&
     mise upgrade
+  # Unchained on purpose. update-pins is the one step built to degrade — an
+  # unreachable upstream is a report, not a failure — so gating it behind the
+  # others would skip the drift report exactly when a network problem upstream
+  # of it made that report worth reading.
+  update-pins
 }
 
 # -------------------------------------------

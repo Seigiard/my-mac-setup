@@ -44,6 +44,14 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"agent":{"agent_status":"working"}}}\n'
     ;;
   "pane report-metadata")
+    # The launcher publishes the run's generation token before the watcher
+    # publishes liveness, and liveness now revalidates it, so the stub has to
+    # echo back what it was told instead of a fixed value.
+    for arg in "$@"; do
+      case "$arg" in
+        supervision_generation=*) printf '%s' "${arg#*=}" > "$HCD_WORK/generation" ;;
+      esac
+    done
     if printf '%s\n' "$*" | grep -q 'supervised'; then
       : > "$HCD_WORK/liveness-started"
       while [ ! -e "$HCD_WORK/release-liveness" ]; do sleep 0.01; done
@@ -51,7 +59,8 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"type":"pane_metadata_reported"}}\n'
     ;;
   "pane get")
-    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"tokens":{"supervision_generation":"1"}}}}\n'
+    generation="$(cat "$HCD_WORK/generation" 2>/dev/null || true)"
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"tokens":{"supervision_generation":"%s"}}}}\n' "$generation"
     ;;
   "pane close")
     : > "$HCD_WORK/pane-closed"

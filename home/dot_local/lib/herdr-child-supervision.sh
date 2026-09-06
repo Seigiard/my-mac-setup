@@ -213,7 +213,7 @@ watcher_invalidation_action() {
             : > "$HERDR_CHILD_TEST_REAP_OWNER_VERIFIED"
           ;;
         1|10)
-          refresh_supervision_liveness "$pane" "$generation" || return 21
+          refresh_supervision_liveness "$run_dir" "$pane" "$generation" || return 21
           return 0
           ;;
         3) return 0 ;;
@@ -223,7 +223,7 @@ watcher_invalidation_action() {
     fi
     attempt=$((attempt + 1))
     if [ $((attempt % 3000)) -eq 0 ]; then
-      refresh_supervision_liveness "$pane" "$generation" || return 21
+      refresh_supervision_liveness "$run_dir" "$pane" "$generation" || return 21
     fi
     sleep 0.01
   done
@@ -258,8 +258,16 @@ watcher_generation_current() {
 
 # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
 # expired hold means the harness died without releasing the barrier.
+# The optional second argument multiplies the bound for this hold only. Two
+# holds can be live at once — the watcher parked at its release barrier while
+# the launcher waits past the arm — and both read the same knob, so an equal
+# bound makes the winner a coin flip decided by poll phase. The hold whose
+# expiry the test is not measuring takes a multiple, so the one under test
+# always expires first and the knob stays single. The multiple has to cover the
+# head start too: the watcher arms before the launcher observes the arm, so an
+# equal or barely-larger bound ties again whenever that gap crosses a second.
 watcher_hold_expired() {
-  [ $((SECONDS - $1)) -ge "${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120}" ]
+  [ $((SECONDS - $1)) -ge $((${HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS:-120} * ${2:-1})) ]
 }
 
 watcher_publish_failed() {
@@ -345,15 +353,33 @@ clear_supervision_state_labels() {
   metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels >/dev/null 2>&1
 }
 
+# An in-progress callback claim keeps the watcher from waking the parent, so it
+# is only honoured while the process that made it is still running. A claim
+# written without a verifiable owner is treated as abandoned rather than trusted
+# forever.
+callback_owner_alive() {
+  local run_dir="$1" owner_pid owner_start current_start
+  owner_pid="$(state_value "$run_dir/callback.state" owner_pid)"
+  owner_start="$(state_value "$run_dir/callback.state" owner_start)"
+  [ -n "$owner_start" ] || return 1
+  current_start="$(process_start_marker "$owner_pid")" || return 1
+  [ "$current_start" = "$owner_start" ]
+}
+
 preserve_callback_waiting_label() {
   local pane="$1"
   metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels \
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" >/dev/null 2>&1
 }
 
+# Liveness carries the same generation precondition as failure publication. A
+# watcher superseded between its ordinary generation check and this call would
+# otherwise stamp supervised=<old-generation> over the live one; the check runs
+# under the per-pane metadata lock, so a takeover cannot land inside the window
+# between revalidation and the write.
 refresh_supervision_liveness() {
-  local pane="$1" generation="$2"
-  metadata_report "$pane" --source "$SOURCE_ID" \
+  local run_dir="$1" pane="$2" generation="$3"
+  metadata_report_if_generation "$run_dir" "$pane" "$generation" --source "$SOURCE_ID" \
     --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" >/dev/null 2>&1
 }
 

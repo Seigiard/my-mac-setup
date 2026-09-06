@@ -18,6 +18,7 @@ setup() {
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
+  unset HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER
   unset HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER
   unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
@@ -78,8 +79,8 @@ teardown() {
 # herdr-worktree-identity state library
 # ===========================================
 
-function test_scripts_1134_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
-  _bats_test_init 1134 'worktree identity claims live owners and recovers dead owners'
+function test_scripts_1210_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
+  _bats_test_init 1210 'worktree identity claims live owners and recovers dead owners'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   local lock="$HWI_STATE/repositories/test/identity.claim" owner
@@ -109,8 +110,8 @@ function test_scripts_1134_worktree_identity_state_library_claims_live_owners_an
   assert_file_not_exists "$lock"
 }
 
-function test_scripts_1135_worktree_identity_state_library_recovers_malformed_claims_and_distinguishes_errors() {
-  _bats_test_init 1135 'worktree identity recovers malformed claims and distinguishes contention from errors'
+function test_scripts_1211_worktree_identity_state_library_recovers_malformed_claims_and_distinguishes_errors() {
+  _bats_test_init 1211 'worktree identity recovers malformed claims and distinguishes contention from errors'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   local malformed="$HWI_STATE/malformed.claim" interrupted="$HWI_STATE/interrupted.claim" held="$HWI_STATE/held.claim"
@@ -146,8 +147,8 @@ process_start=$(encode_value '')"
   assert_failure 1
 }
 
-function test_scripts_1136_worktree_identity_state_library_appends_diagnostics_and_preserves_preexisting_records() {
-  _bats_test_init 1136 'worktree identity diagnostics append and failed pre-rename writes preserve records'
+function test_scripts_1212_worktree_identity_state_library_appends_diagnostics_and_preserves_preexisting_records() {
+  _bats_test_init 1212 'worktree identity diagnostics append and failed pre-rename writes preserve records'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   local diagnostics="$HWI_STATE/worktree/diagnostics.log" record="$HWI_STATE/worktree/state"
@@ -179,8 +180,8 @@ SH
 # herdr-worktree-identity engine (U2)
 # ===========================================
 
-function test_scripts_1137_worktree_identity_authorizes_a_real_plugin_marker_and_reentry_after_rename() {
-  _bats_test_init 1137 'worktree identity authorizes the plugin marker after a real branch rename'
+function test_scripts_1213_worktree_identity_authorizes_a_real_plugin_marker_and_reentry_after_rename() {
+  _bats_test_init 1213 'worktree identity authorizes the plugin marker after a real branch rename'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -205,8 +206,8 @@ function test_scripts_1137_worktree_identity_authorizes_a_real_plugin_marker_and
   assert_equal "$(read_state_field "$state" authorization)" authorized
 }
 
-function test_scripts_1138_worktree_identity_declines_missing_or_mismatched_markers_without_ref_mutation() {
-  _bats_test_init 1138 'worktree identity declines absent and mismatched generated-worktree markers'
+function test_scripts_1214_worktree_identity_declines_missing_or_mismatched_markers_without_ref_mutation() {
+  _bats_test_init 1214 'worktree identity declines absent and mismatched generated-worktree markers'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -232,8 +233,8 @@ function test_scripts_1138_worktree_identity_declines_missing_or_mismatched_mark
   assert_file_contains "$diagnostics" 'reason=marker-mismatched .*marker_branch=different-branch'
 }
 
-function test_scripts_1139_worktree_identity_keeps_unresolved_events_retryable_and_prefers_reported_cwd() {
-  _bats_test_init 1139 'worktree identity records unresolved pane reads and prefers reported working directories'
+function test_scripts_1215_worktree_identity_keeps_unresolved_events_retryable_and_prefers_reported_cwd() {
+  _bats_test_init 1215 'worktree identity records unresolved pane reads and prefers reported working directories'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -263,8 +264,8 @@ function test_scripts_1139_worktree_identity_keeps_unresolved_events_retryable_a
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" retry-later
 }
 
-function test_scripts_1206_worktree_identity_waits_for_the_first_opencode_session_publication() {
-  _bats_test_init 1206 'worktree identity waits for the first opencode session publication'
+function test_scripts_1216_worktree_identity_waits_for_the_first_opencode_session_publication() {
+  _bats_test_init 1216 'worktree identity waits for the first opencode session publication'
   hwi_setup
   hwi_create_generated_worktree
   hwi_delay_pane_session_publication pane-1 opencode session-1 workspace-1 "$HWI_CHECKOUT"
@@ -278,8 +279,8 @@ function test_scripts_1206_worktree_identity_waits_for_the_first_opencode_sessio
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" rename-on-first-opencode-prompt
 }
 
-function test_scripts_1140_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
-  _bats_test_init 1140 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
+function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
+  _bats_test_init 1217 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -307,8 +308,8 @@ function test_scripts_1140_worktree_identity_declines_primary_checkouts_and_unma
   assert_equal "$(read_state_field "$(hwi_identity_state_path)" authorization)" authorized
 }
 
-function test_scripts_1141_worktree_identity_foreground_hands_off_to_a_detached_worker() {
-  _bats_test_init 1141 'worktree identity foreground hands prompt processing to a detached worker'
+function test_scripts_1218_worktree_identity_foreground_hands_off_to_a_detached_worker() {
+  _bats_test_init 1218 'worktree identity foreground hands prompt processing to a detached worker'
   hwi_setup
   hwi_create_generated_worktree
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
@@ -347,8 +348,8 @@ SH
   chmod +x "$HWI_STUB/$binary"
 }
 
-function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_identity() {
-  _bats_test_init 1142 'worktree identity uses a normalized multi-word pi identity'
+function test_scripts_1219_worktree_identity_uses_normalized_multi_word_pi_identity() {
+  _bats_test_init 1219 'worktree identity uses a normalized multi-word pi identity'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -371,8 +372,8 @@ function test_scripts_1142_worktree_identity_uses_normalized_multi_word_pi_ident
   assert_file_not_exists "$HWI_WORK/claude.calls"
 }
 
-function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model_slugs() {
-  _bats_test_init 1143 'worktree identity falls back for one-word and non-JSON model slugs'
+function test_scripts_1220_worktree_identity_rejects_one_word_and_non_json_model_slugs() {
+  _bats_test_init 1220 'worktree identity falls back for one-word and non-JSON model slugs'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -393,8 +394,8 @@ function test_scripts_1143_worktree_identity_rejects_one_word_and_non_json_model
   assert_file_exists "$HWI_WORK/claude.calls"
 }
 
-function test_scripts_1144_worktree_identity_falls_back_without_model_clis_and_caps_slugs() {
-  _bats_test_init 1144 'worktree identity falls back without model CLIs and caps long slugs'
+function test_scripts_1221_worktree_identity_falls_back_without_model_clis_and_caps_slugs() {
+  _bats_test_init 1221 'worktree identity falls back without model CLIs and caps long slugs'
   hwi_setup
   source "$HWI_STATE_LIBRARY"
   hwi_create_generated_worktree
@@ -1247,6 +1248,39 @@ function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   write_shellcheck_stub "$stubdir" "$invocations" 0
   run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
   assert_success
+}
+
+function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
+  _bats_test_init 9 'lint input set excludes agent worktrees but keeps repository source'
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
+
+  # Agent worktrees are checkouts of this repository living under
+  # .claude/worktrees, so their .sh files look exactly like repository source to
+  # find(1). Linting them makes the target's verdict depend on whichever
+  # worktree happens to be left over rather than on the tree being linted. The
+  # probe stays shellcheck-clean on purpose: this asserts on the input set, and
+  # a leaked probe must not be able to fail a later real lint run.
+  local stubdir="$BATS_TEST_TMPDIR/lint-scope-stub"
+  local invocations="$BATS_TEST_TMPDIR/shellcheck.scope-invocations"
+  local probe_dir="$repo_root/.claude/worktrees/lint-scope-probe-$$"
+  mkdir -p "$stubdir" "$probe_dir"
+  printf '#!/bin/bash\nprintf %%s "linted"\n' > "$probe_dir/probe.sh"
+
+  write_shellcheck_stub "$stubdir" "$invocations" 0
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
+  local lint_status="$status"
+  rm -f "$probe_dir/probe.sh"
+  rmdir "$probe_dir" 2>/dev/null || true
+
+  # #then
+  assert_equal 0 "$lint_status"
+  assert_file_exists "$invocations"
+  run grep -q "lint-scope-probe-$$" "$invocations"
+  assert_failure
+  # Control: the same sweep still reaches ordinary repository source, so the
+  # exclusion above cannot be satisfied by linting nothing at all.
+  assert_file_contains "$invocations" 'home/dot_local/lib/herdr-process\.sh'
 }
 
 # Herdr alias allocator
@@ -2429,6 +2463,17 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"internal_error","message":"transient pane read"}}\n' >&2
       exit 1
     fi
+    if [ -f "$CHILD_STUB/pane-get-outage" ] && [ -f "$CHILD_STUB/settlement-observed" ]; then
+      # A herdr transport outage that starts at the first read after settlement,
+      # so the delivery-time revalidation read fails first and the poll reads
+      # that follow keep failing for the requested number of reads.
+      remaining="$(cat "$CHILD_STUB/pane-get-outage")"
+      if [ "$remaining" -gt 0 ]; then
+        printf '%s\n' "$((remaining - 1))" > "$CHILD_STUB/pane-get-outage"
+        printf '{"error":{"code":"internal_error","message":"pane read outage"}}\n' >&2
+        exit 1
+      fi
+    fi
     if [ -f "$CHILD_STUB/pane-transient-after-settlement" ] && \
        [ -f "$CHILD_STUB/settlement-observed" ] && \
        [ ! -f "$CHILD_STUB/pane-get-transient-observed" ]; then
@@ -2926,6 +2971,43 @@ PY
   assert_success
 }
 
+function test_scripts_0331_herdr_child_post_arm_barrier_is_bounded() {
+  _bats_test_init 0331 'herdr-child launcher held past the watcher arm self-terminates once the hold bound expires'
+  # #given — a detached launcher parked at the post-arm barrier
+  child_stub_herdr
+  local launcher_pid launcher_status attempt=0
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER="$CHILD_STUB/post-arm" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" start --kind claude --detach --prompt "test task" \
+    >"$CHILD_STUB/post-arm.out" 2>"$CHILD_STUB/post-arm.err" &
+  launcher_pid=$!
+  child_wait_for_file "$CHILD_STUB/post-arm.ready"
+
+  # #when — the harness dies without ever writing the release signal
+  while kill -0 "$launcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the launcher leaves the process table and preserves the armed child
+  if kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -KILL "$launcher_pid" 2>/dev/null || true
+    wait "$launcher_pid" 2>/dev/null || true
+    : > "$CHILD_STUB/release-watcher"
+    fail 'post-arm barrier exceeded its test hold bound'
+  fi
+  if wait "$launcher_pid"; then launcher_status=0; else launcher_status=$?; fi
+  assert_equal "$launcher_status" 1
+  assert_file_contains "$CHILD_STUB/post-arm.out" '"supervision":{"status":"armed"'
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+  : > "$CHILD_STUB/release-watcher"
+}
+
 function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
   _bats_test_init 34 'herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome'
   child_lifecycle_stub_herdr
@@ -3176,6 +3258,66 @@ function test_scripts_042_herdr_child_sliced_wait_revalidates_generation_b() {
   assert_dir_not_exists "$old_run"
   run bash -c 'line=$1; file=$2; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "state-label supervised="' _ \
     "$wait_line" "$CHILD_STUB/calls.log"
+  assert_success
+}
+
+function test_scripts_0421_herdr_child_superseded_watcher_cannot_refresh_li() {
+  _bats_test_init 0421 'herdr-child superseded watcher cannot refresh liveness over a new generation'
+  child_lifecycle_stub_herdr
+  local old_generation new_generation watcher_pid new_watcher_pid reply_pid reply_status
+  local wait_line attempt=0
+  export HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER="$CHILD_STUB/liveness-publish"
+  export HERDR_CHILD_TEST_NOW_SEQ=100
+
+  # #given a detached watcher parked in a sliced agent wait
+  : > "$CHILD_STUB/wait-block"
+  run child_lifecycle_start --supervision-timeout 60000
+  assert_success
+  old_generation="$(cat "$CHILD_STUB/generation")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf 'working 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_file "$CHILD_STUB/wait-observed"
+  wait_line="$(grep -n '^agent wait' "$CHILD_STUB/calls.log" | cut -d: -f1 | head -1)"
+
+  # #when a real managed continuation completes between the watcher's ordinary
+  # generation check and its liveness publication
+  : > "$CHILD_STUB/wait-release"
+  child_wait_for_file "$CHILD_STUB/liveness-publish.ready"
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER= \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/new-watcher.pid" \
+    HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED="$CHILD_STUB/takeover-metadata-published" \
+    HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_RETRY_INTERVAL=0.01 \
+    bash "$HERDR_CHILD" reply --to "$(child_started_name)" --pane wT:p9 "Use path A" \
+    >"$CHILD_STUB/reply.out" 2>"$CHILD_STUB/reply.err" &
+  reply_pid=$!
+  printf '%s\n' "$reply_pid" > "$CHILD_STUB/reply.pid"
+  child_wait_for_file "$CHILD_STUB/takeover-metadata-published"
+  : > "$CHILD_STUB/liveness-publish.release"
+  if wait "$reply_pid"; then reply_status=0; else reply_status=$?; fi
+  assert_equal 0 "$reply_status"
+  new_generation="$(cat "$CHILD_STUB/generation")"
+  run test "$new_generation" != "$old_generation"
+  assert_success
+
+  # #then the superseded watcher retires without stamping its own generation,
+  # while the live generation keeps refreshing through the same boundary
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ]
+  # oracle: calls.log records the metadata calls the herdr boundary actually
+  # received, so a stale label is observable without reading watcher source.
+  run bash -c 'line=$1; generation=$2; file=$3; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "supervised=$generation"' _ \
+    "$wait_line" "$old_generation" "$CHILD_STUB/calls.log"
+  assert_success
+  run bash -c 'line=$1; generation=$2; file=$3; sed -n "$((line + 1)),\$p" "$file" | grep -q "supervised=$generation"' _ \
+    "$wait_line" "$new_generation" "$CHILD_STUB/calls.log"
+  assert_success
+  new_watcher_pid="$(cat "$CHILD_STUB/new-watcher.pid")"
+  run kill -0 "$new_watcher_pid"
   assert_success
 }
 
@@ -3818,6 +3960,146 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   done
 }
 
+function test_scripts_059_herdr_child_expires_an_abandoned_callback_claim() {
+  _bats_test_init 59 'herdr-child expires an abandoned callback claim into a terminal supervision failure'
+  # #given — a detached child holding an unresolved callback claim
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER="$CHILD_STUB/callback-receipt"
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local generation run_dir ask_pid watcher_pid attempt=0
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
+    HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
+  ask_pid=$!
+  child_wait_for_file "$CHILD_STUB/callback-receipt.ready"
+
+  # #when — the process owning the claim dies before publishing its receipt
+  kill -KILL "$ask_pid"
+  wait "$ask_pid" 2>/dev/null || true
+  printf 'blocked 11\n' > "$CHILD_STUB/child-state"
+
+  # #then — supervision reaches a terminal outcome instead of polling forever
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 2000 ] || fail "watcher kept polling an abandoned callback claim"
+  assert_file_contains "$run_dir/failed.state" '^reason=callback-owner-lost$'
+  assert_file_contains "$CHILD_STUB/failure-reason" '^callback-owner-lost$'
+  assert_file_exists "$CHILD_STUB/waiting-label"
+}
+
+function test_scripts_0592_herdr_child_callback_receipt_barrier_is_bounded() {
+  _bats_test_init 0592 'herdr-child ask held before its callback receipt self-terminates once the hold bound expires'
+  # #given — a detached child parked at the callback receipt barrier
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER="$CHILD_STUB/callback-receipt"
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  local ask_pid ask_status attempt=0
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
+    HERDR_CHILD_PARENT_SESSION=parent-session \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
+  ask_pid=$!
+  child_wait_for_file "$CHILD_STUB/callback-receipt.ready"
+
+  # #when — the harness dies without ever writing the release signal
+  while kill -0 "$ask_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the ask process leaves the process table instead of polling forever
+  if kill -0 "$ask_pid" 2>/dev/null; then
+    kill -KILL "$ask_pid" 2>/dev/null || true
+    wait "$ask_pid" 2>/dev/null || true
+    fail 'callback receipt barrier exceeded its test hold bound'
+  fi
+  if wait "$ask_pid"; then ask_status=0; else ask_status=$?; fi
+  assert_equal "$ask_status" 1
+  assert_file_contains "$CHILD_STUB/ask.err" 'callback receipt barrier expired'
+}
+
+function test_scripts_0591_herdr_child_bounds_sustained_pane_read_failures() {
+  _bats_test_init 591 'herdr-child bounds sustained pane-read failures into a reported terminal state'
+  local generation run_dir watcher_pid attempt
+
+  # #given — a detached child settles while herdr drops a single pane read
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  printf '1\n' > "$CHILD_STUB/pane-get-outage"
+
+  # #when — the outage ends well inside the budget
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+
+  # #then — a recoverable outage still delivers the lifecycle event
+  child_wait_for_log 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
+  assert_file_not_exists "$CHILD_STUB/failure-reason"
+
+  # #given — the same child under an outage that lasts the whole budget
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf '3\n' > "$CHILD_STUB/pane-get-outage"
+
+  # #when — every pane read the retry policy allows fails
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — supervision fails diagnostically instead of delivering the event
+  [ "$attempt" -lt 2000 ] || fail "watcher kept retrying an exhausted pane-read budget"
+  assert_file_contains "$CHILD_STUB/failure-reason" '^wait-error$'
+  assert_file_contains "$run_dir/failed.state" '^reason=wait-error$'
+  run grep -q 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
+  assert_failure
+
+  # #given — an outage that never recovers, so no diagnostic can be published
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
+  printf '100000\n' > "$CHILD_STUB/pane-get-outage"
+
+  # #when — herdr stops answering pane reads for good
+  printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  attempt=0
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the watcher still reaches a terminal state instead of polling forever
+  [ "$attempt" -lt 2000 ] || fail "watcher polled a permanent pane-read outage forever"
+  assert_file_contains "$run_dir/failed.state" '^reason=wait-error$'
+}
+
 function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_direc() {
   _bats_test_init 60 'herdr-child maps claude postures, effort, and skill directories'
   child_stub_herdr
@@ -3961,6 +4243,101 @@ if "manual cleanup" in stderr:
     raise AssertionError("parseable identity was reported as unknown: %s" % stderr)
 PY
   assert_success
+}
+
+# Delivers SIGTERM to a launcher parked between the herdr response and the
+# identity read, so the trap runs while pane and launch_terminal are still empty.
+child_signal_before_identity_capture() {
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_WORKSPACE_ID=w1 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER="$CHILD_STUB/split-captured" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=10 \
+    CHILD_EXTRA_ARGS="$1" CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import os
+from pathlib import Path
+import shlex
+import signal
+import subprocess
+import time
+
+stub = Path(os.environ["CHILD_STUB"])
+extra = shlex.split(os.environ["CHILD_EXTRA_ARGS"])
+proc = subprocess.Popen(
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--wait",
+     "--prompt", "test task"] + extra,
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
+for _ in range(1000):
+    if (stub / "split-captured.ready").exists():
+        break
+    time.sleep(0.01)
+else:
+    proc.kill()
+    raise AssertionError("launcher did not reach the identity-capture barrier")
+proc.send_signal(signal.SIGTERM)
+stdout, stderr = proc.communicate(timeout=30)
+if proc.returncode == 0:
+    raise AssertionError("signaled launcher returned success")
+calls = (stub / "calls.log").read_text()
+if "pane close wT:p9" not in calls:
+    raise AssertionError("created pane was left running: %s | %s" % (calls, stderr))
+if "pane report-metadata" in calls or "agent start" in calls:
+    raise AssertionError("signal crossed the ownership publication barrier: %s" % calls)
+if "manual cleanup" in stderr:
+    raise AssertionError("parseable identity was reported as unknown: %s" % stderr)
+PY
+}
+
+function test_scripts_0801_herdr_child_tab_signal_before_identity_capture() {
+  _bats_test_init 0801 'herdr-child tab signal before identity capture closes the created tab root pane'
+  # #given — a tab-mode launcher parked between tab create and the identity read
+  child_stub_herdr
+  # #when — SIGTERM lands inside that window
+  run child_signal_before_identity_capture --tab
+  # #then — the recovered identity still passes the terminal check and the pane closes
+  assert_success
+}
+
+function test_scripts_0802_herdr_child_pane_signal_before_identity_capture() {
+  _bats_test_init 0802 'herdr-child pane signal before identity capture closes the created pane'
+  # #given — a pane-mode launcher parked between pane split and the identity read
+  child_stub_herdr
+  # #when — SIGTERM lands inside that window
+  run child_signal_before_identity_capture ''
+  # #then — pane mode recovers the same identity and closes the split pane
+  assert_success
+}
+
+function test_scripts_0661_herdr_child_tab_created_barrier_is_bounded() {
+  _bats_test_init 0661 'herdr-child tab launcher held after creation self-terminates and drops the owned tab'
+  # #given — a tab-mode launcher parked at the post-create ownership barrier
+  child_stub_herdr
+  local launcher_pid launcher_status attempt=0
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_WORKSPACE_ID=w1 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_TEST_TAB_CREATED_BARRIER="$CHILD_STUB/tab-created" \
+    HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
+    bash "$HERDR_CHILD" start --kind claude --tab --wait --prompt "test task" \
+    >"$CHILD_STUB/tab-created.out" 2>"$CHILD_STUB/tab-created.err" &
+  launcher_pid=$!
+  child_wait_for_file "$CHILD_STUB/tab-created.ready"
+
+  # #when — the harness dies without ever writing the release signal
+  while kill -0 "$launcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+
+  # #then — the launcher leaves the process table without stranding a half-created tab
+  if kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -KILL "$launcher_pid" 2>/dev/null || true
+    wait "$launcher_pid" 2>/dev/null || true
+    fail 'tab-created barrier exceeded its test hold bound'
+  fi
+  if wait "$launcher_pid"; then launcher_status=0; else launcher_status=$?; fi
+  assert_equal "$launcher_status" 1
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -Eq '^(pane report-metadata|agent start)' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
@@ -4195,8 +4572,8 @@ function test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery() {
   assert_output --partial "parent-side"
 }
 
-function test_scripts_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
-  _bats_test_init 82 'herdr-child reap closes an unfocused idle pane'
+function test_scripts_101_herdr_child_reap_closes_an_unfocused_idle_pane() {
+  _bats_test_init 101 'herdr-child reap closes an unfocused idle pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","terminal_id":"term-child","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -4208,8 +4585,8 @@ function test_scripts_082_herdr_child_reap_closes_an_unfocused_idle_pane() {
   assert_output 1
 }
 
-function test_scripts_083_herdr_child_reap_rejects_an_empty_expected_pane() {
-  _bats_test_init 83 'herdr-child reap rejects an empty expected pane'
+function test_scripts_102_herdr_child_reap_rejects_an_empty_expected_pane() {
+  _bats_test_init 102 'herdr-child reap rejects an empty expected pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"idle-a","pane_id":"wT:p1","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -4219,8 +4596,8 @@ function test_scripts_083_herdr_child_reap_rejects_an_empty_expected_pane() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
-function test_scripts_084_herdr_child_reap_preserves_a_reused_name_outside() {
-  _bats_test_init 84 'herdr-child reap preserves a reused name outside the expected pane'
+function test_scripts_103_herdr_child_reap_preserves_a_reused_name_outside() {
+  _bats_test_init 103 'herdr-child reap preserves a reused name outside the expected pane'
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"reused-a","pane_id":"wT:p2","terminal_id":"term-child","agent_status":"idle","focused":false}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -4231,8 +4608,8 @@ function test_scripts_084_herdr_child_reap_preserves_a_reused_name_outside() {
   assert_failure
 }
 
-function test_scripts_085_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
-  _bats_test_init 85 'herdr-child reap preserves a pane when fresh state no longer matches'
+function test_scripts_104_herdr_child_reap_preserves_a_pane_when_fresh_sta() {
+  _bats_test_init 104 'herdr-child reap preserves a pane when fresh state no longer matches'
   child_stub_herdr
   local initial='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p1","terminal_id":"term-child","agent_status":"done","focused":false}]}}'
   local fresh='{"result":{"agents":[{"name":"stale-a","pane_id":"wT:p2","terminal_id":"term-child","agent_status":"done","focused":false}]}}'
@@ -6348,6 +6725,58 @@ function test_scripts_1161_herdr_pane_labels_location_and_formatter_add_only_app
   assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
 }
 
+function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_th() {
+  _bats_test_init 1208 'herdr-pane-labels icon constants stay independent of the engine glyph table'
+  # Every HPL_ICON_* comparison above is only a test while its expected bytes
+  # come from somewhere the engine cannot reach. A harness that read the ICON_
+  # table out of the engine was removed once and then carried back in by a
+  # rename, and while it was in place a changed codepoint moved both sides at
+  # once and every icon assertion stayed green. Load the harness against a source
+  # tree whose engine declares a different ICON_BRANCH: a derived constant
+  # follows the mutation, a pinned one does not. Rewriting the whole assignment
+  # keeps this test independent of whichever codepoint ICON_BRANCH holds today.
+  local root="$BATS_TEST_TMPDIR/mutated-engine" harness
+  harness="$BATS_TEST_DIRNAME/helpers/herdr_pane_labels.bash"
+  mkdir -p "$root/dot_local/bin"
+  # U+2714 heavy check mark — a glyph the pane-label grammar never uses.
+  sed "s|^ICON_BRANCH=.*|ICON_BRANCH=\"\$(printf '\\\\342\\\\234\\\\224')\"|" \
+    "$HPL_ENGINE" > "$root/dot_local/bin/executable_herdr-pane-labels"
+  assert_file_contains "$root/dot_local/bin/executable_herdr-pane-labels" \
+    'ICON_BRANCH=.*\\342\\234\\224'
+
+  run env SOURCE_ROOT="$root" bash -c 'source "$1"; printf %s "$HPL_ICON_BRANCH"' _ "$harness"
+  assert_success
+  assert_output "$HPL_ICON_BRANCH"
+}
+
+function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr() {
+  _bats_test_init 1209 'pane-label stub api snapshot envelope matches the installed herdr'
+  command_exists herdr || skip "herdr is not installed"
+  # The stub herdr in helpers/herdr_pane_labels.bash fakes an upstream contract,
+  # so nothing written here can say whether it still matches -- only the binary
+  # it impersonates can, and it is the oracle for this test. Compare the two at
+  # the boundary the engine consumes, the top-level result keys of
+  # `api snapshot`. Everything below that key set belongs to herdr; restating it
+  # here would be reimplementing upstream semantics locally, which is the
+  # failure mode this test exists to avoid rather than repeat.
+  local herdr_bin real_snapshot real_keys
+  herdr_bin="$(command -v herdr)"
+  # A real snapshot needs a running herdr server. Without one there is no
+  # oracle, so say why instead of falling back to a locally invented shape.
+  real_snapshot="$("$herdr_bin" api snapshot 2>&1)" \
+    || skip "real herdr returned no snapshot: $real_snapshot"
+  run jq -S -c '.result | keys' <<<"$real_snapshot"
+  assert_success
+  real_keys="$output"
+
+  hpl_setup
+  run env PATH="$HPL_STUB:/usr/bin:/bin" herdr api snapshot
+  assert_success
+  run jq -S -c '.result | keys' <<<"$output"
+  assert_success
+  assert_output "$real_keys"
+}
+
 function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
   _bats_test_init 1162 'herdr-pane-labels plugin exposes only the approved pane and tab invalidations'
   local manifest="$HPL_PLUGIN_DIR/herdr-plugin.toml"
@@ -7006,8 +7435,8 @@ SH
 
 # The same retry must not paper over a sweep that never converges: every attempt
 # fails, so the cutover still disables the plugin and reports the failure.
-function test_scripts_1324_herdr_pane_label_after_script_still_fails_a_sweep_that_() {
-  _bats_test_init 1324 'herdr pane-label after script still fails a sweep that never converges'
+function test_scripts_1315_herdr_pane_label_after_script_still_fails_a_sweep_that_() {
+  _bats_test_init 1315 'herdr pane-label after script still fails a sweep that never converges'
   command -v jq >/dev/null || skip "jq not available"
   skip_if_no_chezmoi
   hpl_cutover_setup
@@ -7448,8 +7877,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   assert_output --partial "Assertions: 1 passed, 1 total"
 }
 
-function test_scripts_2841_test_dsl_isolates_parallel_tests_with_the_same_historical_number() {
-  _bats_test_init 2841 'test DSL isolates parallel tests with the same historical number'
+function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_historical_number() {
+  _bats_test_init 259 'test DSL isolates parallel tests with the same historical number'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/test_dsl_parallel_isolation_probe_test.sh"
   assert_file_exists "$probe_file"
 
@@ -7527,9 +7956,11 @@ function test_scripts_263_herdr_child_watcher_release_hold_is_bounded() {
   local watcher_pid
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   # No release file is ever written: an abandoned hold must expire on its own
-  # instead of orphaning a polling daemon.
+  # instead of orphaning a polling daemon. This hold carries the multiplied
+  # bound that keeps it outlasting a launcher's, so the ceiling clears four
+  # knob-seconds with room to spare; the watcher normally exits long before it.
   local attempt=0
-  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 400 ]; do
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 2000 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
@@ -8688,8 +9119,8 @@ hwi_wait_for_file() {
   return 1
 }
 
-function test_scripts_1200_claude_worktree_identity_hook_hands_off_prompt_on_stdin() {
-  _bats_test_init 1200 'claude worktree identity hook passes prompt on stdin and returns after handoff'
+function test_scripts_1222_claude_worktree_identity_hook_hands_off_prompt_on_stdin() {
+  _bats_test_init 1222 'claude worktree identity hook passes prompt on stdin and returns after handoff'
   local root="$BATS_TEST_TMPDIR/claude-adapter" prompt='Name this Claude task: stdin-only sentinel'
   hwi_adapter_stub_engine "$root"
 
@@ -8713,8 +9144,8 @@ function test_scripts_1200_claude_worktree_identity_hook_hands_off_prompt_on_std
   hwi_wait_for_file "$call/released" || fail 'the slow derivation was not released'
 }
 
-function test_scripts_1201_claude_worktree_identity_hook_fails_open_without_engine() {
-  _bats_test_init 1201 'claude worktree identity hook is quiet when unavailable or gated'
+function test_scripts_1223_claude_worktree_identity_hook_fails_open_without_engine() {
+  _bats_test_init 1223 'claude worktree identity hook is quiet when unavailable or gated'
   run env HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ENGINE="$BATS_TEST_TMPDIR/missing-engine" \
     bash "$HWI_CLAUDE_HOOK" <<< '{"session_id":"session-claude","prompt":"ignored"}'
   assert_success
@@ -8733,8 +9164,8 @@ function test_scripts_1201_claude_worktree_identity_hook_fails_open_without_engi
   assert_output ''
 }
 
-function test_scripts_1202_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
-  _bats_test_init 1202 'deployed opencode plugin gates and delivers every prompt on stdin'
+function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
+  _bats_test_init 1224 'deployed opencode plugin gates and delivers every prompt on stdin'
   command_exists bun || skip 'bun is required'
   local root home deployed
   root="$BATS_TEST_TMPDIR/opencode-adapter"
@@ -10266,4 +10697,341 @@ function test_scripts_2841_context_threshold_bounds_what_it_hands_the_extractor(
   run bash -c '[ "$1" -le "$2" ] && printf within || printf "%s bytes past the %s ceiling" "$1" "$2"' \
     _ "$bytes" "$ceiling"
   assert_output 'within'
+}
+
+# ===========================================
+# update-pins
+#
+# Consumer: the two chezmoi *source* files update-pins rewrites —
+# .chezmoiexternal.toml and private_dot_config/mise/config.toml. Observable
+# failure: a declined bump mutates a pin anyway, an accepted bump writes
+# something other than the value upstream returned, or a fff-mcp bump lands a
+# partial checksum set that breaks `chezmoi apply` on the platforms it did not
+# refresh. Oracle: the bytes of a fixture copy of those two real files before
+# and after a run, against the values a stubbed fetcher returned. GitHub's own
+# semantics belong to GitHub and are not asserted here — every upstream answer
+# and every `mise outdated` report comes from a stub, so the suite never
+# reaches the network.
+# ===========================================
+
+UPDATE_PINS="$SOURCE_ROOT/dot_local/bin/executable_update-pins"
+
+pins_fixture() {
+  PINS_ROOT="$BATS_TEST_TMPDIR/pins-source"
+  PINS_STUBS="$BATS_TEST_TMPDIR/pins-stubs"
+  PINS_BASELINE="$BATS_TEST_TMPDIR/pins-baseline"
+  mkdir -p "$PINS_ROOT/private_dot_config/mise" "$PINS_STUBS" "$PINS_BASELINE"
+
+  # The fixture is a copy of the repository's own pinned files, so the parsing
+  # under test faces the shapes it will actually meet.
+  cp "$SOURCE_ROOT/.chezmoiexternal.toml" "$PINS_ROOT/.chezmoiexternal.toml"
+  cp "$SOURCE_ROOT/private_dot_config/mise/config.toml" \
+    "$PINS_ROOT/private_dot_config/mise/config.toml"
+  PINS_EXTERNAL="$PINS_ROOT/.chezmoiexternal.toml"
+  PINS_MISE="$PINS_ROOT/private_dot_config/mise/config.toml"
+
+  PINS_STUB_HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
+  PINS_STUB_TAG="v99.0.0"
+  PINS_STUB_CHECKSUM_FAILS_FOR=""
+
+  PINS_FETCHER="$PINS_STUBS/upstream-stub"
+  cat >"$PINS_FETCHER" <<'STUB'
+#!/usr/bin/env bash
+# Stubbed upstream. Answers in the shapes the real fetcher sees: a
+# `git ls-remote` line, a bare release tag, and a `.sha256` asset line. An
+# unknown asset exits non-zero, so a renamed target surfaces instead of
+# silently borrowing another platform's checksum.
+case "$1" in
+  head-sha) printf '%s\tHEAD\n' "$STUB_HEAD_SHA" ;;
+  latest-tag) printf '%s\n' "$STUB_TAG" ;;
+  checksum)
+    # checksum REPO TAG ASSET
+    [ "$4" != "${STUB_CHECKSUM_FAILS_FOR:-}" ] || exit 1
+    case "$4" in
+      *aarch64-apple-darwin)
+        printf '%s  %s\n' "1111111111111111111111111111111111111111111111111111111111111111" "$4" ;;
+      *x86_64-apple-darwin)
+        printf '%s  %s\n' "2222222222222222222222222222222222222222222222222222222222222222" "$4" ;;
+      *aarch64-unknown-linux-musl)
+        printf '%s  %s\n' "3333333333333333333333333333333333333333333333333333333333333333" "$4" ;;
+      *x86_64-unknown-linux-musl)
+        printf '%s  %s\n' "4444444444444444444444444444444444444444444444444444444444444444" "$4" ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
+STUB
+  chmod +x "$PINS_FETCHER"
+
+  PINS_UNREACHABLE="$PINS_STUBS/unreachable-stub"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"$PINS_UNREACHABLE"
+  chmod +x "$PINS_UNREACHABLE"
+
+  # `mise outdated --bump -J`, stubbed. The default report mirrors what a real
+  # mise emits for a moving alias: no bump to offer.
+  PINS_MISE_JSON="$BATS_TEST_TMPDIR/mise-outdated.json"
+  printf '%s\n' \
+    '{"node": {"name": "node", "requested": "lts", "current": "24.20.0", "bump": null, "latest": "26.8.1"}}' \
+    >"$PINS_MISE_JSON"
+  printf '%s\n' '#!/usr/bin/env bash' 'cat "$STUB_MISE_JSON"' >"$PINS_STUBS/mise"
+  chmod +x "$PINS_STUBS/mise"
+
+  cp "$PINS_EXTERNAL" "$PINS_BASELINE/externals"
+  cp "$PINS_MISE" "$PINS_BASELINE/mise"
+}
+
+# run_pins ANSWERS [FETCHER]
+run_pins() {
+  local answers="$1" fetcher="${2:-$PINS_FETCHER}"
+  run env \
+    "PATH=$PINS_STUBS:$PATH" \
+    "UPDATE_PINS_SOURCE_ROOT=$PINS_ROOT" \
+    "UPDATE_PINS_FETCHER=$fetcher" \
+    "STUB_MISE_JSON=$PINS_MISE_JSON" \
+    "STUB_HEAD_SHA=$PINS_STUB_HEAD_SHA" \
+    "STUB_TAG=$PINS_STUB_TAG" \
+    "STUB_CHECKSUM_FAILS_FOR=$PINS_STUB_CHECKSUM_FAILS_FOR" \
+    bash -c 'printf "%s" "$2" | bash "$1"' bash "$UPDATE_PINS" "$answers"
+}
+
+assert_pins_files_unchanged() {
+  assert cmp -s "$PINS_BASELINE/externals" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+pins_baseline_value() {
+  sed -n "$1" "$PINS_BASELINE/externals" | head -1
+}
+
+# The externals file the fixture should hold after an accepted fff-mcp bump:
+# the pinned tag replaced, and each platform's checksum replaced by the one the
+# stub serves for that platform's asset.
+pins_expected_fff_bump() {
+  local out="$BATS_TEST_TMPDIR/expected-externals"
+  local work="$BATS_TEST_TMPDIR/expected-externals.work"
+  local old_tag template asset sum index=0
+  local targets=() shas=()
+
+  old_tag="$(pins_baseline_value 's|.*/releases/download/\([^/"]*\)/.*|\1|p')"
+  template="$(pins_baseline_value 's|.*/releases/download/[^/"]*/\([^"]*\)".*|\1|p')"
+  while IFS= read -r asset; do
+    targets[${#targets[@]}]="$asset"
+  done < <(sed -n 's|.*\$fffMcpTarget = "\([^"]*\)".*|\1|p' "$PINS_BASELINE/externals")
+  while IFS= read -r sum; do
+    shas[${#shas[@]}]="$sum"
+  done < <(sed -n 's|.*\$fffMcpSha256 = "\([0-9a-f]\{64\}\)".*|\1|p' "$PINS_BASELINE/externals")
+
+  sed "s|/releases/download/$old_tag/|/releases/download/$PINS_STUB_TAG/|" \
+    "$PINS_BASELINE/externals" >"$out"
+  while [ "$index" -lt "${#targets[@]}" ]; do
+    asset="${template%%\{\{*}${targets[$index]}${template##*\}\}}"
+    sum="$(STUB_CHECKSUM_FAILS_FOR= "$PINS_FETCHER" checksum repo "$PINS_STUB_TAG" "$asset" |
+      awk '{ print $1 }')"
+    sed "s|\"${shas[$index]}\"|\"$sum\"|" "$out" >"$work"
+    mv "$work" "$out"
+    index=$((index + 1))
+  done
+  printf '%s\n' "$out"
+}
+
+function test_scripts_1451_update_pins_declining_every_bump_leaves_the_pinned_files_byte_identical() {
+  _bats_test_init 1451 'update-pins declining every bump leaves the pinned files byte-identical'
+  # #given a source tree whose every pin has drifted upstream
+  pins_fixture
+
+  # #when every offer is declined
+  run_pins 'n
+n
+n
+n
+n
+n
+'
+
+  # #then the run reports the drift and writes nothing
+  assert_success
+  # Control for the byte-identical assertion below: without it a run that
+  # reported every pin as up to date would also write nothing and pass. The
+  # pinned sha comes from the fixture rather than a literal, because this is
+  # the value update-pins exists to change.
+  local pinned
+  pinned="$(pins_baseline_value \
+    's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
+  assert_output --partial \
+    "ohmyzsh/ohmyzsh: ${pinned:0:12} -> ${PINS_STUB_HEAD_SHA:0:12}"
+  assert_output --partial 'kept'
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1452_update_pins_writes_exactly_the_fetched_sha_for_the_accepted_pin() {
+  _bats_test_init 1452 'update-pins writes exactly the fetched sha for the accepted pin'
+  # #given the drifted source tree and the sha the stubbed fetcher will return
+  pins_fixture
+  local old_sha expected="$BATS_TEST_TMPDIR/expected-externals"
+  old_sha="$(pins_baseline_value 's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+    "$PINS_BASELINE/externals" >"$expected"
+
+  # #when only the first offer is accepted
+  run_pins 'y
+n
+n
+n
+n
+n
+'
+
+  # #then that one pin carries the fetched sha and nothing else moved
+  assert_success
+  assert cmp -s "$expected" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+function test_scripts_1453_update_pins_bumps_fff_mcp_to_the_fetched_tag_and_all_four_checksums() {
+  _bats_test_init 1453 'update-pins bumps fff-mcp to the fetched tag and all four checksums'
+  # #given the drifted source tree and the four per-platform sums the stub serves
+  pins_fixture
+  local expected
+  expected="$(pins_expected_fff_bump)"
+
+  # #when every archive offer is declined and only the fff-mcp offer accepted
+  run_pins 'n
+n
+n
+n
+n
+y
+'
+
+  # #then the release tag and every platform checksum carry the fetched values
+  assert_success
+  assert cmp -s "$expected" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+function test_scripts_1454_update_pins_abandons_a_fff_mcp_bump_when_one_checksum_cannot_be_fetched() {
+  _bats_test_init 1454 'update-pins abandons a fff-mcp bump when one checksum cannot be fetched'
+  # #given one of the four platform checksums is unavailable upstream
+  pins_fixture
+  PINS_STUB_CHECKSUM_FAILS_FOR='fff-mcp-aarch64-unknown-linux-musl'
+
+  # #when the fff-mcp bump is accepted
+  run_pins 'n
+n
+n
+n
+n
+y
+'
+
+  # #then the pin keeps its whole consistent set and the run names what it needs
+  assert_success
+  assert_output --partial 'pin left unchanged'
+  assert_output --partial 'the values a manual bump needs'
+  assert_output --partial 'aarch64-unknown-linux-musl: unavailable'
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1455_update_pins_reports_unreachable_upstreams_and_still_succeeds() {
+  _bats_test_init 1455 'update-pins reports unreachable upstreams and still succeeds'
+  # #given every upstream query fails, as it would with no network
+  pins_fixture
+
+  # #when update-pins runs
+  run_pins '' "$PINS_UNREACHABLE"
+
+  # #then each pin reports as unknown, the run succeeds, and nothing is written
+  assert_success
+  assert_output --partial 'ohmyzsh/ohmyzsh: unknown'
+  assert_output --partial 'dmtrKovalenko/fff: unknown'
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1456_update_pins_rewrites_only_the_accepted_mise_tool_version() {
+  _bats_test_init 1456 'update-pins rewrites only the accepted mise tool version'
+  # #given mise reports a concrete bump for a tool pinned in the managed config
+  pins_fixture
+  printf '%s\n' \
+    '{"node": {"name": "node", "requested": "24", "current": "24.20.0", "bump": "26.8.1", "latest": "26.8.1"}}' \
+    >"$PINS_MISE_JSON"
+  sed 's|^node = ".*"$|node = "24"|' "$PINS_BASELINE/mise" >"$PINS_MISE"
+  cp "$PINS_MISE" "$PINS_BASELINE/mise"
+  assert_file_contains "$PINS_MISE" '^node = "24"$'
+  local expected="$BATS_TEST_TMPDIR/expected-mise"
+  sed 's|^node = "24"$|node = "26.8.1"|' "$PINS_BASELINE/mise" >"$expected"
+
+  # #when every externals offer is declined and the mise offer accepted
+  run_pins 'n
+n
+n
+n
+n
+n
+y
+'
+
+  # #then the managed mise config carries the reported bump and nothing else did
+  assert_success
+  assert cmp -s "$expected" "$PINS_MISE"
+  assert cmp -s "$PINS_BASELINE/externals" "$PINS_EXTERNAL"
+}
+
+function test_scripts_1457_update_pins_follows_the_chezmoiroot_indirection_into_home() {
+  _bats_test_init 1457 'update-pins follows the .chezmoiroot indirection into home/'
+  # #given a source tree shaped like this repository's own, where .chezmoiroot
+  # puts the pinned files one level below the root chezmoi source-path reports
+  pins_fixture
+  local outer="$BATS_TEST_TMPDIR/pins-chezmoiroot"
+  mkdir -p "$outer"
+  mv "$PINS_ROOT" "$outer/home"
+  printf 'home\n' >"$outer/.chezmoiroot"
+  PINS_ROOT="$outer"
+  PINS_EXTERNAL="$outer/home/.chezmoiexternal.toml"
+  PINS_MISE="$outer/home/private_dot_config/mise/config.toml"
+
+  local expected="$BATS_TEST_TMPDIR/expected-nested-externals" old_sha
+  old_sha="$(pins_baseline_value \
+    's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+    "$PINS_BASELINE/externals" >"$expected"
+
+  # #when the first offer is accepted
+  run_pins 'y
+n
+n
+n
+n
+n
+'
+
+  # #then the nested file was found and rewritten rather than reported missing
+  assert_success
+  refute_output --partial 'no chezmoi externals file'
+  assert cmp -s "$expected" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+function test_scripts_1458_update_pins_reports_a_failed_mise_lookup_as_unknown() {
+  _bats_test_init 1458 'update-pins reports a failed mise lookup as unknown, not as nothing outdated'
+  # #given a mise whose outdated lookup fails the way a registry or network
+  # outage makes it fail: nonzero exit, nothing usable on stdout
+  pins_fixture
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 2' >"$PINS_STUBS/mise"
+  chmod +x "$PINS_STUBS/mise"
+
+  # #when every externals offer is declined
+  run_pins 'n
+n
+n
+n
+n
+n
+'
+
+  # #then the run says it does not know, rather than claiming nothing drifted
+  assert_success
+  assert_output --partial 'mise: unknown'
+  refute_output --partial 'mise: nothing outdated'
+  assert_pins_files_unchanged
 }

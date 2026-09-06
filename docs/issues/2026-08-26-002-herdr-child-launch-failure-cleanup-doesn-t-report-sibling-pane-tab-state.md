@@ -1,29 +1,77 @@
 ---
 title: "herdr-child: launch-failure cleanup doesn't report sibling-pane tab state"
-short_description: "close_unregistered_pane, close_collision_pane, close_registered_pane, and signal_cleanup all close only the child's own pane and never query or report whether a --tab child's tab held sibling panes (unlike herdr-child reap, which reports 'kept with N panes'); deliberately left unbranched per the herdr-child-tab-mode plan's session-settled KTD3/KTD4 decision (herdr's own last-pane-close auto-close makes a plain pane close correct regardless of siblings), and no launch-failure code path realistically produces a sibling pane in a tab the script just created, but code review flagged the observability gap for a parent agent watching these paths."
+short_description: "47ef76d consolidated the four named cleanup helpers into one cleanup_pane (home/dot_local/lib/herdr-child-launch.sh:166-192) reached from ~18 launch-failure sites; it still ends at herdr pane close and never calls tab_reap_status, so unlike herdr-child reap (herdr-child-reap.sh:158-164, 'kept with N panes') a parent agent watching a launch failure learns nothing about the tab's fate — deliberately unbranched per the tab-mode plan's KTD3/KTD4 decision, and now a one-site change rather than four."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr-child","tab-mode","observability","code-review-residual"]
 date: "2026-08-26"
-status: "open"
+status: "wontfix"
 priority: "low"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
 
-`docs/plans/2026-08-26-1123-feat-herdr-child-tab-mode-plan.md` added a `--tab` launch mode to `herdr-child start` (implemented in `home/dot_local/bin/executable_herdr-child`). Four launch-failure cleanup helpers — `close_unregistered_pane`, `close_collision_pane`, `close_registered_pane`, and `signal_cleanup` — all close only the child's own pane (`herdr pane close "$pane"`), unchanged from pane mode, and never call `herdr tab get` the way `reap_children` does. Their session-settled rationale (KTD3/KTD4 in the plan) is that herdr's own last-pane-close auto-close, measured in the plan's U1 against herdr 0.8.2, makes this correct regardless of mode: closing the child's pane either takes the whole tab with it (no siblings) or leaves the tab open with the sibling (siblings present) — herdr decides, not this script.
+`docs/plans/2026-08-26-1123-feat-herdr-child-tab-mode-plan.md` added a `--tab`
+launch mode to `herdr-child start`. The four cleanup helpers this record
+originally named — `close_unregistered_pane`, `close_collision_pane`,
+`close_registered_pane`, and `signal_cleanup` — no longer exist. `47ef76d`
+(split child lifecycle into modules) consolidated them into one `cleanup_pane`
+(`home/dot_local/lib/herdr-child-launch.sh:166-192`), reached from roughly
+eighteen launch-failure sites (`:210`, `:271`, `:329`, `:345`, `:352-458`,
+`:531`) plus `owned_launch_signal`. The implementation moved out of
+`home/dot_local/bin/executable_herdr-child`, which is now a dispatcher.
 
-Code review (two independent peer sessions via `se-code-review`) flagged that this means a parent agent watching one of these failure paths gets no signal about which outcome happened — `reap` reports "closed pane and its tab X" vs. "tab X kept with N panes" (see `reap_children` in the same file), but the four launch-cleanup helpers report nothing beyond their existing "preserving pane" failure messages, silent on success either way.
+The observability gap is unchanged. `cleanup_pane` ends at
+`herdr pane close "$pane"` and never calls `tab_reap_status`
+(`herdr-child-runtime.sh:446`) or `herdr tab get`. The session-settled
+rationale (KTD3/KTD4 in the plan) still holds: herdr's own last-pane-close
+auto-close, measured in the plan's U1 against herdr 0.8.2, makes a plain pane
+close correct regardless of mode — closing the child's pane either takes the
+whole tab with it or leaves the tab open with its sibling, and herdr decides.
 
-This was deliberately not changed during the tab-mode work: no launch-failure code path realistically produces a sibling pane in a tab the script just created moments earlier for this one child, so the reporting gap is believed to be dead weight in practice — but it is a genuine observability gap if that assumption is ever wrong (e.g. a future feature that adds a sibling pane to a child's tab before the child's own launch settles).
+What a parent agent loses is the signal about which of those happened. `reap`
+reports all three outcomes (`herdr-child-reap.sh:158-164`): `closed pane %s`,
+`closed pane %s; tab %s kept with %s panes`, and `closed pane %s and tab %s`.
+`cleanup_pane` reports nothing on success and only `preserving pane ...` on
+refusal.
+
+This was deliberately not changed during the tab-mode work: no launch-failure
+path realistically produces a sibling pane in a tab the script created moments
+earlier for one child, so the reporting is believed to be dead weight — but it
+is a genuine gap if that assumption is ever wrong (for example a future feature
+that adds a sibling pane before the child's launch settles). Two independent
+peer sessions via `se-code-review` flagged it.
+
+This is not a duplicate of `2026-08-18-021`, which concerns authorization
+rather than reporting.
 
 ## Scope
 
-Decide whether the four launch-cleanup helpers should query tab state (via `herdr tab get`, matching `reap_children`'s existing pattern) after a successful `pane close`, and report the outcome the way `reap` does. If yes, thread that reporting through all four call sites consistently. If the assumption that no sibling can exist at launch-cleanup time is confirmed durable, this issue can close as `wontfix` with that reasoning recorded instead.
+Decide whether `cleanup_pane` should query tab state after a successful
+`pane close` (via `tab_reap_status`, the helper `reap` already uses) and report
+the outcome the way `reap` does. Because the four helpers are now one, the
+change is a single site rather than four. If the no-sibling assumption is
+confirmed durable, close this as `wontfix` with that reasoning recorded
+instead.
 
-Out of scope: changing the close *mechanism* itself (already correct and tested) — this is purely about surfacing which outcome occurred.
+Out of scope: changing the close mechanism itself — this is purely about
+surfacing which outcome occurred.
 
 ## Open decisions
 
-- Is there any current or planned herdr-child code path that could add a sibling pane to a child's tab before that child's own launch-failure cleanup runs? If genuinely never, this may be better closed as `wontfix` than implemented.
-- If implemented, should the messages match `reap_children`'s exact wording ("closed pane %s and its tab %s" / "closed pane %s; tab %s kept with %s panes") for consistency, or stay distinct given the different call sites?
+- Is there any current or planned herdr-child path that could add a sibling
+  pane to a child's tab before that child's launch-failure cleanup runs? If
+  genuinely never, `wontfix` beats implementing.
+- If implemented, should the messages reuse `reap`'s exact wording for
+  consistency, or stay distinct given the different call sites?
+
+## Resolution
+
+Confirmed the no-sibling assumption against the current tree, which is the open decision this record hung on.
+
+In tab mode the launcher runs 'herdr tab create' exactly once (home/dot_local/lib/herdr-child-launch.sh:140-144) and the tab comes back with a single root pane. The only 'pane split' anywhere in the repository is the non-tab branch of that same construction (:146), and it splits $HERDR_PANE_ID — the parent's pane, in the parent's tab. Nothing in this tree ever adds a second pane to a child's freshly created tab, so on every reachable launch-failure path the report would be the constant 'closed pane X and tab Y'. In pane mode the question does not arise at all: there is no child tab, and cleanup_pane has no tab id to ask about.
+
+The cost is not free. tab_reap_status (herdr-child-runtime.sh:446) shells out to 'herdr tab get' and starts a python3 interpreter to parse it. cleanup_pane is reached from roughly eighteen sites, including owned_launch_signal during signal teardown and, since the test barriers were bounded, the barrier-expiry path. Adding a herdr round-trip and an interpreter start to signal-time teardown, to print a string that is provably constant, trades a real failure mode for no information.
+
+One residue is recorded rather than denied: a human could split a pane into the child's tab by hand during the few hundred milliseconds between tab creation and a launch failure. herdr's last-pane-close semantics already handle that correctly — the tab survives with its sibling — so what is lost is only the report of an event nobody can practically hit. If a future feature ever adds a sibling pane before a child's launch settles, this record's reasoning is the thing to revisit, and the change remains the single site it is today.

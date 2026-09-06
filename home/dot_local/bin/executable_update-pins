@@ -1,0 +1,469 @@
+#!/usr/bin/env bash
+# Reports drift between this machine's pinned dependencies and upstream, and
+# offers each drifted pin as an interactive bump. Called by `update-all`.
+# Keep this Bash 3.2 compatible.
+#
+# Two invariants shape the whole script:
+#
+# 1. Every write targets the chezmoi SOURCE tree, never a live file under ~/.
+#    Pins change only through the source, exactly as a hand edit would do it;
+#    the change reaches the machine on the next `chezmoi apply`.
+# 2. Upstream being unreachable is a report, not a failure. One unreachable
+#    pin prints as unknown and the run continues, so `update-all` never looks
+#    broken because GitHub was down.
+set -uo pipefail
+
+EXTERNAL_REL=".chezmoiexternal.toml"
+MISE_REL="private_dot_config/mise/config.toml"
+
+usage() {
+  printf '%s\n' 'Usage: update-pins' >&2
+}
+
+say() { printf '%s\n' "$*"; }
+warn() { printf 'update-pins: %s\n' "$*" >&2; }
+
+# --------------------------------------------------------------------------
+# Upstream queries
+#
+# The whole network surface is these three operations behind one seam, so the
+# suite can substitute a fetcher and never touch the network. Both default
+# implementations avoid the GitHub REST API: `git ls-remote` and the
+# releases/latest redirect need no token and have no rate limit.
+# --------------------------------------------------------------------------
+
+default_fetcher() {
+  local operation="$1"
+  shift
+  case "$operation" in
+    head-sha)
+      # The low-speed knobs are git's own, so this stays bounded like its two
+      # curl siblings without depending on a `timeout` binary macOS does not
+      # ship. GIT_TERMINAL_PROMPT only suppresses a credential prompt; it does
+      # nothing about a server that accepts the connection and then stalls.
+      GIT_TERMINAL_PROMPT=0 \
+        GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 \
+        git ls-remote "https://github.com/$1" HEAD 2>/dev/null
+      ;;
+    latest-tag)
+      curl -fsSL -o /dev/null --max-time 20 -w '%{url_effective}' \
+        "https://github.com/$1/releases/latest" 2>/dev/null |
+        sed -n 's|.*/releases/tag/\([^/]*\)$|\1|p'
+      ;;
+    checksum)
+      # Same `.sha256` sibling assets the pinned external's comment documents.
+      curl -fsSL --max-time 20 \
+        "https://github.com/$1/releases/download/$2/$3.sha256" 2>/dev/null
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+# Every answer is one token: `git ls-remote` prints "<sha>\tHEAD" and a
+# `.sha256` asset prints "<sum>  <filename>". Normalizing here keeps that
+# shell-tool detail out of the fetcher seam, so a substituted fetcher may
+# print either the bare value or the upstream line.
+upstream() {
+  local raw
+  if [ -n "${UPDATE_PINS_FETCHER:-}" ]; then
+    raw="$("$UPDATE_PINS_FETCHER" "$@")"
+  else
+    raw="$(default_fetcher "$@")"
+  fi
+  printf '%s' "$raw" | awk 'NR == 1 { print $1 }'
+}
+
+is_sha1() { printf '%s' "$1" | grep -q '^[0-9a-f]\{40\}$'; }
+is_sha256() { printf '%s' "$1" | grep -q '^[0-9a-f]\{64\}$'; }
+short() { printf '%s' "${1:0:12}"; }
+
+# --------------------------------------------------------------------------
+# Source-tree location and editing
+# --------------------------------------------------------------------------
+
+resolve_source_root() {
+  local root=""
+  if [ -n "${UPDATE_PINS_SOURCE_ROOT:-}" ]; then
+    root="$UPDATE_PINS_SOURCE_ROOT"
+  elif command -v chezmoi >/dev/null 2>&1; then
+    root="$(chezmoi source-path 2>/dev/null)" || root=""
+  fi
+  [ -n "$root" ] || root="$HOME/.local/share/chezmoi"
+  # `.chezmoiroot` indirection: the externals live one level down in `home/`
+  # when source-path reports the repository root instead of the source dir.
+  if [ ! -f "$root/$EXTERNAL_REL" ] && [ -f "$root/home/$EXTERNAL_REL" ]; then
+    root="$root/home"
+  fi
+  printf '%s\n' "$root"
+}
+
+# replace_literal FILE OLD NEW [OLD NEW ...]
+#
+# Applies every pair in one atomic rewrite: a bump that needs several
+# substitutions (the fff-mcp tag plus its four checksums) can never land
+# half-written. Each OLD must occur exactly once, so a stale or ambiguous
+# pattern aborts before anything is written.
+replace_literal() {
+  local file="$1"
+  shift
+  python3 - "$file" "$@" <<'PY'
+import os
+import sys
+import tempfile
+
+path = sys.argv[1]
+pairs = sys.argv[2:]
+if len(pairs) % 2:
+    sys.exit("update-pins: replacement pairs are unbalanced")
+
+with open(path, encoding="utf-8") as stream:
+    content = stream.read()
+
+updated = content
+for index in range(0, len(pairs), 2):
+    old, new = pairs[index], pairs[index + 1]
+    if updated.count(old) != 1:
+        sys.exit(
+            "update-pins: expected exactly one occurrence of %r in %s" % (old, path)
+        )
+    updated = updated.replace(old, new)
+
+directory = os.path.dirname(path) or "."
+handle, temporary = tempfile.mkstemp(dir=directory)
+try:
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        stream.write(updated)
+    os.chmod(temporary, os.stat(path).st_mode & 0o7777)
+    os.replace(temporary, path)
+except BaseException:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+    raise
+PY
+}
+
+# Prompts on the terminal. Callers must never hold the pin list on stdin —
+# every loop below reads its inventory into an array first, so this read gets
+# the user's answer and not the next inventory line.
+confirm() {
+  local reply=""
+  printf '  bump %s? [y/N] ' "$1"
+  IFS= read -r reply || reply=""
+  case "$reply" in
+    [yY] | [yY][eE][sS]) return 0 ;;
+  esac
+  return 1
+}
+
+# --------------------------------------------------------------------------
+# Archive pins: Oh My Zsh and the four zsh plugins
+# --------------------------------------------------------------------------
+
+# The inventory is read out of the externals file itself rather than hardcoded
+# here, so adding or removing an `/archive/<sha>.tar.gz` pin needs no edit to
+# this script.
+archive_pins() {
+  sed -n \
+    's|.*https://github\.com/\([^/"]*/[^/"]*\)/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1 \2|p' \
+    "$1"
+}
+
+check_archive_pins() {
+  local file="$1"
+  local pins=()
+  local entry repo current latest index=0
+
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    pins[${#pins[@]}]="$entry"
+  done < <(archive_pins "$file")
+
+  if [ "${#pins[@]}" -eq 0 ]; then
+    say 'archives: no pinned github archives found'
+    return 0
+  fi
+
+  while [ "$index" -lt "${#pins[@]}" ]; do
+    entry="${pins[$index]}"
+    index=$((index + 1))
+    repo="${entry%% *}"
+    current="${entry##* }"
+    latest="$(upstream head-sha "$repo")"
+    if ! is_sha1 "${latest:-}"; then
+      say "$repo: unknown — upstream unreachable (pinned $(short "$current"))"
+      continue
+    fi
+    if [ "$latest" = "$current" ]; then
+      say "$repo: up to date ($(short "$current"))"
+      continue
+    fi
+    say "$repo: $(short "$current") -> $(short "$latest")"
+    if confirm "$repo"; then
+      if replace_literal "$file" \
+        "/archive/$current.tar.gz" "/archive/$latest.tar.gz"; then
+        say "  bumped"
+      else
+        warn "could not rewrite the $repo pin; left unchanged"
+      fi
+    else
+      say "  kept"
+    fi
+  done
+}
+
+# --------------------------------------------------------------------------
+# fff-mcp: a release tag plus one sha256 per platform/arch
+# --------------------------------------------------------------------------
+
+fff_release_pin() {
+  sed -n \
+    's|.*https://github\.com/\([^/"]*/[^/"]*\)/releases/download/\([^/"]*\)/.*|\1 \2|p' \
+    "$1" | head -1
+}
+
+fff_asset_template() {
+  sed -n 's|.*/releases/download/[^/"]*/\([^"]*\)".*|\1|p' "$1" | head -1
+}
+
+fff_targets() {
+  sed -n 's|.*\$fffMcpTarget = "\([^"]*\)".*|\1|p' "$1"
+}
+
+fff_checksums() {
+  sed -n 's|.*\$fffMcpSha256 = "\([0-9a-f]\{64\}\)".*|\1|p' "$1"
+}
+
+# The asset name is the URL's filename with the Go-template target variable
+# substituted, so a renamed asset needs no second source of truth here.
+fff_asset_for() {
+  local template="$1" target="$2"
+  printf '%s%s%s' "${template%%\{\{*}" "$target" "${template##*\}\}}"
+}
+
+check_fff_pin() {
+  local file="$1"
+  local pin repo current latest template asset sum entry
+  local targets=() sums=() fetched=() index
+
+  pin="$(fff_release_pin "$file")"
+  if [ -z "$pin" ]; then
+    say 'fff-mcp: no pinned release found'
+    return 0
+  fi
+  repo="${pin%% *}"
+  current="${pin##* }"
+
+  latest="$(upstream latest-tag "$repo")"
+  if [ -z "${latest:-}" ]; then
+    say "$repo: unknown — upstream unreachable (pinned $current)"
+    return 0
+  fi
+  if [ "$latest" = "$current" ]; then
+    say "$repo: up to date ($current)"
+    return 0
+  fi
+
+  say "$repo: $current -> $latest"
+  if ! confirm "$repo"; then
+    say "  kept"
+    return 0
+  fi
+
+  template="$(fff_asset_template "$file")"
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    targets[${#targets[@]}]="$entry"
+  done < <(fff_targets "$file")
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    sums[${#sums[@]}]="$entry"
+  done < <(fff_checksums "$file")
+
+  if [ -z "$template" ] || [ "${#targets[@]}" -eq 0 ] ||
+    [ "${#targets[@]}" -ne "${#sums[@]}" ]; then
+    warn "cannot pair $repo targets with their checksums; left unchanged"
+    return 0
+  fi
+
+  # Every checksum is fetched before anything is written: a stale checksum
+  # next to a bumped tag would make `chezmoi apply` fail on the platforms that
+  # were not refreshed, so a single failed fetch aborts the whole bump.
+  index=0
+  while [ "$index" -lt "${#targets[@]}" ]; do
+    asset="$(fff_asset_for "$template" "${targets[$index]}")"
+    sum="$(upstream checksum "$repo" "$latest" "$asset")"
+    if ! is_sha256 "${sum:-}"; then
+      sum=""
+    fi
+    fetched[${#fetched[@]}]="$sum"
+    index=$((index + 1))
+  done
+
+  index=0
+  while [ "$index" -lt "${#fetched[@]}" ]; do
+    if [ -z "${fetched[$index]}" ]; then
+      warn "could not fetch every $repo checksum for $latest; pin left unchanged"
+      warn "the values a manual bump needs:"
+      index=0
+      while [ "$index" -lt "${#targets[@]}" ]; do
+        asset="$(fff_asset_for "$template" "${targets[$index]}")"
+        warn "  ${targets[$index]}: ${fetched[$index]:-unavailable} <- https://github.com/$repo/releases/download/$latest/$asset.sha256"
+        index=$((index + 1))
+      done
+      return 0
+    fi
+    index=$((index + 1))
+  done
+
+  set -- "$file" \
+    "/releases/download/$current/" "/releases/download/$latest/"
+  index=0
+  while [ "$index" -lt "${#targets[@]}" ]; do
+    set -- "$@" "\"${sums[$index]}\"" "\"${fetched[$index]}\""
+    index=$((index + 1))
+  done
+  if replace_literal "$@"; then
+    say "  bumped with ${#fetched[@]} refreshed checksums"
+  else
+    warn "could not rewrite the $repo pin; left unchanged"
+  fi
+}
+
+# --------------------------------------------------------------------------
+# mise tool versions
+# --------------------------------------------------------------------------
+
+# `mise outdated --bump` is the drift authority; `bump` is null for a tool
+# whose config value is a moving alias like "lts", which has no pin to rewrite
+# and is refreshed by `mise upgrade` instead.
+mise_rows() {
+  local report
+  # A failed lookup must not read as an empty one: `mise outdated` exiting
+  # nonzero, or answering with something that is not a JSON object, is an
+  # unknown, and the caller reports it as such. Only a parsed object with no
+  # entries means nothing is outdated.
+  report="$(mise outdated --bump -J 2>/dev/null)" || return 1
+  printf '%s' "$report" | python3 -c '
+import json
+import sys
+
+try:
+    report = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+if not isinstance(report, dict):
+    sys.exit(1)
+for name, entry in report.items():
+    if not isinstance(entry, dict):
+        continue
+    print(
+        "%s\t%s\t%s\t%s"
+        % (
+            name,
+            entry.get("requested") or "",
+            entry.get("bump") or "",
+            entry.get("latest") or "",
+        )
+    )
+'
+}
+
+check_mise_pins() {
+  local file="$1"
+  local rows=() row tool requested bump latest old_line new_line index=0
+
+  if [ ! -f "$file" ]; then
+    say "mise: no managed config at $file"
+    return 0
+  fi
+  if ! command -v mise >/dev/null 2>&1; then
+    say 'mise: not installed, skipped'
+    return 0
+  fi
+
+  local rows_output rows_status
+  rows_output="$(mise_rows)"
+  rows_status=$?
+  if [ "$rows_status" -ne 0 ]; then
+    say 'mise: unknown — the outdated lookup did not answer'
+    return 0
+  fi
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    rows[${#rows[@]}]="$row"
+  done <<EOF
+$rows_output
+EOF
+
+  if [ "${#rows[@]}" -eq 0 ]; then
+    say 'mise: nothing outdated'
+    return 0
+  fi
+
+  while [ "$index" -lt "${#rows[@]}" ]; do
+    row="${rows[$index]}"
+    index=$((index + 1))
+    tool="$(printf '%s' "$row" | cut -f1)"
+    requested="$(printf '%s' "$row" | cut -f2)"
+    bump="$(printf '%s' "$row" | cut -f3)"
+    latest="$(printf '%s' "$row" | cut -f4)"
+    old_line="$(grep -n "^[[:space:]]*${tool}[[:space:]]*=" "$file" |
+      head -1 | cut -d: -f2-)"
+    if [ -z "$old_line" ]; then
+      say "mise $tool: not pinned in the managed config, skipped"
+      continue
+    fi
+    if [ -z "$bump" ]; then
+      say "mise $tool: tracks \"$requested\", refreshed by mise upgrade (latest ${latest:-unknown})"
+      continue
+    fi
+    say "mise $tool: $requested -> $bump"
+    if confirm "mise $tool"; then
+      new_line="${old_line/\"$requested\"/\"$bump\"}"
+      if [ "$new_line" = "$old_line" ]; then
+        warn "could not locate \"$requested\" on the $tool line; left unchanged"
+      elif replace_literal "$file" "$old_line" "$new_line"; then
+        say "  bumped"
+      else
+        warn "could not rewrite the $tool version; left unchanged"
+      fi
+    else
+      say "  kept"
+    fi
+  done
+}
+
+main() {
+  case "${1:-}" in
+    -h | --help)
+      usage
+      return 0
+      ;;
+    "") ;;
+    *)
+      usage
+      return 2
+      ;;
+  esac
+
+  local root external mise_config
+  root="$(resolve_source_root)"
+  external="$root/$EXTERNAL_REL"
+  mise_config="$root/$MISE_REL"
+
+  if [ ! -f "$external" ]; then
+    warn "no chezmoi externals file at $external"
+    return 1
+  fi
+
+  say "update-pins: chezmoi source $root"
+  say "update-pins: accepted bumps edit the source; run chezmoi apply to deploy"
+  say ""
+  check_archive_pins "$external"
+  check_fff_pin "$external"
+  check_mise_pins "$mise_config"
+}
+
+main "$@"

@@ -7,33 +7,39 @@ HPL_PLUGIN_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
 HPL_CUTOVER_BEFORE_TEMPLATE="$SOURCE_ROOT/.chezmoiscripts/run_onchange_before_6-quiesce-herdr-pane-labels.sh.tmpl"
 HPL_CUTOVER_AFTER_TEMPLATE="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
 
-# Build a sandbox with a stub `herdr` that records its argv. PATH is pinned to
-# the stub directory plus the system directories, so a real `pi` or `claude`
-# outside them can never be reached: a missing engine is then a property of the
-# test, not of the machine that runs it.
-# Codicon glyphs of the $git_ref grammar. The octal UTF-8 table lives once, in
-# the engine; retyping it here would let an engine codepoint change pass while
-# the suite still asserted the old bytes. Raw PUA glyphs must never be pasted
-# into either file, so the sequences are read out and re-expanded.
-hpl_icon() {
-  local octal
-  octal="$(sed -n "s/^ICON_$1=\"\\\$(printf '\\([^']*\\)')\".*/\\1/p" "$HPL_ENGINE")"
-  [ -n "$octal" ] || { printf 'missing ICON_%s in %s\n' "$1" "$HPL_ENGINE" >&2; return 1; }
-  # shellcheck disable=SC2059  # the format string is the engine's own octal table
-  printf "$octal"
-}
+# Codicon glyphs of the $git_ref grammar, pinned as literal octal UTF-8
+# sequences. Do NOT derive these from executable_herdr-pane-labels. An earlier
+# harness read the engine's own ICON_ table out with sed and re-expanded it,
+# which made every HPL_ICON_* assertion compare the engine against itself: a
+# changed codepoint moved both sides at once and the suite stayed green. That
+# extraction was removed once and then carried back in by the
+# herdr-task-sync -> herdr-pane-labels rename, so the duplication below is
+# deliberate rather than an oversight waiting to be tidied away.
+#
+# "Spell the octal table once" is the rule for the *generator* — the engine must
+# build each glyph from a single octal printf, see
+# docs/solutions/design-patterns/generate-pua-glyphs-from-octal-printf.md — and
+# the exact inverse for an *oracle*, which discriminates only while it holds a
+# copy the thing under test cannot move. These glyphs are a user-facing
+# pane-label contract with no config or environment override, so a mismatch is a
+# real regression, never drift the user is entitled to cause.
+#
+# Raw PUA glyphs are lost when files pass through editors and agents, so neither
+# side may hold the character verbatim; both spell it as octal. Test 1208 in
+# scripts_test.sh asserts these constants stay invariant when the engine's table
+# is perturbed.
 # shellcheck disable=SC2034
-HPL_ICON_BRANCH="$(hpl_icon BRANCH)"     # nf-cod-git_branch U+EC6F
+HPL_ICON_BRANCH="$(printf '\356\261\257')"   # nf-cod-git_branch U+EC6F
 # shellcheck disable=SC2034
-HPL_ICON_WORKTREE="$(hpl_icon WORKTREE)" # nf-cod-worktree U+EC7E
+HPL_ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 # shellcheck disable=SC2034
-HPL_ICON_COMMIT="$(hpl_icon COMMIT)"     # nf-cod-git_commit U+EAFC
+HPL_ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
 # shellcheck disable=SC2034
-HPL_ICON_FOLDER="$(hpl_icon FOLDER)"     # nf-cod-folder U+EA83
+HPL_ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 # shellcheck disable=SC2034
-HPL_ICON_PULL="$(hpl_icon PULL)"         # U+21E3 downwards dashed arrow
-HPL_ICON_PUSH="$(hpl_icon PUSH)"         # U+21E1 upwards dashed arrow
-HPL_ICON_STALE="$(hpl_icon STALE)"       # nf-cod-history U+EA82
+HPL_ICON_PULL="$(printf '\342\207\243')"     # U+21E3 downwards dashed arrow
+HPL_ICON_PUSH="$(printf '\342\207\241')"     # U+21E1 upwards dashed arrow
+HPL_ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 
 hpl_teardown() {
   # Reap a background reader a failed test left running BEFORE deleting its
@@ -73,10 +79,18 @@ hpl_setup_assets() {
   # The mutable fixture uses exact socket paths as identities. Numeric storage
   # directories avoid the collision caused by replacing punctuation in names.
   cat > "$HPL_ASSETS/fixture-lib.sh" <<'SH'
+# The stub emulates the `herdr api snapshot` envelope of herdr 0.8.2, which
+# reports protocol 20. Both numbers come from the installed binary rather than
+# from an assumption: `herdr --version`, and
+# `herdr api snapshot | jq .result.snapshot.protocol`. The engine never reads
+# .protocol, so this literal records what the fake claims to be rather than
+# behaviour under test. Test 1209 in scripts_test.sh is what keeps the record
+# honest -- it compares this stub's top-level result keys against the real
+# binary's, and skips where herdr is absent.
 hpl_fixture_init_dir() {
   mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
   [ -f "$1/state.json" ] || printf '%s\n' \
-    '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
+    '{"complete":true,"protocol":20,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
     > "$1/state.json"
   [ -f "$1/call-seq" ] || printf '%s' 0 > "$1/call-seq"
   [ -f "$1/herdr.log" ] || : > "$1/herdr.log"
@@ -449,6 +463,10 @@ hpl_teardown_assets() {
   unset HPL_ASSETS HPL_JQ_BIN
 }
 
+# Build a sandbox with a stub `herdr` that records its argv. PATH is pinned to
+# the stub directory plus the system directories, so a real `pi` or `claude`
+# outside them can never be reached: a missing engine is then a property of the
+# test, not of the machine that runs it.
 hpl_setup() {
   [[ -z "${HPL_WORK:-}" ]] || hpl_teardown
   HPL_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hpl.XXXXXX")"
@@ -534,10 +552,11 @@ hpl_tab_list() {
   ' "$state" > "$tmp" && mv "$tmp" "$state"
 }
 
+# herdr 0.8.2 / protocol 20 -- see the note above hpl_fixture_init_dir.
 hpl_init_socket_dir() {
   mkdir -p "$1/calls" "$1/completions" "$1/locks" "$1/after"
   printf '%s\n' \
-    '{"complete":true,"protocol":19,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
+    '{"complete":true,"protocol":20,"panes":[],"tabs":[],"agents":[],"layouts":[],"workspaces":[],"metadata":{}}' \
     > "$1/state.json"
   printf '%s' 0 > "$1/call-seq"
   : > "$1/herdr.log"

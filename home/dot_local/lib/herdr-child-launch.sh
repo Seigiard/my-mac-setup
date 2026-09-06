@@ -191,26 +191,60 @@ EOF
     pane=""
     launch_terminal=""
   }
-  owned_launch_signal() {
-    local signal="$1" status=1 parsed_identity="" manual_tab=""
-    case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
-    if [ "$tab_mode" -eq 1 ] && [ -z "$pane" ] && [ -n "$split_json" ]; then
-      parsed_identity="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
-      if [ -n "$parsed_identity" ]; then
-        IFS=$'\t' read -r pane tab <<EOF
-$parsed_identity
+  # Both launch branches create their tab or pane, parse the response, then
+  # assign. Anything that interrupts that window finds pane and launch_terminal
+  # still empty, so re-derive both from the buffered response before teardown
+  # decides what it owns — cleanup_pane refuses to close a pane whose launch
+  # terminal it cannot confirm.
+  recover_launch_identity() {
+    local parsed=""
+    { [ -z "$pane" ] && [ -n "$split_json" ]; } || return 0
+    if [ "$tab_mode" -eq 1 ]; then
+      parsed="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
+      [ -n "$parsed" ] || return 0
+      IFS=$'\t' read -r pane launch_terminal tab <<EOF
+$parsed
 EOF
-      else
-        manual_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
-      fi
+    else
+      parsed="$(printf '%s' "$split_json" | json_pane_identity 2>/dev/null || true)"
+      [ -n "$parsed" ] || return 0
+      IFS=$'\t' read -r pane launch_terminal <<EOF
+$parsed
+EOF
     fi
+  }
+  # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md):
+  # an expired hold means the harness died without releasing the barrier, so the
+  # launcher unwinds through the same teardown an interrupted launcher performs.
+  hold_launch_barrier() {
+    local barrier="$1" context="$2" hold_started="$SECONDS"
+    [ -n "$barrier" ] || return 0
+    : > "$barrier.ready"
+    while [ ! -e "$barrier.release" ]; do
+      if watcher_hold_expired "$hold_started"; then
+        recover_launch_identity
+        cleanup_pane "$context" || true
+        exit 1
+      fi
+      sleep 0.01
+    done
+  }
+  owned_launch_signal() {
+    local signal="$1" status=1 manual_tab=""
+    case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+    recover_launch_identity
     stop_owned_watcher "${run_dir:-}" "${watcher_pid:-}" "launch-signal-$signal"
     rm -f "${start_err:-}" "${start_out:-}" "${prompt_err:-}" "${prompt_out:-}" 2>/dev/null || true
     if [ -n "$pane" ]; then
       cleanup_pane "signal-$signal" || true
-    elif [ "$tab_mode" -eq 1 ] && [ -n "$split_json" ]; then
-      printf 'herdr-child: signal after tab creation left tab %s with unknown pane identity; manual cleanup required\n' \
-        "${manual_tab:-unknown}" >&2
+    elif [ -n "$split_json" ]; then
+      if [ "$tab_mode" -eq 1 ]; then
+        manual_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
+        printf 'herdr-child: signal after tab creation left tab %s with unknown pane identity; manual cleanup required\n' \
+          "$manual_tab" >&2
+      else
+        printf 'herdr-child: signal after pane creation left an unknown pane identity; manual cleanup required\n' >&2
+      fi
     fi
     trap - HUP INT TERM
     exit "$status"
@@ -224,36 +258,22 @@ EOF
       printf 'herdr-child: tab create failed\n' >&2
       exit 1
     }
-    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
-try:
- result=json.load(sys.stdin)["result"]
- pane=result["root_pane"]
- pane_id=pane["pane_id"]; terminal_id=pane["terminal_id"]; tab_id=result["tab"]["tab_id"]
- if not pane_id or not terminal_id or not tab_id: raise ValueError()
- print("%s\t%s\t%s" % (pane_id,terminal_id,tab_id))
-except Exception: raise SystemExit(1)')" || {
+    hold_launch_barrier "${HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER:-}" test-capture-barrier-expired
+    identity="$(printf '%s' "$split_json" | json_tab_identity)" || {
       preserved_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
       printf 'herdr-child: tab create returned no usable pane/tab identity; tab %s was preserved and needs manual cleanup\n' "$preserved_tab" >&2
       exit 1
     }
     IFS=$'\t' read -r pane launch_terminal tab <<< "$identity"
     tab_note=" (tab $tab)"
-    if [ -n "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" ]; then
-      : > "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_TAB_CREATED_BARRIER.release" ]; do sleep 0.01; done
-    fi
+    hold_launch_barrier "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" test-barrier-expired
   else
     split_json="$(herdr "${split_args[@]}")" || {
       printf 'herdr-child: pane split failed\n' >&2
       exit 1
     }
-    identity="$(printf '%s' "$split_json" | python3 -c 'import json,sys
-try:
- pane=json.load(sys.stdin)["result"]["pane"]
- pane_id=pane["pane_id"]; terminal_id=pane["terminal_id"]
- if not pane_id or not terminal_id: raise ValueError()
- print("%s\t%s" % (pane_id,terminal_id))
-except Exception: raise SystemExit(1)')" || {
+    hold_launch_barrier "${HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER:-}" test-capture-barrier-expired
+    identity="$(printf '%s' "$split_json" | json_pane_identity)" || {
       printf 'herdr-child: pane split returned no pane and terminal identity; pane was preserved\n' >&2
       exit 1
     }
@@ -477,23 +497,30 @@ EOF
   if [ "$mode" = wait ]; then
     herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
   else
-    launch_signal_handler() {
-      local signal="$1" status=1 reason="launch-signal-$1" abort_status
-      case "$signal" in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
-      [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
-      [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
+    # The prompt has been submitted, so the pane may already hold a live child:
+    # unwinding resolves the watcher abort race and reports the outcome instead
+    # of closing the pane.
+    preserve_launched_child() {
+      local event="$1" reason="$2" exit_status="$3" abort_status
       set +e
       request_watcher_abort "$run_dir" "$reason"
       abort_status=$?
       set -e
-      printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$signal" >&2
+      printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$event" >&2
       if [ "$abort_status" -eq 0 ]; then
         print_start_result "$name" "$pane" "$tab" "$generation" "$supervision_timeout"
       else
         report_signal_supervision "$name" "$pane" "$tab" "$run_dir" "$generation" "$supervision_timeout" "$reason" "$watcher_pid"
       fi
       trap - HUP INT TERM
-      exit "$status"
+      exit "$exit_status"
+    }
+    launch_signal_handler() {
+      local signal="$1" signal_status=1
+      case "$signal" in HUP) signal_status=129 ;; INT) signal_status=130 ;; TERM) signal_status=143 ;; esac
+      [ -z "$prompt_pid" ] || kill -TERM "$prompt_pid" 2>/dev/null || true
+      [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
+      preserve_launched_child "$signal" "launch-signal-$signal" "$signal_status"
     }
     trap 'launch_signal_handler HUP' HUP
     trap 'launch_signal_handler INT' INT
@@ -552,9 +579,19 @@ EOF
       trap - HUP INT TERM
       return 1
     fi
+    # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
+    # expired hold means the harness died without releasing the barrier. The
+    # watcher is armed over a live child by now, so the launcher takes the same
+    # preserve-and-abort path an interrupted launcher takes after submission.
     if [ -n "${HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER:-}" ]; then
+      local post_arm_hold_started="$SECONDS"
       : > "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.release" ]; do sleep 0.01; done
+      while [ ! -e "$HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER.release" ]; do
+        if watcher_hold_expired "$post_arm_hold_started"; then
+          preserve_launched_child 'test barrier expiry' launch-barrier-expired 1
+        fi
+        sleep 0.01
+      done
     fi
     trap - HUP INT TERM
     print_start_result "$name" "$pane" "$tab" "$generation" "$supervision_timeout"

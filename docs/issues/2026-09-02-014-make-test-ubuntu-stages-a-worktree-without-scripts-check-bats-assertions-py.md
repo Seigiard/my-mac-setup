@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["docker","lint","test-harness"]
 date: "2026-09-02"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -39,3 +40,7 @@ Stage the whole `scripts/` directory into the container worktree instead of the 
 ## Open decisions
 
 Whether the container should stage the repository by an allowlist at all. Every new repo-root file that `make lint` or a test target reads has to be added in two places, and this is the second such omission. Copying the tracked file set once would remove the class, at the cost of a larger container payload.
+
+## Resolution
+
+Fixed by 0e3b9a9 (feat(herdr): add worktree lifecycle shortcuts, #149). Both compose services now mount and stage the file: docker/docker-compose.yml:61 and :139 bind ../scripts/check_bats_assertions.py to /home/testuser/check-bats-assertions.py, and :97 and :168 copy it into worktree/scripts/check_bats_assertions.py before the suite runs. The consuming target is intact at Makefile:66 (python3 scripts/check_bats_assertions.py tests), and the covering case still exists at tests/bashunit/scripts_test.sh:1228 with its success leg at :1248-1249. The record's Makefile:75 citation predates an unrelated line shift; the target is now Makefile:66. The Open decisions question of an explicit staging allowlist versus staging the tracked file set was not settled here and needs a separate record if it is still wanted.
