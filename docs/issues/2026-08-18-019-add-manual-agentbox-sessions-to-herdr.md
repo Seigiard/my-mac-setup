@@ -1,6 +1,6 @@
 ---
 title: "Add manual AgentBox sessions to Herdr without requiring a pipeline"
-short_description: "Manage AgentBox and its Herdr plugin through chezmoi so interactive isolated sessions expose lifecycle state and inspectable branches without installer-driven config drift or undocumented host credentials."
+short_description: "Manage AgentBox and its Herdr plugin through chezmoi for interactive isolated sessions; upstream verified 2026-09-06 (madarco/agentbox, MIT, herdr-plugin.toml, fork/claude/codex/opencode/pi commands), but blocked on two decisions: this repo has no managed path for a pinned npm-global package, and 'agentbox install' writes host agent skills into chezmoi-owned destinations."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","follow-up"]
@@ -85,3 +85,34 @@ reach. Both boundaries apply to a manual child agent.
   existing worktree-only child launch flow.
 - Which parts of the `platform` profile belong in its existing devcontainer configuration and which
   AgentBox-specific declarations require a separate `agentbox.yaml`.
+
+## Upstream surface verified (2026-09-06)
+
+The record was written without anyone here checking AgentBox, so the sweep checked it before
+deciding. Upstream is `github.com/madarco/agentbox`, MIT, carrying a `herdr-plugin.toml` at its root
+and the `herdr-plugin` GitHub topic, so the Herdr integration this record assumes does exist.
+
+The CLI surface is real and slightly wider than the record describes. `apps/cli/src/help.ts` groups
+`create`, `attach`, `fork`, `claude`, `codex`, `opencode` and `pi` under "Create & run", with `fork`
+documented as "Fork the current host agent session into a new box and resume it there" — the exact
+capability the Scope asks for. Note `pi` is supported upstream, which this record does not mention
+and which matters because this machine runs Pi. Boxes also expose `shell`, `url`, `screen`, `code`
+and `dashboard`, and providers include local Docker, remote Docker, Hetzner, Vercel, Daytona and E2B.
+
+Two verified facts block the Scope as written rather than merely complicating it:
+
+- **Distribution is npm-global** (`npm -g install @madarco/agentbox`), plus Docker and Node >= 20.10
+  as host requirements. The Scope says to install a pinned release "through this repository's normal
+  tool-management path", and this repository has no managed path for a pinned npm-global package —
+  Brewfiles, mise and `.chezmoiexternal.toml` are the three that exist. Which of those absorbs it, or
+  whether a fourth is created, is a decision nobody has made.
+- **`agentbox install` writes host agent skills.** Upstream ships `apps/cli/share/host-skills/` for
+  agentbox, codex and opencode, and the CLI prints a tip telling the user to run `agentbox install`
+  to enable the `/agentbox` fork command in host Claude. Those destinations are chezmoi-owned here,
+  so running the vendor installer is precisely the "installer-driven config drift" this record set
+  out to avoid. Vendoring the plugin and skills into `home/` instead is possible but is a design
+  decision with an ongoing upstream-sync cost.
+
+Neither is a blocker a one-shot attempt could resolve, and the Scope additionally reaches outside
+this repository (a project profile for `platform`, in that repository) and depends on two open
+`agent-platform` records. The item stays open pending those decisions.

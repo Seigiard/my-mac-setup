@@ -198,8 +198,20 @@ EOF
 }
 
 persist_callback_state() {
-  local run_dir="$1" status="$2" event="$3"
+  local run_dir="$1" status="$2" event="$3" owner_start
   [ -d "$run_dir" ] || return 1
+  if [ "$status" = in-progress ]; then
+    # The claim suspends the watcher's blocked wake, so it carries the identity
+    # of the process that must resolve it. Refusing an unidentifiable claim
+    # keeps the caller's fail-closed path instead of publishing a claim nothing
+    # can ever expire.
+    owner_start="$(process_start_marker "$$")" || return 1
+    atomic_write "$run_dir/callback.state" "status=$status
+event=$event
+owner_pid=$$
+owner_start=$owner_start"
+    return
+  fi
   atomic_write "$run_dir/callback.state" "status=$status
 event=$event"
 }
@@ -312,9 +324,21 @@ raise SystemExit(0 if any(a.get("pane_id")==pane for a in agents) else 1)' "$HER
     exit 1
   fi
   if [ -n "$run_dir" ]; then
+    # Test-only barrier holds are bounded (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md): an
+    # expired hold means the harness died without releasing the barrier. The
+    # in-progress claim is deliberately left behind, because that is exactly the
+    # state an owner killed here leaves, and the watcher already expires it into
+    # callback-owner-lost once this process is gone.
     if [ -n "${HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER:-}" ]; then
+      local receipt_hold_started="$SECONDS"
       : > "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.ready"
-      while [ ! -e "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.release" ]; do sleep 0.01; done
+      while [ ! -e "$HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER.release" ]; do
+        if watcher_hold_expired "$receipt_hold_started"; then
+          printf 'herdr-child: callback receipt barrier expired; the unresolved claim is left for supervision to expire\n' >&2
+          exit 1
+        fi
+        sleep 0.01
+      done
     fi
     if ! persist_callback_state "$run_dir" confirmed "$event"; then
       persist_callback_state "$run_dir" failed "$event" || rm -f "$run_dir/callback.state" 2>/dev/null || true

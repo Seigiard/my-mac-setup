@@ -5,8 +5,9 @@ type: "bug"
 category: "testing-ci"
 tags: ["flaky-test","parallel-execution","herdr","macos"]
 date: "2026-09-05"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-05"
 ---
 
 ## Why this exists
@@ -38,3 +39,7 @@ Impact: a required macOS job goes red on unrelated pull requests and merging wai
 ## Open decisions
 
 - Whether the fix belongs in the shared bashunit capture and wait helpers or in each case's own harness. Deciding needs the mechanism first.
+
+## Resolution
+
+Fixed by 9f1b017 (fix(tests): isolate parallel captures and delivery waits, #172), which addresses both symptoms at the DSL level rather than per case. Cross-test output capture: the run helper's capture file lives in BATS_TEST_TMPDIR (tests/bashunit/test-dsl.bash:115), which was keyed on the repeated historical Bats number, so two cases sharing a number shared a capture path; it now reads BATS_TEST_TMPDIR from _BATS_FILE_TMPROOT and BASHUNIT_CURRENT_TEST_ID (tests/bashunit/test-dsl.bash:466). Missing successful-prompts.log: tests/bashunit/scripts_test.sh:3010 now waits for the file via child_wait_for_log with an explicit file argument, supported by child_wait_for_log at :2516-2517. A regression probe was added at tests/bashunit/test_dsl_parallel_isolation_probe_test.sh, driven from scripts_test.sh:7448. Not re-verified against repeated macOS CI runs under -j 8.

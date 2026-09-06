@@ -144,7 +144,7 @@ watch_child() {
     done
   fi
 
-  refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-publish-failed
+  refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-publish-failed
   atomic_write "$run_dir/ready.state" "pid=$$" || watcher_fail "$run_dir" "$pane" "$generation" readiness-write-failed
 
   while [ ! -f "$run_dir/accepted.state" ]; do
@@ -198,7 +198,10 @@ watch_child() {
       # The launcher legitimately exits before this hold is released, so the
       # only abandonment signals are torn-down run state and the hold bound.
       [ -d "$run_dir" ] || exit 1
-      if watcher_hold_expired "$release_hold_started"; then
+      # Outlasts the launcher's post-arm hold on the same knob: tearing the run
+      # down first would strip armed.state from under a launcher that is still
+      # entitled to report the arm it observed.
+      if watcher_hold_expired "$release_hold_started" 4; then
         remove_supervision_run "$run_dir"
         exit 1
       fi
@@ -215,7 +218,7 @@ watch_child() {
       fi
       now="$(now_ms)"
       if [ "$now" -ge "$next_refresh" ]; then
-        refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+        refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
         next_refresh=$((now + 30000))
       fi
       sleep 0.1
@@ -230,6 +233,12 @@ watch_child() {
   local event="" outcome="" reason="" timeout_delivered=0 delivery_failures=0 pending_event=""
   local delivery_status pane_get_status get_status wait_status wait_output slice remaining
   local wait_phase=0 retry_delay="$DELIVERY_RETRY_INITIAL" callback_status preserve_waiting
+  # Supervision polling and delivery-time identity revalidation read the same
+  # pane through the same transport, so they consume one shared budget. Without
+  # it a persistent herdr transport, permission, or malformed-response failure
+  # is indistinguishable from a short outage and keeps the watcher alive forever
+  # without ever delivering a lifecycle event.
+  local pane_read_failures=0 pane_read_retry_pending=0
   while :; do
     # Externally removed run state means supervision was torn down (test
     # teardown or reap); without this check a dead run dir turns the herdr
@@ -267,12 +276,26 @@ watch_child() {
         reason="child-gone"
       else
         rm -f "$pane_err"
+        pane_read_failures=$((pane_read_failures + 1))
+        if [ "$pane_read_failures" -ge "$MAX_DELIVERY_RETRIES" ]; then
+          watcher_fail "$run_dir" "$pane" "$generation" wait-error
+        fi
+        pane_read_retry_pending=1
         sleep "$POLL_INTERVAL"
         continue
       fi
       rm -f "$pane_err"
     else
       rm -f "$pane_err"
+      # A poll read that succeeds between two failing delivery-time reads must
+      # not refund the budget, or an outage confined to delivery revalidation
+      # would retry forever. The budget returns only after a whole iteration
+      # whose pane reads all succeeded.
+      if [ "$pane_read_retry_pending" -eq 1 ]; then
+        pane_read_retry_pending=0
+      else
+        pane_read_failures=0
+      fi
       set +e
       printf '%s' "$pane_json" | json_generation_status "$generation" "$child_terminal" "$child_session"
       generation_status=$?
@@ -316,6 +339,13 @@ EOF
       callback_status="$(state_value "$run_dir/callback.state" status)"
       case "$callback_status" in
         in-progress)
+          # An owner killed between claiming the callback and publishing its
+          # receipt can neither deliver the question nor release the claim, so
+          # the claim expires here into a terminal supervision failure. The
+          # waiting label survives it: the child is still blocked on a parent
+          # decision, and reap must keep refusing that pane.
+          callback_owner_alive "$run_dir" || \
+            watcher_fail "$run_dir" "$pane" "$generation" callback-owner-lost 1
           sleep "$POLL_INTERVAL"
           continue
           ;;
@@ -350,6 +380,7 @@ EOF
       case "$delivery_status" in
         0)
           delivery_failures=0
+          pane_read_failures=0
           if [ "$event" = timeout ]; then
             timeout_delivered=1
           else
@@ -366,7 +397,15 @@ EOF
           delivery_retry_pause "$retry_delay"
           retry_delay="$(next_delivery_retry_delay "$retry_delay")"
           ;;
-        12) sleep "$POLL_INTERVAL"; continue ;;
+        12)
+          pane_read_failures=$((pane_read_failures + 1))
+          if [ "$pane_read_failures" -ge "$MAX_DELIVERY_RETRIES" ]; then
+            watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting"
+          fi
+          pane_read_retry_pending=1
+          sleep "$POLL_INTERVAL"
+          continue
+          ;;
         13) continue ;;
         20) remove_supervision_run "$run_dir"; exit 0 ;;
         *) watcher_fail "$run_dir" "$pane" "$generation" "$DELIVERY_REASON" "$preserve_waiting" ;;
@@ -402,14 +441,25 @@ EOF
         20) remove_supervision_run "$run_dir"; exit 0 ;;
         *) sleep "$POLL_INTERVAL"; continue ;;
       esac
-      refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+      if [ -n "${HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER:-}" ]; then
+        : > "$HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER.ready"
+        local liveness_hold_started="$SECONDS"
+        while [ ! -e "$HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER.release" ]; do
+          if watcher_hold_expired "$liveness_hold_started"; then
+            remove_supervision_run "$run_dir"
+            exit 1
+          fi
+          sleep 0.01
+        done
+      fi
+      refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
       now="$(now_ms)"
       next_refresh=$((now + 30000))
       continue
     fi
 
     if [ "$now" -ge "$next_refresh" ]; then
-      refresh_supervision_liveness "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
+      refresh_supervision_liveness "$run_dir" "$pane" "$generation" || watcher_fail "$run_dir" "$pane" "$generation" liveness-refresh-failed
       next_refresh=$((now + 30000))
     fi
     sleep "$POLL_INTERVAL"

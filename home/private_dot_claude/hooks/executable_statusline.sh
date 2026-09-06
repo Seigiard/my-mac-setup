@@ -84,10 +84,13 @@ usage=$(echo "$input" | jq '.context_window.current_usage')
 if [ "$usage" != "null" ]; then
     current=$(echo "$usage" | jq '.input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens')
     size=$(echo "$input" | jq '.context_window.context_window_size')
-    raw_pct=$((current * 100 / size))
-    adjusted_pct=$((raw_pct + ${CONTEXT_USAGE_ALLOWANCE_PCT:-0}))
-    [ "$adjusted_pct" -gt 100 ] && adjusted_pct=100
-    CONTEXT_PCT="$adjusted_pct"
+    # The library owns the allowance and the cap, so the bar has no arithmetic
+    # of its own beyond the fallback an unsourced library leaves it with.
+    if command -v context_usage_fullness_pct > /dev/null 2>&1; then
+        CONTEXT_PCT="$(context_usage_fullness_pct "$current" "$size")"
+    else
+        CONTEXT_PCT=$((current * 100 / size))
+    fi
     # Claude Code hands these counts to the status line and to nothing else, so
     # publishing them is the only way the Stop hook can see fullness at all.
     # A failed write costs the hook one dimension and the bar nothing.
