@@ -9315,345 +9315,35 @@ TS
 
 # --- context-usage library (U2) -------------------------------------------
 #
-# Coverage owner for the two growth numbers the context-threshold hook and the
-# statusline both read. The oracles are outside this library: transcript
-# fixtures use Claude Code's own entry shape (`type`, `compactMetadata`), and
-# the token count is the one Claude Code publishes through the statusline
-# payload rather than a number restated from the library.
+# Coverage owner for the context load the statusline renders. The oracle is
+# outside this library: the token count is the one Claude Code publishes in the
+# statusline payload, and what is asserted is the relation between the two
+# figures drawn from it rather than a number restated from the library.
 
 context_usage_lib() {
   printf '%s' "$SOURCE_ROOT/dot_local/lib/context-usage.sh"
 }
 
-# Write a transcript in Claude Code's own line-per-entry shape. Each argument
-# is an entry kind: `assistant`, `user`, `tool`, or `compact`.
-context_usage_fixture_transcript() {
-  local path="$1" kind
-  shift
-  : > "$path"
-  for kind in "$@"; do
-    case "$kind" in
-      assistant)
-        printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":100}}}' >> "$path"
-        ;;
-      user)
-        printf '%s\n' '{"type":"user","message":{"role":"user","content":"go on"}}' >> "$path"
-        ;;
-      tool)
-        printf '%s\n' '{"type":"user","toolUseResult":{"stdout":"grep found \"type\":\"assistant\" in the log"},"message":{"role":"user","content":[{"type":"tool_result","content":"\"type\":\"assistant\""}]}}' >> "$path"
-        ;;
-      compact)
-        printf '%s\n' '{"type":"user","isCompactSummary":true,"compactMetadata":{"trigger":"manual","preTokens":412000},"message":{"role":"user","content":"summary"}}' >> "$path"
-        ;;
-    esac
-  done
+function test_scripts_2812_context_usage_allowance_is_environment_tunable() {
+  _bats_test_init 2812 'context-usage allowance is environment tunable'
+
+  # KTD11: the one number this library decides on moves without a code edit.
+  # Claude Code does not report the system prompt, so an operator whose prompt
+  # is nothing like 40k has to be able to say so.
+  run env CONTEXT_USAGE_ALLOWANCE_TOKENS=0 bash -c '
+    . "$1"; context_usage_fullness_pct 130000 1000000
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '13'
+
+  run env CONTEXT_USAGE_ALLOWANCE_TOKENS=370000 bash -c '
+    . "$1"; context_usage_fullness_pct 130000 1000000
+  ' _ "$(context_usage_lib)"
+  assert_success
+  assert_output '50'
 }
 
-function test_scripts_2801_context_usage_turn_count_restarts_at_the_compaction_boundary() {
-  _bats_test_init 2801 'context-usage turn count restarts at the compaction boundary'
-  local transcript="$BATS_TEST_TMPDIR/transcript.jsonl"
-
-  # AE5: turns from before the boundary never reach the count, so a session
-  # above the hard threshold before compaction is below it after.
-  context_usage_fixture_transcript "$transcript" \
-    assistant user assistant user assistant user assistant \
-    compact \
-    user assistant user assistant
-  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
-  assert_success
-  assert_output '2'
-
-  # No boundary at all: the whole file counts.
-  context_usage_fixture_transcript "$transcript" assistant user assistant user assistant
-  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
-  assert_success
-  assert_output '3'
-
-  # Only the last boundary matters.
-  context_usage_fixture_transcript "$transcript" \
-    assistant compact assistant assistant compact assistant
-  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
-  assert_success
-  assert_output '1'
-}
-
-function test_scripts_2802_context_usage_turn_count_ignores_non_assistant_entries() {
-  _bats_test_init 2802 'context-usage turn count ignores user and tool-result entries'
-  local transcript="$BATS_TEST_TMPDIR/interleaved.jsonl"
-
-  # The `tool` fixture carries the literal text `"type":"assistant"` inside a
-  # tool result. A line-oriented text scan counts those as turns; parsing the
-  # entry does not. Real transcripts quote each other constantly.
-  context_usage_fixture_transcript "$transcript" \
-    user assistant tool assistant tool tool user assistant
-  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$transcript"
-  assert_success
-  assert_output '3'
-
-  # An unreadable or absent transcript is zero turns, never an error: the hook
-  # must stay silent rather than fail loudly on the hot path.
-  run bash -c '. "$1"; context_usage_turn_count "$2"' _ "$(context_usage_lib)" "$BATS_TEST_TMPDIR/absent.jsonl"
-  assert_success
-  assert_output '0'
-  run bash -c '. "$1"; context_usage_turn_count ""' _ "$(context_usage_lib)"
-  assert_success
-  assert_output '0'
-}
-
-function test_scripts_2803_context_usage_reports_tokens_and_the_bar_adds_the_allowance() {
-  _bats_test_init 2803 'context-usage reports published tokens and the bar adds the allowance'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # R2. The hook decides on the number Claude Code published, unshifted: what
-  # the statusline wrote is what comes back, so an operator's threshold means
-  # the same figure their client shows them. The allowance belongs to the bar
-  # alone, and the percentage below comes from this test's own inputs -- an
-  # occupancy, a window and an allowance all named here -- not from the
-  # library's defaults.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_TOKENS=170000 bash -c '
-    . "$1"
-    context_usage_write_usage sess-bar 372000 1000000 "$(date +%s)" || exit 1
-    context_usage_read_tokens sess-bar
-    printf "\n"
-    context_usage_fullness_pct 372000 1000000
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_line --index 0 '372000'
-  assert_line --index 1 '54'
-
-  # The cap holds: a nearly full window plus any allowance never exceeds 100.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_fullness_pct 990000 1000000
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output '100'
-}
-
-function test_scripts_2804_context_usage_tokens_degrade_to_unavailable() {
-  _bats_test_init 2804 'context-usage token reading degrades to unavailable and leaves turns computable'
-  local state="$BATS_TEST_TMPDIR/state" transcript="$BATS_TEST_TMPDIR/t.jsonl"
-  context_usage_fixture_transcript "$transcript" assistant assistant assistant
-
-  # KTD3: absent, truncated, and stale each report unavailable rather than
-  # zero, and none of them stops the turn count from being computed.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    context_usage_read_tokens never-rendered && exit 9
-    context_usage_turn_count "$2"
-  ' _ "$(context_usage_lib)" "$transcript"
-  assert_success
-  assert_output '3'
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    file="$(context_usage_usage_file truncated)"
-    mkdir -p "$(dirname "$file")"
-    printf "current_tokens=400000\n" > "$file"
-    context_usage_read_tokens truncated && exit 9
-    context_usage_turn_count "$2"
-  ' _ "$(context_usage_lib)" "$transcript"
-  assert_success
-  assert_output '3'
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    now="$(date +%s)"
-    context_usage_write_usage stale 400000 1000000 "$((now - 4000))" || exit 1
-    context_usage_read_tokens stale "$now" && exit 9
-    context_usage_read_tokens stale "$((now - 3999))"
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output '400000'
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    file="$(context_usage_usage_file unreadable)"
-    mkdir -p "$(dirname "$file")"
-    printf "current_tokens=x\nwindow_size=0\nwritten_at=abc\n" > "$file"
-    context_usage_read_tokens unreadable && exit 9
-    exit 0
-  ' _ "$(context_usage_lib)"
-  assert_success
-}
-
-function test_scripts_2805_context_usage_hint_fires_on_either_dimension_alone() {
-  _bats_test_init 2805 'context-usage hint fires on either dimension alone and not below both'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # R5, R10: the two dimensions are independent, and each threshold is an
-  # inclusive lower bound. Every figure below is named by this test, so the
-  # relation holds whatever the shipped defaults are.
-  run env CONTEXT_USAGE_STATE_DIR="$state" \
-    CONTEXT_USAGE_ALLOWANCE_TOKENS=0 \
-    CONTEXT_USAGE_TOKENS_HINT=100000 CONTEXT_USAGE_TURNS_HINT=150 bash -c '
-    . "$1"
-    context_usage_hint_due 99999 149 && exit 9
-    context_usage_hint_due 100000 0 || exit 9
-    context_usage_hint_due 0 150 || exit 9
-    context_usage_hint_due "" 150 || exit 9
-    context_usage_hint_due "" 149 && exit 9
-    printf "independent\n"
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'independent'
-
-  # The token side is compared as load, so the allowance the operator can see
-  # on the status line is the allowance the threshold counts.
-  run env CONTEXT_USAGE_STATE_DIR="$state" \
-    CONTEXT_USAGE_ALLOWANCE_TOKENS=40000 \
-    CONTEXT_USAGE_TOKENS_HINT=100000 CONTEXT_USAGE_TURNS_HINT=150 bash -c '
-    . "$1"
-    context_usage_hint_due 59999 0 && exit 9
-    context_usage_hint_due 60000 0 || exit 9
-    printf "load\n"
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'load'
-}
-
-function test_scripts_2806_context_usage_goal_refreshes_on_a_turn_cadence() {
-  _bats_test_init 2806 'context-usage goal is stale when absent and again after the cadence'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # A session with nothing stored is always due, which is how the first
-  # extraction happens at all. After a store the goal holds for the cadence and
-  # comes due on the boundary turn, not one turn either side of it.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 bash -c '
-    . "$1"
-    context_usage_goal_stale fresh 0 || exit 9
-    context_usage_store_goal fresh "land the shared usage library" ok 40 || exit 1
-    context_usage_goal_stale fresh 49 && exit 9
-    context_usage_goal_stale fresh 50 || exit 9
-    context_usage_goal fresh
-    context_usage_goal_turn fresh
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_line --index 0 'land the shared usage library'
-  assert_line --index 1 '40'
-
-  # A refresh replaces the goal and moves the marker with it, so the next
-  # refresh is measured from the new turn rather than from the first one.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 bash -c '
-    . "$1"
-    context_usage_store_goal moving "the first thing" ok 40 || exit 1
-    context_usage_store_goal moving "the second thing" ok 50 || exit 1
-    context_usage_goal_stale moving 59 && exit 9
-    context_usage_goal moving
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'the second thing'
-}
-
-function test_scripts_2807_context_usage_records_a_failed_extraction_as_such() {
-  _bats_test_init 2807 'context-usage records a failed extraction and still moves the marker'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # R23: a broken extractor must not turn into an extraction on every turn.
-  # Storing the failure advances the marker, so the retry follows the cadence,
-  # and the status line still learns there is something to offer.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 bash -c '
-    . "$1"
-    context_usage_store_goal broken "" failed 40 || exit 1
-    context_usage_goal broken && exit 9
-    context_usage_goal_stale broken 45 && exit 9
-    context_usage_goal_status broken
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'failed'
-
-  # And a later working extraction replaces the failure rather than being held
-  # off by it.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 bash -c '
-    . "$1"
-    context_usage_store_goal recovers "" failed 40 || exit 1
-    context_usage_store_goal recovers "a goal that arrived late" ok 50 || exit 1
-    context_usage_goal_status recovers
-    printf "\n"
-    context_usage_goal recovers
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_line --index 0 'ok'
-  assert_line --index 1 'a goal that arrived late'
-}
-
-function test_scripts_2810_context_usage_state_files_have_one_writer_each() {
-  _bats_test_init 2810 'context-usage usage and goal state do not overwrite each other'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # KTD10. Both files are replaced whole by rename. Sharing one would let the
-  # statusline's next render erase the goal the hook had just stored -- a bug
-  # invisible to any test that stages the file by hand.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    now="$(date +%s)"
-    context_usage_store_goal writers "keep both writers apart" ok 160 || exit 1
-    context_usage_write_usage writers 700000 1000000 "$now" || exit 1
-    context_usage_goal writers
-    context_usage_read_tokens writers "$now"
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_line --index 0 'keep both writers apart'
-  assert_line --index 1 '700000'
-
-  # And the reverse: publishing usage again leaves the goal file alone.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    context_usage_write_usage writers 100 1000000 "$(date +%s)" || exit 1
-    context_usage_goal writers
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'keep both writers apart'
-}
-
-function test_scripts_2811_context_usage_clear_retires_the_goal() {
-  _bats_test_init 2811 'context-usage clear retires the goal a compaction just consumed'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # R11: the goal is what makes the status line offer a command, so a session
-  # handed back from compaction must not still be advertising the compaction it
-  # has already had. Clearing also makes the next extraction due immediately.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 bash -c '
-    . "$1"
-    context_usage_store_goal rearm "before compaction" ok 160 || exit 1
-    context_usage_goal_stale rearm 161 && exit 9
-    context_usage_clear rearm || exit 1
-    context_usage_goal_status rearm && exit 9
-    context_usage_goal rearm && exit 9
-    context_usage_goal_stale rearm 161 || exit 9
-    printf "retired\n"
-  ' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'retired'
-}
-
-function test_scripts_2812_context_usage_thresholds_are_environment_tunable() {
-  _bats_test_init 2812 'context-usage thresholds, cadence and allowance are environment tunable'
-  local state="$BATS_TEST_TMPDIR/state"
-
-  # KTD11, R5: every number this feature decides on moves without a code edit.
-  run env CONTEXT_USAGE_STATE_DIR="$state" \
-    CONTEXT_USAGE_ALLOWANCE_TOKENS=0 \
-    CONTEXT_USAGE_TOKENS_HINT=110000 \
-    CONTEXT_USAGE_TURNS_HINT=2 \
-    CONTEXT_USAGE_GOAL_REFRESH_TURNS=3 \
-    bash -c '
-      . "$1"
-      context_usage_fullness_pct 130000 1000000
-      printf "\n"
-      context_usage_hint_due 109999 1 && exit 9
-      context_usage_hint_due 110000 1 || exit 9
-      context_usage_hint_due 0 2 || exit 9
-      context_usage_store_goal tuned "tuned goal" ok 10 || exit 1
-      context_usage_goal_stale tuned 12 && exit 9
-      context_usage_goal_stale tuned 13 || exit 9
-      printf "tunable\n"
-    ' _ "$(context_usage_lib)"
-  assert_success
-  assert_line --index 0 '13'
-  assert_line --index 1 'tunable'
-}
-
-# --- statusline publishes usage state (U3) ---------------------------------
+# --- statusline renders the context load (U3) ------------------------------
 
 context_usage_statusline_payload() {
   jq -nc --arg session "$1" --argjson current "$2" --argjson window "$3" \
@@ -9663,52 +9353,6 @@ context_usage_statusline_payload() {
       context_window: {
         current_usage: {input_tokens: $current, cache_creation_input_tokens: 0, cache_read_input_tokens: 0},
         context_window_size: $window}}'
-}
-
-function test_scripts_2813_statusline_bar_and_library_describe_the_same_load() {
-  _bats_test_init 2813 'statusline bar and the usage library describe the same load'
-  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
-  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
-  local reported with_allowance without_allowance
-  library="$(context_usage_lib)"
-  mkdir -p "$home"
-
-  # AE8, R1. The oracle is agreement between the two consumers, not a number
-  # restated from either. The bar and the hook now speak different units, so
-  # what must agree is the load underneath them: the hook reads back exactly
-  # the occupancy the payload carried, and the bar drawn with the allowance the
-  # library owns equals the bar drawn with that allowance folded into the
-  # occupancy instead. A bar that applied its own allowance would fail this.
-  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_TOKENS=40000 bash "$statusline" \
-    <<< "$(context_usage_statusline_payload agree 372000 1000000)"
-  assert_success
-  with_allowance="$output"
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_read_tokens agree
-  ' _ "$library"
-  assert_success
-  reported="$output"
-  assert_equal "$reported" '372000'
-
-  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_TOKENS=0 bash "$statusline" \
-    <<< "$(context_usage_statusline_payload mirror "$((reported + 40000))" 1000000)"
-  assert_success
-  without_allowance="$output"
-  assert_equal "$with_allowance" "$without_allowance"
-
-  # The published numbers are the raw ones Claude Code handed over, untouched.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    file="$(context_usage_usage_file agree)"
-    context_usage_number_field "$file" current_tokens
-    printf " "
-    context_usage_number_field "$file" window_size
-  ' _ "$library"
-  assert_success
-  assert_output '372000 1000000'
 }
 
 function test_scripts_2842_statusline_figure_and_percentage_agree() {
@@ -9739,108 +9383,29 @@ function test_scripts_2842_statusline_figure_and_percentage_agree() {
   assert_output 'agree'
 }
 
-function test_scripts_2843_statusline_offers_the_compaction_command_the_hook_stored() {
-  _bats_test_init 2843 'statusline offers the compaction command only once a goal is stored'
+function test_scripts_2814_statusline_renders_without_the_shared_library() {
+  _bats_test_init 2814 'statusline renders when the library or the context window is missing'
   local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
-  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
+  local library home="$BATS_TEST_TMPDIR/home"
   library="$(context_usage_lib)"
   mkdir -p "$home"
-
-  render_statusline() {
-    env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-      CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
-      <<< "$(context_usage_statusline_payload "$1" 120000 1000000)"
-  }
-
-  # The hook writes the goal and the status line reads it: neither side decides
-  # on its own when the command appears. A session the hook has said nothing
-  # about must not be offered a compaction.
-  run render_statusline quiet
-  assert_success
-  refute_output --partial '/compact handoff:'
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_store_goal offered "land the status line unit" ok 160
-  ' _ "$library"
-  assert_success
-  run render_statusline offered
-  assert_success
-  assert_output --partial '/compact handoff:'
-  assert_output --partial 'land the status line unit'
-
-  # A failed extraction still gets the command, with the goal left blank for
-  # the operator rather than the offer withdrawn.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_store_goal blank "" failed 160
-  ' _ "$library"
-  assert_success
-  run render_statusline blank
-  assert_success
-  assert_output --partial '/compact handoff:'
-  assert_output --partial 'what you are trying to finish'
-
-  # And a goal long enough to overrun the line is cut, so a terminal truncating
-  # it cannot leave a shorter command that still reads as a whole one.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    context_usage_store_goal long "$(printf "%s" "aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee ffffffffff gggggggggg hhhhhhhhhh iiiiiiiiii")" ok 160
-  ' _ "$library"
-  assert_success
-  run render_statusline long
-  assert_success
-  assert_output --partial '…'
-}
-
-function test_scripts_2814_statusline_renders_when_publishing_is_impossible() {
-  _bats_test_init 2814 'statusline renders when it cannot publish usage state'
-  local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
-  local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
-  local readonly_root="$BATS_TEST_TMPDIR/readonly" baseline
-  library="$(context_usage_lib)"
-  mkdir -p "$home" "$readonly_root"
-
-  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
-    <<< "$(context_usage_statusline_payload ok 372000 1000000)"
-  assert_success
-  baseline="$output"
-
-  # The status line is the most frequently executed script in this setup. A
-  # state directory it cannot write must cost the hook a dimension and the
-  # operator nothing.
-  chmod 500 "$readonly_root"
-  run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$readonly_root/state" bash "$statusline" \
-    <<< "$(context_usage_statusline_payload blocked 372000 1000000)"
-  chmod 700 "$readonly_root"
-  assert_success
-  assert_equal "$output" "$baseline"
-  assert_dir_not_exists "$readonly_root/state"
 
   # A partially applied home has the status line but not yet the library. The
   # bar must still render: the operator's prompt is not a place to surface a
   # deployment race.
   run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent-library.sh" \
-    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    bash "$statusline" \
     <<< "$(context_usage_statusline_payload nolib 372000 1000000)"
   assert_success
   refute_output ''
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_read_tokens nolib
-  ' _ "$library"
-  assert_failure
 
-  # A payload without a context window renders the zero-percent bar and
-  # publishes nothing, so the hook sees no number rather than a wrong one.
+  # A payload without a context window renders the zero-percent bar rather than
+  # dividing by nothing.
   run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    bash "$statusline" \
     <<< '{"workspace":{"current_dir":"/tmp"},"session_id":"empty","model":{"display_name":"Opus 5"}}'
   assert_success
   assert_output --partial '░░░░░░░░░░'
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_read_tokens empty
-  ' _ "$library"
-  assert_failure
 }
 
 # --- vendored handoff hooks (U6, U7) ---------------------------------------
@@ -9893,7 +9458,7 @@ function test_scripts_2815_handoff_pre_compact_stores_outside_the_git_directory(
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload worktree-session "$linked" manual 'handoff:finish the vendoring')"
+    <<< "$(handoff_payload worktree-session "$linked" manual 'finish the vendoring')"
   assert_success
   file="$store/$(printf '%s' worktree-session | base64 | tr '/+' '_-' | tr -d '=\n').json"
   assert_file_exists "$file"
@@ -9904,7 +9469,7 @@ function test_scripts_2815_handoff_pre_compact_stores_outside_the_git_directory(
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload plain-session "$plain" manual 'handoff:finish the vendoring')"
+    <<< "$(handoff_payload plain-session "$plain" manual 'finish the vendoring')"
   assert_success
   assert_dir_not_exists "$plain/.git"
   assert_file_exists "$store/$(printf '%s' plain-session | base64 | tr '/+' '_-' | tr -d '=\n').json"
@@ -9919,12 +9484,12 @@ function test_scripts_2816_handoff_pre_compact_keys_the_store_by_session() {
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload session-a "$root" manual 'handoff:goal for a')"
+    <<< "$(handoff_payload session-a "$root" manual 'goal for a')"
   assert_success
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload session-b "$root" manual 'handoff:goal for b')"
+    <<< "$(handoff_payload session-b "$root" manual 'goal for b')"
   assert_success
 
   one="$store/$(printf '%s' session-a | base64 | tr '/+' '_-' | tr -d '=\n').json"
@@ -9933,45 +9498,98 @@ function test_scripts_2816_handoff_pre_compact_keys_the_store_by_session() {
   assert_equal "$(handoff_stored_goal "$two")" 'goal for b'
 }
 
-function test_scripts_2817_handoff_pre_compact_ignores_and_clears_plain_compactions() {
-  _bats_test_init 2817 'handoff pre-compact writes nothing for a plain compaction and clears a stale handoff'
+function test_scripts_2817_handoff_pre_compact_builds_a_handoff_for_a_plain_compaction() {
+  _bats_test_init 2817 'handoff pre-compact builds a handoff when the operator names no goal'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
   local file
-  handoff_stub_claude "$stub"
-  file="$store/$(printf '%s' reuse | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  handoff_stub_claude "$stub" 'the handoff for an unstated goal'
 
-  # No prefix at all, and an automatic compaction with no instructions.
+  # A bare `/compact` arrives with no instructions at all, and an automatic
+  # compaction with a null field. Both are the case the operator did not plan
+  # for, so both must still leave a handoff: the fork resumes the whole session
+  # and names the goal from it.
+  file="$(handoff_store_path "$store" bare)"
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload plain "$root" manual 'summarize the last hour')"
+    <<< "$(handoff_payload bare "$root" manual '')"
   assert_success
   assert_output ''
-  assert_dir_not_exists "$store"
+  assert_file_contains "$file" 'the handoff for an unstated goal'
 
+  file="$(handoff_store_path "$store" auto)"
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
     bash "$(handoff_pre_compact_hook)" \
     <<< '{"session_id":"auto","cwd":"/tmp","trigger":"auto","custom_instructions":null,"hook_event_name":"PreCompact"}'
   assert_success
   assert_output ''
-  assert_dir_not_exists "$store"
+  assert_file_contains "$file" 'the handoff for an unstated goal'
+}
 
-  # AE7, R16. A handoff left by an interrupted compaction must not survive into
-  # the next plain one. PreCompact is the only point that knows the difference.
-  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
-    bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload reuse "$root" manual 'handoff:the goal that was abandoned')"
-  assert_success
-  assert_file_exists "$file"
+function test_scripts_2844_handoff_pre_compact_hands_the_extractor_a_usable_goal() {
+  _bats_test_init 2844 'handoff pre-compact hands its extractor a goal block that is never bare or prefixed'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" block
 
+  # The extractor is a separate process, so what it is handed is an interface
+  # and not an implementation detail. Capture the last argument -- the prompt.
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # `handoff:` was the trigger word before a bare `/compact` was enough. A
+  # session that still types it must not have the marker delivered as part of
+  # the goal the extractor works from.
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload reuse "$root" manual '')"
+    <<< "$(handoff_payload prefixed "$root" manual 'handoff:land the vendored rewrite')"
   assert_success
-  assert_file_not_exists "$file"
+  assert_file_contains "$prompt" 'land the vendored rewrite'
+  run grep -c 'handoff:' "$prompt"
+  assert_failure
+
+  # And with nothing typed the block still has to say something. An empty
+  # <goal> asks the extractor to select against no criterion at all, which is
+  # the whole session back again rather than a handoff. The capture is removed
+  # first, so a run that never reaches the extractor cannot be read as one that
+  # did through the previous prompt left on disk.
+  rm -f "$prompt"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload bareprompt "$root" manual '')"
+  assert_success
+  assert_file_exists "$prompt"
+  block="$(sed -n '/<goal>/,/<\/goal>/p' "$prompt" | sed '1d;$d' | tr -d '[:space:]')"
+  run bash -c '[ -n "$1" ] && printf named || printf "the goal block was empty"' _ "$block"
+  assert_output 'named'
+}
+
+function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
+  _bats_test_init 2837 'handoff hooks fail open when HOME is unset'
+  local hook
+
+  # KTD9. `set -u` plus a path defaulted from $HOME aborts the hook with a
+  # non-zero status, which Claude Code surfaces as a hook error on every turn.
+  # An advisory step in front of a compaction must fail open instead.
+  for hook in executable_handoff-pre-compact.sh executable_handoff-session-start.sh; do
+    run env -u HOME -u CONTEXT_USAGE_LIBRARY -u HANDOFF_STORE_DIR \
+      bash "$SOURCE_ROOT/private_dot_claude/hooks/$hook" < /dev/null
+    assert_success
+    assert_output ''
+  done
+
+  # The library is sourced by both and must survive the same condition.
+  run env -u HOME bash -c 'set -uo pipefail; . "$1"; printf "sourced"' _ "$(context_usage_lib)"
+  assert_success
+  assert_output 'sourced'
 }
 
 function test_scripts_2818_handoff_pre_compact_fails_open() {
@@ -9993,7 +9611,7 @@ function test_scripts_2818_handoff_pre_compact_fails_open() {
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload broken "$root" manual 'handoff:a goal nobody can extract')"
+    <<< "$(handoff_payload broken "$root" manual 'a goal nobody can extract')"
   assert_success
   assert_file_not_exists "$store/$(printf '%s' broken | base64 | tr '/+' '_-' | tr -d '=\n').json"
 
@@ -10001,458 +9619,9 @@ function test_scripts_2818_handoff_pre_compact_fails_open() {
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload empty "$root" manual 'handoff:a goal with an empty answer')"
+    <<< "$(handoff_payload empty "$root" manual 'a goal with an empty answer')"
   assert_success
   assert_file_not_exists "$store/$(printf '%s' empty | base64 | tr '/+' '_-' | tr -d '=\n').json"
-}
-
-function test_scripts_2819_handoff_pre_compact_guards_the_extraction_fork() {
-  _bats_test_init 2819 'handoff pre-compact marks its fork so the threshold hook stays out of it'
-  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
-  mkdir -p "$stub"
-
-  # KTD6. The fork inherits this session's settings, so its own Stop hook
-  # fires. Without the marker a long session's fork meets the threshold at
-  # once and extracts a goal of its own, recursively.
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf 'printf "guard=%%s\\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"\n'
-  } > "$stub/claude"
-  chmod +x "$stub/claude"
-
-  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
-    bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload guarded "$root" manual 'handoff:prove the fork is marked')"
-  assert_success
-  assert_file_contains "$store/$(printf '%s' guarded | base64 | tr '/+' '_-' | tr -d '=\n').json" 'guard=1'
-}
-
-# --- context-threshold Stop hook (U4) --------------------------------------
-
-context_threshold_hook() {
-  printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_context-threshold.sh"
-}
-
-# A transcript of exactly N assistant turns since the last compaction.
-context_threshold_transcript() {
-  local path="$1" turns="$2" i=0
-  : > "$path"
-  while [ "$i" -lt "$turns" ]; do
-    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}' >> "$path"
-    i=$((i + 1))
-  done
-}
-
-context_threshold_payload() {
-  jq -nc --arg session "$1" --arg transcript "$2" --argjson active "${3:-false}" \
-    '{session_id: $session, transcript_path: $transcript,
-      hook_event_name: "Stop", stop_hook_active: $active}'
-}
-
-# Run the hook with the state directory and library this suite controls, and
-# with a `claude` that always fails. A scenario crossing a threshold for the
-# first time runs goal extraction, and without this stub it would fork the real
-# binary installed on whatever machine is running the suite.
-context_threshold_run() {
-  local session="$1" transcript="$2"
-  shift 2
-  local stub="$BATS_TEST_TMPDIR/no-extractor"
-  if [ ! -x "$stub/claude" ]; then
-    mkdir -p "$stub"
-    printf '#!/usr/bin/env bash\nexit 1\n' > "$stub/claude"
-    chmod +x "$stub/claude"
-  fi
-  env PATH="$stub:$PATH" \
-    HOME="$BATS_TEST_TMPDIR/home" \
-    CONTEXT_THRESHOLD_POLL_INTERVAL=0.02 \
-    CONTEXT_THRESHOLD_KILL_GRACE_SECONDS=1 \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
-    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
-    CLAUDE_CODE_ENTRYPOINT=cli \
-    "$@" bash "$(context_threshold_hook)" \
-    <<< "$(context_threshold_payload "$session" "$transcript")"
-}
-
-# What the hook left behind: the stored goal, its status, and the turn it was
-# extracted at. The hook is silent by contract, so this is the only place its
-# work is observable.
-context_threshold_stored() {
-  env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
-    . "$1"
-    printf "status=%s\n" "$(context_usage_goal_status "$2" || printf none)"
-    printf "turn=%s\n" "$(context_usage_goal_turn "$2" || printf none)"
-    printf "goal=%s\n" "$(context_usage_goal "$2" || true)"
-  ' _ "$(context_usage_lib)" "$1"
-}
-
-function test_scripts_2820_context_threshold_stores_a_goal_on_either_dimension() {
-  _bats_test_init 2820 'context threshold stores a goal when either dimension crosses'
-  local long="$BATS_TEST_TMPDIR/long.jsonl" short="$BATS_TEST_TMPDIR/short.jsonl"
-  local library state="$BATS_TEST_TMPDIR/state"
-  library="$(context_usage_lib)"
-  context_threshold_transcript "$long" 160
-  context_threshold_transcript "$short" 12
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # AE1. A long session carrying little context crosses on turn count. This is
-  # the common case on this machine, and the token side must not be needed for
-  # it to produce anything.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage long-session 10000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run context_threshold_run long-session "$long"
-  assert_success
-  assert_output ''
-  run context_threshold_stored long-session
-  assert_success
-  assert_line --index 0 'status=failed'
-  assert_line --index 1 'turn=160'
-
-  # AE2. The mirror case: a short session that pulled in several large files
-  # crosses on load alone. The window here is 1M and the load fills 20% of it,
-  # which is the point -- what the operator pays for is the load, not the share
-  # of a window that happens to be large.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage short-session 160000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run context_threshold_run short-session "$short"
-  assert_success
-  assert_output ''
-  run context_threshold_stored short-session
-  assert_success
-  assert_line --index 1 'turn=12'
-
-  # Below both thresholds nothing is stored, so the status line has nothing to
-  # offer and no model call was spent deciding that.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage small 10000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run context_threshold_run small "$short"
-  assert_success
-  assert_output ''
-  run context_threshold_stored small
-  assert_success
-  assert_line --index 0 'status=none'
-}
-
-function test_scripts_2821_context_threshold_stores_without_a_usage_file() {
-  _bats_test_init 2821 'context threshold crosses on turn count when no usage file exists'
-  local long="$BATS_TEST_TMPDIR/long.jsonl" library
-  library="$(context_usage_lib)"
-  context_threshold_transcript "$long" 160
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # KTD3 and KTD7 together. A resumed session has no state file until its
-  # first status-line render. Reading that absence as "headless" would silence
-  # exactly the long session this feature exists for.
-  run context_threshold_run resumed "$long"
-  assert_success
-  assert_output ''
-  run context_threshold_stored resumed
-  assert_success
-  assert_line --index 1 'turn=160'
-
-  # A file too old to describe the current turn behaves the same way.
-  run env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
-    . "$1"; context_usage_write_usage stale-session 900000 1000000 "$(( $(date +%s) - 4000 ))"
-  ' _ "$library"
-  assert_success
-  run context_threshold_run stale-session "$long"
-  assert_success
-  assert_output ''
-  run context_threshold_stored stale-session
-  assert_success
-  assert_line --index 1 'turn=160'
-}
-
-function test_scripts_2822_context_threshold_stays_out_of_sessions_nobody_is_watching() {
-  _bats_test_init 2822 'context threshold stays silent in headless and re-entrant sessions'
-  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
-  context_threshold_transcript "$huge" 500
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # AE9, R21. This repository runs headless legs routinely; halting one
-  # mid-task would be a regression in unrelated work, and no human is there.
-  # Every case below sits past both hard thresholds.
-  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=sdk-cli
-  assert_success
-  assert_output ''
-  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=sdk-py
-  assert_success
-  assert_output ''
-  run context_threshold_run headless "$huge" CLAUDE_CODE_ENTRYPOINT=mcp-cli
-  assert_success
-  assert_output ''
-
-  # A herdr peer consult reaches the same "nobody is watching" state through a
-  # live TUI child, where the entrypoint above reads `cli`. Its parent blocks
-  # in `herdr-child start --wait`, so a halt here idles the pane until that
-  # wait expires instead of interrupting a person.
-  run context_threshold_run peer "$huge" HERDR_CHILD_NAME=peer-claude-1
-  assert_success
-  assert_output ''
-
-  # KTD6: the extraction subprocess inherits these settings, so its own Stop
-  # hook fires. Both re-entrancy signals must silence it.
-  run context_threshold_run guarded "$huge" CONTEXT_THRESHOLD_GUARD=1
-  assert_success
-  assert_output ''
-  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
-    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
-    bash "$(context_threshold_hook)" \
-    <<< "$(context_threshold_payload reentrant "$huge" true)"
-  assert_success
-  assert_output ''
-
-  # And an IDE session is a person watching, so it does keep a goal current.
-  # Silence alone would pass every case above even if the hook had stopped
-  # working entirely; this is the control that says it still runs.
-  run context_threshold_run ide "$huge" CLAUDE_CODE_ENTRYPOINT=vscode
-  assert_success
-  assert_output ''
-  run context_threshold_stored ide
-  assert_success
-  assert_line --index 1 'turn=500'
-
-  # None of the exempt sessions above wrote anything, which is what makes their
-  # silence an exemption rather than a coincidence.
-  run context_threshold_stored headless
-  assert_success
-  assert_line --index 0 'status=none'
-  run context_threshold_stored peer
-  assert_success
-  assert_line --index 0 'status=none'
-}
-
-function test_scripts_2823_context_threshold_never_speaks_for_itself() {
-  _bats_test_init 2823 'context threshold emits nothing however far past the thresholds'
-  local huge="$BATS_TEST_TMPDIR/huge.jsonl" library state="$BATS_TEST_TMPDIR/state"
-  library="$(context_usage_lib)"
-  context_threshold_transcript "$huge" 900
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # On the Stop-hook protocol any stdout is a decision: JSON can halt the turn
-  # and a bare line is surfaced to the operator. This hook has no decision to
-  # make, and a session far past every threshold is where an accidental one
-  # would land. A halt here would idle whoever is waiting on the turn -- which
-  # is what the herdr-child exemption above exists to undo.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage shouting 950000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run context_threshold_run shouting "$huge"
-  assert_success
-  assert_output ''
-  run context_threshold_run shouting "$huge"
-  assert_success
-  assert_output ''
-}
-
-function test_scripts_2825_context_threshold_refreshes_on_the_cadence() {
-  _bats_test_init 2825 'context threshold refreshes the goal on the cadence, not every turn'
-  local at160="$BATS_TEST_TMPDIR/at160.jsonl" at165="$BATS_TEST_TMPDIR/at165.jsonl"
-  local at170="$BATS_TEST_TMPDIR/at170.jsonl"
-  context_threshold_transcript "$at160" 160
-  context_threshold_transcript "$at165" 165
-  context_threshold_transcript "$at170" 170
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # The extractor is a model call on the turn boundary, so it runs on the
-  # cadence rather than on every turn past the threshold. Swapping the stub
-  # between runs is what proves which turns called it: a run that did not call
-  # it still shows the previous answer.
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "the first goal\n"'
-  run context_threshold_run_extracting cadence "$at160"
-  assert_success
-  assert_output ''
-
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "the second goal\n"'
-  run context_threshold_run_extracting cadence "$at165"
-  assert_success
-  run context_threshold_stored cadence
-  assert_success
-  assert_line --index 2 'goal=the first goal'
-  assert_line --index 1 'turn=160'
-
-  run context_threshold_run_extracting cadence "$at170"
-  assert_success
-  run context_threshold_stored cadence
-  assert_success
-  assert_line --index 2 'goal=the second goal'
-  assert_line --index 1 'turn=170'
-}
-
-function test_scripts_2826_context_threshold_fails_open() {
-  _bats_test_init 2826 'context threshold exits silently on malformed input and unreadable state'
-  local huge="$BATS_TEST_TMPDIR/huge.jsonl"
-  context_threshold_transcript "$huge" 500
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # KTD9: everything except the deliberate halt fails open and silent.
-  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
-    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
-    bash "$(context_threshold_hook)" <<< 'not json at all'
-  assert_success
-  assert_output ''
-
-  # An unavailable library is a partially applied home, not a reason to fail.
-  run env HOME="$BATS_TEST_TMPDIR/home" CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent.sh" \
-    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" CLAUDE_CODE_ENTRYPOINT=cli \
-    bash "$(context_threshold_hook)" \
-    <<< "$(context_threshold_payload nolib "$huge")"
-  assert_success
-  assert_output ''
-
-  # A transcript that cannot be read counts zero turns, which announces
-  # nothing rather than announcing a wrong number.
-  run context_threshold_run missing "$BATS_TEST_TMPDIR/no-such-transcript.jsonl"
-  assert_success
-  assert_output ''
-}
-
-# --- goal extraction (U5) ---------------------------------------------------
-
-# A `claude` on PATH standing in for the extraction fork.
-context_threshold_stub_extractor() {
-  local dir="$1"
-  shift
-  mkdir -p "$dir"
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf '%s\n' "$@"
-  } > "$dir/claude"
-  chmod +x "$dir/claude"
-}
-
-# Run the hook with a stubbed extractor and a short extraction bound.
-context_threshold_run_extracting() {
-  local session="$1" transcript="$2"
-  shift 2
-  env PATH="$BATS_TEST_TMPDIR/stub:$PATH" \
-    HOME="$BATS_TEST_TMPDIR/home" \
-    CONTEXT_THRESHOLD_POLL_INTERVAL=0.02 \
-    CONTEXT_THRESHOLD_KILL_GRACE_SECONDS=1 \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
-    CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
-    CONTEXT_USAGE_EXTRACTION_TIMEOUT=3 \
-    CLAUDE_CODE_ENTRYPOINT=cli \
-    "$@" bash "$(context_threshold_hook)" \
-    <<< "$(context_threshold_payload "$session" "$transcript")"
-}
-
-function test_scripts_2827_context_threshold_stores_the_extracted_goal() {
-  _bats_test_init 2827 'context threshold stores the goal the extractor returned'
-  local long="$BATS_TEST_TMPDIR/long.jsonl"
-  context_threshold_transcript "$long" 160
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "land the goal extraction unit\n"'
-
-  run context_threshold_run_extracting extracted "$long"
-  assert_success
-  assert_output ''
-  run context_threshold_stored extracted
-  assert_success
-  assert_line --index 0 'status=ok'
-  assert_line --index 2 'goal=land the goal extraction unit'
-}
-
-function test_scripts_2828_context_threshold_records_a_failed_extraction() {
-  _bats_test_init 2828 'context threshold records a failed extraction instead of nothing'
-  local long="$BATS_TEST_TMPDIR/long.jsonl"
-  context_threshold_transcript "$long" 160
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # AE10, R23. A failure costs the goal, never the offer: the status line still
-  # shows a command with a blank for the operator to fill. Recording it also
-  # moves the marker, so a broken extractor is retried on the cadence rather
-  # than forked on every turn. A non-zero exit, an empty answer, and an overrun
-  # all land the same way.
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'exit 3'
-  run context_threshold_run_extracting failed-exit "$long"
-  assert_success
-  assert_output ''
-  run context_threshold_stored failed-exit
-  assert_success
-  assert_line --index 0 'status=failed'
-  assert_line --index 1 'turn=160'
-
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'printf ""'
-  run context_threshold_run_extracting failed-empty "$long"
-  assert_success
-  run context_threshold_stored failed-empty
-  assert_success
-  assert_line --index 0 'status=failed'
-
-  # The bound is the hook's own, not the platform's: an extractor that hangs
-  # must not hold the turn open until Claude Code kills the hook.
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" 'sleep 60'
-  run context_threshold_run_extracting failed-slow "$long"
-  assert_success
-  run context_threshold_stored failed-slow
-  assert_success
-  assert_line --index 0 'status=failed'
-}
-
-function test_scripts_2829_context_threshold_normalizes_the_extracted_goal() {
-  _bats_test_init 2829 'context threshold normalizes the goal before the operator sees it'
-  local long="$BATS_TEST_TMPDIR/long.jsonl" goal
-  context_threshold_transcript "$long" 160
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # R24. The goal is rendered after `handoff:` and pasted into a shell-adjacent
-  # prompt, so it is stored as one line, within the cap, and without the
-  # sequences that would change what the command means.
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "first line\nsecond line\nthird line\n"'
-  run context_threshold_run_extracting multiline "$long"
-  assert_success
-  run context_threshold_stored multiline
-  assert_success
-  assert_line --index 2 'goal=first line second line third line'
-
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "%s\n" "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo"'
-  run context_threshold_run_extracting capped "$long"
-  assert_success
-  goal="$(context_threshold_stored capped | sed -n 's/^goal=//p')"
-  run bash -c 'set -- $1; printf "%s" "$#"' _ "$goal"
-  assert_success
-  assert_output '20'
-
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "%s\n" "finish \$(id) the \`whoami\` job; echo x | tee y && z > w"'
-  run context_threshold_run_extracting metachars "$long"
-  assert_success
-  goal="$(context_threshold_stored metachars | sed -n 's/^goal=//p')"
-  run bash -c 'case "$1" in *[\`\$\;\|\&\<\>\"\(\)]*) exit 1 ;; esac; printf "%s" "$1"' _ "$goal"
-  assert_success
-  assert_output --partial 'finish'
-}
-
-function test_scripts_2830_context_threshold_guards_its_own_extraction_fork() {
-  _bats_test_init 2830 'context threshold marks its extraction fork so it does not recurse'
-  local long="$BATS_TEST_TMPDIR/long.jsonl"
-  context_threshold_transcript "$long" 160
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # KTD6. The extractor inherits these settings, so its own Stop hook fires.
-  # It reads a transcript excerpt rather than resuming the session, so it can no
-  # longer meet a threshold by itself; the marker is what keeps that true if the
-  # extractor ever goes back to reading a session.
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'printf "guard is %s\n" "${CONTEXT_THRESHOLD_GUARD:-unset}"'
-  run context_threshold_run_extracting forked "$long"
-  assert_success
-  run context_threshold_stored forked
-  assert_success
-  assert_line --index 2 'goal=guard is 1'
 }
 
 # --- handoff SessionStart injector (U7) ------------------------------------
@@ -10558,136 +9727,6 @@ function test_scripts_2833_handoff_injector_ignores_ordinary_session_starts() {
   assert_file_exists "$file"
 }
 
-function test_scripts_2834_handoff_injector_retires_the_consumed_goal() {
-  _bats_test_init 2834 'handoff injector retires the goal the compaction consumed'
-  local state="$BATS_TEST_TMPDIR/state" library
-  library="$(context_usage_lib)"
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # R11. The window is empty again and the goal describes work the compaction
-  # has already carried across, so leaving it in place would have the status
-  # line advertise a second compaction the moment the first finished. This
-  # holds for a plain compaction that left no handoff too.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_store_goal rearmed "before compaction" ok 160
-  ' _ "$library"
-  assert_success
-
-  run handoff_session_start_run rearmed compact
-  assert_success
-  assert_output ''
-
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"
-    context_usage_goal_status rearmed && exit 9
-    context_usage_goal_stale rearmed 161 || exit 9
-    printf "retired\n"
-  ' _ "$library"
-  assert_success
-  assert_output 'retired'
-}
-
-function test_scripts_2835_context_threshold_keeps_dimensions_independent_under_damage() {
-  _bats_test_init 2835 'context threshold keeps the load dimension when the transcript will not parse'
-  local damaged="$BATS_TEST_TMPDIR/damaged.jsonl" library
-  library="$(context_usage_lib)"
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # R4: the two dimensions are evaluated independently, so a transcript with a
-  # line that will not parse must cost the turn count and nothing else. Under
-  # `set -o pipefail` a non-zero jq is easy to let propagate, and the session
-  # then sails past a full window with nothing to offer.
-  printf '%s\n' '{"type":"assistant","message":{}}' > "$damaged"
-  printf '%s\n' 'this line is not json at all' >> "$damaged"
-  printf '%s\n' '{"type":"assistant","message":{}}' >> "$damaged"
-
-  run env CONTEXT_USAGE_STATE_DIR="$BATS_TEST_TMPDIR/state" bash -c '
-    . "$1"; context_usage_write_usage damaged 900000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run context_threshold_run damaged "$damaged"
-  assert_success
-  assert_output ''
-  run context_threshold_stored damaged
-  assert_success
-  refute_line --index 0 'status=none'
-}
-
-function test_scripts_2837_context_hooks_fail_open_without_a_home() {
-  _bats_test_init 2837 'context and handoff hooks fail open when HOME is unset'
-  local hook
-
-  # KTD9. `set -u` plus a path defaulted from $HOME aborts the hook with a
-  # non-zero status, which Claude Code surfaces as a hook error on every turn.
-  # An advisory gate over a mutating agent must fail open instead.
-  for hook in executable_context-threshold.sh executable_handoff-pre-compact.sh \
-    executable_handoff-session-start.sh; do
-    run env -u HOME -u CONTEXT_USAGE_LIBRARY -u CONTEXT_USAGE_STATE_DIR -u HANDOFF_STORE_DIR \
-      CLAUDE_CODE_ENTRYPOINT=cli bash "$SOURCE_ROOT/private_dot_claude/hooks/$hook" < /dev/null
-    assert_success
-    assert_output ''
-  done
-
-  # The library is sourced by all three and must survive the same condition.
-  run env -u HOME bash -c 'set -uo pipefail; . "$1"; printf "sourced"' _ "$(context_usage_lib)"
-  assert_success
-  assert_output 'sourced'
-}
-
-function test_scripts_2838_context_threshold_fails_open_when_it_cannot_store() {
-  _bats_test_init 2838 'context threshold stays silent when it cannot record the goal'
-  local long="$BATS_TEST_TMPDIR/long.jsonl" readonly_root="$BATS_TEST_TMPDIR/readonly"
-  context_threshold_transcript "$long" 160
-  mkdir -p "$BATS_TEST_TMPDIR/home" "$readonly_root"
-
-  # State it cannot write is the one failure the hook cannot work around: with
-  # no marker to move, the cadence never advances and every later turn would
-  # fork the extractor again. Exiting is cheaper than that loop.
-  chmod 500 "$readonly_root"
-  run env PATH="$BATS_TEST_TMPDIR/no-extractor:$PATH" HOME="$BATS_TEST_TMPDIR/home" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
-    CONTEXT_USAGE_STATE_DIR="$readonly_root/state" CLAUDE_CODE_ENTRYPOINT=cli \
-    bash "$(context_threshold_hook)" \
-    <<< "$(context_threshold_payload unwritable "$long")"
-  chmod 700 "$readonly_root"
-  assert_success
-  assert_output ''
-}
-
-function test_scripts_2839_handoff_injector_drops_the_emptied_window_reading() {
-  _bats_test_init 2839 'handoff injector drops the token reading for the window compaction emptied'
-  local library state="$BATS_TEST_TMPDIR/state"
-  library="$(context_usage_lib)"
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-
-  # The published number describes the window that was just emptied. Left in
-  # place, the very next turn halts on occupancy that no longer exists, before
-  # the status line has rendered once in the new window.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage emptied 900000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_tokens emptied' _ "$library"
-  assert_success
-  assert_output '900000'
-
-  run handoff_session_start_run emptied compact
-  assert_success
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_tokens emptied' _ "$library"
-  assert_failure
-
-  # A start that is not a compaction leaves the reading alone.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage kept 900000 1000000 "$(date +%s)"
-  ' _ "$library"
-  assert_success
-  run handoff_session_start_run kept startup
-  assert_success
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_tokens kept' _ "$library"
-  assert_success
-  assert_output '900000'
-}
-
 function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() {
   _bats_test_init 2840 'handoff pre-compact discards the previous handoff before extracting a new one'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
@@ -10698,7 +9737,7 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload replaced "$root" manual 'handoff:the first goal')"
+    <<< "$(handoff_payload replaced "$root" manual 'the first goal')"
   assert_success
   assert_file_contains "$file" 'the first goal handoff'
 
@@ -10710,86 +9749,9 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload replaced "$root" manual 'handoff:a second and different goal')"
+    <<< "$(handoff_payload replaced "$root" manual 'a second and different goal')"
   assert_success
   assert_file_not_exists "$file"
-}
-
-# --- extraction input size (R26) -------------------------------------------
-
-# A transcript whose conversation dwarfs any extraction budget: `entries`
-# alternating turns of `size` bytes each, the oldest and the newest marked, and
-# a tool result among the newest entries so that the budget alone cannot be
-# what leaves it out.
-context_threshold_bulky_transcript() {
-  local path="$1" entries="$2" size="$3" filler i=1
-  filler="$(LC_ALL=C awk -v n="$size" \
-    'BEGIN { while (length(s) < n) s = s "lorem ipsum "; printf "%s", substr(s, 1, n) }')"
-  : > "$path"
-  printf '{"type":"user","message":{"role":"user","content":"OLDESTMARKER %s"}}\n' \
-    "$filler" >> "$path"
-  while [ "$i" -lt "$((entries - 2))" ]; do
-    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"turn %s %s"}]}}\n' \
-      "$i" "$filler" >> "$path"
-    i=$((i + 1))
-  done
-  printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"TOOLMARKER %s"}]}}\n' \
-    "$filler" >> "$path"
-  printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"NEWESTMARKER"}]}}\n' \
-    >> "$path"
-}
-
-function test_scripts_2841_context_threshold_bounds_what_it_hands_the_extractor() {
-  _bats_test_init 2841 'context threshold bounds the extraction input whatever the session length'
-  local prompt="$BATS_TEST_TMPDIR/extraction-prompt.txt"
-  local small="$BATS_TEST_TMPDIR/bulky-small.jsonl"
-  local large="$BATS_TEST_TMPDIR/bulky-large.jsonl"
-  local budget=4000 ceiling=6000 bytes
-  mkdir -p "$BATS_TEST_TMPDIR/home"
-  context_threshold_bulky_transcript "$small" 200 1000
-  context_threshold_bulky_transcript "$large" 1000 1000
-
-  # R26. The extraction model rejects a prompt larger than its window, and the
-  # sessions this hook fires for are the long ones -- the case where a session
-  # resumed into a small model is rejected outright and the operator is handed
-  # an empty goal. What the extractor receives follows the budget the caller
-  # set, not the size of the transcript. The ceiling is that budget plus room
-  # for the fixed instruction the excerpt is appended to.
-  context_threshold_stub_extractor "$BATS_TEST_TMPDIR/stub" \
-    'last=""; for arg in "$@"; do last="$arg"; done' \
-    "printf '%s' \"\$last\" > \"$prompt\"" \
-    'printf "bounded goal\n"'
-
-  run context_threshold_run_extracting bounded-small "$small" \
-    CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES="$budget"
-  assert_success
-  run context_threshold_stored bounded-small
-  assert_success
-  assert_line --index 2 'goal=bounded goal'
-
-  bytes="$(LC_ALL=C wc -c < "$prompt" | tr -d ' ')"
-  run bash -c '[ "$1" -le "$2" ] && printf within || printf "%s bytes past the %s ceiling" "$1" "$2"' \
-    _ "$bytes" "$ceiling"
-  assert_output 'within'
-
-  # The tail, not the head: the newest turn survives, the oldest is gone.
-  assert_file_contains "$prompt" 'NEWESTMARKER'
-  run grep -c 'OLDESTMARKER' "$prompt"
-  assert_failure
-
-  # Tool traffic stays out even when it sits among the newest entries, so the
-  # budget is spent on what the session said rather than on what it read.
-  run grep -c 'TOOLMARKER' "$prompt"
-  assert_failure
-
-  # Five times the session, the same budget, the same ceiling.
-  run context_threshold_run_extracting bounded-large "$large" \
-    CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES="$budget"
-  assert_success
-  bytes="$(LC_ALL=C wc -c < "$prompt" | tr -d ' ')"
-  run bash -c '[ "$1" -le "$2" ] && printf within || printf "%s bytes past the %s ceiling" "$1" "$2"' \
-    _ "$bytes" "$ceiling"
-  assert_output 'within'
 }
 
 # ===========================================

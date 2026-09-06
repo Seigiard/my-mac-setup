@@ -23,6 +23,10 @@ session had grown expensive enough to be worth compacting, and context is billed
 from the first token. That is a continuous condition, and an interruption has to pick a moment
 for it.
 
+Underneath all three sat an assumption worth naming: that the goal of a compaction has to be
+known before the compaction. Everything the hook did — extracting a goal, storing it, refreshing
+it on a cadence, rendering it — existed to have an answer ready in advance.
+
 ## Considered options
 
 - **Keep the halt, make the thresholds a share of the window.** Fixes the 1M false positive and
@@ -30,25 +34,30 @@ for it.
   interruption at a moment chosen by a threshold.
 - **Keep the halt, exempt herdr children.** Fixes the deadlock only. The operator still gets no
   view of what the session costs between announcements.
-- **Drop the halt; carry the signal in the status line.** The status line renders every turn in
-  a fixed place, costs no tokens, reaches no model, and has no moment to pick.
+- **Drop the halt; keep the goal in state and offer a ready compaction command in the status
+  line.** Removes the interruption, but keeps the machinery: a subprocess extracting a goal
+  every ten turns, two state files, a cadence, and a truncation rule for drawing the goal in a
+  terminal — all so that a command is pre-written for a moment that may never come.
+- **Drop the halt and the goal state; let the compaction hook name the goal when it runs.** The
+  `PreCompact` hook already receives every compaction and already forks the session to build a
+  handoff. That fork resumes the whole session, so it is better placed to say what the session
+  was doing than anything measured turns earlier from a transcript tail.
 
 ## Decision
 
-The hook produces no output at all. It writes one goal into state; the status line reads it and
-renders `/compact handoff:<goal>` beneath the context bar, so the command is on screen without
-scrolling. The hard threshold, the per-dimension warning budgets, and the shrinking repeat
-cadence are removed.
+The Stop hook is removed, along with the goal state, the thresholds, and the refresh cadence.
 
-One hint threshold in tokens and one in turns decide only whether the status line has a command
-to offer. The goal is refreshed on a fixed turn cadence rather than extracted once, and it is
-expected to drift between refreshes: it is a starting point the operator edits, which is what
-makes refreshing it affordable.
+The `PreCompact` handoff builder acts on every compaction. `/compact <goal>` names the goal;
+a bare `/compact` leaves the `<goal>` block to the fork, which is told to read the session and
+name the goal itself. The `handoff:` prefix that used to be the trigger is stripped rather than
+required, so a session that still types it is not handed the marker as part of its goal.
 
-The status line prints the load in tokens beside the percentage, and both are the same quantity
-— occupancy plus the system-prompt allowance — so the printed figure divided by the window is
-the printed percentage. The hint thresholds are compared in those same units, so an operator can
-read a threshold off the screen.
+The status line keeps one thing from the abandoned design: the load in tokens beside the
+percentage. A percentage alone hides the cost on a large window — 190k tokens read as 19% while
+every turn is billed for all of them. Both figures come from the same quantity, occupancy plus
+the system-prompt allowance, so the printed figure divided by the window is the printed
+percentage. Nothing else is rendered and nothing is stored between turns.
 
-Herdr children remain exempt from the hook entirely, by the `HERDR_CHILD_NAME` marker their
-launcher already sets.
+The cost accepted is a `haiku` fork on every compaction, with `PreCompact` blocking for up to
+its declared 120 seconds. Automatic compaction is disabled in these settings
+(`autoCompactEnabled: false`), so this is paid only when the operator asks for a compaction.

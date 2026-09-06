@@ -29,10 +29,10 @@ herdr_record_session_cwd() {
 herdr_record_session_cwd
 
 # The shared context-usage library owns the system-prompt allowance and the
-# state file the context-threshold Stop hook reads (R1, R2, KTD2). Sourcing it
-# is best-effort: a partially applied home must still render a status line.
-# There is no second definition of the allowance here -- an unsourced library
-# means no allowance is known, not that 20 is assumed somewhere else too.
+# arithmetic that turns it into a percentage (R1, R2). Sourcing it is
+# best-effort: a partially applied home must still render a status line. There
+# is no second definition of the allowance here -- an unsourced library means
+# no allowance is known, not that 20 is assumed somewhere else too.
 CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-$HOME/.local/lib/context-usage.sh}"
 if [ -r "$CONTEXT_USAGE_LIBRARY" ]; then
     # shellcheck source=home/dot_local/lib/context-usage.sh
@@ -72,7 +72,6 @@ progress_bar() {
 
 CURRENT_DIR=$(echo "$input" | jq -r '.workspace.current_dir // "."')
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
-SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
 
 FOLDER="${CURRENT_DIR##*/}"
 
@@ -91,13 +90,6 @@ if [ "$usage" != "null" ]; then
         CONTEXT_PCT="$(context_usage_fullness_pct "$current" "$size")"
     else
         CONTEXT_PCT=$((current * 100 / size))
-    fi
-    # Claude Code hands these counts to the status line and to nothing else, so
-    # publishing them is the only way the Stop hook can see fullness at all.
-    # A failed write costs the hook one dimension and the bar nothing.
-    if command -v context_usage_write_usage > /dev/null 2>&1; then
-        [ -n "$SESSION_ID" ] &&
-            context_usage_write_usage "$SESSION_ID" "$current" "$size" > /dev/null 2>&1
     fi
 else
     CONTEXT_PCT="0"
@@ -125,27 +117,4 @@ FOLDER_INFO="${BOLD}${FOLDER}${RESET}"
 
 STATUS_LINE="${FOLDER_INFO}${DIM}${GRAY} ❯ ${RESET}${CC_INFO}"
 
-# The second line carries a compaction command the operator can read and adapt
-# without scrolling back for one. It appears only once the Stop hook has stored
-# a goal, which it does only past the hint threshold -- so the presence of the
-# goal is the whole condition, and this side needs no threshold of its own.
-#
-# The goal is capped here rather than in state. What is stored stays whole for
-# anyone who copies it; what is drawn has to survive a terminal that truncates
-# the line, and a cut mid-command would read as a shorter command rather than
-# as a longer one cut off.
-COMPACT_LINE=" "
-if [ -n "$SESSION_ID" ] && command -v context_usage_goal_status > /dev/null 2>&1; then
-    GOAL_STATUS="$(context_usage_goal_status "$SESSION_ID" 2>/dev/null)"
-    if [ "$GOAL_STATUS" = ok ]; then
-        GOAL="$(context_usage_goal "$SESSION_ID" 2>/dev/null)"
-        [ "${#GOAL}" -le 88 ] || GOAL="${GOAL:0:87}…"
-    elif [ "$GOAL_STATUS" = failed ]; then
-        GOAL="<what you are trying to finish>"
-    else
-        GOAL=""
-    fi
-    [ -z "$GOAL" ] || COMPACT_LINE="${DIM}${GRAY}/compact handoff:${RESET} ${DIM}${GOAL}${RESET}"
-fi
-
-printf '%b\n' "${STATUS_LINE}\n${COMPACT_LINE}"
+printf '%b\n' "${STATUS_LINE}"

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Context growth measurement shared by the Claude Code statusline and the
-# context-threshold Stop hook. One owner for both growth numbers: the context
-# load in tokens and turns since the last compaction (R1).
+# Context load measurement for the Claude Code statusline, plus the two file
+# primitives the handoff hooks share with it.
 #
 # Sourcing this file must have no effect beyond defining these functions and
 # their defaults — no output, no shell-option or trap changes, no redefinition
@@ -9,88 +8,18 @@
 # `context_usage_` for that reason: `atomic_write` and friends already exist in
 # the herdr module family, and the module-hygiene test sources them together.
 #
-# Two state files, one writer each (KTD10):
-#   usage/<key>    written by the statusline, read by the hook
-#   goal/<key>     written by the hook, read by the statusline, removed by the
-#                  SessionStart injector after a compaction
-# Both are replaced whole by rename, so a shared file would let one writer
-# erase the other's fields.
-
-# ${HOME:-} rather than $HOME: a caller running under `set -u` with no HOME
-# must not abort here. Every path built from it is guarded at use.
-CONTEXT_USAGE_STATE_DIR="${CONTEXT_USAGE_STATE_DIR:-${HOME:-}/.cache/context-usage}"
+# The library holds no state of its own. It once carried usage and goal records
+# for a Stop hook that announced growth and halted the session; the PreCompact
+# handoff builder now derives the goal from the session itself at the moment of
+# compaction, so nothing has to be measured ahead of time or kept between turns.
 
 # Tokens added to the occupancy Claude Code reports, standing in for the
 # system prompt, which it does not report (R2). Absolute rather than a share
 # of the window: the system prompt is a fixed cost, so a percentage grew it
 # with the window -- 40k tokens against 200k, 200k against 1M.
-#
-# The bar is its only consumer. The hint thresholds compare against the number
-# Claude Code itself reports, so an operator setting a threshold writes the
-# same figure the client shows rather than one shifted by an allowance they
-# cannot see.
 CONTEXT_USAGE_ALLOWANCE_TOKENS="${CONTEXT_USAGE_ALLOWANCE_TOKENS:-40000}"
 case "$CONTEXT_USAGE_ALLOWANCE_TOKENS" in
   '' | *[!0-9]*) CONTEXT_USAGE_ALLOWANCE_TOKENS=40000 ;;
-esac
-
-# Hint thresholds (R5). The context dimension counts tokens, not a share of
-# the window: what degrades a session is the amount of context it carries, and
-# that amount does not change when the same work runs against a 1M window
-# instead of a 200k one. A share of the window put the hint at 650k tokens on a
-# 1M model, long past the point the operator wanted it.
-#
-# These are the point where carrying the session further starts costing real
-# money, not a ceiling. Nothing halts and nothing interrupts: crossing one only
-# makes the status line offer a ready-made compaction command. The token figure
-# is deliberately well below any window's limit, because the cost of context is
-# paid on every turn from the first token rather than at the edge.
-#
-# Stated as load -- the same figure the status line prints -- so the operator
-# reads the threshold off the screen rather than off a number only the library
-# sees.
-CONTEXT_USAGE_TOKENS_HINT="${CONTEXT_USAGE_TOKENS_HINT:-100000}"
-CONTEXT_USAGE_TURNS_HINT="${CONTEXT_USAGE_TURNS_HINT:-150}"
-
-# Bound on the goal-extraction subprocess (R13). U1 measured 8-9s on real
-# 350-turn forks; the default leaves room for a slower model or a larger
-# session without letting the hook hang a turn.
-CONTEXT_USAGE_EXTRACTION_TIMEOUT="${CONTEXT_USAGE_EXTRACTION_TIMEOUT:-30}"
-# The declared Stop-hook timeout is the outer bound. An override above it would
-# let the platform truncate a call the hook is already managing, so an
-# out-of-range or non-numeric value falls back to the default rather than
-# silently taking effect.
-CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX="${CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX:-40}"
-case "$CONTEXT_USAGE_EXTRACTION_TIMEOUT" in
-  '' | *[!0-9]* | 0) CONTEXT_USAGE_EXTRACTION_TIMEOUT=30 ;;
-esac
-[ "$CONTEXT_USAGE_EXTRACTION_TIMEOUT" -le "$CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX" ] ||
-  CONTEXT_USAGE_EXTRACTION_TIMEOUT="$CONTEXT_USAGE_EXTRACTION_TIMEOUT_MAX"
-
-# Ceiling on the transcript excerpt handed to the extractor (R13, R26). Bytes,
-# not tokens: the hook has no tokenizer, and the byte-to-token ratio moves by a
-# factor of two between English and Cyrillic. 120 KB is about 60k tokens in the
-# worst case, which sits well inside the extraction model's window instead of
-# aiming at its edge -- a prompt that overshoots is rejected outright, so the
-# margin buys a working extraction rather than a slightly better goal.
-CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES="${CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES:-120000}"
-case "$CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES" in
-  '' | *[!0-9]* | 0) CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES=120000 ;;
-esac
-
-# A published token count is trusted only while it can still describe the
-# current turn (KTD3). The statusline renders many times per turn, so an older
-# file means rendering stopped — a resumed session before its first render, or
-# a turn that outran the UI. The context dimension then reports unavailable and
-# turn count carries the decision alone.
-CONTEXT_USAGE_MAX_AGE_SECONDS="${CONTEXT_USAGE_MAX_AGE_SECONDS:-300}"
-
-# How many turns a stored goal stays in use before the hook extracts a fresh
-# one. The goal is a starting point the operator edits, not a claim about the
-# session, so some drift is the price of not forking a model every turn.
-CONTEXT_USAGE_GOAL_REFRESH_TURNS="${CONTEXT_USAGE_GOAL_REFRESH_TURNS:-10}"
-case "$CONTEXT_USAGE_GOAL_REFRESH_TURNS" in
-  '' | *[!0-9]* | 0) CONTEXT_USAGE_GOAL_REFRESH_TURNS=10 ;;
 esac
 
 context_usage_encode_key() {
@@ -104,16 +33,6 @@ context_usage_encode_key() {
   encoded="${encoded//\//_}"
   encoded="${encoded//+/-}"
   printf '%s' "${encoded//=/}"
-}
-
-context_usage_encode_value() {
-  local encoded
-  encoded="$(printf '%s' "$1" | base64)"
-  printf '%s' "${encoded//$'\n'/}"
-}
-
-context_usage_decode_value() {
-  printf '%s' "$1" | base64 -d 2>/dev/null || true
 }
 
 context_usage_atomic_write() {
@@ -137,59 +56,10 @@ context_usage_atomic_write() {
   return 0
 }
 
-context_usage_usage_file() {
-  [ -n "${1:-}" ] || return 1
-  printf '%s/usage/%s' "$CONTEXT_USAGE_STATE_DIR" "$(context_usage_encode_key "$1")"
-}
-
-context_usage_goal_file() {
-  [ -n "${1:-}" ] || return 1
-  printf '%s/goal/%s' "$CONTEXT_USAGE_STATE_DIR" "$(context_usage_encode_key "$1")"
-}
-
-context_usage_field() {
-  local file="$1" key="$2" line value=""
-  [ -f "$file" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      "${key}="*) value="${line#*=}"; break ;;
-    esac
-  done < "$file" 2>/dev/null
-  [ -n "$value" ] || return 1
-  printf '%s' "$value"
-}
-
-context_usage_number_field() {
-  local value
-  value="$(context_usage_field "$1" "$2")" || return 1
-  case "$value" in
-    '' | *[!0-9]*) return 1 ;;
-  esac
-  printf '%s' "$value"
-}
-
-# --- the statusline's side -------------------------------------------------
-
-# Publish the raw numbers Claude Code hands only to the statusline. The
-# statusline never learns a threshold; it writes what it was given (KTD2).
-context_usage_write_usage() {
-  local session="$1" current="$2" window="$3" now="${4:-}" file
-  [ -n "$session" ] || return 1
-  case "$current" in '' | *[!0-9]*) return 1 ;; esac
-  case "$window" in '' | *[!0-9]* | 0) return 1 ;; esac
-  [ -n "$now" ] || now="$(date +%s 2>/dev/null)" || return 1
-  file="$(context_usage_usage_file "$session")" || return 1
-  context_usage_atomic_write "$file" "current_tokens=$current
-window_size=$window
-written_at=$now"
-}
-
 # The session's context load: the occupancy Claude Code reports plus the
-# allowance it does not. This is the quantity everything else is expressed in
-# -- the bar's percentage, the figure the status line prints beside it, and the
-# hint thresholds -- so that a reader who divides the figure by the window
-# arrives at the percentage shown, and an operator who moves a threshold moves
-# the number they can see (R1, R2).
+# allowance it does not. Both figures the status line shows are formed from
+# this one quantity, so a reader who divides the printed figure by the window
+# arrives at the printed percentage (R1, R2).
 context_usage_load_tokens() {
   local current="$1"
   case "$current" in '' | *[!0-9]*) return 1 ;; esac
@@ -205,136 +75,4 @@ context_usage_fullness_pct() {
   pct=$((load * 100 / window))
   [ "$pct" -gt 100 ] && pct=100
   printf '%s' "$pct"
-}
-
-# --- the hook's side -------------------------------------------------------
-
-# Print the session's context load in tokens as Claude Code reported it, or
-# return 1 for "unavailable". Unavailable never degrades to a guess and never
-# silences turn count (KTD3). `window_size` is validated but not used: a record
-# missing it is a partial write, and trusting the rest of such a record is how
-# a wrong number reaches the announcement.
-context_usage_read_tokens() {
-  local session="$1" now="${2:-}" file current window written age
-  file="$(context_usage_usage_file "$session")" || return 1
-  current="$(context_usage_number_field "$file" current_tokens)" || return 1
-  window="$(context_usage_number_field "$file" window_size)" || return 1
-  written="$(context_usage_number_field "$file" written_at)" || return 1
-  [ "$window" -gt 0 ] || return 1
-  [ -n "$now" ] || now="$(date +%s 2>/dev/null)" || return 1
-  age=$((now - written))
-  [ "$age" -ge 0 ] || return 1
-  [ "$age" -le "$CONTEXT_USAGE_MAX_AGE_SECONDS" ] || return 1
-  printf '%s' "$current"
-}
-
-# Assistant entries in the main transcript after the last compaction boundary
-# (KTD4, R3, R18). jq parses each line, so a `"type":"assistant"` sequence
-# quoted inside message content cannot be miscounted as a turn — a plain text
-# scan of a real transcript overcounts by an order of magnitude.
-context_usage_turn_count() {
-  local transcript="$1"
-  [ -n "$transcript" ] && [ -r "$transcript" ] || { printf '0'; return 0; }
-  command -v jq > /dev/null 2>&1 || { printf '0'; return 0; }
-  # A malformed line makes jq exit non-zero. The count from the lines that did
-  # parse is still the best available answer, and propagating the failure would
-  # take the caller's fullness dimension down with it under `set -o pipefail`.
-  {
-    jq -r 'if (.compactMetadata // null) != null then "C"
-           elif .type == "assistant" then "A"
-           else empty end' "$transcript" 2>/dev/null || true
-  } | awk '/^C$/ { n = 0; next } /^A$/ { n++ } END { printf "%d", n + 0 }'
-  return 0
-}
-
-# Whether the session has grown enough to be worth offering a compaction
-# command. Read-only and free of state: both numbers arrive from the caller,
-# so this answers the same way for the status line and for the hook.
-#
-# Usage: context_usage_hint_due <tokens|""> <turns>
-# Returns 0 when either dimension has crossed its hint threshold. An empty
-# token count means the status line has not published one this turn, and the
-# turn count decides alone.
-context_usage_hint_due() {
-  local tokens="$1" turns="$2" load
-  case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
-  case "$tokens" in '' | *[!0-9]*) tokens="" ;; esac
-  if [ -n "$tokens" ]; then
-    # Compared as load, not as the raw report, so the threshold is stated in
-    # the same units the status line prints. A threshold measured against a
-    # number nobody displays cannot be reasoned about from the screen.
-    load="$(context_usage_load_tokens "$tokens")" || load=""
-    [ -n "$load" ] && [ "$load" -ge "$CONTEXT_USAGE_TOKENS_HINT" ] && return 0
-  fi
-  [ "$turns" -ge "$CONTEXT_USAGE_TURNS_HINT" ] && return 0
-  return 1
-}
-
-# Whether the stored goal is old enough to replace. A session with no goal
-# stored is always due, which is how the first extraction happens.
-#
-# Turns, not seconds: a session idle overnight has not moved on, and a session
-# that ran twenty turns in five minutes has.
-context_usage_goal_stale() {
-  local session="$1" turns="$2" file stored
-  case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
-  file="$(context_usage_goal_file "$session")" || return 0
-  stored="$(context_usage_number_field "$file" goal_turn)" || return 0
-  [ "$((turns - stored))" -ge "$CONTEXT_USAGE_GOAL_REFRESH_TURNS" ]
-}
-
-# Record the goal the hook extracted, and the turn it describes. The whole
-# record is rewritten, so this is the only writer of the announce file and a
-# failed extraction is stored as such rather than left looking absent.
-#
-# Usage: context_usage_store_goal <session> <goal> <status> <turn>
-context_usage_store_goal() {
-  local session="$1" goal="$2" status="$3" turns="$4" file record
-  file="$(context_usage_goal_file "$session")" || return 1
-  case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
-  [ -n "$status" ] || return 1
-  record="$(
-    printf 'goal_status=%s\n' "$status"
-    printf 'goal_turn=%s\n' "$turns"
-    if [ -n "$goal" ]; then printf 'goal=%s\n' "$(context_usage_encode_value "$goal")"; fi
-  )"
-  context_usage_atomic_write "$file" "$record"
-}
-
-# The turn count the stored goal was extracted at. Non-zero when none is
-# stored.
-context_usage_goal_turn() {
-  local file
-  file="$(context_usage_goal_file "$1")" || return 1
-  context_usage_number_field "$file" goal_turn
-}
-
-# Non-zero when no goal has been extracted for this session yet.
-context_usage_goal_status() {
-  local file
-  file="$(context_usage_goal_file "$1")" || return 1
-  context_usage_field "$file" goal_status
-}
-
-# Prints the cached goal as one line. Returns 1 when none is stored, which is
-# how a caller knows to run the extractor rather than reuse (KD5).
-context_usage_goal() {
-  local file encoded
-  file="$(context_usage_goal_file "$1")" || return 1
-  encoded="$(context_usage_field "$file" goal)" || return 1
-  printf '%s\n' "$(context_usage_decode_value "$encoded")"
-}
-
-# Compaction retires the stored goal (R11). The SessionStart injector owns
-# this: the goal named what the session was finishing before the compaction,
-# and it is also what makes the status line offer a command at all, so leaving
-# it behind would advertise a second compaction the moment the first finished.
-context_usage_clear() {
-  local file
-  file="$(context_usage_goal_file "$1")" || return 1
-  rm -f "$file" 2>/dev/null
-  # The post-condition is what matters, not which call removed it. A caller
-  # that treats a failed unlink as fatal would leave the stale goal in place
-  # for the rest of the session's life.
-  [ ! -e "$file" ]
 }

@@ -810,7 +810,7 @@ PY
 }
 
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
-  _bats_test_init 1064 'deployed settings wire the context threshold and handoff hooks'
+  _bats_test_init 1064 'deployed settings wire the compaction handoff hooks'
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
 
@@ -828,7 +828,6 @@ def commands(event):
 
 
 for event, script in (
-    ("Stop", "context-threshold.sh"),
     ("PreCompact", "handoff-pre-compact.sh"),
     ("SessionStart", "handoff-session-start.sh"),
 ):
@@ -840,7 +839,6 @@ assert any("herdr-agent-state.sh" in c for c in session), session
 HOOKCHECK
   assert_success
 
-  assert_file_executable "$HOME/.claude/hooks/context-threshold.sh"
   assert_file_executable "$HOME/.claude/hooks/handoff-pre-compact.sh"
   assert_file_executable "$HOME/.claude/hooks/handoff-session-start.sh"
   assert_file_exists "$HOME/.local/lib/context-usage.sh"
