@@ -45,7 +45,15 @@ export default function agentsLocalExtension(pi): void {
   if (!buildLocalInstructions) return;
 
   pi.on("before_agent_start", async (event, ctx) => {
-    const { block, warnings } = await buildLocalInstructions(ctx.cwd);
+    let block: string | undefined;
+    let warnings: string[] = [];
+    try {
+      ({ block, warnings } = await buildLocalInstructions(ctx.cwd));
+    } catch {
+      // A selection that throws leaves the prompt exactly as pi built it;
+      // local instructions are additive, so degrading to none is safe (R4).
+      return undefined;
+    }
     notifyWarningsOnce(ctx, warnings);
     if (!block) return undefined;
 

@@ -46,10 +46,10 @@ U5 therefore left Pi's profile without an fff entry, unchanged from U1.
   list, which gains `fff-grep-guard@pi`).
 - Extend `tests/agent-hooks-pi-adapter.test.ts` with the fff deny and its
   single-identifier control, the way the opencode suite covers `fff_grep`.
-- `fff-grep-guard`'s reason text names Claude's `mcp__fff__grep` and
-  `mcp__fff__multi_grep` spellings. Decide whether an actionable Pi deny needs
-  client-neutral wording, or whether the Claude spellings are acceptable as
-  illustrative; today no other client has a live fff route to expose this.
+- `fff-grep-guard`'s reason text is client-neutral: it names the fff grep and
+  fff multi-grep capabilities rather than any client's spelling of them, so a
+  Pi deny would already read correctly if Pi ever got a live fff route. What
+  stays open here is the route itself, not the wording.
 
 ## Open decisions
 

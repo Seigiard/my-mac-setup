@@ -4832,7 +4832,11 @@ EOF
   assert_success
   assert_output --partial '"permissionDecision": "deny"'
   assert_output --partial "fff-grep-guard:"
-  assert_output --partial "mcp__fff__multi_grep"
+  # R9 wants a named alternative, not a client's spelling of one. The reason is
+  # shown to every client the policy is applicable to, so pinning Claude's
+  # mcp__fff__multi_grep here would re-assert the bug that made an OpenCode deny
+  # point at a tool OpenCode does not have.
+  assert_output --partial "fff multi-grep tool"
 }
 
 function test_scripts_095_dispatcher_stays_silent_on_a_single_identifier() {

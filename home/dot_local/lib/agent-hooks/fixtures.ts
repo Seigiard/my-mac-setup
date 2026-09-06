@@ -394,7 +394,7 @@ export const POLICY_FIXTURES: PolicyFixture[] = [
     tool: "fff-grep",
     payload: { query: FFF_BARE_QUERY },
     verdict: "block",
-    text: `fff-grep-guard: fff grep matches ONE literal line, so the query '${FFF_BARE_QUERY}' will return "0 exact matches". Pick one: search a single identifier with mcp__fff__grep; search several identifiers with mcp__fff__multi_grep and a JSON array of patterns; or use the built-in Grep for a regex or a quoted phrase. Adding a path token such as 'console/' also passes this guard.`,
+    text: `fff-grep-guard: fff grep matches ONE literal line, so the query '${FFF_BARE_QUERY}' will return "0 exact matches". Pick one: search a single identifier with this same fff grep tool; search several identifiers with your client's fff multi-grep tool and a JSON array of patterns; or use your client's built-in text search for a regex or a quoted phrase. Adding a path token such as 'console/' also passes this guard.`,
   },
   {
     name: "fff/single identifier passes",
