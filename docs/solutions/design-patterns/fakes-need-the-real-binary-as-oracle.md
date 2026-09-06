@@ -35,10 +35,11 @@ high-water merge semantics, and every pane-label assertion in `tests/bashunit/sc
 runs against it. Nothing compared the fake to the binary it impersonates, so the stub's claims
 about the upstream contract were unverified by construction.
 
-The drift class was already realized, not hypothetical. PR #115 had to change the stub's sequence
-comparison from `<` to `<=` because real herdr accepts only strictly greater sequences — found by
-hand, during unrelated work, not by any test. The fixture also carried `protocol 19` while the
-installed binary reported 20.
+The drift class was already realized, not hypothetical. PR #115 had to change a sibling herdr stub —
+`tests/helpers/herdr_task_sync.bash`, since consolidated away — from `if $seq < $current` to
+`if $seq <= $current`, because real herdr rejects an equal sequence and not only a stale one. It was
+found by hand, during unrelated work, not by any test. The pane-label fixture also carried
+`protocol 19` while the installed binary reported 20.
 
 Adding more assertions against the fake could not have caught either one. Per this repository's
 upstream-ownership rule, behavior owned by an upstream system has no valid local oracle: an
@@ -161,7 +162,9 @@ The recorded emulation target, `tests/helpers/herdr_pane_labels.bash:82`:
 # from an assumption: `herdr --version`, and
 # `herdr api snapshot | jq .result.snapshot.protocol`. The engine never reads
 # .protocol, so this literal records what the fake claims to be rather than
-# behaviour under test.
+# behaviour under test. Test 1209 in scripts_test.sh is what keeps the record
+# honest -- it compares this stub's top-level result keys against the real
+# binary's, and skips where herdr is absent.
 ```
 
 **Red state, observed.** Adding a spurious top-level key to the stub's `result` turns the check red

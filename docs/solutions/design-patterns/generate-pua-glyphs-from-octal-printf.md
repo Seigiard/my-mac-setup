@@ -3,7 +3,7 @@ title: Generate PUA glyphs from octal printf — never paste them
 date: 2026-08-21
 category: design-patterns
 module: herdr
-problem_type: convention
+problem_type: design_pattern
 component: tooling
 severity: medium
 related_components:
@@ -44,7 +44,7 @@ The failure was hit live during the icon-set selection for the herdr label syste
 
 Never paste a PUA glyph literally into a script. Generate it at runtime from its UTF-8 encoding spelled byte-by-byte in octal, one variable per icon, each with the glyph name and codepoint in a trailing comment so a human can map byte sequence → glyph without rendering it.
 
-Shipped pattern in `home/dot_local/bin/executable_herdr-pane-labels:33-41`:
+Shipped pattern in `home/dot_local/bin/executable_herdr-pane-labels:33-49` (the ASCII status icons at `:43-48` are elided here):
 
 ```bash
 # Codicon glyphs of the $git_ref grammar, generated from bash 3.2-safe octal
@@ -58,15 +58,15 @@ ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 ```
 
-The formatter `git_ref_for()` (same script, line 755) consumes these variables in its branch/worktree/commit/folder/stale arms; nothing downstream ever touches a raw glyph.
+The formatter `git_ref_for()` (same script, line 816) consumes these variables in its branch/worktree/commit/folder/stale arms; nothing downstream ever touches a raw glyph.
 
 **Single-source the table for generation — not for the test that protects it.** The rule above covers anything that *produces* a glyph: never retype the octal sequence, always read it from this one table. A *test asserting the glyph is correct* is a different consumer with the opposite requirement — if it derives its expected value from the same table, a drifted glyph can never fail it, because the assertion then compares the engine against itself.
 
-**This distinction is currently unenforced in the harness, and the enforcement was reverted.** `tests/helpers/herdr_pane_labels.bash:19-24` defines `hpl_icon()`, a `sed`-extraction that reads each octal sequence out of the engine and re-expands it into `HPL_ICON_*`. The 29 `HPL_ICON_*` assertions in `tests/bashunit/scripts_test.sh` therefore compare the engine against itself and cannot fail on glyph drift. The helper's own comment states the reasoning backwards — "retyping it here would let an engine codepoint change pass while the suite still asserted the old bytes" — which is the argument for a *generator*, applied to an *oracle*.
+**The harness holds the oracle side independently.** `tests/helpers/herdr_pane_labels.bash:10-42` pins each octal sequence as its own literal and says so in the comment: "Do NOT derive these from executable_herdr-pane-labels." An earlier harness did derive them — a `sed` extraction named `hpl_icon()` that read the engine's `ICON_` table out and re-expanded it — which made every `HPL_ICON_*` assertion compare the engine against itself, so a changed codepoint moved both sides at once and the suite stayed green. PR #140 removed that extraction with the finding that "temporarily changing `ICON_BRANCH` in the engine now fails 19 previously-passing assertions"; the `herdr-task-sync` → `herdr-pane-labels` rename carried it back in seven hours later. Commit `5d7c8fc` (PR #179) removed it for good.
 
-The fix once landed and was undone: PR #140 removed the extraction, with the finding that "temporarily changing `ICON_BRANCH` in the engine now fails 19 previously-passing assertions." Seven hours later the `herdr-task-sync` → `herdr-pane-labels` rename carried the extraction forward as `hpl_icon()`, reverting it. Both tracking issues (`2026-08-20-007`, `2026-09-02-005`) were removed in the closed-issue cleanup, so the discriminator's evidence trail survives only in git history.
+**What keeps it removed.** `tests/bashunit/scripts_test.sh:6827-6849` (test 1208) is the mutation oracle: it copies the source tree, rewrites `ICON_BRANCH` to a glyph the grammar never uses (U+2714), loads the harness against the mutated tree, and asserts `HPL_ICON_BRANCH` did not follow. A derived constant tracks the mutation and fails; a pinned one does not. Rewriting the whole assignment keeps the test independent of whichever codepoint `ICON_BRANCH` holds today.
 
-**What still holds the line.** `tests/bashunit/smoke_test.sh:952-957` pins the five octal sequences as independent literals and then asserts the raw lead byte is absent from the engine:
+**A second, narrower pin.** `tests/bashunit/smoke_test.sh:1038-1047` asserts the five octal sequences appear in the engine as literals and that the raw lead byte appears nowhere in it:
 
 ```bash
 assert_file_contains "$engine" '\\356\\261\\257' # nf-cod-git_branch U+EC6F
@@ -75,7 +75,7 @@ run env LC_ALL=C grep -n "$(printf '\356')" "$engine" "$config"
 assert_failure
 ```
 
-That is a genuine independent oracle, but it covers five literals rather than the 29 formatter assertions PR #140 had made honest.
+That is a second independent oracle, narrower than test 1208: it protects the *engine's* source encoding, where 1208 protects the *harness's* independence from it.
 
 To derive the octal bytes for a new icon:
 
@@ -98,14 +98,16 @@ Verify the round trip: `printf '\356\261\257' | xxd` → `ee b1 af`, the UTF-8 e
 - More generally: whenever a source file must carry bytes that editors cannot display faithfully, spell the bytes — don't paste them.
 - This is the unicode-specific instance of the standing environment rule that macOS system bash is 3.2 (no `declare -A`, and no `\uXXXX` printf escapes).
 - Not needed where bash ≥ 4.2 is guaranteed (`\uXXXX` works) or the file format is binary-safe by design.
-- Width-math sibling gotcha, handled directly below the icon table in the same script: `wc -m` and `cut -c` must run under a UTF-8 locale, or each 3-byte codicon counts as three columns and truncation can cut a label mid-codepoint (`executable_herdr-pane-labels:42-57`).
+- Width-math sibling gotcha, handled directly below the icon table in the same script: `wc -m` and `cut -c` must run under a UTF-8 locale, or each 3-byte codicon counts as three columns and truncation can cut a label mid-codepoint (`executable_herdr-pane-labels:50-64`).
 
 ## Examples
 
-- `home/dot_local/bin/executable_herdr-pane-labels:33-41` (icon table), `:755` (`git_ref_for()` consumer), `:42-57` (locale pin for width math).
-- `tests/helpers/herdr_pane_labels.bash:14-34` (`HPL_ICON_*` re-derived from the engine via `hpl_icon()` — the circularity described in the Guidance discriminator above, not an independent pin); icon-asserting tests in `tests/bashunit/scripts_test.sh` include "herdr-pane-labels location and formatter add only approved static icon glyphs and no forbidden ownership state", which strips the five codicons and asserts only plain ASCII remains.
+- `home/dot_local/bin/executable_herdr-pane-labels:33-49` (icon table), `:816` (`git_ref_for()` consumer), `:50-64` (locale pin for width math).
+- `tests/helpers/herdr_pane_labels.bash:10-42` (`HPL_ICON_*` pinned as independent literals, with the generator/oracle discriminator in its own comment) and `tests/bashunit/scripts_test.sh:6827-6849` (test 1208, the mutation oracle that keeps the pin honest); icon-asserting tests in `tests/bashunit/scripts_test.sh` include "herdr-pane-labels location and formatter add only approved static icon glyphs and no forbidden ownership state", which strips the five codicons and asserts only plain ASCII remains.
 - Decision origin: `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md`, "Icon set — DECIDED" — records the codicon choice per slot, the octal sequences, the material-icons fallback family, and the "PUA glyph loss" risk entry.
 - Commits: `f7fd73c` (branch-first tab labels), `7c868d6` (unified `$git_ref` token), `9d1895f` (PR #24 close-out). All reachable from main.
+  (They predate the graft point of a shallow clone, so `git merge-base` cannot see them in one;
+  they are on `main` upstream.)
 
 ## Related
 
@@ -113,6 +115,6 @@ Verify the round trip: `printf '\356\261\257' | xxd` → `ee b1 af`, the UTF-8 e
 - `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md` — origin plan of the label system.
 - `CONCEPTS.md` Theming section — the sibling terminal-rendering convention (palette-only, no baked hex); complementary, does not cover glyph encoding.
 - `2026-09-02-005` — the discriminator between single-sourcing for generation and pinning literals
-  for a test whose job is to catch a change to the glyph itself.
+  for a test whose job is to catch a change to the glyph itself; resolved in `5d7c8fc` (PR #179).
 - Closed issues above are bare IDs, for archaeology in git history: `2026-08-20-007`, `2026-09-02-005`.
   Both files were removed in the closed-issue cleanup; the evidence they carried is reproduced inline above.

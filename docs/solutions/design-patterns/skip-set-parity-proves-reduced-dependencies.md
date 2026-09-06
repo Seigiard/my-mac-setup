@@ -36,7 +36,7 @@ tags:
 
 The CI-minimal brew install work (plan `docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md`, status done; landed via PR #26 `1e4ea73` and PR #27 `f83e95d`, both reachable from `main`) cut the packages installed on push/PR CI runs from 37 formulae to a handful. Reducing an installed package set under a test suite raises one question: how do you *prove* the reduced set is sufficient?
 
-The trap is that this suite — like most — treats a missing tool as a **skip, not a failure**. The idiom is `command -v <tool> || skip "..."`, and the runner exits 0 on a skipped test. (The suite ran on bats when this was written and has since migrated to bashunit, whose DSL keeps the same `skip` semantics and the same exit-0 behaviour — 149 skip sites across `tests/bashunit/*_test.sh` today.) The plan's key decision KTD6 (`docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md:84`) counted 127 skip sites in the then-current `tests/*.bats`, 88 gated on `jq` alone. So "the suite passed on the minimal render" cannot distinguish a correct minimal set from one that silently stopped exercising dozens of tests.
+The trap is that this suite — like most — treats a missing tool as a **skip, not a failure**. The idiom is `command -v <tool> || skip "..."`, and the runner exits 0 on a skipped test. (The suite ran on bats when this was written and has since migrated to bashunit, whose DSL keeps the same `skip` semantics and the same exit-0 behaviour — 120 skip guards across `tests/bashunit/*_test.sh` today.) The plan's key decision KTD6 (`docs/plans/2026-08-20-2217-perf-ci-minimal-brew-install-plan.md:84`) counted 127 skip sites in the then-current `tests/*.bats`, 88 gated on `jq` alone. So "the suite passed on the minimal render" cannot distinguish a correct minimal set from one that silently stopped exercising dozens of tests.
 
 Two coupled findings came out of the work:
 
@@ -60,7 +60,7 @@ The first parity attempt fired the stop condition before a single test ran (`doc
 
 - The deployed `home/dot_gitconfig.tmpl:27` sets `conflictStyle = zdiff3` (under `[merge]`), which requires git >= 2.35.
 - ubuntu:22.04's apt git is **2.34.1**; it rejects the option with `fatal: unknown style 'zdiff3' given for 'merge.conflictstyle'`, and `chezmoi apply` died in ~57 seconds on `Error: git clone of oh-my-zsh repo failed` — the Oh My Zsh clone reads the deployed gitconfig.
-- The audit had been *right that a git binary existed*, and wrong that it sufficed: Linuxbrew's newer git had been silently satisfying the config all along. `git` went back into the minimal set (`home/private_dot_config/brewfiles/Brewfile.tmpl:35-36` carries the rationale comment).
+- The audit had been *right that a git binary existed*, and wrong that it sufficed: Linuxbrew's newer git had been silently satisfying the config all along. `git` went back into the minimal set. (That fold-back has since been reversed — see below — and the rationale now lives in `tests/bashunit/templates_test.sh:570-575` rather than in the Brewfile.)
 - Later, PR #27 (`f83e95d`) moved `docker/Dockerfile.ubuntu` to `FROM ubuntu:24.04` (`docker/Dockerfile.ubuntu:9`), whose git 2.43.0 accepts zdiff3 — the header comment at `docker/Dockerfile.ubuntu:1-5` documents exactly this chain.
 
 The durable lesson: **a static audit of "which binaries exist" cannot see version- and config-compatibility constraints.** Only an empirical run of the full apply + suite under the reduced set catches "binary present, but the deployed config demands a capability it lacks."
@@ -69,9 +69,9 @@ The durable lesson: **a static audit of "which binaries exist" cannot see versio
 
 The minimal set is pinned by fast template tests so a broken guard fails **before** any package installs:
 
-- `tests/bashunit/templates_test.sh` (render-mode block) — : minimal render asserts exactly the needed entries and refutes the guarded ones (`assert_minimal_brewfile`, `:352-367`); empty/unset/legacy-config renders stay full (`:391`, `:408`, `:435`); `MMS_CI_MINIMAL=0` is non-empty and therefore minimal (`:424`); init-time binding persistence (`:455`), hash-trigger include integrity (`:494`, `:513`), and empty-not-absent `Brewfile.macos` (`:533`, the PR #27 fix).
-- The comment above `assert_minimal_brewfile` (`tests/bashunit/templates_test.sh:322-337`) states the honesty rule: "Every one of these is here because removing it broke something observable."
-- Helpers: `write_test_config()` (`tests/helpers/common.bash:180`) renders the init-time config via `execute-template --init` (no side effects, works against the read-only Docker mount), and `render_with_config()` (`:123-129`) renders a template against that specific config — needed because `ci_minimal` binds at `chezmoi init` time, not render time.
+- `tests/bashunit/templates_test.sh` (render-mode block) — : minimal render asserts exactly the needed entries and refutes the guarded ones (`assert_minimal_brewfile`, `:580-605`, called from `:606`); empty/unset/no-key renders stay full (`:623`, `:646`, `:674`); `MMS_CI_MINIMAL=0` is non-empty and therefore minimal (`:664`); init-time binding persistence (`:695`), hash-trigger include integrity (`:734`), and empty-not-absent `Brewfile.macos` (`:755`, the PR #27 fix).
+- The comment above `assert_minimal_brewfile` (`tests/bashunit/templates_test.sh:566-579`) states the honesty rule: "Every other entry is here because removing it broke something observable."
+- Helpers: `write_test_config()` (`tests/helpers/common.bash:209-214`) renders the init-time config via `execute-template --init` (no side effects, works against the read-only Docker mount), and `render_with_config()` (`:216-225`) renders a template against that specific config — needed because `ci_minimal` binds at `chezmoi init` time, not render time.
 - The template branch itself: `home/private_dot_config/brewfiles/Brewfile.tmpl:19` — `{{ $full := not (get . "ci_minimal") }}`, using `get` so configs generated before the key existed render full instead of aborting.
 - **Test the deployment, not only the render** (session history): the minimal render made `Brewfile.macos` 0 bytes, and chezmoi does not deploy a file whose template renders empty unless the source carries the `empty_` attribute prefix — so the macOS job failed with "No Brewfile found" while every render-level test stayed green. The PR #27 fix renamed the source to `empty_Brewfile.macos.tmpl` and added a deployment-level regression test, verified by mutation (removing `empty_` reproduces the failure).
 
@@ -119,7 +119,7 @@ Skip sets identical line for line; the one failure identical and pre-existing in
 
 **The git fold-back has since been reversed, and the reversal is itself asserted.** Once the base
 image moved to ubuntu:24.04 the premise disappeared, so `brew "git"` went back inside the `{{ if $full }}`
-block and the minimal render now *refutes* it. `tests/bashunit/templates_test.sh:326-331` states why in
+block and the minimal render now *refutes* it. `tests/bashunit/templates_test.sh:570-575` states why in
 the code:
 
 > git was on that list and is not any more. The deployed .gitconfig sets `merge.conflictStyle = zdiff3`,
@@ -132,10 +132,10 @@ That last clause is the durable lesson, and it is stronger than the fold-back it
 dependency leaves the minimal set, assert its *absence* rather than dropping the assertion, so a
 silent re-add cannot pass.
 
-**The regression guard:** `assert_minimal_brewfile` in `tests/bashunit/templates_test.sh:338-357`
+**The regression guard:** `assert_minimal_brewfile` in `tests/bashunit/templates_test.sh:580-605`
 asserts the evidence-backed entries — currently the `oven-sh/bun` tap, `node`, `oven-sh/bun/bun`,
 `jq`, and `gitleaks` — and refutes the guarded ones, with the per-entry evidence in the comment at
-`:322-337`. `grc`, named in earlier revisions of this document, was removed from the repository
+`:566-579`. `grc`, named in earlier revisions of this document, was removed from the repository
 entirely.
 
 ## Related

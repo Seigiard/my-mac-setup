@@ -145,14 +145,17 @@ close_inherited_descriptors() {
 
 **2. Close the descriptors in the process that becomes the worker, never in the
 launcher.** The launcher subshell still needs its own descriptors to reach `exec`. In
-`home/dot_local/bin/executable_herdr-worktree-identity` the closure runs at line 1018,
+`home/dot_local/bin/executable_herdr-worktree-identity` the closure runs at line 1010,
 inside validated `--worker` mode after argument parsing — not in `detach_worker`
-(lines 979–996), which only sets up the session and redirects stdio. `executable_herdr-pane-labels`
-(lines 235–247) carries the identical helper for the same reason.
+(lines 971–988), which only sets up the session and redirects stdio. `executable_herdr-pane-labels`
+(lines 271–280) and the shared `home/dot_local/lib/herdr-process.sh` (lines 7–16, sourced
+by `herdr-child-watcher.sh:117`) carry the identical helper for the same reason.
 
 **3. Redirect on the consumer side too.** Any command in a test that does not read a
 payload gets `< /dev/null`. Do not rely on the parent's stdin being harmless — it is a
 TTY locally and a pipe in the runner, and only one of those ever reaches EOF on its own.
+Shipped code has the mirror version of this rule, triggered by capture rather than by the
+test context; see `capturing-child-output-hides-the-prompt.md`.
 
 **4. Every wait loop needs abandonment exits, not just a success exit.** The success
 condition is the one everybody writes. Three others decide whether the loop can hang:
@@ -160,7 +163,7 @@ condition is the one everybody writes. Three others decide whether the loop can 
 - the owner is gone — `kill -0 "$launcher_pid" 2>/dev/null || fail ...`
 - the state being waited on is gone — `[ -d "$run_dir" ] || exit 1`
 - an absolute bound — `HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS` (default 120s,
-  `home/dot_local/lib/herdr-child-supervision.sh:259-263`)
+  `home/dot_local/lib/herdr-child-supervision.sh:269-270`)
 
 Which one applies varies per loop, and the variation is the trap: a hold the launcher
 legitimately outlives cannot use launcher liveness, so it needs the other two.
@@ -169,7 +172,7 @@ legitimately outlives cannot use launcher liveness, so it needs the other two.
 that every real orphan actually took was not a missing timeout. Teardown removed the run
 directory, so the redirection writing `pane-get.err` failed, so the `pane_not_found`
 grep matched nothing, so the branch that distinguishes fatal from retryable read every
-iteration as retryable. `home/dot_local/lib/herdr-child-watcher.sh:233-239` now exits on
+iteration as retryable. `home/dot_local/lib/herdr-child-watcher.sh:243-248` now exits on
 the missing directory *before* reaching that classification.
 
 **6. Teardown reaps before it removes, then confirms the removal settled.** `rm -rf`
@@ -223,7 +226,7 @@ archaeology (`ps -axo pid=,args=`, `/proc/<pid>/fd`, `docker top`) rather than i
 report.
 
 `make test-ubuntu` and `make test-docker` are the only targets in this repository that apply
-the checkout before asserting (`docker/docker-compose.yml:91` and `:140`). While a hang is
+the checkout before asserting (`docker/docker-compose.yml:116-117` and `:179-180`). While a hang is
 reachable in them, no change to a managed file under `home/` can be proven at all — the class
 blocks verification of unrelated work, not just its own.
 
@@ -289,6 +292,11 @@ original CI failure flaky in the first place. A negative control under `trap '' 
 
 ## Related
 
+- `docs/solutions/design-patterns/capturing-child-output-hides-the-prompt.md` — the mirror
+  class in shipped code: a foreground child the caller is actively waiting for, blocked
+  because the caller captured its output while leaving it stdin. Rule 3 here is the
+  test-side half; that document owns the capture-side trigger, the designed meaning of the
+  resulting failure, and the terminal-gated liveness signal.
 - `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` —
   the sibling class. That document covers bounds chosen on an idle machine; this one
   covers processes that ignore bounds entirely. A hang guard from that document is rule 4's
@@ -308,6 +316,6 @@ original CI failure flaky in the first place. A negative control under `trap '' 
   `tests/bashunit/test_dsl_parallel_isolation_probe_test.sh`.
 - Originating closed issues, for archaeology in git history: `2026-08-24-001`,
   `2026-08-28-001`, `2026-08-29-001`, `2026-08-29-003`, `2026-08-29-005`, `2026-08-30-011`,
-  `2026-09-01-001`, `2026-09-03-003`, `2026-09-03-006`, `2026-09-03-007`,
+  `2026-09-01-001`, `2026-09-03-006`, `2026-09-03-007`,
   `2026-09-05-004` (incident 8, resolved by PR #172). The evidence they carried is
   reproduced inline above; the files themselves were removed after compounding.

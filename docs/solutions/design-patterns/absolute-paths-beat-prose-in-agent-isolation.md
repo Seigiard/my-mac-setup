@@ -40,7 +40,7 @@ Paths shortened to `lib/…`, `se-pipeline.tsx` or `se-flow.tsx` are relative to
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
 > removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
-> `dot_smithers/**` path cited below is readable only in git history. The transferable rule outlived the incident: it is why child-agent coordinates are exported into the pane environment (`home/dot_local/lib/herdr-child-launch.sh`) rather than only described in a prompt, and why `se-doc-review/SKILL.md:36-41` stages a frozen `DOC_COPY` outside the working tree.
+> `dot_smithers/**` path cited below is readable only in git history. The transferable rule outlived the incident: it is why child-agent coordinates are exported into the pane environment (`home/dot_local/lib/herdr-child-launch.sh`) rather than only described in a prompt, and why `home/private_dot_agents/skills/se-doc-review/SKILL.md:35-43` stages a frozen `DOC_COPY` outside the working tree.
 
 The se-pipeline stages an isolated `git worktree` on a run branch and dispatches the work agent with that worktree as its cwd. The prompt said so in plain words — "your cwd is an ISOLATED git worktree of the target repository, already on the run branch … do NOT create worktrees" (`home/private_dot_claude/dot_smithers/workflows/se-pipeline.tsx:238`) — and in the same prompt handed the agent an absolute path to the plan file in the operator's **main checkout**, by design: `inputSchema.planPath` was "read from the launcher, never from the worktree (KTD11)" so a plan edited mid-run could not change the contract the run was gated on.
 

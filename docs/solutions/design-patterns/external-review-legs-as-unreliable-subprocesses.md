@@ -71,6 +71,20 @@ const DISABLE_BACKGROUND_TASKS_ENV = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
 
 The surrounding comment (`agents.ts:128-141`) records two layers: a system-prompt rule telling the leg to dispatch personas as blocking parallel calls (backgrounded subagent state is not durable across turns — one run re-dispatched a reviewer and doubled wall time), and the env var as the hard layer under it, because the CLI has no flag to disable background execution and version 2.1.198 changed the default underneath the pipeline. Version-sensitive harness behavior is a dependency; pin it explicitly (`env:` on every claude review agent, `agents.ts:156,182`). Commit attribution: `git log -S CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` returns only `2c4f533` — the env pin and the terminal-status check landed together as the two layers of one fix. Prose-only instructions were measurably insufficient on their own (session history): despite the dispatch rule, 45 of 66 measured leg sessions still had over a minute of dispatch spread until the rule was made structural — the complete persona set decided first, all subagent calls in one message (`home/private_dot_claude/dot_smithers/workflows/lib/consult-prompt.ts`, with a test). The general form of that observation — prose loses to whatever concrete thing sits beside it in the same prompt — has its own incident and remedy in `docs/solutions/design-patterns/absolute-paths-beat-prose-in-agent-isolation.md`.
 
+> **Successor note — narrowed by measurement, and unimplemented as written.** No live launcher
+> pins an execution-mode env var; `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` appears nowhere in the
+> tree outside this document. The peer path relies on permission-bypass flags
+> (`home/private_dot_claude/shared/herdr-peer-launch.md` at lines 67 and 80), and `herdr-child` reaches the
+> same end one class harder, by removing the capability instead of requesting its disuse:
+> `--disallowed-tools … AskUserQuestion` for claude
+> (`home/dot_local/lib/herdr-child-launch.sh` at lines 306 and 309), `OPENCODE_PERMISSION={"question":"deny"}`
+> for opencode (`:158,162`), `--exclude-tools ask_user` for pi (`:322`). Read "hard layer" as
+> *harder than the prose above it*, not as enforcement:
+> `capturing-child-output-hides-the-prompt.md` measured this exact layer declining — `CI=1` was
+> set, upstream ignored it, and the only symptom was a hang. The ordering the repo now holds is
+> prose < env/flag request < capability removal or closed descriptor; `CONCEPTS.md`
+> (*Captured child*) states it.
+
 **3. Give legs liveness detection AND generous wall-clock — they are different budgets.**
 `agents.ts:15-24`: `idleTimeoutMs` is the spawn layer's `PROCESS_IDLE_TIMEOUT`, reset on every stdout/stderr byte, so a silent leg dies at the idle threshold instead of burning the full `timeoutMs`. Values (`agents.ts:49-92`): 15 min idle for claude review profiles, 10 min for opencode, each strictly under its `timeoutMs`. The wall-clock side moved the other direction: commit `42329df` raised the opencode `timeoutMs` from 15 to 25 minutes after the tight cap killed a healthy still-streaming attempt one second before its last event, while the 10-min idle threshold still catches genuine stalls. Two calibration lessons (session history):
 
@@ -132,6 +146,9 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
   was removed with the Smithers runtime.
 - `docs/solutions/design-patterns/protected-slot-signal-extraction.md` — the full development of the severity-layer paragraph above: protected-slot extraction (decoys inert by position), cross-field consistency, and why the additive layer may fail open to advisory while leg availability stays fail-closed.
 - `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
+- `docs/solutions/design-patterns/capturing-child-output-hides-the-prompt.md` — the measured
+  narrowing of rule 2: an execution-mode request the callee declined, observable only as a hang.
+  It links here; this is the return edge.
 - `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` — sibling test-harness pattern: prefer causal assertions, or separate a generous hang guard from the narrow behavioral assertion when elapsed time is unavoidable.
 - `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md` — sibling pattern sharing the fail-closed principle at a different boundary (a scanner crash is never a clean pass).
 - Closed issues above are bare IDs, for archaeology in git history: `2026-08-14-002`. The file was

@@ -46,6 +46,11 @@ A subprocess whose output the caller captures instead of passing through, which 
 
 Denial applies only where nobody is watching; an attended path keeps the child interactive so a person can answer. The wait is bounded and terminates the child's whole process tree, reporting a status that distinguishes termination from the child's own failure, and progress output is emitted only when the caller's error stream is a terminal, so scripted callers stay silent. Because denial converts a possible hang into a certain failure, what that failure means is designed rather than inherited: a path that can no longer ask must report what it could not do, not produce a plausible answer without it.
 
+### Protected slot
+A reserved position in a report or envelope where a machine-readable signal is the only thing that may appear, so the same text occurring anywhere in the body is inert.
+
+Extraction reads the position, never a scan of the document, which is what makes a quoted example or a code block in the body unable to promote itself into a verdict. The slot's value is cross-checked against the findings it claims to summarize, because a report can carry a signal its own content does not support. When the slot is absent or unparseable the layer built on it degrades to advisory rather than inventing a value — while the separate question of whether the report arrived at all stays fail-closed.
+
 ### Blast-radius bias
 The rule that a gate's default answer under uncertainty is set by what a wrong answer costs, not by where the gate sits. A gate in front of something that mutates code, spends money, or publishes outside the run defaults to refusing; a gate in front of a read-only or advisory step defaults to running, because a false refusal there silently removes coverage. The bias belongs to the whole gate stack — a fuzzy fallback layer inherits the deterministic layer's default — and a biased refusal is always stated, never silent.
 
@@ -67,10 +72,15 @@ A test double that reproduces the observable contract of a program this project 
 
 A fake records which release of the original it emulates, read from the original rather than assumed. Its conformance check pins the boundary the local consumer actually reads and stops there, because a deeper comparison restates a shape the upstream program owns — the same failure at a finer grain. Where the original is unreachable the check skips, naming which oracle is missing, never falling back to a locally invented expected value. Where the two diverge below the pinned boundary, that divergence is recorded as unresolved work rather than encoded into the check.
 
+### Causal assertion
+A test that proves an ordering or concurrency property from a signal the property itself produces — a barrier every party must reach, a marker one side writes and the other reads — instead of from how long a step took.
+
+It is the preferred form wherever the property admits one, because elapsed time only correlates with the property while the machine behaves. A causal signal also settles non-vacuity: a bound nothing can ever exceed asserts nothing, and only a signal tied to the property can show the assertion window was reachable at all. Where no causal signal exists, what remains is a Hang guard, and the run should say so rather than let a deadline pass for a proof.
+
 ### Hang guard
 A deadline whose only job is to stop a run that has stopped making progress, in a test suite or in shipped code that waits on a subprocess. It is deliberately generous and must never fire on a healthy run, which is what separates it from a behavioral assertion — a narrow bound that is itself the thing being proven. One number cannot be both: a deadline that doubles as an assertion either flakes under load or, once widened enough to stop flaking, no longer catches the regression it was written for.
 
-A bound calibrated on an idle machine is a latent flake, because the contention profile a full parallel suite creates is not the one it was measured against. Where an ordering or concurrency property can be proven by a barrier, a marker, or another causal signal, that signal replaces elapsed time entirely. A guard is a deadline, never a Poll interval; a loop that conflates the two cannot be sped up without being weakened.
+A bound calibrated on an idle machine is a latent flake, because the contention profile a full parallel suite creates is not the one it was measured against. Where an ordering or concurrency property can be proven by a barrier, a marker, or another causal signal, that signal replaces elapsed time entirely. A guard is a deadline, never a Poll interval; a loop that conflates the two cannot be sped up without being weakened. A bound that crosses a process boundary is shared only if the consumer actually reads it: where the producer also derives a second bound from that value, an ignored hand-off moves the derived bound alone, and the pair drifts apart in the direction that makes the derived one vacuous.
 
 ### Poll interval
 The rate at which a wait loop re-checks its condition, held as a separate overridable value from the deadline that ends the wait. The deadline is measured from elapsed time, so it holds however often the loop wakes.
