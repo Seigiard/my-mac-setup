@@ -1,6 +1,7 @@
 ---
 title: A process that outlives its test hangs the suite instead of failing it
 date: 2026-09-03
+last_updated: 2026-09-06
 category: design-patterns
 module: testing
 problem_type: design_pattern
@@ -17,18 +18,22 @@ applies_when:
   - "Writing teardown that removes a state directory another process may still be writing"
   - "A suite passes focused or on a workstation but stalls under --jobs or in Docker"
   - "Choosing where in a launcher to close inherited file descriptors before exec"
+  - "Building a per-test temporary directory, capture file, lock, or marker name from a value that can repeat across tests"
 symptoms:
   - "The runner prints every test as passing, then never returns; the container sits at 0.00% CPU with no timeout firing"
   - "A blocked descendant holds the runner's stdin or capture pipe, so the runner waits on an EOF that never arrives"
   - "Orphaned pollers accumulate across runs and inflate the machine's own benchmark numbers before anything goes red"
   - "A test passes focused and on a workstation but fails or stalls under parallel load, in CI, or in Docker"
   - "Teardown removes a state directory and a surviving writer immediately recreates part of it"
+  - "An assertion reads output that belongs to an unrelated test, so the failure names a case that never produced that text"
 tags:
   - process-lifetime
   - inherited-descriptors
   - test-hang
   - detached-worker
   - teardown-race
+  - shared-temp-path
+  - test-identity
   - sigpipe
   - bash-3-2
   - bashunit
@@ -85,6 +90,37 @@ Two more incidents came from the *fixes*, which is why they belong in the same d
    lines, onto the stderr that `bashunit`'s `run` captures into `$output`. CI run
    33754209087 (`test-macos`) failed comparing `ochre-bear` against `ochre-bear` plus
    that line.
+
+An eighth incident belongs here for a different reason. It wears the same signature and
+shares none of the cause, which is precisely what made the triage rule below incomplete:
+
+8. **2026-09-05, a per-test path that was not per test.** `tests/bashunit/scripts_test.sh`
+   failed the macOS `-j 8` job in four of five runs on one branch, in two unrelated cases,
+   on trees differing only in files neither case reads; `test-ubuntu` passed every time.
+   The loud symptom was a case asserting `strict pane-label sweep did not converge` and
+   receiving a JSON document of MCP server entries instead — output belonging to a
+   different case. Nothing had leaked and nothing hostile had been inherited. The `run`
+   helper writes its capture under `$BATS_TEST_TMPDIR`
+   (`tests/bashunit/test-dsl.bash:115`), and `BATS_TEST_TMPDIR` was built from the
+   *historical Bats number* the converter carried over from the pre-bashunit suite. Those
+   numbers repeat once suites are merged, so two cases sharing a number shared a capture
+   directory, and under `-j 8` they could hold it at the same time. The directory looked
+   per-test and was not.
+
+The fix (PR #172) keys the directory on the runner's own per-test identity instead —
+`BATS_TEST_TMPDIR="$_BATS_FILE_TMPROOT/$BASHUNIT_CURRENT_TEST_ID"`
+(`tests/bashunit/test-dsl.bash:466`), where the runner exports a per-test ID derived from
+the test function name (`tests/lib/bashunit:15983`). The same incident's quieter symptom —
+`grep` exiting 2 on a `successful-prompts.log` that did not exist yet — belongs to rule 4
+rather than here: the case waited for `event=settled-11` in `calls.log` and then read a
+*different* file, so the wait cleared on a proxy. `child_wait_for_log` takes the file to
+watch as its second argument (`tests/bashunit/scripts_test.sh:2561-2562`), and the
+affected cases now pass the file the assertion actually reads.
+
+**What this incident does not establish.** The fix was not re-verified against repeated
+macOS CI runs under `-j 8`, so the original four-in-five failure rate is unconfirmed
+post-fix. The regression probe added alongside it covers the collision, not the contention
+profile the flake was observed under.
 
 ## Guidance
 
@@ -165,6 +201,19 @@ exists, so no writer can take EPIPE under any disposition — and the producer's
 status stops being discarded, which fixed a second latent defect where a pool that
 failed validation was reported as "alias pool is exhausted".
 
+**11. A path is only as per-test as the value it is keyed on.** A temp directory, a
+capture file, a lock, a marker — each is per-test only when its key is unique per test.
+Verify the key, not the intent. A historical test number carried over by a converter, a
+description slug, a wall-clock stamp, or a per-process counter is *usually* distinct, and
+"usually distinct" is exactly what parallelism exists to break. Prefer an identity the
+runner guarantees is unique per test over one that merely tends to be.
+
+**12. Fix a shared-key defect in the DSL, not in the cases that happened to collide.**
+`run` writes into `$BATS_TEST_TMPDIR` for every case in the suite, so the two cases that
+went red were the two that got observed, not the two that were exposed. Patching them
+would have left every other pair sharing a number holding one path — and would have left
+the next merged suite free to add more.
+
 ## Why This Matters
 
 A red assertion names its own file and line. This class names nothing. The 2026-08-24
@@ -192,9 +241,12 @@ returned success, nothing hung, and the work simply never happened.
   harness or agent may invoke.
 - Writing a `while [ ! -f ... ]` / `while [ ! -e ... ]` loop of any kind.
 - Writing teardown that deletes a directory another process holds open.
-- Triaging a suite that passes focused and stalls under `--jobs`, in Docker, or only on
-  one CI runner. Suspect an inherited attribute or a leaked process before suspecting
-  test ordering.
+- Triaging a suite that passes focused and stalls **or fails** under `--jobs`, in Docker,
+  or only on one CI runner. Three causes produce that one signature: an inherited
+  attribute, a leaked process, and a shared path that only looks per-test. Rule out all
+  three before suspecting test ordering.
+- Writing or reviewing any temp directory, capture file, lock, or marker whose name is
+  built from a test's own metadata.
 - Reviewing a fix that closes descriptors: check *where* in the launch sequence it runs.
 
 ## Examples
@@ -208,7 +260,9 @@ Diagnosing a stalled runner — the descriptor set is the evidence, not the stac
        2 -> /tmp/bats-compat-run.XXXXXX/test-119/.bats-run-out.7475.1
 ```
 
-The `.bats-run-out` path names the owning test. Detection for the orphan variant is
+The `.bats-run-out` path names the owning test — though in this transcript it names it by
+the historical Bats number (`test-119`), which incident 8 later showed was not a unique
+key. The current leaf is the runner's per-test identity. Detection for the orphan variant is
 `pgrep -f "herdr-child __watcher"`; cleanup is to kill each whose `--launcher-pid` process
 is dead, read from `ps -o args= -p <pid>`.
 
@@ -218,6 +272,14 @@ bashunit's `##...##` payload line, which stock upstream 0.50.1 then parses as th
 line. The probe arranges that race on purpose — waiting on the test subshell's death
 rather than sleeping, because the payload is written by its EXIT trap — so the pinned
 local patch has an owner that goes red if it is dropped.
+
+A collision needs a fixture that can collide. `tests/bashunit/test_dsl_parallel_isolation_probe_test.sh`
+is a two-test file whose cases deliberately declare the *same* historical number —
+`_bats_test_init 1` in both — then each publish their own `$BATS_TEST_TMPDIR` and assert
+the two differ; the driver runs that file under `-j 2` and requires both to pass
+(`tests/bashunit/scripts_test.sh:7979-7987`). It owns the key's uniqueness, which is the
+property the fix established. It does not own the macOS contention profile the flake
+appeared under, and no post-fix repeat of those CI runs was taken.
 
 Not every fix in this family earns a test. The `herdr-peer-alias` EPIPE fix added none:
 the only available assertion would have compared a message against the string in the
@@ -239,10 +301,13 @@ original CI failure flaky in the first place. A negative control under `trap '' 
 - Source anchors in the current tree: `home/dot_local/lib/herdr-child-watcher.sh`,
   `home/dot_local/lib/herdr-child-supervision.sh`, `home/dot_local/bin/executable_herdr-worktree-identity`,
   `home/dot_local/bin/executable_herdr-pane-labels`, `home/dot_local/bin/executable_herdr-peer-alias`,
-  `tests/run-post-apply.sh`, `tests/bashunit/herdr_child_descriptor_probe_test.sh`,
+  `tests/run-post-apply.sh`, `tests/bashunit/test-dsl.bash`,
+  `tests/bashunit/herdr_child_descriptor_probe_test.sh`,
   `tests/bashunit/herdr_pane_labels_descriptor_probe_test.sh`,
-  `tests/bashunit/bashunit_late_output_probe_test.sh`.
+  `tests/bashunit/bashunit_late_output_probe_test.sh`,
+  `tests/bashunit/test_dsl_parallel_isolation_probe_test.sh`.
 - Originating closed issues, for archaeology in git history: `2026-08-24-001`,
   `2026-08-28-001`, `2026-08-29-001`, `2026-08-29-003`, `2026-08-29-005`, `2026-08-30-011`,
-  `2026-09-01-001`, `2026-09-03-003`, `2026-09-03-006`, `2026-09-03-007`. The evidence they
-  carried is reproduced inline above; the files themselves were removed after compounding.
+  `2026-09-01-001`, `2026-09-03-003`, `2026-09-03-006`, `2026-09-03-007`,
+  `2026-09-05-004` (incident 8, resolved by PR #172). The evidence they carried is
+  reproduced inline above; the files themselves were removed after compounding.
