@@ -3,9 +3,9 @@
 # hard threshold.
 #
 # Auto-compact is off in this setup, so a session that reaches the context
-# limit loses the conversation. Two independent signs are watched: how full
-# the window is, and how many turns have accumulated since the last
-# compaction. Either one is enough to act on.
+# limit loses the conversation. Two independent signs are watched: how many
+# tokens of context the session carries, and how many turns have accumulated
+# since the last compaction. Either one is enough to act on.
 #
 # The announcement is addressed to the operator, not the model.
 # `systemMessage` renders in the operator's UI and never enters model
@@ -233,9 +233,9 @@ transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/nul
 # must not lose the other dimension even if that ever changes.
 turns=$(context_usage_turn_count "$transcript") || turns=0
 case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
-fullness=$(context_usage_read_fullness "$session_id") || fullness=""
+tokens=$(context_usage_read_tokens "$session_id") || tokens=""
 
-crossing=$(context_usage_evaluate "$session_id" "$fullness" "$turns") || exit 0
+crossing=$(context_usage_evaluate "$session_id" "$tokens" "$turns") || exit 0
 level=$(printf '%s' "$crossing" | sed -n 's/^level=//p')
 dimensions=$(printf '%s' "$crossing" | sed -n 's/^dimensions=//p')
 warn_dimensions=$(printf '%s' "$crossing" | sed -n 's/^warn_dimensions=//p')
@@ -268,14 +268,21 @@ if context_threshold_crossed_at turns "$dimensions"; then
 elif context_threshold_crossed_at turns "$warn_dimensions"; then
   detail="$turns turns since the last compaction (warn at $CONTEXT_USAGE_TURNS_WARN)"
 fi
+# Thousands, because the operator's own threshold is stated that way and the
+# exact token is never the point. Truncated rather than rounded: a message
+# saying 150k must mean the threshold was reached, not approached.
+context_threshold_thousands() {
+  printf '%sk' "$(($1 / 1000))"
+}
+
 if context_threshold_crossed_at fullness "$dimensions"; then
   if [ "$level" = hard ]; then
-    detail="${detail:+$detail and }context window ${fullness}% full (limit $CONTEXT_USAGE_FULLNESS_HARD_PCT%)"
+    detail="${detail:+$detail and }context at $(context_threshold_thousands "$tokens") tokens (limit $(context_threshold_thousands "$CONTEXT_USAGE_TOKENS_HARD"))"
   else
-    detail="${detail:+$detail and }context window ${fullness}% full (warn at $CONTEXT_USAGE_FULLNESS_WARN_PCT%)"
+    detail="${detail:+$detail and }context at $(context_threshold_thousands "$tokens") tokens (warn at $(context_threshold_thousands "$CONTEXT_USAGE_TOKENS_WARN"))"
   fi
 elif context_threshold_crossed_at fullness "$warn_dimensions"; then
-  detail="${detail:+$detail and }context window ${fullness}% full (warn at $CONTEXT_USAGE_FULLNESS_WARN_PCT%)"
+  detail="${detail:+$detail and }context at $(context_threshold_thousands "$tokens") tokens (warn at $(context_threshold_thousands "$CONTEXT_USAGE_TOKENS_WARN"))"
 fi
 
 # The goal is extracted once per session and reused by every later
