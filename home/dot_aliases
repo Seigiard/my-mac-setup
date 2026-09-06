@@ -299,8 +299,12 @@ update-all() {
   brew update &&
     brew upgrade --no-ask &&
     skills update &&
-    mise upgrade &&
-    update-pins
+    mise upgrade
+  # Unchained on purpose. update-pins is the one step built to degrade — an
+  # unreachable upstream is a report, not a failure — so gating it behind the
+  # others would skip the drift report exactly when a network problem upstream
+  # of it made that report worth reading.
+  update-pins
 }
 
 # -------------------------------------------

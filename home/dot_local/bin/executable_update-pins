@@ -37,7 +37,13 @@ default_fetcher() {
   shift
   case "$operation" in
     head-sha)
-      GIT_TERMINAL_PROMPT=0 git ls-remote "https://github.com/$1" HEAD 2>/dev/null
+      # The low-speed knobs are git's own, so this stays bounded like its two
+      # curl siblings without depending on a `timeout` binary macOS does not
+      # ship. GIT_TERMINAL_PROMPT only suppresses a credential prompt; it does
+      # nothing about a server that accepts the connection and then stalls.
+      GIT_TERMINAL_PROMPT=0 \
+        GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 \
+        git ls-remote "https://github.com/$1" HEAD 2>/dev/null
       ;;
     latest-tag)
       curl -fsSL -o /dev/null --max-time 20 -w '%{url_effective}' \
@@ -333,16 +339,22 @@ check_fff_pin() {
 # whose config value is a moving alias like "lts", which has no pin to rewrite
 # and is refreshed by `mise upgrade` instead.
 mise_rows() {
-  mise outdated --bump -J 2>/dev/null | python3 -c '
+  local report
+  # A failed lookup must not read as an empty one: `mise outdated` exiting
+  # nonzero, or answering with something that is not a JSON object, is an
+  # unknown, and the caller reports it as such. Only a parsed object with no
+  # entries means nothing is outdated.
+  report="$(mise outdated --bump -J 2>/dev/null)" || return 1
+  printf '%s' "$report" | python3 -c '
 import json
 import sys
 
 try:
     report = json.load(sys.stdin)
 except ValueError:
-    sys.exit(0)
+    sys.exit(1)
 if not isinstance(report, dict):
-    sys.exit(0)
+    sys.exit(1)
 for name, entry in report.items():
     if not isinstance(entry, dict):
         continue
@@ -355,7 +367,7 @@ for name, entry in report.items():
             entry.get("latest") or "",
         )
     )
-' 2>/dev/null
+'
 }
 
 check_mise_pins() {
@@ -371,10 +383,19 @@ check_mise_pins() {
     return 0
   fi
 
+  local rows_output rows_status
+  rows_output="$(mise_rows)"
+  rows_status=$?
+  if [ "$rows_status" -ne 0 ]; then
+    say 'mise: unknown — the outdated lookup did not answer'
+    return 0
+  fi
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     rows[${#rows[@]}]="$row"
-  done < <(mise_rows)
+  done <<EOF
+$rows_output
+EOF
 
   if [ "${#rows[@]}" -eq 0 ]; then
     say 'mise: nothing outdated'

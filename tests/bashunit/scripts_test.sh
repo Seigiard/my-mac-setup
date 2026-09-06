@@ -10848,7 +10848,15 @@ n
 
   # #then the run reports the drift and writes nothing
   assert_success
-  assert_output --partial 'ohmyzsh/ohmyzsh: 421d95782d36'
+  # Control for the byte-identical assertion below: without it a run that
+  # reported every pin as up to date would also write nothing and pass. The
+  # pinned sha comes from the fixture rather than a literal, because this is
+  # the value update-pins exists to change.
+  local pinned
+  pinned="$(pins_baseline_value \
+    's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
+  assert_output --partial \
+    "ohmyzsh/ohmyzsh: ${pinned:0:12} -> ${PINS_STUB_HEAD_SHA:0:12}"
   assert_output --partial 'kept'
   assert_pins_files_unchanged
 }
@@ -10964,4 +10972,63 @@ y
   assert_success
   assert cmp -s "$expected" "$PINS_MISE"
   assert cmp -s "$PINS_BASELINE/externals" "$PINS_EXTERNAL"
+}
+
+function test_scripts_1457_update_pins_follows_the_chezmoiroot_indirection_into_home() {
+  _bats_test_init 1457 'update-pins follows the .chezmoiroot indirection into home/'
+  # #given a source tree shaped like this repository's own, where .chezmoiroot
+  # puts the pinned files one level below the root chezmoi source-path reports
+  pins_fixture
+  local outer="$BATS_TEST_TMPDIR/pins-chezmoiroot"
+  mkdir -p "$outer"
+  mv "$PINS_ROOT" "$outer/home"
+  printf 'home\n' >"$outer/.chezmoiroot"
+  PINS_ROOT="$outer"
+  PINS_EXTERNAL="$outer/home/.chezmoiexternal.toml"
+  PINS_MISE="$outer/home/private_dot_config/mise/config.toml"
+
+  local expected="$BATS_TEST_TMPDIR/expected-nested-externals" old_sha
+  old_sha="$(pins_baseline_value \
+    's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+    "$PINS_BASELINE/externals" >"$expected"
+
+  # #when the first offer is accepted
+  run_pins 'y
+n
+n
+n
+n
+n
+'
+
+  # #then the nested file was found and rewritten rather than reported missing
+  assert_success
+  refute_output --partial 'no chezmoi externals file'
+  assert cmp -s "$expected" "$PINS_EXTERNAL"
+  assert cmp -s "$PINS_BASELINE/mise" "$PINS_MISE"
+}
+
+function test_scripts_1458_update_pins_reports_a_failed_mise_lookup_as_unknown() {
+  _bats_test_init 1458 'update-pins reports a failed mise lookup as unknown, not as nothing outdated'
+  # #given a mise whose outdated lookup fails the way a registry or network
+  # outage makes it fail: nonzero exit, nothing usable on stdout
+  pins_fixture
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 2' >"$PINS_STUBS/mise"
+  chmod +x "$PINS_STUBS/mise"
+
+  # #when every externals offer is declined
+  run_pins 'n
+n
+n
+n
+n
+n
+'
+
+  # #then the run says it does not know, rather than claiming nothing drifted
+  assert_success
+  assert_output --partial 'mise: unknown'
+  refute_output --partial 'mise: nothing outdated'
+  assert_pins_files_unchanged
 }
