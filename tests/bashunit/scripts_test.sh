@@ -550,7 +550,7 @@ function test_scripts_1183_worktree_identity_records_branch_and_attribution_fail
   assert_success
   branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" record-branch-failure
-  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=attribution-failed '
 
   rm "$HWI_WORK/fail-git-description"
@@ -617,7 +617,7 @@ function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_w
   assert_success
   local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" recover-marker-attribution
-  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=attribution-failed '
 
   chmod u+w "$marker"
@@ -812,7 +812,7 @@ function test_scripts_1193_worktree_identity_labels_after_revert_from_attributio
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Revert failed attribution'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   rm "$HWI_WORK/fail-git-description"
 
@@ -5035,7 +5035,7 @@ def read_pid(path):
         return None
 
 try:
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + int(os.environ["HPL_INNER_BATS_PROGRESS_SECONDS"])
     worker_pid = None
     while worker_pid is None and time.monotonic() < deadline:
         worker_pid = read_pid(worker_file)
@@ -5052,7 +5052,7 @@ try:
     os.kill(blocked_pid, 0)
 
     try:
-        stdout, stderr = proc.communicate(timeout=30)
+        stdout, stderr = proc.communicate(timeout=int(os.environ["HPL_INNER_BATS_EXIT_SECONDS"]))
     except subprocess.TimeoutExpired as error:
         raise AssertionError("detached worker retained the nested runner output pipes") from error
     if proc.returncode != 0:

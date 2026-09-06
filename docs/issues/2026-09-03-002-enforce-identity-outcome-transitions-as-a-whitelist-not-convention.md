@@ -1,12 +1,13 @@
 ---
 title: "Enforce identity outcome transitions as a whitelist, not convention"
-short_description: "A 2026-09-05 audit enumerated all nine outcomes write_identity_state can persist and found the shipped vocabulary cannot be whitelisted as documented: the engine mixes spellings (attribution_failed underscored, workspace-failed/-only/-prepared and branch-failed hyphenated), writes workspace-prepared and branch-failed which the diagram omits, never writes pending, treats contended as a diagnostic only, and the source plan's prose contradicts its own diagram, so reconciling the chart is a user naming decision that blocks encoding it."
+short_description: "Resolved: the nine legal outcomes are now a whitelist in herdr-worktree-state.sh that write_identity_state enforces, spellings standardized on hyphens (attribution_failed renamed, legacy value still accepted on read), workspace-prepared and branch-failed admitted, pending and contended excluded, and the plan's diagram reconciled to match."
 type: "idea"
 category: "herdr"
 tags: ["herdr-worktree-identity","state-machine","design-improvement"]
 date: "2026-09-03"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-06"
 ---
 
 ## Why this exists
@@ -97,3 +98,7 @@ in `home/dot_local/lib/herdr-worktree-state.sh` that every state write in the en
 - Whether a transition attempt that fails the whitelist should abort the whole naming event (loud
   failure) or record a diagnostic and no-op (consistent with R9's "no silent bails" but arguably too
   quiet for what would be a programming error rather than expected runtime contention).
+
+## Resolution
+
+Whitelist built and enforced, standardized on hyphens. HERDR_WORKTREE_IDENTITY_OUTCOMES plus is_legal_outcome() live in home/dot_local/lib/herdr-worktree-state.sh; write_identity_state validates there rather than at 22 threaded call sites, since every write already passes through it, and refuses an illegal outcome with an illegal-outcome diagnostic and a nonzero return that callers already handle as a state-write failure. attribution_failed renamed to attribution-failed at its write site, its case branch, and three assertions in tests/bashunit/scripts_test.sh; the case branch and write_identity_state both accept the legacy spelling on read so in-flight cached state is not stranded, while only the canonical spelling is ever persisted. Membership: unresolved, declined, prepared, attribution-failed, workspace-prepared, workspace-failed, branch-failed, workspace-only, complete, plus the empty string for a state written before an outcome is selected. pending excluded (no write site produces it), contended excluded (diagnostic evidence, not an outcome). The plan diagram at docs/plans/2026-09-03-0043-feat-worktree-task-naming-plan.md is reconciled to match, using mermaid state aliases for the hyphenated names. Verified: tests/bashunit/scripts_test.sh 330 passed 1 skipped, make lint clean.

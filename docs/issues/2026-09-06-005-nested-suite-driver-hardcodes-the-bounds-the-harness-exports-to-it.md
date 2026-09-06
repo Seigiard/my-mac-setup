@@ -1,12 +1,13 @@
 ---
 title: "Nested-suite driver hardcodes the bounds the harness exports to it"
-short_description: "tests/helpers/herdr_pane_labels.bash exports HPL_INNER_BATS_PROGRESS_SECONDS and HPL_INNER_BATS_EXIT_SECONDS so the driver reads them, but the Python rewrite hardcodes 60 and 30, so editing either constant moves the derived non-vacuity ceiling alone and silently makes it vacuous."
+short_description: "Resolved: the nested-suite driver reads HPL_INNER_BATS_PROGRESS_SECONDS and HPL_INNER_BATS_EXIT_SECONDS from the environment instead of hardcoding 60 and 30, failing loudly when either is absent, so editing the harness constants can no longer move the non-vacuity ceiling while leaving the enforced deadline behind."
 type: "bug"
 category: "testing-ci"
 tags: ["regression","wall-clock-bounds","two-sources-of-truth"]
 date: "2026-09-06"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-06"
 ---
 
 ## Why this exists
@@ -68,3 +69,7 @@ Out of scope: changing either default value, and the separate unimplemented guid
   restores the silent-divergence failure this issue is about; failing loudly makes the driver
   unusable outside the harness that exports the values. Failing loudly looks correct given the
   driver is harness-only, but it should be confirmed against any other caller.
+
+## Resolution
+
+The driver now reads both bounds from the environment the harness exports: int(os.environ['HPL_INNER_BATS_PROGRESS_SECONDS']) replaces the literal 60 and the matching exit bound replaces the literal 30, both failing loudly on an absent variable to match the driver's five existing os.environ reads. The absent-variable open decision was answerable from the code rather than by choice: the driver is harness-only with exactly one caller. No new test - the proving case costs a second full nested-bats run in the slowest suite file to assert a failure string, and test 1103 already exercises the driver through the same code at the defaults. docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md rewritten from a current-state defect report into the general lesson, since the fix made its old text false. Verified: test 1103 passes with the driver reading the exported bounds.

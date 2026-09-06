@@ -111,19 +111,26 @@ hand-picked (`:804-812`), because "a hand-picked number silently inverts the fir
 bound above moves." The poll ceiling carries the same scar: 60 seconds, after 10 and 15 "were
 calibrated on an idle machine" (`:751-754`).
 
-The export that keeps those two constants honest is a dead letter today, and the result is
-worse than deadness. `herdr_pane_labels.bash:788-792` exports `HPL_INNER_BATS_PROGRESS_SECONDS` and
+The export that keeps those two constants honest went dead once and the failure it produced is
+worth keeping. `herdr_pane_labels.bash:788-792` exports `HPL_INNER_BATS_PROGRESS_SECONDS` and
 `HPL_INNER_BATS_EXIT_SECONDS` precisely so the driver reads them, warning that otherwise "editing
 the values here changes nothing, which is the same two-sources-of-truth failure this whole change is
-about." The driver was rewritten in Python and reads neither: it hardcodes `deadline =
-time.monotonic() + 60` at `tests/bashunit/scripts_test.sh:5038` and `proc.communicate(timeout=30)`
-at `:5055`.
+about." A Python rewrite of the driver silently stopped reading either and hardcoded `60` and `30`
+in their place. Nothing went red: the literals happened to equal the exported values, so the
+divergence was invisible while it lasted.
 
-The constants themselves are still live — `:812` derives `HPL_BLOCKED_HERDR_CEILING_SECONDS` from
-both, which is the honest derivation praised just above. So editing either value still moves the
-non-vacuity ceiling while leaving the driver's real deadline untouched, and the two drift apart
-silently in the direction that makes the ceiling vacuous. The comment warned that edits would change
-nothing; what actually happens is that they change half the relationship.
+That is the shape to recognize. `:812` derives `HPL_BLOCKED_HERDR_CEILING_SECONDS` from both
+constants — the honest derivation praised just above — so an edit to either value still moved the
+non-vacuity ceiling while leaving the driver's real deadline untouched. The two would have drifted
+apart in exactly the direction that makes the ceiling vacuous, turning a hang-guard failure into a
+"the fixture gave up" misdiagnosis. The comment warned that edits would change nothing; what would
+actually have happened is that they change half the relationship, which is worse.
+
+The driver now reads both bounds from the environment
+(`int(os.environ["HPL_INNER_BATS_PROGRESS_SECONDS"])` and the matching exit bound), failing loudly if
+either is absent, so the hand-off cannot go quiet again. The general rule: an exported constant is
+only honest while something observably consumes it, and equal-by-coincidence literals hide a broken
+hand-off indefinitely.
 
 **Probe isolation.** The outer suite runs one-test probe files
 (`tests/bashunit/herdr_pane_labels_descriptor_probe_test.sh`,
