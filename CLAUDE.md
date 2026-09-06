@@ -17,7 +17,7 @@ Reproducible dev environment for macOS (primary) and Linux (CI/Docker), managed 
 
 Reference docs (read on demand):
 
-- `docs/solutions/` — documented learnings from past work (architecture and design patterns), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`); relevant when implementing or debugging in areas they cover
+- `docs/solutions/` — documented learnings from past work (architecture patterns, design patterns, and diagnosed test failures), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`); relevant when implementing or debugging in areas they cover
 - `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts)
 - `docs/agent-setup-inventory.md` — curated plugins/skills/agents for manual reinstall across Claude Code, OpenCode, Pi
 - `docs/herdr-worktrees.md` — native Herdr worktree ownership and per-repository setup policy

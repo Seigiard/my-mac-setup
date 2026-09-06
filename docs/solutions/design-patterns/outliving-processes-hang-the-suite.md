@@ -245,9 +245,11 @@ returned success, nothing hung, and the work simply never happened.
 - Writing a `while [ ! -f ... ]` / `while [ ! -e ... ]` loop of any kind.
 - Writing teardown that deletes a directory another process holds open.
 - Triaging a suite that passes focused and stalls **or fails** under `--jobs`, in Docker,
-  or only on one CI runner. Three causes produce that one signature: an inherited
-  attribute, a leaked process, and a shared path that only looks per-test. Rule out all
-  three before suspecting test ordering.
+  or only on one CI runner. Four causes produce that one signature: an inherited
+  attribute, a leaked process, a shared path that only looks per-test, and an inherited
+  environment entry grown past the operating system's per-string exec limit
+  (`docs/solutions/test-failures/flattened-argv-overflows-the-per-string-exec-limit.md`).
+  Rule out all four before suspecting test ordering.
 - Writing or reviewing any temp directory, capture file, lock, or marker whose name is
   built from a test's own metadata.
 - Reviewing a fix that closes descriptors: check *where* in the launch sequence it runs.

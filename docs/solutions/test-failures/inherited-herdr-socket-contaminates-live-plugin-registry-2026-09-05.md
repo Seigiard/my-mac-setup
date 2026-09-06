@@ -63,7 +63,7 @@ local registry="$home/.config/herdr/plugins.json"
 assert_file_exists "$registry"
 ```
 
-The test parses `plugins.json` and requires `seigi.command-palette` to point at `$PALETTE_DIR`. It saves the first `run` output because the repository test DSL overwrites `$output` on every subsequent `run`.
+The test parses `plugins.json` and requires `seigi.command-palette` to point at `$PALETTE_DIR`. It saves the first `run` output because the repository test DSL overwrites `$output` on every subsequent `run`. The test is `test_palette_063_herdr_loads_the_command_palette_manifest_and_actions` in `tests/bashunit/palette_test.sh`.
 
 Repair an already contaminated live registry by replacing the same plugin ID with the stable managed path:
 
@@ -82,7 +82,8 @@ The regression assertion observes the filesystem boundary rather than trusting s
 ## Prevention
 
 - Treat endpoint and config-root variables as part of test isolation. Changing `HOME` alone is insufficient when a CLI accepts explicit environment overrides.
-- For a real Herdr CLI test that needs no ambient state, use `env -i` and restore only required inputs such as `HOME` and `PATH`.
+- For a real Herdr CLI test that needs no ambient state, use `env -i` and restore only required inputs such as `HOME` and `PATH`. Where the tool needs a live-looking endpoint rather than none, pin the override at a disposable one instead: `tests/helpers/herdr_pane_labels.bash` exports `HERDR_SOCKET_PATH` at a fake socket under its own work directory. Note the limit of both shapes — they bound only what crosses *into* the child, and say nothing about an oversized string the callee synthesizes from its own argv after exec.
+- The same discipline belongs in deployment code that must not touch a caller's session. `home/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh` clears the variable with `env -u HERDR_SOCKET_PATH` before its rollback relink.
 - Assert the mutation in the disposable registry so a command routed to the wrong server cannot produce a false green.
 
 ## Related Issues
@@ -91,3 +92,4 @@ The regression assertion observes the filesystem boundary rather than trusting s
 - [Herdr git-status playground plan](../../plans/2026-08-25-001-feat-herdr-git-status-playground-plan.md)
 - [A fake of another binary needs that binary as its oracle](../design-patterns/fakes-need-the-real-binary-as-oracle.md)
 - [Palette dynamic plugin action source](../../issues/2026-08-18-008-palette-dynamic-plugin-action-source.md)
+- [Flattened argv overflows the per-string exec limit](flattened-argv-overflows-the-per-string-exec-limit.md) — the same nested-invocation boundary measured by size rather than by contents. `env -i` cannot prevent that failure, because the invoked tool builds the oversized variable from its own argv after the clean environment reaches it.
