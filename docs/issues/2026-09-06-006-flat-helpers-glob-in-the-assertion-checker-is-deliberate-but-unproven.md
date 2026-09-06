@@ -1,12 +1,13 @@
 ---
 title: "Flat helpers glob in the assertion checker is deliberate but unproven"
-short_description: "scripts/check_bats_assertions.py uses a non-recursive glob for tests/helpers/*.bash and a comment calls that deliberate, but no test pins it and tests/helpers/ has no subdirectories today, so neither the flatness nor a switch to recursion would change any current verdict."
+short_description: "Resolved: the helpers scan is now glob('helpers/**/*.bash') and a nested fixture pins the recursive scope; the record's proposed rglob remedy was disproved (rglob('helpers/*.bash') still matches only direct children) and its open question is answered by history - the flatness was intentional to avoid the vendored bats-libs tree, which no longer exists."
 type: "follow-up"
 category: "testing-ci"
 tags: ["shell-lint","test-coverage","bashunit"]
 date: "2026-09-06"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-09-06"
 ---
 
 ## Why this exists
@@ -58,3 +59,7 @@ Out of scope: restoring `.bats` scanning, and the `bats-libs` exclusion branch r
 - If it is intentional, what is the reason? The original exclusion target, vendored
   `tests/helpers/bats-libs/`, no longer exists, so the stated motive for skipping subdirectories may
   have left with it.
+
+## Resolution
+
+Fixed with glob('helpers/**/*.bash') in scripts/check_bats_assertions.py, and the stale 'the flat glob is deliberate' comment replaced with the reason the scan now recurses. Two of the record's statements did not survive checking and the fix departs from it on both. Its open question - intentional boundary or accident - is answered by history rather than by inspection: commit 0079760 introduced the flat glob with a concrete motive, avoiding the vendored tests/helpers/bats-libs tree, and commit 8d9ac4f later rewrote that motive into a bare assertion after 051d3de and 0e46c27 had removed the tree and the exclusion branch it served. Its proposed remedy, switching to rglob, is a no-op: rglob('helpers/*.bash') expands to glob('**/helpers/*.bash'), which finds a helpers directory at any depth but still only its direct .bash children. Coverage: tests/test_bats_assertion_contract.py's scan-reachability test gains a nested violation and its matching clean control. Oracle - consumer make lint, observable failure a helper in a subdirectory escaping the bare-conditional guard, oracle the checker's own exit status and reported path against a planted violation in a temp tree, never the glob's source text. Non-vacuity proved twice by independent mutation: reverting only the glob line to the flat form turns exactly the new assertion red while the other three tests stay green, and applying the record's rglob remedy leaves it red too, so the fixture would catch anyone following the record literally. Verified: make lint clean, 58 python tests OK.
