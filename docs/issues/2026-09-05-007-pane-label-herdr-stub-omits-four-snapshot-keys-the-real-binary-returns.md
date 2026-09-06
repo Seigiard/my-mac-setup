@@ -57,3 +57,18 @@ stub's sequence comparison by hand because no test compared the fake to the real
   consumer appears.
 - If the stub is widened, whether test 1209 grows to cover the deeper key set or a separate check
   owns it.
+
+## Decision (2026-09-06): deferred until a consumer exists
+
+Do not widen the stub yet. Re-measured against herdr 0.8.2 today: the real `herdr api snapshot`
+returns all four keys with real values, and `home/dot_local/bin/executable_herdr-pane-labels` reads
+none of them — it calls the snapshot at exactly one site and every downstream read touches only
+`panes`, `tabs`, `agents` and `workspaces`.
+
+The reason to wait is not the four `jq` lines. Widening the stub honestly means test 1209 must
+compare the deeper key set against the real binary, which couples the suite to herdr 0.8.2 and needs
+a skip-on-version-mismatch story. Paying that for keys nothing reads is premature.
+
+Reopen the question the moment engine code reads focus or version — at that point the stub cannot
+supply what the code needs, and every pane-label test would pass green against a fake that is
+missing the field under test.

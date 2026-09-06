@@ -1,6 +1,6 @@
 ---
 title: "Add manual AgentBox sessions to Herdr without requiring a pipeline"
-short_description: "Manage AgentBox and its Herdr plugin through chezmoi for interactive isolated sessions; upstream verified 2026-09-06 (madarco/agentbox, MIT, herdr-plugin.toml, fork/claude/codex/opencode/pi commands), but blocked on two decisions: this repo has no managed path for a pinned npm-global package, and 'agentbox install' writes host agent skills into chezmoi-owned destinations."
+short_description: "Parked by decision, not blocked: the two blockers this record named are false (mise has an npm backend, and no exact_ directory exists so the installer causes no chezmoi diff), and the real cost is the credential inventory and containment probe in its own success criteria, a platform profile living in another repository, and upstream's inability to fork OpenCode sessions."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","follow-up"]
@@ -99,20 +99,36 @@ capability the Scope asks for. Note `pi` is supported upstream, which this recor
 and which matters because this machine runs Pi. Boxes also expose `shell`, `url`, `screen`, `code`
 and `dashboard`, and providers include local Docker, remote Docker, Hetzner, Vercel, Daytona and E2B.
 
-Two verified facts block the Scope as written rather than merely complicating it:
+## Why this is parked (corrected 2026-09-06)
+
+**The two facts this record previously called blockers are not blockers.** Both were re-measured and
+both have one-line answers, so the record was giving a wrong reason for a decision that is
+nonetheless right.
 
 - **Distribution is npm-global** (`npm -g install @madarco/agentbox`), plus Docker and Node >= 20.10
-  as host requirements. The Scope says to install a pinned release "through this repository's normal
-  tool-management path", and this repository has no managed path for a pinned npm-global package —
-  Brewfiles, mise and `.chezmoiexternal.toml` are the three that exist. Which of those absorbs it, or
-  whether a fourth is created, is a decision nobody has made.
-- **`agentbox install` writes host agent skills.** Upstream ships `apps/cli/share/host-skills/` for
-  agentbox, codex and opencode, and the CLI prints a tip telling the user to run `agentbox install`
-  to enable the `/agentbox` fork command in host Claude. Those destinations are chezmoi-owned here,
-  so running the vendor installer is precisely the "installer-driven config drift" this record set
-  out to avoid. Vendoring the plugin and skills into `home/` instead is possible but is a design
-  decision with an ongoing upstream-sync cost.
+  as host requirements. The record claimed this repository has no managed path for a pinned
+  npm-global package. It has one: `mise` supports an `npm` backend, and
+  `home/private_dot_config/mise/config.toml` together with
+  `home/.chezmoiscripts/run_onchange_after_1a-install-mise-tools.sh.tmpl` already form that path.
+  Pinning is a `[tools]` entry. Host prerequisites are met: Node v24.20.0 and Docker via OrbStack.
+- **`agentbox install` writes host agent skills** into `~/.claude/skills/agentbox/`,
+  `~/.claude/skills/agentbox-info/`, `~/.codex/prompts/agentbox.md` and
+  `~/.config/opencode/commands/agentbox.md`. The record's mechanical claim — that this would make
+  `chezmoi diff` report live config changes — is false: there is no `exact_` directory anywhere in
+  `home/`, so unmanaged siblings in those destinations produce no diff, and `~/.codex/prompts` is not
+  chezmoi-managed at all. The policy concern is still real (CLAUDE.md wants these managed through
+  chezmoi), but it is a preference to honour, not a mechanism that breaks. The herdr-plugin half has
+  a managed path the record never mentioned:
+  `home/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl` carries a plugins
+  array that installs and enables a plugin from a GitHub repository in one entry.
 
-Neither is a blocker a one-shot attempt could resolve, and the Scope additionally reaches outside
-this repository (a project profile for `platform`, in that repository) and depends on two open
-`agent-platform` records. The item stays open pending those decisions.
+**The real reasons to park it** are the ones the record buries in its own Success criteria. The
+credential inventory (which host files, sockets and environment variables enter the box) and the
+filesystem-probe containment check are the bulk of the work, and neither is cheap. The Scope reaches
+into another repository for the `platform` profile, which no change here can deliver. It depends on
+two open `agent-platform` records. And upstream cannot fork OpenCode sessions — its SQLite store is
+multi-tenant — which contradicts the Scope bullet that assumes it can.
+
+**Decision (2026-09-06): parked, not declined.** If it is picked up, the honest minimal first slice is
+the `mise` pin plus the herdr plugin entry plus attach visibility, with every containment claim
+explicitly deferred to `docs/issues/2026-08-18-002-sandbox-a-child-agents-filesystem-access.md`.
