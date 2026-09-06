@@ -9219,8 +9219,8 @@ TS
 # Coverage owner for the two growth numbers the context-threshold hook and the
 # statusline both read. The oracles are outside this library: transcript
 # fixtures use Claude Code's own entry shape (`type`, `compactMetadata`), and
-# the fullness percentage is compared against the statusline's existing
-# arithmetic rather than against a number restated from the library.
+# the token count is the one Claude Code publishes through the statusline
+# payload rather than a number restated from the library.
 
 context_usage_lib() {
   printf '%s' "$SOURCE_ROOT/dot_local/lib/context-usage.sh"
@@ -9301,20 +9301,26 @@ function test_scripts_2802_context_usage_turn_count_ignores_non_assistant_entrie
   assert_output '0'
 }
 
-function test_scripts_2803_context_usage_fullness_adds_the_allowance_and_caps() {
-  _bats_test_init 2803 'context-usage fullness adds the system-prompt allowance and caps at 100'
+function test_scripts_2803_context_usage_reports_tokens_and_the_bar_adds_the_allowance() {
+  _bats_test_init 2803 'context-usage reports published tokens and the bar adds the allowance'
   local state="$BATS_TEST_TMPDIR/state"
 
-  # R2. The expected value comes from the test's own inputs -- a raw occupancy
-  # and an allowance both named here -- not from the library's default, so this
-  # asserts the relationship rather than restating the constant.
-  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_PCT=17 bash -c '
+  # R2. The hook decides on the number Claude Code published, unshifted: what
+  # the statusline wrote is what comes back, so an operator's threshold means
+  # the same figure their client shows them. The allowance belongs to the bar
+  # alone, and the percentage below comes from this test's own inputs -- an
+  # occupancy, a window and an allowance all named here -- not from the
+  # library's defaults.
+  run env CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_TOKENS=170000 bash -c '
     . "$1"
     context_usage_write_usage sess-bar 372000 1000000 "$(date +%s)" || exit 1
-    context_usage_read_fullness sess-bar
+    context_usage_read_tokens sess-bar
+    printf "\n"
+    context_usage_fullness_pct 372000 1000000
   ' _ "$(context_usage_lib)"
   assert_success
-  assert_output '54'
+  assert_line --index 0 '372000'
+  assert_line --index 1 '54'
 
   # The cap holds: a nearly full window plus any allowance never exceeds 100.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
@@ -9324,8 +9330,8 @@ function test_scripts_2803_context_usage_fullness_adds_the_allowance_and_caps() 
   assert_output '100'
 }
 
-function test_scripts_2804_context_usage_fullness_degrades_to_unavailable() {
-  _bats_test_init 2804 'context-usage fullness degrades to unavailable and leaves turns computable'
+function test_scripts_2804_context_usage_tokens_degrade_to_unavailable() {
+  _bats_test_init 2804 'context-usage token reading degrades to unavailable and leaves turns computable'
   local state="$BATS_TEST_TMPDIR/state" transcript="$BATS_TEST_TMPDIR/t.jsonl"
   context_usage_fixture_transcript "$transcript" assistant assistant assistant
 
@@ -9333,7 +9339,7 @@ function test_scripts_2804_context_usage_fullness_degrades_to_unavailable() {
   # zero, and none of them stops the turn count from being computed.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
     . "$1"
-    context_usage_read_fullness never-rendered && exit 9
+    context_usage_read_tokens never-rendered && exit 9
     context_usage_turn_count "$2"
   ' _ "$(context_usage_lib)" "$transcript"
   assert_success
@@ -9344,7 +9350,7 @@ function test_scripts_2804_context_usage_fullness_degrades_to_unavailable() {
     file="$(context_usage_usage_file truncated)"
     mkdir -p "$(dirname "$file")"
     printf "current_tokens=400000\n" > "$file"
-    context_usage_read_fullness truncated && exit 9
+    context_usage_read_tokens truncated && exit 9
     context_usage_turn_count "$2"
   ' _ "$(context_usage_lib)" "$transcript"
   assert_success
@@ -9354,18 +9360,18 @@ function test_scripts_2804_context_usage_fullness_degrades_to_unavailable() {
     . "$1"
     now="$(date +%s)"
     context_usage_write_usage stale 400000 1000000 "$((now - 4000))" || exit 1
-    context_usage_read_fullness stale "$now" && exit 9
-    context_usage_read_fullness stale "$((now - 3999))"
+    context_usage_read_tokens stale "$now" && exit 9
+    context_usage_read_tokens stale "$((now - 3999))"
   ' _ "$(context_usage_lib)"
   assert_success
-  assert_output '60'
+  assert_output '400000'
 
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
     . "$1"
     file="$(context_usage_usage_file unreadable)"
     mkdir -p "$(dirname "$file")"
     printf "current_tokens=x\nwindow_size=0\nwritten_at=abc\n" > "$file"
-    context_usage_read_fullness unreadable && exit 9
+    context_usage_read_tokens unreadable && exit 9
     exit 0
   ' _ "$(context_usage_lib)"
   assert_success
@@ -9377,12 +9383,13 @@ function test_scripts_2805_context_usage_warning_budgets_are_per_dimension_and_s
 
   # Both dimensions crossing warn in one call is one crossing naming both
   # (R22), and spending it silences that level (AE4, R9).
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+  run env CONTEXT_USAGE_STATE_DIR="$state" \
+    CONTEXT_USAGE_TOKENS_WARN=100000 CONTEXT_USAGE_TOKENS_HARD=200000 bash -c '
     . "$1"
-    context_usage_evaluate both 72 160
+    context_usage_evaluate both 120000 160
     context_usage_spend both warn fullness,turns 160 "finish the unit" ok
-    context_usage_evaluate both 72 161 && exit 9
-    context_usage_evaluate both 99 400 > /dev/null || exit 9
+    context_usage_evaluate both 120000 161 && exit 9
+    context_usage_evaluate both 250000 400 > /dev/null || exit 9
     exit 0
   ' _ "$(context_usage_lib)"
   assert_success
@@ -9390,11 +9397,12 @@ function test_scripts_2805_context_usage_warning_budgets_are_per_dimension_and_s
   assert_line --index 1 'dimensions=fullness,turns'
 
   # R10: a spent fullness budget never suppresses the turn-count dimension.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+  run env CONTEXT_USAGE_STATE_DIR="$state" \
+    CONTEXT_USAGE_TOKENS_WARN=100000 CONTEXT_USAGE_TOKENS_HARD=200000 bash -c '
     . "$1"
     context_usage_spend split warn fullness 40 "finish the unit" ok
-    context_usage_evaluate split 72 40 && exit 9
-    context_usage_evaluate split 72 160
+    context_usage_evaluate split 120000 40 && exit 9
+    context_usage_evaluate split 120000 160
   ' _ "$(context_usage_lib)"
   assert_success
   assert_line --index 0 'level=warn'
@@ -9539,23 +9547,24 @@ function test_scripts_2810_context_usage_state_files_have_one_writer_each() {
   # KTD10. Both files are replaced whole by rename. Sharing one would let the
   # statusline's next render erase a budget the hook had just spent -- a bug
   # invisible to any test that stages the file by hand.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+  run env CONTEXT_USAGE_STATE_DIR="$state" \
+    CONTEXT_USAGE_TOKENS_WARN=100000 CONTEXT_USAGE_TOKENS_HARD=200000 bash -c '
     . "$1"
     now="$(date +%s)"
     context_usage_spend writers warn fullness,turns 160 "keep both writers apart" ok
     context_usage_write_usage writers 700000 1000000 "$now" || exit 1
-    context_usage_evaluate writers 90 161 > /dev/null
+    context_usage_evaluate writers 250000 161 > /dev/null
     hard_only=$?
     context_usage_goal writers
-    context_usage_read_fullness writers "$now"
+    context_usage_read_tokens writers "$now"
     printf "\n"
-    context_usage_evaluate writers 72 161 && exit 9
+    context_usage_evaluate writers 120000 161 && exit 9
     [ "$hard_only" -eq 0 ] || exit 9
     exit 0
   ' _ "$(context_usage_lib)"
   assert_success
   assert_line --index 0 'keep both writers apart'
-  assert_line --index 1 '90'
+  assert_line --index 1 '700000'
 
   # And the reverse: publishing usage again leaves the announcement file alone.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
@@ -9572,13 +9581,14 @@ function test_scripts_2811_context_usage_clear_rearms_every_budget() {
   local state="$BATS_TEST_TMPDIR/state"
 
   # R11: compaction hands the session back able to announce again.
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
+  run env CONTEXT_USAGE_STATE_DIR="$state" \
+    CONTEXT_USAGE_TOKENS_WARN=100000 bash -c '
     . "$1"
     context_usage_spend rearm warn fullness,turns 160 "before compaction" ok
-    context_usage_evaluate rearm 72 161 && exit 9
+    context_usage_evaluate rearm 120000 161 && exit 9
     context_usage_clear rearm || exit 1
     context_usage_goal_status rearm && exit 9
-    context_usage_evaluate rearm 72 161
+    context_usage_evaluate rearm 120000 161
   ' _ "$(context_usage_lib)"
   assert_success
   assert_line --index 0 'level=warn'
@@ -9591,18 +9601,18 @@ function test_scripts_2812_context_usage_thresholds_are_environment_tunable() {
 
   # KTD11, R5: all four thresholds and the allowance move without a code edit.
   run env CONTEXT_USAGE_STATE_DIR="$state" \
-    CONTEXT_USAGE_ALLOWANCE_PCT=0 \
-    CONTEXT_USAGE_FULLNESS_WARN_PCT=10 \
-    CONTEXT_USAGE_FULLNESS_HARD_PCT=12 \
+    CONTEXT_USAGE_ALLOWANCE_TOKENS=0 \
+    CONTEXT_USAGE_TOKENS_WARN=110000 \
+    CONTEXT_USAGE_TOKENS_HARD=130000 \
     CONTEXT_USAGE_TURNS_WARN=2 \
     CONTEXT_USAGE_TURNS_HARD=4 \
     bash -c '
       . "$1"
       context_usage_fullness_pct 130000 1000000
       printf "\n"
-      context_usage_evaluate tuned 11 1
+      context_usage_evaluate tuned 120000 1
       context_usage_spend tuned warn fullness 1
-      context_usage_evaluate tuned 13 1
+      context_usage_evaluate tuned 130000 1
     ' _ "$(context_usage_lib)"
   assert_success
   assert_line --index 0 '13'
@@ -9624,8 +9634,8 @@ context_usage_statusline_payload() {
         context_window_size: $window}}'
 }
 
-function test_scripts_2813_statusline_bar_and_library_report_the_same_fullness() {
-  _bats_test_init 2813 'statusline bar and the usage library report the same fullness'
+function test_scripts_2813_statusline_bar_and_library_describe_the_same_load() {
+  _bats_test_init 2813 'statusline bar and the usage library describe the same load'
   local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
   local library home="$BATS_TEST_TMPDIR/home" state="$BATS_TEST_TMPDIR/state"
   local reported with_allowance without_allowance
@@ -9633,26 +9643,27 @@ function test_scripts_2813_statusline_bar_and_library_report_the_same_fullness()
   mkdir -p "$home"
 
   # AE8, R1. The oracle is agreement between the two consumers, not a number
-  # restated from either. Render the bar once with the allowance the library
-  # owns, then render it again with the allowance forced off and a raw
-  # occupancy already equal to what the library reported. Identical bars mean
-  # the operator's bar and the announcement describe the same percentage.
+  # restated from either. The bar and the hook now speak different units, so
+  # what must agree is the load underneath them: the hook reads back exactly
+  # the occupancy the payload carried, and the bar drawn with the allowance the
+  # library owns equals the bar drawn with that allowance folded into the
+  # occupancy instead. A bar that applied its own allowance would fail this.
   run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$state" bash "$statusline" \
+    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_TOKENS=40000 bash "$statusline" \
     <<< "$(context_usage_statusline_payload agree 372000 1000000)"
   assert_success
   with_allowance="$output"
 
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_read_fullness agree
+    . "$1"; context_usage_read_tokens agree
   ' _ "$library"
   assert_success
   reported="$output"
-  assert_equal "$reported" '57'
+  assert_equal "$reported" '372000'
 
   run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$library" \
-    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_PCT=0 bash "$statusline" \
-    <<< "$(context_usage_statusline_payload mirror "${reported}0000" 1000000)"
+    CONTEXT_USAGE_STATE_DIR="$state" CONTEXT_USAGE_ALLOWANCE_TOKENS=0 bash "$statusline" \
+    <<< "$(context_usage_statusline_payload mirror "$((reported + 40000))" 1000000)"
   assert_success
   without_allowance="$output"
   assert_equal "$with_allowance" "$without_allowance"
@@ -9704,7 +9715,7 @@ function test_scripts_2814_statusline_renders_when_publishing_is_impossible() {
   assert_success
   refute_output ''
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_read_fullness nolib
+    . "$1"; context_usage_read_tokens nolib
   ' _ "$library"
   assert_failure
 
@@ -9716,7 +9727,7 @@ function test_scripts_2814_statusline_renders_when_publishing_is_impossible() {
   assert_success
   assert_output --partial '░░░░░░░░░░'
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_read_fullness empty
+    . "$1"; context_usage_read_tokens empty
   ' _ "$library"
   assert_failure
 }
@@ -9961,32 +9972,34 @@ function test_scripts_2820_context_threshold_names_the_dimension_that_crossed() 
   context_threshold_transcript "$short" 12
   mkdir -p "$BATS_TEST_TMPDIR/home"
 
-  # AE1. A long session on a nearly empty window announces on turn count, and
-  # the message says so rather than reporting a percentage nobody is worried
-  # about. This is the common case on this machine.
+  # AE1. A long session carrying little context announces on turn count, and
+  # the message says so rather than reporting a load nobody is worried about.
+  # This is the common case on this machine.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
     . "$1"; context_usage_write_usage long-session 130000 1000000 "$(date +%s)"
   ' _ "$library"
   assert_success
-  run context_threshold_run long-session "$long"
+  run context_threshold_run long-session "$long" CONTEXT_USAGE_TOKENS_WARN=140000
   assert_success
   run jq -r '.systemMessage' <<< "$output"
   assert_success
   assert_output --partial '160 turns since the last compaction'
-  refute_output --partial 'context window'
+  refute_output --partial 'context at'
   assert_output --partial '/compact handoff:'
 
   # AE2. The mirror case: a short session that pulled in several large files
-  # announces on fullness.
+  # announces on the context dimension. The window here is 1M and 160k fills
+  # 16% of it, which is the point -- the load is what the operator is told
+  # about, not the share of a window that happens to be large.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage short-session 600000 1000000 "$(date +%s)"
+    . "$1"; context_usage_write_usage short-session 160000 1000000 "$(date +%s)"
   ' _ "$library"
   assert_success
-  run context_threshold_run short-session "$short"
+  run context_threshold_run short-session "$short" CONTEXT_USAGE_TOKENS_WARN=120000
   assert_success
   run jq -r '.systemMessage' <<< "$output"
   assert_success
-  assert_output --partial 'context window 80% full'
+  assert_output --partial 'context at 160k tokens (warn at 120k)'
   refute_output --partial 'turns since the last compaction'
 }
 
@@ -10092,16 +10105,16 @@ function test_scripts_2824_context_threshold_sends_one_message_per_turn() {
   # R22. Two dimensions crossing in one turn is one message carrying one
   # command, not two announcements the operator has to reconcile.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage combined 600000 1000000 "$(date +%s)"
+    . "$1"; context_usage_write_usage combined 170000 1000000 "$(date +%s)"
   ' _ "$library"
   assert_success
   local response
-  run context_threshold_run combined "$both"
+  run context_threshold_run combined "$both" CONTEXT_USAGE_TOKENS_WARN=120000
   assert_success
   response="$output"
   run jq -r '.systemMessage' <<< "$response"
   assert_success
-  assert_output --partial '160 turns since the last compaction (warn at 150) and context window 80% full'
+  assert_output --partial '160 turns since the last compaction (warn at 150) and context at 170k tokens (warn at 120k)'
   run jq -r '[.systemMessage | scan("/compact handoff:")] | length' <<< "$response"
   assert_success
   assert_output '1'
@@ -10125,14 +10138,14 @@ function test_scripts_2825_context_threshold_warns_once_but_keeps_halting() {
 
   # R10. The spent turn-count budget does not suppress fullness.
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
-    . "$1"; context_usage_write_usage repeat 600000 1000000 "$(date +%s)"
+    . "$1"; context_usage_write_usage repeat 170000 1000000 "$(date +%s)"
   ' _ "$library"
   assert_success
-  run context_threshold_run repeat "$warn_level"
+  run context_threshold_run repeat "$warn_level" CONTEXT_USAGE_TOKENS_WARN=120000
   assert_success
   run jq -r '.systemMessage' <<< "$output"
   assert_success
-  assert_output --partial 'context window 80% full'
+  assert_output --partial 'context at 170k tokens (warn at 120k)'
   refute_output --partial 'turns since the last compaction'
 
   # AE12, R25. Held above the hard threshold the session is told again, and
@@ -10440,7 +10453,7 @@ function test_scripts_2834_handoff_injector_rearms_the_announcement_budgets() {
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
     . "$1"
     context_usage_spend rearmed warn fullness,turns 160 "before compaction" ok
-    context_usage_evaluate rearmed 72 161 && exit 9
+    context_usage_evaluate rearmed 160000 161 && exit 9
     exit 0
   ' _ "$library"
   assert_success
@@ -10452,7 +10465,7 @@ function test_scripts_2834_handoff_injector_rearms_the_announcement_budgets() {
   run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '
     . "$1"
     context_usage_goal_status rearmed && exit 9
-    context_usage_evaluate rearmed 72 161
+    context_usage_evaluate rearmed 160000 161
   ' _ "$library"
   assert_success
   assert_line --index 0 'level=warn'
@@ -10462,7 +10475,7 @@ function test_scripts_2834_handoff_injector_rearms_the_announcement_budgets() {
 # --- review follow-ups -----------------------------------------------------
 
 function test_scripts_2835_context_threshold_keeps_dimensions_independent_under_damage() {
-  _bats_test_init 2835 'context threshold keeps the fullness dimension when the transcript will not parse'
+  _bats_test_init 2835 'context threshold keeps the context dimension when the transcript will not parse'
   local damaged="$BATS_TEST_TMPDIR/damaged.jsonl" library
   library="$(context_usage_lib)"
   mkdir -p "$BATS_TEST_TMPDIR/home"
@@ -10486,7 +10499,7 @@ function test_scripts_2835_context_threshold_keeps_dimensions_independent_under_
   assert_success
   run jq -r '.systemMessage' <<< "$response"
   assert_success
-  assert_output --partial 'context window'
+  assert_output --partial 'context at 900k tokens'
   refute_output --partial 'turns since the last compaction'
 }
 
@@ -10504,18 +10517,18 @@ function test_scripts_2836_context_threshold_reports_both_levels_in_one_message(
     . "$1"; context_usage_write_usage mixed 700000 1000000 "$(date +%s)"
   ' _ "$library"
   assert_success
-  run context_threshold_run mixed "$long"
+  run context_threshold_run mixed "$long" CONTEXT_USAGE_TOKENS_HARD=200000
   assert_success
   local response="$output"
   run jq -r '.systemMessage' <<< "$response"
   assert_success
   assert_output --partial '160 turns since the last compaction (warn at 150)'
-  assert_output --partial 'context window 90% full (limit 85%)'
+  assert_output --partial 'context at 700k tokens (limit 200k)'
   run jq -e '.continue == false' <<< "$response"
   assert_success
 
   # Both budgets are spent, so the next turn at the same levels says nothing.
-  run context_threshold_run mixed "$long"
+  run context_threshold_run mixed "$long" CONTEXT_USAGE_TOKENS_HARD=200000
   assert_success
   assert_output ''
 }
@@ -10562,7 +10575,7 @@ function test_scripts_2838_context_threshold_fails_open_when_it_cannot_remember(
 }
 
 function test_scripts_2839_handoff_injector_drops_the_emptied_window_reading() {
-  _bats_test_init 2839 'handoff injector drops the fullness reading for the window compaction emptied'
+  _bats_test_init 2839 'handoff injector drops the token reading for the window compaction emptied'
   local library state="$BATS_TEST_TMPDIR/state"
   library="$(context_usage_lib)"
   mkdir -p "$BATS_TEST_TMPDIR/home"
@@ -10574,13 +10587,13 @@ function test_scripts_2839_handoff_injector_drops_the_emptied_window_reading() {
     . "$1"; context_usage_write_usage emptied 900000 1000000 "$(date +%s)"
   ' _ "$library"
   assert_success
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_fullness emptied' _ "$library"
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_tokens emptied' _ "$library"
   assert_success
-  assert_output '100'
+  assert_output '900000'
 
   run handoff_session_start_run emptied compact
   assert_success
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_fullness emptied' _ "$library"
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_tokens emptied' _ "$library"
   assert_failure
 
   # A start that is not a compaction leaves the reading alone.
@@ -10590,9 +10603,9 @@ function test_scripts_2839_handoff_injector_drops_the_emptied_window_reading() {
   assert_success
   run handoff_session_start_run kept startup
   assert_success
-  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_fullness kept' _ "$library"
+  run env CONTEXT_USAGE_STATE_DIR="$state" bash -c '. "$1"; context_usage_read_tokens kept' _ "$library"
   assert_success
-  assert_output '100'
+  assert_output '900000'
 }
 
 function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() {

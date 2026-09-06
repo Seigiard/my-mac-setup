@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Context growth measurement shared by the Claude Code statusline and the
-# context-threshold Stop hook. One owner for both growth numbers: window
-# fullness and turns since the last compaction (R1).
+# context-threshold Stop hook. One owner for both growth numbers: the context
+# load in tokens and turns since the last compaction (R1).
 #
 # Sourcing this file must have no effect beyond defining these functions and
 # their defaults — no output, no shell-option or trap changes, no redefinition
@@ -19,15 +19,33 @@
 # must not abort here. Every path built from it is guarded at use.
 CONTEXT_USAGE_STATE_DIR="${CONTEXT_USAGE_STATE_DIR:-${HOME:-}/.cache/context-usage}"
 
-# Percentage points added to raw window occupancy to stand in for the system
-# prompt, which Claude Code does not report (R2). Empirical; one definition
-# serves the bar and the announcement alike.
-CONTEXT_USAGE_ALLOWANCE_PCT="${CONTEXT_USAGE_ALLOWANCE_PCT:-20}"
+# Tokens added to the occupancy Claude Code reports, standing in for the
+# system prompt, which it does not report (R2). Absolute rather than a share
+# of the window: the system prompt is a fixed cost, so a percentage grew it
+# with the window -- 40k tokens against 200k, 200k against 1M.
+#
+# The bar is its only consumer. The announcement compares thresholds against
+# the number Claude Code itself reports, so an operator setting a threshold
+# writes the same figure the client shows rather than one shifted by an
+# allowance they cannot see.
+CONTEXT_USAGE_ALLOWANCE_TOKENS="${CONTEXT_USAGE_ALLOWANCE_TOKENS:-40000}"
+case "$CONTEXT_USAGE_ALLOWANCE_TOKENS" in
+  '' | *[!0-9]*) CONTEXT_USAGE_ALLOWANCE_TOKENS=40000 ;;
+esac
 
-# Thresholds (R5). Turn counts come from the U1 re-derivation of the local
-# session-length distribution under the rule this library evaluates.
-CONTEXT_USAGE_FULLNESS_WARN_PCT="${CONTEXT_USAGE_FULLNESS_WARN_PCT:-70}"
-CONTEXT_USAGE_FULLNESS_HARD_PCT="${CONTEXT_USAGE_FULLNESS_HARD_PCT:-85}"
+# Thresholds (R5). The context dimension counts tokens, not a share of the
+# window: what degrades a session is the amount of context it carries, and
+# that amount does not change when the same work runs against a 1M window
+# instead of a 200k one. A share of the window put the announcement at 650k
+# tokens on a 1M model, long past the point the operator wanted it.
+#
+# Against a 200k window the hard threshold lands at 95%, too late to act on;
+# the warning at 75% and the turn count still cover that case, which is why
+# there is no second, window-relative ceiling here. Turn counts come from the
+# U1 re-derivation of the local session-length distribution under the rule
+# this library evaluates.
+CONTEXT_USAGE_TOKENS_WARN="${CONTEXT_USAGE_TOKENS_WARN:-150000}"
+CONTEXT_USAGE_TOKENS_HARD="${CONTEXT_USAGE_TOKENS_HARD:-190000}"
 CONTEXT_USAGE_TURNS_WARN="${CONTEXT_USAGE_TURNS_WARN:-150}"
 CONTEXT_USAGE_TURNS_HARD="${CONTEXT_USAGE_TURNS_HARD:-300}"
 
@@ -57,11 +75,11 @@ case "$CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES" in
   '' | *[!0-9]* | 0) CONTEXT_USAGE_EXTRACTION_BUDGET_BYTES=120000 ;;
 esac
 
-# A rendered fullness number is trusted only while it can still describe the
+# A published token count is trusted only while it can still describe the
 # current turn (KTD3). The statusline renders many times per turn, so an older
 # file means rendering stopped — a resumed session before its first render, or
-# a turn that outran the UI. Fullness then reports unavailable and turn count
-# carries the decision alone.
+# a turn that outran the UI. The context dimension then reports unavailable and
+# turn count carries the decision alone.
 CONTEXT_USAGE_MAX_AGE_SECONDS="${CONTEXT_USAGE_MAX_AGE_SECONDS:-300}"
 
 # Hard-threshold repeat cadence (R25, KTD12). The gap halves for every step of
@@ -69,7 +87,7 @@ CONTEXT_USAGE_MAX_AGE_SECONDS="${CONTEXT_USAGE_MAX_AGE_SECONDS:-300}"
 # current distance rather than from a stored counter, so a resume or a fork
 # cannot carry a stale cadence.
 CONTEXT_USAGE_REPEAT_FIRST_GAP="${CONTEXT_USAGE_REPEAT_FIRST_GAP:-8}"
-CONTEXT_USAGE_FULLNESS_REPEAT_STEP="${CONTEXT_USAGE_FULLNESS_REPEAT_STEP:-3}"
+CONTEXT_USAGE_TOKENS_REPEAT_STEP="${CONTEXT_USAGE_TOKENS_REPEAT_STEP:-10000}"
 CONTEXT_USAGE_TURNS_REPEAT_STEP="${CONTEXT_USAGE_TURNS_REPEAT_STEP:-25}"
 
 context_usage_encode_key() {
@@ -163,22 +181,27 @@ window_size=$window
 written_at=$now"
 }
 
-# Raw occupancy plus the system-prompt allowance, capped at 100. The bar and
-# the announcement both come through here so they cannot disagree (R1, R2).
+# The operator's bar: occupancy plus the allowance, as a share of the window,
+# capped at 100. Presentation only -- the announcement decides on the tokens
+# themselves. Both come through this library so they cannot disagree about
+# either input (R1, R2); this is the only place a percentage is formed.
 context_usage_fullness_pct() {
   local current="$1" window="$2" pct
   case "$current" in '' | *[!0-9]*) return 1 ;; esac
   case "$window" in '' | *[!0-9]* | 0) return 1 ;; esac
-  pct=$((current * 100 / window + CONTEXT_USAGE_ALLOWANCE_PCT))
+  pct=$(((current + CONTEXT_USAGE_ALLOWANCE_TOKENS) * 100 / window))
   [ "$pct" -gt 100 ] && pct=100
   printf '%s' "$pct"
 }
 
 # --- the hook's side -------------------------------------------------------
 
-# Print the session's fullness percentage, or return 1 for "unavailable".
-# Unavailable never degrades to a guess and never silences turn count (KTD3).
-context_usage_read_fullness() {
+# Print the session's context load in tokens as Claude Code reported it, or
+# return 1 for "unavailable". Unavailable never degrades to a guess and never
+# silences turn count (KTD3). `window_size` is validated but not used: a record
+# missing it is a partial write, and trusting the rest of such a record is how
+# a wrong number reaches the announcement.
+context_usage_read_tokens() {
   local session="$1" now="${2:-}" file current window written age
   file="$(context_usage_usage_file "$session")" || return 1
   current="$(context_usage_number_field "$file" current_tokens)" || return 1
@@ -189,7 +212,7 @@ context_usage_read_fullness() {
   age=$((now - written))
   [ "$age" -ge 0 ] || return 1
   [ "$age" -le "$CONTEXT_USAGE_MAX_AGE_SECONDS" ] || return 1
-  context_usage_fullness_pct "$current" "$window"
+  printf '%s' "$current"
 }
 
 # Assistant entries in the main transcript after the last compaction boundary
@@ -228,20 +251,20 @@ context_usage_repeat_gap() {
 # Decide what, if anything, to announce this turn. Read-only: spending the
 # budget is a separate call so the announcement file keeps one writer.
 #
-# Usage: context_usage_evaluate <session> <fullness|""> <turns>
+# Usage: context_usage_evaluate <session> <tokens|""> <turns>
 # Prints `level=<warn|hard>` and `dimensions=<comma list>` and returns 0 when
 # there is something to announce; returns 1 when there is not.
 context_usage_evaluate() {
-  local session="$1" fullness="$2" turns="$3"
+  local session="$1" tokens="$2" turns="$3"
   local file hard="" warn="" last gap
   file="$(context_usage_announce_file "$session")" || return 1
   case "$turns" in '' | *[!0-9]*) turns=0 ;; esac
 
   # Hard level first: it outranks warn and, per R22, consumes the warn budget
   # for the same dimension rather than producing a second message.
-  if [ -n "$fullness" ] && [ "$fullness" -ge "$CONTEXT_USAGE_FULLNESS_HARD_PCT" ]; then
+  if [ -n "$tokens" ] && [ "$tokens" -ge "$CONTEXT_USAGE_TOKENS_HARD" ]; then
     gap="$(context_usage_repeat_gap \
-      "$((fullness - CONTEXT_USAGE_FULLNESS_HARD_PCT))" "$CONTEXT_USAGE_FULLNESS_REPEAT_STEP")"
+      "$((tokens - CONTEXT_USAGE_TOKENS_HARD))" "$CONTEXT_USAGE_TOKENS_REPEAT_STEP")"
     if last="$(context_usage_number_field "$file" hard_fullness_turn)"; then
       if [ "$((turns - last))" -ge "$gap" ]; then
         hard="fullness"
@@ -263,7 +286,7 @@ context_usage_evaluate() {
   fi
   # Warn level: once per session per dimension (R9), and one dimension having
   # spent its budget never suppresses the other (R10).
-  if [ -n "$fullness" ] && [ "$fullness" -ge "$CONTEXT_USAGE_FULLNESS_WARN_PCT" ] &&
+  if [ -n "$tokens" ] && [ "$tokens" -ge "$CONTEXT_USAGE_TOKENS_WARN" ] &&
     ! context_usage_field "$file" warn_fullness_spent > /dev/null; then
     warn="fullness"
   fi
