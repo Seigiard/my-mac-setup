@@ -78,35 +78,6 @@ function opencodeRawFor(fixture: any): any | undefined {
 // --- scenario 1: the handler contract ---------------------------------------
 
 describe("tool.execute.before deny and allow (R3)", () => {
-  test("a known-bad edit is denied with the policy's prefixed reason", async () => {
-    // #given the shipped known-bad oracle fixture in opencode's wire shape
-    const fixture = corpus
-      .policyFixtures("test-oracle-guard")
-      .find((candidate: any) => candidate.name === "oracle/flags negative assertion in test file");
-    const host = await loadPlugin(CORE_DIR);
-
-    // #when the handler sees it
-    const thrown = await callBefore(host, opencodeRawFor(fixture));
-
-    // #then the deny carries the policy's own reason, verbatim
-    expect(thrown).toBe(fixture.text);
-    expect(thrown?.startsWith("test-oracle-guard:")).toBe(true);
-  });
-
-  test("the valid control differing only in assertion direction is not denied", async () => {
-    // #given the same test file with positive assertions instead
-    const fixture = corpus
-      .policyFixtures("test-oracle-guard")
-      .find((candidate: any) => candidate.name === "oracle/positive assertions pass untouched");
-    const host = await loadPlugin(CORE_DIR);
-
-    // #when the handler sees it
-    const thrown = await callBefore(host, opencodeRawFor(fixture));
-
-    // #then nothing is thrown
-    expect(thrown).toBeUndefined();
-  });
-
   test("a bash command assigning a reserved zsh name is denied, its renamed control is not", async () => {
     // #given two commands that differ only in the variable name
     const denied = corpus
@@ -223,22 +194,6 @@ describe("opencode arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     // Both branches must have been reached, or the loop above proves nothing.
     expect(denials).toBeGreaterThan(0);
     expect(clearances).toBeGreaterThan(0);
-  });
-
-  test("filePath and newString are the fields the edit dialect is read from", async () => {
-    // #given opencode's own edit wire shape for a known-bad replacement
-    const fixture = corpus.fixture("single edit replacement");
-    const host = await loadPlugin(CORE_DIR);
-
-    // #when it arrives with file_path/newString exactly as opencode sends it
-    const thrown = await callBefore(host, {
-      tool: "edit",
-      args: { filePath: "tests/bashunit/smoke_test.sh", newString: 'assert_not_contains "$out" "gone"' },
-    });
-
-    // #then the content policy saw the replacement text
-    expect(thrown?.startsWith("test-oracle-guard:")).toBe(true);
-    expect(fixture.raw.opencode).toBeDefined();
   });
 
   test("the fff route opencode exposes decides like Claude's", async () => {

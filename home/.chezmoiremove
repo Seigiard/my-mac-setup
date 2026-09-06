@@ -65,3 +65,9 @@ Library/marta
 # reach.
 .claude/hooks/context-threshold.sh
 .cache/context-usage
+
+# The tautology check moved off the write path: catching a test whose expected
+# value came from the same patch needs the diff, which a stateless policy core
+# cannot see, so the review pass owns the class instead. The core kept only the
+# negative-assertion half, which was not worth a gate on every test write.
+.local/lib/agent-hooks/policies/test-oracle-guard.ts

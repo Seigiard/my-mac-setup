@@ -53,10 +53,10 @@ and pi enforces none.
   to `edit`), so both spellings can coexist and the profile stays correct
   whichever provider is selected.
 - Teach the core's pi reader `exec_command`'s `input.cmd` alongside
-  `input.command`, and decide what `apply_patch` offers as content: its payload
-  is a unified patch envelope, not a `path` plus `edits[].newText`, so
-  test-oracle-guard needs either a patch parser or an explicit
-  evidence-backed statement that the policy does not cover apply_patch edits.
+  `input.command`. The `apply_patch` half is no longer urgent: `test-oracle-guard`
+  was the only policy on `edit`/`write` and was retired (`2026-09-02-011`), so no
+  shipped policy currently reads edit content on any client. Map `apply_patch`
+  only when a policy needs it, and decide the patch-envelope parsing then.
 - Extend `tests/agent-hooks-pi-adapter.test.ts` with the codex dialect beside
   the builtin one, and add the wire shapes to
   `home/dot_local/lib/agent-hooks/fixtures.ts` so the corpus keeps stating what
@@ -70,9 +70,10 @@ and pi enforces none.
   notion of provider-conditional tool surfaces. A single profile listing both
   spellings is the smaller change and matches KTD6's "no field the code does not
   consume"; a provider dimension would be new machinery for one observed case.
-- Whether apply_patch edits are in scope for test-oracle-guard at all. Declining
-  is defensible, but it must be recorded as evidence-backed inapplicability
-  rather than left as an unmapped tool.
+- Whether `apply_patch` needs a mapping while no policy watches `edit`/`write`.
+  Leaving it unmapped is defensible now that `test-oracle-guard` is retired, but
+  it must be recorded as evidence-backed inapplicability rather than left as a
+  silently unmapped tool.
 
 ## Confirmed live (2026-09-06)
 

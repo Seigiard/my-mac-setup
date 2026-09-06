@@ -1,12 +1,13 @@
 ---
 title: "test-oracle-guard misses positive tautological tests"
-short_description: "The shared test-oracle-guard policy, now home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts in the agent-hooks dispatch core, denies only negative-assertion patterns, leaving positive tests whose expected values come from the same patch unflagged in every client; the repository-wide audit in this record falsified the incident originally cited and rejected the oracle:-comment mechanism, so what stays open is whether the policy gains a diff-aware positive check at all, given it would need patch state the stateless core lacks."
+short_description: "Retired: the write-path policy caught only negative assertions, and the positive form needs the other side of the diff that the pure, stateless policy core cannot see, so the gate was deleted and the tautology class moved to the review pass under 2026-09-06-007."
 type: "follow-up"
 category: "testing-ci"
 tags: ["test-oracle","hooks"]
 date: "2026-09-02"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-06"
 ---
 
 ## Why this exists
@@ -107,3 +108,7 @@ change, not a fix. Reading the working tree makes the gate's verdict depend on
 whether the source change is still uncommitted, so in a repository that commits
 per unit — the convention here — the same test edit is flagged or cleared
 depending only on commit timing. That is the tradeoff the open decision turns on.
+
+## Resolution
+
+Resolved by retiring the gate rather than extending it. The policy home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts is deleted, unregistered from policies/index.ts, dropped from the shared fixture corpus, and its deployed path added to home/.chezmoiremove. A diff-aware positive check was rejected on three grounds: the record's own audit showed the proposed oracle:-per-test mechanism would have caught neither confirmed HIGH failure; the required capability breaks the documented pure, no-I/O contract on Policy.evaluate in types.ts rather than extending it; and a working-tree read makes the verdict depend on commit timing, which in a repository that commits per unit is worse than no gate. The tautology class moves to the review pass, where the whole diff is already available - tracked as 2026-09-06-007. Between removal and that replacement, the class is unenforced by machine, which is accepted.

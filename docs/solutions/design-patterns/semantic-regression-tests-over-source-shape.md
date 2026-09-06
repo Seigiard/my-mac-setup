@@ -96,19 +96,17 @@ Use the smallest canonical `make` target that covers the changed contract. A can
 
 For managed files under `home/`, `make test-ubuntu` applies the checkout inside a disposable environment. `make test-suite` is host-safe by design and observes the already-deployed home directory, so it cannot prove an unapplied managed-file change.
 
-**The negative-assertion case is now mechanized.** `home/dot_local/lib/agent-hooks/policies/test-oracle-guard.ts`
-is a deployed gate — one policy in the shared dispatch core, reached from the Claude Code, OpenCode
-and Pi adapters — that inspects proposed edits to test files and flags assertions of *absence*,
-because those usually restate the patch that removed a string instead of protecting behavior. Its
-header names this document as the standard it enforces. The escape hatch is an `oracle:` comment on the
-flagged line or within the three lines above it, naming the independent oracle; the gate fails open so a broken guard
-never blocks an agent. Its behavioral coverage is `tests/agent-hooks-core.test.ts`. A known gap is open:
-`docs/issues/2026-09-02-011-test-oracle-guard-misses-positive-tautological-tests.md` — the guard
-catches tautological *negative* assertions but not tautological positive ones. Do not read that as a
-queued extension: the issue has since rejected an `oracle:`-comment-per-new-test rule on blast-radius
-grounds, and shown it is not implementable on an `Edit`, where the policy sees a replacement fragment
-with no reliable function boundary and no second side of the patch. What stays open is narrower —
-whether the policy gains a diff-aware positive check at all.
+**The write-path gate for this standard was retired, deliberately.** A deployed policy in the shared
+dispatch core (`test-oracle-guard`) used to inspect proposed edits to test files and flag assertions
+of *absence*, on every write, in Claude Code, OpenCode and Pi alike. It caught only half the class.
+The tautology that actually costs you — a *positive* assertion whose expected value came from the
+same patch — needs the second side of the diff, and the policy core is pure and stateless by
+contract (`home/dot_local/lib/agent-hooks/types.ts`), so it never had one. Retiring it removed a gate
+that fired on the shape it could see rather than the property that matters.
+
+The class now belongs to the review pass, which reads the whole diff and can compare the two sides.
+Until the reviewer-side check ships, this document plus `CLAUDE.md` are the only enforcement, and
+that is a known, accepted gap rather than an oversight.
 
 Dependency presence is not command reachability. Verify required binaries from the exact process that runs the gate. A package declaration, a successful installer log, or a `shellenv` export in an earlier subprocess does not prove that a later CI step can resolve the command.
 

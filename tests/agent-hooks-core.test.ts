@@ -609,7 +609,6 @@ describe("selfcheck report", () => {
 
 const SHIPPED_POLICIES = [
   "fff-grep-guard",
-  "test-oracle-guard",
   "webfetch-markdown-hint",
   "zsh-reserved-name-guard",
 ];
@@ -632,12 +631,12 @@ function dispatchFixture(fixture: any): any[] {
 }
 
 describe("ported policy corpus (KTD3)", () => {
-  test("the four shipped policies are registered", () => {
+  test("the three shipped policies are registered", () => {
     // #given the deployed registry
     // #when its policy names are read
     const names = core.CORE_REGISTRY.policies.map((policy: any) => policy.name).sort();
 
-    // #then the four tool-call policies in scope are all present
+    // #then the three tool-call policies in scope are all present
     expect(names).toEqual(SHIPPED_POLICIES);
   });
 
@@ -660,9 +659,8 @@ describe("ported policy corpus (KTD3)", () => {
 
 describe("escape hatches (KTD3)", () => {
   test("removing the escape token flips each escaped fixture to a deny", () => {
-    // #given the two fixtures the corpus expects to pass only because they are escaped
+    // #given the fixture the corpus expects to pass only because it is escaped
     const escaped = [
-      { fixture: corpus.fixture, name: "oracle/oracle comment within three lines passes", field: "content", token: "oracle:" },
       { fixture: corpus.fixture, name: "zsh/zsh-ok comment releases the command", field: "command", token: "zsh-ok:" },
     ];
 
@@ -759,9 +757,6 @@ describe("selfcheck canary over the shipped registry (R8)", () => {
     expect(results.map((result: any) => `${result.policy}@${result.client}`).sort()).toEqual([
       "fff-grep-guard@claude",
       "fff-grep-guard@opencode",
-      "test-oracle-guard@claude",
-      "test-oracle-guard@opencode",
-      "test-oracle-guard@pi",
       "zsh-reserved-name-guard@claude",
       "zsh-reserved-name-guard@opencode",
       "zsh-reserved-name-guard@pi",

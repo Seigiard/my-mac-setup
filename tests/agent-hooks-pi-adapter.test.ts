@@ -115,24 +115,6 @@ describe("tool_call deny and allow (R3)", () => {
     expect(decision).toBeUndefined();
   });
 
-  test("a known-bad write is denied and its positive-assertion control is not", async () => {
-    // #given two test-file bodies that differ only in assertion direction
-    const denied = policyFixture(
-      "test-oracle-guard",
-      "oracle/flags negative assertion in test file",
-    );
-    const allowed = policyFixture("test-oracle-guard", "oracle/positive assertions pass untouched");
-    const host = await loadExtension(CORE_DIR);
-
-    // #when both reach the handler
-    const deniedDecision = await callToolCall(host, piRawFor(denied));
-    const allowedDecision = await callToolCall(host, piRawFor(allowed));
-
-    // #then only the unjustified negative assertion is refused
-    expect(deniedDecision).toEqual({ block: true, reason: denied.text });
-    expect(allowedDecision).toBeUndefined();
-  });
-
   test("a tool pi's profile does not map is left alone", async () => {
     // #given the known-bad command arriving under a spelling outside the profile
     const fixture = policyFixture("zsh-reserved-name-guard", "zsh/blocks status");
@@ -195,48 +177,6 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     expect(clearances).toBeGreaterThan(0);
   });
 
-  test("path and edits[].newText are the fields the edit dialect is read from", async () => {
-    // #given pi's own edit wire shape, written out rather than encoded, for a
-    // replacement that drops an unjustified negative assertion into a test file
-    const host = await loadExtension(CORE_DIR);
-
-    // #when it arrives exactly as pi sends an edit call
-    const decision = await callToolCall(host, {
-      toolName: "edit",
-      input: {
-        path: "tests/bashunit/smoke_test.sh",
-        edits: [
-          // oracle: policy input, not an assertion — this string is the thing
-          // test-oracle-guard must flag, and the deny below is the oracle.
-          { oldText: "true", newText: 'assert_not_contains "$out" "retired"' },
-          { oldText: "false", newText: "still fine" },
-        ],
-      },
-    });
-
-    // #then the content policy saw the replacement text under newText
-    expect(decision?.block).toBe(true);
-    expect(decision?.reason?.startsWith("test-oracle-guard:")).toBe(true);
-  });
-
-  test("content is the field a full-file write is read from", async () => {
-    // #given a known-bad body in pi's write wire shape, whose fields are named
-    // here rather than produced by the encoder the handler shares
-    const fixture = policyFixture(
-      "test-oracle-guard",
-      "oracle/flags negative assertion in test file",
-    );
-    const host = await loadExtension(CORE_DIR);
-
-    // #when it arrives as pi sends a write call, with no edits array at all
-    const decision = await callToolCall(host, {
-      toolName: "write",
-      input: { path: fixture.payload.filePath, content: fixture.payload.content },
-    });
-
-    // #then the full-file text was read from content
-    expect(decision).toEqual({ block: true, reason: fixture.text });
-  });
 });
 
 // --- scenario 3: fail-open by absence ---------------------------------------

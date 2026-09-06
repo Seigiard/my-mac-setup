@@ -136,17 +136,6 @@ export type PolicyFixture = {
   text?: string;
 };
 
-const ORACLE_ADVICE =
-  'An absence assertion usually restates the patch that removed the string instead of protecting behavior. Before keeping it, name three things: the consumer, the observable failure, and an oracle independent of the files this patch changes. Prefer testing the capability that remains, or the real deployment/runtime transition that clears stale state. If this negative assertion is genuinely load-bearing, add a comment naming the oracle (the comment must contain "oracle:") on the line above it and retry.';
-
-function oracleReason(path: string, lines: string[]): string {
-  return [
-    `test-oracle-guard: negative assertion(s) without a named oracle in ${path}:`,
-    ...lines,
-    ORACLE_ADVICE,
-  ].join("\n");
-}
-
 const ZSH_READONLY_SENTENCE =
   "readonly. The assignment fails AND leaves $? at 1, so a following `exit $status` or `FINAL_EXIT:$status` marker reports a fabricated failure for a command that actually succeeded.";
 const ZSH_TIED_SENTENCE =
@@ -168,104 +157,6 @@ export const WEBFETCH_HINT_TEXT =
   "Reminder: /markdown-new returns cleaner markdown for this URL, needs no API key, and handles JS-heavy pages that WebFetch renders as an empty shell. Keep WebFetch only if the skill already failed on this page or the content is plain HTML.";
 
 export const POLICY_FIXTURES: PolicyFixture[] = [
-  // oracle_guard_test.sh 001
-  {
-    name: "oracle/non-test file passes even with negative assertion",
-    policy: "test-oracle-guard",
-    tool: "write",
-    payload: { filePath: "src/deploy.sh", content: 'assert_not_contains "$output" "worktrunk"' },
-    verdict: "allow",
-  },
-  // oracle_guard_test.sh 002
-  {
-    name: "oracle/flags negative assertion in test file",
-    policy: "test-oracle-guard",
-    tool: "write",
-    payload: {
-      filePath: "tests/bashunit/smoke_test.sh",
-      content: 'assert_not_contains "$palette" "worktrunk"',
-    },
-    verdict: "block",
-    text: oracleReason("tests/bashunit/smoke_test.sh", [
-      '  line 1: assert_not_contains "$palette" "worktrunk"',
-    ]),
-  },
-  // oracle_guard_test.sh 003
-  {
-    name: "oracle/oracle comment within three lines passes",
-    policy: "test-oracle-guard",
-    tool: "edit",
-    payload: {
-      filePath: "tests/bashunit/smoke_test.sh",
-      content:
-        '# oracle: deployed uninstall boundary, seeded stale plugin\nassert_not_contains "$active_plugins" "legacy-tool"',
-    },
-    verdict: "allow",
-  },
-  // oracle_guard_test.sh 004
-  {
-    name: "oracle/oracle comment farther than three lines does not cover",
-    policy: "test-oracle-guard",
-    tool: "edit",
-    payload: {
-      filePath: "tests/bashunit/smoke_test.sh",
-      content:
-        '# oracle: too far away to count\nline two\nline three\nline four\nassert_not_contains "$palette" "worktrunk"',
-    },
-    verdict: "block",
-    text: oracleReason("tests/bashunit/smoke_test.sh", [
-      '  line 5: assert_not_contains "$palette" "worktrunk"',
-    ]),
-  },
-  // oracle_guard_test.sh 005
-  {
-    name: "oracle/positive assertions pass untouched",
-    policy: "test-oracle-guard",
-    tool: "write",
-    payload: {
-      filePath: "tests/bashunit/smoke_test.sh",
-      content:
-        'assert_file_contains "$HOME/.zshrc" "starship init"\nassert_success\nassert_output --partial "applied"',
-    },
-    verdict: "allow",
-  },
-  // oracle_guard_test.sh 006
-  {
-    name: "oracle/missing path fails open",
-    policy: "test-oracle-guard",
-    tool: "write",
-    payload: { content: 'assert_not_contains "$palette" "worktrunk"' },
-    verdict: "allow",
-  },
-  // Basename branch of the path rule, which the bashunit suite reaches only
-  // through directory patterns.
-  {
-    name: "oracle/basename test suffix is enough",
-    policy: "test-oracle-guard",
-    tool: "edit",
-    payload: {
-      filePath: "src/util_test.ts",
-      content: 'expect(rendered).not.toContain("legacy-flag");',
-    },
-    verdict: "block",
-    text: oracleReason("src/util_test.ts", [
-      '  line 1: expect(rendered).not.toContain("legacy-flag");',
-    ]),
-  },
-  {
-    name: "oracle/every flagged line is listed",
-    policy: "test-oracle-guard",
-    tool: "edit",
-    payload: {
-      filePath: "src/util.spec.ts",
-      content: 'refute_match "$out" "gone"\nassert_not_matches "$out" "gone"',
-    },
-    verdict: "block",
-    text: oracleReason("src/util.spec.ts", [
-      '  line 1: refute_match "$out" "gone"',
-      '  line 2: assert_not_matches "$out" "gone"',
-    ]),
-  },
   // zsh_reserved_name_guard_test.sh 001
   {
     name: "zsh/flags the status capture idiom",
