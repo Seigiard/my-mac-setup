@@ -198,24 +198,41 @@ flowchart TB
   RENAME --> LABEL[Label workspace -- R7]
 ```
 
-**Outcome state machine.** Only `complete`, `workspace-only`, and `declined` are terminal. Every other state re-enters `pending` on the next naming event, which is how R10 holds structurally rather than by convention.
+**Outcome state machine.** Only `complete`, `workspace-only`, and `declined` are terminal. Every other
+state is re-attempted on the next naming event, which is how R10 holds structurally rather than by
+convention.
+
+Reconciled against the shipped engine on 2026-09-06 and now enforced rather than documented: the
+whitelist is `HERDR_WORKTREE_IDENTITY_OUTCOMES` in `home/dot_local/lib/herdr-worktree-state.sh`, and
+`write_identity_state` refuses anything outside it. Three corrections against the chart this replaces.
+Outcome names are hyphenated in the engine, so this diagram spells them the same way and uses `state
+"name" as id` for the ones mermaid cannot take as bare ids. `workspace-prepared` and `branch-failed`
+are real states the engine writes and the earlier chart omitted. `pending` is not a state: no write
+site produces it, and what it stood for is the absence of an outcome, drawn here as the initial
+transition. `contended` is diagnostic evidence, not an outcome, and left out for that reason.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> pending
-  pending --> contended: claim exhausted
-  contended --> pending: next naming event
-  pending --> unresolved: session did not resolve to a worktree
-  unresolved --> pending: next naming event
-  pending --> prepared: candidate chosen, about to mutate
+  state "attribution-failed" as attribution_failed
+  state "workspace-prepared" as workspace_prepared
+  state "workspace-failed" as workspace_failed
+  state "workspace-only" as workspace_only
+  state "branch-failed" as branch_failed
+
+  [*] --> unresolved: session did not resolve to a worktree
+  [*] --> prepared: candidate chosen, about to mutate
+  [*] --> declined: marker missing or mismatched
+  [*] --> workspace_only: branch ineligible, workspace labeled
+  unresolved --> prepared: next naming event resolves the worktree
+  prepared --> branch_failed: branch rename failed
+  branch_failed --> prepared: next naming event retries the rename
   prepared --> attribution_failed: rename ok, attribution write failed
-  attribution_failed --> pending: next naming event rewrites attribution
-  prepared --> complete: rename ok, attribution and workspace written
-  prepared --> workspace_failed: rename ok, workspace write failed
+  attribution_failed --> prepared: next naming event rewrites attribution
+  prepared --> workspace_prepared: about to rename the workspace
+  workspace_prepared --> complete: rename ok, attribution and workspace written
+  workspace_prepared --> workspace_failed: workspace rename failed
   workspace_failed --> complete: next naming event relabels
   complete --> workspace_only: agent reverted the rename -- AE3
-  pending --> workspace_only: branch ineligible, workspace labeled
-  pending --> declined: marker missing or mismatched
   complete --> [*]
   workspace_only --> [*]
   declined --> [*]
@@ -318,7 +335,7 @@ U1 and U2 build the foundation. U3, U4, and U5 are the behavior and depend on U2
   3. Re-read the branch, upstream, and checkout identity immediately before mutating; abort if any changed since the check.
   4. Record `prepared` with the chosen candidate before `git branch -m`, so an interrupted run is recoverable rather than ambiguous.
   5. Write attribution to the marker (appended below line 1) and to the renamed branch's git description (KTD5).
-  6. Retry both attribution writes when either fails after the ref has already moved. When they still fail, record the non-terminal `attribution_failed` state plus a diagnostic so a later naming event rewrites attribution rather than leaving a renamed branch that reads as an accident (R5).
+  6. Retry both attribution writes when either fails after the ref has already moved. When they still fail, record the non-terminal `attribution-failed` state plus a diagnostic so a later naming event rewrites attribution rather than leaving a renamed branch that reads as an accident (R5).
   7. Skip all ref mutation when the branch has an upstream or no longer matches the recorded original branch (R6).
 - **Patterns to follow:** `available_branch_name` and `branch_name_available` in `git show 1d8c640:home/dot_local/bin/executable_herdr-task-sync`.
 - **Test scenarios:**
@@ -330,7 +347,7 @@ U1 and U2 build the foundation. U3, U4, and U5 are the behavior and depend on U2
   - Covers AE3. An agent moved the branch between the eligibility check and the mutation → no rename occurs; the branch stays where the agent put it.
   - Two engine processes race on the same repository, released from a barrier rather than a sleep → exactly one rename occurs and the loser records a diagnostic.
   - `git branch -m` fails → the state records the failure and no attribution is written.
-  - The marker is read-only when attribution is written after a successful rename → the state records `attribution_failed`, and a later naming event finds the branch renamed and completes the attribution write.
+  - The marker is read-only when attribution is written after a successful rename → the state records `attribution-failed`, and a later naming event finds the branch renamed and completes the attribution write.
   - The branch description write fails after a successful rename → same non-terminal outcome; the branch never sits renamed with no attribution and a terminal state.
 - **Execution note:** Prove the concurrency case with a barrier that blocks both processes until both have entered the claim, per `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md`. Do not assert on elapsed time.
 - **Verification:** Branch outcomes are read back from the fixture repository with `git`, not from the component's own state file.
@@ -343,7 +360,7 @@ U1 and U2 build the foundation. U3, U4, and U5 are the behavior and depend on U2
 - **Files:** `home/dot_local/bin/executable_herdr-worktree-identity` (modify), `tests/helpers/herdr_worktree_identity.bash` (modify), `tests/bashunit/scripts_test.sh` (modify).
 - **Approach:**
   1. Evaluate workspace eligibility independently of branch eligibility; the workspace write is never nested inside the rename success path (KTD7).
-  2. Terminal outcomes are `complete`, `workspace-only`, and `declined`. `contended`, `unresolved`, `attribution_failed`, and `workspace-failed` are non-terminal and re-attempted on the next naming event (KTD3, R10).
+  2. Terminal outcomes are `complete`, `workspace-only`, and `declined`. `contended`, `unresolved`, `attribution-failed`, and `workspace-failed` are non-terminal and re-attempted on the next naming event (KTD3, R10).
   3. Re-verify the pane's agent, session, and workspace immediately before issuing `herdr workspace rename`, so a pane that changed occupants is not relabeled.
   4. A `complete` outcome is re-evaluated for one case only: a later naming event that observes the branch no longer carrying the component's rename moves the state to `workspace-only` (AE3). The component still never re-renames — R3 keeps the rename itself terminal.
   5. Extend the test stub with the `workspace rename` call it does not currently serve.

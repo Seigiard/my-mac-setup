@@ -65,3 +65,16 @@ hold the subscription, which means a long-lived daemon with its own install, res
 crash-recovery story. This is a feature to design, not a defect to fix, and the record itself states
 that concrete use cases for the supervision tree are not yet established. Whether that daemon is
 wanted at all is the decision this needs.
+
+## Decision (2026-09-06): accepted, deferred
+
+Build it — but not now. This is accepted work rather than an open question, so the five items under
+Open decisions above are design work waiting for a start date, not gates on whether to start at all.
+
+What that changes for a future reader: do not re-litigate whether the daemon is wanted. Do measure
+before building. The gap it closes is a crash-only tail — a watcher process dying, a machine
+restarting, an owner-only run directory lost mid-flight — whose frequency nobody has observed, while
+the per-child watcher covers every ordinary wake today. The cheapest way to earn that evidence is to
+make the short-TTL `supervised` label's expiry surface a visible "supervision lost" signal, turning
+an unmeasured tail into an observed one. That cost was not measured either and should be before it
+is treated as the small step it appears to be.

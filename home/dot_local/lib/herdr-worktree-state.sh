@@ -3,6 +3,40 @@
 
 HERDR_WORKTREE_IDENTITY_STATE_DIR="${HERDR_WORKTREE_IDENTITY_STATE_DIR:-$HOME/.cache/herdr-worktree-identity}"
 
+# Every outcome a state file may carry. Convention alone let write sites invent
+# spellings -- attribution_failed sat two lines from workspace-failed -- and an
+# invented value reaches readers as a state that no transition produces. Hyphens
+# throughout; the underscores in the plan's mermaid diagram are that renderer's
+# constraint, not a naming decision.
+#
+# The empty string is legal and load-bearing: a state written before any outcome
+# is selected carries it, and the re-write paths that carry an existing outcome
+# forward would otherwise fail on a fresh state.
+#
+# Not members: `pending`, which the diagram names but no write site produces,
+# and `contended`, which is diagnostic evidence rather than an outcome.
+HERDR_WORKTREE_IDENTITY_OUTCOMES="
+unresolved
+declined
+prepared
+attribution-failed
+workspace-prepared
+workspace-failed
+branch-failed
+workspace-only
+complete
+"
+
+is_legal_outcome() {
+  local candidate="$1" known
+  [ -n "$candidate" ] || return 0
+  while IFS= read -r known; do
+    [ -n "$known" ] || continue
+    [ "$known" = "$candidate" ] && return 0
+  done <<< "$HERDR_WORKTREE_IDENTITY_OUTCOMES"
+  return 1
+}
+
 encode_key() {
   # Parameter expansion rather than a tr pipeline. This runs on every state
   # path resolution, so the two forks it saves outweigh the work it does.

@@ -1,13 +1,14 @@
 ---
 title: "Consulting a peer agent from outside herdr"
-short_description: "Restore peer consultation outside Herdr without duplicating per-agent option mappings while retaining the stronger headless posture that denies shell access."
+short_description: "Closed as wontfix: peer consults refuse outside herdr at executable_ask.sh:47-50, but the refusal is pipeline-wide in herdr-peer-launch.md:13, so restoring one script would not restore the capability, and nothing has needed it since the path was deleted."
 type: "follow-up"
 category: "herdr"
 tags: ["herdr","follow-up"]
 date: "2026-08-18"
-status: "open"
+status: "wontfix"
 priority: "low"
 parent-plan: "docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md"
+closed: "2026-09-06"
 ---
 
 ## Why this exists
@@ -46,3 +47,7 @@ refusals for a missing `herdr-child` or `herdr` on PATH. The record's dead path 
 The sweep did not attempt an implementation. All three of the Open decisions below are genuine design
 choices with no default the sweep could pick — in particular whether a headless consult is wanted at
 all, which the record itself raises first and which decides whether the other two matter.
+
+## Resolution
+
+Restoring a headless peer consult would not restore the capability it implies. The refusal is not local to executable_ask.sh:47-50: home/private_dot_claude/shared/herdr-peer-launch.md:13 states 'There is no headless fallback', and every se-* workflow inherits it, so returning one script leaves reviews and consults herdr-bound anyway. Nothing has needed the path in the three weeks since R7 deleted it, and the plan's stated escape hatch - a smithers wrapper - does not exist in this repository, so the work is strictly larger than the deletion assumed. If a real caller appears outside herdr, the honest shape is a pipeline-wide decision, not a restored script.

@@ -289,6 +289,19 @@ diagnostic_file_for_state() {
 write_identity_state() {
   local file="$1" root="$2" common="$3" workspace="$4" original="$5" outcome="$6" authorization="$7"
   local title="${8:-}" slug="${9:-}" branch="${10:-}"
+  # Read compatibility for state written before the rename. A state file is a
+  # cache entry, but the re-write paths carry an existing outcome forward, so an
+  # in-flight underscored value would otherwise be refused below and strand the
+  # state. Translating here guarantees only the canonical spelling is persisted.
+  [ "$outcome" = attribution_failed ] && outcome=attribution-failed
+  # An outcome outside the whitelist is a programming error in one of the write
+  # sites, not runtime contention. Refuse the write so an unreachable state never
+  # reaches a reader, and leave the evidence where every other state-write
+  # failure leaves it -- callers already treat a nonzero return that way.
+  if ! is_legal_outcome "$outcome"; then
+    record_diagnostic "$(diagnostic_file_for_state "$file")" illegal-outcome "outcome=$outcome workspace=$workspace" || true
+    return 1
+  fi
   atomic_write "$file" "checkout_root=$(encode_value "$root")
 repository_anchor=$(encode_value "$common")
 workspace=$(encode_value "$workspace")
@@ -532,7 +545,7 @@ retry_attribution() {
   if write_attribution "$root" "$original" "$branch" "$marker"; then
     write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$branch" || true
   else
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" attribution_failed authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" "$root" "$common" "$workspace" "$original" attribution-failed authorized "$title" "$slug" "$branch" || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" attribution-failed "checkout=$root branch=$branch" || true
   fi
 }
@@ -686,7 +699,7 @@ apply_branch_rename() {
         return 10
       fi
       ;;
-    attribution_failed)
+    attribution-failed | attribution_failed)
       if [ "$branch" = "$candidate" ]; then
         retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
       else

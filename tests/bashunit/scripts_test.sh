@@ -550,7 +550,7 @@ function test_scripts_1183_worktree_identity_records_branch_and_attribution_fail
   assert_success
   branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" record-branch-failure
-  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=attribution-failed '
 
   rm "$HWI_WORK/fail-git-description"
@@ -617,7 +617,7 @@ function test_scripts_1185_worktree_identity_recovers_marker_attribution_after_w
   assert_success
   local state="$(hwi_identity_state_path)" branch="$(git -C "$HWI_CHECKOUT" branch --show-current)"
   assert_equal "$branch" recover-marker-attribution
-  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=attribution-failed '
 
   chmod u+w "$marker"
@@ -812,7 +812,7 @@ function test_scripts_1193_worktree_identity_labels_after_revert_from_attributio
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Revert failed attribution'
   assert_success
   local state="$(hwi_identity_state_path)"
-  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   rm "$HWI_WORK/fail-git-description"
 
@@ -4988,6 +4988,44 @@ EOF
   assert_output ""
 }
 
+# R4 names a failed core import as its own fail-open path, and test_scripts_102
+# cannot reach it: deleting claude.ts makes the shim's `[ -f "$core" ]` return
+# before bun ever attempts the import. The adapter's own guard needs a core that
+# is present and unimportable. claude.ts imports "./index.ts" relative to itself
+# and takes no core-path override, so the only way to degrade it is a copied
+# core directory whose index.ts throws, run as a subprocess -- which is also how
+# Claude Code invokes it, so the exit status is part of what this pins.
+# The sibling adapters pin the same state in-process
+# (tests/agent-hooks-opencode-adapter.test.ts,
+# tests/agent-hooks-pi-adapter.test.ts: "a core directory whose import throws
+# also registers nothing"); this adapter runs per matched tool call, so a
+# regression here is a stack trace and a nonzero status on every one of them.
+function test_scripts_1021_claude_adapter_exits_0_silently_when_the_core_will_not_import() {
+  _bats_test_init 1021 'claude adapter exits 0 silently when the deployed core will not import'
+  require_bun_for_shim
+  local copied_home="$BATS_TEST_TMPDIR/agent-hooks-broken-core-home"
+  mkdir -p "$copied_home/.local/lib"
+  cp -R "$AGENT_HOOKS_CORE" "$copied_home/.local/lib/agent-hooks"
+
+  # Control on the intact copy: it proves the input below is the known-bad one
+  # test_scripts_094 denies and that a copied core still reaches the policy.
+  # Without it, a fixture that never got as far as running claude.ts would be
+  # indistinguishable from the fail-open this case is about to assert.
+  run env HOME="$copied_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output --partial '"permissionDecision": "deny"'
+
+  printf "throw new Error('core is broken');\n" \
+    > "$copied_home/.local/lib/agent-hooks/index.ts"
+  run env HOME="$copied_home" bash "$AGENT_HOOKS_SHIM" <<'EOF'
+{"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
+EOF
+  assert_success
+  assert_output ""
+}
+
 # herdr-pane-labels engine
 # ===========================================
 
@@ -5035,7 +5073,7 @@ def read_pid(path):
         return None
 
 try:
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + int(os.environ["HPL_INNER_BATS_PROGRESS_SECONDS"])
     worker_pid = None
     while worker_pid is None and time.monotonic() < deadline:
         worker_pid = read_pid(worker_file)
@@ -5052,7 +5090,7 @@ try:
     os.kill(blocked_pid, 0)
 
     try:
-        stdout, stderr = proc.communicate(timeout=30)
+        stdout, stderr = proc.communicate(timeout=int(os.environ["HPL_INNER_BATS_EXIT_SECONDS"]))
     except subprocess.TimeoutExpired as error:
         raise AssertionError("detached worker retained the nested runner output pipes") from error
     if proc.returncode != 0:

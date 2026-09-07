@@ -88,6 +88,11 @@ function test_idempotent_0021_chezmoi_apply_preserves_skills_owned_outside_chezm
 # it matches errors instead of dispatching through the agent-hooks core. The
 # same is true of pi's extension directory one client over.
 #
+# The retired core policy module one directory over is quieter but has the same
+# removal-list dependency: nothing imports it once policies/index.ts drops it, so
+# a mis-specified .chezmoiremove path would leave it on disk indefinitely with no
+# other signal.
+#
 # Oracle: the real deployment transition, not the source tree. A fresh
 # disposable $HOME has never seen these files, so asserting their absence there
 # proves nothing; this scenario plants them first and requires a real apply to
@@ -95,7 +100,7 @@ function test_idempotent_0021_chezmoi_apply_preserves_skills_owned_outside_chezm
 # and opencode's load-every-file behavior — neither authored by this patch — and
 # the unmanaged control below fails if apply merely wiped the directories.
 function test_idempotent_0022_chezmoi_apply_clears_retired_agent_hooks_adapters() {
-  _bats_test_init 22 'chezmoi apply clears retired agent-hooks adapters planted by an earlier apply'
+  _bats_test_init 22 'chezmoi apply clears retired agent-hooks adapters and policies planted by an earlier apply'
   require_disposable_home
 
   local retired=(
@@ -105,6 +110,7 @@ function test_idempotent_0022_chezmoi_apply_clears_retired_agent_hooks_adapters(
     "$HOME/.pi/agent/extensions/zsh-reserved-name-guard.ts"
     "$HOME/.local/bin/test-oracle-guard"
     "$HOME/.local/bin/zsh-reserved-name-guard"
+    "$HOME/.local/lib/agent-hooks/policies/test-oracle-guard.ts"
   )
   # Not listed in home/.chezmoiremove and not deployed by chezmoi: an apply that
   # removed it would be wiping directories rather than honouring the removal

@@ -230,10 +230,11 @@ def scanned_files(tests_dir):
     # mid-test [[ ]] or (( )) conditional is silently inert. Scan the whole
     # file, not only test_* bodies — helpers run in the same test context.
     yield from sorted(tests_dir.rglob("bashunit/*_test.sh"))
-    # tests/helpers/*.bash is sourced into that same test context (e.g. via
-    # `load 'helpers/common'`), so the identical quirk applies there. The flat
-    # glob is deliberate: it does not descend into subdirectories.
-    yield from sorted(tests_dir.glob("helpers/*.bash"))
+    # tests/helpers/**/*.bash is sourced into that same test context (e.g. via
+    # `load 'helpers/common'`), so the identical quirk applies there. The scan
+    # recurses because helpers may be grouped into subdirectories; the vendored
+    # helpers/bats-libs tree this once stepped around no longer exists.
+    yield from sorted(tests_dir.glob("helpers/**/*.bash"))
     # tests/bashunit/test-dsl.bash is the shared bashunit ERR-trap DSL every
     # *_test.sh suite sources; its own header documents this exact quirk as
     # applying to itself. It doesn't match either bashunit pattern above (no
