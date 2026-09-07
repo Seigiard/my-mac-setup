@@ -5057,6 +5057,7 @@ function test_scripts_1103_herdr_pane_labels_descriptor_probe_closes_worker_pipe
     HPL_DESCRIPTOR_PID_FILE="$pid_file" \
     HPL_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file" \
     HPL_BLOCKED_HERDR_POLLS="$HPL_BLOCKED_HERDR_POLLS" \
+    TMPDIR="$BATS_TEST_TMPDIR" \
     BASHUNIT_BIN="$BATS_TEST_DIRNAME/lib/bashunit" PROBE_FILE="$probe_file" \
     python3 - <<'PY'
 import os
@@ -8127,7 +8128,8 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
   _bats_test_init 258 'herdr-child descriptor probe passes under a nested bashunit run'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/herdr_child_descriptor_probe_test.sh"
   assert_file_exists "$probe_file"
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
   assert_success
   # Bashunit abbreviates long titles to the terminal width in Docker panes.
   assert_output --partial "All tests passed"
@@ -8144,7 +8146,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   assert_file_exists "$probe_file"
 
   # Parallel leg: aggregate_parallel_results parses the .result file.
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
   assert_output --partial "Passed: late child output lands after the result payload"
   assert_output --partial "Assertions: 1 passed, 1 total"
@@ -8152,7 +8155,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   # Sequential leg: extract_result_counts parses the captured execution
   # result. Unpatched it stays exit 0 but reports 0 assertions, so the
   # assertion-count line is the discriminator here, not the status.
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
   assert_success
   assert_output --partial "Assertions: 1 passed, 1 total"
 }
@@ -8162,7 +8166,8 @@ function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_histori
   local probe_file="$BATS_TEST_DIRNAME/bashunit/test_dsl_parallel_isolation_probe_test.sh"
   assert_file_exists "$probe_file"
 
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
   assert_output --partial "Tests:      2 passed, 2 total"
 }
