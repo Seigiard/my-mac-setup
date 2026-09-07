@@ -295,7 +295,7 @@ function test_idempotent_013_guard_the_misconfigured_message_names_the_marker() 
   if [[ -d "$repo_root/.github" ]]; then
     while IFS= read -r rel; do
       assert_file_exists "$repo_root/$rel"
-      grep -qE 'MMS_DISPOSABLE_HOME[=:][[:space:]]*"?1"?' "$repo_root/$rel" || \
+      grep -qE "MMS_DISPOSABLE_HOME[=:][[:space:]]*[\"']?1[\"']?" "$repo_root/$rel" || \
         fail "$rel is named as a site that declares MMS_DISPOSABLE_HOME=1, but does not set it"
     done <<< "$named"
   fi

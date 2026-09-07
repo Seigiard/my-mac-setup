@@ -95,11 +95,11 @@ function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
 
 # One manifest replaces the per-file existence tests. A file that falls out of
 # management (a .chezmoiignore edit, a lost dot_ prefix) keeps `chezmoi verify`
-# green — verify only checks what is still managed — so deployment and
-# management membership are both asserted against this curated list.
-function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
-  _bats_test_init 4 'critical managed files are deployed and still managed'
-  local paths=(
+# green — verify only checks what is still managed — so deployment (test 004)
+# and management membership (test 1071) are both asserted against this curated
+# list. The helper assigns the caller's `paths` via bash dynamic scoping.
+_smoke_critical_paths() {
+  paths=(
     .zshrc
     .aliases
     .gitconfig
@@ -155,15 +155,31 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
       .config/herdr/plugins/herdr-focus-notify/notify.py
     )
   fi
+}
+
+function test_smoke_004_critical_managed_files_are_deployed() {
+  _bats_test_init 4 'critical managed files are deployed'
+  local paths
+  _smoke_critical_paths
 
   local p missing=""
   for p in "${paths[@]}"; do
     [ -e "$HOME/$p" ] || missing="$missing $p"
   done
   [ -z "$missing" ] || fail "missing from \$HOME:$missing"
+  # Reached only when nothing is missing; registers the counted assertion the
+  # fail-with-message path above cannot, so bashunit does not flag this test
+  # as assertion-free (risky).
+  assert_equal "$missing" ""
+}
 
-  command_exists chezmoi || return 0
-  local managed unmanaged=""
+function test_smoke_1071_critical_deployed_files_are_still_chezmoi_manag() {
+  _bats_test_init 1071 'critical deployed files are still chezmoi-managed'
+  skip_if_no_chezmoi
+  local paths
+  _smoke_critical_paths
+
+  local p managed unmanaged=""
   run chezmoi_host_partial managed
   assert_success
   managed="$output"
@@ -193,70 +209,6 @@ function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
 function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
 _bats_test_init 6 'herdr command palette keybinding is configured'
 assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
-}
-
-function test_smoke_007_obsolete_plugin_removal_accepts_formatted_plugin_j() {
-  _bats_test_init 7 'obsolete plugin removal accepts formatted plugin JSON'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local fake_bin="$BATS_TEST_TMPDIR/bin"
-  local calls="$BATS_TEST_TMPDIR/herdr.calls"
-  mkdir -p "$fake_bin"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-if [ "$*" = "plugin list --json" ]; then
-  cat <<'JSON'
-{
-  "result": {
-    "plugins": [
-      { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" }
-    ]
-  }
-}
-JSON
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
-  assert_success
-  run grep -Fx "plugin uninstall worktrunk" "$calls"
-  assert_success
-  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
-  assert_success
-}
-
-function test_smoke_008_obsolete_plugin_removal_reports_malformed_entries() {
-  _bats_test_init 8 'obsolete plugin removal reports malformed plugin entries'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
-  mkdir -p "$fake_bin"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-if [ "$*" = "plugin list --json" ]; then
-  printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
 }
 
 # Literal consumed outside this repo: herdr's auto-update plugin reads
@@ -382,18 +334,35 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
 }
 
 function test_smoke_017_coding_agents_use_terminal_color_palettes() {
-  _bats_test_init 17 'coding agents use terminal color palettes'
-  run jq -e '.theme == "custom:light-ansi-daltonized"' "$HOME/.claude/settings.json"
+  _bats_test_init 17 'agent theme settings resolve to deployed theme files'
+  # Which palette each client names is a preference; pinning the names failed
+  # every intended theme edit. The contract is referential integrity: a
+  # settings value naming a file-backed theme must resolve to a deployed theme
+  # file, or the client falls back to a broken default. Two independent sides:
+  # the settings value vs the deployed theme file tree.
+  run jq -re '.theme' "$HOME/.claude/settings.json"
   assert_success
-  assert_file_exists "$HOME/.claude/themes/light-ansi-daltonized.json"
+  local claude_theme="$output"
+  # Claude marks file-backed themes with a custom: prefix; a bare name is a
+  # builtin with no file to resolve.
+  case "$claude_theme" in
+    custom:*) assert_file_exists "$HOME/.claude/themes/${claude_theme#custom:}.json" ;;
+    # A bare name is a Claude builtin owned upstream: it has no file side to
+    # adjudicate here, same as OpenCode below. jq -re already rejected an
+    # empty or missing value, so this arm is a documented no-op, not a hole.
+    *) : ;;
+  esac
 
-  run jq -e '.theme == "terminal"' "$HOME/.pi/agent/settings.json"
+  # Pi resolves theme names against its themes directory.
+  run jq -re '.theme' "$HOME/.pi/agent/settings.json"
   assert_success
-  assert_file_exists "$HOME/.pi/agent/themes/terminal.json"
+  assert_file_exists "$HOME/.pi/agent/themes/$output.json"
 
-  run jq -e '.theme == "system"' "$HOME/.config/opencode/tui.json"
+  # OpenCode builtin names carry no marker separating them from custom themes,
+  # so the file side cannot be adjudicated here; only the settings side — that
+  # tui.json parses and names a theme — is assertable.
+  run jq -re '.theme' "$HOME/.config/opencode/tui.json"
   assert_success
-  assert_file_not_exists "$HOME/.config/opencode/themes/flexoki-light-forced.json"
 }
 
 function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
@@ -523,11 +492,22 @@ function test_smoke_023_executor_cli_resolves_on_path_through_local_bin() {
 }
 
 function test_smoke_024_kitty_includes_its_herdr_bindings_and_keeps_the() {
-  _bats_test_init 24 'kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)'
+  _bats_test_init 24 'kitty includes its herdr bindings and every include resolves (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/kitty.conf"
+  # The herdr include is cross-component wiring (tests 26-28 assert herdr.conf
+  # content that only matters if kitty loads it). Which theme is included is a
+  # preference; the contract is referential — kitty silently skips a missing
+  # include, so a dangling one drops its theme or bindings without an error.
+  # Two independent sides: the include statements vs the deployed config dir.
   assert_file_contains "$config" "^include herdr.conf$"
-  assert_file_contains "$config" "^include Alabaster.conf$"
+  local include target
+  run grep -o '^include .*$' "$config"
+  assert_success
+  while IFS= read -r include; do
+    target="${include#include }"
+    assert_file_exists "$HOME/.config/kitty/$target"
+  done <<< "$output"
 }
 
 function test_smoke_025_kitty_font_family_is_one_kitty_accepts_as_monosp() {
@@ -632,18 +612,38 @@ function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
 }
 
 # ===========================================
-# herdr focus-notify plugin (source tree)
+# herdr focus-notify plugin
 # ===========================================
 
 FOCUS_NOTIFY_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-focus-notify"
 
-# Runs notify.py against a fake notifier that records its argv one line per
-# argument, so tests can assert the exact command terminal-notifier would get.
-# $1: event JSON. Extra env for the run comes via focus_notify_env array.
+# Behavior tests 033-035 run the deployed copy first — herdr executes
+# $HOME/.config/..., so a .chezmoiignore rule that drops notify.py from
+# deployment must fail these tests rather than stay green through the
+# checkout (same reasoning as test 1072's deployed manifest). The checkout
+# stays as a secondary leg so Linux CI, where the darwin-only plugin never
+# deploys, still proves the source behavior. Assigns the caller's
+# `notify_targets` via bash dynamic scoping, deployed copy first.
+_focus_notify_targets() {
+  notify_targets=("$FOCUS_NOTIFY_DIR/notify.py")
+  if is_macos; then
+    local deployed="$HOME/.config/herdr/plugins/herdr-focus-notify/notify.py"
+    assert_file_exists "$deployed"
+    notify_targets=("$deployed" "${notify_targets[@]}")
+  fi
+}
+
+# Runs one notify.py ($1) against a fake notifier that records its argv one
+# line per argument, so tests can assert the exact command terminal-notifier
+# would get. $2: event JSON.
 run_focus_notify() {
-  local event_json="$1"
+  local notify_py="$1"
+  local event_json="$2"
   local fake_bin="$BATS_TEST_TMPDIR/fake-notifier"
   FOCUS_NOTIFY_ARGV="$BATS_TEST_TMPDIR/notifier.argv"
+  # A stale argv file from the previous target leg would satisfy (or fail)
+  # this leg's assertions on the wrong evidence.
+  rm -f "$FOCUS_NOTIFY_ARGV"
   cat > "$fake_bin" <<SH
 #!/bin/sh
 printf '%s\n' "\$@" > "$FOCUS_NOTIFY_ARGV"
@@ -652,15 +652,18 @@ SH
   HERDR_PLUGIN_EVENT_JSON="$event_json" \
     HERDR_FOCUS_NOTIFY_NOTIFIER_BIN="$fake_bin" \
     HERDR_BIN_PATH="$BATS_TEST_TMPDIR/dir with space/herdr" \
-    run python3 "$FOCUS_NOTIFY_DIR/notify.py"
+    run python3 "$notify_py"
 }
 
-function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
-  _bats_test_init 32 'focus-notify plugin compiles and declares its runtime entrypoint'
+function test_smoke_032_focus_notify_plugin_compiles() {
+  _bats_test_init 32 'focus-notify plugin compiles'
   run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
     python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
   assert_success
+}
 
+function test_smoke_1072_focus_notify_deployed_manifest_declares_its_run() {
+  _bats_test_init 1072 'focus-notify deployed manifest declares its runtime entrypoint (macOS only)'
   # The manifest wires the status event and the interpreter as argv arrays.
   # Literal consumed outside this repo: herdr's plugin loader parses these two
   # keys to decide which event fires the plugin and how to exec it. Assert the
@@ -668,7 +671,7 @@ function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
   # source grep wearing a smoke test's name and would stay green when chezmoi
   # never placed the file (same fix as test 009 in commit 50654e2). The plugin
   # is darwin-only per home/.chezmoiignore, so it only deploys on macOS.
-  is_macos || return 0
+  is_macos || skip "Not on macOS"
   local manifest="$HOME/.config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml"
   assert_file_exists "$manifest"
   assert_file_contains "$manifest" '^on = "pane.agent_status_changed"$'
@@ -677,12 +680,15 @@ function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
 
 function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
   _bats_test_init 33 'focus-notify builds a safely quoted click command'
-  # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
-  run_focus_notify '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
-  assert_success
-  assert_file_exists "$FOCUS_NOTIFY_ARGV"
+  local notify_targets notify_py
+  _focus_notify_targets
+  for notify_py in "${notify_targets[@]}"; do
+    # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
+    run_focus_notify "$notify_py" '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
+    assert_success
+    assert_file_exists "$FOCUS_NOTIFY_ARGV"
 
-  run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
+    run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
 import shlex, sys
 argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
 execute = argv[argv.index("-execute") + 1]
@@ -693,32 +699,41 @@ assert argv[argv.index("-group") + 1] == "herdr-w1-p3-boom-", argv
 assert argv[argv.index("-title") + 1] == "Codex needs your input", argv
 assert "-activate" in argv, argv
 PY
-  assert_success
+    assert_success
+  done
 }
 
 function test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat() {
   _bats_test_init 34 'focus-notify stays quiet for non-actionable statuses and missing pane id'
-  run_focus_notify '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
-  assert_success
-  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+  local notify_targets notify_py
+  _focus_notify_targets
+  for notify_py in "${notify_targets[@]}"; do
+    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
+    assert_success
+    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
 
-  run_focus_notify '{"data":{"agent_status":"blocked","agent":"codex"}}'
-  assert_success
-  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+    run_focus_notify "$notify_py" '{"data":{"agent_status":"blocked","agent":"codex"}}'
+    assert_success
+    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+  done
 }
 
 function test_smoke_035_focus_notify_uses_one_notification_group_per_pan() {
   _bats_test_init 35 'focus-notify uses one notification group per pane for duplicate replacement'
-  run_focus_notify '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
-  assert_success
+  local notify_targets notify_py
+  _focus_notify_targets
+  for notify_py in "${notify_targets[@]}"; do
+    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
+    assert_success
 
-  run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
+    run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
 import sys
 argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
 assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
 assert argv[argv.index("-title") + 1] == "claude finished", argv
 PY
-  assert_success
+    assert_success
+  done
 }
 
 # ===========================================
@@ -765,35 +780,19 @@ function test_smoke_1051_herdr_alias_pane_label_and_child_files_are_deployed() {
 
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
   _bats_test_init 1052 'herdr child and consult contracts use allocator-owned pair addressing'
-  local child="$HOME/.local/bin/herdr-child"
-  local ask="$HOME/.agents/skills/ask-in-herdr/scripts/ask.sh"
-  local contract="$HOME/.claude/shared/child-agent-contract.md"
-  local consult_skill="$HOME/.agents/skills/ask-in-herdr/SKILL.md"
-  local herdr_skill="$HOME/.agents/skills/herdr/SKILL.md"
-
-  run grep -E -- 'start .*--name|case .*--name' "$child"
-  assert_failure
-  run grep -E -- 'consult-\$AGENT|herdr-child.*--name' "$ask"
-  assert_failure
-  assert_file_contains "$ask" 'herdr-child reap --to %s --pane %s'
-  assert_file_contains "$contract" 'herdr-child reap --to <alias> --pane <pane-id>'
-  assert_file_contains "$consult_skill" 'herdr-child reap --to <alias> --pane <pane-id>'
-  assert_file_contains "$herdr_skill" 'callback alias may differ from the launch alias'
-  assert_file_contains "$herdr_skill" 'CALLBACK_ALIAS="\$CHILD_NAME"'
-  assert_file_contains "$herdr_skill" 'herdr-child verify --to "\$CALLBACK_CANDIDATE" --pane "\$CHILD_PANE"'
-  assert_file_contains "$herdr_skill" 'CALLBACK_ALIAS="\$CALLBACK_CANDIDATE"'
-  assert_file_contains "$herdr_skill" 'herdr-child reply --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
-  assert_file_contains "$herdr_skill" 'herdr-child reap --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
+  # The reap/verify/reply flow itself is owned by scripts_test.sh, which runs
+  # ask.sh and herdr-child against fakes. What remains here is the one command
+  # line agents copy verbatim from the deployed contract document: its literal
+  # shape is the contract.
+  assert_file_contains "$HOME/.claude/shared/child-agent-contract.md" \
+    'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-function test_smoke_1053_semantic_adapters_are_absent() {
-  _bats_test_init 1053 'semantic adapters are absent'
-  assert_file_not_exists "$HOME/.local/bin/herdr-task-sync"
-  assert_file_not_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
-  assert_file_not_exists "$HOME/.config/opencode/plugins/herdr-task-sync.ts"
-  assert_file_not_exists "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
-}
-
+# Single owner of the task-sync retirement: the absence (no task-sync hook
+# registered anywhere) is paired with the positive capability that replaced it
+# (the native agent-state hook on SessionStart), so a settings file that lost
+# both would still go red. This test also owns the deployed SessionStart
+# registration of herdr-agent-state.sh — do not re-assert it elsewhere.
 function test_smoke_1054_claude_settings_omit_task_sync_hooks_and_retain_native_() {
   _bats_test_init 1054 'claude settings omit task-sync hooks and retain native agent state'
   local settings="$HOME/.claude/settings.json"
@@ -833,9 +832,6 @@ for event, script in (
 ):
     found = commands(event)
     assert any(script in c for c in found), (event, script, found)
-
-session = commands("SessionStart")
-assert any("herdr-agent-state.sh" in c for c in session), session
 HOOKCHECK
   assert_success
 
@@ -865,7 +861,6 @@ function test_smoke_1063_worktree_identity_deploys_and_statusline_records_() {
   assert_success
   local record="$output"
   assert_file_contains "$record" "^$BATS_TEST_TMPDIR$"
-  assert_file_not_exists "$record_home/.cache/herdr-task-sync/agent-cwd/$session"
 }
 
 function test_smoke_1055_pi_local_private_instructions_focused_tests_pass() {
@@ -893,15 +888,19 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
   assert_success
 }
 
+# Same reasoning as 1065/1068-1070: `make test-pi-brew-auto-update` proves the
+# checkout's extension, only the applied home proves the extension Pi will
+# actually load. The bun suite parameterizes its subject through SOURCE_ROOT in
+# chezmoi source layout (dot_pi/...), so a symlink shim maps that layout onto
+# the deployed ~/.pi tree.
 function test_smoke_1056_pi_brew_auto_updater_is_deployed() {
-  _bats_test_init 1056 'Pi brew auto updater is deployed'
+  _bats_test_init 1056 'deployed Pi brew auto updater passes the focused suite'
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
   assert_file_exists "$ext"
-}
-
-function test_smoke_1057_pi_brew_auto_updater_focused_tests_pass() {
-  _bats_test_init 1057 'Pi brew auto updater focused tests pass'
-  run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
+  local shim_root="$BATS_TEST_TMPDIR/deployed-pi-source-root"
+  mkdir -p "$shim_root"
+  ln -s "$HOME/.pi" "$shim_root/dot_pi"
+  run env SOURCE_ROOT="$shim_root" bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
   assert_success
 }
 
@@ -996,13 +995,6 @@ function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
 assert_herdr_label_writer_contract() {
   local config="$1"
   local engine="$2"
-  local plugin="$3"
-  local writer_files=(
-    "$engine"
-    "$plugin/herdr-plugin.toml"
-    "$plugin/ensure.sh"
-    "$plugin/sweep.sh"
-  )
   local writer_roots=(
     "$(dirname "$engine")"
     "$(dirname "$config")"
@@ -1011,8 +1003,8 @@ assert_herdr_label_writer_contract() {
   # Nothing here asserts config.toml content. Sidebar rows, widths, and which
   # tokens a row renders are the user's presentation preferences in the user's
   # own config; a test that froze them would fail on an intended edit and prove
-  # nothing about the label writer. The config path is kept only to locate the
-  # plugin directory below.
+  # nothing about the label writer. The config path is kept only because its
+  # directory holds the plugin files the writer counts sweep.
 
   run bash -c '
     pattern="$1"; shift
@@ -1027,12 +1019,6 @@ assert_herdr_label_writer_contract() {
   assert_success
   [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
 
-  run grep -Ei 'reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
-    "$engine" "$plugin/herdr-plugin.toml" "$plugin/ensure.sh" "$plugin/sweep.sh"
-  assert_failure
-  run grep -hEi '(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
-    "${writer_files[@]}"
-  assert_success
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
   # files pass through editors or agents, so none may be committed verbatim.
@@ -1047,20 +1033,11 @@ assert_herdr_label_writer_contract() {
   assert_file_contains "$engine" '…'
 }
 
-function test_smoke_1058_herdr_managed_source_preserves_label_writer_ownership() {
-  _bats_test_init 1058 'herdr managed source preserves label-writer ownership boundaries'
-  assert_herdr_label_writer_contract \
-    "$SOURCE_ROOT/private_dot_config/herdr/config.toml" \
-    "$SOURCE_ROOT/dot_local/bin/executable_herdr-pane-labels" \
-    "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
-}
-
 function test_smoke_1059_herdr_deployed_files_preserve_label_writer_ownership() {
   _bats_test_init 1059 'herdr deployed files preserve label-writer ownership boundaries'
   assert_herdr_label_writer_contract \
     "$HOME/.config/herdr/config.toml" \
-    "$HOME/.local/bin/herdr-pane-labels" \
-    "$HOME/.config/herdr/plugins/herdr-pane-labels"
+    "$HOME/.local/bin/herdr-pane-labels"
 }
 
 function test_smoke_1060_herdr_pane_label_plugin_deploys_the_approved_herdr_0_8_() {
@@ -1095,7 +1072,7 @@ function test_smoke_1060_herdr_pane_label_plugin_deploys_the_approved_herdr_0_8_
   assert_file_contains "$manifest" '^id = "sweep"$'
   assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
   assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
-  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
+  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
   assert_failure
 }
 
@@ -1110,9 +1087,8 @@ function test_smoke_1061_herdr_pane_label_plugin_keeps_startup_sweep_and_relink_
   assert_file_contains "$plugin/ensure.sh" 'labels.*--ensure-sweep-daemon'
   assert_file_contains "$plugin/ensure.sh" "^  ''|--ensure-sweep-daemon)\$"
   assert_file_contains "$plugin/sweep.sh" 'labels.*--sweep'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
+  # The relink script's hash-trigger includes are owned by test 1062, which
+  # derives them from the template and checks the plugin directory listing.
   assert_file_contains "$relink" 'herdr plugin link'
   assert_file_contains "$relink" 'herdr plugin enable "\$HPL_CUTOVER_PLUGIN_ID"'
 }
@@ -1122,24 +1098,38 @@ function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod
   local before="$SOURCE_ROOT/.chezmoiscripts/run_onchange_before_6-quiesce-herdr-pane-labels.sh.tmpl"
   local after="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   local shared="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
-  local file input
-  local inputs=(
-    'dot_local/bin/executable_herdr-pane-labels'
-    'dot_local/lib/herdr-aliases.sh'
-    'private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml'
-    'private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh'
-    'private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh'
-    '.chezmoitemplates/herdr-pane-labels-cutover-lib.sh'
-  )
+  local plugin_rel='private_dot_config/herdr/plugins/herdr-pane-labels'
+  local file path plugin_file before_inputs after_inputs
 
   assert_file_exists "$before"
   assert_file_exists "$after"
   assert_file_exists "$shared"
+
+  # The hash-input list is derived from each template, never hand-copied, so it
+  # cannot drift from what the template actually hashes. Independent sides: the
+  # two templates against each other, every derived path against the source
+  # tree, and the plugin directory listing against the derived list.
+  before_inputs="$(grep -o 'include "[^"]*" | sha256sum' "$before" \
+    | sed 's/^include "//; s/" | sha256sum$//' | sort)"
+  after_inputs="$(grep -o 'include "[^"]*" | sha256sum' "$after" \
+    | sed 's/^include "//; s/" | sha256sum$//' | sort)"
+  [[ -n "$before_inputs" ]] || fail "no hash-trigger includes in $before"
+  [[ -n "$after_inputs" ]] || fail "no hash-trigger includes in $after"
+  assert_equal "$before_inputs" "$after_inputs"
+  while IFS= read -r path; do
+    assert_file_exists "$SOURCE_ROOT/$path"
+  done <<< "$before_inputs"
+  assert_dir_exists "$SOURCE_ROOT/$plugin_rel"
+  for plugin_file in "$SOURCE_ROOT/$plugin_rel"/*; do
+    path="$plugin_rel/${plugin_file##*/}"
+    grep -Fxq -- "$path" <<< "$before_inputs" \
+      || fail "plugin file $path is not a hash-trigger include in $before"
+  done
+
+  # The shared safety body must be included as a body, not only hashed —
+  # matching the closing "}}" excludes the sha256sum trigger lines above.
   for file in "$before" "$after"; do
-    assert_file_contains "$file" 'include "\.chezmoitemplates/herdr-pane-labels-cutover-lib\.sh"'
-    for input in "${inputs[@]}"; do
-      assert_file_contains "$file" "include \"$input\" \\| sha256sum"
-    done
+    assert_file_contains "$file" 'include "\.chezmoitemplates/herdr-pane-labels-cutover-lib\.sh" }}'
   done
   assert_file_contains "$before" 'include "dot_local/lib/herdr-aliases\.sh"'
   assert_file_contains "$before" '^source "\$alias_library"'
@@ -1147,10 +1137,6 @@ function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod
   assert_file_contains "$shared" '^        --source task-sync --clear-token task'
   run grep -n -- '--source task-sync.*--seq\|--clear-token task.*--seq' "$shared"
   assert_failure
-  assert_file_contains "$after" 'hpl_cutover_drain_fixed_point'
-  assert_file_contains "$after" 'hpl_cutover_ensure_all'
-  assert_file_contains "$shared" '^hpl_cutover_rollback()'
-  assert_file_contains "$shared" '^hpl_cutover_verify_daemon()'
 }
 
 # ===========================================

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # post-apply: excluded
+# Inner half of a two-part probe: test_scripts_1103 in scripts_test.sh drives
+# this file under a nested tests/lib/bashunit invocation and owns its oracle.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
 _bats_file_init "${BASH_SOURCE[0]}"
 
@@ -32,3 +34,7 @@ function test_herdr_pane_labels_descriptor_001_herdr_pane_labels_descriptor_chil
   run test -s "$HPL_DESCRIPTOR_PID_FILE"
   assert_success
 }
+
+function tear_down() { _bats_run_teardown; }
+
+function tear_down_after_script() { _bats_file_cleanup; }

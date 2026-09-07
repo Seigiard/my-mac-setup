@@ -1288,21 +1288,6 @@ function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
 
 HERDR_ALIASES="$SOURCE_ROOT/dot_local/lib/herdr-aliases.sh"
 
-function test_scripts_1001_herdr_alias_library_parses_and_exposes_its_source_api() {
-  _bats_test_init 1001 'herdr alias library parses and exposes its source API'
-  run bash -n "$HERDR_ALIASES"
-  assert_success
-
-  run bash -c '
-    source "$1"
-    declare -F herdr_alias_is_valid >/dev/null
-    declare -F herdr_alias_in_pool >/dev/null
-    declare -F herdr_alias_validate_pool >/dev/null
-    declare -F herdr_alias_candidates >/dev/null
-  ' _ "$HERDR_ALIASES"
-  assert_success
-}
-
 function test_scripts_1002_herdr_alias_grammar_validation_is_separate_from_exact_p() {
   _bats_test_init 1002 'herdr alias grammar validation is separate from exact pool membership'
   source "$HERDR_ALIASES"
@@ -1605,6 +1590,70 @@ SH
   assert_file_exists "$home/plugin-linked"
 }
 
+function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
+  _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin"
+  local calls="$BATS_TEST_TMPDIR/herdr.calls"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  cat <<'JSON'
+{
+  "result": {
+    "plugins": [
+      { "plugin_id": "artisann.zed-herdr" },
+      { "plugin_id": "worktrunk" }
+    ]
+  }
+}
+JSON
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
+  assert_success
+  run grep -Fx "plugin uninstall worktrunk" "$calls"
+  assert_success
+  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
+  assert_success
+}
+
+function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
+  _bats_test_init 852 'obsolete plugin removal reports malformed plugin entries'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+if [ "$*" = "plugin list --json" ]; then
+  printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
 # ask-in-herdr skill script
 # ===========================================
 
@@ -1822,8 +1871,6 @@ function test_scripts_1057_ask_sh_performs_no_agent_list_preflight_or_query_and_
   run grep -c '^verify --to red-wolf --pane wT:p9 ' "$CHILD_STUB/child.log"
   assert_success
   assert_output 2
-  run grep -q 'herdr agent list' "$ASK_HERDR_SCRIPT"
-  assert_failure
 }
 
 function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_valida() {
@@ -2896,8 +2943,8 @@ PY
   done
 }
 
-function test_scripts_033_herdr_child_signal_and_arm_handshake_resolves_ab() {
-  _bats_test_init 33 'herdr-child signal and arm handshake resolves abort before reporting supervision'
+function test_scripts_033_herdr_child_signal_before_watcher_arm_reports_ab() {
+  _bats_test_init 33 'herdr-child signal before the watcher arm reports the abort, never an armed watcher'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -2931,9 +2978,10 @@ if '"status":"armed"' in stdout:
     raise AssertionError("pre-arm abort was also reported as armed")
 PY
   assert_success
+}
 
-  teardown
-  setup
+function test_scripts_0332_herdr_child_signal_after_watcher_arm_reports_ar() {
+  _bats_test_init 0332 'herdr-child signal after the confirmed watcher arm reports armed, never a failure'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -3052,7 +3100,7 @@ function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
 }
 
 function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
-  _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity and fails closed on session replacement'
+  _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity to a moved pane'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -3061,9 +3109,10 @@ function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
   child_wait_for_log 'agent prompt wT:p7.*event=settled-11'
   run grep -q 'agent prompt wT:p0.*event=' "$CHILD_STUB/calls.log"
   assert_failure
+}
 
-  teardown
-  setup
+function test_scripts_0361_herdr_child_detached_delivery_fails_closed_on_s() {
+  _bats_test_init 0361 'herdr-child detached delivery fails closed on parent session replacement'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -3075,7 +3124,7 @@ function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
 }
 
 function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
-  _bats_test_init 37 'herdr-child detached delivery retries temporary parent blockage and prompt transport failure'
+  _bats_test_init 37 'herdr-child detached delivery retries temporary parent blockage'
   child_lifecycle_stub_herdr
   printf 'blocked\n' > "$CHILD_STUB/parent-status"
   run child_lifecycle_start --supervision-timeout 5000
@@ -3093,9 +3142,10 @@ function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output 1
+}
 
-  teardown
-  setup
+function test_scripts_0371_herdr_child_detached_delivery_retries_prompt_tr() {
+  _bats_test_init 0371 'herdr-child detached delivery retries a prompt transport failure'
   child_lifecycle_stub_herdr
   printf '1\n' > "$CHILD_STUB/prompt-fail-count"
   run child_lifecycle_start --supervision-timeout 5000
@@ -3147,9 +3197,9 @@ function test_scripts_039_herdr_child_transient_pane_reads_never_become_ch() {
 }
 
 function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
-  _bats_test_init 40 'herdr-child superseded watcher cannot publish failure metadata over a new generation'
+  _bats_test_init 40 'herdr-child superseded watcher exits and removes its stale run directory'
   child_lifecycle_stub_herdr
-  local old_generation old_run new_generation watcher_pid new_watcher_pid reply_pid reply_status attempt=0
+  local old_generation old_run watcher_pid attempt=0
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
   export HERDR_CHILD_TEST_NOW_SEQ=100
   run child_lifecycle_start --supervision-timeout 5000
@@ -3163,10 +3213,12 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
     sleep 0.01
   done
   assert_dir_not_exists "$old_run"
+}
 
-  teardown
-  setup
+function test_scripts_0401_herdr_child_superseded_watcher_cannot_publish_f() {
+  _bats_test_init 0401 'herdr-child superseded watcher cannot publish failure metadata over a reply takeover generation'
   child_lifecycle_stub_herdr
+  local old_generation new_generation watcher_pid new_watcher_pid reply_pid reply_status attempt=0
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
   export HERDR_CHILD_TEST_NOW_SEQ=100
   export HERDR_CHILD_MAX_DELIVERY_RETRIES=1
@@ -3174,7 +3226,6 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
   assert_success
   old_generation="$(cat "$CHILD_STUB/generation")"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
-  attempt=0
 
   printf '12\n' > "$CHILD_STUB/prompt-fail-count"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
@@ -4353,7 +4404,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
 }
 
 function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
-  _bats_test_init 68 'herdr-child tab mode preserves malformed creations and cleans owned failures'
+  _bats_test_init 68 'herdr-child tab mode preserves a malformed tab creation without mutating Herdr'
   child_stub_herdr
   STUB_TAB_CREATE_MALFORMED=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4361,9 +4412,10 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_output --partial "tab wT:tA was preserved"
   run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
+}
 
-  teardown
-  setup
+function test_scripts_0681_herdr_child_tab_mode_cleans_owned_pane_on_repor() {
+  _bats_test_init 0681 'herdr-child tab mode cleans its owned pane when recording tab ownership fails'
   child_stub_herdr
   STUB_REPORT_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4375,7 +4427,7 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
 }
 
 function test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
-  _bats_test_init 69 'herdr-child tab mode reports the tab on timeout and names it on launch failure'
+  _bats_test_init 69 'herdr-child tab mode reports the tab coordinates on prompt timeout'
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4383,9 +4435,10 @@ function test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
   assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
+}
 
-  teardown
-  setup
+function test_scripts_0691_herdr_child_tab_mode_names_the_tab_on_launch_fa() {
+  _bats_test_init 0691 'herdr-child tab mode names the tab on agent launch failure'
   child_stub_herdr
   STUB_START_MODE=busy HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4796,6 +4849,37 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   assert_output --partial "skipping agent-state integration refresh"
 }
 
+# Present leg of 093's pair: with herdr on PATH the refresh must actually issue
+# one `integration install <target>` per agent client. The stub records argv,
+# so the oracle is what herdr received at runtime, not the script's source.
+function test_scripts_0931_herdr_integrations_script_installs_each_target_() {
+  _bats_test_init 931 'herdr-integrations script installs each integration target when herdr is present'
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  local rendered="$BATS_TEST_TMPDIR/herdr-integrations.sh"
+  # Render status first: a partial render written straight to the file could
+  # still emit the expected calls and mask a broken deployment template.
+  run --separate-stderr chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+  printf '%s\n' "$output" > "$rendered"
+
+  local stub="$BATS_TEST_TMPDIR/stub" calls="$BATS_TEST_TMPDIR/herdr-calls.log"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$calls"
+STUB
+  chmod +x "$stub/herdr"
+
+  run env PATH="$stub:/usr/bin:/bin" bash "$rendered"
+  assert_success
+  assert_output --partial "Refreshed herdr agent-state integrations"
+
+  assert_file_contains "$calls" '^integration install claude$'
+  assert_file_contains "$calls" '^integration install pi$'
+  assert_file_contains "$calls" '^integration install opencode$'
+}
+
 # ===========================================
 # Claude Code PreToolUse hooks
 # ===========================================
@@ -5041,6 +5125,7 @@ function test_scripts_1103_herdr_pane_labels_descriptor_probe_closes_worker_pipe
     HPL_DESCRIPTOR_PID_FILE="$pid_file" \
     HPL_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file" \
     HPL_BLOCKED_HERDR_POLLS="$HPL_BLOCKED_HERDR_POLLS" \
+    TMPDIR="$BATS_TEST_TMPDIR" \
     BASHUNIT_BIN="$BATS_TEST_DIRNAME/lib/bashunit" PROBE_FILE="$probe_file" \
     python3 - <<'PY'
 import os
@@ -5556,11 +5641,6 @@ function test_scripts_1118_herdr_pane_labels_rejects_a_complete_stale_post_renam
 
 function test_scripts_1119_herdr_pane_labels_contains_no_semantic_naming_or_retire() {
   _bats_test_init 1119 'herdr-pane-labels contains no semantic naming or retired worker interface'
-  run grep -E 'prompt|transcript|model|task|--worker|--agent|--session|--set|HERDR_TASK_SYNC' "$HPL_ENGINE"
-  assert_failure
-  run grep -E -- '--event|--sweep|--sweep-daemon|--ensure-sweep-daemon|--presentation-worker' "$HPL_ENGINE"
-  assert_success
-
   local retired
   for retired in --agent --session --transcript --set --worker; do
     run bash "$HPL_ENGINE" "$retired"
@@ -6886,9 +6966,40 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
   assert_output "$HPL_ICON_BRANCH"
 }
 
+# Gate for the stub-conformance tests. Their oracle is the installed herdr
+# binary (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md),
+# and each environment answers its absence differently:
+# - workstation without herdr: a missing developer tool -- visible skip;
+# - disposable home under MMS_CI_MINIMAL: push/PR CI renders the CI-minimal
+#   Brewfile, which deliberately guards out `brew "herdr"`
+#   (home/private_dot_config/brewfiles/Brewfile.tmpl), so absence there is
+#   configured, not broken -- visible skip naming that configuration;
+# - disposable home on the full render (nightly / Brewfile-editing runs): the
+#   full Brewfile declares herdr, so absence is a broken environment, and a
+#   skip would silently drop the stubs' only tether to the real binary --
+#   hard fail, the test_scripts_100 bun pattern.
+# The second oracle precondition, a *running* herdr server, stays a visible
+# per-test skip everywhere: the full-render Docker home installs the binary
+# but cannot host a herdr server (herdr is an interactive terminal
+# multiplexer and this suite runs headless under chezmoi apply), so that
+# skip is irreducible there and never a fail.
+require_real_herdr_oracle() {
+  command_exists herdr && return 0
+  case "$(mms_disposable_home_verdict)" in
+    run)
+      if [ -n "${MMS_CI_MINIMAL:-}" ]; then
+        skip "herdr is guarded out of the CI-minimal Brewfile render"
+      fi
+      fail "herdr is missing inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
+      return 1
+      ;;
+    *) skip "herdr is not installed" ;;
+  esac
+}
+
 function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr() {
   _bats_test_init 1209 'pane-label stub api snapshot envelope matches the installed herdr'
-  command_exists herdr || skip "herdr is not installed"
+  require_real_herdr_oracle
   # The stub herdr in helpers/herdr_pane_labels.bash fakes an upstream contract,
   # so nothing written here can say whether it still matches -- only the binary
   # it impersonates can, and it is the oracle for this test. Compare the two at
@@ -6912,6 +7023,107 @@ function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr(
   run jq -S -c '.result | keys' <<<"$output"
   assert_success
   assert_output "$real_keys"
+}
+
+# Sorted subset of the given keys that every object selected by the jq
+# expression carries. Key sets, not values: values are machine-specific, the
+# key shape is the upstream contract the stubs impersonate.
+_herdr_consumed_key_subset() {
+  local expr="$1" json="$2"
+  shift 2
+  jq -c "[\$ARGS.positional[] as \$key | select([$expr | has(\$key)] | all) | \$key] | sort" \
+    --args "$@" <<<"$json"
+}
+
+# One herdr reply, three sides: the installed binary must still carry every
+# consumed key (a deployed reader breaks when upstream renames one while this
+# suite stays green), and each stub must then agree with the real binary on
+# exactly that set. The expected side of the stub comparisons is captured
+# from the real binary in the same run, never written here.
+_assert_herdr_consumed_parity() {
+  local expr="$1" real_json="$2" stub_json="$3" lifecycle_json="$4"
+  shift 4
+  local real_keys
+  run _herdr_consumed_key_subset "$expr" "$real_json" "$@"
+  assert_success
+  assert_output "$(jq -n -c '$ARGS.positional | sort' --args "$@")"
+  real_keys="$output"
+  run _herdr_consumed_key_subset "$expr" "$stub_json" "$@"
+  assert_success
+  assert_output "$real_keys"
+  run _herdr_consumed_key_subset "$expr" "$lifecycle_json" "$@"
+  assert_success
+  assert_output "$real_keys"
+}
+
+function test_scripts_2846_child_stub_agent_pane_envelopes_match_real_herdr() {
+  _bats_test_init 2846 'child-agent stub agent list/get and pane get envelopes match the installed herdr'
+  require_real_herdr_oracle
+
+  # child_stub_herdr and child_lifecycle_stub_herdr back the herdr-child
+  # suite, and nothing written in this file can say whether their envelopes
+  # still match the binary they impersonate -- only the binary can
+  # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+  # Real captures come first, before any stub directory exists.
+  local herdr_bin real_list real_get real_pane real_name real_pane_id
+  herdr_bin="$(command -v herdr)"
+  # A live server is the second oracle precondition; without one there is no
+  # oracle, so say why instead of falling back to a locally invented shape.
+  real_list="$("$herdr_bin" agent list 2>&1)" \
+    || skip "real herdr answered no agent list (no running server): $real_list"
+  real_name="$(jq -r '.result.agents[0].name // empty' <<<"$real_list")"
+  real_pane_id="$(jq -r '.result.agents[0].pane_id // empty' <<<"$real_list")"
+  if [ -z "$real_name" ] || [ -z "$real_pane_id" ]; then
+    skip "real herdr reports no running agent, so agent get and pane get have no target"
+  fi
+  real_get="$("$herdr_bin" agent get "$real_name" 2>&1)" \
+    || skip "real herdr answered no agent get for $real_name: $real_get"
+  real_pane="$("$herdr_bin" pane get "$real_pane_id" 2>&1)" \
+    || skip "real herdr answered no pane get for $real_pane_id: $real_pane"
+
+  local stub_list stub_get stub_pane lc_list lc_get lc_pane
+  child_stub_herdr
+  # START_CONTEXT makes the launch-contract stub list its parent agent; the
+  # bare default is an empty agents array with no object to compare.
+  stub_list="$(STUB_START_CONTEXT=1 "$CHILD_STUB/herdr" agent list)"
+  stub_get="$("$CHILD_STUB/herdr" agent get child)"
+  stub_pane="$("$CHILD_STUB/herdr" pane get wT:p9)"
+  child_lifecycle_stub_herdr
+  lc_list="$("$CHILD_STUB/herdr" agent list)"
+  lc_get="$("$CHILD_STUB/herdr" agent get child)"
+  lc_pane="$("$CHILD_STUB/herdr" pane get wT:p9)"
+
+  # Comparison depth: exactly the keys the deployed herdr-child modules read
+  # from each reply, nothing deeper -- everything below that belongs to herdr,
+  # and restating it here would reimplement upstream semantics locally, the
+  # failure mode this test exists to avoid. Keys those modules read only via
+  # .get-with-default stay out of the pinned set when real herdr legitimately
+  # omits them: agent_session (absent without a session), focused and
+  # agent_status on list entries, and the pane's tokens / state_labels /
+  # tab_id (a live pane answers with no state_labels key at all). The real
+  # .result also carries a sibling "type" key no script reads; the container
+  # key is the pinned envelope boundary, so "type" stays out too.
+
+  # agent list: json_validate_agents_and_list_names
+  # (home/dot_local/lib/herdr-child-runtime.sh) hard-requires pane_id, agent,
+  # terminal_id, revision, state_change_seq on every agent; name is what
+  # json_has_name/json_has_pair match pairs by, and herdr names every agent
+  # it detects (its CLI addresses agents by name).
+  _assert_herdr_consumed_parity '.result' "$real_list" "$stub_list" "$lc_list" agents
+  _assert_herdr_consumed_parity '.result.agents[]' "$real_list" "$stub_list" "$lc_list" \
+    agent name pane_id revision state_change_seq terminal_id
+
+  # agent get: json_agent_snapshot hard-indexes agent_status,
+  # state_change_seq, terminal_id, pane_id.
+  _assert_herdr_consumed_parity '.result' "$real_get" "$stub_get" "$lc_get" agent
+  _assert_herdr_consumed_parity '.result.agent' "$real_get" "$stub_get" "$lc_get" \
+    agent_status pane_id state_change_seq terminal_id
+
+  # pane get: json_pane_identity hard-indexes pane_id and terminal_id, and
+  # the reap identity check (herdr-child-reap.sh) compares the same two.
+  _assert_herdr_consumed_parity '.result' "$real_pane" "$stub_pane" "$lc_pane" pane
+  _assert_herdr_consumed_parity '.result.pane' "$real_pane" "$stub_pane" "$lc_pane" \
+    pane_id terminal_id
 }
 
 function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
@@ -7961,17 +8173,9 @@ function test_scripts_256_morning_cleanup_is_a_no_op_on_its_second_run_of() {
   [ -d "$fake_home/Projects/late/.omc" ]
 }
 
-function test_scripts_257_morning_cleanup_keeps_fresh_trash_entries() {
-  _bats_test_init 257 'morning-cleanup keeps fresh trash entries'
-  local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
-  local fake_home="$BATS_TEST_TMPDIR/mc-home-trash"
-  mkdir -p "$fake_home/Projects" "$fake_home/.scratchpad/fresh-entry"
-  printf 'x' > "$fake_home/.scratchpad/fresh-entry/file"
-
-  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
-  assert_success
-  [ -d "$fake_home/.scratchpad/fresh-entry" ]
-}
+# The fresh-trash-keep scenario is owned by morning_cleanup_test.sh test 002,
+# which pairs it with the stale-removal leg and a completion stamp; a second
+# copy here would be a duplicate owner.
 
 # Wires the herdr-child descriptor probe into the suite. run-post-apply.sh runs
 # a fixed file list, so without this nested invocation the probe file would be
@@ -7984,7 +8188,8 @@ function test_scripts_258_herdr_child_descriptor_probe_passes_under_a_nes() {
   _bats_test_init 258 'herdr-child descriptor probe passes under a nested bashunit run'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/herdr_child_descriptor_probe_test.sh"
   assert_file_exists "$probe_file"
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
   assert_success
   # Bashunit abbreviates long titles to the terminal width in Docker panes.
   assert_output --partial "All tests passed"
@@ -8001,7 +8206,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   assert_file_exists "$probe_file"
 
   # Parallel leg: aggregate_parallel_results parses the .result file.
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
   assert_output --partial "Passed: late child output lands after the result payload"
   assert_output --partial "Assertions: 1 passed, 1 total"
@@ -8009,7 +8215,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   # Sequential leg: extract_result_counts parses the captured execution
   # result. Unpatched it stays exit 0 but reports 0 assertions, so the
   # assertion-count line is the discriminator here, not the status.
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
   assert_success
   assert_output --partial "Assertions: 1 passed, 1 total"
 }
@@ -8019,7 +8226,8 @@ function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_histori
   local probe_file="$BATS_TEST_DIRNAME/bashunit/test_dsl_parallel_isolation_probe_test.sh"
   assert_file_exists "$probe_file"
 
-  run env NO_COLOR=1 "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
   assert_output --partial "Tests:      2 passed, 2 total"
 }

@@ -20,8 +20,8 @@ REAL_COMMANDS="$SOURCE_ROOT/private_dot_config/herdr/command-palette/commands.to
 
 setup() {
   # No `command_exists python3 || skip` here. python3 is a declared requirement
-  # (README.md, Requirements), so its absence must fail rather than silence all
-  # 58 tests in this file from inside setup(). Deliberate exception to the
+  # (README.md, Requirements), so its absence must fail rather than silence
+  # every test in this file from inside setup(). Deliberate exception to the
   # skip-on-missing-tool convention; the first test below names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
@@ -360,104 +360,130 @@ rank_real() {
   rank_in "$REAL_COMMANDS" "$1"
 }
 
-function test_palette_016_r1_lg_ranks_lazygit_in_popup_first() {
-  _bats_test_init 16 'R1: lg ranks Lazygit in popup first'
-  run rank_real lg
+# The title-tier match sits first in the file, so file order alone cannot
+# produce the expected ranking -- only a working shortcut tier can. "Popup git"
+# contains no `l`, so a dead shortcut tier cannot be rescued by a fuzzy title
+# hit either: "lg viewer" would take index 0 instead.
+function test_palette_016_r10_the_shortcut_tier_outranks_the_title_tier() {
+  _bats_test_init 16 'R10: the shortcut tier outranks the title tier'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "lg viewer"
+type = "shell"
+command = "true"
+
+[[commands]]
+group = "Fixture"
+title = "Popup git"
+type = "shell"
+command = "true"
+shortcuts = ["lg"]
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" lg
   assert_success
-  assert_line --index 0 "Lazygit in popup"
+  assert_line --index 0 "Popup git"
+  assert_line --index 1 "lg viewer"
 }
 
-function test_palette_017_r1_ws_ranks_switch_workspace_first() {
-  _bats_test_init 17 'R1: ws ranks Switch workspace first'
-  run rank_real ws
+# The title shares no fuzzy subsequence with the query, so only the shortcut
+# prefix can produce this hit -- an empty result is the regression.
+function test_palette_017_r10_a_half_typed_shortcut_still_matches_by_prefi() {
+  _bats_test_init 17 'R10: a half-typed shortcut still matches by prefix'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Ship the crate"
+type = "shell"
+command = "true"
+shortcuts = ["deploy"]
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" dep
   assert_success
-  assert_line --index 0 "Switch workspace"
+  assert_line --index 0 "Ship the crate"
 }
 
-function test_palette_018_r1_edit_ranks_edit_command_palette_config_first() {
-  _bats_test_init 18 'R1: edit ranks Edit command palette config first'
-  run rank_real edit
+function test_palette_018_r1_r10_shortcut_and_title_matching_both_fold_cas() {
+  _bats_test_init 18 'R1+R10: shortcut and title matching both fold case'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Popup git"
+type = "shell"
+command = "true"
+shortcuts = ["lg"]
+
+[[commands]]
+group = "Fixture"
+title = "Deploy the widget"
+type = "shell"
+command = "true"
+TOML
+
+  # Shortcut tier: without case folding "LG" hits no shortcut, and the title
+  # tier would then rank "Deploy the widget" (l...g subsequence) at index 0.
+  run rank_in "$PALETTE_WORK/commands.toml" LG
   assert_success
-  assert_line --index 0 "Edit command palette config"
+  assert_line --index 0 "Popup git"
+
+  # Title tier: fzf defaults to smart case, so an uppercase query turns
+  # matching case-sensitive unless the ranker passes -i.
+  run rank_in "$PALETTE_WORK/commands.toml" WIDGET
+  assert_success
+  assert_line --index 0 "Deploy the widget"
 }
 
-function test_palette_019_r1_zed_ranks_open_in_zed_first_and_returns_only() {
-  _bats_test_init 19 'R1: zed ranks Open in Zed first, and returns only it'
-  run rank_real zed
+# shortcut_rank gives an exact shortcut 0 and a prefix hit 1; file order breaks
+# ties only within a rank. The prefix owner sits first in the file, so ordering
+# alone cannot mask an inverted or flattened tier.
+function test_palette_019_r10_an_exact_shortcut_outranks_a_prefix_shortcut() {
+  _bats_test_init 19 'R10: an exact shortcut outranks a command whose shortcut it merely prefixes'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Prefix owner"
+type = "shell"
+command = "true"
+shortcuts = ["lgx"]
+
+[[commands]]
+group = "Fixture"
+title = "Exact owner"
+type = "shell"
+command = "true"
+shortcuts = ["lg"]
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" lg
   assert_success
-  assert_line --index 0 "Open in Zed"
-  assert_equal "${#lines[@]}" 1
+  assert_line --index 0 "Exact owner"
+  assert_line --index 1 "Prefix owner"
 }
 
-function test_palette_020_r1_main_ranks_merge_main_branch_first() {
-  _bats_test_init 20 'R1: main ranks Merge main branch first'
-  run rank_real main
+# Replaces the pinned-title tests that copied shortcuts and titles out of
+# commands.toml -- editing the config rewrote those expectations in the same
+# patch. Here the two sides stay independent: the operator's `shortcuts`
+# declarations, read from the deployed config at run time, against what the
+# ranker actually puts first. A new, renamed, or reassigned shortcut is
+# covered the moment it lands, including the Cyrillic ЙЦУКЕН-layout entries.
+function test_palette_020_r10_every_shortcut_declared_in_commands_toml_ran() {
+  _bats_test_init 20 'R10: every shortcut declared in commands.toml ranks its own command first'
+  run env HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+_, commands = palette.load_commands()
+declared = [(shortcut, command) for command in commands for shortcut in command.shortcuts]
+assert declared, "commands.toml declares no shortcuts; the shortcut tier has no production coverage"
+for shortcut, command in declared:
+    top = palette.ranked(shortcut, commands, palette.DEFAULT_LIMIT)
+    assert top and top[0] is command, (shortcut, command.title, [c.title for c in top])
+print(f"checked {len(declared)} shortcuts")
+PY
   assert_success
-  assert_line --index 0 "Merge main branch"
-}
-
-function test_palette_021_r1_lazy_ranks_lazygit_in_popup_first() {
-  _bats_test_init 21 'R1: lazy ranks Lazygit in popup first'
-  run rank_real lazy
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-}
-
-function test_palette_022_r10_the_cyrillic_shortcuts_rank_their_command_fi() {
-  _bats_test_init 22 'R10: the Cyrillic shortcuts rank their command first'
-  run rank_real "дп"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-  # No title contains Cyrillic, so the fzf tier adds nothing.
-  assert_equal "${#lines[@]}" 1
-
-  run rank_real "дфян"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-
-  run rank_real "цы"
-  assert_success
-  assert_line --index 0 "Switch workspace"
-
-  run rank_real "яув"
-  assert_success
-  assert_line --index 0 "Open in Zed"
-
-  run rank_real "увше"
-  assert_success
-  assert_line --index 0 "Edit command palette config"
-}
-
-# fzf defaults to smart case, so an uppercase letter would switch the title tier
-# to case-sensitive matching while the shortcut tier keeps case-folding.
-function test_palette_023_r1_the_title_tier_is_case_insensitive() {
-  _bats_test_init 23 'R1: the title tier is case-insensitive'
-  local upper lower
-  for lower in main config workspace lazy; do
-    upper="$(printf '%s' "$lower" | tr '[:lower:]' '[:upper:]')"
-    run rank_real "$lower"
-    assert_success
-    lower_out="$output"
-
-    run rank_real "$upper"
-    assert_success
-    assert_equal "$output" "$lower_out"
-    refute_output ""
-  done
-}
-
-function test_palette_024_r10_a_half_typed_shortcut_still_matches_by_prefi() {
-  _bats_test_init 24 'R10: a half-typed shortcut still matches by prefix'
-  run rank_real "дфя"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-}
-
-function test_palette_025_r10_shortcut_matching_is_case_insensitive() {
-  _bats_test_init 25 'R10: shortcut matching is case-insensitive'
-  run rank_real "LG"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
+  assert_output --partial "checked"
 }
 
 function test_palette_026_r10_a_decoy_title_cannot_displace_a_shortcut_hit() {
@@ -742,36 +768,28 @@ print("flat_last_visible", int(start <= 40 < start + max_visible))
 PY
 }
 
-function test_palette_034_r3_every_command_is_reachable_at_40_commands_in() {
-  _bats_test_init 34 'R3: every command is reachable at 40 commands in 8 groups'
+# One test, one subprocess: scroll_fixture prints every probe in a single run,
+# so splitting these assertions across tests only repeated that run.
+function test_palette_034_r3_scrolling_keeps_every_command_reachable_and_o() {
+  _bats_test_init 34 'R3: scrolling keeps every command reachable and off the description line'
   run scroll_fixture
   assert_success
+
+  # Every command reachable at 40 commands in 8 groups.
   assert_line "visible 40"
   assert_line "reachable 40"
-}
 
-function test_palette_035_r3_the_last_drawn_row_never_reaches_the_descript() {
-  _bats_test_init 35 'R3: the last drawn row never reaches the description line'
-  run scroll_fixture
-  assert_success
+  # The last drawn row never reaches the description line.
   local lowest detail
   lowest="$(printf '%s\n' "$output" | awk '/^lowest_drawn /{print $2}')"
   detail="$(printf '%s\n' "$output" | awk '/^detail_y /{print $2}')"
   [ "$lowest" -lt "$detail" ]
-}
 
-function test_palette_036_r3_ten_commands_still_render_unscrolled() {
-  _bats_test_init 36 'R3: ten commands still render unscrolled'
-  run scroll_fixture
-  assert_success
+  # Ten commands still render unscrolled.
   assert_line "ten_start 0"
   assert_line "ten_fits 1"
-}
 
-function test_palette_037_r3_a_single_group_with_no_extra_headers_still_sc() {
-  _bats_test_init 37 'R3: a single group with no extra headers still scrolls'
-  run scroll_fixture
-  assert_success
+  # A single group with no extra headers still scrolls to the last command.
   assert_line "flat_last_visible 1"
 }
 
@@ -1533,6 +1551,266 @@ expected = [
 assert actual == expected, actual
 PY
   assert_success
+}
+
+# ===========================================
+# smart_close -- Cmd-W closes pane, then tab, never the workspace
+# ===========================================
+
+# A `herdr` for smart_close.py that logs its argv and answers the two JSON
+# queries the script makes. TABS_JSON is the `tabs` array verbatim; the
+# sentinel `unreachable` makes `pane current` fail so the error path runs.
+# oracle: the argv log the stub writes -- independent of smart_close.py.
+smart_close_stub_herdr() {
+  local dir="$1" tabs_json="$2"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'LOG=%s/herdr.log\n' "$dir"
+    printf 'TABS=%s\n' "$(printf '%q' "$tabs_json")"
+  } > "$dir/herdr"
+  cat >> "$dir/herdr" <<'SH'
+printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in
+  "pane current")
+    [ "$TABS" = "unreachable" ] && exit 1
+    printf '{"result":{"pane":{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1"}}}\n' ;;
+  "tab list") printf '{"result":{"tabs":%s}}\n' "$TABS" ;;
+  "pane close") : ;;
+  "tab close") : ;;
+  "notification show") : ;;
+  *) exit 2 ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/herdr"
+}
+
+run_smart_close() {
+  env HERDR_BIN_PATH="$1/herdr" python3 "$PALETTE_DIR/smart_close.py"
+}
+
+function test_palette_067_smart_close_closes_the_focused_pane_when_the_tab() {
+  _bats_test_init 67 'smart close closes the focused pane when the tab has more than one'
+  smart_close_stub_herdr "$PALETTE_WORK/sc-panes" \
+    '[{"tab_id":"w1:t1","pane_count":2},{"tab_id":"w1:t2","pane_count":1}]'
+  run run_smart_close "$PALETTE_WORK/sc-panes"
+  assert_success
+
+  run cat "$PALETTE_WORK/sc-panes/herdr.log"
+  assert_success
+  assert_line "pane close w1:p1"
+  refute_output --partial "tab close"
+  refute_output --partial "notification show"
+}
+
+function test_palette_068_smart_close_closes_the_tab_when_it_holds_the_last() {
+  _bats_test_init 68 'smart close closes the tab when it holds the last pane but tabs remain'
+  smart_close_stub_herdr "$PALETTE_WORK/sc-tabs" \
+    '[{"tab_id":"w1:t1","pane_count":1},{"tab_id":"w1:t2","pane_count":1}]'
+  run run_smart_close "$PALETTE_WORK/sc-tabs"
+  assert_success
+
+  run cat "$PALETTE_WORK/sc-tabs/herdr.log"
+  assert_success
+  assert_line "tab close w1:t1"
+  refute_output --partial "pane close"
+  refute_output --partial "notification show"
+}
+
+# Tests 067/068 are the valid controls proving the stub reaches the close
+# paths; here the same stub must record no close at all.
+function test_palette_069_smart_close_refuses_the_last_tab_and_notifies() {
+  _bats_test_init 69 'smart close refuses to close the last tab and notifies instead'
+  smart_close_stub_herdr "$PALETTE_WORK/sc-last" \
+    '[{"tab_id":"w1:t1","pane_count":1}]'
+  run run_smart_close "$PALETTE_WORK/sc-last"
+  assert_success
+
+  run cat "$PALETTE_WORK/sc-last/herdr.log"
+  assert_success
+  refute_output --partial "pane close"
+  refute_output --partial "tab close"
+  assert_output --partial "notification show Keeping last tab"
+}
+
+function test_palette_070_smart_close_reports_a_failing_or_garbled_herdr() {
+  _bats_test_init 70 'smart close reports a failing or garbled herdr and closes nothing'
+  # A `pane current` that fails outright.
+  smart_close_stub_herdr "$PALETTE_WORK/sc-broken" 'unreachable'
+  run run_smart_close "$PALETTE_WORK/sc-broken"
+  assert_failure
+
+  run cat "$PALETTE_WORK/sc-broken/herdr.log"
+  assert_success
+  refute_output --partial "pane close"
+  refute_output --partial "tab close"
+  assert_output --partial "notification show Smart close failed"
+
+  # A `tab list` answering garbage instead of JSON.
+  smart_close_stub_herdr "$PALETTE_WORK/sc-garbled" 'garbage'
+  run run_smart_close "$PALETTE_WORK/sc-garbled"
+  assert_failure
+
+  run cat "$PALETTE_WORK/sc-garbled/herdr.log"
+  assert_success
+  refute_output --partial "pane close"
+  refute_output --partial "tab close"
+  assert_output --partial "notification show Smart close failed"
+}
+
+# ===========================================
+# run paths -- plugin_action, plain shell append, pane_run precondition
+# ===========================================
+
+# Run the command with the given title from $dir/commands.toml against the
+# argv-logging stub from palette_worktree_stub. One argument per line in the
+# log is what makes quoting and flag boundaries observable.
+run_palette_title() {
+  local dir="$1" title="$2"
+  env HERDR_BIN_PATH="$dir/bin/herdr" HERDR_TARGET_CWD="$dir" \
+    HERDR_COMMAND_PALETTE_CONFIG="$dir/commands.toml" \
+    PALETTE_COMMAND_TITLE="$title" python3 - <<'PY'
+import os
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.title == os.environ["PALETTE_COMMAND_TITLE"])
+code, output, _ = palette.run_command(command, config_path)
+print(f"code={code}")
+print(output)
+PY
+}
+
+function test_palette_071_plugin_action_hands_herdr_the_action_id() {
+  _bats_test_init 71 'plugin_action hands herdr the action id, adding --plugin only when configured'
+  local fixture="$PALETTE_WORK/plugin-action"
+  mkdir -p "$fixture"
+  palette_worktree_stub "$fixture"
+  cat > "$fixture/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Bare action"
+type = "plugin_action"
+action = "toggle_thing"
+
+[[commands]]
+group = "Fixture"
+title = "Scoped action"
+type = "plugin_action"
+action = "toggle_thing"
+plugin = "seigi.other"
+TOML
+
+  run run_palette_title "$fixture" "Bare action"
+  assert_success
+  assert_line "code=0"
+
+  run cat "$fixture/herdr.log"
+  assert_success
+  assert_line --index 0 "plugin"
+  assert_line --index 1 "action"
+  assert_line --index 2 "invoke"
+  assert_line --index 3 "toggle_thing"
+  # The scoped run below is the positive control proving the stub log would
+  # show --plugin if the palette sent it.
+  refute_output --partial -- "--plugin"
+
+  : > "$fixture/herdr.log"
+  run run_palette_title "$fixture" "Scoped action"
+  assert_success
+  assert_line "code=0"
+
+  run cat "$fixture/herdr.log"
+  assert_success
+  assert_line --index 3 "toggle_thing"
+  assert_line --index 4 -- "--plugin"
+  assert_line --index 5 "seigi.other"
+}
+
+function test_palette_072_a_shell_command_appends_the_value_as_one_inert_ar() {
+  _bats_test_init 72 'a shell command appends the form value as one inert argument'
+  local work="$PALETTE_WORK/shell-append"
+  mkdir -p "$work"
+  cat > "$work/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Echo it"
+type = "shell"
+command = "printf '%s\n'"
+TOML
+
+  # If append_value's runtime quoting broke, bash would run the text after the
+  # semicolon and create the marker instead of printing the string.
+  local hostile="a b; touch $work/PWNED #"
+  run env HERDR_TARGET_CWD="$work" HERDR_COMMAND_PALETTE_CONFIG="$work/commands.toml" \
+    PALETTE_COMMAND_VALUE="$hostile" python3 - <<'PY'
+import os
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.title == "Echo it")
+variables = palette.variables_with_value(
+    palette.context_vars(config_path), os.environ["PALETTE_COMMAND_VALUE"]
+)
+code, output, _ = palette.run_command_with_variables(
+    command, config_path, variables, os.environ.get("HERDR_BIN_PATH", "herdr")
+)
+print(f"code={code}")
+print(output)
+PY
+  assert_success
+  assert_line "code=0"
+  # Positive control for the marker refutation below: the hostile text came
+  # back verbatim on one line, so it reached printf as a single argument.
+  assert_line "$hostile"
+
+  # oracle: only the injected `touch` can create this marker, so its absence
+  # is the observable proof that the appended value stayed inert.
+  if [[ -e "$work/PWNED" ]]; then
+    fail "the appended value ran a command"
+  fi
+}
+
+function test_palette_073_pane_run_without_a_target_pane_is_refused_before() {
+  _bats_test_init 73 'pane_run without a target pane refuses with guidance and never reaches herdr'
+  local dir="$PALETTE_WORK/no-target-pane"
+  stub_herdr "$dir" 'null'
+  cat > "$dir/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Edit in place"
+type = "pane_run"
+command = "vi /tmp/x"
+TOML
+
+  # test_palette_039 is the paired positive control: the same stub with
+  # HERDR_TARGET_PANE_ID set reaches `pane run` and writes the log.
+  run env -u HERDR_TARGET_PANE_ID HERDR_BIN_PATH="$dir/herdr" HERDR_TARGET_CWD="$dir" \
+    HERDR_COMMAND_PALETTE_CONFIG="$dir/commands.toml" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.kind == "pane_run")
+try:
+    palette.run_command(command, config_path)
+except ValueError as exc:
+    print(f"refused: {exc}")
+else:
+    raise SystemExit("pane_run ran without a target pane")
+PY
+  assert_success
+  assert_output --partial "refused:"
+  assert_output --partial "No target pane found"
+
+  # oracle: the stub logs every invocation, so a missing log proves herdr was
+  # never called on the refusal path.
+  [ ! -e "$dir/herdr.log" ]
 }
 
 function set_up_before_script() {
