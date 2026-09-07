@@ -314,5 +314,5 @@ test derives its inventory; sequential probe run skips; suite green.
 - [x] P12 · Brewfile full-render controls
 - [x] P13 · rework smoke grep zone
 - [x] P14 · visible skips instead of return 0
-- [ ] P15 · deduplicate and unfreeze
+- [x] P15 · deduplicate and unfreeze
 - [x] P16 · small-suite fixes

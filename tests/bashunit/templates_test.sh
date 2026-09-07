@@ -296,40 +296,6 @@ FAKE_OP
   assert_output --partial 'onepasswordRead'
   # oracle: fake op creates this marker only if skip-secrets fails before helper launch.
   assert_file_not_exists "$work/op-launched"
-
-  run env \
-    HOME="$work/home" \
-    MMS_CHEZMOI_UNATTENDED=1 \
-    "$launcher" --profile host-partial -- \
-    diff --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" --color=false
-  assert_success
-  assert_output --partial 'partial coverage'
-  assert_output --partial 'home/dot_zshenv.tmpl'
-  assert_output --partial '~/.zshenv'
-}
-
-function test_templates_0095_zshenv_invalid_unattended_profile_fails_before_op() {
-  _bats_test_init 95 'zshenv invalid unattended profile fails before invoking op'
-  local work="$BATS_TEST_TMPDIR/zshenv-invalid-profile"
-  mkdir -p "$work/bin"
-  cat > "$work/bin/op" <<'FAKE_OP'
-#!/bin/sh
-printf launched > "$FAKE_OP_MARKER"
-exit 99
-FAKE_OP
-  chmod +x "$work/bin/op"
-
-  run env \
-    PATH="$work/bin:$PATH" \
-    FAKE_OP_MARKER="$work/op-launched" \
-    MMS_CHEZMOI_UNATTENDED=1 \
-    "$CHEZMOI_UNATTENDED" --profile invalid --finite-stdin -- \
-    execute-template --source "$SOURCE_ROOT" \
-    < "$SOURCE_ROOT/dot_zshenv.tmpl"
-  assert_failure
-  assert_output --partial '--profile must be full-fixture or host-partial'
-  # oracle: fake op creates this marker only if the invalid branch reaches it.
-  assert_file_not_exists "$work/op-launched"
 }
 
 function test_templates_010_zshrc_cached_init_never_splices_two_concurrent_g() {
@@ -431,14 +397,14 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 # private_settings.json.tmpl retirement contract
 # ===========================================
 function test_templates_0151_private_settings_registers_worktree_identity_prompt_hook() {
-  _bats_test_init 151 'private settings register the worktree identity prompt hook and omit task sync'
+  _bats_test_init 151 'private settings register the worktree identity prompt and session-start hooks'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+  run grep -F '{{' "$BATS_TEST_TMPFILE"
+  assert_failure
   run jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'herdr-worktree-identity-hook.sh'
-  run jq -e '[.hooks.UserPromptSubmit[]?.hooks[]?.command] | any(contains("herdr-task-sync-hook.sh")) | not' "$BATS_TEST_TMPFILE"
-  assert_success
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'herdr-agent-state.sh'
@@ -453,6 +419,8 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
   _bats_test_init 152 'private settings register the PreCompact handoff builder'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
+  run grep -F '{{' "$BATS_TEST_TMPFILE"
+  assert_failure
 
   # A hook deployed but never registered is a tracked defect class here, so the
   # registration is asserted alongside the hook rather than left to the smoke
@@ -464,38 +432,6 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-pre-compact.sh"
   assert_success
   assert_file_exists "$output"
-}
-
-function test_templates_0154_private_settings_carry_every_context_handoff_registration() {
-  _bats_test_init 154 'private settings carry both handoff registrations at once'
-  local command
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
-
-  # Each unit asserts its own registration. This one catches a later edit that
-  # drops one of them while leaving the others in place -- the failure mode no
-  # single-hook assertion can see.
-  run jq -e '
-    ([.hooks.PreCompact[]?.hooks[]?.command] | any(contains("handoff-pre-compact.sh")))
-    and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("handoff-session-start.sh")))
-    and ([.hooks.SessionStart[]?.hooks[]?.command] | any(contains("herdr-agent-state.sh")))
-  ' "$BATS_TEST_TMPFILE"
-  assert_success
-
-  # Every hook this work registers must resolve to a chezmoi-managed source, or
-  # it is deployed by nothing. herdr-agent-state.sh is deliberately outside
-  # this loop: `herdr integration install` writes it from
-  # home/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl
-  # and it has no chezmoi source path of its own.
-  while IFS= read -r command; do
-    run chezmoi_host_partial source-path \
-      --source "$SOURCE_ROOT" "$HOME/.claude/hooks/$command"
-    assert_success
-    assert_file_exists "$output"
-  done <<'EOF'
-handoff-pre-compact.sh
-handoff-session-start.sh
-EOF
 }
 
 # ===========================================

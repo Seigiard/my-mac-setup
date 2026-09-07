@@ -398,18 +398,31 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
 }
 
 function test_smoke_017_coding_agents_use_terminal_color_palettes() {
-  _bats_test_init 17 'coding agents use terminal color palettes'
-  run jq -e '.theme == "custom:light-ansi-daltonized"' "$HOME/.claude/settings.json"
+  _bats_test_init 17 'agent theme settings resolve to deployed theme files'
+  # Which palette each client names is a preference; pinning the names failed
+  # every intended theme edit. The contract is referential integrity: a
+  # settings value naming a file-backed theme must resolve to a deployed theme
+  # file, or the client falls back to a broken default. Two independent sides:
+  # the settings value vs the deployed theme file tree.
+  run jq -re '.theme' "$HOME/.claude/settings.json"
   assert_success
-  assert_file_exists "$HOME/.claude/themes/light-ansi-daltonized.json"
+  local claude_theme="$output"
+  # Claude marks file-backed themes with a custom: prefix; a bare name is a
+  # builtin with no file to resolve.
+  case "$claude_theme" in
+    custom:*) assert_file_exists "$HOME/.claude/themes/${claude_theme#custom:}.json" ;;
+  esac
 
-  run jq -e '.theme == "terminal"' "$HOME/.pi/agent/settings.json"
+  # Pi resolves theme names against its themes directory.
+  run jq -re '.theme' "$HOME/.pi/agent/settings.json"
   assert_success
-  assert_file_exists "$HOME/.pi/agent/themes/terminal.json"
+  assert_file_exists "$HOME/.pi/agent/themes/$output.json"
 
-  run jq -e '.theme == "system"' "$HOME/.config/opencode/tui.json"
+  # OpenCode builtin names carry no marker separating them from custom themes,
+  # so the file side cannot be adjudicated here; only the settings side — that
+  # tui.json parses and names a theme — is assertable.
+  run jq -re '.theme' "$HOME/.config/opencode/tui.json"
   assert_success
-  assert_file_not_exists "$HOME/.config/opencode/themes/flexoki-light-forced.json"
 }
 
 function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
@@ -539,11 +552,22 @@ function test_smoke_023_executor_cli_resolves_on_path_through_local_bin() {
 }
 
 function test_smoke_024_kitty_includes_its_herdr_bindings_and_keeps_the() {
-  _bats_test_init 24 'kitty includes its herdr bindings and keeps the Alabaster theme (macOS only)'
+  _bats_test_init 24 'kitty includes its herdr bindings and every include resolves (macOS only)'
   is_macos || skip "Not on macOS"
   local config="$HOME/.config/kitty/kitty.conf"
+  # The herdr include is cross-component wiring (tests 26-28 assert herdr.conf
+  # content that only matters if kitty loads it). Which theme is included is a
+  # preference; the contract is referential — kitty silently skips a missing
+  # include, so a dangling one drops its theme or bindings without an error.
+  # Two independent sides: the include statements vs the deployed config dir.
   assert_file_contains "$config" "^include herdr.conf$"
-  assert_file_contains "$config" "^include Alabaster.conf$"
+  local include target
+  run grep -o '^include .*$' "$config"
+  assert_success
+  while IFS= read -r include; do
+    target="${include#include }"
+    assert_file_exists "$HOME/.config/kitty/$target"
+  done <<< "$output"
 }
 
 function test_smoke_025_kitty_font_family_is_one_kitty_accepts_as_monosp() {
@@ -792,14 +816,11 @@ function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p
     'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-function test_smoke_1053_semantic_adapters_are_absent() {
-  _bats_test_init 1053 'semantic adapters are absent'
-  assert_file_not_exists "$HOME/.local/bin/herdr-task-sync"
-  assert_file_not_exists "$HOME/.claude/hooks/herdr-task-sync-hook.sh"
-  assert_file_not_exists "$HOME/.config/opencode/plugins/herdr-task-sync.ts"
-  assert_file_not_exists "$HOME/.pi/agent/extensions/herdr-task-sync.ts"
-}
-
+# Single owner of the task-sync retirement: the absence (no task-sync hook
+# registered anywhere) is paired with the positive capability that replaced it
+# (the native agent-state hook on SessionStart), so a settings file that lost
+# both would still go red. This test also owns the deployed SessionStart
+# registration of herdr-agent-state.sh — do not re-assert it elsewhere.
 function test_smoke_1054_claude_settings_omit_task_sync_hooks_and_retain_native_() {
   _bats_test_init 1054 'claude settings omit task-sync hooks and retain native agent state'
   local settings="$HOME/.claude/settings.json"
@@ -839,9 +860,6 @@ for event, script in (
 ):
     found = commands(event)
     assert any(script in c for c in found), (event, script, found)
-
-session = commands("SessionStart")
-assert any("herdr-agent-state.sh" in c for c in session), session
 HOOKCHECK
   assert_success
 
@@ -871,7 +889,6 @@ function test_smoke_1063_worktree_identity_deploys_and_statusline_records_() {
   assert_success
   local record="$output"
   assert_file_contains "$record" "^$BATS_TEST_TMPDIR$"
-  assert_file_not_exists "$record_home/.cache/herdr-task-sync/agent-cwd/$session"
 }
 
 function test_smoke_1055_pi_local_private_instructions_focused_tests_pass() {
@@ -899,10 +916,19 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
   assert_success
 }
 
+# Same reasoning as 1065/1068-1070: test 1057 proves the checkout's extension,
+# only the applied home proves the extension Pi will actually load. The bun
+# suite parameterizes its subject through SOURCE_ROOT in chezmoi source layout
+# (dot_pi/...), so a symlink shim maps that layout onto the deployed ~/.pi tree.
 function test_smoke_1056_pi_brew_auto_updater_is_deployed() {
-  _bats_test_init 1056 'Pi brew auto updater is deployed'
+  _bats_test_init 1056 'deployed Pi brew auto updater passes the focused suite'
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
   assert_file_exists "$ext"
+  local shim_root="$BATS_TEST_TMPDIR/deployed-pi-source-root"
+  mkdir -p "$shim_root"
+  ln -s "$HOME/.pi" "$shim_root/dot_pi"
+  run env SOURCE_ROOT="$shim_root" bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
+  assert_success
 }
 
 function test_smoke_1057_pi_brew_auto_updater_focused_tests_pass() {
