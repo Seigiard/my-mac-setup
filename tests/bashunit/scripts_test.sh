@@ -4785,6 +4785,33 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   assert_output --partial "skipping agent-state integration refresh"
 }
 
+# Present leg of 093's pair: with herdr on PATH the refresh must actually issue
+# one `integration install <target>` per agent client. The stub records argv,
+# so the oracle is what herdr received at runtime, not the script's source.
+function test_scripts_0931_herdr_integrations_script_installs_each_target_() {
+  _bats_test_init 931 'herdr-integrations script installs each integration target when herdr is present'
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  local rendered="$BATS_TEST_TMPDIR/herdr-integrations.sh"
+  chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$rendered"
+
+  local stub="$BATS_TEST_TMPDIR/stub" calls="$BATS_TEST_TMPDIR/herdr-calls.log"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$calls"
+STUB
+  chmod +x "$stub/herdr"
+
+  run env PATH="$stub:/usr/bin:/bin" bash "$rendered"
+  assert_success
+  assert_output --partial "Refreshed herdr agent-state integrations"
+
+  assert_file_contains "$calls" '^integration install claude$'
+  assert_file_contains "$calls" '^integration install pi$'
+  assert_file_contains "$calls" '^integration install opencode$'
+}
+
 # ===========================================
 # Claude Code PreToolUse hooks
 # ===========================================
