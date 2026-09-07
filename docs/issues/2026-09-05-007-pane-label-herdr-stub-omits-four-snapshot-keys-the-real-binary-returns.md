@@ -1,6 +1,6 @@
 ---
 title: "Pane-label herdr stub omits four snapshot keys the real binary returns"
-short_description: "The new conformance check (scripts_test.sh test 1209) pins only the top-level result keys, and one level down the stub's .result.snapshot omits focused_pane_id, focused_tab_id, focused_workspace_id and version that real herdr 0.8.2 returns; the engine reads none of them today, so the drift is latent rather than a live bug."
+short_description: "The stub's .result.snapshot omits focused_pane_id, focused_tab_id, focused_workspace_id and version that real herdr 0.8.2 returns, while conformance test 1209 pins only the top-level result keys; widening was deliberately deferred because the pane-label engine reads none of the four, and an honest widening would couple the suite to a herdr version."
 type: "follow-up"
 category: "testing-ci"
 tags: ["herdr","semantic-tests","test-integrity"]
@@ -72,3 +72,30 @@ a skip-on-version-mismatch story. Paying that for keys nothing reads is prematur
 Reopen the question the moment engine code reads focus or version — at that point the stub cannot
 supply what the code needs, and every pane-label test would pass green against a fake that is
 missing the field under test.
+
+### Re-verified 2026-09-07: deferral still correct
+
+Re-measured against the same herdr 0.8.2 (`/opt/homebrew/bin/herdr`). The divergence is unchanged in
+both directions:
+
+```
+real - stub = focused_pane_id, focused_tab_id, focused_workspace_id, version
+stub - real = (empty)
+common      = agents, layouts, panes, protocol, tabs, workspaces
+```
+
+The stub's six keys are assembled at `tests/helpers/herdr_pane_labels.bash:279`; its
+incomplete-snapshot branch at line 281 is narrower still (`protocol`, `panes`), by design.
+`git log -S focused_pane_id` over the engine and the stub helper returns zero commits across the whole
+history, so the reopen trigger has not fired.
+
+**One clarification for whoever greps next.** `home/private_dot_config/herdr/plugins/command-palette/open.py:45`
+does read `focused_pane_id` — but from `HERDR_PLUGIN_CONTEXT_JSON`, the plugin-context environment
+channel, not from `api snapshot`. It never touches the pane-label stub and is **not** the consumer that
+triggers the reopen. A bare `grep focused_` across the repository will surface it; do not mistake it for
+engine code adopting focus information.
+
+The three real snapshot consumers remain clean: `home/dot_local/bin/executable_herdr-pane-labels:1048`
+(the single `api snapshot` call site), `home/dot_local/bin/executable_herdr-worktree-identity:376`, and
+`home/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh`. None reads any of the four keys; no file in
+the repository reads `.result.snapshot.version`.
