@@ -95,11 +95,11 @@ function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
 
 # One manifest replaces the per-file existence tests. A file that falls out of
 # management (a .chezmoiignore edit, a lost dot_ prefix) keeps `chezmoi verify`
-# green — verify only checks what is still managed — so deployment and
-# management membership are both asserted against this curated list.
-function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
-  _bats_test_init 4 'critical managed files are deployed and still managed'
-  local paths=(
+# green — verify only checks what is still managed — so deployment (test 004)
+# and management membership (test 1071) are both asserted against this curated
+# list. The helper assigns the caller's `paths` via bash dynamic scoping.
+_smoke_critical_paths() {
+  paths=(
     .zshrc
     .aliases
     .gitconfig
@@ -155,15 +155,31 @@ function test_smoke_004_critical_managed_files_are_deployed_and_still_ma() {
       .config/herdr/plugins/herdr-focus-notify/notify.py
     )
   fi
+}
+
+function test_smoke_004_critical_managed_files_are_deployed() {
+  _bats_test_init 4 'critical managed files are deployed'
+  local paths
+  _smoke_critical_paths
 
   local p missing=""
   for p in "${paths[@]}"; do
     [ -e "$HOME/$p" ] || missing="$missing $p"
   done
   [ -z "$missing" ] || fail "missing from \$HOME:$missing"
+  # Reached only when nothing is missing; registers the counted assertion the
+  # fail-with-message path above cannot, so bashunit does not flag this test
+  # as assertion-free (risky).
+  assert_equal "$missing" ""
+}
 
-  command_exists chezmoi || return 0
-  local managed unmanaged=""
+function test_smoke_1071_critical_deployed_files_are_still_chezmoi_manag() {
+  _bats_test_init 1071 'critical deployed files are still chezmoi-managed'
+  skip_if_no_chezmoi
+  local paths
+  _smoke_critical_paths
+
+  local p managed unmanaged=""
   run chezmoi_host_partial managed
   assert_success
   managed="$output"
@@ -655,12 +671,15 @@ SH
     run python3 "$FOCUS_NOTIFY_DIR/notify.py"
 }
 
-function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
-  _bats_test_init 32 'focus-notify plugin compiles and declares its runtime entrypoint'
+function test_smoke_032_focus_notify_plugin_compiles() {
+  _bats_test_init 32 'focus-notify plugin compiles'
   run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
     python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
   assert_success
+}
 
+function test_smoke_1072_focus_notify_deployed_manifest_declares_its_run() {
+  _bats_test_init 1072 'focus-notify deployed manifest declares its runtime entrypoint (macOS only)'
   # The manifest wires the status event and the interpreter as argv arrays.
   # Literal consumed outside this repo: herdr's plugin loader parses these two
   # keys to decide which event fires the plugin and how to exec it. Assert the
@@ -668,7 +687,7 @@ function test_smoke_032_focus_notify_plugin_compiles_and_declares_its_ru() {
   # source grep wearing a smoke test's name and would stay green when chezmoi
   # never placed the file (same fix as test 009 in commit 50654e2). The plugin
   # is darwin-only per home/.chezmoiignore, so it only deploys on macOS.
-  is_macos || return 0
+  is_macos || skip "Not on macOS"
   local manifest="$HOME/.config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml"
   assert_file_exists "$manifest"
   assert_file_contains "$manifest" '^on = "pane.agent_status_changed"$'

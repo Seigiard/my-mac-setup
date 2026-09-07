@@ -313,6 +313,6 @@ test derives its inventory; sequential probe run skips; suite green.
 - [ ] P11 · re-home checkout colony in smoke_test.sh
 - [x] P12 · Brewfile full-render controls
 - [x] P13 · rework smoke grep zone
-- [ ] P14 · visible skips instead of return 0
+- [x] P14 · visible skips instead of return 0
 - [ ] P15 · deduplicate and unfreeze
 - [x] P16 · small-suite fixes
