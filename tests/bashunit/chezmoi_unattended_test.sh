@@ -25,6 +25,15 @@ fi
 for arg in "$@"; do
   if [ "$arg" = "managed" ]; then
     printf 'managed\n' >> "$FAKE_STATE/invocations"
+    if [ -n "${FAKE_MANAGED_EXIT_STATUS:-}" ]; then
+      exit "$FAKE_MANAGED_EXIT_STATUS"
+    fi
+    if [ "${FAKE_MANAGED_OVERSIZED_TARGET:-}" = "1" ]; then
+      # 98304 bytes = the launcher's 96 KiB batch budget; with the $HOME
+      # prefix this single target can never fit in an empty batch.
+      printf '%s\0' "$HOME/.config/oversized-$(head -c 98304 /dev/zero | tr '\0' x)"
+      exit 0
+    fi
     if [ "${FAKE_MANAGED_ONLY_OMITTED:-}" = "1" ]; then
       printf '%s\0' "$HOME/.zshenv" "$HOME/.claude.json"
       exit 0
@@ -301,8 +310,6 @@ env["MMS_CHEZMOI_UNATTENDED"] = "1"
 result = subprocess.run(
     [sys.argv[2], "--profile", "host-partial", "--finite-stdin", "--", "verify"],
     stdin=slave,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
     env=env,
 )
 os.close(master)
@@ -310,6 +317,7 @@ os.close(slave)
 sys.exit(result.returncode)
 ' "$TEST_PATH" "$LAUNCHER"
   assert_failure
+  assert_output --partial '--finite-stdin requires non-terminal stdin'
   assert_final_not_reached
 }
 
@@ -423,6 +431,114 @@ function test_chezmoi_unattended_012_empty_filtered_target_set_fails_closed() {
   assert_failure
   assert_output --partial 'no non-sensitive managed targets remain'
   assert_final_not_reached
+}
+
+function test_chezmoi_unattended_013_rejects_malformed_launcher_invocations() {
+  _bats_test_init 13 'rejects malformed launcher invocations before final execution'
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$LAUNCHER" --profile host-partial --bogus -- verify
+  assert_failure
+  assert_output --partial 'unknown launcher option before --: --bogus'
+  assert_final_not_reached
+
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$LAUNCHER" --profile host-partial
+  assert_failure
+  assert_output --partial 'launcher options must end with --'
+  assert_final_not_reached
+
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$LAUNCHER" --profile host-partial --
+  assert_failure
+  assert_output --partial 'a chezmoi command is required after --'
+  assert_final_not_reached
+
+  run_host verify
+  assert_success
+  assert_file_exists "$FAKE_STATE/argv"
+}
+
+function test_chezmoi_unattended_014_inventory_requires_exactly_five_fixture_identities() {
+  _bats_test_init 14 'inventory requires exactly five distinct fixture identities'
+  local copied="$BATS_TEST_TMPDIR/copied"
+  mkdir -p "$copied"
+  cp "$LAUNCHER" "$copied/chezmoi-unattended"
+  chmod +x "$copied/chezmoi-unattended"
+
+  # Well-formed row, four distinct identities: only the count gate can reject.
+  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D\n' \
+    > "$copied/chezmoi-unattended-targets.tsv"
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$copied/chezmoi-unattended" --profile host-partial -- verify
+  assert_failure
+  assert_output --partial 'inventory must register exactly five distinct fixture identities'
+  assert_final_not_reached
+
+  # Six distinct identities: "exactly five" also rejects an over-count.
+  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F\n' \
+    > "$copied/chezmoi-unattended-targets.tsv"
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$copied/chezmoi-unattended" --profile host-partial -- verify
+  assert_failure
+  assert_output --partial 'inventory must register exactly five distinct fixture identities'
+  assert_final_not_reached
+
+  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E\n' \
+    > "$copied/chezmoi-unattended-targets.tsv"
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$copied/chezmoi-unattended" --profile host-partial -- verify
+  assert_success
+  assert_file_exists "$FAKE_STATE/argv"
+}
+
+function test_chezmoi_unattended_015_single_oversized_managed_target_fails_closed() {
+  _bats_test_init 15 'host diff fails closed on a single oversized managed target'
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_MANAGED_OVERSIZED_TARGET=1 \
+    run "$LAUNCHER" --profile host-partial -- diff --source /tmp/source
+  assert_failure
+  assert_output --partial 'managed target is too long to invoke safely'
+  assert_final_not_reached
+
+  # Control: the default managed targets fit one batch and pass the same gate.
+  run_host diff --source /tmp/source
+  assert_success
+  assert_file_exists "$FAKE_STATE/argv"
+}
+
+function test_chezmoi_unattended_016_managed_failure_propagates_child_status() {
+  _bats_test_init 16 'host diff propagates the managed child status without a final invocation'
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_MANAGED_EXIT_STATUS=41 \
+    run "$LAUNCHER" --profile host-partial -- diff --source /tmp/source
+  assert_failure 41
+  assert_final_not_reached
+
+  run_host diff --source /tmp/source
+  assert_success
+  assert_file_exists "$FAKE_STATE/argv"
+}
+
+function test_chezmoi_unattended_017_mid_batch_diff_failure_propagates_and_stops() {
+  _bats_test_init 17 'mid-batch diff failure propagates the child status and stops batching'
+  # 2000 targets need several batches (test 0101 proves >1 final invocation);
+  # every final invocation exits 53, so the first batch must end the launcher.
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    FAKE_MANAGED_TARGET_COUNT=2000 FAKE_EXIT_STATUS=53 \
+    run "$LAUNCHER" --profile host-partial -- diff --source /tmp/source
+  assert_failure 53
+
+  local final_invocations=0 invocation
+  while IFS= read -r invocation; do
+    [ "$invocation" = final ] && final_invocations=$((final_invocations + 1))
+  done < "$FAKE_STATE/invocations"
+  assert_equal "$final_invocations" 1
+
+  rm -f "$FAKE_STATE/invocations" "$FAKE_STATE/managed-targets" \
+    "$FAKE_STATE/received-targets"
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_MANAGED_TARGET_COUNT=2000 \
+    run "$LAUNCHER" --profile host-partial -- diff --source /tmp/source
+  assert_success
+  run cmp "$FAKE_STATE/managed-targets" "$FAKE_STATE/received-targets"
+  assert_success
 }
 
 teardown() {
