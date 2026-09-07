@@ -6897,9 +6897,40 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
   assert_output "$HPL_ICON_BRANCH"
 }
 
+# Gate for the stub-conformance tests. Their oracle is the installed herdr
+# binary (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md),
+# and each environment answers its absence differently:
+# - workstation without herdr: a missing developer tool -- visible skip;
+# - disposable home under MMS_CI_MINIMAL: push/PR CI renders the CI-minimal
+#   Brewfile, which deliberately guards out `brew "herdr"`
+#   (home/private_dot_config/brewfiles/Brewfile.tmpl), so absence there is
+#   configured, not broken -- visible skip naming that configuration;
+# - disposable home on the full render (nightly / Brewfile-editing runs): the
+#   full Brewfile declares herdr, so absence is a broken environment, and a
+#   skip would silently drop the stubs' only tether to the real binary --
+#   hard fail, the test_scripts_100 bun pattern.
+# The second oracle precondition, a *running* herdr server, stays a visible
+# per-test skip everywhere: the full-render Docker home installs the binary
+# but cannot host a herdr server (herdr is an interactive terminal
+# multiplexer and this suite runs headless under chezmoi apply), so that
+# skip is irreducible there and never a fail.
+require_real_herdr_oracle() {
+  command_exists herdr && return 0
+  case "$(mms_disposable_home_verdict)" in
+    run)
+      if [ -n "${MMS_CI_MINIMAL:-}" ]; then
+        skip "herdr is guarded out of the CI-minimal Brewfile render"
+      fi
+      fail "herdr is missing inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
+      return 1
+      ;;
+    *) skip "herdr is not installed" ;;
+  esac
+}
+
 function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr() {
   _bats_test_init 1209 'pane-label stub api snapshot envelope matches the installed herdr'
-  command_exists herdr || skip "herdr is not installed"
+  require_real_herdr_oracle
   # The stub herdr in helpers/herdr_pane_labels.bash fakes an upstream contract,
   # so nothing written here can say whether it still matches -- only the binary
   # it impersonates can, and it is the oracle for this test. Compare the two at
@@ -6923,6 +6954,107 @@ function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr(
   run jq -S -c '.result | keys' <<<"$output"
   assert_success
   assert_output "$real_keys"
+}
+
+# Sorted subset of the given keys that every object selected by the jq
+# expression carries. Key sets, not values: values are machine-specific, the
+# key shape is the upstream contract the stubs impersonate.
+_herdr_consumed_key_subset() {
+  local expr="$1" json="$2"
+  shift 2
+  jq -c "[\$ARGS.positional[] as \$key | select([$expr | has(\$key)] | all) | \$key] | sort" \
+    --args "$@" <<<"$json"
+}
+
+# One herdr reply, three sides: the installed binary must still carry every
+# consumed key (a deployed reader breaks when upstream renames one while this
+# suite stays green), and each stub must then agree with the real binary on
+# exactly that set. The expected side of the stub comparisons is captured
+# from the real binary in the same run, never written here.
+_assert_herdr_consumed_parity() {
+  local expr="$1" real_json="$2" stub_json="$3" lifecycle_json="$4"
+  shift 4
+  local real_keys
+  run _herdr_consumed_key_subset "$expr" "$real_json" "$@"
+  assert_success
+  assert_output "$(jq -n -c '$ARGS.positional | sort' --args "$@")"
+  real_keys="$output"
+  run _herdr_consumed_key_subset "$expr" "$stub_json" "$@"
+  assert_success
+  assert_output "$real_keys"
+  run _herdr_consumed_key_subset "$expr" "$lifecycle_json" "$@"
+  assert_success
+  assert_output "$real_keys"
+}
+
+function test_scripts_2846_child_stub_agent_pane_envelopes_match_real_herdr() {
+  _bats_test_init 2846 'child-agent stub agent list/get and pane get envelopes match the installed herdr'
+  require_real_herdr_oracle
+
+  # child_stub_herdr and child_lifecycle_stub_herdr back the herdr-child
+  # suite, and nothing written in this file can say whether their envelopes
+  # still match the binary they impersonate -- only the binary can
+  # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+  # Real captures come first, before any stub directory exists.
+  local herdr_bin real_list real_get real_pane real_name real_pane_id
+  herdr_bin="$(command -v herdr)"
+  # A live server is the second oracle precondition; without one there is no
+  # oracle, so say why instead of falling back to a locally invented shape.
+  real_list="$("$herdr_bin" agent list 2>&1)" \
+    || skip "real herdr answered no agent list (no running server): $real_list"
+  real_name="$(jq -r '.result.agents[0].name // empty' <<<"$real_list")"
+  real_pane_id="$(jq -r '.result.agents[0].pane_id // empty' <<<"$real_list")"
+  if [ -z "$real_name" ] || [ -z "$real_pane_id" ]; then
+    skip "real herdr reports no running agent, so agent get and pane get have no target"
+  fi
+  real_get="$("$herdr_bin" agent get "$real_name" 2>&1)" \
+    || skip "real herdr answered no agent get for $real_name: $real_get"
+  real_pane="$("$herdr_bin" pane get "$real_pane_id" 2>&1)" \
+    || skip "real herdr answered no pane get for $real_pane_id: $real_pane"
+
+  local stub_list stub_get stub_pane lc_list lc_get lc_pane
+  child_stub_herdr
+  # START_CONTEXT makes the launch-contract stub list its parent agent; the
+  # bare default is an empty agents array with no object to compare.
+  stub_list="$(STUB_START_CONTEXT=1 "$CHILD_STUB/herdr" agent list)"
+  stub_get="$("$CHILD_STUB/herdr" agent get child)"
+  stub_pane="$("$CHILD_STUB/herdr" pane get wT:p9)"
+  child_lifecycle_stub_herdr
+  lc_list="$("$CHILD_STUB/herdr" agent list)"
+  lc_get="$("$CHILD_STUB/herdr" agent get child)"
+  lc_pane="$("$CHILD_STUB/herdr" pane get wT:p9)"
+
+  # Comparison depth: exactly the keys the deployed herdr-child modules read
+  # from each reply, nothing deeper -- everything below that belongs to herdr,
+  # and restating it here would reimplement upstream semantics locally, the
+  # failure mode this test exists to avoid. Keys those modules read only via
+  # .get-with-default stay out of the pinned set when real herdr legitimately
+  # omits them: agent_session (absent without a session), focused and
+  # agent_status on list entries, and the pane's tokens / state_labels /
+  # tab_id (a live pane answers with no state_labels key at all). The real
+  # .result also carries a sibling "type" key no script reads; the container
+  # key is the pinned envelope boundary, so "type" stays out too.
+
+  # agent list: json_validate_agents_and_list_names
+  # (home/dot_local/lib/herdr-child-runtime.sh) hard-requires pane_id, agent,
+  # terminal_id, revision, state_change_seq on every agent; name is what
+  # json_has_name/json_has_pair match pairs by, and herdr names every agent
+  # it detects (its CLI addresses agents by name).
+  _assert_herdr_consumed_parity '.result' "$real_list" "$stub_list" "$lc_list" agents
+  _assert_herdr_consumed_parity '.result.agents[]' "$real_list" "$stub_list" "$lc_list" \
+    agent name pane_id revision state_change_seq terminal_id
+
+  # agent get: json_agent_snapshot hard-indexes agent_status,
+  # state_change_seq, terminal_id, pane_id.
+  _assert_herdr_consumed_parity '.result' "$real_get" "$stub_get" "$lc_get" agent
+  _assert_herdr_consumed_parity '.result.agent' "$real_get" "$stub_get" "$lc_get" \
+    agent_status pane_id state_change_seq terminal_id
+
+  # pane get: json_pane_identity hard-indexes pane_id and terminal_id, and
+  # the reap identity check (herdr-child-reap.sh) compares the same two.
+  _assert_herdr_consumed_parity '.result' "$real_pane" "$stub_pane" "$lc_pane" pane
+  _assert_herdr_consumed_parity '.result.pane' "$real_pane" "$stub_pane" "$lc_pane" \
+    pane_id terminal_id
 }
 
 function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
