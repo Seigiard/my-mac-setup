@@ -1535,6 +1535,112 @@ PY
   assert_success
 }
 
+# ===========================================
+# smart_close -- Cmd-W closes pane, then tab, never the workspace
+# ===========================================
+
+# A `herdr` for smart_close.py that logs its argv and answers the two JSON
+# queries the script makes. TABS_JSON is the `tabs` array verbatim; the
+# sentinel `unreachable` makes `pane current` fail so the error path runs.
+# oracle: the argv log the stub writes -- independent of smart_close.py.
+smart_close_stub_herdr() {
+  local dir="$1" tabs_json="$2"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'LOG=%s/herdr.log\n' "$dir"
+    printf 'TABS=%s\n' "$(printf '%q' "$tabs_json")"
+  } > "$dir/herdr"
+  cat >> "$dir/herdr" <<'SH'
+printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in
+  "pane current")
+    [ "$TABS" = "unreachable" ] && exit 1
+    printf '{"result":{"pane":{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1"}}}\n' ;;
+  "tab list") printf '{"result":{"tabs":%s}}\n' "$TABS" ;;
+  "pane close") : ;;
+  "tab close") : ;;
+  "notification show") : ;;
+  *) exit 2 ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/herdr"
+}
+
+run_smart_close() {
+  env HERDR_BIN_PATH="$1/herdr" python3 "$PALETTE_DIR/smart_close.py"
+}
+
+function test_palette_067_smart_close_closes_the_focused_pane_when_the_tab() {
+  _bats_test_init 67 'smart close closes the focused pane when the tab has more than one'
+  smart_close_stub_herdr "$PALETTE_WORK/sc-panes" \
+    '[{"tab_id":"w1:t1","pane_count":2},{"tab_id":"w1:t2","pane_count":1}]'
+  run run_smart_close "$PALETTE_WORK/sc-panes"
+  assert_success
+
+  run cat "$PALETTE_WORK/sc-panes/herdr.log"
+  assert_success
+  assert_line "pane close w1:p1"
+  refute_output --partial "tab close"
+  refute_output --partial "notification show"
+}
+
+function test_palette_068_smart_close_closes_the_tab_when_it_holds_the_last() {
+  _bats_test_init 68 'smart close closes the tab when it holds the last pane but tabs remain'
+  smart_close_stub_herdr "$PALETTE_WORK/sc-tabs" \
+    '[{"tab_id":"w1:t1","pane_count":1},{"tab_id":"w1:t2","pane_count":1}]'
+  run run_smart_close "$PALETTE_WORK/sc-tabs"
+  assert_success
+
+  run cat "$PALETTE_WORK/sc-tabs/herdr.log"
+  assert_success
+  assert_line "tab close w1:t1"
+  refute_output --partial "pane close"
+  refute_output --partial "notification show"
+}
+
+# Tests 067/068 are the valid controls proving the stub reaches the close
+# paths; here the same stub must record no close at all.
+function test_palette_069_smart_close_refuses_the_last_tab_and_notifies() {
+  _bats_test_init 69 'smart close refuses to close the last tab and notifies instead'
+  smart_close_stub_herdr "$PALETTE_WORK/sc-last" \
+    '[{"tab_id":"w1:t1","pane_count":1}]'
+  run run_smart_close "$PALETTE_WORK/sc-last"
+  assert_success
+
+  run cat "$PALETTE_WORK/sc-last/herdr.log"
+  assert_success
+  refute_output --partial "pane close"
+  refute_output --partial "tab close"
+  assert_output --partial "notification show Keeping last tab"
+}
+
+function test_palette_070_smart_close_reports_a_failing_or_garbled_herdr() {
+  _bats_test_init 70 'smart close reports a failing or garbled herdr and closes nothing'
+  # A `pane current` that fails outright.
+  smart_close_stub_herdr "$PALETTE_WORK/sc-broken" 'unreachable'
+  run run_smart_close "$PALETTE_WORK/sc-broken"
+  assert_failure
+
+  run cat "$PALETTE_WORK/sc-broken/herdr.log"
+  assert_success
+  refute_output --partial "pane close"
+  refute_output --partial "tab close"
+  assert_output --partial "notification show Smart close failed"
+
+  # A `tab list` answering garbage instead of JSON.
+  smart_close_stub_herdr "$PALETTE_WORK/sc-garbled" 'garbage'
+  run run_smart_close "$PALETTE_WORK/sc-garbled"
+  assert_failure
+
+  run cat "$PALETTE_WORK/sc-garbled/herdr.log"
+  assert_success
+  refute_output --partial "pane close"
+  refute_output --partial "tab close"
+  assert_output --partial "notification show Smart close failed"
+}
+
 function set_up_before_script() {
   PALETTE_FILE_PYCACHE="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette-pycache.XXXXXX")"
   export PALETTE_FILE_PYCACHE
