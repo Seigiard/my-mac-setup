@@ -79,7 +79,15 @@ printf '%s' "${FAKE_STDERR:-}" >&2
 if [ -n "${FAKE_SIGNAL_MODE:-}" ]; then
   printf '%s' "$$" > "$FAKE_STATE/pid"
   trap 'printf term > "$FAKE_STATE/signal"; exit 143' TERM
-  while :; do sleep 1; done
+  # Bounded wait: an undelivered TERM must fail this fake (exit 143, same
+  # status as the trap but without the signal marker) instead of hanging the
+  # suite forever.
+  signal_wait_iterations=0
+  while [ "$signal_wait_iterations" -lt 30 ]; do
+    sleep 1
+    signal_wait_iterations=$((signal_wait_iterations + 1))
+  done
+  exit 143
 fi
 exit "${FAKE_EXIT_STATUS:-0}"
 FAKE_CHEZMOI
@@ -323,16 +331,23 @@ function test_chezmoi_unattended_009_exec_propagates_signals_to_the_child() {
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_SIGNAL_MODE=1 \
     "$LAUNCHER" --profile host-partial -- verify \
     > "$BATS_TEST_TMPDIR/signal.out" 2>&1 &
-  local launcher_pid=$! attempts=0 rc
-  while [ ! -f "$FAKE_STATE/pid" ] && [ "$attempts" -lt 100 ]; do
-    sleep 0.01
-    attempts=$((attempts + 1))
+  # Global, not local: teardown must still see the pid when an assertion below
+  # exits the body mid-test, or the backgrounded fake outlives the test
+  # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  SIGNAL_LAUNCHER_PID=$!
+  local rc deadline=$((SECONDS + 10))
+  # Elapsed-time hang guard with a fast poll: the pid file lands in
+  # milliseconds when healthy, but a loaded machine gets a real budget
+  # (docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md).
+  while [ ! -f "$FAKE_STATE/pid" ] && [ "$SECONDS" -lt "$deadline" ]; do
+    sleep 0.05
   done
   assert_file_exists "$FAKE_STATE/pid"
-  assert_equal "$(< "$FAKE_STATE/pid")" "$launcher_pid"
-  kill -TERM "$launcher_pid"
+  assert_equal "$(< "$FAKE_STATE/pid")" "$SIGNAL_LAUNCHER_PID"
+  kill -TERM "$SIGNAL_LAUNCHER_PID"
   rc=0
-  wait "$launcher_pid" || rc=$?
+  wait "$SIGNAL_LAUNCHER_PID" || rc=$?
+  SIGNAL_LAUNCHER_PID=""
   assert_equal "$rc" 143
   assert_equal "$(< "$FAKE_STATE/signal")" term
 }
@@ -408,6 +423,18 @@ function test_chezmoi_unattended_012_empty_filtered_target_set_fails_closed() {
   assert_failure
   assert_output --partial 'no non-sensitive managed targets remain'
   assert_final_not_reached
+}
+
+teardown() {
+  # Failure-path cleanup for test 009: an assertion exiting the body between
+  # launch and kill must not orphan the backgrounded launcher (the fake execs
+  # in its place, so killing this pid kills the fake too). Green path clears
+  # the variable after reaping, making this a no-op.
+  if [ -n "${SIGNAL_LAUNCHER_PID:-}" ]; then
+    kill -TERM "$SIGNAL_LAUNCHER_PID" 2>/dev/null || true
+    wait "$SIGNAL_LAUNCHER_PID" 2>/dev/null || true
+    SIGNAL_LAUNCHER_PID=""
+  fi
 }
 
 function set_up_before_script() {

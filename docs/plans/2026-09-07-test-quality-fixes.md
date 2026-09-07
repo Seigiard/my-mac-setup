@@ -300,7 +300,7 @@ test derives its inventory; sequential probe run skips; suite green.
 
 ## Progress
 
-- [ ] P1 · stall-proof chezmoi_unattended test 009
+- [x] P1 · stall-proof chezmoi_unattended test 009
 - [ ] P2 · launcher guard + failure-propagation coverage
 - [x] P3 · smart_close.py behavior tests
 - [ ] P4 · palette ranking onto fixtures + scroll consolidation
