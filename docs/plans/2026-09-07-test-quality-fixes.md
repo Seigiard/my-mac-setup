@@ -307,7 +307,7 @@ test derives its inventory; sequential probe run skips; suite green.
 - [x] P5 · untested palette run paths
 - [x] P6 · morning-cleanup destructive legs
 - [ ] P7 · herdr-child stub calibration visibility
-- [ ] P8 · remove source-shape greps in scripts_test.sh
+- [x] P8 · remove source-shape greps in scripts_test.sh
 - [ ] P9 · split multi-scenario tests
 - [ ] P10 · herdr-integrations present-leg
 - [ ] P11 · re-home checkout colony in smoke_test.sh

@@ -1288,21 +1288,6 @@ function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
 
 HERDR_ALIASES="$SOURCE_ROOT/dot_local/lib/herdr-aliases.sh"
 
-function test_scripts_1001_herdr_alias_library_parses_and_exposes_its_source_api() {
-  _bats_test_init 1001 'herdr alias library parses and exposes its source API'
-  run bash -n "$HERDR_ALIASES"
-  assert_success
-
-  run bash -c '
-    source "$1"
-    declare -F herdr_alias_is_valid >/dev/null
-    declare -F herdr_alias_in_pool >/dev/null
-    declare -F herdr_alias_validate_pool >/dev/null
-    declare -F herdr_alias_candidates >/dev/null
-  ' _ "$HERDR_ALIASES"
-  assert_success
-}
-
 function test_scripts_1002_herdr_alias_grammar_validation_is_separate_from_exact_p() {
   _bats_test_init 1002 'herdr alias grammar validation is separate from exact pool membership'
   source "$HERDR_ALIASES"
@@ -1822,8 +1807,6 @@ function test_scripts_1057_ask_sh_performs_no_agent_list_preflight_or_query_and_
   run grep -c '^verify --to red-wolf --pane wT:p9 ' "$CHILD_STUB/child.log"
   assert_success
   assert_output 2
-  run grep -q 'herdr agent list' "$ASK_HERDR_SCRIPT"
-  assert_failure
 }
 
 function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_valida() {
@@ -5556,11 +5539,6 @@ function test_scripts_1118_herdr_pane_labels_rejects_a_complete_stale_post_renam
 
 function test_scripts_1119_herdr_pane_labels_contains_no_semantic_naming_or_retire() {
   _bats_test_init 1119 'herdr-pane-labels contains no semantic naming or retired worker interface'
-  run grep -E 'prompt|transcript|model|task|--worker|--agent|--session|--set|HERDR_TASK_SYNC' "$HPL_ENGINE"
-  assert_failure
-  run grep -E -- '--event|--sweep|--sweep-daemon|--ensure-sweep-daemon|--presentation-worker' "$HPL_ENGINE"
-  assert_success
-
   local retired
   for retired in --agent --session --transcript --set --worker; do
     run bash "$HPL_ENGINE" "$retired"
