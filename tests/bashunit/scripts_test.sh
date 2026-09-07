@@ -2879,8 +2879,8 @@ PY
   done
 }
 
-function test_scripts_033_herdr_child_signal_and_arm_handshake_resolves_ab() {
-  _bats_test_init 33 'herdr-child signal and arm handshake resolves abort before reporting supervision'
+function test_scripts_033_herdr_child_signal_before_watcher_arm_reports_ab() {
+  _bats_test_init 33 'herdr-child signal before the watcher arm reports the abort, never an armed watcher'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -2914,9 +2914,10 @@ if '"status":"armed"' in stdout:
     raise AssertionError("pre-arm abort was also reported as armed")
 PY
   assert_success
+}
 
-  teardown
-  setup
+function test_scripts_0332_herdr_child_signal_after_watcher_arm_reports_ar() {
+  _bats_test_init 0332 'herdr-child signal after the confirmed watcher arm reports armed, never a failure'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -3035,7 +3036,7 @@ function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
 }
 
 function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
-  _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity and fails closed on session replacement'
+  _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity to a moved pane'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -3044,9 +3045,10 @@ function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
   child_wait_for_log 'agent prompt wT:p7.*event=settled-11'
   run grep -q 'agent prompt wT:p0.*event=' "$CHILD_STUB/calls.log"
   assert_failure
+}
 
-  teardown
-  setup
+function test_scripts_0361_herdr_child_detached_delivery_fails_closed_on_s() {
+  _bats_test_init 0361 'herdr-child detached delivery fails closed on parent session replacement'
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -3058,7 +3060,7 @@ function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
 }
 
 function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
-  _bats_test_init 37 'herdr-child detached delivery retries temporary parent blockage and prompt transport failure'
+  _bats_test_init 37 'herdr-child detached delivery retries temporary parent blockage'
   child_lifecycle_stub_herdr
   printf 'blocked\n' > "$CHILD_STUB/parent-status"
   run child_lifecycle_start --supervision-timeout 5000
@@ -3076,9 +3078,10 @@ function test_scripts_037_herdr_child_detached_delivery_retries_temporary() {
   run grep -c 'event=settled-11' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output 1
+}
 
-  teardown
-  setup
+function test_scripts_0371_herdr_child_detached_delivery_retries_prompt_tr() {
+  _bats_test_init 0371 'herdr-child detached delivery retries a prompt transport failure'
   child_lifecycle_stub_herdr
   printf '1\n' > "$CHILD_STUB/prompt-fail-count"
   run child_lifecycle_start --supervision-timeout 5000
@@ -3130,9 +3133,9 @@ function test_scripts_039_herdr_child_transient_pane_reads_never_become_ch() {
 }
 
 function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
-  _bats_test_init 40 'herdr-child superseded watcher cannot publish failure metadata over a new generation'
+  _bats_test_init 40 'herdr-child superseded watcher exits and removes its stale run directory'
   child_lifecycle_stub_herdr
-  local old_generation old_run new_generation watcher_pid new_watcher_pid reply_pid reply_status attempt=0
+  local old_generation old_run watcher_pid attempt=0
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
   export HERDR_CHILD_TEST_NOW_SEQ=100
   run child_lifecycle_start --supervision-timeout 5000
@@ -3146,10 +3149,12 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
     sleep 0.01
   done
   assert_dir_not_exists "$old_run"
+}
 
-  teardown
-  setup
+function test_scripts_0401_herdr_child_superseded_watcher_cannot_publish_f() {
+  _bats_test_init 0401 'herdr-child superseded watcher cannot publish failure metadata over a reply takeover generation'
   child_lifecycle_stub_herdr
+  local old_generation new_generation watcher_pid new_watcher_pid reply_pid reply_status attempt=0
   export HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER="$CHILD_STUB/failure-publish"
   export HERDR_CHILD_TEST_NOW_SEQ=100
   export HERDR_CHILD_MAX_DELIVERY_RETRIES=1
@@ -3157,7 +3162,6 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
   assert_success
   old_generation="$(cat "$CHILD_STUB/generation")"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
-  attempt=0
 
   printf '12\n' > "$CHILD_STUB/prompt-fail-count"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
@@ -4336,7 +4340,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
 }
 
 function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
-  _bats_test_init 68 'herdr-child tab mode preserves malformed creations and cleans owned failures'
+  _bats_test_init 68 'herdr-child tab mode preserves a malformed tab creation without mutating Herdr'
   child_stub_herdr
   STUB_TAB_CREATE_MALFORMED=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4344,9 +4348,10 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_output --partial "tab wT:tA was preserved"
   run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
+}
 
-  teardown
-  setup
+function test_scripts_0681_herdr_child_tab_mode_cleans_owned_pane_on_repor() {
+  _bats_test_init 0681 'herdr-child tab mode cleans its owned pane when recording tab ownership fails'
   child_stub_herdr
   STUB_REPORT_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4358,7 +4363,7 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
 }
 
 function test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
-  _bats_test_init 69 'herdr-child tab mode reports the tab on timeout and names it on launch failure'
+  _bats_test_init 69 'herdr-child tab mode reports the tab coordinates on prompt timeout'
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
@@ -4366,9 +4371,10 @@ function test_scripts_069_herdr_child_tab_mode_reports_the_tab_on_timeout() {
   assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
+}
 
-  teardown
-  setup
+function test_scripts_0691_herdr_child_tab_mode_names_the_tab_on_launch_fa() {
+  _bats_test_init 0691 'herdr-child tab mode names the tab on agent launch failure'
   child_stub_herdr
   STUB_START_MODE=busy HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
