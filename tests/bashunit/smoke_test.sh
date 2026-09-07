@@ -211,70 +211,6 @@ _bats_test_init 6 'herdr command palette keybinding is configured'
 assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
 }
 
-function test_smoke_007_obsolete_plugin_removal_accepts_formatted_plugin_j() {
-  _bats_test_init 7 'obsolete plugin removal accepts formatted plugin JSON'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local fake_bin="$BATS_TEST_TMPDIR/bin"
-  local calls="$BATS_TEST_TMPDIR/herdr.calls"
-  mkdir -p "$fake_bin"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-if [ "$*" = "plugin list --json" ]; then
-  cat <<'JSON'
-{
-  "result": {
-    "plugins": [
-      { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" }
-    ]
-  }
-}
-JSON
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
-  assert_success
-  run grep -Fx "plugin uninstall worktrunk" "$calls"
-  assert_success
-  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
-  assert_success
-}
-
-function test_smoke_008_obsolete_plugin_removal_reports_malformed_entries() {
-  _bats_test_init 8 'obsolete plugin removal reports malformed plugin entries'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
-  mkdir -p "$fake_bin"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-if [ "$*" = "plugin list --json" ]; then
-  printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
-}
-
 # Literal consumed outside this repo: herdr's auto-update plugin reads
 # `trusted_owners` at runtime and only auto-installs plugin updates from that
 # allowlist — a real security boundary, not decoration. Reads the deployed
@@ -672,18 +608,38 @@ function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
 }
 
 # ===========================================
-# herdr focus-notify plugin (source tree)
+# herdr focus-notify plugin
 # ===========================================
 
 FOCUS_NOTIFY_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-focus-notify"
 
-# Runs notify.py against a fake notifier that records its argv one line per
-# argument, so tests can assert the exact command terminal-notifier would get.
-# $1: event JSON. Extra env for the run comes via focus_notify_env array.
+# Behavior tests 033-035 run the deployed copy first — herdr executes
+# $HOME/.config/..., so a .chezmoiignore rule that drops notify.py from
+# deployment must fail these tests rather than stay green through the
+# checkout (same reasoning as test 1072's deployed manifest). The checkout
+# stays as a secondary leg so Linux CI, where the darwin-only plugin never
+# deploys, still proves the source behavior. Assigns the caller's
+# `notify_targets` via bash dynamic scoping, deployed copy first.
+_focus_notify_targets() {
+  notify_targets=("$FOCUS_NOTIFY_DIR/notify.py")
+  if is_macos; then
+    local deployed="$HOME/.config/herdr/plugins/herdr-focus-notify/notify.py"
+    assert_file_exists "$deployed"
+    notify_targets=("$deployed" "${notify_targets[@]}")
+  fi
+}
+
+# Runs one notify.py ($1) against a fake notifier that records its argv one
+# line per argument, so tests can assert the exact command terminal-notifier
+# would get. $2: event JSON.
 run_focus_notify() {
-  local event_json="$1"
+  local notify_py="$1"
+  local event_json="$2"
   local fake_bin="$BATS_TEST_TMPDIR/fake-notifier"
   FOCUS_NOTIFY_ARGV="$BATS_TEST_TMPDIR/notifier.argv"
+  # A stale argv file from the previous target leg would satisfy (or fail)
+  # this leg's assertions on the wrong evidence.
+  rm -f "$FOCUS_NOTIFY_ARGV"
   cat > "$fake_bin" <<SH
 #!/bin/sh
 printf '%s\n' "\$@" > "$FOCUS_NOTIFY_ARGV"
@@ -692,7 +648,7 @@ SH
   HERDR_PLUGIN_EVENT_JSON="$event_json" \
     HERDR_FOCUS_NOTIFY_NOTIFIER_BIN="$fake_bin" \
     HERDR_BIN_PATH="$BATS_TEST_TMPDIR/dir with space/herdr" \
-    run python3 "$FOCUS_NOTIFY_DIR/notify.py"
+    run python3 "$notify_py"
 }
 
 function test_smoke_032_focus_notify_plugin_compiles() {
@@ -720,12 +676,15 @@ function test_smoke_1072_focus_notify_deployed_manifest_declares_its_run() {
 
 function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
   _bats_test_init 33 'focus-notify builds a safely quoted click command'
-  # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
-  run_focus_notify '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
-  assert_success
-  assert_file_exists "$FOCUS_NOTIFY_ARGV"
+  local notify_targets notify_py
+  _focus_notify_targets
+  for notify_py in "${notify_targets[@]}"; do
+    # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
+    run_focus_notify "$notify_py" '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
+    assert_success
+    assert_file_exists "$FOCUS_NOTIFY_ARGV"
 
-  run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
+    run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
 import shlex, sys
 argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
 execute = argv[argv.index("-execute") + 1]
@@ -736,32 +695,41 @@ assert argv[argv.index("-group") + 1] == "herdr-w1-p3-boom-", argv
 assert argv[argv.index("-title") + 1] == "Codex needs your input", argv
 assert "-activate" in argv, argv
 PY
-  assert_success
+    assert_success
+  done
 }
 
 function test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat() {
   _bats_test_init 34 'focus-notify stays quiet for non-actionable statuses and missing pane id'
-  run_focus_notify '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
-  assert_success
-  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+  local notify_targets notify_py
+  _focus_notify_targets
+  for notify_py in "${notify_targets[@]}"; do
+    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
+    assert_success
+    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
 
-  run_focus_notify '{"data":{"agent_status":"blocked","agent":"codex"}}'
-  assert_success
-  assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+    run_focus_notify "$notify_py" '{"data":{"agent_status":"blocked","agent":"codex"}}'
+    assert_success
+    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
+  done
 }
 
 function test_smoke_035_focus_notify_uses_one_notification_group_per_pan() {
   _bats_test_init 35 'focus-notify uses one notification group per pane for duplicate replacement'
-  run_focus_notify '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
-  assert_success
+  local notify_targets notify_py
+  _focus_notify_targets
+  for notify_py in "${notify_targets[@]}"; do
+    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
+    assert_success
 
-  run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
+    run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
 import sys
 argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
 assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
 assert argv[argv.index("-title") + 1] == "claude finished", argv
 PY
-  assert_success
+    assert_success
+  done
 }
 
 # ===========================================
@@ -916,10 +884,11 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
   assert_success
 }
 
-# Same reasoning as 1065/1068-1070: test 1057 proves the checkout's extension,
-# only the applied home proves the extension Pi will actually load. The bun
-# suite parameterizes its subject through SOURCE_ROOT in chezmoi source layout
-# (dot_pi/...), so a symlink shim maps that layout onto the deployed ~/.pi tree.
+# Same reasoning as 1065/1068-1070: `make test-pi-brew-auto-update` proves the
+# checkout's extension, only the applied home proves the extension Pi will
+# actually load. The bun suite parameterizes its subject through SOURCE_ROOT in
+# chezmoi source layout (dot_pi/...), so a symlink shim maps that layout onto
+# the deployed ~/.pi tree.
 function test_smoke_1056_pi_brew_auto_updater_is_deployed() {
   _bats_test_init 1056 'deployed Pi brew auto updater passes the focused suite'
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
@@ -928,12 +897,6 @@ function test_smoke_1056_pi_brew_auto_updater_is_deployed() {
   mkdir -p "$shim_root"
   ln -s "$HOME/.pi" "$shim_root/dot_pi"
   run env SOURCE_ROOT="$shim_root" bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
-  assert_success
-}
-
-function test_smoke_1057_pi_brew_auto_updater_focused_tests_pass() {
-  _bats_test_init 1057 'Pi brew auto updater focused tests pass'
-  run bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
   assert_success
 }
 

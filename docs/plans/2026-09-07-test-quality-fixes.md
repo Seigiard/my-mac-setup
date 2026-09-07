@@ -310,7 +310,7 @@ test derives its inventory; sequential probe run skips; suite green.
 - [x] P8 · remove source-shape greps in scripts_test.sh
 - [x] P9 · split multi-scenario tests
 - [x] P10 · herdr-integrations present-leg
-- [ ] P11 · re-home checkout colony in smoke_test.sh
+- [x] P11 · re-home checkout colony in smoke_test.sh
 - [x] P12 · Brewfile full-render controls
 - [x] P13 · rework smoke grep zone
 - [x] P14 · visible skips instead of return 0

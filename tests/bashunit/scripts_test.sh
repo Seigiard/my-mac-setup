@@ -1590,6 +1590,70 @@ SH
   assert_file_exists "$home/plugin-linked"
 }
 
+function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
+  _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin"
+  local calls="$BATS_TEST_TMPDIR/herdr.calls"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  cat <<'JSON'
+{
+  "result": {
+    "plugins": [
+      { "plugin_id": "artisann.zed-herdr" },
+      { "plugin_id": "worktrunk" }
+    ]
+  }
+}
+JSON
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
+  assert_success
+  run grep -Fx "plugin uninstall worktrunk" "$calls"
+  assert_success
+  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
+  assert_success
+}
+
+function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
+  _bats_test_init 852 'obsolete plugin removal reports malformed plugin entries'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+if [ "$*" = "plugin list --json" ]; then
+  printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
 # ask-in-herdr skill script
 # ===========================================
 
