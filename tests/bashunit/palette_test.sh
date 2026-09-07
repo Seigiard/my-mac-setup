@@ -20,8 +20,8 @@ REAL_COMMANDS="$SOURCE_ROOT/private_dot_config/herdr/command-palette/commands.to
 
 setup() {
   # No `command_exists python3 || skip` here. python3 is a declared requirement
-  # (README.md, Requirements), so its absence must fail rather than silence all
-  # 58 tests in this file from inside setup(). Deliberate exception to the
+  # (README.md, Requirements), so its absence must fail rather than silence
+  # every test in this file from inside setup(). Deliberate exception to the
   # skip-on-missing-tool convention; the first test below names the cause.
   export PALETTE_PY="$PALETTE_DIR/palette.py"
   export PALETTE_OPEN_PY="$PALETTE_DIR/open.py"
@@ -360,104 +360,130 @@ rank_real() {
   rank_in "$REAL_COMMANDS" "$1"
 }
 
-function test_palette_016_r1_lg_ranks_lazygit_in_popup_first() {
-  _bats_test_init 16 'R1: lg ranks Lazygit in popup first'
-  run rank_real lg
+# The title-tier match sits first in the file, so file order alone cannot
+# produce the expected ranking -- only a working shortcut tier can. "Popup git"
+# contains no `l`, so a dead shortcut tier cannot be rescued by a fuzzy title
+# hit either: "lg viewer" would take index 0 instead.
+function test_palette_016_r10_the_shortcut_tier_outranks_the_title_tier() {
+  _bats_test_init 16 'R10: the shortcut tier outranks the title tier'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "lg viewer"
+type = "shell"
+command = "true"
+
+[[commands]]
+group = "Fixture"
+title = "Popup git"
+type = "shell"
+command = "true"
+shortcuts = ["lg"]
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" lg
   assert_success
-  assert_line --index 0 "Lazygit in popup"
+  assert_line --index 0 "Popup git"
+  assert_line --index 1 "lg viewer"
 }
 
-function test_palette_017_r1_ws_ranks_switch_workspace_first() {
-  _bats_test_init 17 'R1: ws ranks Switch workspace first'
-  run rank_real ws
+# The title shares no fuzzy subsequence with the query, so only the shortcut
+# prefix can produce this hit -- an empty result is the regression.
+function test_palette_017_r10_a_half_typed_shortcut_still_matches_by_prefi() {
+  _bats_test_init 17 'R10: a half-typed shortcut still matches by prefix'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Ship the crate"
+type = "shell"
+command = "true"
+shortcuts = ["deploy"]
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" dep
   assert_success
-  assert_line --index 0 "Switch workspace"
+  assert_line --index 0 "Ship the crate"
 }
 
-function test_palette_018_r1_edit_ranks_edit_command_palette_config_first() {
-  _bats_test_init 18 'R1: edit ranks Edit command palette config first'
-  run rank_real edit
+function test_palette_018_r1_r10_shortcut_and_title_matching_both_fold_cas() {
+  _bats_test_init 18 'R1+R10: shortcut and title matching both fold case'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Popup git"
+type = "shell"
+command = "true"
+shortcuts = ["lg"]
+
+[[commands]]
+group = "Fixture"
+title = "Deploy the widget"
+type = "shell"
+command = "true"
+TOML
+
+  # Shortcut tier: without case folding "LG" hits no shortcut, and the title
+  # tier would then rank "Deploy the widget" (l...g subsequence) at index 0.
+  run rank_in "$PALETTE_WORK/commands.toml" LG
   assert_success
-  assert_line --index 0 "Edit command palette config"
+  assert_line --index 0 "Popup git"
+
+  # Title tier: fzf defaults to smart case, so an uppercase query turns
+  # matching case-sensitive unless the ranker passes -i.
+  run rank_in "$PALETTE_WORK/commands.toml" WIDGET
+  assert_success
+  assert_line --index 0 "Deploy the widget"
 }
 
-function test_palette_019_r1_zed_ranks_open_in_zed_first_and_returns_only() {
-  _bats_test_init 19 'R1: zed ranks Open in Zed first, and returns only it'
-  run rank_real zed
+# shortcut_rank gives an exact shortcut 0 and a prefix hit 1; file order breaks
+# ties only within a rank. The prefix owner sits first in the file, so ordering
+# alone cannot mask an inverted or flattened tier.
+function test_palette_019_r10_an_exact_shortcut_outranks_a_prefix_shortcut() {
+  _bats_test_init 19 'R10: an exact shortcut outranks a command whose shortcut it merely prefixes'
+  cat > "$PALETTE_WORK/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Prefix owner"
+type = "shell"
+command = "true"
+shortcuts = ["lgx"]
+
+[[commands]]
+group = "Fixture"
+title = "Exact owner"
+type = "shell"
+command = "true"
+shortcuts = ["lg"]
+TOML
+
+  run rank_in "$PALETTE_WORK/commands.toml" lg
   assert_success
-  assert_line --index 0 "Open in Zed"
-  assert_equal "${#lines[@]}" 1
+  assert_line --index 0 "Exact owner"
+  assert_line --index 1 "Prefix owner"
 }
 
-function test_palette_020_r1_main_ranks_merge_main_branch_first() {
-  _bats_test_init 20 'R1: main ranks Merge main branch first'
-  run rank_real main
+# Replaces the pinned-title tests that copied shortcuts and titles out of
+# commands.toml -- editing the config rewrote those expectations in the same
+# patch. Here the two sides stay independent: the operator's `shortcuts`
+# declarations, read from the deployed config at run time, against what the
+# ranker actually puts first. A new, renamed, or reassigned shortcut is
+# covered the moment it lands, including the Cyrillic ЙЦУКЕН-layout entries.
+function test_palette_020_r10_every_shortcut_declared_in_commands_toml_ran() {
+  _bats_test_init 20 'R10: every shortcut declared in commands.toml ranks its own command first'
+  run env HERDR_COMMAND_PALETTE_CONFIG="$REAL_COMMANDS" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+_, commands = palette.load_commands()
+declared = [(shortcut, command) for command in commands for shortcut in command.shortcuts]
+assert declared, "commands.toml declares no shortcuts; the shortcut tier has no production coverage"
+for shortcut, command in declared:
+    top = palette.ranked(shortcut, commands, palette.DEFAULT_LIMIT)
+    assert top and top[0] is command, (shortcut, command.title, [c.title for c in top])
+print(f"checked {len(declared)} shortcuts")
+PY
   assert_success
-  assert_line --index 0 "Merge main branch"
-}
-
-function test_palette_021_r1_lazy_ranks_lazygit_in_popup_first() {
-  _bats_test_init 21 'R1: lazy ranks Lazygit in popup first'
-  run rank_real lazy
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-}
-
-function test_palette_022_r10_the_cyrillic_shortcuts_rank_their_command_fi() {
-  _bats_test_init 22 'R10: the Cyrillic shortcuts rank their command first'
-  run rank_real "дп"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-  # No title contains Cyrillic, so the fzf tier adds nothing.
-  assert_equal "${#lines[@]}" 1
-
-  run rank_real "дфян"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-
-  run rank_real "цы"
-  assert_success
-  assert_line --index 0 "Switch workspace"
-
-  run rank_real "яув"
-  assert_success
-  assert_line --index 0 "Open in Zed"
-
-  run rank_real "увше"
-  assert_success
-  assert_line --index 0 "Edit command palette config"
-}
-
-# fzf defaults to smart case, so an uppercase letter would switch the title tier
-# to case-sensitive matching while the shortcut tier keeps case-folding.
-function test_palette_023_r1_the_title_tier_is_case_insensitive() {
-  _bats_test_init 23 'R1: the title tier is case-insensitive'
-  local upper lower
-  for lower in main config workspace lazy; do
-    upper="$(printf '%s' "$lower" | tr '[:lower:]' '[:upper:]')"
-    run rank_real "$lower"
-    assert_success
-    lower_out="$output"
-
-    run rank_real "$upper"
-    assert_success
-    assert_equal "$output" "$lower_out"
-    refute_output ""
-  done
-}
-
-function test_palette_024_r10_a_half_typed_shortcut_still_matches_by_prefi() {
-  _bats_test_init 24 'R10: a half-typed shortcut still matches by prefix'
-  run rank_real "дфя"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
-}
-
-function test_palette_025_r10_shortcut_matching_is_case_insensitive() {
-  _bats_test_init 25 'R10: shortcut matching is case-insensitive'
-  run rank_real "LG"
-  assert_success
-  assert_line --index 0 "Lazygit in popup"
+  assert_output --partial "checked"
 }
 
 function test_palette_026_r10_a_decoy_title_cannot_displace_a_shortcut_hit() {
@@ -742,36 +768,28 @@ print("flat_last_visible", int(start <= 40 < start + max_visible))
 PY
 }
 
-function test_palette_034_r3_every_command_is_reachable_at_40_commands_in() {
-  _bats_test_init 34 'R3: every command is reachable at 40 commands in 8 groups'
+# One test, one subprocess: scroll_fixture prints every probe in a single run,
+# so splitting these assertions across tests only repeated that run.
+function test_palette_034_r3_scrolling_keeps_every_command_reachable_and_o() {
+  _bats_test_init 34 'R3: scrolling keeps every command reachable and off the description line'
   run scroll_fixture
   assert_success
+
+  # Every command reachable at 40 commands in 8 groups.
   assert_line "visible 40"
   assert_line "reachable 40"
-}
 
-function test_palette_035_r3_the_last_drawn_row_never_reaches_the_descript() {
-  _bats_test_init 35 'R3: the last drawn row never reaches the description line'
-  run scroll_fixture
-  assert_success
+  # The last drawn row never reaches the description line.
   local lowest detail
   lowest="$(printf '%s\n' "$output" | awk '/^lowest_drawn /{print $2}')"
   detail="$(printf '%s\n' "$output" | awk '/^detail_y /{print $2}')"
   [ "$lowest" -lt "$detail" ]
-}
 
-function test_palette_036_r3_ten_commands_still_render_unscrolled() {
-  _bats_test_init 36 'R3: ten commands still render unscrolled'
-  run scroll_fixture
-  assert_success
+  # Ten commands still render unscrolled.
   assert_line "ten_start 0"
   assert_line "ten_fits 1"
-}
 
-function test_palette_037_r3_a_single_group_with_no_extra_headers_still_sc() {
-  _bats_test_init 37 'R3: a single group with no extra headers still scrolls'
-  run scroll_fixture
-  assert_success
+  # A single group with no extra headers still scrolls to the last command.
   assert_line "flat_last_visible 1"
 }
 
