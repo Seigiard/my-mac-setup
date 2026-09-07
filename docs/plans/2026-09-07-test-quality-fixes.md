@@ -304,7 +304,7 @@ test derives its inventory; sequential probe run skips; suite green.
 - [x] P2 · launcher guard + failure-propagation coverage
 - [x] P3 · smart_close.py behavior tests
 - [x] P4 · palette ranking onto fixtures + scroll consolidation
-- [ ] P5 · untested palette run paths
+- [x] P5 · untested palette run paths
 - [x] P6 · morning-cleanup destructive legs
 - [ ] P7 · herdr-child stub calibration visibility
 - [ ] P8 · remove source-shape greps in scripts_test.sh

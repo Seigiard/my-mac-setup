@@ -1659,6 +1659,160 @@ function test_palette_070_smart_close_reports_a_failing_or_garbled_herdr() {
   assert_output --partial "notification show Smart close failed"
 }
 
+# ===========================================
+# run paths -- plugin_action, plain shell append, pane_run precondition
+# ===========================================
+
+# Run the command with the given title from $dir/commands.toml against the
+# argv-logging stub from palette_worktree_stub. One argument per line in the
+# log is what makes quoting and flag boundaries observable.
+run_palette_title() {
+  local dir="$1" title="$2"
+  env HERDR_BIN_PATH="$dir/bin/herdr" HERDR_TARGET_CWD="$dir" \
+    HERDR_COMMAND_PALETTE_CONFIG="$dir/commands.toml" \
+    PALETTE_COMMAND_TITLE="$title" python3 - <<'PY'
+import os
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.title == os.environ["PALETTE_COMMAND_TITLE"])
+code, output, _ = palette.run_command(command, config_path)
+print(f"code={code}")
+print(output)
+PY
+}
+
+function test_palette_071_plugin_action_hands_herdr_the_action_id() {
+  _bats_test_init 71 'plugin_action hands herdr the action id, adding --plugin only when configured'
+  local fixture="$PALETTE_WORK/plugin-action"
+  mkdir -p "$fixture"
+  palette_worktree_stub "$fixture"
+  cat > "$fixture/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Bare action"
+type = "plugin_action"
+action = "toggle_thing"
+
+[[commands]]
+group = "Fixture"
+title = "Scoped action"
+type = "plugin_action"
+action = "toggle_thing"
+plugin = "seigi.other"
+TOML
+
+  run run_palette_title "$fixture" "Bare action"
+  assert_success
+  assert_line "code=0"
+
+  run cat "$fixture/herdr.log"
+  assert_success
+  assert_line --index 0 "plugin"
+  assert_line --index 1 "action"
+  assert_line --index 2 "invoke"
+  assert_line --index 3 "toggle_thing"
+  # The scoped run below is the positive control proving the stub log would
+  # show --plugin if the palette sent it.
+  refute_output --partial -- "--plugin"
+
+  : > "$fixture/herdr.log"
+  run run_palette_title "$fixture" "Scoped action"
+  assert_success
+  assert_line "code=0"
+
+  run cat "$fixture/herdr.log"
+  assert_success
+  assert_line --index 3 "toggle_thing"
+  assert_line --index 4 -- "--plugin"
+  assert_line --index 5 "seigi.other"
+}
+
+function test_palette_072_a_shell_command_appends_the_value_as_one_inert_ar() {
+  _bats_test_init 72 'a shell command appends the form value as one inert argument'
+  local work="$PALETTE_WORK/shell-append"
+  mkdir -p "$work"
+  cat > "$work/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Echo it"
+type = "shell"
+command = "printf '%s\n'"
+TOML
+
+  # If append_value's runtime quoting broke, bash would run the text after the
+  # semicolon and create the marker instead of printing the string.
+  local hostile="a b; touch $work/PWNED #"
+  run env HERDR_TARGET_CWD="$work" HERDR_COMMAND_PALETTE_CONFIG="$work/commands.toml" \
+    PALETTE_COMMAND_VALUE="$hostile" python3 - <<'PY'
+import os
+
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.title == "Echo it")
+variables = palette.variables_with_value(
+    palette.context_vars(config_path), os.environ["PALETTE_COMMAND_VALUE"]
+)
+code, output, _ = palette.run_command_with_variables(
+    command, config_path, variables, os.environ.get("HERDR_BIN_PATH", "herdr")
+)
+print(f"code={code}")
+print(output)
+PY
+  assert_success
+  assert_line "code=0"
+  # Positive control for the marker refutation below: the hostile text came
+  # back verbatim on one line, so it reached printf as a single argument.
+  assert_line "$hostile"
+
+  # oracle: only the injected `touch` can create this marker, so its absence
+  # is the observable proof that the appended value stayed inert.
+  if [[ -e "$work/PWNED" ]]; then
+    fail "the appended value ran a command"
+  fi
+}
+
+function test_palette_073_pane_run_without_a_target_pane_is_refused_before() {
+  _bats_test_init 73 'pane_run without a target pane refuses with guidance and never reaches herdr'
+  local dir="$PALETTE_WORK/no-target-pane"
+  stub_herdr "$dir" 'null'
+  cat > "$dir/commands.toml" <<'TOML'
+[[commands]]
+group = "Fixture"
+title = "Edit in place"
+type = "pane_run"
+command = "vi /tmp/x"
+TOML
+
+  # test_palette_039 is the paired positive control: the same stub with
+  # HERDR_TARGET_PANE_ID set reaches `pane run` and writes the log.
+  run env -u HERDR_TARGET_PANE_ID HERDR_BIN_PATH="$dir/herdr" HERDR_TARGET_CWD="$dir" \
+    HERDR_COMMAND_PALETTE_CONFIG="$dir/commands.toml" python3 - <<'PY'
+import palette_boot
+
+palette = palette_boot.palette()
+config_path, commands = palette.load_commands()
+command = next(c for c in commands if c.kind == "pane_run")
+try:
+    palette.run_command(command, config_path)
+except ValueError as exc:
+    print(f"refused: {exc}")
+else:
+    raise SystemExit("pane_run ran without a target pane")
+PY
+  assert_success
+  assert_output --partial "refused:"
+  assert_output --partial "No target pane found"
+
+  # oracle: the stub logs every invocation, so a missing log proves herdr was
+  # never called on the refusal path.
+  [ ! -e "$dir/herdr.log" ]
+}
+
 function set_up_before_script() {
   PALETTE_FILE_PYCACHE="$(mktemp -d "${BATS_TMPDIR:-/tmp}/palette-pycache.XXXXXX")"
   export PALETTE_FILE_PYCACHE
