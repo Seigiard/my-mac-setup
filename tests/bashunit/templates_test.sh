@@ -607,6 +607,13 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   # assertion in this file while real hosts silently stop getting it.
   assert_line 'brew "git"'
   assert_line --partial 'brew "lazywalker/tap/rgrc"'
+  # node, bun, and gitleaks are asserted only in the minimal render elsewhere,
+  # so they need pinning here too, or moving any of them into the
+  # ci_minimal-only branch would satisfy every assertion in this file while
+  # real hosts silently stop installing them.
+  assert_line 'brew "node"'
+  assert_line --partial 'brew "oven-sh/bun/bun"'
+  assert_line 'brew "gitleaks"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success

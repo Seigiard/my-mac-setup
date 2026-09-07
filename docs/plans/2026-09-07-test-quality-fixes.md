@@ -311,7 +311,7 @@ test derives its inventory; sequential probe run skips; suite green.
 - [ ] P9 · split multi-scenario tests
 - [ ] P10 · herdr-integrations present-leg
 - [ ] P11 · re-home checkout colony in smoke_test.sh
-- [ ] P12 · Brewfile full-render controls
+- [x] P12 · Brewfile full-render controls
 - [ ] P13 · rework smoke grep zone
 - [ ] P14 · visible skips instead of return 0
 - [ ] P15 · deduplicate and unfreeze
