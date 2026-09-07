@@ -315,4 +315,4 @@ test derives its inventory; sequential probe run skips; suite green.
 - [ ] P13 · rework smoke grep zone
 - [ ] P14 · visible skips instead of return 0
 - [ ] P15 · deduplicate and unfreeze
-- [ ] P16 · small-suite fixes
+- [x] P16 · small-suite fixes
