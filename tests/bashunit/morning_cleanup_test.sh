@@ -69,6 +69,10 @@ function test_morning_cleanup_001_purge_removes_entries_past_the_age_threshold()
   _bats_test_init 1 'trash purge removes entries past the age threshold'
   # ctime cannot be backdated (touch -t rewrites it to now), so staleness is
   # simulated by lowering the threshold to 0 instead of aging the entry.
+  # Honest limit: this exercises the purge machinery, not the production
+  # `-ctime +N` comparison itself -- no fixture can age past a day-granular
+  # threshold, so a wrong sign or unit there is only caught by test 002
+  # refusing to over-delete, never by a positive aged-removal proof.
   mkdir -p "$FAKE_HOME/.scratchpad/stale-entry"
   printf 'x' > "$FAKE_HOME/.scratchpad/stale-entry/file"
   printf 'y' > "$FAKE_HOME/.scratchpad/stale-file"

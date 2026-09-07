@@ -4857,7 +4857,11 @@ function test_scripts_0931_herdr_integrations_script_installs_each_target_() {
   skip_if_no_chezmoi
   [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
   local rendered="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$rendered"
+  # Render status first: a partial render written straight to the file could
+  # still emit the expected calls and mask a broken deployment template.
+  run --separate-stderr chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+  printf '%s\n' "$output" > "$rendered"
 
   local stub="$BATS_TEST_TMPDIR/stub" calls="$BATS_TEST_TMPDIR/herdr-calls.log"
   mkdir -p "$stub"
@@ -8169,17 +8173,9 @@ function test_scripts_256_morning_cleanup_is_a_no_op_on_its_second_run_of() {
   [ -d "$fake_home/Projects/late/.omc" ]
 }
 
-function test_scripts_257_morning_cleanup_keeps_fresh_trash_entries() {
-  _bats_test_init 257 'morning-cleanup keeps fresh trash entries'
-  local script="$SOURCE_ROOT/dot_local/bin/executable_morning-cleanup.sh"
-  local fake_home="$BATS_TEST_TMPDIR/mc-home-trash"
-  mkdir -p "$fake_home/Projects" "$fake_home/.scratchpad/fresh-entry"
-  printf 'x' > "$fake_home/.scratchpad/fresh-entry/file"
-
-  run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
-  assert_success
-  [ -d "$fake_home/.scratchpad/fresh-entry" ]
-}
+# The fresh-trash-keep scenario is owned by morning_cleanup_test.sh test 002,
+# which pairs it with the stale-removal leg and a completion stamp; a second
+# copy here would be a duplicate owner.
 
 # Wires the herdr-child descriptor probe into the suite. run-post-apply.sh runs
 # a fixed file list, so without this nested invocation the probe file would be

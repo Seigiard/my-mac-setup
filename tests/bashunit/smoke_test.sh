@@ -347,6 +347,10 @@ function test_smoke_017_coding_agents_use_terminal_color_palettes() {
   # builtin with no file to resolve.
   case "$claude_theme" in
     custom:*) assert_file_exists "$HOME/.claude/themes/${claude_theme#custom:}.json" ;;
+    # A bare name is a Claude builtin owned upstream: it has no file side to
+    # adjudicate here, same as OpenCode below. jq -re already rejected an
+    # empty or missing value, so this arm is a documented no-op, not a hole.
+    *) : ;;
   esac
 
   # Pi resolves theme names against its themes directory.
