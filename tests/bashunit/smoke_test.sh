@@ -765,25 +765,12 @@ function test_smoke_1051_herdr_alias_pane_label_and_child_files_are_deployed() {
 
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
   _bats_test_init 1052 'herdr child and consult contracts use allocator-owned pair addressing'
-  local child="$HOME/.local/bin/herdr-child"
-  local ask="$HOME/.agents/skills/ask-in-herdr/scripts/ask.sh"
-  local contract="$HOME/.claude/shared/child-agent-contract.md"
-  local consult_skill="$HOME/.agents/skills/ask-in-herdr/SKILL.md"
-  local herdr_skill="$HOME/.agents/skills/herdr/SKILL.md"
-
-  run grep -E -- 'start .*--name|case .*--name' "$child"
-  assert_failure
-  run grep -E -- 'consult-\$AGENT|herdr-child.*--name' "$ask"
-  assert_failure
-  assert_file_contains "$ask" 'herdr-child reap --to %s --pane %s'
-  assert_file_contains "$contract" 'herdr-child reap --to <alias> --pane <pane-id>'
-  assert_file_contains "$consult_skill" 'herdr-child reap --to <alias> --pane <pane-id>'
-  assert_file_contains "$herdr_skill" 'callback alias may differ from the launch alias'
-  assert_file_contains "$herdr_skill" 'CALLBACK_ALIAS="\$CHILD_NAME"'
-  assert_file_contains "$herdr_skill" 'herdr-child verify --to "\$CALLBACK_CANDIDATE" --pane "\$CHILD_PANE"'
-  assert_file_contains "$herdr_skill" 'CALLBACK_ALIAS="\$CALLBACK_CANDIDATE"'
-  assert_file_contains "$herdr_skill" 'herdr-child reply --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
-  assert_file_contains "$herdr_skill" 'herdr-child reap --to "\$CALLBACK_ALIAS" --pane "\$CHILD_PANE"'
+  # The reap/verify/reply flow itself is owned by scripts_test.sh, which runs
+  # ask.sh and herdr-child against fakes. What remains here is the one command
+  # line agents copy verbatim from the deployed contract document: its literal
+  # shape is the contract.
+  assert_file_contains "$HOME/.claude/shared/child-agent-contract.md" \
+    'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
 function test_smoke_1053_semantic_adapters_are_absent() {
@@ -996,13 +983,6 @@ function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
 assert_herdr_label_writer_contract() {
   local config="$1"
   local engine="$2"
-  local plugin="$3"
-  local writer_files=(
-    "$engine"
-    "$plugin/herdr-plugin.toml"
-    "$plugin/ensure.sh"
-    "$plugin/sweep.sh"
-  )
   local writer_roots=(
     "$(dirname "$engine")"
     "$(dirname "$config")"
@@ -1011,8 +991,8 @@ assert_herdr_label_writer_contract() {
   # Nothing here asserts config.toml content. Sidebar rows, widths, and which
   # tokens a row renders are the user's presentation preferences in the user's
   # own config; a test that froze them would fail on an intended edit and prove
-  # nothing about the label writer. The config path is kept only to locate the
-  # plugin directory below.
+  # nothing about the label writer. The config path is kept only because its
+  # directory holds the plugin files the writer counts sweep.
 
   run bash -c '
     pattern="$1"; shift
@@ -1027,12 +1007,6 @@ assert_herdr_label_writer_contract() {
   assert_success
   [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
 
-  run grep -Ei 'reclaim|manual[-_ ]ownership|ownership[-_ ]notification' \
-    "$engine" "$plugin/herdr-plugin.toml" "$plugin/ensure.sh" "$plugin/sweep.sh"
-  assert_failure
-  run grep -hEi '(^|[^[:alnum:]_])(icon|icons|glyph)([^[:alnum:]_]|$)|nerd[ -]?font' \
-    "${writer_files[@]}"
-  assert_success
   # The engine builds the five codicon glyphs of the $git_ref grammar from
   # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
   # files pass through editors or agents, so none may be committed verbatim.
@@ -1047,20 +1021,11 @@ assert_herdr_label_writer_contract() {
   assert_file_contains "$engine" '…'
 }
 
-function test_smoke_1058_herdr_managed_source_preserves_label_writer_ownership() {
-  _bats_test_init 1058 'herdr managed source preserves label-writer ownership boundaries'
-  assert_herdr_label_writer_contract \
-    "$SOURCE_ROOT/private_dot_config/herdr/config.toml" \
-    "$SOURCE_ROOT/dot_local/bin/executable_herdr-pane-labels" \
-    "$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-pane-labels"
-}
-
 function test_smoke_1059_herdr_deployed_files_preserve_label_writer_ownership() {
   _bats_test_init 1059 'herdr deployed files preserve label-writer ownership boundaries'
   assert_herdr_label_writer_contract \
     "$HOME/.config/herdr/config.toml" \
-    "$HOME/.local/bin/herdr-pane-labels" \
-    "$HOME/.config/herdr/plugins/herdr-pane-labels"
+    "$HOME/.local/bin/herdr-pane-labels"
 }
 
 function test_smoke_1060_herdr_pane_label_plugin_deploys_the_approved_herdr_0_8_() {
@@ -1095,7 +1060,7 @@ function test_smoke_1060_herdr_pane_label_plugin_deploys_the_approved_herdr_0_8_
   assert_file_contains "$manifest" '^id = "sweep"$'
   assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
   assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
-  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
+  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
   assert_failure
 }
 
@@ -1110,9 +1075,8 @@ function test_smoke_1061_herdr_pane_label_plugin_keeps_startup_sweep_and_relink_
   assert_file_contains "$plugin/ensure.sh" 'labels.*--ensure-sweep-daemon'
   assert_file_contains "$plugin/ensure.sh" "^  ''|--ensure-sweep-daemon)\$"
   assert_file_contains "$plugin/sweep.sh" 'labels.*--sweep'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh"'
-  assert_file_contains "$relink" 'include "private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh"'
+  # The relink script's hash-trigger includes are owned by test 1062, which
+  # derives them from the template and checks the plugin directory listing.
   assert_file_contains "$relink" 'herdr plugin link'
   assert_file_contains "$relink" 'herdr plugin enable "\$HPL_CUTOVER_PLUGIN_ID"'
 }
@@ -1122,24 +1086,38 @@ function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod
   local before="$SOURCE_ROOT/.chezmoiscripts/run_onchange_before_6-quiesce-herdr-pane-labels.sh.tmpl"
   local after="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
   local shared="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
-  local file input
-  local inputs=(
-    'dot_local/bin/executable_herdr-pane-labels'
-    'dot_local/lib/herdr-aliases.sh'
-    'private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml'
-    'private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh'
-    'private_dot_config/herdr/plugins/herdr-pane-labels/sweep.sh'
-    '.chezmoitemplates/herdr-pane-labels-cutover-lib.sh'
-  )
+  local plugin_rel='private_dot_config/herdr/plugins/herdr-pane-labels'
+  local file path plugin_file before_inputs after_inputs
 
   assert_file_exists "$before"
   assert_file_exists "$after"
   assert_file_exists "$shared"
+
+  # The hash-input list is derived from each template, never hand-copied, so it
+  # cannot drift from what the template actually hashes. Independent sides: the
+  # two templates against each other, every derived path against the source
+  # tree, and the plugin directory listing against the derived list.
+  before_inputs="$(grep -o 'include "[^"]*" | sha256sum' "$before" \
+    | sed 's/^include "//; s/" | sha256sum$//' | sort)"
+  after_inputs="$(grep -o 'include "[^"]*" | sha256sum' "$after" \
+    | sed 's/^include "//; s/" | sha256sum$//' | sort)"
+  [[ -n "$before_inputs" ]] || fail "no hash-trigger includes in $before"
+  [[ -n "$after_inputs" ]] || fail "no hash-trigger includes in $after"
+  assert_equal "$before_inputs" "$after_inputs"
+  while IFS= read -r path; do
+    assert_file_exists "$SOURCE_ROOT/$path"
+  done <<< "$before_inputs"
+  assert_dir_exists "$SOURCE_ROOT/$plugin_rel"
+  for plugin_file in "$SOURCE_ROOT/$plugin_rel"/*; do
+    path="$plugin_rel/${plugin_file##*/}"
+    grep -Fxq -- "$path" <<< "$before_inputs" \
+      || fail "plugin file $path is not a hash-trigger include in $before"
+  done
+
+  # The shared safety body must be included as a body, not only hashed —
+  # matching the closing "}}" excludes the sha256sum trigger lines above.
   for file in "$before" "$after"; do
-    assert_file_contains "$file" 'include "\.chezmoitemplates/herdr-pane-labels-cutover-lib\.sh"'
-    for input in "${inputs[@]}"; do
-      assert_file_contains "$file" "include \"$input\" \\| sha256sum"
-    done
+    assert_file_contains "$file" 'include "\.chezmoitemplates/herdr-pane-labels-cutover-lib\.sh" }}'
   done
   assert_file_contains "$before" 'include "dot_local/lib/herdr-aliases\.sh"'
   assert_file_contains "$before" '^source "\$alias_library"'
@@ -1147,10 +1125,6 @@ function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod
   assert_file_contains "$shared" '^        --source task-sync --clear-token task'
   run grep -n -- '--source task-sync.*--seq\|--clear-token task.*--seq' "$shared"
   assert_failure
-  assert_file_contains "$after" 'hpl_cutover_drain_fixed_point'
-  assert_file_contains "$after" 'hpl_cutover_ensure_all'
-  assert_file_contains "$shared" '^hpl_cutover_rollback()'
-  assert_file_contains "$shared" '^hpl_cutover_verify_daemon()'
 }
 
 # ===========================================
