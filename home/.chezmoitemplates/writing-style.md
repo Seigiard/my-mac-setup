@@ -194,6 +194,10 @@ If the reader rejects a menu's format, do not show that menu again. Ask the same
 
 Answer in the language the reader used. Write documents, plans, commits, and PR descriptions in English unless the reader requests another language.
 
+When you answer in a language other than English, translate the domain vocabulary as well. Leave in English only what must not be translated: identifiers, file paths, commands, flags, quoted error text, and product names. Give a domain term in the reader's language and put the original in parentheses at its first use, such as "права (grants)", "роли по местам (seats)", "элементы управления (affordances)". Never carry an English word across by morphology alone.
+
+A term you read in the source minutes ago is not shared with the reader, who has not read the source. Judge a term by what the reader has seen in this conversation, not by what you have seen.
+
 ## When to break the rules
 
 Override the defaults when:
