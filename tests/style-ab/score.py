@@ -74,6 +74,15 @@ LIMITS = [
     "The Russian metric set is a strict subset of the English one.",
     "The human leg is a small-sample single-rater judgement.",
 ]
+DEFAULT_HUMAN_SECTION = """## Human leg
+
+Not rated yet. Run `python3 tests/style-ab/run.py --rate <run dir>`.
+
+The two legs share no number and are never combined. When they disagree, the
+human leg is the one about reader value and the counters are about rule
+obedience.
+"""
+
 COMPARABILITY = (
     "Identical headers do not make two runs comparable. Responses are sampled, "
     "so only within-run paired deltas are trustworthy."
@@ -423,7 +432,7 @@ def render_metric_rows(per_metric, names):
     return rows
 
 
-def render_report(scores):
+def render_report(scores, human_section=None):
     lines = [f"# Style A/B run `{scores['run_id']}`", ""]
     lines += render_header(scores)
 
@@ -491,13 +500,26 @@ def render_report(scores):
     if scores["excluded"] or scores["failures"]:
         lines.append("")
 
-    lines += ["## Human leg", "",
-              "Not rated yet. Run `python3 tests/style-ab/run.py --rate <run dir>`.",
-              "",
-              "The two legs share no number and are never combined. When they disagree, "
-              "the human leg is the one about reader value and the counters are about "
-              "rule obedience.", ""]
+    lines += [human_section or DEFAULT_HUMAN_SECTION]
     return "\n".join(lines)
+
+
+def human_section(run_dir):
+    """Render the human leg when verdicts exist, otherwise say it is unrated.
+
+    `rating.py` owns that leg. It is loaded by path only when there is something
+    to render, so scoring never depends on it.
+    """
+    if not (Path(run_dir) / "ratings.jsonl").exists():
+        return None
+    import importlib.machinery
+    import importlib.util
+    path = Path(__file__).resolve().parent / "rating.py"
+    loader = importlib.machinery.SourceFileLoader("style_ab_rating", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module.render_human_section(run_dir)
 
 
 def main(argv=None):
@@ -511,7 +533,7 @@ def main(argv=None):
 
     scores = score_run(run_dir)
     (run_dir / "scores.json").write_text(json.dumps(scores, indent=2, ensure_ascii=False))
-    (run_dir / "report.md").write_text(render_report(scores))
+    (run_dir / "report.md").write_text(render_report(scores, human_section(run_dir)))
 
     print(f"{run_dir / 'scores.json'}")
     print(f"{run_dir / 'report.md'}")

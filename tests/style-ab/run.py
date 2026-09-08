@@ -43,16 +43,21 @@ SETTINGS_FLAG = '{"outputStyle":"default"}'
 JOB_TIMEOUT_SECONDS = 300
 
 
-def load_variants():
-    path = HERE / "variants.py"
-    loader = importlib.machinery.SourceFileLoader("style_ab_variants", str(path))
+def load_sibling(name):
+    """Load a sibling harness module by path.
+
+    `tests/style-ab/` carries no `__init__.py`, so nothing here is importable and
+    `unittest discover` never walks into it (KTD3).
+    """
+    path = HERE / f"{name}.py"
+    loader = importlib.machinery.SourceFileLoader(f"style_ab_{name}", str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
 
 
-variants = load_variants()
+variants = load_sibling("variants")
 
 
 def sha256_file(path):
@@ -252,7 +257,28 @@ def main(argv=None):
     parser.add_argument("--rating-seed", type=int, default=4242,
                         help="pair-order seed for the human leg; independent of --seed")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--rate", metavar="RUN_DIR",
+                        help="rate an existing run directory instead of executing a new one")
+    parser.add_argument("--rater", help="rater identity recorded with every verdict "
+                                        "(default: $USER)")
+    parser.add_argument("--batch", type=int, default=0,
+                        help="pairs to rate (default: 8); see --all")
+    parser.add_argument("--all", action="store_true",
+                        help="rate every available pair rather than the default batch")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="do not open a browser window for the rating page")
     args = parser.parse_args(argv)
+
+    if args.rate:
+        # Rating touches no arm and spends no API credit, so it runs before arm
+        # resolution and never trips the identity guard.
+        rating = load_sibling("rating")
+        run_dir = Path(args.rate)
+        if not (run_dir / "responses").is_dir():
+            raise SystemExit(f"{run_dir}: no responses/ directory, so there is nothing to rate")
+        batch = 0 if args.all else (args.batch or rating.DEFAULT_BATCH)
+        return rating.serve(run_dir, seed=args.rating_seed, batch=batch,
+                            rater=args.rater, open_browser=not args.no_browser)
 
     args.languages = ["en", "ru"] if args.lang == "both" else [args.lang]
 
