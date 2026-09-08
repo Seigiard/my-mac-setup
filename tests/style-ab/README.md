@@ -167,8 +167,11 @@ Two fixed questions, no numeric scale:
 
 1. "Which response gets you to the next action faster, with less re-reading?" —
    A / B / no difference.
-2. "Does either response leave out something important that the other has?" —
+2. "Which response contains something important that the other is missing?" —
    A / B / neither.
+
+A names the better response in both questions, so the two tallies read the same
+way and the rater never has to reverse the sign between them.
 
 Keys `q` `w` `e` answer the first, `a` `s` `d` answer the second, and `enter`
 submits. Each verdict is written as it is given, so an interrupted session
@@ -272,8 +275,22 @@ exists for. Three of 66 Russian-declared responses arrived in Latin script, so
 the seven English-only metrics have a denominator of 1 rather than 11. Their rows
 carry ⚠ and must not be read as Russian measurements.
 
-A/A human tally: not yet rated. The human leg's own noise floor needs a rating
-session on this run, which also checks that the blinding works.
+**A/A human tally**, 8 pairs, one rater, one day, under the earlier wording of
+the second question:
+
+| Question | `baseline` | `candidate` | third option |
+|---|---|---|---|
+| Which response gets you to the next action faster? | 5 | 3 | 0 no difference |
+| (earlier wording) Does either leave out something important? | 1 | 1 | 6 neither |
+
+5-3 on identical arms is inside the range a fair coin produces, which is the
+result an A/A run should give. It is the evidence that the blinding holds: the
+rater did not systematically favour either position or either arm.
+
+Those eight verdicts were given before the second question was reworded, so they
+carry the older question hash. The report groups verdicts by wording and never
+adds two wordings together, so a later session on this same run appears as its
+own tally rather than being pooled into these numbers.
 
 Re-record whenever the model or the prompt sets change.
 

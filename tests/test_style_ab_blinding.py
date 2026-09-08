@@ -145,6 +145,60 @@ class BlindingTest(unittest.TestCase):
         self.assertIn("baseline", section)
         self.assertIn("candidate", section)
 
+    def test_verdicts_given_under_two_wordings_are_never_added_together(self):
+        # #given two pairs rated under two different question wordings, which is
+        # what a reworded question produces in an already-started run
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = build_run(tmp)
+            payloads, key = self.prepared(run_dir)
+            self.rating.write_key(run_dir, key)
+            rows = []
+            for payload, wording in zip(payloads[:2], ("Old wording?", "New wording?")):
+                self.rating.record_verdict(run_dir, {
+                    "pair_id": payload["pair_id"],
+                    "answers": {"faster": "A", "missing": "A"},
+                    "note": "",
+                }, rater="fixture")
+                rows.append(wording)
+            # Rewrite the two records so each carries its own wording and digest,
+            # the way two rating sessions across a reword would leave them.
+            path = run_dir / "ratings.jsonl"
+            written = [json.loads(line) for line in path.read_text().splitlines()]
+            for record, wording in zip(written, rows):
+                record["questions"] = [record["questions"][0], wording]
+                record["questions_sha256"] = wording  # a distinct digest per wording
+            path.write_text("\n".join(json.dumps(r) for r in written) + "\n")
+
+            # #when the human section is rendered
+            section = self.rating.render_human_section(run_dir)
+
+        # #then both wordings appear and the reader is warned, so two answers to
+        # two different questions are never summed into one number
+        self.assertIn("Old wording?", section)
+        self.assertIn("New wording?", section)
+        self.assertIn("never added together", section)
+
+    def test_verdicts_under_one_wording_do_pool_into_one_tally(self):
+        # #given the control: two pairs rated under the same wording
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = build_run(tmp)
+            payloads, key = self.prepared(run_dir)
+            self.rating.write_key(run_dir, key)
+            for payload in payloads[:2]:
+                self.rating.record_verdict(run_dir, {
+                    "pair_id": payload["pair_id"],
+                    "answers": {"faster": "A", "missing": "A"},
+                    "note": "",
+                }, rater="fixture")
+
+            # #when the section is rendered
+            section = self.rating.render_human_section(run_dir)
+
+        # #then they are counted together and no warning fires, so the split
+        # above is the reword and not a refusal to ever pool anything
+        self.assertNotIn("never added together", section)
+        self.assertEqual(section.count("Which response gets you to the next action"), 1)
+
     def test_a_rated_pair_is_not_offered_again(self):
         # #given one pair already rated
         with tempfile.TemporaryDirectory() as tmp:

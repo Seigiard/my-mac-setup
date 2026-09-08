@@ -75,7 +75,7 @@ So the Goodhart risk is real, has a known structural remedy, and is not currentl
 - R14. Presentation order within each pair is randomised from a rating seed independent of the job-order seed. The mapping is written to `rating-key.json`, which the rating interface never serves and which is read only at report time.
 - R15. Two fixed questions per pair, whose exact wording is stored in `ratings.jsonl` so a later run can detect that it changed:
   - "Which response gets you to the next action faster, with less re-reading?" — A / B / no difference.
-  - "Does either response leave out something important that the other has?" — A / B / neither.
+  - "Which response contains something important that the other is missing?" — A / B / neither. Both questions carry the same polarity: A names the better response in each. An earlier wording asked which response omitted something, which inverted the meaning of the same button between two questions on one screen.
   Plus an optional one-line free-text note. There is no numeric scale.
 - R16. `run.py --rate <run dir>` serves one pair per screen on a local stdlib HTTP server with single-key bindings, and writes each verdict to `ratings.jsonl` as it is given. Rating is resumable: a re-invocation skips pairs already rated.
 - R17. The default rating batch is 8 pairs, sampled deterministically from the run and stratified across prompts and languages. `--all` rates every pair.

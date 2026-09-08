@@ -40,8 +40,12 @@ QUESTIONS = (
     {"key": "faster",
      "text": "Which response gets you to the next action faster, with less re-reading?",
      "options": [("A", "A"), ("B", "B"), ("same", "no difference")]},
+    # Both questions point the same way: A always means "A is the better one".
+    # The earlier wording asked which response *omitted* something, so the same
+    # button meant the opposite of the first question and the rater had to hold
+    # the sign in their head between two questions on one screen.
     {"key": "missing",
-     "text": "Does either response leave out something important that the other has?",
+     "text": "Which response contains something important that the other is missing?",
      "options": [("A", "A"), ("B", "B"), ("neither", "neither")]},
 )
 
@@ -270,29 +274,43 @@ def render_human_section(run_dir):
 
     dates = sorted({row["verdict"]["recorded_at"][:10] for row in joined})
     raters = sorted({row["verdict"]["rater"] for row in joined})
-    hashes = sorted({row["verdict"].get("questions_sha256") for row in joined})
+
+    # Verdicts are grouped by the wording they were given under and never pooled
+    # across wordings. A reworded question can invert what a button means, so a
+    # pooled tally would add answers to two different questions together.
+    groups = {}
+    for row in joined:
+        groups.setdefault(row["verdict"].get("questions_sha256"), []).append(row)
 
     lines += [f"Pairs rated: {len(joined)}. Rater: {', '.join(raters)}.", ""]
     if len(dates) > 1:
         lines += [f"> **Warning:** these verdicts span {len(dates)} dates "
                   f"({', '.join(dates)}). One person on two different days is not "
                   "one instrument.", ""]
-    if len(hashes) > 1:
-        lines += ["> **Warning:** the question wording changed inside this run's "
-                  "verdicts, so they are not one instrument.", ""]
+    if len(groups) > 1:
+        lines += ["> **Warning:** the question wording changed inside this run. The "
+                  "tallies below are kept separate per wording and are never added "
+                  "together, because the same button can mean opposite things under "
+                  "two wordings.", ""]
 
-    for question in QUESTIONS:
-        tally = Counter(row["resolved"][question["key"]]
-                        for row in joined if row.get("resolved"))
-        lines += [f"**{question['text']}**", "",
-                  "| Answer | Count |", "|---|---|"]
-        for name in list(PAIR_ARMS) + [option[0] for option in question["options"][2:]]:
-            lines.append(f"| `{name}` | {tally.get(name, 0)} |")
-        one_sided = sum(tally.get(arm, 0) for arm in PAIR_ARMS)
-        leader = max(tally.get(arm, 0) for arm in PAIR_ARMS) if one_sided else 0
-        lines += ["", resolving_power(one_sided), ""]
-        if one_sided and two_sided_probability(one_sided, leader) > 0.05:
-            lines += ["This tally is inside the range a fair coin produces.", ""]
+    for digest, rows in groups.items():
+        stored = rows[0]["verdict"].get("questions") or [q["text"] for q in QUESTIONS]
+        if len(groups) > 1:
+            lines += [f"### Wording `{(digest or 'unknown')[:12]}` — "
+                      f"{len(rows)} verdict(s)", ""]
+        for index, question in enumerate(QUESTIONS):
+            asked = stored[index] if index < len(stored) else question["text"]
+            tally = Counter(row["resolved"].get(question["key"])
+                            for row in rows if row.get("resolved"))
+            lines += [f"**{asked}**", "",
+                      "| Answer | Count |", "|---|---|"]
+            for name in list(PAIR_ARMS) + [option[0] for option in question["options"][2:]]:
+                lines.append(f"| `{name}` | {tally.get(name, 0)} |")
+            one_sided = sum(tally.get(arm, 0) for arm in PAIR_ARMS)
+            leader = max(tally.get(arm, 0) for arm in PAIR_ARMS) if one_sided else 0
+            lines += ["", resolving_power(one_sided), ""]
+            if one_sided and two_sided_probability(one_sided, leader) > 0.05:
+                lines += ["This tally is inside the range a fair coin produces.", ""]
 
     notes = [row["verdict"]["note"] for row in joined if row["verdict"].get("note")]
     if notes:
