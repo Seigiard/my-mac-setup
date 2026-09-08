@@ -128,6 +128,28 @@ separate from chance: at eight one-sided verdicts only an 8-0 split reaches
 p = 0.05, and 7-1 sits at 0.07 and is reported as suggestive. A 5-3 split is no
 signal. A tally without that line invites reading noise as a result.
 
+## 4. Run the A/A first, or you cannot read the A/B at all
+
+The harness was run once with both arms resolved to identical bytes, 11 prompts
+per language, 2 repeats. Nothing changed between the arms, so every directional
+count is noise by construction.
+
+`em_dash` still moved lower in 7 of 11 English prompts. `words` moved lower in 8
+of 11. Those numbers are the same size as the effects a real edit produces.
+
+**A per-metric binomial test is invalid here.** A 7-0 split has a nominal
+two-sided p of 0.016, and one appeared with identical arms. The run computes 15
+metrics across 2 languages, about 30 simultaneous comparisons, so a result at
+that nominal level is expected roughly once per run by chance. The empirical A/A
+floor is the null distribution; a p-value computed per metric is not.
+
+The calibration also found a defect no unit test had: three of 66
+Russian-declared responses arrived in Latin script, so the English-only metrics
+were measured on those and pooled into the Russian block under an 11-prompt
+denominator, while the same report said they were not measured for Russian. Each
+metric now carries its own denominator. **An A/A run is a test of the
+measurement instrument, not only a null distribution.**
+
 ## What to reuse
 
 - Report obedience and value as two legs that never combine into one score.
