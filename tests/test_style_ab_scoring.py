@@ -163,6 +163,30 @@ class LanguageRoutingTest(unittest.TestCase):
         self.assertIn("not measured for this language", report)
         self.assertIn("em_dash", report)
 
+    def test_a_metric_carries_its_own_denominator_when_a_reply_switches_script(self):
+        # #given two Russian prompts, one answered in Russian and one in English,
+        # which is the case `language_match` exists to catch
+        with tempfile.TemporaryDirectory() as tmp:
+            responses = {}
+            for arm in ("base", "baseline", "candidate"):
+                responses["ru__p1-ru__%s__r1" % arm] = RUSSIAN
+                responses["ru__p2-ru__%s__r1" % arm] = LATIN
+            run_dir = build_run(tmp, responses)
+
+            # #when the run is scored
+            scores = self.score.score_run(run_dir)
+            block = scores["paired"]["ru"]
+
+        # #then the block counts two prompts, but the em-dash row counts the one
+        # prompt it actually applied to. Pooling it under two would state a
+        # sample size that was never taken.
+        self.assertEqual(block["prompt_count"], 2)
+        self.assertEqual(block["metrics"]["em_dash"]["prompts"], 1)
+
+        # #and the control: a metric valid for both languages keeps the full
+        # denominator, so the smaller number is the gate and not an off-by-one
+        self.assertEqual(block["metrics"]["words"]["prompts"], 2)
+
     def test_a_prompt_missing_an_arm_leaves_the_paired_counts(self):
         # #given a run where the candidate arm produced no response
         with tempfile.TemporaryDirectory() as tmp:

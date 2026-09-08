@@ -310,6 +310,11 @@ def paired_counts(records, complete, instructed):
                 continue
             per_metric[name] = {
                 "measured": True,
+                # Its own denominator, not the block's. A metric gated for this
+                # language still has rows when a response arrived in the other
+                # script, and pooling those under the block's prompt count
+                # states a sample size that was never taken.
+                "prompts": len(rows),
                 "instructed": name in instructed,
                 "lower": sum(1 for _, b, c in rows if c < b),
                 "higher": sum(1 for _, b, c in rows if c > b),
@@ -381,11 +386,20 @@ def score_run(run_dir):
 
 
 def gated_reasons(records, language):
-    """Which metrics were gated for this language, and why."""
+    """Which metrics were gated for this language, why, and on how many responses.
+
+    The count matters when a response arrived in the other script: the metric
+    then applied to part of the language's responses, and saying only "not
+    measured" would contradict the row that carries its numbers.
+    """
+    in_language = [r for r in records if r["declared_language"] == language]
     reasons = {}
-    for record in records:
-        if record["declared_language"] == language:
-            reasons.update(record["not_measured"])
+    for record in in_language:
+        for name, reason in record["not_measured"].items():
+            entry = reasons.setdefault(name, {"reason": reason, "gated": 0})
+            entry["gated"] += 1
+    for entry in reasons.values():
+        entry["total"] = len(in_language)
     return reasons
 
 
@@ -419,15 +433,17 @@ def render_header(scores):
     return lines
 
 
-def render_metric_rows(per_metric, names):
-    rows = ["| Metric | Candidate lower | Candidate higher | Unchanged | Baseline mean | Candidate mean |",
-            "|---|---|---|---|---|---|"]
+def render_metric_rows(per_metric, names, prompt_count):
+    rows = ["| Metric | Prompts | Candidate lower | Candidate higher | Unchanged | Baseline mean | Candidate mean |",
+            "|---|---|---|---|---|---|---|"]
     for name in names:
         entry = per_metric[name]
         if not entry.get("measured"):
-            rows.append(f"| `{name}` | {NOT_MEASURED} | | | | |")
+            rows.append(f"| `{name}` | 0 | {NOT_MEASURED} | | | | |")
             continue
-        rows.append(f"| `{name}` | {entry['lower']} | {entry['higher']} | "
+        measured_on = entry.get("prompts", prompt_count)
+        marker = "" if measured_on == prompt_count else " ⚠"
+        rows.append(f"| `{name}` | {measured_on}{marker} | {entry['lower']} | {entry['higher']} | "
                     f"{entry['unchanged']} | {entry['baseline_mean']} | {entry['candidate_mean']} |")
     return rows
 
@@ -454,24 +470,30 @@ def render_report(scores, human_section=None):
                       "direction is counted.", ""]
         else:
             lines += [f"Counts below are out of {prompt_count} prompts. Repeats are "
-                      "averaged within a prompt before any direction is taken.", ""]
+                      "averaged within a prompt before any direction is taken. A "
+                      "`Prompts` value below that total, marked ⚠, means the metric "
+                      "applied to only that many prompts: a response arrived in the "
+                      "other script and was routed to the other metric set.", ""]
             measured = [name for name, entry in block["metrics"].items() if entry.get("measured")]
             instructed = [name for name in measured if block["metrics"][name].get("instructed")]
             uninstructed = [name for name in measured if not block["metrics"][name].get("instructed")]
             if instructed:
                 lines += ["**Instructed metrics.**", ""]
-                lines += render_metric_rows(block["metrics"], instructed) + [""]
+                lines += render_metric_rows(block["metrics"], instructed, prompt_count) + [""]
             if uninstructed:
                 lines += ["**Uninstructed metrics.**", ""]
-                lines += render_metric_rows(block["metrics"], uninstructed) + [""]
+                lines += render_metric_rows(block["metrics"], uninstructed, prompt_count) + [""]
 
         reasons = gated_reasons(scores["responses"], language)
         if reasons:
             lines += [f"**Not measured for {language}.** Each of these is absent rather "
                       "than zero, so a response in this language can never read as clean "
                       "because nothing applied to it.", ""]
-            for name, reason in sorted(reasons.items()):
-                lines.append(f"- `{name}` — {NOT_MEASURED}. {reason}")
+            for name, entry in sorted(reasons.items()):
+                scope = ("" if entry["gated"] == entry["total"]
+                         else f" on {entry['gated']} of {entry['total']} responses "
+                              "(the rest arrived in the other script)")
+                lines.append(f"- `{name}` — {NOT_MEASURED}{scope}. {entry['reason']}")
             lines.append("")
 
     lines += ["### Aggregate means", ""]
