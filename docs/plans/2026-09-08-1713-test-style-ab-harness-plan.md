@@ -151,7 +151,7 @@ So the Goodhart risk is real, has a known structural remedy, and is not currentl
 - OQ2 (blocking for U1's default). Does the control arm run by default? It is a third of every run's cost and feeds no paired comparison. Drop it to calibration-only, or keep it with a stated reported role as the distance the style moves the model off its untouched defaults.
 - OQ3 (blocking for U1's default). Default run size. Both languages, 11 prompts each, 2 repeats, 3 arms is 132 calls. Options: keep it; drop to 1 repeat (66) and rely on more prompts instead of more repeats; or default to one language with `--lang both` opt-in. Statistical power is the real question, not only cost — the A/A calibration run in U4 is what tells you which.
 - OQ4 (deferred). Does the rendered `report.md` and its `ratings.jsonl` get committed to a tracked `tests/style-ab/reports/` path with the style edit? Committing makes the "months later" case work from the checkout alone and makes rating sessions comparable over time; not committing keeps generated content out of the repository.
-- OQ5 (deferred). Ship `run.py --validate` at all? It serves a future prompt-set author, has no independent oracle so it ships untested, and both shipped sets are hand-curated.
+- OQ5 (**resolved: declined, 2026-09-08**). `run.py --validate` is not built and is not planned. It would ship untested, because prompt self-containment is a property of a live model's response and any local assertion would restate the phrase list the same change writes. Both shipped prompt sets are hand-curated and already checked. If a third set is ever authored, the flag can be written then, against that set's real responses.
 - OQ6 (deferred). Do the three quarantined English prompts (`p4`, `p6`, `p7`) ship as `prompts/quarantined.tsv` with the reason each was cut?
 - OQ7 (deferred). Is the discarded-judge learning (R35) authored inside this PR's U7, or routed through `ce-compound`?
 
@@ -258,7 +258,7 @@ Module split:
 
 ### Sequencing
 
-U0 → U1 → U2 → U3 → U4. U6 can land alongside U1. U5 is conditional on OQ5. U7 lands last and carries the evidence-gate rule (R36-R38) into `docs/agent-verification.md`. U1 ships the default arm set and run size named by OQ2 and OQ3.
+U0 → U1 → U2 → U3 → U4. U6 can land alongside U1. U5 is declined. U7 lands last and carries the evidence-gate rule (R36-R38) into `docs/agent-verification.md`. U1 ships the default arm set and run size named by OQ2 and OQ3.
 
 ### Test oracle position
 
@@ -321,13 +321,11 @@ Four tests are proposed. Each carries its oracle line.
 - **Test scenarios:** none. Test expectation: none — this unit produces a recorded measurement, and its correctness is the measurement.
 - **Verification:** the README carries an A/A table per language with its own R24 header fields, and the A/A human tally.
 
-### U5. Prompt-set validator (ships only if OQ5 says yes)
+### U5. Prompt-set validator — declined
 
-- **Goal:** a future prompt-set author can check a new set before trusting it.
-- **Files:** `tests/style-ab/run.py` (the `--validate` path), `tests/style-ab/README.md`.
-- **Approach:** run the styled arms — not the control, since the three cut prompts failed because both *styled* arms asked for context — over a prompt set at one repeat, flagging responses that match a documented, versioned context-request predicate enumerated exhaustively in the README, in both languages. Drop any shortness precondition: a long response that asks for context is the same defect. State in the README and in the output that this is a heuristic warning and that human review is what admits a prompt to a core set.
-- **Test scenarios:** none. Oracle line cannot be completed: self-containment is a property of a live model's response, so any local assertion would restate the phrase list this unit writes.
-- **Verification:** `--validate` flags nothing on either core set, and flags a deliberately context-dependent control prompt in each language.
+- **Status:** not built, and not deferred. OQ5 is resolved against it.
+- **Why:** the check has no independent oracle. Whether a prompt is self-contained shows up only in a live model's response, so any local test would compare the context-request phrase list against the same list this unit writes. Shipping it means shipping untested code into the repository for a consumer that does not exist yet: both current prompt sets are hand-curated and already validated by the run that cut three contaminated prompts from them.
+- **If a third prompt set is ever authored,** write the check then, against that set's real responses, where the oracle is the responses rather than the phrase list.
 
 ### U6. CI and cost isolation
 
@@ -362,7 +360,6 @@ Risk class per `docs/agent-verification.md`: **checkout logic**. No path under `
 | Harness end-to-end | `run.py --limit 2 --runs 1 --lang both` then `score.py` | U1, U2 | ~12 calls |
 | Rating loop | `run.py --rate <run dir>` on the above | U3 | free |
 | A/A calibration, both languages | `run.py --baseline HEAD --candidate HEAD --allow-identical --lang both` plus a rating session | U4 | ~132 calls |
-| Prompt-set validation | `run.py --validate --lang both` | U5, if shipped | ~44 calls |
 | Historical reference run | `run.py --baseline 0c5c33a^ --candidate 0c5c33a --lang en` | the whole harness | ~66 calls |
 
 Counts assume eleven prompts per language, two repeats, three arms. OQ2 removes a third of every three-arm figure; OQ3 can halve the rest.
@@ -392,6 +389,6 @@ Per unit:
 - U2 — the mechanical section carries the header, the per-language split, the instructed/uninstructed split, the aggregate with "not measured for this language" cells, and the failure block; T3 passes.
 - U3 — a full 8-pair session completes, is resumable, and its duration is recorded; T4 passes.
 - U4 — the README carries A/A directional counts per language and the A/A human tally.
-- U5 — shipped with its versioned predicate documented, or deferred with OQ5 recorded.
+- U5 — declined, with the reason recorded in the plan.
 - U6 — T1 passes; `make help` lists `style-ab` with its cost.
 - U7 — the solutions record covers all three lessons, states the judge is unvalidated, and names the both-orders protocol difference; `CLAUDE.md` routes to both legs and carries the exemption test; the `docs/agent-verification.md` block states the five legs, the claim obligation, the human override, and the self-certification risk.
