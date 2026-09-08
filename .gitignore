@@ -12,3 +12,6 @@ home/private_dot_config/private_karabiner/automatic_backups/
 
 # Session working state (CE skills, experiment scratch) — never PR content
 .context/
+
+# style A/B harness output: generated responses are never committed (R32)
+tests/style-ab/runs/
