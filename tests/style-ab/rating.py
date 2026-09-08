@@ -312,10 +312,25 @@ def render_human_section(run_dir):
             if one_sided and two_sided_probability(one_sided, leader) > 0.05:
                 lines += ["This tally is inside the range a fair coin produces.", ""]
 
-    notes = [row["verdict"]["note"] for row in joined if row["verdict"].get("note")]
-    if notes:
-        lines += ["**Notes from the rater.**", ""]
-        lines += [f"- {note}" for note in notes] + [""]
+    noted = [row for row in joined if row["verdict"].get("note")]
+    if noted:
+        # A note quotes the labels A and B as the rater saw them, and those
+        # labels mean nothing without the key. The note text stays verbatim, so
+        # the mapping is printed beside it rather than substituted into it.
+        lines += ["**Notes from the rater.**", "",
+                  "Each note is quoted as written. The line above it names the arm "
+                  "behind each label for that pair.", ""]
+        for row in noted:
+            verdict = row["verdict"]
+            entry = row.get("entry") or {}
+            resolved = row.get("resolved") or {}
+            answers = ", ".join(
+                f"{question['key']} → `{resolved.get(question['key'], 'unknown')}`"
+                for question in QUESTIONS)
+            lines += [f"- `{verdict['pair_id']}` — A was `{entry.get('A', 'unknown')}`, "
+                      f"B was `{entry.get('B', 'unknown')}`. {answers}.",
+                      f"  > {verdict['note']}",
+                      ""]
 
     lines += ["The two legs share no number and are never combined. When they "
               "disagree, this leg is the one about reader value and the counters "

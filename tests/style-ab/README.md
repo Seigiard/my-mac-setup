@@ -177,6 +177,10 @@ Keys `q` `w` `e` answer the first, `a` `s` `d` answer the second, and `enter`
 submits. Each verdict is written as it is given, so an interrupted session
 resumes rather than restarts.
 
+A free-text note quotes the labels A and B as the rater saw them, so the report
+prints the arm behind each label on the line above the note. The note itself is
+never rewritten.
+
 Provenance lives in `rating-key.json` alone. `prepare` draws the presentation
 order from a seed independent of the job-order seed, hands the handler the
 payloads and nothing else, and the key is read only at report time. A verdict

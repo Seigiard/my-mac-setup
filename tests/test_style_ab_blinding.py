@@ -199,6 +199,32 @@ class BlindingTest(unittest.TestCase):
         self.assertNotIn("never added together", section)
         self.assertEqual(section.count("Which response gets you to the next action"), 1)
 
+    def test_a_note_is_printed_with_the_mapping_that_makes_it_readable(self):
+        # #given a verdict whose free text quotes the labels the rater saw
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = build_run(tmp)
+            payloads, key = self.prepared(run_dir)
+            self.rating.write_key(run_dir, key)
+            first = payloads[0]
+            self.rating.record_verdict(run_dir, {
+                "pair_id": first["pair_id"],
+                "answers": {"faster": "A", "missing": "neither"},
+                "note": "A explains the trade-off, B drops it",
+            }, rater="fixture")
+            entry = key[first["pair_id"]]
+
+            # #when the human section is rendered
+            section = self.rating.render_human_section(run_dir)
+
+        # #then the note appears verbatim, and the line carrying it says which
+        # arm stood behind each label, so the reader can resolve "A" without
+        # opening the key file by hand
+        self.assertIn("A explains the trade-off, B drops it", section)
+        note_line = [line for line in section.splitlines()
+                     if first["pair_id"] in line][0]
+        self.assertIn(entry["A"], note_line)
+        self.assertIn(entry["B"], note_line)
+
     def test_a_rated_pair_is_not_offered_again(self):
         # #given one pair already rated
         with tempfile.TemporaryDirectory() as tmp:
