@@ -10336,3 +10336,97 @@ n
   refute_output --partial 'mise: nothing outdated'
   assert_pins_files_unchanged
 }
+
+# Turns the fixture source into a real repository tracking a real remote, so
+# the publish assertions read git's own state instead of the script's intent.
+pins_git_fixture() {
+  PINS_ORIGIN="$BATS_TEST_TMPDIR/pins-origin.git"
+  git init --quiet --bare -b main "$PINS_ORIGIN"
+  git -C "$PINS_ROOT" init --quiet -b main
+  git -C "$PINS_ROOT" config user.email 'pins@example.test'
+  git -C "$PINS_ROOT" config user.name 'Pins Fixture'
+  git -C "$PINS_ROOT" add --all
+  git -C "$PINS_ROOT" commit --quiet -m 'fixture baseline'
+  git -C "$PINS_ROOT" remote add origin "$PINS_ORIGIN"
+  git -C "$PINS_ROOT" push --quiet --set-upstream origin main
+}
+
+function test_scripts_1459_update_pins_commits_and_pushes_the_accepted_bump() {
+  _bats_test_init 1459 'update-pins commits and pushes the accepted bump to origin'
+  # #given the drifted source tree as a repository tracking a remote
+  pins_fixture
+  pins_git_fixture
+  local before published="$BATS_TEST_TMPDIR/published-externals"
+  before="$(git -C "$PINS_ROOT" rev-parse HEAD)"
+
+  # #when the first offer is accepted
+  run_pins 'y
+n
+n
+n
+n
+n
+'
+
+  # #then the source is clean again and origin carries the fetched sha
+  assert_success
+  assert_equal "$(git -C "$PINS_ROOT" status --porcelain)" ""
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse 'HEAD~1')" "$before"
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD)" \
+    "$(git -C "$PINS_ORIGIN" rev-parse main)"
+  git -C "$PINS_ORIGIN" show 'main:.chezmoiexternal.toml' >"$published"
+  assert_file_contains "$published" "/archive/$PINS_STUB_HEAD_SHA\.tar\.gz"
+}
+
+function test_scripts_1460_update_pins_creates_no_commit_when_every_bump_is_declined() {
+  _bats_test_init 1460 'update-pins creates no commit when every bump is declined'
+  # #given the same repository-backed source tree
+  pins_fixture
+  pins_git_fixture
+  local before
+  before="$(git -C "$PINS_ROOT" rev-parse HEAD)"
+
+  # #when every offer is declined
+  run_pins 'n
+n
+n
+n
+n
+n
+'
+
+  # #then nothing was committed and origin never moved
+  assert_success
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD)" "$before"
+  assert_equal "$(git -C "$PINS_ORIGIN" rev-parse main)" "$before"
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1461_update_pins_publishes_only_the_files_it_rewrote() {
+  _bats_test_init 1461 'update-pins publishes only the files it rewrote'
+  # #given unrelated work already sitting in the source tree: one tracked file
+  # edited by hand and one untracked leftover
+  pins_fixture
+  pins_git_fixture
+  printf 'edited by hand\n' >>"$PINS_MISE"
+  printf 'leftover\n' >"$PINS_ROOT/stray-artifact"
+
+  # #when the first offer is accepted
+  run_pins 'y
+n
+n
+n
+n
+n
+'
+
+  # #then the published commit touches the pinned file alone and the unrelated
+  # work is still there, uncommitted
+  assert_success
+  assert_equal "$(git -C "$PINS_ROOT" show --format= --name-only HEAD)" \
+    '.chezmoiexternal.toml'
+  assert_file_contains "$PINS_MISE" '^edited by hand$'
+  assert_file_exists "$PINS_ROOT/stray-artifact"
+  assert_equal "$(git -C "$PINS_ROOT" status --porcelain --untracked-files=no)" \
+    ' M private_dot_config/mise/config.toml'
+}

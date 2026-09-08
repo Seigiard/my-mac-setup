@@ -11,6 +11,9 @@
 # 2. Upstream being unreachable is a report, not a failure. One unreachable
 #    pin prints as unknown and the run continues, so `update-all` never looks
 #    broken because GitHub was down.
+# 3. An accepted bump is committed and pushed in the same run. Every clean-tree
+#    guard in the toolchain reads that source clone, so a bump left only on
+#    disk turns into a blocker for the next tool that touches it.
 set -uo pipefail
 
 EXTERNAL_REL=".chezmoiexternal.toml"
@@ -158,6 +161,86 @@ confirm() {
 }
 
 # --------------------------------------------------------------------------
+# Publishing accepted bumps
+#
+# Failing to publish is a report, not a failure: the bump is already written,
+# and the recovery is the one command this prints. Leaving the run half-way
+# through a rebase would be a worse mess than the dirty tree it set out to
+# avoid, so a conflicted rebase is aborted before reporting.
+# --------------------------------------------------------------------------
+
+publish_paths=()
+publish_summaries=()
+
+record_bump() {
+  publish_paths[${#publish_paths[@]}]="$1"
+  publish_summaries[${#publish_summaries[@]}]="$2"
+}
+
+publish_bumps() {
+  local root="$1"
+  local count="${#publish_summaries[@]}"
+  local repo physical subject body push_error index=0
+
+  [ "$count" -gt 0 ] || return 0
+
+  say ""
+  if [ "${UPDATE_PINS_PUBLISH:-1}" = 0 ]; then
+    say "update-pins: publishing disabled; the bumps stay uncommitted"
+    return 0
+  fi
+
+  # `rev-parse` walks up until it finds a repository, so an unrelated ancestor
+  # repository — a home directory under version control — would otherwise
+  # receive the commit. Only the source root itself, or its parent under the
+  # `.chezmoiroot` indirection, is the source's own repository. Both sides of
+  # the comparison are physical paths: `--show-toplevel` resolves symlinks, and
+  # a source root reached through one (macOS `/var` -> `/private/var`) would
+  # otherwise never match its own repository.
+  repo="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)"
+  physical="$(cd "$root" 2>/dev/null && pwd -P)"
+  if [ -z "$repo" ] || { [ "$repo" != "$physical" ] && [ "$repo" != "${physical%/*}" ]; }; then
+    warn 'the chezmoi source is not a git repository; the bumps stay uncommitted'
+    return 0
+  fi
+
+  if [ "$count" -eq 1 ]; then
+    subject="chore(pins): ${publish_summaries[0]}"
+  else
+    subject="chore(pins): bump $count pins"
+  fi
+  body=""
+  while [ "$index" -lt "$count" ]; do
+    body="$body${publish_summaries[$index]}
+"
+    index=$((index + 1))
+  done
+
+  # Pathspecs, not `-a`: only the files this run rewrote are committed, so
+  # unrelated work already in the source tree or the index stays untouched.
+  if ! git -C "$repo" commit --quiet -m "$subject" -m "$body" -- "${publish_paths[@]}"; then
+    warn "could not commit the bumps in $repo; they stay on disk"
+    return 0
+  fi
+  say "update-pins: committed $count bump(s) in $repo"
+
+  if push_error="$(git -C "$repo" push 2>&1)"; then
+    say 'update-pins: pushed to origin'
+    return 0
+  fi
+
+  # The clone fell behind between runs. One rebase-and-retry covers that;
+  # anything else is the user's call.
+  if git -C "$repo" pull --rebase --quiet && git -C "$repo" push --quiet; then
+    say 'update-pins: rebased onto origin and pushed'
+    return 0
+  fi
+  git -C "$repo" rebase --abort >/dev/null 2>&1
+  warn "$push_error"
+  warn "the bumps are committed but unpushed; finish with: git -C $repo push"
+}
+
+# --------------------------------------------------------------------------
 # Archive pins: Oh My Zsh and the four zsh plugins
 # --------------------------------------------------------------------------
 
@@ -204,6 +287,7 @@ check_archive_pins() {
       if replace_literal "$file" \
         "/archive/$current.tar.gz" "/archive/$latest.tar.gz"; then
         say "  bumped"
+        record_bump "$file" "$repo $(short "$current") -> $(short "$latest")"
       else
         warn "could not rewrite the $repo pin; left unchanged"
       fi
@@ -326,6 +410,7 @@ check_fff_pin() {
   done
   if replace_literal "$@"; then
     say "  bumped with ${#fetched[@]} refreshed checksums"
+    record_bump "$file" "$repo $current -> $latest"
   else
     warn "could not rewrite the $repo pin; left unchanged"
   fi
@@ -426,6 +511,7 @@ EOF
         warn "could not locate \"$requested\" on the $tool line; left unchanged"
       elif replace_literal "$file" "$old_line" "$new_line"; then
         say "  bumped"
+        record_bump "$file" "mise $tool $requested -> $bump"
       else
         warn "could not rewrite the $tool version; left unchanged"
       fi
@@ -459,11 +545,12 @@ main() {
   fi
 
   say "update-pins: chezmoi source $root"
-  say "update-pins: accepted bumps edit the source; run chezmoi apply to deploy"
+  say "update-pins: accepted bumps are committed and pushed; run chezmoi apply to deploy"
   say ""
   check_archive_pins "$external"
   check_fff_pin "$external"
   check_mise_pins "$mise_config"
+  publish_bumps "$root"
 }
 
 main "$@"
