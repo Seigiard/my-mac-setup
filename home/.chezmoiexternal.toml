@@ -8,7 +8,7 @@
 # parent would delete their managed children out from under them.
 [".oh-my-zsh"]
     type = "archive"
-    url = "https://github.com/ohmyzsh/ohmyzsh/archive/bf77e350e04bd202921a50529e4f54deba3db7e2.tar.gz"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/8d10cc948887e3cff29923d758999afa6edf87fb.tar.gz"
     exact = false
     stripComponents = 1
 
