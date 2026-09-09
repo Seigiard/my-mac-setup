@@ -292,18 +292,20 @@ watcher_publish_failed() {
       sleep 0.01
     done
   fi
+  # "supervision failed" is not one of herdr's five state-label keys, so a call
+  # carrying it was rejected whole and published none of these tokens either.
+  # The reason is a token now; only "blocked" survives as a label because the
+  # child really is blocked on its parent.
   if [ "$preserve_waiting" -eq 1 ]; then
     metadata_report_if_generation "$run_dir" "$pane" "$generation" \
       --source "$SOURCE_ID" --clear-state-labels \
       --state-label 'blocked=waiting for parent' \
-      --state-label "supervision failed=$reason" \
       --token "supervision_failure_reason=$reason" \
       --token "supervision_failure_generation=$generation" \
       --token "supervision_failure_diagnostic=$generation" >/dev/null 2>&1
   else
     metadata_report_if_generation "$run_dir" "$pane" "$generation" \
       --source "$SOURCE_ID" --clear-state-labels \
-      --state-label "supervision failed=$reason" \
       --token "supervision_failure_reason=$reason" \
       --token "supervision_failure_generation=$generation" \
       --token "supervision_failure_diagnostic=$generation" >/dev/null 2>&1
@@ -343,6 +345,7 @@ clear_supervision_metadata() {
     --clear-token supervision_timeout --clear-token supervision_baseline_seq \
     --clear-token parent_terminal --clear-token parent_session \
     --clear-token child_terminal --clear-token child_session \
+    --clear-token supervised \
     --clear-token supervision_failure_reason \
     --clear-token supervision_failure_generation \
     --clear-token supervision_failure_diagnostic >/dev/null 2>&1
@@ -372,6 +375,12 @@ preserve_callback_waiting_label() {
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS" >/dev/null 2>&1
 }
 
+# The beacon is a token, not a state label. herdr accepts only idle, working,
+# blocked, done and unknown as state-label keys and rejects anything else with
+# exit 2 before it contacts the server, which took the whole call -- tokens
+# included -- down with it. Tokens take any name, and --ttl-ms expires the key
+# on its own, which is the property the beacon needs: it lapses when the
+# watcher stops refreshing it.
 # Liveness carries the same generation precondition as failure publication. A
 # watcher superseded between its ordinary generation check and this call would
 # otherwise stamp supervised=<old-generation> over the live one; the check runs
@@ -380,7 +389,7 @@ preserve_callback_waiting_label() {
 refresh_supervision_liveness() {
   local run_dir="$1" pane="$2" generation="$3"
   metadata_report_if_generation "$run_dir" "$pane" "$generation" --source "$SOURCE_ID" \
-    --state-label "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" >/dev/null 2>&1
+    --token "supervised=$generation" --ttl-ms "$SUPERVISED_TTL_MS" >/dev/null 2>&1
 }
 
 delivery_retry_pause() {
@@ -522,7 +531,6 @@ signal_reap_transition() {
 publish_reap_recovery() {
   local pane="$1" generation="$2"
   metadata_report "$pane" --source "$SOURCE_ID" \
-    --state-label 'supervision failed=reap-close-failed' \
     --token 'supervision_failure_reason=reap-close-failed' \
     --token "supervision_failure_generation=$generation" \
     --token "supervision_failure_diagnostic=$generation" >/dev/null 2>&1
