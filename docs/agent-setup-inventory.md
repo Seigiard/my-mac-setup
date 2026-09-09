@@ -42,9 +42,12 @@ Successful upstream CLI output is hidden by default; use `skills --verbose
 Portable bare `ce-*` skills replace the former client-specific Compound
 Engineering providers.
 
-Claude retains `claude-md-management`, `playwright`, `plugin-dev`,
-`security-guidance`, and `typescript-lsp` for non-skill functionality. Its
-Compound Engineering and `frontend-design` plugins are retired. OpenCode does
+Claude retains `playwright`, `plugin-dev`, `security-guidance`, and
+`typescript-lsp` for non-skill functionality. Its Compound Engineering,
+`frontend-design`, and `claude-md-management` plugins are retired
+(`claude-md-improver` overlaps with the manifest-installed `improve-claude-md`
+skill, which all three agents see; the `/revise-claude-md` command goes with
+it). OpenCode does
 not install the Compound Engineering plugin or its generated convenience
 commands. Pi does not install the Compound Engineering package; its managed
 extension list remains the source of truth for non-skill packages.

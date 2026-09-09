@@ -754,18 +754,18 @@ function test_templates_031_agent_skills_clients_use_portable_providers() {
   run jq -e 'has("plugin")' <<< "$opencode"
   assert_failure
 
-  # These five names are copied from the template this test renders, so treat
+  # These four names are copied from the template this test renders, so treat
   # them as the control fixture for the three rejections above, not as an
   # independent oracle: with an empty `enabledPlugins` every `assert_failure`
   # would pass, and the retirement checks would prove nothing. The protected
   # regression is therefore silent *removal* — a settings edit that drops a
   # plugin Claude still needs for its non-skill functionality.
   #
-  # docs/agent-setup-inventory.md names the same five and would be the
+  # docs/agent-setup-inventory.md names the same four and would be the
   # independent side, but the template-test container mounts only home/,
   # tests/, docs/issues, Makefile and README.md (docker/docker-compose.yml), so
   # that file does not exist where this suite runs and cannot be read here.
-  run jq -e '.enabledPlugins["claude-md-management@claude-plugins-official"] and .enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
+  run jq -e '.enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
   assert_success
 }
 
