@@ -1,13 +1,17 @@
 onboarding = false
 
+# herdr takes its whole palette from the host terminal's ANSI colors instead
+# of carrying a theme of its own, so the UI matches whatever kitty and ghostty
+# are set to and there is no second palette to keep in sync. That also makes
+# theme.auto_switch unnecessary: light and dark follow the terminal, not a
+# pair of herdr theme names.
 [theme]
-name = "rose-pine-dawn"
+name = "terminal"
 
 [theme.custom]
 panel_bg = "reset"
 
 [experimental]
-kitty_graphics = true
 pane_history = true
 allow_nested = true
 
