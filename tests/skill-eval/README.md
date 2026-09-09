@@ -116,6 +116,47 @@ one output against a rubric, so it produces a pass rate with no noise floor. Our
 own A/A run on the writing-style harness drifted 7 of 11 prompts in one direction
 with identical arms. Run identical arms here before trusting any delta.
 
+## First real measurement, 2026-09-09
+
+Two prompts against the project-scoped `repository-issues` skill, both arms, two
+repeats, eight Claude Code sessions through the shim.
+
+| Prompt | Arm | Skill fired | Tool calls |
+|---|---|---|---|
+| count open issues | with skill | `repository-issues`, both repeats | 3, 3 |
+| count open issues | without | none | 9, 8 |
+| record a new issue | with skill | `repository-issues`, both repeats | 9, 12 |
+| record a new issue | without | none | 13, 16 |
+
+**The skill fired in 4 of 4 jobs where it was installed and in 0 of 4 where it
+was not.** That is the boolean neither off-the-shelf tool could produce.
+
+**It cut tool calls in every pair**, by about two thirds on the query and about a
+quarter on the creation task. Four pairs all pointing one way is p = 0.125 under
+a fair coin, so the count alone does not separate from chance.
+
+What raises it above a bare count is that the trajectory shows the mechanism.
+Without the skill the agent spends its first calls discovering the command line:
+
+```
+$ wc -l scripts/issues && head -80 scripts/issues
+$ python3 scripts/issues --help
+$ python3 scripts/issues create --help
+```
+
+With the skill it goes straight to the answer:
+
+```
+$ python3 scripts/issues list --status open --json
+```
+
+No A/A run was taken here, so there is no noise floor for the call counts. The
+firing boolean needs none: 4 against 0 with a known cause.
+
+This also corrects the earlier spike, which reported that the arm with the skill
+had not used the command line. That came from the prose grep described below.
+Observed properly, the arm with the skill used it in every job.
+
 ## Why `agent-skill-eval` is not used
 
 It was installed, run, and dropped. The eval suite written for it is deleted; the

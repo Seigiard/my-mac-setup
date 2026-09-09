@@ -1,0 +1,2 @@
+q-count	How many open issues does this repository have? List three of them with their ids.
+q-create	Record a repository issue: the style A/B harness cannot pool human rating verdicts across two runs, so a second rating session cannot raise the sample size. Category testing-ci, priority medium.
