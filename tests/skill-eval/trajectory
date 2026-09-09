@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Report which skill fired and which commands ran, from the session transcripts.
+
+`tests/skill-eval/shims/claude` pins a session id per invocation and records it
+in an index. Claude Code writes that session's transcript under
+`~/.claude/projects/`, and the transcript carries the `tool_use` blocks the final
+answer does not.
+
+That is the difference between a real observation and a grep. A check that looks
+for a command in the agent's prose passes when the answer merely mentions the
+command and fails when the agent runs it without saying so.
+
+Usage:
+  tests/skill-eval/trajectory <index path> [--json]
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+PROJECTS = Path.home() / ".claude" / "projects"
+
+
+def find_transcript(session_id):
+    matches = list(PROJECTS.glob(f"*/{session_id}.jsonl"))
+    return matches[0] if matches else None
+
+
+def tool_uses(transcript):
+    """Every tool call in the session, in order."""
+    calls = []
+    for line in transcript.read_text().splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        content = (record.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            payload = block.get("input") or {}
+            calls.append({
+                "tool": block.get("name"),
+                "skill": payload.get("skill"),
+                "command": payload.get("command"),
+                "path": payload.get("file_path") or payload.get("path"),
+            })
+    return calls
+
+
+def summarise(session):
+    transcript = find_transcript(session["session_id"])
+    if transcript is None:
+        return {**session, "transcript": None,
+                "reason": "no transcript found for this session id"}
+    calls = tool_uses(transcript)
+    return {
+        **session,
+        "transcript": str(transcript),
+        "skills_fired": sorted({c["skill"] for c in calls if c["tool"] == "Skill" and c["skill"]}),
+        "commands": [c["command"] for c in calls if c["command"]],
+        "tool_calls": len(calls),
+    }
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("index", help="the index file the shim appended to")
+    parser.add_argument("--json", action="store_true", help="emit JSON rather than a summary")
+    args = parser.parse_args(argv)
+
+    index = Path(args.index)
+    if not index.exists():
+        raise SystemExit(f"{index}: no index; was the command run through tests/skill-eval/run?")
+
+    sessions = [json.loads(line) for line in index.read_text().splitlines() if line.strip()]
+    rows = [summarise(session) for session in sessions]
+
+    if args.json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return 0
+
+    for row in rows:
+        print(f"session {row['session_id']}  cwd {row['cwd']}")
+        if row.get("transcript") is None:
+            print(f"  {row['reason']}")
+            continue
+        fired = ", ".join(row["skills_fired"]) or "none"
+        print(f"  skills fired: {fired}")
+        print(f"  tool calls:   {row['tool_calls']}")
+        for command in row["commands"]:
+            print(f"    $ {command}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

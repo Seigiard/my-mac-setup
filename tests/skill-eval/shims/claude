@@ -27,8 +27,47 @@ if [ -z "${SKILL_EVAL_REAL_CLAUDE:-}" ]; then
     exit 64
 fi
 
+# Trajectory capture. Claude Code writes a session transcript under
+# ~/.claude/projects/<mangled cwd>/<session id>.jsonl, and that transcript holds
+# the tool_use blocks: which skill fired and which commands ran. Neither
+# agent-skill-eval nor skill-creator captures this, which is why neither can
+# answer "did the skill fire" except by eye.
+#
+# Pinning the session id here makes the transcript findable afterwards. The id
+# and the working directory are appended to an index that
+# tests/skill-eval/trajectory reads.
+session_id=""
+for arg in "$@"; do
+    if [ "$arg" = "--session-id" ] || [ "$arg" = "--resume" ] || [ "$arg" = "--continue" ]; then
+        # The caller owns the session already; do not fight it.
+        session_id="caller"
+        break
+    fi
+done
+
+if [ "$session_id" = "caller" ]; then
+    exec "$SKILL_EVAL_REAL_CLAUDE" \
+        --setting-sources project,local \
+        --strict-mcp-config \
+        --settings '{"outputStyle":"default"}' \
+        "$@"
+fi
+
+if command -v uuidgen >/dev/null 2>&1; then
+    session_id=$(uuidgen | tr "[:upper:]" "[:lower:]")
+else
+    session_id=$(python3 -c "import uuid; print(uuid.uuid4())")
+fi
+
+if [ -n "${SKILL_EVAL_TRAJECTORY_INDEX:-}" ]; then
+    printf '{"session_id":"%s","cwd":"%s","started_at":"%s"}\n' \
+        "$session_id" "$PWD" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        >> "$SKILL_EVAL_TRAJECTORY_INDEX"
+fi
+
 exec "$SKILL_EVAL_REAL_CLAUDE" \
     --setting-sources project,local \
     --strict-mcp-config \
     --settings '{"outputStyle":"default"}' \
+    --session-id "$session_id" \
     "$@"

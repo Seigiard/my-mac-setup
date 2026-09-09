@@ -21,4 +21,16 @@ export SKILL_EVAL_REAL_CLAUDE
 PATH="$HERE/shims:$PATH"
 export PATH
 
+# Where the shim records each session it starts. `trajectory` reads this to find
+# the transcripts and report which skill fired and which commands ran.
+#
+# The default lives outside the repository on purpose: generated output never
+# needs an ignore rule if it never lands in the checkout.
+if [ -z "${SKILL_EVAL_TRAJECTORY_INDEX:-}" ]; then
+    SKILL_EVAL_TRAJECTORY_INDEX=$(mktemp -d)/index.jsonl
+fi
+mkdir -p "$(dirname "$SKILL_EVAL_TRAJECTORY_INDEX")"
+export SKILL_EVAL_TRAJECTORY_INDEX
+echo "trajectory index: $SKILL_EVAL_TRAJECTORY_INDEX" >&2
+
 exec "$@"

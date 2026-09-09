@@ -22,12 +22,17 @@ produced would describe that configuration rather than the skill.
 ## Usage
 
 ```
-tests/skill-eval/run agent-skill-eval run --skill ./skills/foo --evals ./evals.json
+tests/skill-eval/run claude -p "<task>" --allowed-tools "Skill,Bash"
+tests/skill-eval/trajectory <index path printed by run>
 ```
 
-`run` puts `shims/` first on `PATH` and passes the real binary's location in
-`SKILL_EVAL_REAL_CLAUDE`. The shim refuses to run without that variable rather
-than guessing, so it can never silently exec itself.
+`run` puts `shims/` first on `PATH`, passes the real binary's location in
+`SKILL_EVAL_REAL_CLAUDE`, and points `SKILL_EVAL_TRAJECTORY_INDEX` at a
+temporary file it prints. The shim refuses to run without the first variable
+rather than guessing, so it can never silently exec itself.
+
+Set `SKILL_EVAL_TRAJECTORY_INDEX` yourself to collect several invocations into
+one index. Nothing is written into the checkout.
 
 ## The flags, and why each one
 
@@ -45,6 +50,31 @@ including skills, which is the subject of the measurement.
 `--strict-mcp-config` also blunts the sharpest edge of the
 `--dangerously-skip-permissions` that `agent-skill-eval` passes: an agent running
 without approvals reaches no MCP integration.
+
+## What it observes
+
+The shim pins a session id per invocation. Claude Code writes that session's
+transcript under `~/.claude/projects/`, and the transcript carries the `tool_use`
+blocks that the final answer does not. `tests/skill-eval/trajectory` reads them:
+
+```
+session c21493d3-...  cwd .../traj-probe
+  skills fired: probe-marker
+  tool calls:   2
+    $ echo MARKER-7F3A
+
+session 6ae9e537-...  cwd .../probe-without
+  skills fired: none
+  tool calls:   3
+    $ ls -la ...
+```
+
+Two things come out of that which no off-the-shelf tool here provided: a boolean
+for whether the skill fired, and the commands that actually ran.
+
+The distinction matters. A check that greps the agent's prose for a command
+passes when the answer merely mentions it and fails when the agent runs it
+without saying so. Both failures were observed, see the spike result below.
 
 ## What was verified
 
@@ -86,6 +116,11 @@ one output against a rubric, so it produces a pass rate with no noise floor. Our
 own A/A run on the writing-style harness drifted 7 of 11 prompts in one direction
 with identical arms. Run identical arms here before trusting any delta.
 
+## Why `agent-skill-eval` is not used
+
+It was installed, run, and dropped. The eval suite written for it is deleted; the
+result below is what remains, because the finding is the value.
+
 ## Spike result, 2026-09-09
 
 One run of two eval cases against the project-scoped `repository-issues` skill,
@@ -117,7 +152,8 @@ answer and a small JSON result, not a trajectory of Bash invocations. Both
 
 This explains the audit finding that the tool has no "the skill fired" boolean
 and its README tells you to eyeball the evidence: the data needed for that check
-is not captured.
+is not captured. It is captured in the session transcript, which is what
+`trajectory` reads and what made the tool unnecessary here.
 
 **What the skill actually did**, read by hand from the outputs rather than from
 any assertion:
