@@ -1,4 +1,4 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi style-ab lint clean build-docker shell-ubuntu
+.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
@@ -16,7 +16,6 @@ help:
 	@echo "  make test-agent-hooks-pi  Run focused agent-hooks Pi adapter tests"
 	@echo "  make test-local       Diff checkout source against current home (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
-	@echo "  make style-ab         Measure a writing-style edit (SPENDS API credits, ~132 calls)"
 	@echo "  make lint             Run shellcheck on all scripts"
 	@echo "  make shell-ubuntu     Open interactive shell in Ubuntu container"
 	@echo "  make build-docker     Build Docker image without running tests"
@@ -25,13 +24,6 @@ help:
 test-issues:
 	python3 scripts/issues validate
 	python3 -m unittest discover -s tests -p 'test_*.py'
-
-# Manual only. This target spends API credits and can bind a local port, so
-# nothing depends on it and no CI step names it. Override the arms with
-# STYLE_AB_ARGS, for example:
-#   make style-ab STYLE_AB_ARGS="--baseline 0c5c33a^ --candidate 0c5c33a --lang en"
-style-ab:
-	python3 tests/style-ab/run.py $(STYLE_AB_ARGS)
 
 build-docker:
 	docker compose -f docker/docker-compose.yml build
@@ -92,7 +84,6 @@ lint:
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 	shellcheck --severity=warning tests/helpers/chezmoi-unattended
-	shellcheck --severity=warning tests/skill-eval/run tests/skill-eval/shims/claude
 	python3 scripts/check_bats_assertions.py tests
 
 clean:

@@ -163,17 +163,6 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 
 </important>
 
-<important if="you are editing home/.chezmoitemplates/writing-style.md">
-
-That file is always loaded, through four adapters, so a change to it reaches every response the agent writes. Measure the change instead of asserting it.
-
-- `tests/style-ab/README.md` owns the protocol. Run `make style-ab STYLE_AB_ARGS="--baseline <ref> --candidate worktree"`, then `python3 tests/style-ab/score.py <run dir>`, then `python3 tests/style-ab/run.py --rate <run dir>` for the human leg, then score again to fold the verdicts in. The first step spends API credits; the rest are free.
-- Read the two legs separately. Instructed movement — a metric a changed rule names — confirms the model read the rule and says nothing more. Uninstructed movement is the informative signal. The human leg is the one about reader value; the counters are about rule obedience, and obedience is not known to track reader value.
-- **The report is required evidence unless the edit is exempt.** An edit is exempt only when all five hold: it changes no normative verb (must, never, always, do not, prefer, avoid, and their equivalents); it adds no rule and removes no rule; it changes the membership of no enumerated list; it moves no numeric threshold; and it alters no statement of scope or applicability. Typo fixes, reworded examples, formatting, and reordering that does not change precedence are the intended exempt class.
-- **Claim the exemption, never assume it.** State which of the five legs you checked and assert the claim. A silent exemption is indistinguishable from a skipped check and is treated as one. When a human is present, their assessment overrides yours in both directions.
-
-</important>
-
 <important if="you are selecting or running checks, reusing evidence after edits, deciding whether to skip a broad check, preparing to publish, or verifying merge readiness">
 
 - **Verification:** Read `docs/agent-verification.md` before selecting, running, reusing, or skipping checks. It defines risk classes, evidence validity, and publish and merge gates.

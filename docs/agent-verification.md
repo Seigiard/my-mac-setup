@@ -17,14 +17,6 @@ Run the smallest canonical target or documented test command that proves the aff
 
 A content-only managed-file verdict requires every existing canonical focused check whose coverage includes the change to pass. In `make test-local` output, confirm that the intended source content maps to the expected destination and that no path, template, or ignore behavior changed. When no focused test owns the content's semantics, report that missing local oracle and use the mandatory pull-request CI jobs for behavioral evidence; do not manufacture a source-shape test or upgrade a static content edit to deployment-sensitive solely because no focused test exists.
 
-### Style changes carry a measurement
-
-`home/.chezmoitemplates/writing-style.md` is always loaded through four adapters, so an edit to it changes every response the agent writes and no focused test owns that behavior. A change to it carries a style-ab report as required evidence, produced by `tests/style-ab/` and read as `tests/style-ab/README.md` describes.
-
-An edit is exempt only when **all five** hold: it changes no normative verb (must, never, always, do not, prefer, avoid, and their equivalents); it adds no rule and removes no rule; it changes the membership of no enumerated list; it moves no numeric threshold; and it alters no statement of scope or applicability. Typo and grammar fixes, a reworded example that still illustrates the same thing, formatting, and reordering that does not change precedence are the class this is meant to release.
-
-The exemption is claimed, never assumed. Name the five legs you checked and assert the claim in the verification report. A silent exemption is indistinguishable from a skipped check and is treated as one. The party claiming the exemption is usually the party that made the edit, so the five-leg test mitigates that conflict rather than removing it; when a human is present, their assessment overrides the agent's in both directions, and that override is what covers the residue.
-
 ## Keep The Loop Tight
 
 - Run checks after a coherent change batch.
