@@ -328,8 +328,12 @@ EOF
   esac
 
   local attempt=1 start_err start_out start_status=1 start_timeout="$timeout"
-  # herdr caps agent startup at five minutes; a longer caller timeout belongs to prompt waiting.
+  # herdr bounds agent startup to more than 3000ms and at most five minutes, and
+  # rejects anything outside that with invalid_agent_timeout, which the retry
+  # loop below does not recover from. A longer caller timeout belongs to prompt
+  # waiting, and a shorter one still has to clear herdr's floor.
   [ "$start_timeout" -le 300000 ] || start_timeout=300000
+  [ "$start_timeout" -ge 3001 ] || start_timeout=3001
   start_err="$(mktemp)"
   start_out="$(mktemp)"
   while [ "$attempt" -le 3 ]; do
@@ -549,11 +553,18 @@ EOF
       trap - HUP INT TERM
       return "$prompt_status"
     fi
+    # herdr documents that neither a timeout nor agent_prompt_stalled proves the
+    # prompt was never delivered, so a stall takes the same route as a timeout:
+    # keep the child and report it. Closing the pane here destroyed a child that
+    # may already have had the task and been working on it.
     if grep -q 'agent_prompt_stalled' "$prompt_err"; then
-      printf 'herdr-child: initial prompt stalled%s\n' "$tab_note" >&2
-    else
-      printf 'herdr-child: initial prompt failed%s\n' "$tab_note" >&2
+      printf 'herdr-child: initial prompt stalled; child preserved for recovery%s\n' "$tab_note" >&2
+      rm -f "$prompt_out" "$prompt_err"
+      trap - HUP INT TERM
+      print_start_result "$name" "$pane" "$tab"
+      return 124
     fi
+    printf 'herdr-child: initial prompt failed%s\n' "$tab_note" >&2
     rm -f "$prompt_out" "$prompt_err"
     cleanup_pane prompt-failure || true
     return 1

@@ -95,3 +95,21 @@ to a child whose status changed during the subscriber's absence.
 
 Measured on the installed binary: `herdr --version` reports 0.9.0 and `herdr api --help` still lists
 only `snapshot` and `schema`, so the "no CLI surface" half of this record is unchanged.
+
+## Correction (2026-09-09): the liveness beacon was a label herdr never accepted
+
+Both mentions of a short-TTL `supervised` label above describe a mechanism that never
+ran. `herdr pane report-metadata` accepts only `idle`, `working`, `blocked`, `done`, and
+`unknown` as `--state-label` keys, in 0.8.2 exactly as in 0.9.0. It rejects any other key
+with exit 2 in the CLI, before it opens the socket, and discards the whole call including
+the tokens riding along in it. The watcher published its first beacon that way, so every
+`herdr-child start --detach` aborted at `watcher readiness failed: liveness-publish-failed`.
+Detached supervision has not worked since it was written in `fc6b958`.
+
+The beacon is a TTL'd token now, which keeps the expiry property this record leans on: it
+lapses when the watcher stops refreshing it. What that changes here is the premise rather
+than the conclusion. The statement above that the per-child watcher already covers every
+ordinary lifecycle wake was untrue while this was broken, so the crash-only tail was never
+the only gap. The deferral still stands now that the ordinary path is verified live on
+0.9.0: a detached launch arms, the watcher observes the child settle, and it wakes the
+parent.
