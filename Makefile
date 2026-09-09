@@ -92,6 +92,7 @@ lint:
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 	shellcheck --severity=warning tests/helpers/chezmoi-unattended
+	shellcheck --severity=warning tests/skill-eval/run tests/skill-eval/shims/claude
 	python3 scripts/check_bats_assertions.py tests
 
 clean:

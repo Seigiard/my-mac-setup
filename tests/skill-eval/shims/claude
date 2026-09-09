@@ -1,0 +1,34 @@
+#!/bin/sh
+# PATH shim: run the real `claude` with the operator's own configuration off.
+#
+# `agent-skill-eval` invokes the host CLIs by bare name and passes no isolation
+# flags, so a run inherits whatever the machine already has: the global
+# ~/.claude/CLAUDE.md, the deployed output style, and every configured MCP
+# server. It also passes --dangerously-skip-permissions. Measuring a skill on
+# such a run measures the machine.
+#
+# Prepending this directory to PATH puts the flags back without forking the tool.
+#
+# --setting-sources project,local  drops the user settings source, which is what
+#                                  carries the global CLAUDE.md and the output
+#                                  style. Workspace .claude/skills still loads,
+#                                  which is the whole point of the eval.
+# --strict-mcp-config              no --mcp-config is given, so no MCP server
+#                                  loads at all. This also removes the sharpest
+#                                  edge of --dangerously-skip-permissions.
+# --settings outputStyle=default   belt and braces on the output style.
+#
+# Auth, model selection and built-in tools are untouched, so the run still works.
+# --safe-mode is deliberately NOT used: it disables skills, which is the subject.
+set -eu
+
+if [ -z "${SKILL_EVAL_REAL_CLAUDE:-}" ]; then
+    echo "shim: SKILL_EVAL_REAL_CLAUDE is unset; run through tests/skill-eval/run" >&2
+    exit 64
+fi
+
+exec "$SKILL_EVAL_REAL_CLAUDE" \
+    --setting-sources project,local \
+    --strict-mcp-config \
+    --settings '{"outputStyle":"default"}' \
+    "$@"

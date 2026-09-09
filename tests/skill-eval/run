@@ -1,0 +1,24 @@
+#!/bin/sh
+# Run a command with the host CLI shims first on PATH.
+#
+#   tests/skill-eval/run agent-skill-eval run --skill ./skills/foo --evals ./evals.json
+#
+# Only `claude` is shimmed. OpenCode exposes no isolation flag beyond --pure,
+# and Codex's CODEX_HOME also holds its credentials, so neither has a verified
+# isolation path yet. Running those hosts through this wrapper would measure the
+# machine, so the wrapper refuses to pretend otherwise: see README.md.
+set -eu
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+
+SKILL_EVAL_REAL_CLAUDE=$(command -v claude || true)
+if [ -z "$SKILL_EVAL_REAL_CLAUDE" ]; then
+    echo "run: no claude on PATH" >&2
+    exit 69
+fi
+export SKILL_EVAL_REAL_CLAUDE
+
+PATH="$HERE/shims:$PATH"
+export PATH
+
+exec "$@"
