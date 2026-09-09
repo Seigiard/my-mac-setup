@@ -1,13 +1,19 @@
 onboarding = false
 
+# rose-pine-dawn is the light half of the pair; herdr follows the host
+# terminal's reported appearance and swaps to rose-pine in dark mode.
+# Both names are spelled out because sibling inference is documented for
+# other pairs and should not be relied on here.
 [theme]
 name = "rose-pine-dawn"
+auto_switch = true
+light_name = "rose-pine-dawn"
+dark_name = "rose-pine"
 
 [theme.custom]
 panel_bg = "reset"
 
 [experimental]
-kitty_graphics = true
 pane_history = true
 allow_nested = true
 
@@ -64,9 +70,19 @@ sidebar_min_width = 32
 # Custom tokens have no such gap, so every space shows its branch, and the
 # counts read ⇣pull ⇡push ~conflicts +staged !unstaged ?untracked with empty
 # positions omitted.
+# `~` appears in $git_status only as the conflict prefix, so `contains` turns
+# the whole counts token red when a merge is unresolved. Rules are available on
+# `$name` metadata tokens; herdr's own composite `git_status` built-in takes
+# fixed styles only, so this coloring exists because the counts are ours.
+# The hex is fixed while the theme now auto-switches: rose-pine-dawn's love
+# (#b4637a) is the half of the pair that still reads on the dark background,
+# and inline token styles reject theme color names.
 [ui.sidebar.spaces]
 row_gap = 0
-rows = [["state_icon", "workspace"], ["$branch", "$git_status"]]
+rows = [
+  ["state_icon", "workspace"],
+  ["$branch", { token = "$git_status", rules = [{ contains = "~", fg = "#b4637a" }] }],
+]
 
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
