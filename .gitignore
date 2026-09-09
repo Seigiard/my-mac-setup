@@ -15,3 +15,9 @@ home/private_dot_config/private_karabiner/automatic_backups/
 
 # style A/B harness output: generated responses are never committed (R32)
 tests/style-ab/runs/
+
+# skill-eval spike: local virtualenv, never committed
+.venv-skill-eval/
+
+# skill-eval spike: generated eval workspaces and results
+eval-workspace/

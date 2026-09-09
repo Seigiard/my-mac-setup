@@ -85,3 +85,53 @@ to hold in both directions.
 one output against a rubric, so it produces a pass rate with no noise floor. Our
 own A/A run on the writing-style harness drifted 7 of 11 prompts in one direction
 with identical arms. Run identical arms here before trusting any delta.
+
+## Spike result, 2026-09-09
+
+One run of two eval cases against the project-scoped `repository-issues` skill,
+one repeat, both arms, through the shim. Four Claude Code sessions, $1.75, exit 0.
+
+**The pipeline works.** Install from PyPI, fixture copying, a fresh git workspace
+per arm, skill installation into `.claude/skills`, real `claude` subprocesses
+through the shim, deterministic grading, no grader API key. The tool reported
+"All 7 assertion(s) match deterministic patterns" before starting, so nothing was
+silently skipped.
+
+**Two of the three assertion types were unusable as written, and the reported
+delta of +0.04 pass rate means nothing.**
+
+`file_unchanged` failed in all four cells with `Uncommitted change detected: ??
+scripts/issues`. Fixtures are copied after the workspace's initial commit, so
+they are untracked and the assertion fails whatever the agent does. Fixed here
+with `stage_files: true`.
+
+`command_ran` is a grep over the agent's text, not an inspection of its tool
+calls. In the create case it passed on this sentence from the answer:
+
+> `...isn't present in this workspace, which only carries `scripts/issues`.`
+
+No command had to run. The assertion also produces false negatives, because a
+command the agent does not echo never appears. The recorded logs hold the final
+answer and a small JSON result, not a trajectory of Bash invocations. Both
+`command_ran` and `command_not_ran` are dropped from this suite.
+
+This explains the audit finding that the tool has no "the skill fired" boolean
+and its README tells you to eyeball the evidence: the data needed for that check
+is not captured.
+
+**What the skill actually did**, read by hand from the outputs rather than from
+any assertion:
+
+- Create, with the skill: created `docs/issues/2026-09-09-001-...md`, ran
+  `validate` on the full corpus, and caught that the prompt's requested type
+  `feature` is not in the schema, choosing `idea` and naming the alternative. The
+  prompt was wrong and the skill was right.
+- Query, with the skill: correct count and ids, and it distinguished `status:
+  open` from the CLI's default active view.
+- Query, without the skill: also correct.
+
+**What remains testable here.** State assertions on the workspace, once fixtures
+are staged: a file must exist, must contain something, must be unchanged. Which
+command produced the state is not reliably observable, so "did the agent use the
+CLI rather than hand-writing the file" cannot be asserted with this tool as it
+stands.
