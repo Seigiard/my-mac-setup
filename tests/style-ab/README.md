@@ -102,6 +102,7 @@ heading inside a fenced block would count.
 | `sentences` | `[.!?]` followed by whitespace or end | none stated | valid | valid |
 | `mean_sentence_length` | `words / sentences` | none stated | valid | valid |
 | `language_match` | 1 when the detected script matches the prompt's declared language | higher | valid | valid |
+| `untranslated_term` | occurrences of the prompt's declared source-language term, case-insensitive | lower | valid | valid |
 
 Seven metrics do not survive into Russian, and the report prints
 "not measured for this language" with the reason for each. It never prints zero,
@@ -336,9 +337,16 @@ verified by the mechanical leg. Reading the term the model chose is the
 measurement, and the report must carry that reading rather than a table of
 counters that were blind to it.
 
-A targeted counter is buildable and is not built here: for a prompt whose text
-contains an English technical term, count that literal in the response. It needs
-the prompt set to name which term is the subject, which the TSV does not carry.
+That counter now exists. `untranslated_term` counts the prompt's declared
+source-language term in the response, case-insensitively, and lower is better.
+The prompt set carries a fourth column naming that term, empty for most rows,
+because a scorer cannot guess it: a prompt mentions Postgres, git and A/B beside
+the one term that matters. The manifest snapshots the declaration, so scoring
+never depends on a prompt file that changed after the run.
+
+A prompt that declares no term reports the counter as "not measured for this
+prompt", never as zero. Zero would read as a translation that never had to
+happen.
 
 ## Prompt sets
 

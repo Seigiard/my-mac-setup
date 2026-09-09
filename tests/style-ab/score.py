@@ -71,6 +71,7 @@ SCRIPT_LANGUAGE = {"cyrillic": "ru", "latin": "en"}
 PAIR_ARMS = ("baseline", "candidate")
 
 NOT_MEASURED = "not measured for this language"
+NOT_DECLARED = "not measured for this prompt"
 
 # The statements R22 requires the mechanical section to carry, verbatim.
 LIMITS = [
@@ -154,6 +155,7 @@ METRICS = [
 # appears on a line that differs between the two arms, which means the run is
 # watching the model follow an instruction rather than reporting a side effect.
 TRIGGERS = {
+    "untranslated_term": ("translat", "term", "language"),
     "em_dash": ("em-dash", "—"),
     "semicolon": (";", "semicolon"),
     "present_perfect": ("present perfect", "has been", "have been", "has completed"),
@@ -172,12 +174,16 @@ TRIGGERS = {
 }
 
 
-def score_response(raw, declared_language):
+def score_response(raw, declared_language, term=""):
     """Score one response against the metric set valid for its script.
 
     `declared_language` is what the prompt asked for. Detection routes the
     metrics; the two together produce `language_match`, which is the style's own
     "match the reader's language" rule measured rather than assumed.
+
+    `term` is the source-language technical term this prompt puts under test,
+    declared by the prompt set. It cannot be inferred: a prompt mentions
+    Postgres, git and A/B beside the one term that matters.
     """
     prose = strip_code(raw)
     script = detect_script(prose)
@@ -189,7 +195,7 @@ def score_response(raw, declared_language):
         if routed in metric.languages:
             metrics[metric.name] = metric.count(prose, raw)
         else:
-            not_measured[metric.name] = metric.reason or NOT_MEASURED
+            not_measured[metric.name] = (NOT_MEASURED, metric.reason)
 
     if metrics.get("sentences"):
         metrics["mean_sentence_length"] = round(metrics["words"] / metrics["sentences"], 2)
@@ -198,8 +204,20 @@ def score_response(raw, declared_language):
 
     metrics["language_match"] = 1 if routed == declared_language else 0
 
+    # The one counter that reads word choice rather than punctuation or word
+    # shape. It is the only mechanical evidence a translation rule can produce,
+    # and it is absent rather than zero when no term was declared: a zero there
+    # would read as a translation that never had to happen.
+    if term:
+        metrics["untranslated_term"] = len(
+            re.findall(re.escape(term), prose, re.IGNORECASE))
+    else:
+        not_measured["untranslated_term"] = (
+            NOT_DECLARED, "The prompt set declares no source-language term for it.")
+
     return {
         "declared_language": declared_language,
+        "term": term,
         "detected_script": script,
         "routed_language": routed,
         "metrics": metrics,
@@ -225,14 +243,16 @@ def instructed_metrics(run_dir):
             if any(trigger.lower() in diff for trigger in triggers)}
 
 
-def read_responses(run_dir):
+def read_responses(run_dir, terms=None):
+    terms = terms or {}
     records = []
     for path in sorted((run_dir / "responses").glob("*.txt")):
         match = RESPONSE_NAME.match(path.stem)
         if not match:
             raise SystemExit(f"{path}: filename does not name a language, prompt, arm and repeat")
         raw = path.read_text()
-        record = score_response(raw, match.group("language"))
+        record = score_response(raw, match.group("language"),
+                                term=terms.get(match.group("prompt_id"), ""))
         record.update({
             "file": path.name,
             "prompt_id": match.group("prompt_id"),
@@ -321,7 +341,8 @@ def paired_counts(records, complete, instructed):
     result = {}
     for language, prompt_ids in sorted(complete.items()):
         in_language = [r for r in records if r["declared_language"] == language]
-        metric_names = [m.name for m in METRICS] + ["mean_sentence_length", "language_match"]
+        metric_names = ([m.name for m in METRICS]
+                        + ["mean_sentence_length", "language_match", "untranslated_term"])
         per_metric = {}
         for name in metric_names:
             rows = []
@@ -368,7 +389,8 @@ def arm_means(records, complete):
                         if any(not r["empty"] for r in in_language
                                if r["prompt_id"] == prompt_id and r["arm"] == arm)]
             prompt_counts[arm] = len(answered)
-        for name in [m.name for m in METRICS] + ["mean_sentence_length", "language_match"]:
+        for name in ([m.name for m in METRICS]
+                     + ["mean_sentence_length", "language_match", "untranslated_term"]):
             row = {}
             for arm in arms:
                 values = [average_repeats(in_language, prompt_id, arm, name)
@@ -388,7 +410,11 @@ def score_run(run_dir):
     run_dir = Path(run_dir)
     manifest = load_json(run_dir / "manifest.json", {})
     repeats = manifest.get("repeats", 1)
-    records = read_responses(run_dir)
+    # The manifest snapshots the prompt set, so scoring never depends on a
+    # prompt file that may have changed since the run.
+    terms = {row["prompt_id"]: row.get("term", "")
+             for row in manifest.get("prompts") or []}
+    records = read_responses(run_dir, terms)
 
     # Arms come from the manifest, never from the files that happen to exist. An
     # arm that produced no response at all would otherwise drop out of the
@@ -431,8 +457,8 @@ def gated_reasons(records, language):
     in_language = [r for r in records if r["declared_language"] == language]
     reasons = {}
     for record in in_language:
-        for name, reason in record["not_measured"].items():
-            entry = reasons.setdefault(name, {"reason": reason, "gated": 0})
+        for name, (label, reason) in record["not_measured"].items():
+            entry = reasons.setdefault(name, {"label": label, "reason": reason, "gated": 0})
             entry["gated"] += 1
     for entry in reasons.values():
         entry["total"] = len(in_language)
@@ -475,7 +501,7 @@ def render_metric_rows(per_metric, names, prompt_count):
     for name in names:
         entry = per_metric[name]
         if not entry.get("measured"):
-            rows.append(f"| `{name}` | 0 | {NOT_MEASURED} | | | | |")
+            rows.append(f"| `{name}` | 0 | not measured | | | | |")
             continue
         measured_on = entry.get("prompts", prompt_count)
         marker = "" if measured_on == prompt_count else " ⚠"
@@ -529,7 +555,8 @@ def render_report(scores, human_section=None):
                 scope = ("" if entry["gated"] == entry["total"]
                          else f" on {entry['gated']} of {entry['total']} responses "
                               "(the rest arrived in the other script)")
-                lines.append(f"- `{name}` — {NOT_MEASURED}{scope}. {entry['reason']}")
+                reason = f" {entry['reason']}" if entry["reason"] else ""
+                lines.append(f"- `{name}` — {entry['label']}{scope}.{reason}")
             lines.append("")
 
     lines += ["### Aggregate means", ""]
@@ -545,7 +572,7 @@ def render_report(scores, human_section=None):
             cells = []
             for arm in arms:
                 value = row.get(arm)
-                cells.append(NOT_MEASURED if value is None else str(value))
+                cells.append("not measured" if value is None else str(value))
             lines.append(f"| `{name}` | " + " | ".join(cells) + " |")
         lines.append("")
 

@@ -65,7 +65,13 @@ def sha256_file(path):
 
 
 def read_prompts(languages):
-    """Return [(prompt_id, language, text)] in file order, English first."""
+    """Return [(prompt_id, language, text, term)] in file order, English first.
+
+    The fourth field names the source-language technical term this prompt puts
+    under test, and is empty for most rows. A scorer cannot guess it: a prompt
+    mentions Postgres, git and A/B alongside the one term that matters, so the
+    prompt set has to declare which one is the subject.
+    """
     rows = []
     for language in languages:
         source = PROMPTS / f"core-{language}.tsv"
@@ -73,15 +79,19 @@ def read_prompts(languages):
             if not line.strip():
                 continue
             parts = line.split("\t")
-            if len(parts) != 3:
-                raise SystemExit(f"{source}:{line_number}: expected 3 tab-separated fields")
-            prompt_id, declared, text = parts
+            if len(parts) == 3:
+                parts.append("")
+            if len(parts) != 4:
+                raise SystemExit(
+                    f"{source}:{line_number}: expected 3 or 4 tab-separated fields"
+                )
+            prompt_id, declared, text, term = parts
             if declared != language:
                 raise SystemExit(
                     f"{source}:{line_number}: row declares language {declared!r} "
                     f"but lives in the {language!r} set"
                 )
-            rows.append((prompt_id, declared, text))
+            rows.append((prompt_id, declared, text, term.strip()))
     return rows
 
 
@@ -92,7 +102,7 @@ def build_matrix(prompts, arms, repeats, seed):
     wall-clock time would let drift in the service sit inside the pair.
     """
     jobs = []
-    for prompt_id, language, text in prompts:
+    for prompt_id, language, text, term in prompts:
         for repeat in range(1, repeats + 1):
             for arm_name in arms:
                 jobs.append({
@@ -103,8 +113,8 @@ def build_matrix(prompts, arms, repeats, seed):
                     "repeat": repeat,
                 })
     random.Random(seed).shuffle(jobs)
-    jobs.sort(key=lambda job: (prompts.index((job["prompt_id"], job["language"], job["text"])),
-                               job["repeat"]))
+    order = {row[0]: index for index, row in enumerate(prompts)}
+    jobs.sort(key=lambda job: (order[job["prompt_id"]], job["repeat"]))
     return jobs
 
 
@@ -225,6 +235,10 @@ def build_manifest(args, arms, prompts, jobs, results, run_id, started_at):
             for language in args.languages
         ],
         "prompt_count": len(prompts),
+        # Snapshot, not a path: the scorer must not depend on a prompt file that
+        # may have changed since the run.
+        "prompts": [{"prompt_id": row[0], "language": row[1], "term": row[3]}
+                    for row in prompts],
         "repeats": args.runs,
         "job_count": len(jobs),
         "job_seed": args.seed,

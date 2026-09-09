@@ -41,7 +41,7 @@ def load_score_module():
     return module
 
 
-def build_run(directory, responses):
+def build_run(directory, responses, prompts=None):
     """Write the smallest run directory `score_run` accepts.
 
     `responses` maps a response filename stem to its text.
@@ -63,8 +63,76 @@ def build_run(directory, responses):
             "candidate": {"spec": "worktree", "sha256": "2" * 64, "tokens": 9, "commit": None},
         },
         "repeats": 1,
+        "prompts": prompts or [],
     }))
     return run_dir
+
+
+class TermUnderTestTest(unittest.TestCase):
+    """The oracle is presence versus absence of the metric, not its value.
+
+    Consumer: the reviewer reading `report.md` after a change to the translation
+    rules.
+    Observable failure: a prompt that declares no term under test reports zero
+    untranslated occurrences, and zero reads as a perfect translation, so an
+    untested prompt looks clean.
+    """
+
+    def setUp(self):
+        self.score = load_score_module()
+
+    def test_a_prompt_with_no_declared_term_reports_the_metric_as_not_measured(self):
+        # #given a Russian answer to a prompt that names no term under test
+        # #when it is scored
+        record = self.score.score_response(RUSSIAN, "ru", term="")
+
+        # #then the counter is absent rather than zero, because zero would read
+        # as a translation that never had to happen
+        self.assertNotIn("untranslated_term", record["metrics"])
+        self.assertIn("untranslated_term", record["not_measured"])
+
+    def test_a_declared_term_left_in_the_source_language_is_counted(self):
+        # #given the control: the same shape of answer for a prompt that does
+        # declare a term, with the term left untranslated twice
+        answer = "Noise floor — это уровень фона. Считать noise floor надо до сравнения."
+
+        # #when it is scored against that term
+        record = self.score.score_response(answer, "ru", term="noise floor")
+
+        # #then the counter runs, so absence in the case above is the gate and
+        # not a counter that never worked. Case is ignored: a term at the start
+        # of a sentence is capitalised by the language, not by the model.
+        self.assertEqual(record["metrics"]["untranslated_term"], 2)
+        self.assertNotIn("untranslated_term", record["not_measured"])
+
+    def test_a_translated_answer_scores_zero_rather_than_being_absent(self):
+        # #given an answer that carries the term only in Russian
+        answer = "Уровень шума — это разброс при неизменных условиях."
+
+        # #when it is scored against the declared term
+        record = self.score.score_response(answer, "ru", term="noise floor")
+
+        # #then zero is reported, and it means something here because the metric
+        # applied: the term was under test and did not survive untranslated
+        self.assertEqual(record["metrics"]["untranslated_term"], 0)
+
+    def test_the_term_travels_from_the_manifest_to_the_report(self):
+        # #given a run whose manifest declares the term for one prompt
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = build_run(
+                tmp,
+                {f"ru__q7-ru__{arm}__r1": "Noise floor и ещё раз noise floor."
+                 for arm in ("base", "baseline", "candidate")},
+                prompts=[{"prompt_id": "q7-ru", "language": "ru", "term": "noise floor"}],
+            )
+
+            # #when the run is scored
+            scores = self.score.score_run(run_dir)
+            record = [r for r in scores["responses"] if r["arm"] == "candidate"][0]
+
+        # #then the scorer used the declared term rather than guessing one from
+        # the prompt text, which carries several English words
+        self.assertEqual(record["metrics"]["untranslated_term"], 2)
 
 
 class LanguageRoutingTest(unittest.TestCase):
