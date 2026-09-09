@@ -2797,7 +2797,7 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
     'child_session=child-session' 'baseline_seq=10')"
 
   local metadata_call prompt_call
-  metadata_call="$(grep -n 'state-label supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  metadata_call="$(grep -n 'token supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1)"
   prompt_call="$(grep -n '^agent prompt' "$CHILD_STUB/calls.log" | cut -d: -f1)"
   [ -n "$metadata_call" ]
   [ "$metadata_call" -lt "$prompt_call" ]
@@ -2814,7 +2814,7 @@ function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
   assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
-  assert_file_contains "$CHILD_STUB/calls.log" 'state-label supervision\\ failed='
+  assert_file_contains "$CHILD_STUB/calls.log" 'token supervision_failure_reason=watcher-arm-failed'
   set -- "$CHILD_STUB/state/runs/"*
   [ "$#" -eq 1 ]
   assert_file_exists "$1/failed.state"
@@ -3281,7 +3281,7 @@ function test_scripts_041_herdr_child_watcher_switches_from_fresh_polling() {
   : > "$CHILD_STUB/wait-release"
   child_wait_for_log 'event=settled-12'
   wait_line="$(grep -n '^agent wait' "$CHILD_STUB/calls.log" | cut -d: -f1 | head -1)"
-  refresh_line="$(grep -n 'state-label supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1 | tail -1)"
+  refresh_line="$(grep -n 'token supervised=' "$CHILD_STUB/calls.log" | cut -d: -f1 | tail -1)"
   [ "$refresh_line" -gt "$wait_line" ]
 }
 
@@ -3307,7 +3307,7 @@ function test_scripts_042_herdr_child_sliced_wait_revalidates_generation_b() {
   done
   [ "$attempt" -lt 500 ]
   assert_dir_not_exists "$old_run"
-  run bash -c 'line=$1; file=$2; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "state-label supervised="' _ \
+  run bash -c 'line=$1; file=$2; ! sed -n "$((line + 1)),\$p" "$file" | grep -q "token supervised="' _ \
     "$wait_line" "$CHILD_STUB/calls.log"
   assert_success
 }
@@ -3733,7 +3733,7 @@ function test_scripts_053_herdr_child_managed_prompt_requires_a_mode_and_a() {
     bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --wait --timeout 1000 "next task"
   assert_success
   assert_output --partial 'Prompt completed for orange-panda in wT:p9.'
-  run grep -q 'state-label supervised=' "$CHILD_STUB/calls.log"
+  run grep -q 'token supervised=' "$CHILD_STUB/calls.log"
   assert_failure
   assert_file_not_exists "$CHILD_STUB/watcher.pid"
 }
@@ -4487,13 +4487,19 @@ function test_scripts_072_herdr_child_closes_its_pane_after_three_readines() {
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
 
-function test_scripts_073_herdr_child_distinguishes_a_stalled_initial_prom() {
-  _bats_test_init 73 'herdr-child distinguishes a stalled initial prompt'
+function test_scripts_073_herdr_child_preserves_the_child_when_the_initia() {
+  _bats_test_init 73 'herdr-child preserves the child when the initial prompt stalls'
+  # herdr says agent_prompt_stalled does not prove the prompt was never
+  # delivered, so this takes the same route as test 74's timeout: the pane a
+  # working child may be sitting in must survive, and the caller is handed the
+  # coordinates to recover it.
   child_stub_herdr
   STUB_PROMPT_FAIL=1 run child_start --kind claude --wait
-  assert_failure
+  assert_failure 124
+  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_output --partial "initial prompt stalled"
-  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
+  run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
@@ -7124,6 +7130,50 @@ function test_scripts_2846_child_stub_agent_pane_envelopes_match_real_herdr() {
   _assert_herdr_consumed_parity '.result' "$real_pane" "$stub_pane" "$lc_pane" pane
   _assert_herdr_consumed_parity '.result.pane' "$real_pane" "$stub_pane" "$lc_pane" \
     pane_id terminal_id
+}
+
+function test_scripts_2847_child_state_label_keys_are_ones_the_installed_() {
+  _bats_test_init 2847 'every state-label key the child scripts send is one the installed herdr accepts'
+  require_real_herdr_oracle
+
+  # child_stub_herdr logs the report-metadata calls it is handed and never
+  # judges them, so the whole child suite stayed green while real herdr
+  # refused `--state-label supervised=` outright and published nothing from
+  # those calls -- tokens included. Only the binary owns the key vocabulary
+  # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+  #
+  # herdr validates the key in the CLI before it opens the socket, so this
+  # needs the binary and no session. The pane id is not a real pane, so an
+  # accepted key fails on the pane instead and nothing can mutate. The keys
+  # come from the scripts and the verdict comes from herdr; this file writes
+  # neither side.
+  local probe_pane='wZZ:pZZZ' herdr_bin
+  herdr_bin="$(command -v herdr)"
+
+  # Control first. Without it a probe that rejected every key, or a key list
+  # that came back empty, would both read as a clean pass.
+  run "$herdr_bin" pane report-metadata "$probe_pane" --source child-agent-conformance \
+    --state-label 'definitely-not-a-status=probe' --seq 1
+  assert_failure
+  assert_output --partial 'unknown state label'
+
+  local keys key
+  keys="$(grep -ho -e "--state-label '[a-z ]*=" -e '--state-label "[a-z ]*=' \
+    "$SOURCE_ROOT"/dot_local/lib/herdr-child-*.sh "$HERDR_CHILD" \
+    | sed -e "s/--state-label ['\"]//" -e 's/=$//' | sort -u)"
+  [ -n "$keys" ] || fail 'no --state-label key was found in the child scripts'
+
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    run "$herdr_bin" pane report-metadata "$probe_pane" --source child-agent-conformance \
+      --state-label "$key=probe" --seq 1
+    assert_failure
+    case "$output" in
+      *'unknown state label'*)
+        fail "the child scripts send --state-label $key=, which herdr rejects: $output"
+        ;;
+    esac
+  done <<< "$keys"
 }
 
 function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
