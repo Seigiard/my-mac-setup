@@ -305,6 +305,41 @@ own tally rather than being pooled into these numbers.
 
 Re-record whenever the model or the prompt sets change.
 
+## A translation rule cannot be read from the counters
+
+The report for commit `f721793`, which added the acceptance test to the
+translation rule, moved no mechanical metric on 13 Russian prompts. That is
+structural: none of the fifteen counters looks at which word was chosen.
+
+The evidence is a direct reading of the responses to the prompt that names an
+English term. For `q7-ru`, which asks the model to explain "noise floor":
+
+| Arm | Repeat 1 | Repeat 2 |
+|---|---|---|
+| no style file | English term 8, Russian term 1 | |
+| before the rule | English 6, Russian 0 | English 6, Russian 1 |
+| after the rule | English 1, Russian 7 | English 5, Russian 1 |
+
+In the first repeat the change is unambiguous: the earlier arm never produced a
+Russian term and the later one produced «уровень шума» seven times, which is the
+term the rule now names. In the second repeat neither arm translated. One prompt
+and two repeats, with the effect in one of them: the direction is right and the
+sample separates from nothing.
+
+`q8-ru`, which asks about "idempotency", is the control. Both arms used
+«идемпотентность» nine to eleven times regardless of the rule, because a real
+Russian term already exists and nothing needed fixing. A rule that pushed harder
+on every term would have changed this cell too, and it did not.
+
+**Consequence for the evidence gate.** A change to the language rules cannot be
+verified by the mechanical leg. Reading the term the model chose is the
+measurement, and the report must carry that reading rather than a table of
+counters that were blind to it.
+
+A targeted counter is buildable and is not built here: for a prompt whose text
+contains an English technical term, count that literal in the response. It needs
+the prompt set to name which term is the subject, which the TSV does not carry.
+
 ## Prompt sets
 
 `prompts/core-en.tsv` and `prompts/core-ru.tsv`, eleven rows each, with aligned
