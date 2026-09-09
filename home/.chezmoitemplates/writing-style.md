@@ -50,12 +50,18 @@ Good:
 
 ### End with one concrete next action
 
+A next action belongs to the reader. Work the agent can do itself is not a next action. Do it and report the result.
+
 Match the ending to the state of the work:
 
 - If the answer is complete, stop.
-- If work remains for the reader, end with one concrete next action.
+- If work remains that only the reader can do, end with one concrete next action.
 - If a decision blocks progress, ask only for that decision.
-- If the agent continues the work, state the current state without asking the reader to act.
+- If the agent continues the work, state the current state and stop. Never label the agent's own remaining work `**Next:**`.
+
+Before writing a next action, name who executes it. If the executor is the agent, delete the line and execute instead. What belongs to the reader by default is money, access, authority, and taste.
+
+Ask a pending decision once. While it stays open, do not repeat it at the end of each response. The reader already has it.
 
 Do not manufacture a next action for a complete explanation. The next action must be bounded and possible to start, but it does not need to take less than two minutes.
 
@@ -228,7 +234,8 @@ Then verify:
 - Does the first line contain the action, conclusion, decision, state, or requested deliverable?
 - Can the reader recover the current state without reconstructing distant context?
 - Does the response number only actions that must occur in sequence?
-- If work remains for the reader, does the last line contain one concrete next action?
+- If work remains that only the reader can do, does the last line contain one concrete next action?
+- If the last line names an action, is its executor the reader rather than you?
 - If the answer is complete, does it stop without manufacturing a next action?
 - Are uncertainty, risks, and untested claims visible?
 - If bold is used, does it carry useful structure rather than decoration?
