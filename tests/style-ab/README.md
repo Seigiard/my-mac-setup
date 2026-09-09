@@ -332,10 +332,26 @@ sample separates from nothing.
 Russian term already exists and nothing needed fixing. A rule that pushed harder
 on every term would have changed this cell too, and it did not.
 
-**Consequence for the evidence gate.** A change to the language rules cannot be
-verified by the mechanical leg. Reading the term the model chose is the
-measurement, and the report must carry that reading rather than a table of
-counters that were blind to it.
+**The counter reproduces that reading, and does not yet separate it from noise.**
+Re-running the same comparison with `untranslated_term` in place:
+
+| Prompt | Term | No style file | Before the rule | After the rule |
+|---|---|---|---|---|
+| `q7-ru` | noise floor | 8, 7 | 8, 4 | 6, 1 |
+| `q8-ru` | idempotency | 1, 1 | 0, 1 | 0, 2 |
+
+Arm means fall monotonically, 4.25 to 3.25 to 2.25, in the order no rules, old
+rule, new rule. That is the direction the change intends.
+
+It is not evidence yet. Two repeats of one prompt in one arm gave 8 and 4, and in
+another 6 and 1: the spread inside an arm is as large as the gap between arms.
+Two prompts declare a term, and one of them, `idempotency`, sits at the floor in
+every arm because Russian already has the word. No identical-arms run has been
+taken for this counter.
+
+What the counter buys is that the reading is now mechanical and repeatable rather
+than a person grepping responses by hand. What it does not buy is a separated
+result, and more declared terms rather than more repeats is what would give one.
 
 That counter now exists. `untranslated_term` counts the prompt's declared
 source-language term in the response, case-insensitively, and lower is better.
