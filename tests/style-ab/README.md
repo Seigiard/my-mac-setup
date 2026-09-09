@@ -316,8 +316,15 @@ Three English prompts from the original set are not here. Each silently needed
 repository context, so both styled arms answered by asking for it, and the
 resulting length difference read as information loss that was not there.
 
-The Russian half is a translation of the English half rather than independently
-authored. The benefit is that one task compares across languages; the cost is
+Two Russian prompts have no English counterpart: `q7-ru` and `q8-ru` ask the
+model to explain an English technical term to a Russian speaker. They exist
+because the rest of the set never forces the model to produce Russian domain
+vocabulary, so no run could exercise the translation rules at all. A report on a
+translation rule taken without them measures nothing, which is what the run for
+commit `7824183` demonstrated.
+
+The Russian half is otherwise a translation of the English half rather than
+independently authored. The benefit is that one task compares across languages; the cost is
 that a translated task may not be what a Russian speaker would spontaneously ask.
 
 Prompts are single-turn and context-free, while the agent's real output is mostly
