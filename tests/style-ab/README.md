@@ -136,6 +136,13 @@ Counts are paired per prompt. Repeats of one prompt are correlated draws, so
 they are averaged within the prompt before any direction is taken, and a count
 reads "N of 11 prompts" rather than "N of 22 pairs".
 
+A prompt leaves the paired counts when `baseline` or `candidate` is incomplete,
+because scoring the surviving side would hide whatever happened on the missing
+one, and failures follow long answers rather than falling at random. A gap in
+the empty control arm is reported but costs the prompt nothing: the control
+enters no pair. The aggregate table carries a `Prompts averaged` row so an arm
+that answered fewer prompts is not read as an average over the same set.
+
 The section prints no verdict word. It carries four statements about its own
 limits, and they are not decoration:
 

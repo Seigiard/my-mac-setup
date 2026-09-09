@@ -187,6 +187,51 @@ class LanguageRoutingTest(unittest.TestCase):
         # denominator, so the smaller number is the gate and not an off-by-one
         self.assertEqual(block["metrics"]["words"]["prompts"], 2)
 
+    def test_a_failed_control_arm_does_not_cost_the_prompt_its_pair(self):
+        # #given a prompt whose compared pair is intact and whose empty control
+        # arm produced nothing. The control feeds no pair: `run.py` compares
+        # baseline against candidate and carries `base` as a reference only.
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = build_run(tmp, {
+                "en__p1__baseline__r1": LATIN,
+                "en__p1__candidate__r1": LATIN,
+            })
+
+            # #when the run is scored
+            scores = self.score.score_run(run_dir)
+
+        # #then the pair is still counted, because dropping it would shrink the
+        # denominator over an arm that was never part of the comparison
+        self.assertEqual(scores["paired"]["en"]["prompt_count"], 1)
+        self.assertEqual(scores["excluded"], [])
+
+        # #and the gap is still reported, so a silently absent control arm does
+        # not pass as a complete run
+        self.assertEqual(len(scores["control_incomplete"]), 1)
+        self.assertIn("base", scores["control_incomplete"][0]["reason"])
+
+    def test_an_arms_aggregate_cell_states_how_many_prompts_it_averaged(self):
+        # #given a run where the control arm answered one prompt of two
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = build_run(tmp, {
+                "en__p1__base__r1": LATIN,
+                "en__p1__baseline__r1": LATIN,
+                "en__p1__candidate__r1": LATIN,
+                "en__p2__baseline__r1": LATIN,
+                "en__p2__candidate__r1": LATIN,
+            })
+
+            # #when the run is scored and rendered
+            scores = self.score.score_run(run_dir)
+            report = self.score.render_report(scores)
+
+        # #then the aggregate names each arm's own denominator, so three numbers
+        # on one row are not read as averages over the same prompts
+        table = scores["aggregate"]["en"]["prompt_counts"]
+        self.assertEqual(table["base"], 1)
+        self.assertEqual(table["baseline"], 2)
+        self.assertIn("Prompts averaged", report)
+
     def test_a_prompt_missing_an_arm_leaves_the_paired_counts(self):
         # #given a run where the candidate arm produced no response
         with tempfile.TemporaryDirectory() as tmp:

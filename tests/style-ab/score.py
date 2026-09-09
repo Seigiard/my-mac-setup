@@ -65,6 +65,11 @@ RESPONSE_NAME = re.compile(r"^(?P<language>[a-z]+)__(?P<prompt_id>.+)__(?P<arm>[
 
 SCRIPT_LANGUAGE = {"cyrillic": "ru", "latin": "en"}
 
+# The two arms the paired counts compare. `base` is the empty control: it feeds
+# no pair and exists only to show how far the style moves the model off its
+# untouched defaults.
+PAIR_ARMS = ("baseline", "candidate")
+
 NOT_MEASURED = "not measured for this language"
 
 # The statements R22 requires the mechanical section to carry, verbatim.
@@ -256,35 +261,56 @@ def average_repeats(records, prompt_id, arm, metric_name):
 
 
 def partition_prompts(records, arms, repeats):
-    """Split prompts into those with every arm complete and those without (R28).
+    """Split prompts by whether their compared pair is complete (R28).
 
     A prompt scored on the side that survived would hide whatever happened on
-    the missing arm, so an incomplete prompt leaves the paired counts entirely
-    and is reported with its reason.
+    the missing arm, so a prompt with a broken pair leaves the paired counts
+    entirely and is reported with its reason. Failures are not random: they
+    follow long and difficult answers, so keeping the surviving side would drop
+    exactly the hard prompts from one arm.
+
+    That reasoning covers the two arms being compared. A gap in the empty
+    control arm is reported but costs the prompt nothing, because the control
+    enters no pair and dropping the prompt would shrink the denominator over an
+    arm the comparison never used.
     """
     complete = {}
     excluded = []
+    control_incomplete = []
+    control_arms = [arm for arm in arms if arm not in PAIR_ARMS]
     seen = {}
     for record in records:
         seen.setdefault((record["prompt_id"], record["declared_language"]), []).append(record)
 
-    for (prompt_id, language), group in sorted(seen.items()):
+    def gaps(group, wanted):
         missing = []
-        for arm in arms:
+        for arm in wanted:
             for repeat in range(1, repeats + 1):
                 present = [r for r in group
                            if r["arm"] == arm and r["repeat"] == repeat and not r["empty"]]
                 if not present:
                     missing.append(f"{arm} r{repeat}")
-        if missing:
+        return missing
+
+    for (prompt_id, language), group in sorted(seen.items()):
+        pair_missing = gaps(group, [arm for arm in arms if arm in PAIR_ARMS])
+        if pair_missing:
             excluded.append({
                 "prompt_id": prompt_id,
                 "language": language,
-                "reason": "no usable response for " + ", ".join(missing),
+                "reason": "no usable response for " + ", ".join(pair_missing),
             })
-        else:
-            complete.setdefault(language, []).append(prompt_id)
-    return complete, excluded
+            continue
+
+        complete.setdefault(language, []).append(prompt_id)
+        control_missing = gaps(group, control_arms)
+        if control_missing:
+            control_incomplete.append({
+                "prompt_id": prompt_id,
+                "language": language,
+                "reason": "no usable response for " + ", ".join(control_missing),
+            })
+    return complete, excluded, control_incomplete
 
 
 def paired_counts(records, complete, instructed):
@@ -333,6 +359,15 @@ def arm_means(records, complete):
         in_language = [r for r in records if r["declared_language"] == language]
         arms = sorted({r["arm"] for r in in_language})
         table = {}
+        # Each arm's own denominator. A control arm that lost a prompt averages
+        # over fewer prompts than the compared pair, and three numbers on one
+        # row must not read as averages over the same set.
+        prompt_counts = {}
+        for arm in arms:
+            answered = [prompt_id for prompt_id in prompt_ids
+                        if any(not r["empty"] for r in in_language
+                               if r["prompt_id"] == prompt_id and r["arm"] == arm)]
+            prompt_counts[arm] = len(answered)
         for name in [m.name for m in METRICS] + ["mean_sentence_length", "language_match"]:
             row = {}
             for arm in arms:
@@ -341,7 +376,7 @@ def arm_means(records, complete):
                 values = [v for v in values if v is not None]
                 row[arm] = round(mean(values), 2) if values else None
             table[name] = row
-        result[language] = {"arms": arms, "metrics": table}
+        result[language] = {"arms": arms, "metrics": table, "prompt_counts": prompt_counts}
     return result
 
 
@@ -360,7 +395,7 @@ def score_run(run_dir):
     # expected set, and every prompt would look complete (KTD11).
     arms = sorted(manifest.get("arms") or {}) or ["base", "baseline", "candidate"]
 
-    complete, excluded = partition_prompts(records, arms, repeats)
+    complete, excluded, control_incomplete = partition_prompts(records, arms, repeats)
     for language in {r["declared_language"] for r in records}:
         complete.setdefault(language, [])
 
@@ -381,6 +416,7 @@ def score_run(run_dir):
         "paired": paired_counts(records, complete, instructed),
         "aggregate": arm_means(records, complete),
         "excluded": excluded,
+        "control_incomplete": control_incomplete,
         "failures": failures,
     }
 
@@ -499,9 +535,12 @@ def render_report(scores, human_section=None):
     lines += ["### Aggregate means", ""]
     for language, block in scores["aggregate"].items():
         arms = block["arms"]
+        counts = block.get("prompt_counts", {})
         lines += [f"**{language}**", "",
                   "| Metric | " + " | ".join(f"`{arm}`" for arm in arms) + " |",
-                  "|---|" + "---|" * len(arms)]
+                  "|---|" + "---|" * len(arms),
+                  "| Prompts averaged | "
+                  + " | ".join(str(counts.get(arm, "?")) for arm in arms) + " |"]
         for name, row in block["metrics"].items():
             cells = []
             for arm in arms:
@@ -511,7 +550,8 @@ def render_report(scores, human_section=None):
         lines.append("")
 
     lines += ["### Held out of the counts", ""]
-    if not scores["excluded"] and not scores["failures"]:
+    control_gaps = scores.get("control_incomplete", [])
+    if not scores["excluded"] and not scores["failures"] and not control_gaps:
         lines += ["Every prompt has every arm complete, and every job produced a response.", ""]
     for item in scores["excluded"]:
         lines.append(f"- prompt `{item['prompt_id']}` ({item['language']}) — {item['reason']}")
@@ -520,6 +560,14 @@ def render_report(scores, human_section=None):
         lines.append(f"- job `{job.get('language')}/{job.get('prompt_id')}/{job.get('arm')}"
                      f"/r{job.get('repeat')}` — {item.get('status')}: {item.get('reason')}")
     if scores["excluded"] or scores["failures"]:
+        lines.append("")
+    if control_gaps:
+        lines += ["The control arm is incomplete on the prompts below. They stay in the "
+                  "paired counts, because the control enters no pair. Their control "
+                  "column above rests on fewer responses than the compared arms, and "
+                  "the `Prompts averaged` row states each arm's own denominator.", ""]
+        for item in control_gaps:
+            lines.append(f"- prompt `{item['prompt_id']}` ({item['language']}) — {item['reason']}")
         lines.append("")
 
     lines += [human_section or DEFAULT_HUMAN_SECTION]
