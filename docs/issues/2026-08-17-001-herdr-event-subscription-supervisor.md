@@ -78,3 +78,20 @@ the per-child watcher covers every ordinary wake today. The cheapest way to earn
 make the short-TTL `supervised` label's expiry surface a visible "supervision lost" signal, turning
 an unmeasured tail into an observed one. That cost was not measured either and should be before it
 is treated as the small step it appears to be.
+
+## Upstream constraint added in 0.9.0 (herdrdev/herdr#1270)
+
+Lifecycle subscriptions start when the request is accepted and replay nothing that happened before
+it. The 0.9.0 socket API documentation states the ordering a client must follow: open
+`events.subscribe` on a separate connection, wait for its acknowledgement, buffer that stream while
+calling `session.snapshot`, install the snapshot, then apply the buffered events in order.
+
+This removes the easiest design for the restart path. A subscriber that reconstructs interest after
+a crash cannot rejoin by asking for missed events, because there are none to ask for. It must
+re-establish the subscription first and only then read the snapshot, and it silently loses every
+transition that occurred while it was down. That gap is exactly the crash-only tail this record was
+deferred against, so the deferral still holds, but the recovery story now has to state what happens
+to a child whose status changed during the subscriber's absence.
+
+Measured on the installed binary: `herdr --version` reports 0.9.0 and `herdr api --help` still lists
+only `snapshot` and `schema`, so the "no CLI surface" half of this record is unchanged.
