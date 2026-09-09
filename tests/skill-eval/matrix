@@ -66,7 +66,7 @@ def build_workspace(root, fixtures, skill_dir):
 
 
 def run_job(job, root, fixtures, skill_dir):
-    workspace = build_workspace(root, fixtures, skill_dir if job["arm"] == "with_skill" else None)
+    workspace = build_workspace(root, fixtures, skill_dir if job["with_skill"] else None)
     started = time.time()
     try:
         completed = subprocess.run(
@@ -106,6 +106,9 @@ def main(argv=None):
     parser.add_argument("--fixture", action="append", default=[],
                         help="repository path copied into every workspace; repeatable")
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--aa", action="store_true",
+                        help="identical arms: install the skill in both. This is the noise "
+                             "floor for the call counts, which are unreadable without one")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--out", default=None, help="where to write the job index")
     args = parser.parse_args(argv)
@@ -114,11 +117,15 @@ def main(argv=None):
         raise SystemExit("run this through tests/skill-eval/run, which supplies the shim")
 
     prompts = read_prompts(args.prompts)
+    # Prompt-major so a prompt's arms land adjacent in time: they are the paired
+    # unit, and drift in the service must not sit inside the pair.
+    arms = (("a", True), ("b", True)) if args.aa else (("with_skill", True), ("without_skill", False))
     jobs = [
-        {"prompt_id": row["prompt_id"], "prompt": row["prompt"], "arm": arm, "repeat": repeat}
+        {"prompt_id": row["prompt_id"], "prompt": row["prompt"], "arm": arm,
+         "with_skill": with_skill, "repeat": repeat}
         for row in prompts
         for repeat in range(1, args.runs + 1)
-        for arm in ("with_skill", "without_skill")
+        for arm, with_skill in arms
     ]
 
     root = tempfile.mkdtemp(prefix="skill-eval-matrix-")

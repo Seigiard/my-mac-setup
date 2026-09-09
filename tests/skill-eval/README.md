@@ -157,6 +157,38 @@ This also corrects the earlier spike, which reported that the arm with the skill
 had not used the command line. That came from the prose grep described below.
 Observed properly, the arm with the skill used it in every job.
 
+## Noise floor, identical arms
+
+The same eight jobs with the skill installed in **both** arms, so every
+difference is noise by construction.
+
+| Prompt | Arm a | Arm b | Spread with nothing changed |
+|---|---|---|---|
+| count open issues | 3.0 | 3.0 | 0.0 |
+| record a new issue | 10.5 | 13.0 | 2.5 |
+
+Against the measured effect:
+
+| Prompt | With skill | Without | Effect | Floor | Effect over floor |
+|---|---|---|---|---|---|
+| count open issues | 3.0 | 8.5 | 5.5 | 0.0 | clears it outright |
+| record a new issue | 10.5 | 14.5 | 4.0 | 2.5 | 1.6x, not separated |
+
+**The two tasks answer differently, and only the floor makes that visible.** On
+the query the skill removes discovery entirely and the count is perfectly stable
+across identical arms, so a gap of 5.5 calls is the skill. On the creation task
+the agent explores regardless, one identical-arm run spent 15 calls against 10
+and 11 for its siblings, and a gap of 4.0 against a floor of 2.5 proves nothing.
+
+Reporting the earlier "cut tool calls in every pair" without this would have
+sold a real result and an unproven one as the same finding.
+
+The firing boolean needs no floor and now stands at 12 of 12 jobs with the skill
+installed and 0 of 4 without.
+
+Two prompts and two repeats is a small sample. The floor is what a third prompt
+would have to clear, not a claim that these two generalise.
+
 ## Why `agent-skill-eval` is not used
 
 It was installed, run, and dropped. The eval suite written for it is deleted; the
