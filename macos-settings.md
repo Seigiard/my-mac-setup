@@ -98,7 +98,6 @@
 - Users & Groups:
   - Login Items:
     - noTunes
-    - MTMR
     - Hammerspoon
     - Dropbox
     - CleanShotX
