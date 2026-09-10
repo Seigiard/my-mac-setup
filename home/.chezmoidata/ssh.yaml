@@ -18,7 +18,7 @@ ssh:
         - mbp2021
         - mbp2021.local
       hostname: mbp2021.tailc9825c.ts.net
-      user: andrew.b
+      user: seigiard
       public_key_file: ~/.ssh/mbp2021.pub
       item_ref: ppztkbmrt3oo6xsm6ctlhia7ta
       authorized_keys:

@@ -301,7 +301,7 @@ function test_templates_040_laptop_ssh_configs_select_one_1password_identity() {
     if [[ "$role" == "mbp2026" ]]; then
       target="mbp2021"
       expected_host="mbp2021.tailc9825c.ts.net"
-      expected_user="andrew.b"
+      expected_user="seigiard"
       expected_key="mbp2026.pub"
     else
       target="mbp2026"
