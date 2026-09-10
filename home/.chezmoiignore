@@ -1,6 +1,26 @@
+{{- $machineRole := includeTemplate "machine-role" . | trim -}}
+{{- if and $machineRole (not (hasKey .ssh.roles $machineRole)) -}}
+{{-   fail (printf "invalid machine_role %q: expected mbp2021, mbp2026, or server" $machineRole) -}}
+{{- end -}}
+{{- if and $machineRole (ne .chezmoi.os (index .ssh.roles $machineRole).os) -}}
+{{-   fail (printf "machine role %q is not supported on %s" $machineRole .chezmoi.os) -}}
+{{- end }}
+
 # README and docs
 README.md
 LICENSE
+
+# Read-only commands preserve SSH files until apply binds a missing role. The
+# server does not use the local 1Password SSH agent.
+{{ if not $machineRole }}
+.ssh/config
+.ssh/authorized_keys
+.ssh/mbp2021.pub
+.ssh/mbp2026.pub
+.config/1Password/ssh/agent.toml
+{{ else if eq $machineRole "server" }}
+.config/1Password/ssh/agent.toml
+{{ end }}
 
 # macOS-only files (ignore on Linux)
 # Patterns match target paths, not source names

@@ -1,0 +1,8 @@
+{{- $machineRole := includeTemplate "machine-role" . | trim -}}
+{{- $role := index .ssh.roles $machineRole -}}
+{{- if not $role.authorized_keys -}}
+{{- fail (printf "cannot render authorized_keys: machine_role %q has no authorized keys" $machineRole) -}}
+{{- end -}}
+{{ range $role.authorized_keys -}}
+{{ . }}
+{{ end -}}

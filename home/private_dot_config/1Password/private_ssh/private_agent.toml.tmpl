@@ -1,0 +1,7 @@
+{{- $machineRole := includeTemplate "machine-role" . | trim -}}
+{{- $role := index .ssh.roles $machineRole -}}
+{{- if ne $role.os "darwin" -}}
+{{- fail (printf "cannot render 1Password SSH agent config for machine_role %q" $machineRole) -}}
+{{- end }}
+[[ssh-keys]]
+item = "{{ $role.item_ref }}"

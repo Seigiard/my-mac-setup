@@ -1,0 +1,36 @@
+{{- $machineRole := includeTemplate "machine-role" . | trim -}}
+{{- $role := index .ssh.roles $machineRole -}}
+{{- if eq $role.os "darwin" }}
+# OrbStack requires this include before any Host block.
+Include ~/.orbstack/ssh/config
+
+{{- range $targetRole, $target := .ssh.roles }}
+{{- if ne $targetRole $machineRole }}
+Host {{ join " " $target.aliases }}
+  HostName {{ $target.hostname }}
+  User {{ $target.user }}
+  IdentityAgent "{{ $.ssh.agent_socket }}"
+  IdentityFile {{ $role.public_key_file }}
+  IdentitiesOnly yes
+  ForwardAgent no
+  ServerAliveInterval 30
+  ServerAliveCountMax 2
+
+{{- end }}
+{{- end }}
+Host github.com
+  IdentityAgent "{{ .ssh.agent_socket }}"
+  IdentityFile {{ $role.public_key_file }}
+  IdentitiesOnly yes
+  ForwardAgent no
+
+Host *.ts.net
+  CanonicalizeHostname no
+{{- else if eq $machineRole "server" }}
+Host *
+  IdentityFile none
+  IdentitiesOnly no
+  ForwardAgent no
+{{- else }}
+{{- fail (printf "cannot render SSH config for machine_role %q" $machineRole) }}
+{{- end }}

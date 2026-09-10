@@ -73,6 +73,372 @@ function test_templates_003_chezmoi_init_binds_email_from_env_var() {
   assert_output "beta@example.net"
 }
 
+function test_templates_032_chezmoi_init_binds_and_persists_the_machine_role() {
+  _bats_test_init 32 'chezmoi init binds and persists the machine role'
+  local cfg="$BATS_TEST_TMPDIR/machine-role.yaml"
+  local probe="$BATS_TEST_TMPDIR/machine-role.tmpl"
+  local role
+  printf '{{ get . "machine_role" }}' > "$probe"
+
+  case "$(get_os)" in
+    darwin) role="mbp2026" ;;
+    linux) role="server" ;;
+    *) skip "unsupported test OS" ;;
+  esac
+
+  MMS_MACHINE_ROLE="$role" write_test_config "$cfg"
+  export MMS_MACHINE_ROLE="invalid-after-init"
+
+  run render_with_config "$cfg" "$probe"
+  assert_success
+  assert_output "$role"
+}
+
+function test_templates_033_unattended_init_requires_a_machine_role() {
+  _bats_test_init 33 'unattended init requires a machine role'
+  export MMS_MACHINE_ROLE=""
+
+  run write_test_config "$BATS_TEST_TMPDIR/missing-machine-role.yaml"
+  assert_failure
+  assert_output --partial 'MMS_MACHINE_ROLE'
+  assert_output --partial 'mbp2021, mbp2026, or server'
+}
+
+function test_templates_034_chezmoi_init_rejects_an_unknown_machine_role() {
+  _bats_test_init 34 'chezmoi init rejects an unknown machine role'
+  export MMS_MACHINE_ROLE="workstation"
+
+  run write_test_config "$BATS_TEST_TMPDIR/unknown-machine-role.yaml"
+  assert_failure
+  assert_output --partial 'invalid MMS_MACHINE_ROLE'
+}
+
+function test_templates_035_chezmoi_init_rejects_a_role_for_the_wrong_os() {
+  _bats_test_init 35 'chezmoi init rejects a machine role for the wrong OS'
+  case "$(get_os)" in
+    darwin) export MMS_MACHINE_ROLE="server" ;;
+    linux) export MMS_MACHINE_ROLE="mbp2026" ;;
+    *) skip "unsupported test OS" ;;
+  esac
+
+  run write_test_config "$BATS_TEST_TMPDIR/wrong-os-machine-role.yaml"
+  assert_failure
+  assert_output --partial 'is not supported on'
+}
+
+make_ssh_policy_fixture() {
+  local source="$1"
+  mkdir -p "$source/.chezmoidata" "$source/.chezmoitemplates" "$source/private_dot_ssh" \
+    "$source/private_dot_config/1Password/private_ssh"
+  cp "$SOURCE_ROOT/.chezmoiignore" "$source/.chezmoiignore"
+  cp "$SOURCE_ROOT/.chezmoidata/ssh.yaml" "$source/.chezmoidata/ssh.yaml"
+  cp "$SOURCE_ROOT/.chezmoitemplates/machine-role" "$source/.chezmoitemplates/machine-role"
+  cp "$SOURCE_ROOT/.chezmoitemplates/resolve-machine-role.sh" \
+    "$source/.chezmoitemplates/resolve-machine-role.sh"
+  printf 'managed config\n' > "$source/private_dot_ssh/private_config"
+  printf 'managed authorization\n' > "$source/private_dot_ssh/private_authorized_keys"
+  printf 'managed mbp2026 public key\n' > "$source/private_dot_ssh/mbp2026.pub"
+  printf 'managed mbp2021 public key\n' > "$source/private_dot_ssh/mbp2021.pub"
+  printf 'managed agent config\n' \
+    > "$source/private_dot_config/1Password/private_ssh/private_agent.toml"
+}
+
+plant_ssh_policy_sentinels() {
+  local dest="$1"
+  mkdir -p "$dest/.ssh" "$dest/.config/1Password/ssh"
+  printf 'existing config\n' > "$dest/.ssh/config"
+  printf 'existing authorization\n' > "$dest/.ssh/authorized_keys"
+  printf 'existing mbp2026 public key\n' > "$dest/.ssh/mbp2026.pub"
+  printf 'existing mbp2021 public key\n' > "$dest/.ssh/mbp2021.pub"
+  printf 'existing agent config\n' > "$dest/.config/1Password/ssh/agent.toml"
+}
+
+assert_ssh_policy_sentinels() {
+  local dest="$1"
+  assert_file_contains "$dest/.ssh/config" '^existing config$'
+  assert_file_contains "$dest/.ssh/authorized_keys" '^existing authorization$'
+  assert_file_contains "$dest/.ssh/mbp2026.pub" '^existing mbp2026 public key$'
+  assert_file_contains "$dest/.ssh/mbp2021.pub" '^existing mbp2021 public key$'
+  assert_file_contains "$dest/.config/1Password/ssh/agent.toml" '^existing agent config$'
+}
+
+function test_templates_036_apply_resolves_and_persists_a_missing_machine_role() {
+  _bats_test_init 36 'apply resolves and persists a missing machine role'
+  local source="$BATS_TEST_TMPDIR/missing-role-source"
+  local dest="$BATS_TEST_TMPDIR/missing-role-dest"
+  local cfg="$BATS_TEST_TMPDIR/config/chezmoi.yaml"
+  local role
+  make_ssh_policy_fixture "$source"
+  plant_ssh_policy_sentinels "$dest"
+  mkdir -p "${cfg%/*}"
+  write_test_config "$cfg"
+  sed -i.bak '/machine_role/d' "$cfg"
+
+  case "$(get_os)" in
+    darwin) role="mbp2026" ;;
+    linux) role="server" ;;
+    *) skip "unsupported test OS" ;;
+  esac
+  export MMS_MACHINE_ROLE="$role"
+
+  run chezmoi_full_fixture apply \
+    --source "$source" --destination "$dest" --config "$cfg"
+  assert_success
+  assert_file_contains "${cfg%/*}/machine-role" "^$role$"
+  assert_file_contains "$dest/.ssh/config" '^managed config$'
+  assert_file_contains "$dest/.ssh/authorized_keys" '^managed authorization$'
+
+  export MMS_MACHINE_ROLE="workstation"
+  run chezmoi_full_fixture apply \
+    --source "$source" --destination "$dest" --config "$cfg"
+  assert_success
+  assert_file_contains "${cfg%/*}/machine-role" "^$role$"
+}
+
+function test_templates_037_an_invalid_persisted_role_fails_before_ssh_policy_changes() {
+  _bats_test_init 37 'an invalid persisted role fails before SSH policy changes'
+  local source="$BATS_TEST_TMPDIR/invalid-source"
+  local dest="$BATS_TEST_TMPDIR/invalid-dest"
+  local cfg="$BATS_TEST_TMPDIR/invalid-role.yaml"
+  make_ssh_policy_fixture "$source"
+  plant_ssh_policy_sentinels "$dest"
+  write_test_config "$cfg"
+  sed -i.bak 's/machine_role:.*/machine_role: "workstation"/' "$cfg"
+
+  run chezmoi_full_fixture apply \
+    --source "$source" --destination "$dest" --config "$cfg"
+  assert_failure
+  assert_output --partial 'invalid machine_role'
+  assert_ssh_policy_sentinels "$dest"
+}
+
+function test_templates_0371_a_wrong_os_persisted_role_fails_before_ssh_policy_changes() {
+  _bats_test_init 371 'a persisted role for the wrong OS fails before SSH policy changes'
+  local source="$BATS_TEST_TMPDIR/wrong-os-source"
+  local dest="$BATS_TEST_TMPDIR/wrong-os-dest"
+  local cfg="$BATS_TEST_TMPDIR/wrong-os-role.yaml"
+  local role
+  make_ssh_policy_fixture "$source"
+  plant_ssh_policy_sentinels "$dest"
+  write_test_config "$cfg"
+
+  case "$(get_os)" in
+    darwin) role="server" ;;
+    linux) role="mbp2026" ;;
+    *) skip "unsupported test OS" ;;
+  esac
+  sed -i.bak "s/machine_role:.*/machine_role: \"$role\"/" "$cfg"
+
+  run chezmoi_full_fixture apply \
+    --source "$source" --destination "$dest" --config "$cfg"
+  assert_failure
+  assert_output --partial 'is not supported on'
+  assert_ssh_policy_sentinels "$dest"
+}
+
+function test_templates_038_a_valid_role_manages_its_ssh_policy_files() {
+  _bats_test_init 38 'a valid role manages its SSH policy files'
+  local source="$BATS_TEST_TMPDIR/valid-source"
+  local dest="$BATS_TEST_TMPDIR/valid-dest"
+  local cfg="$BATS_TEST_TMPDIR/valid-role.yaml"
+  make_ssh_policy_fixture "$source"
+  plant_ssh_policy_sentinels "$dest"
+  write_test_config "$cfg"
+
+  run chezmoi_full_fixture apply \
+    --source "$source" --destination "$dest" --config "$cfg"
+  assert_success
+  assert_file_contains "$dest/.ssh/config" '^managed config$'
+  assert_file_contains "$dest/.ssh/authorized_keys" '^managed authorization$'
+  assert_file_contains "$dest/.ssh/mbp2026.pub" '^managed mbp2026 public key$'
+  assert_file_contains "$dest/.ssh/mbp2021.pub" '^managed mbp2021 public key$'
+
+  if is_macos; then
+    assert_file_contains "$dest/.config/1Password/ssh/agent.toml" '^managed agent config$'
+  else
+    assert_file_contains "$dest/.config/1Password/ssh/agent.toml" '^existing agent config$'
+  fi
+}
+
+write_role_config() {
+  local role="$1"
+  local cfg="$2"
+  write_test_config "$cfg"
+  sed -i.bak "s/machine_role:.*/machine_role: \"$role\"/" "$cfg"
+}
+
+render_role_file() {
+  local role="$1"
+  local template="$2"
+  local output_file="$3"
+  local cfg="$BATS_TEST_TMPDIR/$role.yaml"
+  write_role_config "$role" "$cfg"
+  run render_with_config "$cfg" "$template"
+  assert_success
+  printf '%s\n' "$output" > "$output_file"
+}
+
+function test_templates_039_laptop_public_keys_match_the_1password_items() {
+  _bats_test_init 39 'laptop public keys match the 1Password items'
+  command_exists ssh-keygen || skip "ssh-keygen not installed"
+
+  run ssh-keygen -lf "$SOURCE_ROOT/private_dot_ssh/mbp2026.pub"
+  assert_success
+  assert_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
+
+  run ssh-keygen -lf "$SOURCE_ROOT/private_dot_ssh/mbp2021.pub"
+  assert_success
+  assert_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
+}
+
+function test_templates_040_laptop_ssh_configs_select_one_1password_identity() {
+  _bats_test_init 40 'laptop SSH configs select one 1Password identity'
+  command_exists ssh || skip "ssh not installed"
+  local role config target expected_host expected_user expected_key
+
+  for role in mbp2026 mbp2021; do
+    config="$BATS_TEST_TMPDIR/$role-ssh-config"
+    if [[ "$role" == "mbp2026" ]]; then
+      target="mbp2021"
+      expected_host="mbp2021.tailc9825c.ts.net"
+      expected_user="andrew.b"
+      expected_key="mbp2026.pub"
+    else
+      target="mbp2026"
+      expected_host="mbp2026.tailc9825c.ts.net"
+      expected_user="andrew.b"
+      expected_key="mbp2021.pub"
+    fi
+    render_role_file "$role" "$SOURCE_ROOT/private_dot_ssh/private_config.tmpl" "$config"
+
+    run ssh -G -F "$config" "$target"
+    assert_success
+    assert_line "hostname $expected_host"
+    assert_line "user $expected_user"
+    assert_line "identityfile ~/.ssh/$expected_key"
+    assert_line 'identitiesonly yes'
+    assert_line 'forwardagent no'
+    assert_line "identityagent $HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
+    run ssh -G -F "$config" server
+    assert_success
+    assert_line 'hostname home.tailc9825c.ts.net'
+    assert_line 'user seigiard'
+    assert_line "identityfile ~/.ssh/$expected_key"
+    assert_line 'identitiesonly yes'
+    assert_line 'forwardagent no'
+  done
+}
+
+function test_templates_041_server_ssh_config_uses_only_a_forwarded_agent() {
+  _bats_test_init 41 'server SSH config uses only a forwarded agent'
+  command_exists ssh || skip "ssh not installed"
+  local config="$BATS_TEST_TMPDIR/server-ssh-config"
+  render_role_file server "$SOURCE_ROOT/private_dot_ssh/private_config.tmpl" "$config"
+
+  run ssh -G -F "$config" github.com
+  assert_success
+  assert_line 'identityfile none'
+  assert_line 'identitiesonly no'
+  assert_line 'forwardagent no'
+  refute_line --regexp '^identityagent '
+}
+
+function test_templates_042_authorized_keys_render_the_required_access_matrix() {
+  _bats_test_init 42 'authorized_keys render the required access matrix'
+  command_exists ssh-keygen || skip "ssh-keygen not installed"
+  local role keys
+
+  for role in mbp2026 mbp2021 server; do
+    keys="$BATS_TEST_TMPDIR/$role-authorized-keys"
+    render_role_file "$role" \
+      "$SOURCE_ROOT/private_dot_ssh/private_authorized_keys.tmpl" "$keys"
+
+    run ssh-keygen -lf "$keys"
+    assert_success
+    case "$role" in
+      mbp2026)
+        assert_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
+        refute_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
+        ;;
+      mbp2021)
+        assert_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
+        refute_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
+        ;;
+      server)
+        assert_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
+        assert_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
+        ;;
+    esac
+  done
+}
+
+function test_templates_0421_authorized_keys_reject_an_empty_role_allowlist() {
+  _bats_test_init 421 'authorized_keys rejects an empty role allowlist'
+  local source="$BATS_TEST_TMPDIR/empty-authorized-keys-source"
+  local cfg="$BATS_TEST_TMPDIR/empty-authorized-keys.yaml"
+  local role data template
+  mkdir -p "$source/.chezmoidata" "$source/.chezmoitemplates" "$source/private_dot_ssh"
+  data="$source/.chezmoidata/ssh.yaml"
+  template="$source/private_dot_ssh/private_authorized_keys.tmpl"
+  cp "$SOURCE_ROOT/.chezmoidata/ssh.yaml" "$data"
+  cp "$SOURCE_ROOT/.chezmoitemplates/machine-role" "$source/.chezmoitemplates/machine-role"
+  cp "$SOURCE_ROOT/.chezmoitemplates/resolve-machine-role.sh" \
+    "$source/.chezmoitemplates/resolve-machine-role.sh"
+  cp "$SOURCE_ROOT/private_dot_ssh/private_authorized_keys.tmpl" "$template"
+
+  case "$(get_os)" in
+    darwin) role="mbp2026" ;;
+    linux) role="server" ;;
+    *) skip "unsupported test OS" ;;
+  esac
+  write_role_config "$role" "$cfg"
+  python3 -c '
+import sys
+
+path, role = sys.argv[1:]
+lines = open(path).readlines()
+in_role = False
+skip_keys = False
+with open(path, "w") as output:
+    for line in lines:
+        if line.startswith("    ") and not line.startswith("      "):
+            in_role = line == "    %s:\n" % role
+            skip_keys = False
+        if in_role and line == "      authorized_keys:\n":
+            output.write("      authorized_keys: []\n")
+            skip_keys = True
+            continue
+        if skip_keys and line.startswith("        - "):
+            continue
+        skip_keys = False
+        output.write(line)
+' "$data" "$role"
+
+  run chezmoi_full_fixture --config "$cfg" --source "$source" \
+    execute-template --file "$template"
+  assert_failure
+  assert_output --partial 'has no authorized keys'
+}
+
+function test_templates_043_1password_agent_allowlists_only_the_role_key() {
+  _bats_test_init 43 '1Password agent allowlists only the role key'
+  local config="$SOURCE_ROOT/private_dot_config/1Password/private_ssh/private_agent.toml.tmpl"
+  local rendered
+
+  render_role_file mbp2026 "$config" "$BATS_TEST_TMPDIR/mbp2026-agent.toml"
+  rendered="$(< "$BATS_TEST_TMPDIR/mbp2026-agent.toml")"
+  run printf '%s\n' "$rendered"
+  assert_line 'item = "xew24lnqepklck6mqik5lmirqi"'
+  refute_output --partial 'ppztkbmrt3oo6xsm6ctlhia7ta'
+
+  render_role_file mbp2021 "$config" "$BATS_TEST_TMPDIR/mbp2021-agent.toml"
+  rendered="$(< "$BATS_TEST_TMPDIR/mbp2021-agent.toml")"
+  run printf '%s\n' "$rendered"
+  assert_line 'item = "ppztkbmrt3oo6xsm6ctlhia7ta"'
+  refute_output --partial 'xew24lnqepklck6mqik5lmirqi'
+}
+
 # ===========================================
 # dot_gitconfig.tmpl
 # ===========================================
