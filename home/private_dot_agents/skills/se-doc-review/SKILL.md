@@ -131,7 +131,7 @@ Coverage: local personas: <list or failed>; Claude peer: <ok or failed>; OpenCod
 
 ## Deliver by mode
 
-- **Interactive**: print the synthesis, then route unresolved findings through walk through / apply best judgment / append to Open Questions / report only. Use the platform's blocking question tool. During walk-through, present one decision brief at a time using `~/.claude/shared/decision-brief.md` and wait for the answer before continuing.
+- **Interactive**: print the synthesis, then route unresolved findings through walk through / apply best judgment / append to Open Questions / report only. Use the platform's blocking question tool. During walk-through, present one decision at a time and wait for the answer before continuing: name the subject in plain words, state what the decision blocks, give two or three options with the consequence of each, and recommend one. Quote a failure verbatim rather than paraphrasing it.
 - **Headless**: append the synthesis to the local envelope when available, otherwise to the surviving peer envelope set. Return the combined text without questions; the caller decides unresolved findings.
 
 Report every local edit, peer failure, malformed envelope, waived secret scan, and remaining unresolved finding.

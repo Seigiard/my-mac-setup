@@ -138,8 +138,8 @@ while IFS= read -r fixture_name; do
   [ -n "$fixture_name" ] || continue
   fixture_count=$((fixture_count + 1))
 done <<< "$required_fixtures"
-[ "$fixture_count" -eq 5 ] || \
-  fail "inventory must register exactly five distinct fixture identities"
+[ "$fixture_count" -eq 6 ] || \
+  fail "inventory must register exactly six distinct fixture identities"
 
 command_name="$1"
 if [ "$profile" = "full-fixture" ]; then

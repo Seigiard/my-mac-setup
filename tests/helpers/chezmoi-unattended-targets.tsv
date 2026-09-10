@@ -4,5 +4,5 @@
 # source is repository-relative; destination is HOME-relative; class is
 # secret-template or credential-modifier; host-policy is currently omit;
 # required-fixtures is a comma-separated list of nonempty environment names.
-home/dot_zshenv.tmpl	~/.zshenv	secret-template	omit	MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY,MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY,MMS_CHEZMOI_FIXTURE_JINA_API_KEY,MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY,MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY
+home/dot_zshenv.tmpl	~/.zshenv	secret-template	omit	MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY,MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY,MMS_CHEZMOI_FIXTURE_JINA_API_KEY,MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY,MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY,MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY
 home/modify_dot_claude.json	~/.claude.json	credential-modifier	omit	MMS_CHEZMOI_FIXTURE_JINA_API_KEY,MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY

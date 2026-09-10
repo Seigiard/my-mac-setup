@@ -102,6 +102,7 @@ export TAVILY_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY" | quote }}
 export JINA_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_JINA_API_KEY" | quote }}
 export CONTEXT7_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY" | quote }}
 export VECTOR_PRIME_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY" | quote }}
+export OPENROUTER_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY" | quote }}
 {{- else if and $unattended (eq $unattendedProfile "host-partial") }}
 # API Keys (secret-backed target; omitted from host-partial state operations)
 export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
@@ -109,6 +110,7 @@ export TAVILY_API_KEY="{{ onepasswordRead "op://Private/Tavily API Key/credentia
 export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
+export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
 {{- else if $unattended }}
 {{-   fail "invalid unattended chezmoi profile" }}
 {{- else if lookPath "op" }}
@@ -118,4 +120,5 @@ export TAVILY_API_KEY="{{ onepasswordRead "op://Private/Tavily API Key/credentia
 export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
+export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
 {{- end }}

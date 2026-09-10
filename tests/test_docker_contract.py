@@ -31,8 +31,8 @@ class TestDockerContract(unittest.TestCase):
         cls.compose = COMPOSE.read_text(encoding="utf-8")
         cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
-        if len(FIXTURE_CANARIES) != 5:
-            raise AssertionError("common.bash must define the five canonical fixture canaries")
+        if len(FIXTURE_CANARIES) != 6:
+            raise AssertionError("common.bash must define the six canonical fixture canaries")
 
     def service_names(self):
         names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", self.compose, re.MULTILINE)

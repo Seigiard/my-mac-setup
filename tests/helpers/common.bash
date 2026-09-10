@@ -32,6 +32,7 @@ chezmoi_full_fixture() {
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
+    MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary \
     chezmoi_unattended full-fixture "$@"
 }
 
@@ -42,6 +43,7 @@ chezmoi_full_fixture_finite_stdin() {
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
+    MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary \
     chezmoi_unattended_finite_stdin full-fixture "$@"
 }
 

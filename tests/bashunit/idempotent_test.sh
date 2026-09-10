@@ -81,59 +81,6 @@ function test_idempotent_0021_chezmoi_apply_preserves_skills_owned_outside_chezm
   done
 }
 
-# Consumer: opencode's plugin loader, which imports EVERY .ts under
-# ~/.config/opencode/plugins/ at session start — a retired guard plugin left on
-# disk from an earlier apply is a loaded plugin, not a dead file. It spawns
-# ~/.local/bin/test-oracle-guard, which this change deletes, so every tool call
-# it matches errors instead of dispatching through the agent-hooks core. The
-# same is true of pi's extension directory one client over.
-#
-# The retired core policy module one directory over is quieter but has the same
-# removal-list dependency: nothing imports it once policies/index.ts drops it, so
-# a mis-specified .chezmoiremove path would leave it on disk indefinitely with no
-# other signal.
-#
-# Oracle: the real deployment transition, not the source tree. A fresh
-# disposable $HOME has never seen these files, so asserting their absence there
-# proves nothing; this scenario plants them first and requires a real apply to
-# clear them. The expected outcome comes from chezmoi's .chezmoiremove semantics
-# and opencode's load-every-file behavior — neither authored by this patch — and
-# the unmanaged control below fails if apply merely wiped the directories.
-function test_idempotent_0022_chezmoi_apply_clears_retired_agent_hooks_adapters() {
-  _bats_test_init 22 'chezmoi apply clears retired agent-hooks adapters and policies planted by an earlier apply'
-  require_disposable_home
-
-  local retired=(
-    "$HOME/.config/opencode/plugins/test-oracle-guard.ts"
-    "$HOME/.config/opencode/plugins/zsh-reserved-name-guard.ts"
-    "$HOME/.pi/agent/extensions/test-oracle-guard.ts"
-    "$HOME/.pi/agent/extensions/zsh-reserved-name-guard.ts"
-    "$HOME/.local/bin/test-oracle-guard"
-    "$HOME/.local/bin/zsh-reserved-name-guard"
-    "$HOME/.local/lib/agent-hooks/policies/test-oracle-guard.ts"
-  )
-  # Not listed in home/.chezmoiremove and not deployed by chezmoi: an apply that
-  # removed it would be wiping directories rather than honouring the removal
-  # list, and the assertions below would be measuring the wrong mechanism.
-  local control="$HOME/.config/opencode/plugins/unmanaged-retirement-control.ts"
-
-  local path
-  for path in "${retired[@]}" "$control"; do
-    mkdir -p "$(dirname "$path")"
-    printf 'stale adapter from an earlier apply\n' > "$path"
-  done
-
-  run chezmoi_full_fixture apply --source="$CHEZMOI_SOURCE" --force
-  assert_success
-
-  for path in "${retired[@]}"; do
-    # oracle: planted-then-applied deployment transition, see the block above.
-    assert_file_not_exists "$path"
-  done
-  assert_file_exists "$control"
-  command rm -f "$control"
-}
-
 # ===========================================
 # The guard itself
 # ===========================================

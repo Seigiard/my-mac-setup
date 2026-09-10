@@ -565,6 +565,7 @@ FAKE_OP
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=openrouter-zshenv-canary \
     "$launcher" --profile full-fixture -- \
     apply --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" \
     --refresh-externals=never "$work/home/.zshenv"
@@ -577,10 +578,10 @@ FAKE_OP
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
   ' _ "$work/home/.zshenv"
   assert_success
-  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary'
+  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary'
 }
 
 function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_and_reports_work() {
@@ -618,10 +619,10 @@ function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixt
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
   ' _ "$work/zshenv.rendered"
   assert_success
-  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary'
+  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary'
 }
 
 function test_templates_0094_zshenv_skip_secrets_omits_state_but_execute_template_fails() {

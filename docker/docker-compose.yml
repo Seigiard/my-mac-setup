@@ -10,6 +10,7 @@ services:
         MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
         MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
         MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
+        MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY: mms-test-openrouter-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -42,6 +43,7 @@ services:
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
       - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
       - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
+      - MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary
     tty: true
 
   # Full test with package installation
@@ -55,6 +57,7 @@ services:
         MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
         MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
         MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
+        MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY: mms-test-openrouter-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -87,6 +90,7 @@ services:
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
       - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
       - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
+      - MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -134,6 +138,7 @@ services:
         MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
         MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
         MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
+        MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY: mms-test-openrouter-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -160,6 +165,7 @@ services:
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
       - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
       - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
+      - MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |

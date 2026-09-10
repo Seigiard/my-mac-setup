@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["hooks","claude-code"]
 date: "2026-09-03"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-09-10"
 ---
 
 ## Why this exists
@@ -25,3 +26,7 @@ Either way the repo stops carrying a hook whose deployment state and wiring stat
 ## Open decisions
 
 - Whether the mandatory skill-evaluation preamble is still desired at all; it predates the current skill-routing section in the global CLAUDE.md, which may have superseded it.
+
+## Resolution
+
+Resolved by deleting the hook. home/private_dot_claude/hooks/executable_user-prompt-skill-eval.sh is removed from the source tree and from the deployed machine, so no unwired hook remains to register or to mislead maintenance. The mandatory skill-evaluation and tool-routing preamble it would have injected is deliberately not wanted.
