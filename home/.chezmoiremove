@@ -1,73 +1,15 @@
-# The palette's global commands.toml is managed directly now. Drop the old
-# read-only seed that earlier applies left inside the plugin directory.
-.config/herdr/plugins/command-palette/defaults
+# Rolling window, not an archive. An entry stays only until every machine has
+# applied it once; then it is dropped, so a later file may reuse the name
+# without an apply silently deleting it. Add an entry when a managed path is
+# retired, and clear it after the last machine has caught up.
 
-# The child launch contract replaces the turn-bound herdr-pair protocol.
-.claude/skills/herdr-pair
+# The mandatory skill-evaluation preamble is withdrawn. The hook shipped for
+# months without a UserPromptSubmit registration, so nothing fired it; left on
+# disk it is a live executable that a stale or re-added registration reaches,
+# injecting a skill roll-call and a tool-routing table into every prompt.
+.claude/hooks/user-prompt-skill-eval.sh
 
-# Standalone se reviews share the Herdr peer lifecycle now.
-.claude/shared/se-harness.md
-
-# The herdr-only peer consult is deployed under its capability-specific name.
-.claude/skills/ask-agent
-
-# opencode moved to theme "system"; the retired forced theme otherwise lingers
-# live and breaks the smoke deployment contract (tests/smoke.bats).
-.config/opencode/themes/flexoki-light-forced.json
-
-# Marta now reads configuration from Application Support/org.yanex.marta.
-# Remove the legacy config directory that earlier applies left behind.
-Library/marta
-
-# Registered aliases replace the retired prompt-driven naming engine and its
-# client-specific adapters.
-.local/bin/herdr-task-sync
-.claude/hooks/herdr-task-sync-hook.sh
-.config/opencode/plugins/herdr-task-sync.ts
-.pi/agent/extensions/herdr-task-sync.ts
-
-# ask-in-herdr's script deploys under .agents now; only the SKILL.md symlink
-# stays under .claude. Earlier applies left a stale copy of the script at the
-# old path, where it would still run without the report transport.
-.claude/skills/ask-in-herdr/scripts
-
-# One agent-hooks plugin replaces the per-policy opencode guards; both of the
-# retired adapters spawned ~/.local/bin engines that the shared core absorbed.
-# A session that already loaded them keeps running them until it restarts, so
-# removing the files here costs a running session nothing.
-.config/opencode/plugins/test-oracle-guard.ts
-.config/opencode/plugins/zsh-reserved-name-guard.ts
-
-# One agent-hooks extension replaces the per-policy pi guards; both of the
-# retired adapters spawned ~/.local/bin engines that the shared core absorbed.
-# A session that already loaded them keeps running them until it restarts, so
-# removing the files here costs a running session nothing.
-.pi/agent/extensions/test-oracle-guard.ts
-.pi/agent/extensions/zsh-reserved-name-guard.ts
-
-# One agent-hooks dispatcher replaces the per-policy claude hook scripts, and
-# the shared core absorbed the two ~/.local/bin engines they and the retired
-# opencode/pi adapters spawned. Deployed settings.json already routes every
-# matched tool call through .claude/hooks/agent-hooks-dispatch.sh, so nothing
-# still resolves these paths; left behind they are dead executables a stale
-# hook registration or a hand-written call could still reach.
-.claude/hooks/test-oracle-guard.sh
-.claude/hooks/zsh-reserved-name-guard.sh
-.claude/hooks/fff-grep-guard.sh
-.claude/hooks/webfetch-markdown-hint.sh
-.local/bin/test-oracle-guard
-.local/bin/zsh-reserved-name-guard
-
-# The PreCompact handoff builder now derives the goal from the session itself,
-# so nothing measures context growth between turns. Deployed settings.json no
-# longer registers the Stop hook, and the state directory it kept is unread.
-# Left behind, the script is a dead executable a stale registration could still
-# reach.
-.claude/hooks/context-threshold.sh
-.cache/context-usage
-
-# The tautology check moved off the write path: catching a test whose expected
-# value came from the same patch needs the diff, which a stateless policy core
-# cannot see, so the review pass owns the class instead. The core kept only the
-# negative-assertion half, which was not worth a gate on every test write.
-.local/lib/agent-hooks/policies/test-oracle-guard.ts
+# The brief re-anchored a writing-style rule at the point of use. The style is
+# empty now, so the file restates nothing and its one reader inlines the shape
+# instead. Left on disk it is an unreachable document.
+.claude/shared/decision-brief.md
