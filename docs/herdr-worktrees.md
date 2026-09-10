@@ -33,8 +33,9 @@ prefix alone. Git removes the marker with the linked worktree metadata.
 `membranehq/platform` retains the setup behavior of its `make worktree` target:
 
 1. Refresh an untouched new branch from the remote default branch.
-2. Copy `.env`, `console/.env`, `engine/api/.env`, `agent/benchmark/.env`, and
-   `e2e-tests/.env` from the primary checkout when each file exists.
+2. Copy `CLAUDE.local.md`, `AGENTS.local.md`, `.env`, `console/.env`,
+   `engine/api/.env`, `agent/benchmark/.env`, and `e2e-tests/.env` from the
+   primary checkout when each file exists.
 3. Run `make setup` through mise in the new checkout so repository-pinned tools
    win over global Homebrew versions.
 

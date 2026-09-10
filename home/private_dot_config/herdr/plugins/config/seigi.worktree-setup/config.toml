@@ -4,6 +4,8 @@
 [projects."github.com/membranehq/platform"]
 fresh-base = true
 copy = [
+  "CLAUDE.local.md",
+  "AGENTS.local.md",
   ".env",
   "console/.env",
   "engine/api/.env",
