@@ -431,6 +431,87 @@ function test_scripts_1221_worktree_identity_falls_back_without_model_clis_and_c
   assert_success
 }
 
+# Consumer: the naming chain when an engine wraps its object in a markdown
+# fence. `claude -p` does it for this prompt every time, and jq rejected the
+# fenced text, so a correct branch name was discarded and the slug fell back to
+# the first prompt line -- a whole pasted issue URL as the branch name.
+#
+# Oracle: the identical payload without the fence, which test 1219 already pins
+# and this patch does not change. Both forms must yield the same identity, and
+# the prompt here is the URL that made the regression visible.
+function test_scripts_1222_worktree_identity_accepts_a_fenced_model_object() {
+  _bats_test_init 1222 'worktree identity accepts a model object wrapped in a markdown fence'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_write_naming_stub pi
+  hwi_write_naming_stub claude
+  printf '%s\n' '```json' '{"branch":"Normalize API Tokens"}' '```' > "$HWI_WORK/pi.output"
+  printf '%s\n' 'unexpected claude fallback' > "$HWI_WORK/claude.output"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'https://linear.app/membranehq/issue/PRD-2939/fix-agent-launch-timeout'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
+  assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
+  assert_file_not_exists "$HWI_WORK/claude.calls"
+}
+
+# Consumer: the naming chain when a provider withdraws the configured model.
+# It happened twice in one afternoon -- codex stopped serving gpt-5.4-mini to
+# this account, OpenRouter retired qwen3-coder:free -- and with one hardcoded
+# entry every generated worktree silently took the slugified prompt line as its
+# branch, so a pasted issue URL became the branch name.
+#
+# Oracle: the second model's valid payload must produce the identity that test
+# 1219 already pins for the single-model path, and the stub's own call log is
+# independent evidence that the dead model was tried first and the live one was
+# reached. The stub decides from the model argument, not from call order.
+hwi_write_rotating_naming_stub() {
+  cat > "$HWI_STUB/pi" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HWI_WORK/pi.calls"
+cat > "$HWI_WORK/pi.stdin"
+for arg in "$@"; do
+  if [ "$arg" = "$HWI_DEAD_MODEL" ]; then
+    printf '404: {"message":"No endpoints found for %s.","code":404}\n' "$arg"
+    exit 0
+  fi
+done
+cat "$HWI_WORK/pi.output"
+SH
+  chmod +x "$HWI_STUB/pi"
+}
+
+function test_scripts_1223_worktree_identity_rotates_past_a_withdrawn_model() {
+  _bats_test_init 1223 'worktree identity rotates past a withdrawn model to the next one'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_write_rotating_naming_stub
+  hwi_write_naming_stub claude
+  printf '%s\n' '{"branch":"Normalize API Tokens"}' > "$HWI_WORK/pi.output"
+  printf '%s\n' 'unexpected claude fallback' > "$HWI_WORK/claude.output"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=0 \
+    HERDR_WORKTREE_IDENTITY_PI_MODELS='withdrawn/model:free,live/model:free' \
+    HWI_DEAD_MODEL='withdrawn/model:free' \
+    bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'https://linear.app/membranehq/issue/PRD-2939/fix-agent-launch-timeout'
+  assert_success
+  local state="$(hwi_identity_state_path)"
+  assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
+  assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
+  assert_file_contains "$HWI_WORK/pi.calls" 'withdrawn/model:free'
+  assert_file_contains "$HWI_WORK/pi.calls" 'live/model:free'
+  assert_equal "$(wc -l < "$HWI_WORK/pi.calls" | tr -d ' ')" 2
+  assert_file_not_exists "$HWI_WORK/claude.calls"
+}
+
 # ===========================================
 # herdr-worktree-identity branch rename (U4)
 # ===========================================

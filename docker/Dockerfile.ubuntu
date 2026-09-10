@@ -89,6 +89,7 @@ ARG MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY
 ARG MMS_CHEZMOI_FIXTURE_JINA_API_KEY
 ARG MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY
 ARG MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY
+ARG MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY
 COPY --chown=testuser tests/helpers/chezmoi-unattended /tmp/chezmoi-helpers/chezmoi-unattended
 COPY --chown=testuser tests/helpers/chezmoi-unattended-targets.tsv /tmp/chezmoi-helpers/chezmoi-unattended-targets.tsv
 COPY --chown=testuser home/private_dot_config/brewfiles/Brewfile.tmpl /tmp/Brewfile.tmpl
@@ -99,6 +100,7 @@ RUN MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY="$MMS_CHEZMOI_FIXTURE_JINA_API_KEY" \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY="$MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY" \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY="$MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY" \
+    MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY="$MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY" \
     /tmp/chezmoi-helpers/chezmoi-unattended --profile full-fixture -- \
       execute-template --file /tmp/Brewfile.tmpl > /tmp/Brewfile && \
     grep -Fq 'brew "lazywalker/tap/rgrc"' /tmp/Brewfile && \

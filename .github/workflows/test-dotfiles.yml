@@ -50,6 +50,7 @@ env:
   MMS_CHEZMOI_FIXTURE_JINA_API_KEY: "mms-test-jina-canary"
   MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: "mms-test-context7-canary"
   MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: "mms-test-vector-prime-canary"
+  MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY: "mms-test-openrouter-canary"
   # Runners lack node's release GPG key, so mise's signature check on
   # `node@lts` fails. Skip it in CI; local installs keep verification.
   MISE_NODE_VERIFY: "false"

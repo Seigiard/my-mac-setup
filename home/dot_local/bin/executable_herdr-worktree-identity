@@ -17,7 +17,14 @@ PANE_SESSION_RETRY_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_PANE_SESSION_RETRY_ATTEMP
 PANE_SESSION_RETRY_DELAY="${HERDR_WORKTREE_IDENTITY_PANE_SESSION_RETRY_DELAY:-0.05}"
 ENGINE_TIMEOUT="${HERDR_WORKTREE_IDENTITY_TIMEOUT:-30}"
 HERDR_RPC_TIMEOUT="${HERDR_WORKTREE_IDENTITY_HERDR_TIMEOUT:-5}"
-PI_MODEL="${HERDR_WORKTREE_IDENTITY_PI_MODEL:-openai-codex/gpt-5.4-mini}"
+# Ordered rotation, not one model. A provider withdrawing a slug is routine --
+# codex dropped gpt-5.4-mini for this account and OpenRouter retired
+# qwen3-coder:free -- and with a single entry every worktree silently fell
+# back to the slugified prompt line. Free slugs lead; the paid codex entry is
+# the last pi resort before claude -- luna over sol because pi's own catalog
+# prices them at 0.20/1.20 against 5.00/30.00 per million tokens for output
+# this task cannot tell apart.
+PI_MODELS="${HERDR_WORKTREE_IDENTITY_PI_MODELS:-openrouter/cohere/north-mini-code:free,openrouter/thinkingmachines/inkling-small:free,openrouter/nvidia/nemotron-3.5-lightning:free,openai-codex/gpt-5.6-luna}"
 CLAUDE_MODEL="${HERDR_WORKTREE_IDENTITY_CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
 
 usage() {
@@ -98,6 +105,12 @@ EOF
 
 identity_from_output() {
   local raw="$1" object slug
+  # Model CLIs routinely wrap the object in a markdown fence -- claude -p does
+  # it for this prompt every time -- and jq rejects the fenced text, so a
+  # correct branch name was being thrown away at the parse and replaced by the
+  # slugified first prompt line. Drop fence lines; the one-object-one-line
+  # contract below still decides.
+  raw="$(printf '%s' "$raw" | sed -e '/^[[:space:]]*```[[:alnum:]]*[[:space:]]*$/d')"
   object="$(printf '%s' "$raw" | jq -ce '
     select(type == "object" and keys == ["branch"] and (.branch | type == "string"))
   ' 2>/dev/null)" || return 1
@@ -185,7 +198,7 @@ run_herdr() {
 }
 
 call_engine_chain() {
-  local naming_prompt="$1" infile outfile raw identity
+  local naming_prompt="$1" infile outfile raw identity model model_rest
   [ "${HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES:-}" = 1 ] && return 1
   infile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-in.XXXXXX")" || return 1
   outfile="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity-out.XXXXXX")" || {
@@ -197,18 +210,31 @@ call_engine_chain() {
   # Client adapters honor this guard, so model CLIs cannot recursively name
   # the naming worker's own prompt submission.
   export HERDR_WORKTREE_IDENTITY_ACTIVE=1
-  if command -v pi >/dev/null 2>&1 && \
-    run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
-      pi -p --model "$PI_MODEL" --thinking off \
-      --no-tools --no-session --no-extensions --no-skills \
-      --no-context-files --no-prompt-templates; then
-    raw="$(cat "$outfile" 2>/dev/null)"
-    identity="$(identity_from_output "$raw")" || identity=''
-    if [ -n "$identity" ]; then
-      rm -f "$infile" "$outfile"
-      printf '%s' "$identity"
-      return 0
-    fi
+  if command -v pi >/dev/null 2>&1; then
+    model_rest=$PI_MODELS
+    while [ -n "$model_rest" ]; do
+      model=${model_rest%%,*}
+      if [ "$model" = "$model_rest" ]; then
+        model_rest=""
+      else
+        model_rest=${model_rest#*,}
+      fi
+      if [ -z "$model" ]; then
+        continue
+      fi
+      if run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" \
+        pi -p --model "$model" --thinking off \
+        --no-tools --no-session --no-extensions --no-skills \
+        --no-context-files --no-prompt-templates; then
+        raw="$(cat "$outfile" 2>/dev/null)"
+        identity="$(identity_from_output "$raw")" || identity=''
+        if [ -n "$identity" ]; then
+          rm -f "$infile" "$outfile"
+          printf '%s' "$identity"
+          return 0
+        fi
+      fi
+    done
   fi
   if command -v claude >/dev/null 2>&1 && \
     run_with_timeout "$ENGINE_TIMEOUT" "$infile" "$outfile" claude -p --model "$CLAUDE_MODEL"; then
