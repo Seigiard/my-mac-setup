@@ -8012,7 +8012,9 @@ function test_scripts_1324_claude_settings_modifier_treats_empty_fixtures_as_una
   local input='{"mcpServers":{"jina":{"sentinel":"existing-jina"},"tavily-mcp":{"sentinel":"existing-tavily"}}}'
 
   run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
-    MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY= MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY= \
+    MMS_CHEZMOI_UNATTENDED=1 \
+    MMS_CHEZMOI_FIXTURE_JINA_API_KEY= \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY= \
     bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success

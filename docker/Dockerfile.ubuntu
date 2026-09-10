@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     procps \
     file \
+    openssh-client \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -44,7 +45,10 @@ RUN set -eu; \
     }; \
     assert_git_version_at_least 2 35; \
     command -v python3 >/dev/null || { echo "python3 is required before chezmoi apply" >&2; exit 1; }; \
+    command -v ssh >/dev/null || { echo "ssh is required by the template tests" >&2; exit 1; }; \
+    command -v ssh-keygen >/dev/null || { echo "ssh-keygen is required by the template tests" >&2; exit 1; }; \
     git --version; \
+    ssh -V; \
     python3 --version
 
 # Set up locale

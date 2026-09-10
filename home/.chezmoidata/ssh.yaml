@@ -1,0 +1,35 @@
+ssh:
+  agent_socket: "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+  roles:
+    mbp2026:
+      os: darwin
+      aliases:
+        - mbp2026
+        - mbp2026.local
+      hostname: mbp2026.tailc9825c.ts.net
+      user: andrew.b
+      public_key_file: ~/.ssh/mbp2026.pub
+      item_ref: xew24lnqepklck6mqik5lmirqi
+      authorized_keys:
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINUI/t06lbPQ/ieRE5sLlAVO6oUfdHwKvwNaH/irZ2w2 SSH mbp2021
+    mbp2021:
+      os: darwin
+      aliases:
+        - mbp2021
+        - mbp2021.local
+      hostname: mbp2021.tailc9825c.ts.net
+      user: andrew.b
+      public_key_file: ~/.ssh/mbp2021.pub
+      item_ref: ppztkbmrt3oo6xsm6ctlhia7ta
+      authorized_keys:
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDW5HyTbWdDE/Be0hHX2XgGOvNuEZyOOQBWu2VDzdrsC SSH mbp2026
+    server:
+      os: linux
+      aliases:
+        - server
+        - home.local
+      hostname: home.tailc9825c.ts.net
+      user: seigiard
+      authorized_keys:
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDW5HyTbWdDE/Be0hHX2XgGOvNuEZyOOQBWu2VDzdrsC SSH mbp2026
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINUI/t06lbPQ/ieRE5sLlAVO6oUfdHwKvwNaH/irZ2w2 SSH mbp2021

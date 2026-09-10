@@ -208,7 +208,17 @@ render_template() {
 # template with no side effects and no write access required.
 write_test_config() {
   local out="$1"
-  chezmoi_full_fixture_finite_stdin execute-template --init \
+  local machine_role="${MMS_MACHINE_ROLE-}"
+
+  if [[ "${MMS_MACHINE_ROLE+x}" != "x" ]]; then
+    case "$(get_os)" in
+      darwin) machine_role="mbp2026" ;;
+      linux) machine_role="server" ;;
+      *) machine_role="" ;;
+    esac
+  fi
+
+  MMS_MACHINE_ROLE="$machine_role" chezmoi_full_fixture_finite_stdin execute-template --init \
     --source "$SOURCE_ROOT" < "$SOURCE_ROOT/.chezmoi.yaml.tmpl" > "$out"
 }
 

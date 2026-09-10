@@ -13,6 +13,22 @@ sourceDir: {{ .chezmoi.sourceDir | quote }}
 {{-   $email = promptStringOnce . "email" "Your email address" }}
 {{- end }}
 
+{{- $machineRole := env "MMS_MACHINE_ROLE" }}
+{{- $machineRoles := list "mbp2021" "mbp2026" "server" }}
+{{- if not $machineRole }}
+{{-   if eq (env "MMS_CHEZMOI_UNATTENDED") "1" }}
+{{-     fail "MMS_MACHINE_ROLE must be mbp2021, mbp2026, or server during unattended init" }}
+{{-   end }}
+{{-   $machineRole = promptChoiceOnce . "machine_role" "Machine role" $machineRoles }}
+{{- end }}
+{{- if not (has $machineRole $machineRoles) }}
+{{-   fail (printf "invalid MMS_MACHINE_ROLE %q: expected mbp2021, mbp2026, or server" $machineRole) }}
+{{- end }}
+{{- $machineRoleOS := ternary "linux" "darwin" (eq $machineRole "server") }}
+{{- if ne .chezmoi.os $machineRoleOS }}
+{{-   fail (printf "machine role %q is not supported on %s" $machineRole .chezmoi.os) }}
+{{- end }}
+
 onepassword:
   account: "my.1password.com"
 
@@ -22,6 +38,7 @@ data:
   ostype: {{ .chezmoi.os | quote }}
   is_darwin: {{ eq .chezmoi.os "darwin" }}
   is_linux: {{ eq .chezmoi.os "linux" }}
+  machine_role: {{ $machineRole | quote }}
 {{- /* Selects the CI-minimal Brewfile render. Non-empty picks the minimal set, */}}
 {{- /* empty or unset picks the full one. This file runs at `chezmoi init`, not */}}
 {{- /* at apply, so the value is bound once per init: a checkout initialised    */}}

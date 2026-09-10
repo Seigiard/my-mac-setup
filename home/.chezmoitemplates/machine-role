@@ -1,0 +1,7 @@
+{{- $machineRole := get . "machine_role" -}}
+{{- $roleBindingCommands := list "apply" "init" "update" -}}
+{{- if and (not $machineRole) (has .chezmoi.command $roleBindingCommands) -}}
+{{-   $resolver := joinPath .chezmoi.sourceDir ".chezmoitemplates/resolve-machine-role.sh" -}}
+{{-   $machineRole = output "sh" $resolver .chezmoi.configFile .chezmoi.os | trim -}}
+{{- end -}}
+{{- $machineRole -}}

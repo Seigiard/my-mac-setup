@@ -36,6 +36,7 @@ services:
       # /.dockerenv exists and this is missing.
       - MMS_DISPOSABLE_HOME=1
       - MMS_CHEZMOI_UNATTENDED=1
+      - MMS_MACHINE_ROLE=server
       - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
       - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
@@ -80,6 +81,7 @@ services:
       # See the ubuntu service above for why this is written literally.
       - MMS_DISPOSABLE_HOME=1
       - MMS_CHEZMOI_UNATTENDED=1
+      - MMS_MACHINE_ROLE=server
       - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
       - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
@@ -152,6 +154,7 @@ services:
       # disposable-$HOME marker is shared.
       - MMS_DISPOSABLE_HOME=1
       - MMS_CHEZMOI_UNATTENDED=1
+      - MMS_MACHINE_ROLE=server
       - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
       - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
