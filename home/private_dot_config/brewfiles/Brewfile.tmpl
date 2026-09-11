@@ -57,7 +57,7 @@ brew "ripgrep"      # rg
 brew "bat"
 {{ end -}}
 brew "jq"
-{{/* gitleaks is kept for the fail-closed se-doc-review secret scan */ -}}
+{{/* gitleaks is required by the fail-closed external peer launch boundary */ -}}
 brew "gitleaks"
 
 {{ if $full -}}

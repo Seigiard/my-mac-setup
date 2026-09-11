@@ -769,13 +769,17 @@ PY
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 
-function test_smoke_1051_herdr_alias_pane_label_and_child_files_are_deployed() {
-  _bats_test_init 1051 'herdr alias, pane-label, and child files are deployed'
+function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
+  _bats_test_init 1051 'herdr alias, pane-label, child, and secret scan files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
   assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
   assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
+  assert_file_exists "$HOME/.local/bin/pre-external-secret-scan"
+  assert_file_executable "$HOME/.local/bin/pre-external-secret-scan"
+  assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
+  assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
 }
 
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {

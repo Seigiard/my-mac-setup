@@ -239,6 +239,6 @@ Detached lifecycle and callback markers carry both generation and event:
 [child-ask v2 generation=<nonce> event=callback-<seq> agent=<name> pane=<pane-id>]
 ```
 
-Attached callbacks retain `[child-ask v1 agent=<alias> pane=<pane-id>]`. The callback alias is resolved from the live launch pane and may differ from the launch alias; the parent verifies that pair before reply or reap. Parent decisions use `[parent-reply v1 ...]` for attached children and `[parent-reply v2 ...]` for detached continuations. `ask-in-herdr` retains its attached `[child-settled v1 ...]` reminder and exact `herdr-child reap --to <alias> --pane <pane-id>` syntax.
+Attached callbacks retain `[child-ask v1 agent=<alias> pane=<pane-id>]`. The callback alias is resolved from the live launch pane and may differ from the launch alias; the parent verifies that pair before reply or reap. Parent decisions use `[parent-reply v1 ...]` for attached children and `[parent-reply v2 ...]` for detached continuations. `ask-in-herdr` retains its attached `[child-settled v1 ...]` reminder and exact `herdr-child reap --to <alias> --pane <pane-id>` syntax. For an `ask-in-herdr` child, its scan-enforcing `follow-up.sh` wrapper owns duties 5 and 6 instead of the raw commands above.
 
 Markers identify and version messages. They do not authenticate senders and do not claim exactly-once delivery. A confirmed receipt suppresses a known exact duplicate; an uncertain post-delivery failure may deliver the same marker again.
