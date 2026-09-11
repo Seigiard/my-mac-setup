@@ -1,12 +1,13 @@
 ---
 title: "Pre-external secret scan covers one of five external-peer launch paths"
-short_description: "The gitleaks gate that once scanned every path shipping repo content to external models died with the Smithers runtime; se-code-review, se-simplify, se-plan and ask-in-herdr now start Claude and OpenCode peers over the live checkout with no scan, leaving se-doc-review's single-document scan as the only surviving coverage."
+short_description: "External peer launches, recovery prompts, and ask-in-herdr follow-ups now pass through a hardened fail-closed gitleaks boundary that scans the live checkout and explicit payloads before each dispatch."
 type: "bug"
 category: "agent-platform"
 tags: ["secret-scanning","gitleaks","external-llm","security-boundary","regression"]
 date: "2026-09-04"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-11"
 ---
 
 ## Why this exists
@@ -65,4 +66,7 @@ an immutable review snapshot is out of scope.
 
 None. `docs/decisions/0012-scan-the-full-checkout-before-external-peer-launches.md` resolves the
 gate location, scan scope, launch cadence, `ask-in-herdr` coverage, and accepted residual race.
-This issue remains open for implementation and verification only.
+
+## Resolution
+
+Added the shared pre-external-secret-scan command with pinned/redacted fail-closed verdicts, trusted detector configuration, canonical target handling, and escaping-directory-symlink rejection. Wired both scans in the shared se-* peer lifecycle, scanned se-doc-review's frozen document payload, and added scan-enforcing ask-in-herdr launch, recovery, prompt, and reply paths. Added real-gitleaks semantic controls and deployed-path coverage. Verified make lint, focused bashunit suites, issue validation, and final make test-ubuntu (exit 0).

@@ -22,17 +22,9 @@ Treat tokens beginning with `mode:` as flags. The remaining token, when present,
 
 Record whether the wrapper was invoked with `mode:headless`; delivery uses that mode after synthesis.
 
-## Scan and freeze peer input
+## Freeze and scan peer input
 
-The external payload is the document itself. Unless `SE_SKIP_SECRET_SCAN` is set to a non-empty value other than `0`, require `gitleaks` and run this fail-closed scan before creating tabs:
-
-```bash
-gitleaks dir --no-banner --redact --exit-code 2 "$DOC_PATH"
-```
-
-Any nonzero exit or unavailable scanner refuses the peer launch and sends nothing externally. In that path, invoke the local `ce-doc-review` skill with `mode:headless DOC_PATH`. Then deliver its envelope with degraded peer coverage. The override deliberately skips this gate; report that fact.
-
-After a clean or explicitly waived scan, copy the document to an isolated temporary directory while preserving its basename and extension:
+Copy the document to an isolated temporary directory while preserving its basename and extension:
 
 ```bash
 DOC_STAGE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/se-doc-review.XXXXXX")
@@ -40,7 +32,9 @@ DOC_COPY="$DOC_STAGE_DIR/$(basename "$DOC_PATH")"
 cp "$DOC_PATH" "$DOC_COPY"
 ```
 
-Peers review `DOC_COPY`; the local pass reviews `DOC_PATH`. This keeps both peer inputs stable while local `safe_auto` edits land on the real document.
+The external payload includes this copy. Run `pre-external-secret-scan "$DOC_COPY"` before creating tabs. Any nonzero result refuses the peer launch and sends nothing externally. In that path, invoke the local `ce-doc-review` skill with `mode:headless DOC_PATH`, deliver its envelope with degraded peer coverage, and remove the staged copy. `SE_SKIP_SECRET_SCAN=1` deliberately waives this gate; report that fact.
+
+Peers review `DOC_COPY`; the local pass reviews `DOC_PATH`. The copy remains untouched after its scan so the verdict describes the staged peer input at scan time.
 
 ## Dispatch fresh peers
 
@@ -102,7 +96,7 @@ canonical schema. An empty review still includes Coverage with explicit zero
 counts. End with the exact line: Review complete
 ```
 
-After the shared lifecycle submits both prompts and before it waits, invoke the local `ce-doc-review` skill with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document. Whether the local pass succeeds or fails, resume the shared lifecycle through peer read and tab closure.
+Complete the shared lifecycle through peer read and tab closure before invoking the local `ce-doc-review` skill with `mode:headless DOC_PATH`. The local pass is the only review allowed to mutate the document, and it starts only after peers can no longer read the checkout state attested by the launch scan.
 
 Accept an envelope only when Coverage accounts for every attempted persona, its counts reconcile, every surviving finding is routed once with its required fields, and the terminal line is exact. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. If all three passes fail, fail the review without modifying the document further.
 

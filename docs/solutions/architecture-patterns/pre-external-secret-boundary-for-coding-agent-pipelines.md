@@ -1,7 +1,7 @@
 ---
 title: Pre-external secret boundary for coding-agent pipelines
 date: 2026-08-14
-last_updated: 2026-08-21
+last_updated: 2026-09-11
 category: architecture-patterns
 module: agent-platform
 problem_type: architecture_pattern
@@ -127,24 +127,25 @@ Six transferable rules for any pipeline that sends repo content to an external s
 
 **Known operational hole (session history).** Because secret-scan is nested inside the work stage's green branch, a run parked at the work gate never scans; merging a branch from such a run means the diff was never scanned. The observed compensation was a manual grep pass over the diff (api key/token/`sk-`/`ghp_`/`AKIA`/private-key headers/`op://` patterns) before merging.
 
-**Coverage regression (standalone harnesses) — REOPENED 2026-09-01.** This gap was closed on
+**Coverage regression (standalone harnesses) — RESTORED 2026-09-11.** This gap was closed on
 2026-08-14 (`2026-07-27-002`, done) by a shared pre-external gate, `enforcePreExternalGate` in
 `dot_smithers/workflows/lib/pre-external-gate.ts`, which both standalone harnesses passed through
 before dispatching their legs; the follow-up tree-tier (`preExternalTreeGate`) closed the
 pre-`baseSha` exposure on 2026-08-15 (`2026-08-14-009`, done). **That gate was deleted with the
-Smithers runtime and nothing replaced it.**
+Smithers runtime and nothing replaced it until issue `2026-09-04-001`.**
 
-Current state, verified against the tree: five skills launch external peers through
-`home/private_dot_claude/shared/herdr-peer-launch.md` — `se-doc-review`, `se-code-review`,
-`se-simplify`, `se-plan`, and `ask-in-herdr`. The launch starts a Claude peer and an OpenCode peer
-rooted at the live checkout with permission prompts suppressed, so two third-party model providers
-read repository content. Only `se-doc-review/SKILL.md:27` scans first, and it scans a single
-document (`gitleaks dir` over `$DOC_PATH`), not a diff range or the tree. `gitleaks` appears in
-exactly three tracked files: that skill, `Brewfile.tmpl`, and `templates_test.sh`.
+Current state: `pre-external-secret-scan` is the shared scanner primitive. It pins gitleaks exit
+codes, redacts output, uses a trusted default-rule configuration instead of target or environment
+configuration, rejects directory symlinks escaping a scan root, and fails closed on missing tools
+or unexpected results. `herdr-peer-launch.md` scans the live checkout and both prompts before tab
+creation, then scans again immediately before prompt submission. `se-doc-review` additionally scans
+the frozen document copy peers receive. `ask-in-herdr` scans its working directory, complete prompt,
+and added skill paths before launch; its recovery, ordinary follow-up, and blocked-reply paths scan
+again before sending another peer turn.
 
-Rule 1 below therefore states a boundary the repository does not currently hold at every crossing.
-The guidance is unchanged and still correct; the implementation stopped satisfying it. This is a
-potential product regression, not doc drift, and no repository issue tracks it.
+The peers still run against a live filesystem rather than an immutable sandbox. A scan attests the
+state it reads and cannot prevent a concurrent same-user process from changing that state afterward;
+filesystem containment remains separate work under `2026-08-18-002`.
 
 ## Related
 

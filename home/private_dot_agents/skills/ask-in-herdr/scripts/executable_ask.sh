@@ -56,6 +56,10 @@ if ! command -v herdr >/dev/null 2>&1; then
   printf 'ask.sh: herdr is not on PATH\n' >&2
   status_exit refused 2
 fi
+if ! command -v pre-external-secret-scan >/dev/null 2>&1; then
+  printf 'ask.sh: pre-external-secret-scan is not on PATH\n' >&2
+  status_exit refused 2
+fi
 
 posture=ro
 [ "$RW" -eq 0 ] || posture=rw
@@ -89,6 +93,16 @@ trap 'rm -f "$question_file" "$start_out" "$start_err" "$read_out" "$read_err" "
   printf 'Do not use a file-editing tool. After the file is durable, return the same answer as usual.\n'
   printf 'Do not write any other file.\n'
 } > "$question_file"
+
+scan_paths=("$CWD" "$question_file")
+if [ "$SKILLS_COUNT" -gt 0 ]; then
+  set +u
+  for skill in "${SKILLS[@]}"; do scan_paths+=("$skill"); done
+  set -u
+fi
+if ! pre-external-secret-scan "${scan_paths[@]}"; then
+  status_exit refused 2
+fi
 
 args=(start --kind "$AGENT" --posture "$posture" --cwd "$CWD" \
   --prompt-file "$question_file" --wait --timeout 1800000)
@@ -207,17 +221,24 @@ case "$agent_status" in
     classify_report
     report_state=$?
     set -e
+    recovery_scan_refused=0
     if [ "$report_state" -eq 3 ] || [ "$report_state" -eq 4 ]; then
       # One bounded request to persist an answer the child already produced,
       # mirroring recover_peer_report in ~/.claude/shared/herdr-peer-launch.md.
-      herdr-child prompt --to "$started_name" --pane "$pane" --wait --timeout 120000 \
-        "The report transport file at $report_path is missing or empty. Write your exact complete previous answer, byte-for-byte, using your shell: write it to $report_path.tmp and then rename that file to $report_path. Do not use a file-editing tool. Then reply with only the path." \
-        >/dev/null 2>&1 || true
+      recovery_prompt="The report transport file at $report_path is missing or empty. Write your exact complete previous answer, byte-for-byte, using your shell: write it to $report_path.tmp and then rename that file to $report_path. Do not use a file-editing tool. Then reply with only the path."
+      printf '%s\n' "$recovery_prompt" > "$question_file"
+      if pre-external-secret-scan "${scan_paths[@]}"; then
+        herdr-child prompt --to "$started_name" --pane "$pane" --wait --timeout 120000 \
+          "$recovery_prompt" >/dev/null 2>&1 || true
+      else
+        recovery_scan_refused=1
+      fi
       set +e
       classify_report
       report_state=$?
       set -e
     fi
+    [ "$recovery_scan_refused" -eq 0 ] || status_exit refused 2
     if [ "$report_state" -ne 0 ]; then
       # The pane text is evidence of what happened, never the answer.
       cat "$read_out" >&2
@@ -230,13 +251,24 @@ case "$agent_status" in
     fi
     cat "$report_path"
     close_hint
+    printf -v follow_up_cmd \
+      'bash ~/.agents/skills/ask-in-herdr/scripts/follow-up.sh prompt %q %q '\''<task>'\''' \
+      "$started_name" "$pane"
+    if [ "$SKILLS_COUNT" -gt 0 ]; then
+      set +u
+      for skill in "${SKILLS[@]}"; do
+        printf -v escaped_skill '%q' "$skill"
+        follow_up_cmd="$follow_up_cmd --skills $escaped_skill"
+      done
+      set -u
+    fi
     printf -v reminder '%s\n\n%s\n%s\n%s\n%s\n%s' \
       "[child-settled v1 agent=$started_name pane=$pane]" \
       "The child is $agent_status and its initial answer has been read." \
       'If another turn may have run, read its current output before reaping.' \
       'If no follow-up is needed, run:' \
       "herdr-child reap --to $started_name --pane $pane" \
-      "If you need a follow-up, run: herdr-child prompt --to $started_name --pane $pane --wait '<task>'."
+      "If you need a follow-up, run: $follow_up_cmd"
     if ! herdr agent prompt "$HERDR_PANE_ID" "$reminder" >/dev/null 2>&1; then
       printf 'ask.sh: warning: could not queue the cleanup reminder for %s in pane %s\n' "$started_name" "$pane" >&2
     fi

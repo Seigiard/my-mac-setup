@@ -10,9 +10,20 @@ Resolve these values before launch:
 - `CLAUDE_PROMPT`: the calling skill's complete Claude dispatch brief.
 - `OPENCODE_PROMPT`: the calling skill's complete OpenCode dispatch brief.
 
-Require `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `herdr`, `claude`, `opencode`, and `herdr-peer-alias`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
+Require `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `herdr`, `claude`, `opencode`, `herdr-peer-alias`, and `pre-external-secret-scan`. There is no headless fallback. Every run creates new sessions; never resume, reuse, or retain a peer from this or another phase.
 
 The **cleanup boundary** begins when the report transport directory is created. Track each created tab ID immediately. Any non-recoverable launch, prompt, wait, read, or validation failure closes every tab created by this run and removes its report transport files before control returns to the calling skill.
+
+## Scan exposed content
+
+Before allocating aliases or creating tabs, scan the live checkout and both dispatch prompts:
+
+```bash
+printf '%s\n%s\n' "$CLAUDE_PROMPT" "$OPENCODE_PROMPT" \
+  | pre-external-secret-scan --stdin "$REPO_ROOT"
+```
+
+Exit `0` is the only permission to continue. On any nonzero result, stop this lifecycle before reading another section and report that no tab or report transport was created. The command submits tracked, modified, and untracked filesystem content to gitleaks's trusted default detector rules rather than scanning only a Git range. Detected secrets, a missing scanner, a timeout, an invalid target, or any unexpected scanner status refuse the launch. Scanner findings are redacted before they reach output. `SE_SKIP_SECRET_SCAN=1` is an explicit operator waiver; the caller must report that the external peer input was not scanned. No other value waives the scan.
 
 ## Create tabs
 
@@ -106,6 +117,8 @@ Before ending this turn, write the exact complete report you are returning, byte
 
 Submit both augmented prompts before either wait can block:
 
+Immediately before submission, repeat the **Scan exposed content** command against the now-augmented prompt values. A nonzero result enters the cleanup boundary without prompting either peer. This second verdict checks content again after tab and agent startup; both pre-dispatch scans must pass before submission.
+
 ```bash
 herdr agent prompt "$CLAUDE_PANE" "$CLAUDE_PROMPT"
 herdr agent prompt "$OPENCODE_PANE" "$OPENCODE_PROMPT"
@@ -134,12 +147,14 @@ report_is_delivered() {
 }
 
 recover_peer_report() {
-  local pane="$1" report_path="$2"
+  local pane="$1" report_path="$2" recovery_prompt
   [ ! -L "$report_path" ] || return 1
   report_is_delivered "$report_path" && return 0
 
-  herdr agent prompt "$pane" \
-    "The report transport file is missing or empty. Write your exact complete previous report, byte-for-byte, atomically through $report_path.tmp and rename it to $report_path. Then reply with only the path." \
+  recovery_prompt="The report transport file is missing or empty. Write your exact complete previous report, byte-for-byte, atomically through $report_path.tmp and rename it to $report_path. Then reply with only the path."
+  printf '%s\n' "$recovery_prompt" \
+    | pre-external-secret-scan --stdin "$REPO_ROOT" || return 1
+  herdr agent prompt "$pane" "$recovery_prompt" \
     --wait --timeout 120000 || return 1
 
   report_is_delivered "$report_path"
