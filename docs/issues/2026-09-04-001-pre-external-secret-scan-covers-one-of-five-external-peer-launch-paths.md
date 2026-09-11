@@ -43,8 +43,10 @@ single document, rather than a diff range or the tree.
 
 ## Scope
 
-Restore a scan on every path that ships checkout content outside the machine, or record a
-deliberate decision that some callers are exempt and why.
+Restore one fail-closed full-checkout scan in the shared peer-launch procedure for every path
+that ships checkout content outside the machine, including standalone `ask-in-herdr` launches.
+Run it immediately before creating external tabs, once per review pair or standalone peer, and
+never reuse its result across launches.
 
 The guidance this violates is already captured in
 `docs/solutions/architecture-patterns/pre-external-secret-boundary-for-coding-agent-pipelines.md`
@@ -54,15 +56,13 @@ scanner is missing. Blast radius argues for fail-closed here, per
 `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md`: content that reaches a
 third-party model cannot be recalled.
 
-Decide where the check belongs. Putting it in `herdr-peer-launch.md` covers all five callers at
-one site and cannot be forgotten by a new caller; putting it in each skill lets the scan scope
-match what that skill actually sends. The repo legitimately tracks `op://` secret-reference
-templates, so whatever lands must not fire on those.
+ADR-0012 selects `herdr-peer-launch.md` as the shared gate so a new caller cannot omit it. The
+repo legitimately tracks `op://` secret-reference templates, so the implementation must not fire
+on those. The point-in-time scan accepts concurrent external mutation after it as a residual risk;
+an immutable review snapshot is out of scope.
 
 ## Open decisions
 
-- One shared gate in `herdr-peer-launch.md`, or a per-caller scan scoped to each payload?
-- What does each caller actually expose — the whole checkout, or a narrower set that a
-  cheaper scan could cover?
-- Does `ask-in-herdr` count as an external-dispatch path for this purpose, given it is a
-  general-purpose peer consult rather than a review leg?
+None. `docs/decisions/0012-scan-the-full-checkout-before-external-peer-launches.md` resolves the
+gate location, scan scope, launch cadence, `ask-in-herdr` coverage, and accepted residual race.
+This issue remains open for implementation and verification only.

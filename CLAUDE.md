@@ -23,6 +23,20 @@ Reference docs (read on demand):
 - `docs/herdr-worktrees.md` — native Herdr worktree ownership and per-repository setup policy
 - `docs/external-agent-cli-flags.md` — headless/one-shot invocation flags for external coding-agent CLIs
 
+## Agent skills
+
+### Issue tracker
+
+Issues are structured Markdown records under `docs/issues/`, managed through `python3 scripts/issues`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The canonical triage roles use their default names and are stored as issue tags. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository: domain vocabulary lives at the root and architectural decisions live under `docs/decisions/`. See `docs/agents/domain.md`.
+
 <important if="you need to run commands to build, test, lint, or run scripts">
 
 | Command | What it does |

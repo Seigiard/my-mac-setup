@@ -1,4 +1,11 @@
-# 3. Context growth is an ambient signal, not a halt
+---
+title: Context growth is an ambient signal, not a halt
+status: accepted
+date: 2026-09-06
+supersedes: []
+---
+
+# ADR-0003: Context growth is an ambient signal, not a halt
 
 ## Context
 
