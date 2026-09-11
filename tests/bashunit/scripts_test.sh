@@ -822,15 +822,9 @@ function test_scripts_1191_worktree_identity_recovers_a_prepared_rename() {
   local common state
   common="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)"
   state="$(hwi_identity_state_path)"
-  atomic_write "$state" "checkout_root=$(encode_value "$HWI_CHECKOUT")
-repository_anchor=$(encode_value "$common")
-workspace=$(encode_value workspace-1)
-original_branch=$(encode_value "$HWI_BRANCH")
-branch=$(encode_value recover-prepared-rename)
-outcome=$(encode_value prepared)
-authorization=$(encode_value authorized)
-title=$(encode_value 'Recover prepared rename')
-slug=$(encode_value recover-prepared-rename)"
+  write_identity_state "$state" checkout_root "$HWI_CHECKOUT" repository_anchor "$common" \
+    workspace workspace-1 original_branch "$HWI_BRANCH" branch recover-prepared-rename \
+    outcome prepared authorization authorized title 'Recover prepared rename' slug recover-prepared-rename
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Later event'
@@ -958,15 +952,9 @@ function test_scripts_1196_worktree_identity_recovers_prepared_attribution_after
   common="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)"
   state="$(hwi_identity_state_path)"
   marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
-  atomic_write "$state" "checkout_root=$(encode_value "$HWI_CHECKOUT")
-repository_anchor=$(encode_value "$common")
-workspace=$(encode_value workspace-1)
-original_branch=$(encode_value "$HWI_BRANCH")
-branch=$(encode_value "$branch")
-outcome=$(encode_value prepared)
-authorization=$(encode_value authorized)
-title=$(encode_value 'Recover prepared attribution')
-slug=$(encode_value recover-prepared-attribution)"
+  write_identity_state "$state" checkout_root "$HWI_CHECKOUT" repository_anchor "$common" \
+    workspace workspace-1 original_branch "$HWI_BRANCH" branch "$branch" outcome prepared \
+    authorization authorized title 'Recover prepared attribution' slug recover-prepared-attribution
   git -C "$HWI_CHECKOUT" branch -m "$branch"
 
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -1010,15 +998,9 @@ function test_scripts_1198_worktree_identity_treats_a_prepared_revert_as_agent_o
   local common state candidate=prepared-agent-revert
   common="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)"
   state="$(hwi_identity_state_path)"
-  atomic_write "$state" "checkout_root=$(encode_value "$HWI_CHECKOUT")
-repository_anchor=$(encode_value "$common")
-workspace=$(encode_value workspace-1)
-original_branch=$(encode_value "$HWI_BRANCH")
-branch=$(encode_value "$candidate")
-outcome=$(encode_value prepared)
-authorization=$(encode_value authorized)
-title=$(encode_value 'Prepared agent revert')
-slug=$(encode_value prepared-agent-revert)"
+  write_identity_state "$state" checkout_root "$HWI_CHECKOUT" repository_anchor "$common" \
+    workspace workspace-1 original_branch "$HWI_BRANCH" branch "$candidate" outcome prepared \
+    authorization authorized title 'Prepared agent revert' slug prepared-agent-revert
   git -C "$HWI_CHECKOUT" branch -m "$candidate"
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
 
@@ -1040,15 +1022,9 @@ function test_scripts_1199_worktree_identity_treats_a_prepared_branch_move_as_ag
   local common state candidate=prepared-candidate-move
   common="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)"
   state="$(hwi_identity_state_path)"
-  atomic_write "$state" "checkout_root=$(encode_value "$HWI_CHECKOUT")
-repository_anchor=$(encode_value "$common")
-workspace=$(encode_value workspace-1)
-original_branch=$(encode_value "$HWI_BRANCH")
-branch=$(encode_value "$candidate")
-outcome=$(encode_value prepared)
-authorization=$(encode_value authorized)
-title=$(encode_value 'Prepared candidate move')
-slug=$(encode_value prepared-candidate-move)"
+  write_identity_state "$state" checkout_root "$HWI_CHECKOUT" repository_anchor "$common" \
+    workspace workspace-1 original_branch "$HWI_BRANCH" branch "$candidate" outcome prepared \
+    authorization authorized title 'Prepared candidate move' slug prepared-candidate-move
   git -C "$HWI_CHECKOUT" branch -m "$candidate"
   git -C "$HWI_CHECKOUT" branch -m agent-owned-after-prepare
 
@@ -1108,6 +1084,93 @@ function test_scripts_1201_worktree_identity_reconciles_a_persist_failed_workspa
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(hwi_workspace_rename_count)" 1
+}
+
+function test_scripts_1305_worktree_state_named_writes_preserve_unspecified_fields() {
+  _bats_test_init 1305 'worktree state named writes preserve unspecified fields atomically'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local state="$HWI_WORK/named.state" title='A title with = and enough bytes to exercise wrapped base64 encoding 0123456789 0123456789'
+
+  run write_identity_state "$state" \
+    checkout_root /checkout repository_anchor /repository workspace workspace-1 \
+    original_branch worktree/original branch proposed-branch outcome prepared \
+    authorization authorized title "$title" slug proposed-branch
+  assert_success
+  run write_identity_state "$state" outcome complete
+  assert_success
+  assert_equal "$(read_state_field "$state" checkout_root)" /checkout
+  assert_equal "$(read_state_field "$state" repository_anchor)" /repository
+  assert_equal "$(read_state_field "$state" workspace)" workspace-1
+  assert_equal "$(read_state_field "$state" original_branch)" worktree/original
+  assert_equal "$(read_state_field "$state" branch)" proposed-branch
+  assert_equal "$(read_state_field "$state" authorization)" authorized
+  assert_equal "$(read_state_field "$state" title)" "$title"
+  assert_equal "$(read_state_field "$state" slug)" proposed-branch
+  assert_equal "$(read_state_field "$state" outcome)" complete
+
+  cp "$state" "$HWI_WORK/before-unknown.state"
+  run write_identity_state "$state" outcome declined invented_field value
+  assert_failure 1
+  run cmp -s "$state" "$HWI_WORK/before-unknown.state"
+  assert_success
+  run write_identity_state "$state" outcome declined title
+  assert_failure 1
+  run cmp -s "$state" "$HWI_WORK/before-unknown.state"
+  assert_success
+  run write_identity_state "$state" outcome impossible
+  assert_failure 1
+  run cmp -s "$state" "$HWI_WORK/before-unknown.state"
+  assert_success
+  local diagnostics
+  diagnostics="$(diagnostic_file_for_state "$state")"
+  assert_file_contains "$diagnostics" 'reason=invalid-record-field '
+  assert_file_contains "$diagnostics" 'reason=invalid-record-update '
+  assert_file_contains "$diagnostics" 'reason=illegal-outcome '
+
+  hwi_write_mv_proxy
+  : > "$HWI_WORK/fail-terminal-state-write"
+  : > "$HWI_WORK/workspace.label"
+  cp "$state" "$HWI_WORK/before-mv-failure.state"
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    bash -c 'source "$1"; write_identity_state "$2" outcome declined' _ "$HWI_STATE_LIBRARY" "$state"
+  assert_failure 1
+  run cmp -s "$state" "$HWI_WORK/before-mv-failure.state"
+  assert_success
+  run bash -c 'compgen -G "$1/.record.*" >/dev/null' _ "${state%/*}"
+  assert_failure 1
+}
+
+function test_scripts_1306_worktree_state_rewrites_the_legacy_outcome_canonically() {
+  _bats_test_init 1306 'worktree state accepts a legacy outcome and rewrites it canonically'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local state="$HWI_WORK/legacy.state"
+  atomic_write "$state" "checkout_root=$(encode_value /checkout)
+repository_anchor=$(encode_value /repository)
+workspace=$(encode_value workspace-1)
+original_branch=$(encode_value worktree/original)
+branch=$(encode_value renamed-branch)
+outcome=$(encode_value attribution_failed)
+authorization=$(encode_value authorized)
+title=$(encode_value 'Legacy title')
+slug=$(encode_value legacy-title)"
+
+  assert_equal "$(read_state_field "$state" outcome)" attribution_failed
+  run write_identity_state "$state" title 'Updated title'
+  assert_success
+  assert_equal "$(read_state_field "$state" outcome)" attribution-failed
+  assert_equal "$(read_state_field "$state" branch)" renamed-branch
+  assert_equal "$(read_state_field "$state" title)" 'Updated title'
+
+  local illegal="$HWI_WORK/illegal.state"
+  atomic_write "$illegal" "outcome=$(encode_value impossible)"
+  cp "$illegal" "$HWI_WORK/before-illegal.state"
+  run write_identity_state "$illegal" title 'Rejected update'
+  assert_failure 1
+  run cmp -s "$illegal" "$HWI_WORK/before-illegal.state"
+  assert_success
+  assert_file_contains "$(diagnostic_file_for_state "$illegal")" 'reason=illegal-outcome '
 }
 
 function test_scripts_1202_worktree_identity_rejects_marker_owner_changes_at_commit() {

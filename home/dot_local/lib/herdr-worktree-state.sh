@@ -99,6 +99,71 @@ read_state_field() {
   printf '%s' "$encoded" | base64 -d 2>/dev/null || true
 }
 
+diagnostic_file_for_state() {
+  printf '%s.diagnostics.log' "${1%.state}"
+}
+
+# Update named fields and atomically persist the complete durable record.
+# Unspecified fields retain their current values so callers describe only the
+# domain observation that changed rather than reconstructing storage state.
+write_identity_state() {
+  local file="$1" field value
+  shift
+  local checkout_root repository_anchor workspace original_branch branch outcome authorization title slug
+  checkout_root="$(read_state_field "$file" checkout_root)"
+  repository_anchor="$(read_state_field "$file" repository_anchor)"
+  workspace="$(read_state_field "$file" workspace)"
+  original_branch="$(read_state_field "$file" original_branch)"
+  branch="$(read_state_field "$file" branch)"
+  outcome="$(read_state_field "$file" outcome)"
+  authorization="$(read_state_field "$file" authorization)"
+  title="$(read_state_field "$file" title)"
+  slug="$(read_state_field "$file" slug)"
+
+  while [ "$#" -gt 0 ]; do
+    [ "$#" -ge 2 ] || {
+      record_diagnostic "$(diagnostic_file_for_state "$file")" invalid-record-update "field=$1" || true
+      return 1
+    }
+    field="$1"
+    value="$2"
+    shift 2
+    case "$field" in
+      checkout_root) checkout_root="$value" ;;
+      repository_anchor) repository_anchor="$value" ;;
+      workspace) workspace="$value" ;;
+      original_branch) original_branch="$value" ;;
+      branch) branch="$value" ;;
+      outcome) outcome="$value" ;;
+      authorization) authorization="$value" ;;
+      title) title="$value" ;;
+      slug) slug="$value" ;;
+      *)
+        record_diagnostic "$(diagnostic_file_for_state "$file")" invalid-record-field "field=$field" || true
+        return 1
+        ;;
+    esac
+  done
+
+  # Read compatibility for records written before outcome names were
+  # canonicalized. Every subsequent write emits only the canonical spelling.
+  [ "$outcome" != attribution_failed ] || outcome=attribution-failed
+  if ! is_legal_outcome "$outcome"; then
+    record_diagnostic "$(diagnostic_file_for_state "$file")" illegal-outcome "outcome=$outcome workspace=$workspace" || true
+    return 1
+  fi
+
+  atomic_write "$file" "checkout_root=$(encode_value "$checkout_root")
+repository_anchor=$(encode_value "$repository_anchor")
+workspace=$(encode_value "$workspace")
+original_branch=$(encode_value "$original_branch")
+branch=$(encode_value "$branch")
+outcome=$(encode_value "$outcome")
+authorization=$(encode_value "$authorization")
+title=$(encode_value "$title")
+slug=$(encode_value "$slug")"
+}
+
 record_number() {
   local file="$1" key="$2" line value=""
   [ -f "$file" ] || return 0

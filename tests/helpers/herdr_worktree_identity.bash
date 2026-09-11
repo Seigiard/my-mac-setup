@@ -1,6 +1,6 @@
 # Herdr worktree-identity harness. Load after helpers/common.
 
-HWI_STATE_LIBRARY="$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh"
+HWI_STATE_LIBRARY="${HWI_STATE_LIBRARY_OVERRIDE:-$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh}"
 export HWI_STATE_LIBRARY
 HWI_ENGINE="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-identity"
 HWI_WORKTREE_SETUP_PLUGIN="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
