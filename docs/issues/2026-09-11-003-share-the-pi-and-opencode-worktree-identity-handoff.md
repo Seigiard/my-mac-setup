@@ -5,7 +5,7 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["architecture","worktree-identity","adapter","enhancement","ready-for-agent"]
 date: "2026-09-11"
-status: "open"
+status: "in-progress"
 priority: "low"
 ---
 
