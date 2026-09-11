@@ -17,6 +17,7 @@ allow_nested = true
 
 [keys]
 switch_workspace = "ctrl+shift+1..9"
+new_workspace = ""
 new_worktree = "prefix+shift+g"
 open_worktree = ["prefix+shift+o", "cmd+shift+o", "prefix+cmd+shift+o"]
 remove_worktree = ["prefix+shift+y", "cmd+shift+k", "prefix+cmd+shift+k"]
@@ -37,6 +38,15 @@ resize_pane_left = "ctrl+alt+left"
 resize_pane_down = "ctrl+alt+down"
 resize_pane_up = "ctrl+alt+up"
 resize_pane_right = "ctrl+alt+right"
+
+# Herdr 0.9.0 can retain the source workspace's Git identity after a new
+# workspace changes directories (herdrdev/herdr#3214). Start Cmd+N workspaces
+# outside Git without changing the follow policy for tabs and split panes.
+[[keys.command]]
+key = "prefix+shift+n"
+type = "shell"
+command = '"$HERDR_BIN_PATH" workspace create --cwd "$HOME/Projects" --focus'
+description = "new workspace from Projects"
 
 [[keys.command]]
 key = "cmd+shift+p"
