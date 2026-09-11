@@ -61,6 +61,9 @@ A single review or analysis pass executed by a separate, headless agent-CLI proc
 
 One failed leg degrades a review's coverage; losing every leg fails it.
 
+### External leg pair
+Two fresh External legs given the same review scope through separate agents and classified together. The pair provides paired coverage only when both reports are independently attributable, valid, and distinct; one failed or invalid leg degrades it to single-source coverage, as does a byte-identical pair. Pair classification describes coverage, never agreement or corroboration between findings.
+
 ### Captured child
 A subprocess whose output the caller captures instead of passing through, which makes the caller responsible for the child's input as well. Capturing is itself what hides a prompt: the question renders into a buffer nobody is reading while the child waits on an input channel it still holds. So a captured child is denied that channel, and a flag or environment variable asking the child not to prompt counts as a request the callee may decline, never as the guarantee.
 

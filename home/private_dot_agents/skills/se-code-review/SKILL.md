@@ -25,9 +25,7 @@ Empty target arguments review the current branch against its detected base. Reco
 
 ## Dispatch fresh peers
 
-Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for tab creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
-
-Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It defines the `se-external-leg-pair` interface and result contract. Set `REPO_ROOT` to the current checkout and compose the following complete dispatch briefs as `CLAUDE_PROMPT` and `OPENCODE_PROMPT`.
 
 ### Shared review contract
 
@@ -76,7 +74,26 @@ Use the `ce-code-review` skill with these exact arguments:
 mode:agent <resolved arguments>
 ```
 
-Execute the shared lifecycle through tab closure. Require a complete parseable JSON report from each peer. One failed or malformed peer degrades coverage; two failed peers fail the review. Do not pass peer context into `se-simplify`.
+Write the complete prompts to private files and invoke the lifecycle once:
+
+```bash
+PAIR_PARENT=$(mktemp -d "${TMPDIR:-/tmp}/se-code-review-pair.XXXXXX") || exit 1
+CLAUDE_PROMPT_FILE="$PAIR_PARENT/claude.prompt"
+OPENCODE_PROMPT_FILE="$PAIR_PARENT/opencode.prompt"
+PAIR_RESULT="$PAIR_PARENT/result"
+if ! printf '%s' "$CLAUDE_PROMPT" > "$CLAUDE_PROMPT_FILE" ||
+  ! printf '%s' "$OPENCODE_PROMPT" > "$OPENCODE_PROMPT_FILE"; then
+  rm -rf "$PAIR_PARENT"
+  exit 1
+fi
+PAIR_STATUS=0
+se-external-leg-pair --repo-root "$REPO_ROOT" \
+  --claude-prompt-file "$CLAUDE_PROMPT_FILE" \
+  --opencode-prompt-file "$OPENCODE_PROMPT_FILE" \
+  --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
+```
+
+After the command returns, load any published result needed for diagnosis, then remove `PAIR_PARENT` on every status before synthesis or return. Require `PAIR_STATUS=0` and a complete parseable JSON report from each listed source. One failed or malformed peer degrades coverage; no valid peer report fails the review. Treat `identical-single` as one indeterminate source, never consensus. Report a waived scan. Do not pass peer context into `se-simplify`.
 
 ## Synthesize reports
 
@@ -85,8 +102,9 @@ Merge findings by file, nearby line, and issue substance:
 1. **Consensus**: both reports found the same issue.
 2. **Claude-only**: only Sonnet found it.
 3. **OpenCode-only**: only Terra found it.
-4. **Contradiction**: the reports disagree on whether the issue exists or what behavior is correct.
-5. **Fix divergence**: they agree on the issue but propose materially different fixes.
+4. **Indeterminate-single**: an identical report has no model attribution and is never consensus.
+5. **Contradiction**: the reports disagree on whether the issue exists or what behavior is correct.
+6. **Fix divergence**: they agree on the issue but propose materially different fixes.
 
 Keep the highest supported severity. Treat cross-model agreement as stronger evidence, not proof. Use the most conservative supported verdict unless it depends only on a finding rejected during synthesis.
 

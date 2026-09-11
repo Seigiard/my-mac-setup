@@ -1,0 +1,588 @@
+#!/usr/bin/env bash
+
+set -u
+umask 077
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: se-external-leg-pair --repo-root DIR --claude-prompt-file FILE
+                            --opencode-prompt-file FILE
+                            [--exposed-document FILE] --result-dir DIR
+EOF
+}
+
+refuse() {
+  printf 'se-external-leg-pair: refused: %s\n' "$1" >&2
+  exit 2
+}
+
+repo_root=""
+claude_prompt_file=""
+opencode_prompt_file=""
+exposed_document=""
+result_dir=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo-root)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      repo_root="$2"
+      shift 2
+      ;;
+    --claude-prompt-file)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      claude_prompt_file="$2"
+      shift 2
+      ;;
+    --opencode-prompt-file)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      opencode_prompt_file="$2"
+      shift 2
+      ;;
+    --exposed-document)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      [ -z "$exposed_document" ] || refuse '--exposed-document may be supplied only once.'
+      exposed_document="$2"
+      shift 2
+      ;;
+    --result-dir)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      result_dir="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      refuse "unknown argument: $1"
+      ;;
+  esac
+done
+
+require_absolute() {
+  case "$2" in
+    /*) ;;
+    *) refuse "$1 must be an absolute path." ;;
+  esac
+}
+
+require_regular_file() {
+  local label="$1" file="$2" allow_empty="${3:-0}"
+  require_absolute "$label" "$file"
+  [ ! -L "$file" ] || refuse "$label must not be a symlink."
+  [ -f "$file" ] && [ -r "$file" ] || refuse "$label must be a readable regular file."
+  [ "$allow_empty" -eq 1 ] || [ -s "$file" ] || refuse "$label must not be empty."
+}
+
+[ -n "$repo_root" ] || refuse '--repo-root is required.'
+[ -n "$claude_prompt_file" ] || refuse '--claude-prompt-file is required.'
+[ -n "$opencode_prompt_file" ] || refuse '--opencode-prompt-file is required.'
+[ -n "$result_dir" ] || refuse '--result-dir is required.'
+require_absolute '--repo-root' "$repo_root"
+[ ! -L "$repo_root" ] || refuse '--repo-root must not be a symlink.'
+[ -d "$repo_root" ] && [ -r "$repo_root" ] || refuse '--repo-root must be a readable directory.'
+require_regular_file '--claude-prompt-file' "$claude_prompt_file"
+require_regular_file '--opencode-prompt-file' "$opencode_prompt_file"
+[ -z "$exposed_document" ] || require_regular_file '--exposed-document' "$exposed_document" 1
+require_absolute '--result-dir' "$result_dir"
+[ ! -e "$result_dir" ] && [ ! -L "$result_dir" ] || refuse '--result-dir must not exist.'
+result_parent="${result_dir%/*}"
+[ -n "$result_parent" ] || result_parent="/"
+[ -d "$result_parent" ] && [ -w "$result_parent" ] || refuse '--result-dir parent must be a writable directory.'
+
+[ "${HERDR_ENV:-}" = 1 ] || refuse 'HERDR_ENV=1 is required.'
+[ -n "${HERDR_WORKSPACE_ID:-}" ] || refuse 'HERDR_WORKSPACE_ID is required.'
+for dependency in herdr herdr-peer-alias pre-external-secret-scan claude opencode python3; do
+  command -v "$dependency" >/dev/null 2>&1 || refuse "$dependency is not on PATH."
+done
+
+work_dir=""
+stage_dir=""
+cleanup_complete=0
+cleanup_unconfirmed=0
+claude_tab=""
+opencode_tab=""
+claude_pane=""
+opencode_pane=""
+claude_name=""
+opencode_name=""
+claude_state="not-created"
+opencode_state="not-created"
+claude_usable=0
+opencode_usable=0
+
+close_tabs() {
+  local failed=0
+
+  if [ -n "$claude_tab" ]; then
+    if herdr tab close "$claude_tab" >/dev/null 2>&1; then
+      claude_tab=""
+    else
+      printf 'se-external-leg-pair: cleanup failed for tab %s\n' "$claude_tab" >&2
+      failed=1
+    fi
+  fi
+  if [ -n "$opencode_tab" ]; then
+    if herdr tab close "$opencode_tab" >/dev/null 2>&1; then
+      opencode_tab=""
+    else
+      printf 'se-external-leg-pair: cleanup failed for tab %s\n' "$opencode_tab" >&2
+      failed=1
+    fi
+  fi
+  [ "$cleanup_unconfirmed" -eq 0 ] || failed=1
+
+  [ "$failed" -eq 0 ]
+}
+
+remove_work_dir() {
+  if [ -n "$work_dir" ]; then
+    if ! rm -rf -- "$work_dir" 2>/dev/null || [ -e "$work_dir" ] || [ -L "$work_dir" ]; then
+      printf 'se-external-leg-pair: cleanup failed for transport %s\n' "$work_dir" >&2
+      return 1
+    fi
+    work_dir=""
+  fi
+  return 0
+}
+
+cleanup_runtime() {
+  local failed=0
+
+  close_tabs || failed=1
+  remove_work_dir || failed=1
+
+  [ "$failed" -eq 0 ] || return 1
+  cleanup_complete=1
+  return 0
+}
+
+on_exit() {
+  local status=$?
+  if [ "$cleanup_complete" -eq 0 ] && ! cleanup_runtime; then
+    status=3
+  fi
+  if [ -n "$stage_dir" ] && { [ -e "$stage_dir" ] || [ -L "$stage_dir" ]; }; then
+    if ! rm -rf -- "$stage_dir" 2>/dev/null; then
+      printf 'se-external-leg-pair: cleanup failed for staging %s\n' "$stage_dir" >&2
+      status=3
+    fi
+  fi
+  trap - EXIT
+  exit "$status"
+}
+
+on_signal() {
+  exit "$1"
+}
+
+trap on_exit EXIT
+trap 'on_signal 129' HUP
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/se-external-leg-pair.XXXXXX")" \
+  || refuse 'could not create private transport directory.'
+chmod 700 "$work_dir" || refuse 'could not protect private transport directory.'
+
+run_id="$(date +%s)-$$-$RANDOM"
+claude_name="$(herdr-peer-alias "claude|$run_id|$repo_root")" \
+  || refuse 'could not allocate the Claude alias.'
+[ -n "$claude_name" ] || refuse 'Claude alias allocation returned empty output.'
+opencode_name="$(herdr-peer-alias "opencode|$run_id|$repo_root" "$claude_name")" \
+  || refuse 'could not allocate the OpenCode alias.'
+[ -n "$opencode_name" ] || refuse 'OpenCode alias allocation returned empty output.'
+[ "$claude_name" != "$opencode_name" ] || refuse 'peer alias allocation returned a duplicate.'
+
+claude_report="$work_dir/claude.report"
+opencode_report="$work_dir/opencode.report"
+claude_scan_prompt="$work_dir/claude.prompt"
+opencode_scan_prompt="$work_dir/opencode.prompt"
+
+claude_prompt="$(cat "$claude_prompt_file")"
+opencode_prompt="$(cat "$opencode_prompt_file")"
+claude_prompt="$claude_prompt
+
+[peer-report-transport]
+Report path: $claude_report
+Before ending this turn, write the exact complete report byte-for-byte to the report path. Write it atomically through $claude_report.tmp and rename the completed file to $claude_report. The report file is authoritative. Return the same report normally after it is durable. Do not write any other file."
+opencode_prompt="$opencode_prompt
+
+[peer-report-transport]
+Report path: $opencode_report
+Before ending this turn, write the exact complete report byte-for-byte to the report path. Write it atomically through $opencode_report.tmp and rename the completed file to $opencode_report. The report file is authoritative. Return the same report normally after it is durable. Do not write any other file."
+printf '%s' "$claude_prompt" > "$claude_scan_prompt" || refuse 'could not prepare the Claude prompt.'
+printf '%s' "$opencode_prompt" > "$opencode_scan_prompt" || refuse 'could not prepare the OpenCode prompt.'
+
+if [ -n "$exposed_document" ]; then
+  pre-external-secret-scan "$repo_root" "$exposed_document" "$claude_scan_prompt" "$opencode_scan_prompt" \
+    || refuse 'the initial secret scan did not return clean.'
+else
+  pre-external-secret-scan "$repo_root" "$claude_scan_prompt" "$opencode_scan_prompt" \
+    || refuse 'the initial secret scan did not return clean.'
+fi
+scan_state="clean"
+[ "${SE_SKIP_SECRET_SCAN:-0}" != 1 ] || scan_state="waived"
+
+create_tab() {
+  local leg="$1" output status tab pane
+  if [ "$leg" = claude ]; then
+    output="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$repo_root" --no-focus 2>"$work_dir/claude-tab.err")"
+    status=$?
+  else
+    output="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$repo_root" --no-focus \
+      --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow","reasoningEffort":"high"}}}' \
+      2>"$work_dir/opencode-tab.err")"
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    [ "$leg" != claude ] || claude_state="tab-create-failed"
+    [ "$leg" != opencode ] || opencode_state="tab-create-failed"
+    return 1
+  fi
+
+  tab="$(printf '%s' "$output" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("result",{}).get("tab",{}).get("tab_id", ""))' 2>/dev/null || true)"
+  pane="$(printf '%s' "$output" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("result",{}).get("root_pane",{}).get("pane_id", ""))' 2>/dev/null || true)"
+  if [ "$leg" = claude ]; then
+    claude_tab="$tab"
+    claude_pane="$pane"
+    claude_state="tab-created"
+    if [ -z "$tab" ] || [ -z "$pane" ]; then
+      claude_state="tab-malformed"
+      if [ -z "$tab" ]; then
+        printf 'se-external-leg-pair: cleanup unconfirmed: Claude tab creation returned no tab ID.\n' >&2
+        cleanup_unconfirmed=1
+      fi
+      return 1
+    fi
+  else
+    opencode_tab="$tab"
+    opencode_pane="$pane"
+    opencode_state="tab-created"
+    if [ -z "$tab" ] || [ -z "$pane" ]; then
+      opencode_state="tab-malformed"
+      if [ -z "$tab" ]; then
+        printf 'se-external-leg-pair: cleanup unconfirmed: OpenCode tab creation returned no tab ID.\n' >&2
+        cleanup_unconfirmed=1
+      fi
+      return 1
+    fi
+  fi
+  return 0
+}
+
+create_tab claude || true
+[ "$cleanup_unconfirmed" -eq 0 ] || exit 3
+create_tab opencode || true
+[ "$cleanup_unconfirmed" -eq 0 ] || exit 3
+
+start_agent() {
+  local leg="$1" name pane other output_file error_file status combined attempt=1 busy_retry=0 name_retry=0
+  if [ "$leg" = claude ]; then
+    [ "$claude_state" = tab-created ] || return 1
+    name="$claude_name"
+    pane="$claude_pane"
+    other="$opencode_name"
+  else
+    [ "$opencode_state" = tab-created ] || return 1
+    name="$opencode_name"
+    pane="$opencode_pane"
+    other="$claude_name"
+  fi
+  output_file="$work_dir/$leg-start.out"
+  error_file="$work_dir/$leg-start.err"
+
+  while [ "$attempt" -le 3 ]; do
+    if [ "$leg" = claude ]; then
+      herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 -- \
+        --model sonnet --effort high --dangerously-skip-permissions >"$output_file" 2>"$error_file"
+      status=$?
+    else
+      herdr agent start "$name" --kind opencode --pane "$pane" --timeout 60000 -- \
+        --model openai/gpt-5.6-terra --agent build --auto >"$output_file" 2>"$error_file"
+      status=$?
+    fi
+    if [ "$status" -eq 0 ] && python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+raise SystemExit(0 if data.get("result", {}).get("agent", {}).get("interactive_ready") is True else 1)
+' < "$output_file" 2>/dev/null; then
+      [ "$leg" != claude ] || { claude_name="$name"; claude_state="started"; }
+      [ "$leg" != opencode ] || { opencode_name="$name"; opencode_state="started"; }
+      return 0
+    fi
+
+    combined="$(cat "$output_file" "$error_file" 2>/dev/null)"
+    case "$combined" in
+      *agent_pane_busy*)
+        [ "$busy_retry" -eq 0 ] || break
+        busy_retry=1
+        sleep 2
+        ;;
+      *agent_name_taken*)
+        [ "$name_retry" -eq 0 ] || break
+        name_retry=1
+        name="$(herdr-peer-alias "$leg-retry|$run_id|$repo_root" "$other")" || break
+        [ -n "$name" ] || break
+        ;;
+      *) break ;;
+    esac
+    attempt=$((attempt + 1))
+  done
+
+  [ "$leg" != claude ] || claude_state="start-failed"
+  [ "$leg" != opencode ] || opencode_state="start-failed"
+  return 1
+}
+
+start_agent claude || true
+start_agent opencode || true
+
+prompt_agent() {
+  local leg="$1" pane prompt
+  if [ "$leg" = claude ]; then
+    [ "$claude_state" = started ] || return 1
+    pane="$claude_pane"
+    prompt="$claude_prompt"
+  else
+    [ "$opencode_state" = started ] || return 1
+    pane="$opencode_pane"
+    prompt="$opencode_prompt"
+  fi
+  if herdr agent prompt "$pane" "$prompt" >/dev/null; then
+    [ "$leg" != claude ] || claude_state="prompted"
+    [ "$leg" != opencode ] || opencode_state="prompted"
+    return 0
+  fi
+  [ "$leg" != claude ] || claude_state="prompt-failed"
+  [ "$leg" != opencode ] || opencode_state="prompt-failed"
+  return 1
+}
+
+prompt_agent claude || true
+prompt_agent opencode || true
+
+wait_agent() {
+  local leg="$1" pane
+  if [ "$leg" = claude ]; then
+    case "$claude_state" in prompted|prompt-failed) ;; *) return 1 ;; esac
+    pane="$claude_pane"
+  else
+    case "$opencode_state" in prompted|prompt-failed) ;; *) return 1 ;; esac
+    pane="$opencode_pane"
+  fi
+  if herdr agent wait "$pane" --timeout 1800000 >/dev/null 2>&1; then
+    return 0
+  fi
+  [ "$leg" != claude ] || claude_state="wait-failed"
+  [ "$leg" != opencode ] || opencode_state="wait-failed"
+  return 1
+}
+
+wait_agent claude || true
+wait_agent opencode || true
+
+# 0 delivered, 3 absent, 4 empty, 5 non-regular or symlink.
+classify_report() {
+  local report="$1"
+  [ ! -L "$report" ] || return 5
+  if [ -e "$report" ] && [ ! -f "$report" ]; then return 5; fi
+  [ -e "$report" ] || return 3
+  [ -s "$report" ] || return 4
+  [ -r "$report" ] || return 5
+  return 0
+}
+
+set_collected_state() {
+  local leg="$1" state="$2" usable="$3"
+  if [ "$leg" = claude ]; then
+    claude_state="$state"
+    claude_usable="$usable"
+  else
+    opencode_state="$state"
+    opencode_usable="$usable"
+  fi
+}
+
+collect_report() {
+  local leg="$1" pane report report_state recovery_prompt recovery_file prompt_status
+  if [ "$leg" = claude ]; then
+    pane="$claude_pane"
+    report="$claude_report"
+    case "$claude_state" in prompted|prompt-failed|wait-failed) ;; *) return 1 ;; esac
+  else
+    pane="$opencode_pane"
+    report="$opencode_report"
+    case "$opencode_state" in prompted|prompt-failed|wait-failed) ;; *) return 1 ;; esac
+  fi
+
+  classify_report "$report"
+  report_state=$?
+  if [ "$report_state" -eq 0 ]; then
+    set_collected_state "$leg" delivered 1
+    return 0
+  fi
+  if { [ "$report_state" -eq 3 ] || [ "$report_state" -eq 4 ]; } && \
+    { [ "$leg" = claude ] && [ "$claude_state" = prompted ] || \
+      [ "$leg" = opencode ] && [ "$opencode_state" = prompted ]; }; then
+    recovery_prompt="The report transport file is missing or empty. Write your exact complete previous report byte-for-byte, atomically through $report.tmp, and rename it to $report. Then reply with only the path.
+Recovery report path: $report"
+    recovery_file="$work_dir/$leg-recovery.prompt"
+    printf '%s' "$recovery_prompt" > "$recovery_file" || {
+      set_collected_state "$leg" recovery-preparation-failed 0
+      return 1
+    }
+    if [ -n "$exposed_document" ]; then
+      pre-external-secret-scan "$repo_root" "$exposed_document" "$recovery_file" || {
+        set_collected_state "$leg" recovery-scan-refused 0
+        return 1
+      }
+    else
+      pre-external-secret-scan "$repo_root" "$recovery_file" || {
+        set_collected_state "$leg" recovery-scan-refused 0
+        return 1
+      }
+    fi
+    herdr agent prompt "$pane" "$recovery_prompt" --wait --timeout 120000 >/dev/null 2>&1
+    prompt_status=$?
+    classify_report "$report"
+    report_state=$?
+    if [ "$report_state" -eq 0 ]; then
+      set_collected_state "$leg" recovered 1
+      return 0
+    fi
+    [ "$prompt_status" -eq 0 ] || {
+      set_collected_state "$leg" recovery-failed 0
+      return 1
+    }
+  fi
+
+  case "$report_state" in
+    3) set_collected_state "$leg" missing 0 ;;
+    4) set_collected_state "$leg" empty 0 ;;
+    *) set_collected_state "$leg" malformed 0 ;;
+  esac
+  return 1
+}
+
+collect_report claude || true
+collect_report opencode || true
+
+if ! close_tabs; then
+  remove_work_dir || true
+  exit 3
+fi
+
+stage_dir="$(mktemp -d "$result_parent/.se-external-leg-pair.XXXXXX")" || {
+  printf 'se-external-leg-pair: could not stage the result.\n' >&2
+  exit 1
+}
+
+copy_report() {
+  python3 - "$1" "$2" <<'PY'
+import os
+import shutil
+import stat
+import sys
+
+source, destination = sys.argv[1:]
+flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+descriptor = os.open(source, flags)
+try:
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size == 0:
+        raise SystemExit(1)
+    with os.fdopen(descriptor, "rb", closefd=False) as input_file:
+        with open(destination, "xb") as output_file:
+            shutil.copyfileobj(input_file, output_file)
+finally:
+    os.close(descriptor)
+PY
+}
+
+if [ "$claude_usable" -eq 1 ] && ! copy_report "$claude_report" "$stage_dir/claude.report"; then
+  rm -f "$stage_dir/claude.report"
+  claude_state="copy-failed"
+  claude_usable=0
+fi
+if [ "$opencode_usable" -eq 1 ] && ! copy_report "$opencode_report" "$stage_dir/opencode.report"; then
+  rm -f "$stage_dir/opencode.report"
+  opencode_state="copy-failed"
+  opencode_usable=0
+fi
+
+classification="none"
+if [ "$claude_usable" -eq 1 ] && [ "$opencode_usable" -eq 1 ]; then
+  cmp -s "$stage_dir/claude.report" "$stage_dir/opencode.report"
+  compare_status=$?
+  case "$compare_status" in
+    0)
+      classification="identical-single"
+      mv "$stage_dir/claude.report" "$stage_dir/identical.report" || exit 1
+      rm -f "$stage_dir/opencode.report" || exit 1
+      ;;
+    1) classification="paired" ;;
+    *)
+      printf 'se-external-leg-pair: could not compare peer reports.\n' >&2
+      exit 1
+      ;;
+  esac
+elif [ "$claude_usable" -eq 1 ]; then
+  classification="claude-only"
+elif [ "$opencode_usable" -eq 1 ]; then
+  classification="opencode-only"
+fi
+
+if ! remove_work_dir; then
+  exit 3
+fi
+cleanup_complete=1
+
+python3 - "$stage_dir/result.json" "$classification" "$scan_state" "$claude_state" "$opencode_state" <<'PY'
+import json
+import sys
+
+path, classification, scan, claude_state, opencode_state = sys.argv[1:]
+report_paths = {
+    "paired": [
+        {"source": "claude", "path": "claude.report"},
+        {"source": "opencode", "path": "opencode.report"},
+    ],
+    "identical-single": [{"source": "indeterminate", "path": "identical.report"}],
+    "claude-only": [{"source": "claude", "path": "claude.report"}],
+    "opencode-only": [{"source": "opencode", "path": "opencode.report"}],
+    "none": [],
+}
+with open(path, "w", encoding="utf-8") as result:
+    json.dump(
+        {
+            "interface": "se-external-leg-pair/v1",
+            "classification": classification,
+            "scan": scan,
+            "cleanup": "complete",
+            "legs": {"claude": claude_state, "opencode": opencode_state},
+            "reports": report_paths[classification],
+        },
+        result,
+        indent=2,
+        sort_keys=True,
+    )
+    result.write("\n")
+PY
+[ "$?" -eq 0 ] || exit 1
+
+python3 - "$stage_dir" "$result_dir" <<'PY'
+import os
+import sys
+
+source, destination = sys.argv[1:]
+if os.path.lexists(destination):
+    raise SystemExit(1)
+os.rename(source, destination)
+PY
+[ "$?" -eq 0 ] || {
+  printf 'se-external-leg-pair: could not publish the result.\n' >&2
+  exit 1
+}
+stage_dir=""
+
+[ "$classification" != none ] || exit 1
+exit 0
