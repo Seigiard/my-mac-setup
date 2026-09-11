@@ -17,7 +17,7 @@ allow_nested = true
 
 [keys]
 switch_workspace = "ctrl+shift+1..9"
-new_workspace = ""
+new_workspace = "" # rebound below as a custom command, not dropped
 new_worktree = "prefix+shift+g"
 open_worktree = ["prefix+shift+o", "cmd+shift+o", "prefix+cmd+shift+o"]
 remove_worktree = ["prefix+shift+y", "cmd+shift+k", "prefix+cmd+shift+k"]
@@ -42,6 +42,12 @@ resize_pane_right = "ctrl+alt+right"
 # Herdr 0.9.0 can retain the source workspace's Git identity after a new
 # workspace changes directories (herdrdev/herdr#3214). Start Cmd+N workspaces
 # outside Git without changing the follow policy for tabs and split panes.
+# Cmd+N arrives as \x02N from the terminal (see the Ghostty keybind), which
+# Herdr reads as prefix+shift+n. Run `herdr server reload-config` after editing
+# this pair: the unbind above and this command activate through different paths
+# -- server config vs the client's custom-command manifest -- so a half-applied
+# reload leaves the chord bound to nothing. Herdr logs no config events, so the
+# only symptom is a key that silently stops working.
 [[keys.command]]
 key = "prefix+shift+n"
 type = "shell"
