@@ -180,12 +180,13 @@ class TestDotfilesWorkflow(unittest.TestCase):
 
     def gate_script(self, text, job_name):
         """The shell body of the Brewfile-diff gate, ready to execute."""
-        step = self.named_step_block(
-            self.job_block(text, job_name),
-            "Install the full Brewfiles when the diff touches one",
-        )
+        return self.step_script(text, job_name, "Install the full Brewfiles when the diff touches one")
+
+    def step_script(self, text, job_name, step_name):
+        """A named step's literal shell body, ready to execute."""
+        step = self.named_step_block(self.job_block(text, job_name), step_name)
         match = re.search(r"^        run: \|\n(?P<body>(?:^ {10}.*\n|^\n)+)", step, re.MULTILINE)
-        self.assertIsNotNone(match, "gate step must declare a literal run: block")
+        self.assertIsNotNone(match, "%s must declare a literal run: block" % step_name)
         return textwrap.dedent(match.group("body"))
 
     def git_environment(self, home):
@@ -318,6 +319,92 @@ class TestDotfilesWorkflow(unittest.TestCase):
                     full,
                     "a PR that edits a Brewfile must install the full set: %s" % output,
                 )
+
+    def test_ubuntu_exports_paths_for_chezmoi_and_linuxbrew_tools(self):
+        script = self.step_script(self.workflow_text(), "test-ubuntu", "Add managed tools to PATH")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            github_path = home / "github_path"
+            environment = dict(os.environ, HOME=str(home), GITHUB_PATH=str(github_path))
+            result = subprocess.run(
+                ["bash", "-e", "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            exported = github_path.read_text(encoding="utf-8").splitlines()
+
+        self.assertIn(str(home / ".local" / "bin"), exported)
+        self.assertIn("/home/linuxbrew/.linuxbrew/bin", exported)
+
+    def test_ubuntu_gitleaks_installer_deploys_a_runnable_cli(self):
+        text = self.workflow_text()
+        job = self.job_block(text, "test-ubuntu")
+        step = self.named_step_block(job, "Install gitleaks")
+        version = self.step_value(step, "GITLEAKS_VERSION").strip('"')
+        self.assertEqual(version, "8.30.1")
+        script = self.step_script(text, "test-ubuntu", "Install gitleaks")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            bin_dir = home / ".local" / "bin"
+            fixture_dir = root / "fixture"
+            stub_dir = root / "stubs"
+            bin_dir.mkdir(parents=True)
+            fixture_dir.mkdir()
+            stub_dir.mkdir()
+
+            gitleaks = fixture_dir / "gitleaks"
+            gitleaks.write_text("#!/bin/sh\nprintf 'fixture-gitleaks\\n'\n", encoding="utf-8")
+            gitleaks.chmod(0o755)
+            archive = root / "gitleaks.tar.gz"
+            subprocess.run(
+                ["tar", "-czf", str(archive), "-C", str(fixture_dir), "gitleaks"],
+                check=True,
+            )
+
+            curl_log = root / "curl.log"
+            curl = stub_dir / "curl"
+            curl.write_text(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CURL_LOG\"\ncat \"$GITLEAKS_ARCHIVE\"\n",
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            environment = dict(
+                os.environ,
+                HOME=str(home),
+                PATH="%s:%s:%s" % (stub_dir, bin_dir, os.environ["PATH"]),
+                CURL_LOG=str(curl_log),
+                GITLEAKS_ARCHIVE=str(archive),
+                GITLEAKS_VERSION=version,
+                MMS_CI_MINIMAL="",
+            )
+            full_result = subprocess.run(
+                ["bash", "-e", "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(full_result.returncode, 0, full_result.stdout + full_result.stderr)
+            self.assertFalse(curl_log.exists())
+            self.assertFalse((bin_dir / "gitleaks").exists())
+
+            environment["MMS_CI_MINIMAL"] = "1"
+            result = subprocess.run(
+                ["bash", "-e", "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.strip(), "fixture-gitleaks")
+            self.assertTrue((bin_dir / "gitleaks").is_file())
+            self.assertIn(
+                "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/"
+                "gitleaks_8.30.1_linux_x64.tar.gz",
+                curl_log.read_text(encoding="utf-8").splitlines(),
+            )
 
     def test_every_job_declares_a_timeout(self):
         # Presence only — ceiling values are owned by issue 2026-08-21-008.
