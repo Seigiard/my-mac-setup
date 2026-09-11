@@ -1,11 +1,12 @@
 // Pi prompt adapter for herdr-worktree-identity.
 // @ts-nocheck
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 let handoffWorktreeIdentity: ((agent: "pi", sessionID: string, prompt: string) => Promise<void>) | undefined;
 try {
   ({ handoffWorktreeIdentity } = await import(
-    join(process.env.HOME ?? "", ".local", "lib", "agent-hooks", "worktree-identity.ts")
+    join(process.env.HOME || homedir(), ".local", "lib", "agent-hooks", "worktree-identity.ts")
   ));
 } catch {
   handoffWorktreeIdentity = undefined;

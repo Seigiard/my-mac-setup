@@ -2,6 +2,7 @@
 // OpenCode prompt adapter for herdr-worktree-identity. The engine detaches its
 // model worker before this foreground handshake resolves.
 import type { Plugin } from "@opencode-ai/plugin"
+import { homedir } from "node:os"
 import { join } from "node:path"
 
 let handoffWorktreeIdentity:
@@ -9,7 +10,7 @@ let handoffWorktreeIdentity:
   | undefined
 try {
   ;({ handoffWorktreeIdentity } = await import(
-    join(process.env.HOME ?? "", ".local", "lib", "agent-hooks", "worktree-identity.ts"),
+    join(process.env.HOME || homedir(), ".local", "lib", "agent-hooks", "worktree-identity.ts"),
   ))
 } catch {
   handoffWorktreeIdentity = undefined

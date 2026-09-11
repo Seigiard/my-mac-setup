@@ -5,8 +5,9 @@ type: "follow-up"
 category: "agent-platform"
 tags: ["architecture","worktree-identity","adapter","enhancement","ready-for-agent"]
 date: "2026-09-11"
-status: "in-progress"
+status: "done"
 priority: "low"
+closed: "2026-09-11"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ When either adapter next requires modification, move only the shared TypeScript 
 ## Open decisions
 
 Deferred until one adapter next changes; revalidate that both implementations still match before extracting the shared handoff.
+
+## Resolution
+
+Extracted the matching Pi and OpenCode subprocess handoff into one deployed TypeScript module while preserving client-local event normalization, stdin-only transport, engine discovery, timeout, and fail-open behavior; verified through focused adapter tests and the disposable-home suite.
