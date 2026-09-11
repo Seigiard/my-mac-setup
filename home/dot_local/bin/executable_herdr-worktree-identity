@@ -308,37 +308,6 @@ recorded_first_prompt() {
   printf '%s' "$stored"
 }
 
-diagnostic_file_for_state() {
-  printf '%s.diagnostics.log' "${1%.state}"
-}
-
-write_identity_state() {
-  local file="$1" root="$2" common="$3" workspace="$4" original="$5" outcome="$6" authorization="$7"
-  local title="${8:-}" slug="${9:-}" branch="${10:-}"
-  # Read compatibility for state written before the rename. A state file is a
-  # cache entry, but the re-write paths carry an existing outcome forward, so an
-  # in-flight underscored value would otherwise be refused below and strand the
-  # state. Translating here guarantees only the canonical spelling is persisted.
-  [ "$outcome" = attribution_failed ] && outcome=attribution-failed
-  # An outcome outside the whitelist is a programming error in one of the write
-  # sites, not runtime contention. Refuse the write so an unreachable state never
-  # reaches a reader, and leave the evidence where every other state-write
-  # failure leaves it -- callers already treat a nonzero return that way.
-  if ! is_legal_outcome "$outcome"; then
-    record_diagnostic "$(diagnostic_file_for_state "$file")" illegal-outcome "outcome=$outcome workspace=$workspace" || true
-    return 1
-  fi
-  atomic_write "$file" "checkout_root=$(encode_value "$root")
-repository_anchor=$(encode_value "$common")
-workspace=$(encode_value "$workspace")
-original_branch=$(encode_value "$original")
-branch=$(encode_value "$branch")
-outcome=$(encode_value "$outcome")
-authorization=$(encode_value "$authorization")
-title=$(encode_value "$title")
-slug=$(encode_value "$slug")"
-}
-
 ensure_identity() {
   local state="$1" root="$2" prompt="$3" title slug identity
   title="$(read_state_field "$state" title)"
@@ -346,16 +315,14 @@ ensure_identity() {
   [ -n "$title" ] && [ "$(slug_word_count "$slug")" -ge 2 ] && return 0
   identity="$(derive_identity "$prompt" "$root")"
   IFS=$'\037' read -r title slug <<< "$identity"
-  write_identity_state "$state" "$root" "$(read_state_field "$state" repository_anchor)" "$workspace" \
-    "$(read_state_field "$state" original_branch)" "$(read_state_field "$state" outcome)" authorized "$title" "$slug" \
-    "$(read_state_field "$state" branch)" || true
+  write_identity_state "$state" title "$title" slug "$slug" || true
   [ -n "$title" ] && [ "$(slug_word_count "$slug")" -ge 2 ]
 }
 
 record_unresolved() {
   local reason="$1" observed="$2" file
   file="$(session_state_file "$session")"
-  write_identity_state "$file" '' '' "$workspace" '' unresolved '' || true
+  write_identity_state "$file" workspace "$workspace" outcome unresolved || true
   record_diagnostic "$(diagnostic_file_for_state "$file")" "$reason" "$observed" || true
 }
 
@@ -413,35 +380,35 @@ is_linked_worktree() {
 }
 
 authorize_worktree() {
-  local root="$1" common="$2" branch marker original state observed title slug outcome renamed_branch
+  local root="$1" common="$2" branch marker original state observed
   branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
     record_unresolved detached-head "checkout=$root"
     return 0
   }
   state="$(worktree_state_file "$common" "$root")"
   original="$(read_state_field "$state" original_branch)"
-  title="$(read_state_field "$state" title)"
-  slug="$(read_state_field "$state" slug)"
-  outcome="$(read_state_field "$state" outcome)"
-  renamed_branch="$(read_state_field "$state" branch)"
   [ -n "$original" ] || original="$branch"
   marker="$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)" || {
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
+    write_identity_state "$state" checkout_root "$root" repository_anchor "$common" workspace "$workspace" \
+      original_branch "$original" outcome declined authorization '' || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-path-unavailable "checkout=$root branch=$branch" || true
     return 0
   }
   if [ ! -f "$marker" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
+    write_identity_state "$state" checkout_root "$root" repository_anchor "$common" workspace "$workspace" \
+      original_branch "$original" outcome declined authorization '' || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-missing "checkout=$root branch=$branch marker=$marker" || true
     return 0
   fi
   observed="$(head -n 1 "$marker" 2>/dev/null)"
   if [ "$observed" != "$original" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" declined '' "$title" "$slug" "$renamed_branch" || true
+    write_identity_state "$state" checkout_root "$root" repository_anchor "$common" workspace "$workspace" \
+      original_branch "$original" outcome declined authorization '' || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" marker-mismatched "checkout=$root branch=$branch original_branch=$original marker_branch=$observed" || true
     return 0
   fi
-  write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$outcome" authorized "$title" "$slug" "$renamed_branch" || true
+  write_identity_state "$state" checkout_root "$root" repository_anchor "$common" workspace "$workspace" \
+    original_branch "$original" authorization authorized || true
 }
 
 branch_name_available() {
@@ -567,11 +534,11 @@ wait_for_claim_test_barrier() {
 }
 
 retry_attribution() {
-  local root="$1" common="$2" state="$3" original="$4" branch="$5" marker="$6" title="$7" slug="$8"
+  local root="$1" state="$2" original="$3" branch="$4" marker="$5"
   if write_attribution "$root" "$original" "$branch" "$marker"; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" outcome prepared || true
   else
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" attribution-failed authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" outcome attribution-failed || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" attribution-failed "checkout=$root branch=$branch" || true
   fi
 }
@@ -599,16 +566,14 @@ read_workspace_label() {
 # Re-read the pane immediately before the external rename: the original
 # lookup can be stale after an occupant, session, or workspace change.
 label_workspace() {
-  local root="$1" common="$2" state="$3" expected_pane="$4" desired_outcome="$5"
-  local original title slug branch desired_name outcome payload fields final_pane final_agent final_session final_workspace current_label
-  original="$(read_state_field "$state" original_branch)"
-  title="$(read_state_field "$state" title)"
+  local root="$1" state="$2" expected_pane="$3" desired_outcome="$4"
+  local slug branch desired_name outcome payload fields final_pane final_agent final_session final_workspace current_label
   slug="$(read_state_field "$state" slug)"
   branch="$(read_state_field "$state" branch)"
   desired_name="${branch:-$slug}"
   outcome="$(read_state_field "$state" outcome)"
   if [ -z "$desired_name" ] || [ -z "$workspace" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" outcome workspace-failed || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-unavailable "checkout=$root workspace=${workspace:-missing}" || true
     return 1
   fi
@@ -620,7 +585,7 @@ label_workspace() {
       }
       if [ "$current_label" = "$desired_name" ]; then
         if [ "$outcome" = workspace-prepared ]; then
-          write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || {
+          write_identity_state "$state" outcome "$desired_outcome" || {
             record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-terminal-state-write-failed "workspace=$workspace name=$desired_name" || true
             return 1
           }
@@ -631,28 +596,28 @@ label_workspace() {
   esac
   wait_for_workspace_revalidation_test_barrier || return 1
   payload="$(run_herdr pane get "$expected_pane")" || {
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" outcome workspace-failed || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-unreachable "pane=$expected_pane workspace=$workspace" || true
     return 1
   }
   fields="$(printf '%s' "$payload" | pane_fields)" || {
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" outcome workspace-failed || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-pane-malformed "pane=$expected_pane workspace=$workspace" || true
     return 1
   }
   IFS=$'\037' read -r final_pane final_agent final_session final_workspace _ <<< "$fields"
   if [ "$final_pane" != "$expected_pane" ] || [ "$final_agent" != "$agent" ] || \
     [ "$final_session" != "$session" ] || [ "$final_workspace" != "$workspace" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+    write_identity_state "$state" outcome workspace-failed || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-occupant-changed "pane=$expected_pane observed_pane=$final_pane agent=$final_agent session=$final_session workspace=$final_workspace" || true
     return 1
   fi
-  write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-prepared authorized "$title" "$slug" "$branch" || {
+  write_identity_state "$state" outcome workspace-prepared || {
     record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-prepared-state-write-failed "workspace=$workspace name=$desired_name" || true
     return 1
   }
   if run_herdr workspace rename "$workspace" "$desired_name" >/dev/null; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || {
+    write_identity_state "$state" outcome "$desired_outcome" || {
       record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-terminal-state-write-failed "workspace=$workspace name=$desired_name" || true
       return 1
     }
@@ -663,13 +628,13 @@ label_workspace() {
     return 1
   }
   if [ "$current_label" = "$desired_name" ]; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" "$desired_outcome" authorized "$title" "$slug" "$branch" || {
+    write_identity_state "$state" outcome "$desired_outcome" || {
       record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-terminal-state-write-failed "workspace=$workspace name=$desired_name" || true
       return 1
     }
     return 0
   fi
-  write_identity_state "$state" "$root" "$common" "$workspace" "$original" workspace-failed authorized "$title" "$slug" "$branch" || true
+  write_identity_state "$state" outcome workspace-failed || true
   record_diagnostic "$(diagnostic_file_for_state "$state")" workspace-rename-failed "pane=$expected_pane workspace=$workspace name=$desired_name" || true
   return 1
 }
@@ -701,7 +666,7 @@ apply_branch_rename() {
         return 11
       fi
       if [ -n "$candidate" ] && [ "$branch" = "$candidate" ]; then
-        retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+        retry_attribution "$root" "$state" "$original" "$candidate" "$marker"
         [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
         return 11
       fi
@@ -727,7 +692,7 @@ apply_branch_rename() {
       ;;
     attribution-failed | attribution_failed)
       if [ "$branch" = "$candidate" ]; then
-        retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+        retry_attribution "$root" "$state" "$original" "$candidate" "$marker"
       else
         record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-attribution-failure "checkout=$root branch=$branch expected_branch=$candidate" || true
         return 10
@@ -811,7 +776,7 @@ apply_branch_rename() {
     release_claim "$lock" "$owner"
     return 11
   fi
-  write_identity_state "$state" "$root" "$common" "$workspace" "$original" prepared authorized "$title" "$slug" "$candidate" || {
+  write_identity_state "$state" branch "$candidate" outcome prepared || {
     record_diagnostic "$(diagnostic_file_for_state "$state")" prepared-state-write-failed "checkout=$root branch=$branch candidate=$candidate" || true
     release_claim "$lock" "$owner"
     return 11
@@ -847,12 +812,12 @@ apply_branch_rename() {
     return 11
   fi
   if ! git -C "$root" branch -m "$candidate"; then
-    write_identity_state "$state" "$root" "$common" "$workspace" "$original" branch-failed authorized "$title" "$slug" "$candidate" || true
+    write_identity_state "$state" outcome branch-failed || true
     record_diagnostic "$(diagnostic_file_for_state "$state")" branch-rename-failed "checkout=$root branch=$branch candidate=$candidate" || true
     release_claim "$lock" "$owner"
     return 11
   fi
-  retry_attribution "$root" "$common" "$state" "$original" "$candidate" "$marker" "$title" "$slug"
+  retry_attribution "$root" "$state" "$original" "$candidate" "$marker"
   release_claim "$lock" "$owner"
   [ "$(read_state_field "$state" outcome)" = prepared ] && return 0
   return 11
@@ -868,7 +833,7 @@ process_worktree_locked() {
   case "$outcome" in
     declined) return 0 ;;
     workspace-only)
-      label_workspace "$root" "$common" "$state" "$resolved_pane" workspace-only || true
+      label_workspace "$root" "$state" "$resolved_pane" workspace-only || true
       return 0
       ;;
     complete)
@@ -876,13 +841,11 @@ process_worktree_locked() {
       expected_branch="$(read_state_field "$state" branch)"
       observed_branch="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null)" || observed_branch=''
       if [ -n "$expected_branch" ] && [ "$observed_branch" != "$expected_branch" ]; then
-        write_identity_state "$state" "$root" "$common" "$workspace" \
-          "$(read_state_field "$state" original_branch)" workspace-only authorized \
-          "$(read_state_field "$state" title)" "$(read_state_field "$state" slug)" "$expected_branch" || true
+        write_identity_state "$state" outcome workspace-only || true
         record_diagnostic "$(diagnostic_file_for_state "$state")" branch-moved-after-complete "checkout=$root branch=$observed_branch expected_branch=$expected_branch" || true
         terminal_outcome='workspace-only'
       fi
-      label_workspace "$root" "$common" "$state" "$resolved_pane" "$terminal_outcome" || true
+      label_workspace "$root" "$state" "$resolved_pane" "$terminal_outcome" || true
       return 0
       ;;
   esac
@@ -894,8 +857,8 @@ process_worktree_locked() {
   apply_branch_rename "$root" "$common" "$state" "$(git -C "$root" rev-parse --path-format=absolute --git-path herdr-generated-worktree 2>/dev/null)"
   branch_status=$?
   case "$branch_status" in
-    0) label_workspace "$root" "$common" "$state" "$resolved_pane" complete || true ;;
-    10) label_workspace "$root" "$common" "$state" "$resolved_pane" workspace-only || true ;;
+    0) label_workspace "$root" "$state" "$resolved_pane" complete || true ;;
+    10) label_workspace "$root" "$state" "$resolved_pane" workspace-only || true ;;
   esac
 }
 
@@ -985,7 +948,7 @@ worker() {
   if ! is_linked_worktree "$root"; then
     local primary_state
     primary_state="$(session_state_file "$session")"
-    write_identity_state "$primary_state" "$root" '' "$workspace" '' declined '' || true
+    write_identity_state "$primary_state" checkout_root "$root" workspace "$workspace" outcome declined authorization '' || true
     record_diagnostic "$(diagnostic_file_for_state "$primary_state")" primary-checkout "checkout=$root" || true
     return 0
   fi

@@ -23,9 +23,7 @@ Capture the pre-apply worktree state so simplify-owned edits can be distinguishe
 
 ## Dispatch fresh peers
 
-Read `~/.claude/shared/herdr-peer-launch.md` in full. It is the single source of truth for tab creation, exact models and permissions, concurrent dispatch, wait and read behavior, and close-before-synthesis cleanup.
-
-Set `REPO_ROOT` to the current checkout. Supply the following dispatch briefs as the reference's `CLAUDE_PROMPT` and `OPENCODE_PROMPT` inputs.
+Read `~/.claude/shared/herdr-peer-launch.md` in full. It defines the `se-external-leg-pair` interface and result contract. Set `REPO_ROOT` to the current checkout and compose the following complete dispatch briefs as `CLAUDE_PROMPT` and `OPENCODE_PROMPT`.
 
 ### Claude prompt
 
@@ -77,11 +75,30 @@ Write `Findings: none` when no item survives. End with the exact line:
 Simplify review complete
 ```
 
-Execute the shared lifecycle through tab closure. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; two failed peers fail the simplify run and apply nothing.
+Write the complete prompts to private files and invoke the lifecycle once:
+
+```bash
+PAIR_PARENT=$(mktemp -d "${TMPDIR:-/tmp}/se-simplify-pair.XXXXXX") || exit 1
+CLAUDE_PROMPT_FILE="$PAIR_PARENT/claude.prompt"
+OPENCODE_PROMPT_FILE="$PAIR_PARENT/opencode.prompt"
+PAIR_RESULT="$PAIR_PARENT/result"
+if ! printf '%s' "$CLAUDE_PROMPT" > "$CLAUDE_PROMPT_FILE" ||
+  ! printf '%s' "$OPENCODE_PROMPT" > "$OPENCODE_PROMPT_FILE"; then
+  rm -rf "$PAIR_PARENT"
+  exit 1
+fi
+PAIR_STATUS=0
+se-external-leg-pair --repo-root "$REPO_ROOT" \
+  --claude-prompt-file "$CLAUDE_PROMPT_FILE" \
+  --opencode-prompt-file "$OPENCODE_PROMPT_FILE" \
+  --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
+```
+
+After the command returns, load any published result needed for diagnosis, then remove `PAIR_PARENT` on every status before synthesis or return. Require `PAIR_STATUS=0`. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; no valid peer report fails the simplify run and applies nothing. Treat `identical-single` as one indeterminate source, never consensus. Report a waived scan.
 
 ## Synthesize findings
 
-Merge findings into consensus, Claude-only, OpenCode-only, contradictions, and behavior-preservation uncertainty.
+Merge findings into consensus, Claude-only, OpenCode-only, indeterminate-single, contradictions, and behavior-preservation uncertainty. Keep indeterminate-single findings unattributed to either model.
 
 - Accept defensible consensus and unique findings.
 - Exclude contradictions, false positives, low-value churn, and proposals that cannot prove equivalent output, errors, side effects, or ordering.

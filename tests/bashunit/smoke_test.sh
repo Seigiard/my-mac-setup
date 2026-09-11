@@ -778,6 +778,8 @@ function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_
   assert_file_executable "$HOME/.local/bin/herdr-child"
   assert_file_exists "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_executable "$HOME/.local/bin/pre-external-secret-scan"
+  assert_file_exists "$HOME/.local/bin/se-external-leg-pair"
+  assert_file_executable "$HOME/.local/bin/se-external-leg-pair"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
 }
