@@ -138,10 +138,10 @@ Current state: `pre-external-secret-scan` is the shared scanner primitive. It pi
 codes, redacts output, uses a trusted default-rule configuration instead of target or environment
 configuration, rejects directory symlinks escaping a scan root, and fails closed on missing tools
 or unexpected results. `herdr-peer-launch.md` scans the live checkout and both prompts before tab
-creation, then scans again immediately before prompt submission. `se-doc-review` additionally scans
-the frozen document copy peers receive. `ask-in-herdr` scans its working directory, complete prompt,
-and added skill paths before launch; its recovery, ordinary follow-up, and blocked-reply paths scan
-again before sending another peer turn.
+creation, once per review pair. `se-doc-review` freezes the document peers receive before entering
+that lifecycle. `ask-in-herdr` scans its working directory, complete prompt, and added skill paths
+once before each standalone launch; its recovery, ordinary follow-up, and blocked-reply paths scan
+before sending another peer turn.
 
 The peers still run against a live filesystem rather than an immutable sandbox. A scan attests the
 state it reads and cannot prevent a concurrent same-user process from changing that state afterward;

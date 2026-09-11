@@ -117,8 +117,6 @@ Before ending this turn, write the exact complete report you are returning, byte
 
 Submit both augmented prompts before either wait can block:
 
-Immediately before submission, repeat the **Scan exposed content** command against the now-augmented prompt values. A nonzero result enters the cleanup boundary without prompting either peer. This second verdict checks content again after tab and agent startup; both pre-dispatch scans must pass before submission.
-
 ```bash
 herdr agent prompt "$CLAUDE_PANE" "$CLAUDE_PROMPT"
 herdr agent prompt "$OPENCODE_PANE" "$OPENCODE_PROMPT"

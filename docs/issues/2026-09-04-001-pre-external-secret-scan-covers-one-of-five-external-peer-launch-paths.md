@@ -69,4 +69,4 @@ gate location, scan scope, launch cadence, `ask-in-herdr` coverage, and accepted
 
 ## Resolution
 
-Added the shared pre-external-secret-scan command with pinned/redacted fail-closed verdicts, trusted detector configuration, canonical target handling, and escaping-directory-symlink rejection. Wired both scans in the shared se-* peer lifecycle, scanned se-doc-review's frozen document payload, and added scan-enforcing ask-in-herdr launch, recovery, prompt, and reply paths. Added real-gitleaks semantic controls and deployed-path coverage. Verified make lint, focused bashunit suites, issue validation, and final make test-ubuntu (exit 0).
+Added the shared pre-external-secret-scan command with pinned/redacted fail-closed verdicts, trusted detector configuration, canonical target handling, and escaping-directory-symlink rejection. Wired one full-checkout scan into each shared se-* review pair and standalone ask-in-herdr launch, with fresh scans before recovery, prompt, and reply turns. Added real-gitleaks semantic controls and deployed-path coverage. Verified make lint, focused bashunit suites, issue validation, and final make test-ubuntu (exit 0).

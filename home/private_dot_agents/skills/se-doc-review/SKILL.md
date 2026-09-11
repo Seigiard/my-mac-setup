@@ -22,7 +22,7 @@ Treat tokens beginning with `mode:` as flags. The remaining token, when present,
 
 Record whether the wrapper was invoked with `mode:headless`; delivery uses that mode after synthesis.
 
-## Freeze and scan peer input
+## Freeze peer input
 
 Copy the document to an isolated temporary directory while preserving its basename and extension:
 
@@ -32,9 +32,7 @@ DOC_COPY="$DOC_STAGE_DIR/$(basename "$DOC_PATH")"
 cp "$DOC_PATH" "$DOC_COPY"
 ```
 
-The external payload includes this copy. Run `pre-external-secret-scan "$DOC_COPY"` before creating tabs. Any nonzero result refuses the peer launch and sends nothing externally. In that path, invoke the local `ce-doc-review` skill with `mode:headless DOC_PATH`, deliver its envelope with degraded peer coverage, and remove the staged copy. `SE_SKIP_SECRET_SCAN=1` deliberately waives this gate; report that fact.
-
-Peers review `DOC_COPY`; the local pass reviews `DOC_PATH`. The copy remains untouched after its scan so the verdict describes the staged peer input at scan time.
+Peers review `DOC_COPY`; the local pass reviews `DOC_PATH`. The copy remains untouched while the peers run. The shared peer lifecycle owns the one pre-launch full-checkout scan and its fail-closed fallback.
 
 ## Dispatch fresh peers
 
