@@ -38,11 +38,11 @@ echo "=== Installing packages via Homebrew ==="
 
 # Install cross-platform packages
 echo "--- Installing common CLI tools ---"
-brew bundle --file="$BREWFILES_DIR/Brewfile" 
+HOMEBREW_BUNDLE_NO_UPGRADE=1 brew bundle --file="$BREWFILES_DIR/Brewfile"
 # # {{ if eq .chezmoi.os "darwin" }}
 # macOS-specific packages
 echo "--- Installing macOS packages ---"
-brew bundle --file="$BREWFILES_DIR/Brewfile.macos"
+HOMEBREW_BUNDLE_NO_UPGRADE=1 brew bundle --file="$BREWFILES_DIR/Brewfile.macos"
 # # {{ end }}
 
 echo "=== Package installation complete! ==="

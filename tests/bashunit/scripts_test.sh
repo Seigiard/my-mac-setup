@@ -1466,7 +1466,7 @@ function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
   run render_install_packages "$cfg"
   assert_success
   assert_output --partial 'Homebrew/install/HEAD/install.sh'
-  assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
+  assert_output --partial 'HOMEBREW_BUNDLE_NO_UPGRADE=1 brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
 function test_scripts_005_ci_minimal_non_linux_render_keeps_homebrew_packa() {
@@ -1479,7 +1479,7 @@ function test_scripts_005_ci_minimal_non_linux_render_keeps_homebrew_packa() {
   run render_install_packages "$cfg"
   assert_success
   assert_output --partial 'Homebrew/install/HEAD/install.sh'
-  assert_output --partial 'brew bundle --file="$BREWFILES_DIR/Brewfile"'
+  assert_output --partial 'HOMEBREW_BUNDLE_NO_UPGRADE=1 brew bundle --file="$BREWFILES_DIR/Brewfile"'
 }
 
 function test_scripts_006_install_packages_script_renders_as_valid_bash() {
