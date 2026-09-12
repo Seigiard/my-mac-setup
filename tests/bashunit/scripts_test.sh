@@ -14,6 +14,7 @@ setup() {
   unset HERDR_CHILD_NAME
   unset HERDR_CHILD_PARENT_PANE
   unset HERDR_CHILD_STATE_DIR
+  unset HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY
   unset HERDR_WORKSPACE_ID
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
   unset HERDR_CHILD_TEST_RETRY_LOG
@@ -2576,7 +2577,8 @@ case "${1:-} ${2:-}" in
       elif [ "${STUB_PARENT_SESSION_MISSING:-0}" = 1 ]; then
         printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"%s","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10,"agent_session":{"value":"child-session"}}]}}\n' "$child_name"
       else
-        printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}},{"name":"%s","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10,"agent_session":{"value":"child-session"}}]}}\n' "$child_name"
+        child_session="$(cat "$CHILD_STUB/child-session" 2>/dev/null || printf child-session)"
+        printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}},{"name":"%s","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10,"agent_session":{"value":"%s"}}]}}\n' "$child_name" "$child_session"
       fi
     elif [ "${STUB_START_CONTEXT:-0}" = 1 ] && [ "${STUB_PARENT_SESSION_MISSING:-0}" = 1 ]; then
       printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1}]}}\n'
@@ -2635,6 +2637,10 @@ case "${1:-} ${2:-}" in
         [ "$attempt" -lt 12000 ] || exit 1
         sleep 0.01
       done
+    fi
+    if [ "${STUB_REQUIRE_COLD_SETTLE:-0}" = 1 ] && [ ! -f "$CHILD_STUB/cold-settled" ]; then
+      printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2
+      exit 1
     fi
     [ "${STUB_PROMPT_FAIL:-0}" = 1 ] && { printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1; }
     [ "${STUB_PROMPT_TIMEOUT:-0}" = 1 ] && { printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; }
@@ -2709,6 +2715,17 @@ child_start() {
   # apart they are, so the shipped one-second spacing is pure scaffolding here.
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     STUB_START_CONTEXT=1 \
+    HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
+    HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY="${HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY:-0}" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    bash "$HERDR_CHILD" start "$@" --prompt "test task"
+}
+
+child_start_with_default_initial_delay() {
+  env -u HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY PATH="$CHILD_STUB:$PATH" \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
     HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
@@ -3180,12 +3197,22 @@ function test_scripts_025_herdr_child_validates_launch_and_supervision_tim() {
     assert_file_not_exists "$CHILD_STUB/calls.log"
   done
 
+  for value in -1 malformed 31; do
+    HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY="$value" run child_start --kind claude --wait
+    assert_failure 2
+    assert_output --partial "HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY must be between 0 and 30 seconds"
+    assert_file_not_exists "$CHILD_STUB/calls.log"
+  done
+
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" start --kind claude --detach \
     --prompt "test task" --supervision-timeout
   assert_failure 2
   assert_output --partial "--supervision-timeout needs a value"
   assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=30 run child_start --kind claude --wait
+  assert_success
 }
 
 function test_scripts_026_herdr_child_attached_mode_starts_no_watcher() {
@@ -4946,6 +4973,132 @@ function test_scripts_073_herdr_child_preserves_the_child_when_the_initia() {
   assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_output --partial "initial prompt stalled"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_0731_herdr_child_waits_for_cold_agents_before_baseli() {
+  _bats_test_init 0731 'herdr-child waits for cold agents before baseline and initial prompt'
+  local kind launch_pid launch_status
+  for kind in opencode pi; do
+    child_stub_herdr
+    cat > "$CHILD_STUB/sleep" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = 3 ]; then
+  : > "$CHILD_STUB/cold-settle.ready"
+  attempt=0
+  while [ ! -e "$CHILD_STUB/cold-settle.release" ]; do
+    [ -d "$CHILD_STUB" ] || exit 1
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 1000 ] || exit 1
+    /bin/sleep 0.01
+  done
+  : > "$CHILD_STUB/cold-settled"
+else
+  /bin/sleep "$@"
+fi
+SH
+    chmod +x "$CHILD_STUB/sleep"
+
+    if [ "$kind" = pi ]; then
+      STUB_REQUIRE_COLD_SETTLE=1 child_start_with_default_initial_delay \
+        --kind pi --posture rw --wait >"$CHILD_STUB/launch.out" 2>&1 &
+    else
+      STUB_REQUIRE_COLD_SETTLE=1 child_start_with_default_initial_delay \
+        --kind opencode --wait >"$CHILD_STUB/launch.out" 2>&1 &
+    fi
+    launch_pid=$!
+    child_wait_for_file "$CHILD_STUB/cold-settle.ready"
+    assert_file_not_exists "$CHILD_STUB/prompt-seen"
+    : > "$CHILD_STUB/cold-settle.release"
+    if wait "$launch_pid"; then launch_status=0; else launch_status=$?; fi
+    assert_equal 0 "$launch_status"
+    assert_file_exists "$CHILD_STUB/cold-settled"
+    run grep -q '^pane close' "$CHILD_STUB/calls.log"
+    assert_failure
+  done
+
+  child_stub_herdr
+  cat > "$CHILD_STUB/sleep" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = 1 ]; then
+  : > "$CHILD_STUB/configured-settle.ready"
+  attempt=0
+  while [ ! -e "$CHILD_STUB/configured-settle.release" ]; do
+    [ -d "$CHILD_STUB" ] || exit 1
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 1000 ] || exit 1
+    /bin/sleep 0.01
+  done
+  : > "$CHILD_STUB/cold-settled"
+else
+  /bin/sleep "$@"
+fi
+SH
+  chmod +x "$CHILD_STUB/sleep"
+  HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=1 STUB_REQUIRE_COLD_SETTLE=1 \
+    child_start --kind opencode --wait >"$CHILD_STUB/launch.out" 2>&1 &
+  launch_pid=$!
+  child_wait_for_file "$CHILD_STUB/configured-settle.ready"
+  assert_file_not_exists "$CHILD_STUB/prompt-seen"
+  : > "$CHILD_STUB/configured-settle.release"
+  if wait "$launch_pid"; then launch_status=0; else launch_status=$?; fi
+  assert_equal 0 "$launch_status"
+
+  child_stub_herdr
+  cat > "$CHILD_STUB/sleep" <<'SH'
+#!/usr/bin/env bash
+: > "$CHILD_STUB/unexpected-settle"
+SH
+  chmod +x "$CHILD_STUB/sleep"
+  run child_start_with_default_initial_delay --kind claude --wait
+  assert_success
+  assert_file_not_exists "$CHILD_STUB/unexpected-settle"
+
+  child_stub_herdr
+  cat > "$CHILD_STUB/sleep" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = 3 ]; then
+  printf 'sleep %s\n' "$1" >> "$CHILD_STUB/calls.log"
+  : > "$CHILD_STUB/cold-settle.ready"
+  attempt=0
+  while [ ! -e "$CHILD_STUB/cold-settle.release" ]; do
+    [ -d "$CHILD_STUB" ] || exit 1
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 1000 ] || exit 1
+    /bin/sleep 0.01
+  done
+else
+  /bin/sleep "$@"
+fi
+SH
+  chmod +x "$CHILD_STUB/sleep"
+  child_start_with_default_initial_delay --kind pi --posture rw --detach \
+    >"$CHILD_STUB/launch.out" 2>&1 &
+  launch_pid=$!
+  child_wait_for_file "$CHILD_STUB/cold-settle.ready"
+  run grep -q '^agent get' "$CHILD_STUB/calls.log"
+  assert_failure
+  : > "$CHILD_STUB/cold-settle.release"
+  if wait "$launch_pid"; then launch_status=0; else launch_status=$?; fi
+  assert_equal 0 "$launch_status"
+  local sleep_line baseline_line
+  sleep_line="$(grep -n '^sleep 3$' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  baseline_line="$(grep -n '^agent get' "$CHILD_STUB/calls.log" | cut -d: -f1)"
+  [ "$sleep_line" -lt "$baseline_line" ] || \
+    fail "cold settle must precede detached baseline: sleep=$sleep_line baseline=$baseline_line"
+
+  child_stub_herdr
+  cat > "$CHILD_STUB/sleep" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = 3 ]; then
+  printf 'replacement-session\n' > "$CHILD_STUB/child-session"
+fi
+SH
+  chmod +x "$CHILD_STUB/sleep"
+  run child_start_with_default_initial_delay --kind opencode --wait
+  assert_failure
+  assert_output --partial "child session changed during startup grace"
+  run grep -Eq '^(agent prompt|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
 }
 

@@ -1,12 +1,13 @@
 ---
 title: "Cold opencode and pi child launches fail with agent_prompt_stalled"
-short_description: "A cold first-of-session opencode or pi child reproducibly fails `herdr-child start` with `agent_prompt_stalled`: herdr's 5000 ms first-state-change window elapses before the agent accepts input, while all warm launches of both kinds and cold claude succeed (2 of 2 cold non-claude stalled, 0 of 8 warm), and the stall path additionally destroys the pane so the transcript is lost."
+short_description: "Herdr's fixed three-second agent-start settle can report cold OpenCode or Pi as interactive before their input path is stable; herdr-child now adds a validated three-second pre-prompt grace for both kinds and retains its non-destructive stall recovery."
 type: "bug"
 category: "agent-platform"
 tags: ["herdr-child","opencode","agent-startup","intermittent"]
 date: "2026-09-03"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-12"
 ---
 
 ## Why this exists
@@ -81,3 +82,7 @@ cost, but this was not instrumented and pi's cold path was not inspected at all.
   known to start slowly) or should be reported upstream to the agent CLIs.
 - Whether a stalled initial prompt should keep the pane open by default, or capture a
   transcript into the run directory and then clean up as it does today.
+
+## Resolution
+
+Diagnosed the race against Herdr 0.9.0 and Pi 0.85.1: Herdr promotes a detected idle agent after a fixed three-second settle, while Pi can still route Enter through its startup handler, which retains text without submitting it. Added a validated, configurable three-second pre-prompt grace for every OpenCode and Pi child launch because Herdr exposes no cold/warm signal, rather than retrying an ambiguously delivered prompt; the existing stall path still preserves the pane. Added a semantic bashunit regression that fails with agent_prompt_stalled when the barrier is removed, exercises the shipped default for both affected kinds, and proves Claude remains undelayed. Verified with the focused red/green calibration, all 357 script tests (356 passed, one existing platform skip), make lint, and make test-local.
