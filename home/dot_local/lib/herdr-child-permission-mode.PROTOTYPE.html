@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ПРОТОТИП: Граница прав дочернего агента</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17201d;
+      --muted: #68736f;
+      --paper: #f3f1e8;
+      --panel: #fffdf7;
+      --line: #d8d5c9;
+      --accent: #126c5b;
+      --accent-soft: #dcece6;
+      --danger: #a53a30;
+      --danger-soft: #f7e4df;
+      --warn: #956110;
+      --warn-soft: #f5ead1;
+      --code: #23302b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    button, select { font: inherit; }
+
+    main {
+      width: min(1160px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 64px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--danger);
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 850px;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.2rem, 6vw, 4.6rem);
+      font-weight: 500;
+      letter-spacing: -0.045em;
+      line-height: 0.98;
+    }
+
+    .question {
+      max-width: 820px;
+      margin: 22px 0 10px;
+      font-size: 1.13rem;
+    }
+
+    .assumption {
+      max-width: 820px;
+      margin: 0 0 30px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 8px 30px rgb(23 32 29 / 0.05);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: baseline;
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-header h2, .walkthroughs > h2 {
+      margin: 0;
+      font-size: 0.78rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .panel-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 18px 20px;
+    }
+
+    label span {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 750;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    select {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .verdict {
+      margin: 0 20px 18px;
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: var(--accent-soft);
+    }
+
+    .verdict[data-tone="danger"] {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .verdict[data-tone="warn"] {
+      border-color: var(--warn);
+      background: var(--warn-soft);
+    }
+
+    .verdict strong { display: block; margin-bottom: 2px; }
+    .verdict span { font-size: 0.88rem; }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .state-item {
+      min-height: 91px;
+      padding: 14px 20px;
+      background: var(--panel);
+    }
+
+    .state-item dt {
+      margin: 0 0 5px;
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .state-item dd {
+      margin: 0;
+      font-size: 0.9rem;
+      overflow-wrap: anywhere;
+    }
+
+    .recipe {
+      padding: 16px 20px 20px;
+    }
+
+    .recipe h3, .actions h3, .history h3 {
+      margin: 0 0 9px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    code {
+      display: block;
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: var(--code);
+      color: #f4f3ec;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.76rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+    .actions, .history { padding: 18px 20px; }
+    .actions { border-bottom: 1px solid var(--line); }
+
+    .button-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 12px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 680;
+      text-align: left;
+    }
+
+    button:hover { border-color: var(--accent); }
+    button:focus-visible { outline: 3px solid rgb(18 108 91 / 0.24); outline-offset: 2px; }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    button.danger { color: var(--danger); }
+
+    .history ol {
+      max-height: 310px;
+      margin: 0;
+      padding-left: 20px;
+      overflow: auto;
+      font-size: 0.82rem;
+    }
+
+    .history li { margin-bottom: 7px; }
+    .history li::marker { color: var(--muted); }
+
+    .walkthroughs { margin-top: 22px; }
+    .walkthroughs > h2 { margin-bottom: 10px; }
+
+    .tabs {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      padding-bottom: 9px;
+    }
+
+    .tab {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 8px 13px;
+      color: var(--muted);
+    }
+
+    .tab[aria-selected="true"] {
+      border-color: var(--code);
+      background: var(--code);
+      color: #fff;
+    }
+
+    .scenario { padding: 20px; }
+    .scenario h3 { margin: 0 0 5px; font-size: 1.15rem; }
+    .scenario > p { max-width: 760px; margin: 0 0 16px; color: var(--muted); }
+
+    .scenario-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .scenario-controls button[data-status="done"] {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .scenario-controls button[data-status="future"] { opacity: 0.42; }
+    .step-note { color: var(--muted); font-size: 0.8rem; }
+
+    .sources {
+      margin-top: 22px;
+      padding: 16px 20px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .sources strong { color: var(--ink); }
+
+    @media (max-width: 780px) {
+      main { width: min(100% - 20px, 620px); padding-top: 24px; }
+      .grid { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: 1fr; }
+      .state-grid { grid-template-columns: 1fr; }
+      .panel-header { display: block; }
+      .panel-header p { margin-top: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Одноразовый прототип логики / задача 2026-08-18-001</p>
+    <h1>Может ли read-only агент позвать родителя?</h1>
+    <p class="question"><strong>Вопрос:</strong> Можно ли при запуске запретить дочернему агенту менять файлы, но оставить ровно один автономный канал возврата, вместо наследования <code style="display:inline;padding:2px 5px">bypassPermissions</code>?</p>
+    <p class="assumption"><strong>Граница модели:</strong> Эта страница моделирует документированные правила CLI, а не запускает реальные процессы. Модель исходит из того, что Claude Code 2.1.236 проверяет каждую shell-подкоманду, OpenCode 1.18.30 проверяет каждую распознанную команду, а Pi 0.85.1 не умеет штатно ограничивать shell отдельными командами. Осталось проверить вживую, перекрывает ли явный режим Claude унаследованные настройки в интерактивном дочернем процессе, запущенном через Herdr.</p>
+
+    <div class="grid">
+      <section class="panel" aria-labelledby="state-heading">
+        <header class="panel-header">
+          <h2 id="state-heading">Текущее состояние</h2>
+          <p>Обновляется после каждого действия</p>
+        </header>
+
+        <div class="controls">
+          <label>
+            <span>Тип агента</span>
+            <select id="kind">
+              <option value="claude">Claude</option>
+              <option value="opencode">OpenCode</option>
+              <option value="pi">Pi</option>
+            </select>
+          </label>
+          <label>
+            <span>Запрошенный режим</span>
+            <select id="posture">
+              <option value="ro">Только чтение</option>
+              <option value="rw">Чтение и запись</option>
+            </select>
+          </label>
+          <label>
+            <span>Политика запуска</span>
+            <select id="policy">
+              <option value="current">Текущая: наследование / полный shell</option>
+              <option value="scoped">Кандидат: только вызов родителя</option>
+              <option value="no-shell">Строгая: без shell</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="verdict" id="verdict" data-tone="warn"></div>
+        <dl class="state-grid" id="state-grid"></dl>
+        <div class="recipe">
+          <h3>Итоговая команда запуска</h3>
+          <code id="recipe"></code>
+        </div>
+      </section>
+
+      <aside class="panel" aria-labelledby="free-play-heading">
+        <div class="actions">
+          <h3 id="free-play-heading">Свободная проверка</h3>
+          <div class="button-stack">
+            <button class="primary" data-action="launch">Запустить агента</button>
+            <button data-action="edit">Попробовать инструмент редактирования</button>
+            <button class="danger" data-action="shell-write">Попробовать запись через shell</button>
+            <button data-action="callback">Позвать родителя</button>
+            <button class="danger" data-action="compound">Позвать родителя, затем записать файл</button>
+            <button data-action="reply">Ответ родителя</button>
+            <button data-action="finish">Завершить агента</button>
+            <button data-action="reset">Сбросить запуск</button>
+          </div>
+        </div>
+        <div class="history">
+          <h3>Журнал действий</h3>
+          <ol id="history"></ol>
+        </div>
+      </aside>
+    </div>
+
+    <section class="walkthroughs" aria-labelledby="walkthrough-heading">
+      <h2 id="walkthrough-heading">Готовые сценарии</h2>
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="panel scenario" id="scenario"></div>
+    </section>
+
+    <section class="panel sources">
+      <strong>Основания прототипа:</strong> <code style="display:inline;padding:2px 5px">herdr-child-launch.sh</code>, документация прав Claude Code и OpenCode, поведение shell-парсера OpenCode и набор инструментов установленного Pi. Действия на этой странице не затрагивают файловую систему.
+    </section>
+  </main>
+
+  <script>
+    // Portable policy model. The DOM below only dispatches actions and renders its output.
+    const PolicyModel = (() => {
+      const labels = {
+        claude: "Claude",
+        opencode: "OpenCode",
+        pi: "Pi",
+        ro: "только чтение",
+        rw: "чтение и запись",
+        current: "текущей политикой с полным shell",
+        scoped: "политикой с отдельным каналом возврата",
+        "no-shell": "политикой без shell"
+      };
+
+      function baseState(config = { kind: "claude", posture: "ro", policy: "current" }) {
+        return {
+          config: { ...config },
+          phase: "configured",
+          permissionMode: "not resolved until launch",
+          fileTools: "not resolved until launch",
+          shellPolicy: "not resolved until launch",
+          callback: "not attempted",
+          filesystem: "clean",
+          writeBoundary: "not evaluated",
+          recipe: "Нажмите «Запустить агента», чтобы применить выбранную политику.",
+          lastOutcome: "Конфигурация готова.",
+          history: ["Настроен " + labels[config.kind] + " в режиме «" + labels[config.posture] + "» с " + labels[config.policy] + "."]
+        };
+      }
+
+      function resolvedProfile(config) {
+        const { kind, posture, policy } = config;
+
+        if (posture === "rw") {
+          const recipes = {
+            claude: "claude --disallowed-tools AskUserQuestion",
+            opencode: "OPENCODE_PERMISSION='{\"question\":\"deny\"}' opencode",
+            pi: "pi --exclude-tools ask_user"
+          };
+          return {
+            refused: false,
+            permissionMode: kind === "claude" ? "inherited bypassPermissions" : "client default",
+            fileTools: "available",
+            shellPolicy: "all commands allowed",
+            writeBoundary: "not intended",
+            recipe: recipes[kind]
+          };
+        }
+
+        if (kind === "pi" && policy !== "no-shell") {
+          return {
+            refused: true,
+            permissionMode: "no native command-scoped mode",
+            fileTools: "withheld by refusal",
+            shellPolicy: "would be all-or-nothing",
+            writeBoundary: "refused before launch",
+            recipe: "herdr-child: pi does not support read-only posture: its return channel requires bash"
+          };
+        }
+
+        if (policy === "current") {
+          const current = {
+            claude: {
+              permissionMode: "inherited bypassPermissions",
+              recipe: "claude --disallowed-tools Edit Write NotebookEdit AskUserQuestion"
+            },
+            opencode: {
+              permissionMode: "permissive defaults plus process env",
+              recipe: "OPENCODE_PERMISSION='{\"question\":\"deny\",\"edit\":\"deny\"}' opencode"
+            }
+          };
+          return {
+            refused: false,
+            permissionMode: current[kind].permissionMode,
+            fileTools: "unavailable",
+            shellPolicy: "all commands allowed",
+            writeBoundary: "absent: shell can write",
+            recipe: current[kind].recipe
+          };
+        }
+
+        if (policy === "scoped") {
+          const scoped = {
+            claude: {
+              permissionMode: "dontAsk, explicit at launch",
+              recipe: "claude --permission-mode dontAsk --disallowed-tools Edit Write NotebookEdit AskUserQuestion --allowedTools 'Bash(herdr-child ask *)'"
+            },
+            opencode: {
+              permissionMode: "explicit process-local deny rules",
+              recipe: "OPENCODE_PERMISSION='{\"question\":\"deny\",\"edit\":\"deny\",\"bash\":{\"*\":\"deny\",\"herdr-child ask *\":\"allow\"}}' opencode"
+            }
+          };
+          return {
+            refused: false,
+            permissionMode: scoped[kind].permissionMode,
+            fileTools: "unavailable",
+            shellPolicy: "only herdr-child ask <message>",
+            writeBoundary: "present in the modeled policy",
+            recipe: scoped[kind].recipe
+          };
+        }
+
+        return {
+          refused: false,
+          permissionMode: kind === "claude" ? "dontAsk" : "tool allowlist",
+          fileTools: "unavailable",
+          shellPolicy: "shell unavailable",
+          writeBoundary: "present, but callback is lost",
+          recipe: kind === "claude"
+            ? "claude --permission-mode dontAsk --tools Read,Glob,Grep"
+            : kind === "opencode"
+              ? "OPENCODE_PERMISSION='{\"question\":\"deny\",\"edit\":\"deny\",\"bash\":\"deny\"}' opencode"
+              : "pi --tools read,grep,find,ls --exclude-tools ask_user"
+        };
+      }
+
+      function record(state, outcome, changes = {}) {
+        return {
+          ...state,
+          ...changes,
+          lastOutcome: outcome,
+          history: [...state.history, outcome]
+        };
+      }
+
+      function requireRunning(state, actionName) {
+        if (["running", "waiting"].includes(state.phase)) return null;
+        return record(state, "Действие не выполнено: агент сейчас не работает.");
+      }
+
+      function reducer(state, action) {
+        if (action.type === "CONFIGURE") return baseState({ ...state.config, ...action.config });
+        if (action.type === "RESET") return baseState(state.config);
+
+        if (action.type === "LAUNCH") {
+          const profile = resolvedProfile(state.config);
+          if (profile.refused) {
+            return record(state, "Запуск отклонён: этот клиент не умеет оставить канал возврата, не открывая весь shell.", {
+              ...profile,
+              phase: "refused",
+              callback: "unavailable"
+            });
+          }
+          return record(state, "Агент запущен, итоговые права определены.", {
+            ...profile,
+            phase: "running"
+          });
+        }
+
+        const blocked = requireRunning(state, action.type);
+        if (blocked) return blocked;
+
+        if (action.type === "EDIT") {
+          if (state.fileTools === "available") {
+            return record(state, "Инструмент редактирования изменил файл, как и допускает режим записи.", { filesystem: "modified by edit tool" });
+          }
+          return record(state, "Отказ: у агента нет инструмента редактирования файлов.");
+        }
+
+        if (action.type === "SHELL_WRITE") {
+          if (state.shellPolicy === "all commands allowed") {
+            return record(state, "Shell изменил файл. Одного удаления инструментов недостаточно для границы записи.", { filesystem: "modified by shell" });
+          }
+          return record(state, "Отказ до выполнения: запись через shell не входит в разрешённую команду возврата.");
+        }
+
+        if (action.type === "CALLBACK") {
+          if (state.shellPolicy === "shell unavailable") {
+            return record(state, "Вызов заблокирован: вместе с shell исчез и канал возврата.", { callback: "blocked" });
+          }
+          return record(state, "Сообщение доставлено родителю; агент ждёт решения.", {
+            callback: "sent",
+            phase: "waiting"
+          });
+        }
+
+        if (action.type === "COMPOUND") {
+          if (state.shellPolicy === "all commands allowed") {
+            return record(state, "Обе подкоманды выполнены: родитель вызван, файл изменён.", {
+              callback: "sent",
+              filesystem: "modified by chained shell command",
+              phase: "waiting"
+            });
+          }
+          if (state.shellPolicy === "only herdr-child ask <message>") {
+            return record(state, "Составная команда целиком отклонена, потому что её подкоманда записи не разрешена.");
+          }
+          return record(state, "Составная команда заблокирована: shell недоступен.");
+        }
+
+        if (action.type === "REPLY") {
+          if (state.phase !== "waiting") return record(state, "Ответ родителя отклонён: агент сейчас не ждёт решения.");
+          return record(state, "Ответ родителя доставлен; агент может продолжить.", { callback: "answered", phase: "running" });
+        }
+
+        if (action.type === "FINISH") {
+          return record(state, "Агент завершил работу.", { phase: "finished" });
+        }
+
+        return state;
+      }
+
+      function verdict(state) {
+        if (state.phase === "configured") return { tone: "warn", title: "Ещё не проверено", body: "Запустите агента, затем попробуйте изменить файл и вызвать родителя." };
+        if (state.phase === "refused") return { tone: "warn", title: "Безопасный отказ", body: "Штатные флаги этого клиента не позволяют выразить запрошенный контракт." };
+        if (state.config.posture === "rw") return { tone: "warn", title: "Запись разрешена намеренно", body: "Режим записи сохраняет канал возврата и не обещает границу записи." };
+        if (state.writeBoundary === "present in the modeled policy") return { tone: "ok", title: "Контракт выражен", body: "Инструментов записи нет, произвольные shell-команды запрещены, а команда возврата доступна." };
+        if (state.shellPolicy === "shell unavailable") return { tone: "danger", title: "Канал возврата сломан", body: "Граница записи есть, но агент не сможет позвать родителя, когда потребуется решение." };
+        return { tone: "danger", title: "Это не настоящий read-only", body: "У агента нет инструментов редактирования, но он всё ещё может менять файлы через полный shell." };
+      }
+
+      return { baseState, reducer, verdict, labels };
+    })();
+
+    const scenarios = [
+      {
+        id: "current-leak",
+        tab: "Текущая утечка",
+        title: "Текущий режим Claude похож на read-only лишь до первого вызова shell",
+        description: "Сначала инструмент редактирования получит отказ, а затем неограниченный shell изменит ту же файловую систему.",
+        config: { kind: "claude", posture: "ro", policy: "current" },
+        steps: [
+          ["LAUNCH", "Запустить read-only Claude"],
+          ["EDIT", "Попробовать редактирование"],
+          ["SHELL_WRITE", "Попробовать запись через shell"],
+          ["CALLBACK", "Позвать родителя"]
+        ]
+      },
+      {
+        id: "claude-scoped",
+        tab: "Кандидат Claude",
+        title: "Отдельное разрешение на возврат сохраняет полезный путь и запрещает остальной shell",
+        description: "Кандидат использует dontAsk и одну заранее разрешённую Bash-команду. Составной вызов «позвать и записать» должен быть отклонён до выполнения обеих частей.",
+        config: { kind: "claude", posture: "ro", policy: "scoped" },
+        steps: [
+          ["LAUNCH", "Запустить ограниченный Claude"],
+          ["SHELL_WRITE", "Попробовать запись через shell"],
+          ["COMPOUND", "Попробовать вызов плюс запись"],
+          ["CALLBACK", "Только позвать родителя"],
+          ["REPLY", "Получить ответ родителя"]
+        ]
+      },
+      {
+        id: "opencode-scoped",
+        tab: "Кандидат OpenCode",
+        title: "OpenCode выражает ту же границу локальными правилами процесса",
+        description: "После полного запрета Bash идёт узкое разрешение команды возврата. Составная команда всё равно отклоняется, если запрещена хотя бы одна подкоманда.",
+        config: { kind: "opencode", posture: "ro", policy: "scoped" },
+        steps: [
+          ["LAUNCH", "Запустить ограниченный OpenCode"],
+          ["EDIT", "Попробовать редактирование"],
+          ["COMPOUND", "Попробовать вызов плюс запись"],
+          ["CALLBACK", "Только позвать родителя"]
+        ]
+      },
+      {
+        id: "no-shell",
+        tab: "Слишком строго",
+        title: "Удаление shell закрывает и утечку, и канал возврата",
+        description: "Строгая политика выглядит привлекательно: через shell записать нельзя, но при необходимости решения агент нарушает контракт запуска и не может вызвать родителя.",
+        config: { kind: "claude", posture: "ro", policy: "no-shell" },
+        steps: [
+          ["LAUNCH", "Запустить без shell"],
+          ["SHELL_WRITE", "Попробовать запись через shell"],
+          ["CALLBACK", "Попробовать позвать родителя"]
+        ]
+      },
+      {
+        id: "pi-refusal",
+        tab: "Отказ Pi",
+        title: "Штатные флаги Pi не умеют оставить только команду возврата",
+        description: "Флаги запуска Pi управляют инструментами целиком. Если оставить Bash, останется весь Bash, поэтому честный результат для read-only — отказ запуска.",
+        config: { kind: "pi", posture: "ro", policy: "scoped" },
+        steps: [["LAUNCH", "Запросить read-only Pi"]]
+      }
+    ];
+
+    let state = PolicyModel.baseState();
+    let activeScenario = 0;
+    let scenarioStep = -1;
+
+    const els = {
+      kind: document.querySelector("#kind"),
+      posture: document.querySelector("#posture"),
+      policy: document.querySelector("#policy"),
+      verdict: document.querySelector("#verdict"),
+      stateGrid: document.querySelector("#state-grid"),
+      recipe: document.querySelector("#recipe"),
+      history: document.querySelector("#history"),
+      tabs: document.querySelector("#tabs"),
+      scenario: document.querySelector("#scenario")
+    };
+
+    function dispatch(action) {
+      state = PolicyModel.reducer(state, action);
+      render();
+    }
+
+    function setConfiguration(config) {
+      state = PolicyModel.reducer(state, { type: "CONFIGURE", config });
+      els.kind.value = state.config.kind;
+      els.posture.value = state.config.posture;
+      els.policy.value = state.config.policy;
+      render();
+    }
+
+    function render() {
+      const result = PolicyModel.verdict(state);
+      els.verdict.dataset.tone = result.tone;
+      els.verdict.innerHTML = `<strong>${result.title}</strong><span>${result.body}</span>`;
+
+      const translations = {
+        configured: "настроен",
+        running: "работает",
+        waiting: "ждёт ответа родителя",
+        refused: "запуск отклонён",
+        finished: "завершён",
+        "not resolved until launch": "определится при запуске",
+        "inherited bypassPermissions": "унаследован bypassPermissions",
+        "client default": "стандартный режим клиента",
+        "no native command-scoped mode": "нет штатного режима для отдельных команд",
+        "permissive defaults plus process env": "разрешающие настройки плюс переменная процесса",
+        "dontAsk, explicit at launch": "dontAsk, явно задан при запуске",
+        "explicit process-local deny rules": "явные запреты только для дочернего процесса",
+        "tool allowlist": "список разрешённых инструментов",
+        "available": "доступны",
+        "withheld by refusal": "недоступны из-за отказа запуска",
+        "all commands allowed": "разрешены все команды",
+        "only herdr-child ask <message>": "только herdr-child ask <сообщение>",
+        "shell unavailable": "shell недоступен",
+        "would be all-or-nothing": "можно разрешить только целиком",
+        "not evaluated": "не проверена",
+        "not intended": "не требуется",
+        "refused before launch": "отказ до запуска",
+        "absent: shell can write": "отсутствует: shell может записывать",
+        "present in the modeled policy": "есть в моделируемой политике",
+        "present, but callback is lost": "есть, но канал возврата потерян",
+        "not attempted": "не проверялся",
+        "unavailable": "недоступен",
+        "sent": "сообщение отправлено",
+        "blocked": "заблокирован",
+        "answered": "ответ получен",
+        "clean": "без изменений",
+        "modified by edit tool": "изменена инструментом редактирования",
+        "modified by shell": "изменена через shell",
+        "modified by chained shell command": "изменена составной shell-командой"
+      };
+      const translated = value => translations[value] ?? value;
+      const translatedFileTools = {
+        "not resolved until launch": "определятся при запуске",
+        "available": "доступны",
+        "unavailable": "недоступны",
+        "withheld by refusal": "недоступны из-за отказа запуска"
+      }[state.fileTools] ?? state.fileTools;
+      const fields = [
+        ["Этап", translated(state.phase)],
+        ["Режим прав", translated(state.permissionMode)],
+        ["Инструменты записи", translatedFileTools],
+        ["Политика shell", translated(state.shellPolicy)],
+        ["Граница записи", translated(state.writeBoundary)],
+        ["Канал возврата", translated(state.callback)],
+        ["Файловая система", translated(state.filesystem)],
+        ["Последний результат", state.lastOutcome]
+      ];
+      els.stateGrid.innerHTML = fields.map(([name, value]) => `<div class="state-item"><dt>${name}</dt><dd>${value}</dd></div>`).join("");
+      els.recipe.textContent = state.recipe;
+      els.history.innerHTML = state.history.map(item => `<li>${item}</li>`).join("");
+      els.history.scrollTop = els.history.scrollHeight;
+      renderScenario();
+    }
+
+    function renderTabs() {
+      els.tabs.innerHTML = scenarios.map((scenario, index) => `
+        <button class="tab" role="tab" aria-selected="${index === activeScenario}" data-scenario="${index}">${scenario.tab}</button>
+      `).join("");
+    }
+
+    function renderScenario() {
+      const scenario = scenarios[activeScenario];
+      const steps = scenario.steps.map(([, label], index) => {
+        const status = index < scenarioStep ? "done" : index === scenarioStep ? "current" : "future";
+        return `<button data-step="${index}" data-status="${status}">${index + 1}. ${label}</button>`;
+      }).join("");
+      els.scenario.innerHTML = `
+        <h3>${scenario.title}</h3>
+        <p>${scenario.description}</p>
+        <div class="scenario-controls">
+          <button class="primary" data-start-scenario>Начать сценарий</button>
+          ${steps}
+          <span class="step-note">${scenarioStep < 0 ? "Нажмите «Начать», чтобы загрузить исходное состояние." : scenarioStep >= scenario.steps.length ? "Сценарий завершён." : "Нажмите выделенный следующий шаг."}</span>
+        </div>
+      `;
+    }
+
+    document.querySelectorAll("select").forEach(select => {
+      select.addEventListener("change", () => {
+        scenarioStep = -1;
+        setConfiguration({ kind: els.kind.value, posture: els.posture.value, policy: els.policy.value });
+      });
+    });
+
+    document.querySelector(".button-stack").addEventListener("click", event => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const actions = {
+        launch: "LAUNCH",
+        edit: "EDIT",
+        "shell-write": "SHELL_WRITE",
+        callback: "CALLBACK",
+        compound: "COMPOUND",
+        reply: "REPLY",
+        finish: "FINISH",
+        reset: "RESET"
+      };
+      scenarioStep = -1;
+      dispatch({ type: actions[button.dataset.action] });
+    });
+
+    els.tabs.addEventListener("click", event => {
+      const button = event.target.closest("button[data-scenario]");
+      if (!button) return;
+      activeScenario = Number(button.dataset.scenario);
+      scenarioStep = -1;
+      renderTabs();
+      renderScenario();
+    });
+
+    els.scenario.addEventListener("click", event => {
+      if (event.target.closest("[data-start-scenario]")) {
+        scenarioStep = 0;
+        setConfiguration(scenarios[activeScenario].config);
+        return;
+      }
+      const button = event.target.closest("button[data-step]");
+      if (!button || Number(button.dataset.step) !== scenarioStep) return;
+      const [type] = scenarios[activeScenario].steps[scenarioStep];
+      scenarioStep += 1;
+      dispatch({ type });
+    });
+
+    renderTabs();
+    render();
+  </script>
+</body>
+</html>
