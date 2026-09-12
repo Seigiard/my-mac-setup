@@ -40,7 +40,10 @@ export const CLIENT_PROFILES: ClientProfile[] = [
   },
   {
     client: "pi",
-    tools: { edit: "edit", write: "write", bash: "bash" },
+    // pi-codex-conversion replaces builtin `bash` with `exec_command`. Its
+    // `apply_patch` remains intentionally unmapped until a shipped policy needs
+    // edit/write payloads and the patch envelope has a verified parser.
+    tools: { edit: "edit", write: "write", bash: "bash", exec_command: "bash" },
     outcomes: ["block"],
   },
 ];

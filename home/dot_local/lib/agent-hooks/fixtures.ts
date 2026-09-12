@@ -21,6 +21,7 @@ const WRITE_BODY = "assert_file_not_exists /tmp/gone\n";
 const EDIT_BODY = "expect(result).toBe(1);";
 const MULTI_EDIT_BODY = "first replacement\nsecond replacement";
 const COMMAND = "status=$? && exit $status";
+const CODEX_COMMAND = "make test-ubuntu; status=$?; print -- FINAL_EXIT:$status; exit $status";
 const QUERY = "KnowledgeContextField console";
 const URL = "https://example.com/docs";
 
@@ -78,6 +79,17 @@ export const DIALECT_FIXTURES: DialectFixture[] = [
       claude: { tool_name: "Bash", tool_input: { command: COMMAND } },
       opencode: { tool: "bash", args: { command: COMMAND } },
       pi: { toolName: "bash", input: { command: COMMAND } },
+    },
+  },
+  {
+    // Observed in pi 0.84.4 with npm:@howaboua/pi-codex-conversion and the
+    // openai-codex provider selected. The extension replaces builtin `bash`
+    // with `exec_command` and names its command field `cmd`.
+    name: "codex exec command",
+    tool: "bash",
+    payload: { command: CODEX_COMMAND },
+    raw: {
+      pi: { toolName: "exec_command", input: { cmd: CODEX_COMMAND } },
     },
   },
   {

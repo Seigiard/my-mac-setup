@@ -1,12 +1,13 @@
 ---
 title: "Pi codex-conversion tool names bypass the agent-hooks pi profile"
-short_description: "Under the deployed openai-codex provider Pi's tool surface is exec_command/apply_patch, not the bash/edit/write names the registry's pi profile lists, so every policy is inert there; confirmed live on 2026-09-06 when a reserved-name command that Claude Code and OpenCode both deny executed normally in Pi while selfcheck still reported pi: current with green canaries, because the canaries dispatch registry tool names no real Pi call carries."
+short_description: "Pi's profile now maps exec_command to bash and reads input.cmd, with adapter regression coverage and a live Pi 0.85.1/openai-codex denial confirming policies reach real Codex-provider shell calls."
 type: "bug"
 category: "agent-platform"
 tags: ["agent-hooks","pi","tool-identifiers","codex"]
 date: "2026-09-05"
-status: "open"
+status: "done"
 priority: "high"
+closed: "2026-09-12"
 ---
 
 ## Why this exists
@@ -98,3 +99,7 @@ those names, so every canary-green route is unreachable in practice.
 That is the sharpest form of this issue. R8 says selfcheck detects a fully dead
 path, not an unreachable one, and this is what an unreachable path looks like
 from the outside: entirely green.
+
+## Resolution
+
+Mapped Pi's observed exec_command tool to the canonical bash kind, normalized input.cmd alongside builtin input.command, and added calibrated core and adapter coverage with an ordinary-variable control. Verified the regression red before the mapping, both focused suites green afterward, make test-local mapped the managed files as expected, make test-ubuntu passed, and a live Pi 0.85.1 session with openai-codex plus pi-codex-conversion 3.0.33 emitted exec_command/input.cmd and received the zsh-reserved-name-guard denial. apply_patch remains intentionally unmapped until a shipped edit/write policy has a verified envelope parser.
