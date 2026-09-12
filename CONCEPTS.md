@@ -64,6 +64,12 @@ One failed leg degrades a review's coverage; losing every leg fails it.
 ### External leg pair
 Two fresh External legs given the same review scope through separate agents and classified together. The pair provides paired coverage only when both reports are independently attributable, valid, and distinct; one failed or invalid leg degrades it to single-source coverage, as does a byte-identical pair. Pair classification describes coverage, never agreement or corroboration between findings.
 
+### External-leg complexity
+A provider-neutral declaration of the model capability a paired task requires: `low`, `medium`, `high`, or `xhigh`. The caller names the task's complexity rather than either provider's model.
+
+### External-leg effort
+A provider-neutral declaration of how much reasoning budget each model should spend, independent of External-leg complexity. The shared launcher translates it into each provider's supported effort or variant control.
+
 ### Captured child
 A subprocess whose output the caller captures instead of passing through, which makes the caller responsible for the child's input as well. Capturing is itself what hides a prompt: the question renders into a buffer nobody is reading while the child waits on an input channel it still holds. So a captured child is denied that channel, and a flag or environment variable asking the child not to prompt counts as a request the callee may decline, never as the guarantee.
 
@@ -89,6 +95,9 @@ Its expected value comes from somewhere the change under test does not control. 
 
 ### Test oracle
 The independent source a test draws its expected value from. An oracle is valid only if it is outside the files the change under test edits — a real consumer, a deployment path, a published contract. When no such source can be named, the correct number of new tests is zero; behavior owned by an upstream tool or library has no valid local oracle and is exercised through its real interface rather than reimplemented to be testable.
+
+### Test evidence review
+A read-only, diff-scoped review that judges whether changed tests provide independent evidence of behavior rather than merely resemble coverage. It traces expected values to their Test oracle and asks whether a realistic defect would make each test fail; mutation execution is outside its scope.
 
 ### Upstream fake
 A test double that reproduces the observable contract of a program this project does not own — a stub CLI, a replayed protocol, a fixture standing in for another tool's output format. It is a claim about that program rather than about this one, so no assertion written beside it can adjudicate it; only the program itself can, through a conformance check that compares the two in the same run.

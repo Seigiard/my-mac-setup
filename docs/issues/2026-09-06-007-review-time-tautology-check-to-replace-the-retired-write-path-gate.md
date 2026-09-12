@@ -1,9 +1,9 @@
 ---
-title: "Review-time tautology check to replace the retired write-path gate"
-short_description: "se-code-review already carries a positive-form tautology criterion (home/private_dot_agents/skills/se-code-review/SKILL.md:46-53, from #147), but only reaches a peer when the conditional upstream testing persona is selected; the outstanding work is un-gating it, making it reason from diff provenance, restoring the negative-assertion case the retired test-oracle-guard used to block, and recording that a one-branch diff cannot judge values originating outside it."
+title: "Build and tune cross-model test evidence review"
+short_description: "Implement a repo-owned se-test-evidence-review skill that runs an independent read-only Sonnet/Terra External leg pair over changed test evidence, tunes a structured findings contract against hidden-label historical Git diffs, and joins se-code-review only when it adds confirmed signal without false positives."
 type: "follow-up"
 category: "se-pipeline"
-tags: ["tests","code-review","agent-hooks","tautology"]
+tags: ["tests","code-review","external-leg","semantic-tests","agent-skills"]
 date: "2026-09-06"
 status: "open"
 priority: "high"
@@ -11,96 +11,116 @@ priority: "high"
 
 ## Why this exists
 
-The repository forbids a tautological test: one whose expected value was copied from the same patch
-it claims to protect. Such a test is always green and defends nothing. `CLAUDE.md` states the rule as
-prose, and `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md` is the
-standard behind it.
+The repository's testing standard requires a Test oracle independent of the files a change edits.
+A test can still look substantial while providing no independent evidence: its expected value may
+come from the same patch, its mocks may bypass the production branch named by the test, or it may
+reimplement the production rule and reproduce the same defect. Weak assertions and tests coupled to
+implementation shape create the same false confidence.
 
-Until now a deployed hook policy enforced half of it. `test-oracle-guard` ran on every proposed write
-to a test file, across Claude Code, OpenCode and Pi, and blocked *negative* assertions — `assert_not_contains`,
-`refute_match`, `! grep` — unless an `oracle:` comment named an independent oracle. It never caught the
-positive form, which is the common one: an agent writes `assert_file_contains "$rendered" "new-flag"`
-for a flag the same patch introduced, and the gate stayed silent. Confirmed by driving the live
-dispatcher: the positive tautology returned `allow`, the negative returned `block`.
+The retired `test-oracle-guard` hook could inspect only one proposed edit fragment. It could not compare
+the test with the rest of the diff without breaking the pure, no-I/O policy contract, so the repository
+deliberately moved this class to review. `se-code-review` currently appends one tautology criterion when
+the upstream `testing` persona is selected, and its apply stage requires an oracle line before writing a
+requested test. The upstream persona now also checks mirror tests, weak assertions, overmocking,
+implementation coupling, and behavior-insensitive tests. These overlapping checks are useful, but they
+do not provide a separately measurable audit of test evidence or a structured account of oracle
+provenance and counterfactual defects.
 
-The missing half was not an oversight in the policy — it was structural. Deciding whether an expected
-value came from the same patch requires the other side of the diff. `home/dot_local/lib/agent-hooks/types.ts`
-gives a policy a five-field `EventPayload` (`filePath`, `content`, `command`, `query`, `url`), of which
-a write or edit event carries only `filePath` and `content` — never the rest of the tree. Its
-`Policy.evaluate` contract is documented `Pure, synchronous, bounded — no I/O (KTD7)`
-(`home/dot_local/lib/agent-hooks/types.ts:61-62`). Reading the working tree or shelling to `git diff`
-breaks that contract, and worse, makes the verdict depend on when the author last committed: in this
-repository, which commits per unit of work, the same edit would flag or clear on commit timing alone.
+Historical audits provide real calibration material. Confirmed failures include a test that pinned an
+overridable `-j 8` default, revision tests whose injected snapshot bypassed the production Git branch,
+an alias expectation computed by the same helper as the value under test, and a protocol fake that
+reimplemented Herdr semantics. The previously cited Ghostty incident was disproved by repository history
+and must remain a false-lead control rather than positive evidence.
 
-So the policy was retired rather than extended, and the class moved to where the whole diff is already
-available: the review pass. This record owns the replacement.
-
-## What already exists (verified 2026-09-07)
-
-The original framing of this record — that the review side is empty and a reviewer must be built —
-is wrong, and the correction narrows the work substantially.
-
-`home/private_dot_agents/skills/se-code-review/SKILL.md:46-53` already carries a tautology criterion,
-added by commit `95bf869` (#147), before this record was filed. It is appended verbatim to both peer
-prompts inside the shared review contract, and it targets the **positive** form this record described
-as unreached:
-
-> "Tautological tests considered harmful. Flag tests that merely mirror newly added source, prompt,
-> config, or fixture text and would stay green while the intended behavior is broken. …"
-
-`home/private_dot_agents/skills/se-code-review/SKILL.md:103` adds an apply-time oracle gate on findings
-that request new tests, advisory when the oracle line cannot be completed.
-`home/private_dot_agents/skills/se-orchestrator/SKILL.md:91` carries the same rule.
-
-The remaining gap is the conditional: the criterion reaches a peer only **when the upstream `testing`
-persona is selected**. That persona is conditional in the upstream catalog — selected when the diff
-touches test files or test infrastructure, or when behavior changed without test work. A diff that
-changes tests can therefore run a full review with the criterion never dispatched.
-
-Two facts about ownership, both confirmed: no copy of `ce-code-review` exists under `home/` — it comes
-from `EveryInc/compound-engineering-plugin` (`home/private_dot_config/agent-skills/manifest:1`) — and
-its persona catalog lives upstream at `~/.agents/skills/ce-code-review/references/personas`. The local
-wrapper's only lever over persona behavior is appended prompt text. It cannot add a persona.
-
-Between the gate's removal and this record's completion, the class is unenforced by machine in both
-directions: `home/dot_local/lib/agent-hooks/policies/index.ts:15-19` registers exactly
-`fff-grep-guard`, `webfetch-markdown-hint` and `zsh-reserved-name-guard`, none of which inspects
-write or edit content. That gap is accepted and deliberate, not an accident.
+External prior art supports a dedicated audit boundary but is not a drop-in implementation. The
+`kant13/spec-review` project keeps quality principles as a reference owned by its review skill;
+`gjalla-test-audit` covers tautological and reimplemented tests; and SecondSky's
+`test-quality-analysis` and `mutation-testing` cover weak evidence and mutation probes. Their useful
+ideas must be distilled into this repository's language-neutral, read-only contract rather than copied
+as framework-specific workflows. The `gjalla/engineering` material requires particular copying caution
+because that repository exposes no license.
 
 ## Scope
 
-The reviewer exists; the outstanding work is four deltas against `SKILL.md:46-53`.
+### 1. Implement the standalone review
 
-- Lift the criterion out of its `When the testing persona is selected` conditional and into the
-  unconditional part of the shared review contract, so a diff that touches tests cannot skip it.
-- Instruct the reviewer to state, for each added or changed test, where the expected value comes from,
-  and to flag it when the answer is a file the same patch changed. Today the criterion asks the peer to
-  spot mirroring; it does not ask it to reason from the diff's provenance.
-- Restore the negative-assertion form — `assert_not_contains`, `refute_match`, `! grep` without a named
-  independent oracle — as one case among several. It regressed to unenforced when `test-oracle-guard`
-  was removed, and the current criterion does not name it.
-- Record what the check cannot see. A reviewer reading one branch's diff cannot judge a value that
-  originates outside it; say so in the criterion rather than implying full coverage.
+- Add the repository-owned `se-test-evidence-review` skill, its Claude symlink adapter, and its reserved
+  global skill name. Its ordinary input follows the review target vocabulary already used by
+  `se-code-review`: current diff, explicit base, branch, or pull request.
+- Keep the complete workflow read-only. It may inspect the diff, related production code, tests,
+  fixtures, and mocks, but it neither edits files nor runs tests or mutation tooling.
+- Before paying for the pair, return not-applicable when the reviewed diff has no added or changed test,
+  fixture, or mock surface. Production behavior changed without tests remains owned by the upstream
+  `testing` persona.
+- Run one Claude leg and one OpenCode leg through `se-external-leg-pair`. Use its current fixed
+  Sonnet/high and Terra launch policy for the first implementation; semantic model selection belongs to
+  `2026-09-12-001` and does not block this trial.
+- Preserve the External leg pair contract: two valid distinct reports provide paired coverage; one
+  valid report degrades to single-source coverage; byte-identical reports are `indeterminate-single`,
+  never consensus; no valid report fails this audit; incomplete cleanup forbids synthesis.
+- Return a test-specific JSON report. Each finding requires one primary `category`, optional additional
+  `signals`, the test file and line, claimed behavior, oracle source and independence judgment, a
+  realistic counterfactual defect, code-grounded evidence, severity, and anchored confidence.
+- Use these primary categories: `same-patch-oracle`, `reimplemented-production-logic`,
+  `mock-only-evidence`, `weak-assertion`, `implementation-coupling`, and
+  `regression-insensitive`. Merge overlapping symptoms into one finding rather than reporting category
+  duplicates. `same-patch-oracle` covers both positive assertions copied from a changed artifact and
+  negative assertions such as `assert_not_contains`, `refute_match`, or `! grep` that have no independent
+  oracle.
+- Return findings and residual risks only; do not inventory clean tests. Findings are report-only even
+  when they propose a concrete correction.
+- Add `references/test-evidence-principles.md` and the smallest supporting references needed for the
+  schema and oracle analysis. Write the guidance in the repository's vocabulary, include source
+  provenance for `kant13/spec-review`, `gjalla-test-audit`, SecondSky `test-quality-analysis`, and
+  SecondSky `mutation-testing`, and copy only material whose license permits it. Mutation guidance is a
+  thought experiment: name a defect that should turn the test red, never execute the mutation.
+- State the review's visibility limit: a branch diff cannot establish the provenance of a value whose
+  source exists only outside that diff. Uncertainty becomes a residual risk, not a fabricated finding.
 
-Keep the criterion advisory. The retired gate failed open by design
-(`docs/solutions/design-patterns/gate-bias-follows-blast-radius.md:74-84`); a review finding an author
-can overrule with a stated reason preserves that bias.
+The first release does not own missing tests, untested branches, flakiness, nondeterminism, naming or
+style, coverage percentages, real mutation execution, or whole-suite audit. Those remain with existing
+review and testing workflows.
+
+### 2. Build the benchmark and tune the skill
+
+- Treat session history as discovery evidence only. Run each case in an isolated historical Git
+  worktree at the post-change commit with its parent or named base as the review range. Do not expose
+  issue text, session transcripts, gold labels, or benchmark metadata to the reviewed agent.
+- Seed positive cases from the verified ranges `dbffb66..051d3de`, `806a775..3eea07d`,
+  `cfe2e40..68d8894`, and `d0bb59d..d080d31`. Seed clean controls from
+  `9c1416f..a492251`, `a492251..703c83a`, and `703c83a..e5e671b`. Search session and Git history for
+  further independently adjudicated cases before freezing the corpus. Exclude the disproved Ghostty
+  account as a positive case.
+- Give every positive label an independent basis: a prior human review, repository issue, or recorded
+  mutation result. Pair bad and repaired states where history permits.
+- Freeze separate tuning and holdout sets. Tuning agents must not see holdout labels. Keep the evaluator
+  immutable during prompt experiments; publish the consumed holdout and final results under
+  `docs/benchmarks/` after the run, then require fresh holdout cases for a later tuning cycle.
+- Establish the actual current `se-code-review` workflow as baseline on the same ranges and models.
+  Run baseline and candidate three times per case to measure model variance.
+- Tune the skill and its references only after the initial implementation works end to end. Persist each
+  experiment and measurement before proceeding so the optimization can resume without conversation
+  history.
+- Pass the trial only when every confirmed HIGH defect is found in at least two of three runs, paired
+  clean controls produce no confirmed false positives, at least one confirmed finding is consistently
+  missed by baseline, and every report validates against the test-specific JSON schema. Record latency
+  and cost as diagnostics, not initial gates.
+
+### 3. Integrate only after the measured gate
+
+- When the trial passes, make `se-code-review` run Test evidence review only for a diff that adds or
+  changes tests, fixtures, or mocks, then run its ordinary Code review. Do not feed audit findings into
+  the ordinary peer prompts; merge and deduplicate both result sets only after both independent passes
+  finish.
+- Replace the wrapper's appended `Tautological tests considered harmful` criterion with the dedicated
+  audit. Keep the apply-time oracle gate for any finding that requests a new test.
+- If the audit loses both legs, continue ordinary Code review and report the missing test-evidence
+  coverage explicitly rather than presenting a clean combined pass. Preserve the ordinary review's own
+  failure semantics.
+- If the trial fails any acceptance gate, leave `se-test-evidence-review` available for explicit use and
+  do not add it to automatic Code review.
 
 ## Open decisions
 
-- **Distinct persona or added criterion — settled on evidence: added criterion.** The wrapper cannot
-  add a persona, because the catalog is upstream-owned; and the two-peer fan-out already produces two
-  independent reports, so the independence argument for a separate persona is satisfied at the peer
-  level without a third launch.
-- **Blocking verdict or reported finding — recommended: reported finding.** `SKILL.md:103` already
-  treats an unsatisfiable oracle line as advisory rather than a stop, and
-  `gate-bias-follows-blast-radius.md:74` puts a read-only review stage on the fail-open side. Blocking
-  here would invert the bias the repository just preserved deliberately by retiring the gate. Not yet
-  ratified by the user.
-
-## Known stale reference
-
-`docs/plans/2026-09-04-0737-feat-context-threshold-handoff-plan.md:422` still cites
-`home/private_dot_claude/hooks/executable_test-oracle-guard.sh:15-23` as a pattern to follow. That file
-is deleted. It is a historical plan document, so the citation is wrong but harmless; noted here so
-whoever works this record does not chase it.
+None. The standalone boundary, read-only scope, pair degradation, findings contract, benchmark gate,
+and conditional integration behavior were accepted during design.
