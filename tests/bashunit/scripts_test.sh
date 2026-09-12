@@ -9906,8 +9906,9 @@ function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consu
   root="$BATS_TEST_TMPDIR/opencode-adapter"
   home="$root/home"
   deployed="$home/.config/opencode/plugins"
-  mkdir -p "$deployed"
+  mkdir -p "$deployed" "$home/.local/lib"
   hwi_adapter_stub_engine "$root"
+  ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
   ln -s "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
   cat > "$root/run.ts" <<'TS'
 const { HerdrWorktreeIdentityPlugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
