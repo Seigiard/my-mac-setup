@@ -636,8 +636,8 @@ PY
   done
 }
 
-function test_external_leg_pair_1314_mapped_claude_settings_exist_in_the_installed_client() {
-  _bats_test_init 1314 'External leg pair mapped Claude settings exist in the installed client'
+function test_external_leg_pair_1314_mapped_claude_aliases_and_efforts_exist_in_the_installed_client() {
+  _bats_test_init 1314 'External leg pair mapped Claude aliases and efforts exist in the installed client'
   command_exists claude || skip "claude is not installed"
   local help model effort
 
@@ -649,10 +649,12 @@ function test_external_leg_pair_1314_mapped_claude_settings_exist_in_the_install
     assert_success
   done
 
-  for effort in low medium high xhigh max; do
-    run claude --effort "$effort" --version
-    assert_success
-    refute_output --partial 'Unknown --effort value'
+  for model in sonnet opus fable; do
+    for effort in low medium high xhigh max; do
+      run claude --model "$model" --effort "$effort" --version
+      assert_success
+      refute_output --partial 'Unknown --effort value'
+    done
   done
 }
 
@@ -662,7 +664,12 @@ function test_external_leg_pair_1315_mapped_opencode_settings_exist_in_the_insta
   local catalog="$BATS_TEST_TMPDIR/opencode-models"
 
   run opencode models openai --verbose
-  [ "$status" -eq 0 ] || skip "installed opencode has no openai model catalog: $output"
+  if [ "$status" -ne 0 ]; then
+    case "$output" in
+      *'Provider not found: openai'*) skip "installed opencode has no openai model catalog: $output" ;;
+      *) assert_success ;;
+    esac
+  fi
   assert_success
   printf '%s\n' "$output" > "$catalog"
   run python3 - "$catalog" <<'PY'
