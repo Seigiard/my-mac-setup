@@ -12,6 +12,7 @@ start_child() {
   local supervision_timeout_set=0
   local pane="" list_json="" split_json="" parent_identity="" child_identity=""
   local parent_terminal="" parent_session="" child_terminal="" child_session=""
+  local verified_terminal="" pre_delay_session="" child_identity_status=0
   local launch_terminal="" occupied_names="" registered=0
   local baseline_json="" baseline_snapshot="" baseline_seq=""
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
@@ -59,6 +60,11 @@ start_child() {
   if [ -n "$label" ] && [ "$tab_mode" -ne 1 ]; then fail_usage '--label is only valid with --tab'; fi
   if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage '--tab requires HERDR_WORKSPACE_ID'; fi
   case "$timeout" in '' | 0 | *[!0-9]*) fail_usage '--timeout must be a positive integer' ;; esac
+  case "$COLD_INITIAL_PROMPT_DELAY" in
+    '' | *[!0-9]*) fail_usage 'HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY must be between 0 and 30 seconds' ;;
+  esac
+  [ "$COLD_INITIAL_PROMPT_DELAY" -le 30 ] || \
+    fail_usage 'HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY must be between 0 and 30 seconds'
   if [ "$mode" = wait ] && [ "$supervision_timeout_set" -eq 1 ]; then
     fail_usage '--supervision-timeout requires --detach'
   fi
@@ -376,26 +382,60 @@ EOF
     cleanup_pane post-registration-validation || true
     return 1
   }
-  child_terminal="$(printf '%s' "$list_json" | json_pair_terminal "$name" "$pane")" || true
-  if [ "$child_terminal" != "$launch_terminal" ] || ! pane_terminal_matches "$pane" "$launch_terminal"; then
+  set +e
+  child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")"
+  child_identity_status=$?
+  set -e
+  if [ "$child_identity_status" -eq 0 ]; then
+    IFS=$'\t' read -r child_terminal child_session <<EOF
+$child_identity
+EOF
+  fi
+  verified_terminal="$(printf '%s' "$list_json" | json_pair_terminal "$name" "$pane")" || true
+  if [ "$child_identity_status" -ne 0 ] || [ "$child_terminal" != "$launch_terminal" ] || \
+    [ "$verified_terminal" != "$launch_terminal" ] || ! pane_terminal_matches "$pane" "$launch_terminal"; then
     printf 'herdr-child: accepted alias, pane, or terminal changed after agent start\n' >&2
     cleanup_pane post-registration-validation || true
     return 1
   fi
+  pre_delay_session="$child_session"
 
-  if [ "$mode" = detach ]; then
-    set +e
-    child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")"
-    local child_identity_status=$?
-    set -e
-    if [ "$child_identity_status" -ne 0 ]; then
-      printf 'herdr-child: child terminal identity is unavailable or ambiguous\n' >&2
-      cleanup_pane detached-identity-validation || true
-      return 1
-    fi
-    IFS=$'\t' read -r child_terminal child_session <<EOF
+  # Herdr's three-second generic settle can expire while cold Pi or OpenCode
+  # startup still owns input. Wait before detached mode records its causal
+  # baseline and before the one submission we cannot safely retry. Herdr has
+  # no cold/warm signal, so every launch of the affected kinds pays this bound.
+  case "$kind" in
+    opencode | pi)
+      if [ "$COLD_INITIAL_PROMPT_DELAY" != 0 ]; then
+        sleep "$COLD_INITIAL_PROMPT_DELAY"
+        list_json="$(herdr agent list)" || {
+          printf 'herdr-child: preserving pane %s; child identity is unavailable after startup grace\n' "$pane" >&2
+          return 1
+        }
+        set +e
+        child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")"
+        child_identity_status=$?
+        set -e
+        if [ "$child_identity_status" -eq 0 ]; then
+          IFS=$'\t' read -r child_terminal child_session <<EOF
 $child_identity
 EOF
+        fi
+        verified_terminal="$(printf '%s' "$list_json" | json_pair_terminal "$name" "$pane")" || true
+        if [ "$child_identity_status" -ne 0 ] || [ "$child_terminal" != "$launch_terminal" ] || \
+          [ "$verified_terminal" != "$launch_terminal" ] || ! pane_terminal_matches "$pane" "$launch_terminal"; then
+          printf 'herdr-child: preserving pane %s; child identity changed during startup grace\n' "$pane" >&2
+          return 1
+        fi
+        if [ -n "$pre_delay_session" ] && [ "$child_session" != "$pre_delay_session" ]; then
+          printf 'herdr-child: preserving pane %s; child session changed during startup grace\n' "$pane" >&2
+          return 1
+        fi
+      fi
+      ;;
+  esac
+
+  if [ "$mode" = detach ]; then
     if [ -z "$child_session" ]; then
       printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
       cleanup_pane detached-session-validation || true
