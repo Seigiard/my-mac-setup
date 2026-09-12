@@ -1,12 +1,13 @@
 ---
 title: "Select External leg models by complexity and effort"
-short_description: "se-external-leg-pair hardcodes Sonnet/high and Terra for every caller; require provider-neutral complexity and effort inputs, preserve one Claude plus one OpenCode leg, and resolve provider-specific models and variants centrally before any tab starts."
+short_description: "se-external-leg-pair now requires provider-neutral complexity and effort, resolves a versioned Claude/OpenCode launch matrix centrally, and publishes the requested and resolved settings with each result."
 type: "follow-up"
 category: "se-pipeline"
 tags: ["external-leg","agent-models","cli-contract","herdr"]
 date: "2026-09-12"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-12"
 ---
 
 ## Why this exists
@@ -27,3 +28,7 @@ priority: "medium"
 ## Open decisions
 
 The semantic API and pair invariant are settled. Before implementation, verify the exact initial provider/model matrix, especially `xhigh` and provider-specific support for each effort value, against the installed client catalogs rather than inferring capability from model names.
+
+## Resolution
+
+Implemented required complexity and effort inputs, centralized the versioned provider mapping, migrated all callers to medium/high, published selection diagnostics, and added focused lifecycle plus installed-client conformance coverage.

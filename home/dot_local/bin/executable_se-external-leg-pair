@@ -5,7 +5,9 @@ umask 077
 
 usage() {
   cat >&2 <<'EOF'
-Usage: se-external-leg-pair --repo-root DIR --claude-prompt-file FILE
+Usage: se-external-leg-pair --complexity low|medium|high|xhigh
+                            --effort low|medium|high|xhigh|max
+                            --repo-root DIR --claude-prompt-file FILE
                             --opencode-prompt-file FILE
                             [--exposed-document FILE] --result-dir DIR
 EOF
@@ -21,9 +23,21 @@ claude_prompt_file=""
 opencode_prompt_file=""
 exposed_document=""
 result_dir=""
+complexity=""
+effort=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --complexity)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      complexity="$2"
+      shift 2
+      ;;
+    --effort)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      effort="$2"
+      shift 2
+      ;;
     --repo-root)
       [ "$#" -ge 2 ] || { usage; exit 2; }
       repo_root="$2"
@@ -56,6 +70,35 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+[ -n "$complexity" ] || refuse '--complexity is required.'
+case "$complexity" in
+  low)
+    claude_model="sonnet"
+    opencode_model="openai/gpt-5.6-luna"
+    ;;
+  medium)
+    claude_model="sonnet"
+    opencode_model="openai/gpt-5.6-terra"
+    ;;
+  high)
+    claude_model="opus"
+    opencode_model="openai/gpt-5.6-sol"
+    ;;
+  xhigh)
+    claude_model="fable"
+    opencode_model="openai/gpt-6-astra"
+    ;;
+  *) refuse '--complexity must be one of: low, medium, high, xhigh.' ;;
+esac
+[ -n "$effort" ] || refuse '--effort is required.'
+case "$effort" in
+  low|medium|high|xhigh|max) ;;
+  *) refuse '--effort must be one of: low, medium, high, xhigh, max.' ;;
+esac
+mapping_version="external-leg-models/2026-09-12"
+claude_effort="$effort"
+opencode_variant="$effort"
 
 require_absolute() {
   case "$2" in
@@ -229,7 +272,7 @@ create_tab() {
     status=$?
   else
     output="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$repo_root" --no-focus \
-      --env 'OPENCODE_CONFIG_CONTENT={"permission":"allow","agent":{"build":{"permission":"allow","reasoningEffort":"high"}}}' \
+      --env "OPENCODE_CONFIG_CONTENT={\"permission\":\"allow\",\"agent\":{\"build\":{\"permission\":\"allow\",\"model\":\"$opencode_model\",\"variant\":\"$opencode_variant\"}}}" \
       2>"$work_dir/opencode-tab.err")"
     status=$?
   fi
@@ -293,11 +336,11 @@ start_agent() {
   while [ "$attempt" -le 3 ]; do
     if [ "$leg" = claude ]; then
       herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 -- \
-        --model sonnet --effort high --dangerously-skip-permissions >"$output_file" 2>"$error_file"
+        --model "$claude_model" --effort "$claude_effort" --dangerously-skip-permissions >"$output_file" 2>"$error_file"
       status=$?
     else
       herdr agent start "$name" --kind opencode --pane "$pane" --timeout 60000 -- \
-        --model openai/gpt-5.6-terra --agent build --auto >"$output_file" 2>"$error_file"
+        --model "$opencode_model" --agent build --auto >"$output_file" 2>"$error_file"
       status=$?
     fi
     if [ "$status" -eq 0 ] && python3 -c '
@@ -536,11 +579,26 @@ if ! remove_work_dir; then
 fi
 cleanup_complete=1
 
-python3 - "$stage_dir/result.json" "$classification" "$scan_state" "$claude_state" "$opencode_state" <<'PY'
+python3 - "$stage_dir/result.json" "$classification" "$scan_state" "$claude_state" "$opencode_state" \
+  "$mapping_version" "$complexity" "$effort" "$claude_model" "$claude_effort" \
+  "$opencode_model" "$opencode_variant" <<'PY'
 import json
 import sys
 
-path, classification, scan, claude_state, opencode_state = sys.argv[1:]
+(
+    path,
+    classification,
+    scan,
+    claude_state,
+    opencode_state,
+    mapping,
+    complexity,
+    effort,
+    claude_model,
+    claude_effort,
+    opencode_model,
+    opencode_variant,
+) = sys.argv[1:]
 report_paths = {
     "paired": [
         {"source": "claude", "path": "claude.report"},
@@ -560,6 +618,14 @@ with open(path, "w", encoding="utf-8") as result:
             "cleanup": "complete",
             "legs": {"claude": claude_state, "opencode": opencode_state},
             "reports": report_paths[classification],
+            "selection": {
+                "mapping": mapping,
+                "requested": {"complexity": complexity, "effort": effort},
+                "resolved": {
+                    "claude": {"model": claude_model, "effort": claude_effort},
+                    "opencode": {"model": opencode_model, "variant": opencode_variant},
+                },
+            },
         },
         result,
         indent=2,

@@ -106,7 +106,7 @@ if ! printf '%s' "$CLAUDE_PROMPT" > "$CLAUDE_PROMPT_FILE" ||
   exit 1
 fi
 PAIR_STATUS=0
-se-external-leg-pair --repo-root "$REPO_ROOT" \
+se-external-leg-pair --complexity medium --effort high --repo-root "$REPO_ROOT" \
   --claude-prompt-file "$CLAUDE_PROMPT_FILE" \
   --opencode-prompt-file "$OPENCODE_PROMPT_FILE" \
   --exposed-document "$DOC_COPY" --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
