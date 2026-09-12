@@ -959,17 +959,6 @@ worker() {
   process_worktree "$prompt" "$root" "$common" "$resolved_pane"
 }
 
-close_inherited_descriptors() {
-  local descriptor fd
-  for descriptor in /dev/fd/*; do
-    fd="${descriptor##*/}"
-    case "$fd" in
-      0 | 1 | 2 | 255 | *[!0-9]*) continue ;;
-    esac
-    eval "exec ${fd}>&-" 2>/dev/null || true
-  done
-}
-
 detach_worker() {
   local prompt="$1" prompt_file
   local -a worker_args

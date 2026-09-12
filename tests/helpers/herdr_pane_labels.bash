@@ -1070,6 +1070,7 @@ printf '%s\n' 'legacy herdr-child --name launcher' >&2
 exit 1
 SH
   cp "$SOURCE_ROOT/dot_local/lib/herdr-aliases.sh" "$HPL_CUTOVER_HOME/.local/lib/herdr-aliases.sh"
+  cp "$SOURCE_ROOT/dot_local/lib/herdr-process.sh" "$HPL_CUTOVER_HOME/.local/lib/herdr-process.sh"
   cp -R "$HPL_PLUGIN_DIR" "$HPL_CUTOVER_HOME/.config/herdr/plugins/herdr-pane-labels"
   chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels" "$HPL_CUTOVER_HOME/.local/bin/herdr-child"
   printf '%s\n' '{"result":{"sessions":[{"running":true,"socket_path":"'"$HPL_DEFAULT_SOCKET"'"}]}}' > "$HPL_WORK/sessions.json"

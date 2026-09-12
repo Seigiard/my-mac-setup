@@ -1122,6 +1122,8 @@ function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod
   [[ -n "$before_inputs" ]] || fail "no hash-trigger includes in $before"
   [[ -n "$after_inputs" ]] || fail "no hash-trigger includes in $after"
   assert_equal "$before_inputs" "$after_inputs"
+  grep -Fxq 'dot_local/lib/herdr-process.sh' <<< "$before_inputs" \
+    || fail "shared pane-label process dependency is not a cutover hash input"
   while IFS= read -r path; do
     assert_file_exists "$SOURCE_ROOT/$path"
   done <<< "$before_inputs"

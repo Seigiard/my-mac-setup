@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # State, claim, and diagnostic primitives for herdr-worktree-identity.
 
+# shellcheck source=home/dot_local/lib/herdr-process.sh
+source "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/herdr-process.sh"
+
 HERDR_WORKTREE_IDENTITY_STATE_DIR="${HERDR_WORKTREE_IDENTITY_STATE_DIR:-$HOME/.cache/herdr-worktree-identity}"
 
 # Every outcome a state file may carry. Convention alone let write sites invent
@@ -178,10 +181,6 @@ record_number() {
   printf '%s' "$value"
 }
 
-process_start_token() {
-  ps -p "$1" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-}
-
 # shellcheck disable=SC2034 # Callers read the owner selected by acquire_claim.
 claim_owner_id=""
 
@@ -189,7 +188,7 @@ claim_owner_id=""
 # an unexpected filesystem error. Claim files are fully written before an
 # atomic hard link publishes them, so readers never observe a live blank owner.
 recover_claim() {
-  local lock="$1" attempt="$2" owner pid start current_start observed
+  local lock="$1" attempt="$2" owner pid start identity_status observed
   [ -f "$lock" ] || {
     [ -e "$lock" ] && return 2
     return 0
@@ -206,11 +205,9 @@ recover_claim() {
   pid="$(record_number "$lock" pid)"
   start="$(read_state_field "$lock" process_start)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    current_start="$(process_start_token "$pid")"
-    [ -n "$current_start" ] || return 1
-    if [ -n "$start" ] && [ "$start" = "$current_start" ]; then
-      return 1
-    fi
+    process_start_matches "$pid" "$start"
+    identity_status=$?
+    [ "$identity_status" -eq 1 ] || return 1
   fi
   [ "$(cat "$lock" 2>/dev/null)" = "$observed" ] || return 1
   rm -f "$lock" 2>/dev/null && return 0
@@ -250,8 +247,7 @@ acquire_claim() {
       continue
     fi
     owner="$$.$RANDOM"
-    start="$(process_start_token "$$")"
-    [ -n "$start" ] || return 1
+    start="$(process_start_marker "$$")" || return 1
     owner_record="owner_id=$(encode_value "$owner")
 pid=$$
 process_start=$(encode_value "$start")"

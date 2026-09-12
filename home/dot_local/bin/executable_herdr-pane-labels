@@ -20,6 +20,8 @@ SCRIPT_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd -P)" || exit 0
 # The deployed library path is resolved relative to this script.
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/../lib/herdr-aliases.sh" || exit 0
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../lib/herdr-process.sh" || exit 0
 
 STATE_DIR="${HERDR_PANE_LABELS_STATE_DIR:-$HOME/.cache/herdr-pane-labels}"
 LOCATION_SOURCE_ID="location-sync"
@@ -183,14 +185,10 @@ max_number() {
   printf '%s' "$max"
 }
 
-process_start_token() {
-  ps -p "$1" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-}
-
 claim_owner_id=""
 
 recover_claim() {
-  local lock="$1" attempt="$2" owner pid start socket current_start
+  local lock="$1" attempt="$2" owner pid start socket identity_status
   owner="$(read_state_field "$lock/owner" owner_id)"
   if [ -z "$owner" ]; then
     [ "$attempt" -ge 3 ] || return 1
@@ -204,10 +202,10 @@ recover_claim() {
   start="$(read_state_field "$lock/owner" process_start)"
   socket="$(read_state_field "$lock/owner" socket_path)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    current_start="$(process_start_token "$pid")"
-    if [ "$socket" = "$SOCKET_PATH" ] && \
-      [ -n "$start" ] && [ "$start" = "$current_start" ]; then
-      return 1
+    if [ "$socket" = "$SOCKET_PATH" ]; then
+      process_start_matches "$pid" "$start"
+      identity_status=$?
+      [ "$identity_status" -eq 1 ] || return 1
     fi
   fi
   [ "$(read_state_field "$lock/owner" owner_id)" = "$owner" ] || return 1
@@ -222,7 +220,10 @@ acquire_claim() {
     attempt=$((attempt + 1))
     if mkdir "$lock" 2>/dev/null; then
       owner="$$.$RANDOM.$(now_seq)"
-      start="$(process_start_token "$$")"
+      start="$(process_start_marker "$$")" || {
+        rmdir "$lock" 2>/dev/null || true
+        return 1
+      }
       owner_record="owner_id=$(encode_value "$owner")
 pid=$$
 process_start=$(encode_value "$start")
@@ -263,20 +264,6 @@ retained_location=$(encode_value "")"
   [ -f "$namespace/reconcile.state" ] || \
     atomic_write "$namespace/reconcile.state" "$reconcile_record" || return 1
   return 0
-}
-
-# Agent and test harnesses can keep control pipes on descriptors above stderr.
-# Detached descendants must not keep those pipes alive after their callback or
-# test process has completed. Bash 3.2 reserves descriptor 255 for this script.
-close_inherited_descriptors() {
-  local descriptor fd
-  for descriptor in /dev/fd/*; do
-    fd="${descriptor##*/}"
-    case "$fd" in
-      0 | 1 | 2 | 255 | *[!0-9]*) continue ;;
-    esac
-    eval "exec ${fd}>&-" 2>/dev/null || true
-  done
 }
 
 # ------------------------------------------------------------------- guards
@@ -1772,14 +1759,23 @@ run_sweep_daemon() {
   # A daemon started right after its predecessor was killed finds the lock still
   # there for a moment. Waiting a few seconds beats exiting, which would leave
   # the machine with no daemon at all until the next herdr event.
-  local tries=0
+  local tries=0 start marker_attempt=0
   until mkdir "$SWEEP_LOCK_DIR" 2>/dev/null; do
     tries=$((tries + 1))
     [ "$tries" -ge 3 ] && exit 0
     sleep 1
   done
   printf '%s' "$$" > "$SWEEP_LOCK_DIR/pid" 2>/dev/null
-  process_start_token "$$" > "$SWEEP_LOCK_DIR/start" 2>/dev/null
+  until start="$(process_start_marker "$$")"; do
+    marker_attempt=$((marker_attempt + 1))
+    if [ "$marker_attempt" -ge 3 ]; then
+      rm -f "$SWEEP_LOCK_DIR/pid" 2>/dev/null
+      rmdir "$SWEEP_LOCK_DIR" 2>/dev/null
+      exit 0
+    fi
+    sleep 0.01
+  done
+  printf '%s\n' "$start" > "$SWEEP_LOCK_DIR/start" 2>/dev/null
   # Two traps, not one: a TERM handler that only cleans up would let the loop
   # carry on after it dropped its own lock, and the next hook would then start
   # a second daemon beside the first.
@@ -1811,14 +1807,28 @@ run_sweep_daemon() {
 # Called by the herdr plugin on startup and on agent-status events. A live
 # daemon makes this a no-op; a lock left behind by a killed daemon is cleared.
 ensure_sweep_daemon() {
-  local self="$1" pid start
+  local self="$1" pid start identity_status startup_attempt=0
   [ -z "${HERDR_PANE_LABELS_TEST_NO_DAEMON:-}" ] || return 0
   if [ -d "$SWEEP_LOCK_DIR" ]; then
+    while [ "$startup_attempt" -lt 100 ]; do
+      pid="$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)"
+      case "$pid" in
+        '') ;;
+        *[!0-9]*) break ;;
+        *)
+          kill -0 "$pid" 2>/dev/null || break
+          [ ! -s "$SWEEP_LOCK_DIR/start" ] || break
+          ;;
+      esac
+      startup_attempt=$((startup_attempt + 1))
+      sleep 0.01
+    done
     pid="$(cat "$SWEEP_LOCK_DIR/pid" 2>/dev/null)"
     start="$(cat "$SWEEP_LOCK_DIR/start" 2>/dev/null)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && \
-      [ -n "$start" ] && [ "$start" = "$(process_start_token "$pid")" ]; then
-      return 0
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      process_start_matches "$pid" "$start"
+      identity_status=$?
+      [ "$identity_status" -eq 1 ] || return 0
     fi
     rm -f "$SWEEP_LOCK_DIR/pid" "$SWEEP_LOCK_DIR/start" 2>/dev/null
     rmdir "$SWEEP_LOCK_DIR" 2>/dev/null

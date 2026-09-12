@@ -47,9 +47,12 @@ release_arm_guard() {
 }
 
 begin_supervision_transition() {
-  local operation="$1" run_dir="$2" subject="${3:--}"
+  local operation="$1" run_dir="$2" subject="${3:--}" owner_start=""
+  if [ "$operation" = delivery ]; then
+    owner_start="$(process_start_marker "$$")" || return 1
+  fi
   python3 -c 'import fcntl, os, subprocess, sys, tempfile
-operation, run_dir, subject, owner_pid = sys.argv[1:5]
+operation, run_dir, subject, owner_pid, owner_start, process_library = sys.argv[1:7]
 
 def read_state(path):
     try:
@@ -58,10 +61,13 @@ def read_state(path):
     except (OSError, ValueError):
         return {}
 
-def process_start(pid):
-    env = dict(os.environ, LC_ALL="C")
-    result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True, env=env)
-    return result.stdout.strip() if result.returncode == 0 else ""
+def process_start_status(pid, start):
+    result = subprocess.run(
+        ["/bin/bash", "-c", "source \"$1\" && process_start_matches \"$2\" \"$3\"", "_", process_library, pid, start],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode
 
 def atomic_write(name, content):
     fd, tmp = tempfile.mkstemp(prefix=".write.", dir=run_dir)
@@ -88,22 +94,25 @@ try:
             raise SystemExit(2)
         if os.path.isfile(invalidated):
             raise SystemExit(13 if read_state(invalidated).get("reason") == "reap" else 20)
-        start = process_start(owner_pid)
-        if not start:
-            raise SystemExit(1)
-        atomic_write("delivery-pending.state", f"owner_pid={owner_pid}\nowner_start={start}")
+        atomic_write("delivery-pending.state", f"owner_pid={owner_pid}\nowner_start={owner_start}")
     else:
         if os.path.isfile(pending):
             state = read_state(pending)
             pid = state.get("owner_pid", "")
             start = state.get("owner_start", "")
-            if pid.isdigit() and start and process_start(pid) == start:
-                raise SystemExit(1)
+            if pid.isdigit() and start:
+                try:
+                    os.kill(int(pid), 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    if process_start_status(pid, start) != 1:
+                        raise SystemExit(1)
             os.unlink(pending)
         atomic_write("reap-pending.state", f"status=pending\nowner_pid={owner_pid}\nowner_token={subject}")
         atomic_write("invalidated.state", "reason=reap")
 finally:
-    os.close(lock)' "$operation" "$run_dir" "$subject" "$$"
+    os.close(lock)' "$operation" "$run_dir" "$subject" "$$" "$owner_start" "$SCRIPT_DIR/../lib/herdr-process.sh"
 }
 
 finish_delivery_transition() {
@@ -361,12 +370,14 @@ clear_supervision_state_labels() {
 # written without a verifiable owner is treated as abandoned rather than trusted
 # forever.
 callback_owner_alive() {
-  local run_dir="$1" owner_pid owner_start current_start
+  local run_dir="$1" owner_pid owner_start identity_status
   owner_pid="$(state_value "$run_dir/callback.state" owner_pid)"
   owner_start="$(state_value "$run_dir/callback.state" owner_start)"
   [ -n "$owner_start" ] || return 1
-  current_start="$(process_start_marker "$owner_pid")" || return 1
-  [ "$current_start" = "$owner_start" ]
+  kill -0 "$owner_pid" 2>/dev/null || return 1
+  process_start_matches "$owner_pid" "$owner_start"
+  identity_status=$?
+  [ "$identity_status" -ne 1 ]
 }
 
 preserve_callback_waiting_label() {

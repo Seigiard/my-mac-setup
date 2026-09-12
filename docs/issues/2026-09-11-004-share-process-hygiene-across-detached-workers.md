@@ -5,8 +5,9 @@ type: "follow-up"
 category: "herdr"
 tags: ["architecture","detached-worker","process-hygiene","enhancement","ready-for-agent"]
 date: "2026-09-11"
-status: "open"
+status: "done"
 priority: "low"
+closed: "2026-09-12"
 ---
 
 ## Why this exists
@@ -20,3 +21,7 @@ When a Detached worker path next changes, deepen herdr-process.sh to own descrip
 ## Open decisions
 
 Deferred until a worker path next changes; verify persisted process-start compatibility before consolidating implementations.
+
+## Resolution
+
+Centralized detached-worker descriptor closure and canonical PID-plus-start identity in herdr-process.sh, migrated child lifecycle, worktree identity, and pane labels, retained legacy persisted-marker compatibility and cutover safety, and added semantic regression coverage.

@@ -79,6 +79,40 @@ teardown() {
 # herdr-worktree-identity state library
 # ===========================================
 
+function test_scripts_1209_shared_process_identity_is_stable_and_accepts_legacy_markers() {
+  _bats_test_init 1209 'shared process identity is stable and accepts legacy persisted markers'
+  local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
+  local stub="$BATS_TEST_TMPDIR/process-identity-bin" log="$BATS_TEST_TMPDIR/process-identity-locales.log"
+  mkdir -p "$stub"
+  cat > "$stub/ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${LC_ALL-<unset>}" >> "$PROCESS_IDENTITY_LOCALE_LOG"
+if [ "${LC_ALL-}" = C ]; then
+  printf '  Sat Sep 12 06:18:05 2026    \n'
+else
+  printf 'sam 12 sep 2026 06:18:05 UTC\n'
+fi
+SH
+  chmod +x "$stub/ps"
+
+  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
+    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c '
+      set -e
+      source "$1"
+      process_start_marker 42
+      printf "\n"
+      process_start_matches 42 "  Sat Sep 12 06:18:05 2026    "
+      process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"
+      ! process_start_matches 42 "wrong process start"
+      ! process_start_marker invalid
+    ' _ "$process_library"
+
+  assert_success
+  assert_output 'Sat Sep 12 06:18:05 2026'
+  assert_file_contains "$log" '^C$'
+  assert_file_contains "$log" '^<unset>$'
+}
+
 function test_scripts_1210_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
   _bats_test_init 1210 'worktree identity claims live owners and recovers dead owners'
   hwi_setup
@@ -329,6 +363,78 @@ function test_scripts_1218_worktree_identity_foreground_hands_off_to_a_detached_
   assert_file_exists "$HWI_WORK/pane-get.ready"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'do not place this prompt on argv'
   : > "$HWI_WORK/pane-get.release"
+}
+
+function test_scripts_12182_worktree_identity_worker_closes_inherited_descriptors() {
+  _bats_test_init 12182 'worktree identity worker closes inherited descriptors'
+  hwi_setup
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
+  : > "$HWI_WORK/block-pane-get"
+
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HWI_ENGINE="$HWI_ENGINE" \
+    HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" python3 - <<'PY'
+import os
+from pathlib import Path
+import select
+import signal
+import subprocess
+import time
+
+work = Path(os.environ["HWI_WORK"])
+release = work / "pane-get.release"
+ready = work / "pane-get.ready"
+control_read, control_write = os.pipe()
+os.set_inheritable(control_write, True)
+proc = subprocess.Popen(
+    [
+        "bash",
+        os.environ["HWI_ENGINE"],
+        "--worker",
+        "--agent", "codex",
+        "--session", "session-1",
+        "--pane", "pane-1",
+        "--workspace", "workspace-1",
+    ],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    text=True,
+    env=os.environ.copy(),
+    pass_fds=(control_write,),
+)
+try:
+    assert proc.stdin is not None
+    proc.stdin.write("descriptor handoff\n")
+    proc.stdin.close()
+    os.close(control_write)
+    control_write = -1
+
+    deadline = time.monotonic() + 30
+    while not ready.exists() and time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise AssertionError(f"worker exited before the controlled block with {proc.returncode}")
+        time.sleep(0.02)
+    if not ready.exists():
+        raise AssertionError("worker did not reach the controlled block")
+    if proc.poll() is not None:
+        raise AssertionError("worker exited after publishing the controlled block")
+
+    readable, _, _ = select.select([control_read], [], [], 1)
+    if not readable or os.read(control_read, 1) != b"":
+        raise AssertionError("worker retained the inherited control descriptor")
+finally:
+    release.touch()
+    os.close(control_read)
+    if control_write >= 0:
+        os.close(control_write)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+PY
+  assert_success
 }
 
 # ===========================================
@@ -2587,6 +2693,9 @@ SH
   chmod +x "$CHILD_STUB/herdr"
   cat > "$CHILD_STUB/ps" <<'SH'
 #!/usr/bin/env bash
+if [ -f "$CHILD_STUB/fail-ps" ]; then
+  exit 1
+fi
 if [ -f "$CHILD_STUB/observe-ps-locale" ]; then
   printf '%s\n' "${LC_ALL:-unset}" >> "$CHILD_STUB/ps-locales.log"
 fi
@@ -5776,6 +5885,7 @@ function test_scripts_1112_herdr_pane_labels_sources_the_alias_library_relative_
   mkdir -p "$deployed/bin" "$deployed/lib"
   cp "$HPL_ENGINE" "$deployed/bin/herdr-pane-labels"
   cp "$HERDR_ALIASES" "$deployed/lib/herdr-aliases.sh"
+  cp "$SOURCE_ROOT/dot_local/lib/herdr-process.sh" "$deployed/lib/herdr-process.sh"
 
   run env PATH="$deployed/bin:/usr/bin:/bin" bash "$deployed/bin/herdr-pane-labels" --help
   assert_success
@@ -7851,6 +7961,14 @@ function test_scripts_1176_herdr_pane_labels_ensure_sweep_daemon_keeps_a_single_
   run hpl_sweep_run --ensure-sweep-daemon
   assert_success
   assert_equal "$(cat "$sweep_lock/pid")" "$live"
+  cat > "$HPL_STUB/ps" <<'SH'
+#!/bin/sh
+exit 1
+SH
+  chmod +x "$HPL_STUB/ps"
+  run hpl_sweep_run --ensure-sweep-daemon
+  assert_success
+  assert_equal "$(cat "$sweep_lock/pid")" "$live"
   kill "$live" 2>/dev/null || true
 }
 
@@ -7879,10 +7997,21 @@ function test_scripts_1178_herdr_pane_labels_sweep_daemon_exits_after_three_unre
   _bats_test_init 1178 'herdr-pane-labels sweep daemon exits after three unreachable snapshots'
   command -v jq >/dev/null || skip "jq not available"
   hpl_setup
-  local dir daemon_pid i
+  local dir daemon_pid i ps_attempts="$HPL_WORK/ps-attempts"
   dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
   : > "$dir/fail-snapshot"
-  HPL_SWEEP_INTERVAL=0.01 hpl_sweep_run --sweep-daemon &
+  cat > "$HPL_STUB/ps" <<'SH'
+#!/usr/bin/env bash
+attempt=0
+[ ! -f "$HPL_PS_ATTEMPTS" ] || attempt="$(cat "$HPL_PS_ATTEMPTS")"
+attempt=$((attempt + 1))
+printf '%s' "$attempt" > "$HPL_PS_ATTEMPTS"
+[ "$attempt" -ne 1 ] || exit 1
+exec /bin/ps "$@"
+SH
+  chmod +x "$HPL_STUB/ps"
+  HPL_PS_ATTEMPTS="$ps_attempts" HPL_SWEEP_INTERVAL=0.01 \
+    hpl_sweep_run --sweep-daemon &
   daemon_pid=$!
   for i in $(seq 1 $HPL_WAIT_POLLS); do
     kill -0 "$daemon_pid" 2>/dev/null || break
@@ -7894,6 +8023,8 @@ function test_scripts_1178_herdr_pane_labels_sweep_daemon_exits_after_three_unre
     fail "sweep daemon kept polling an unreachable socket"
   fi
   wait "$daemon_pid"
+  run test "$(cat "$ps_attempts")" -ge 2
+  assert_success
   run grep -c '^api snapshot$' "$HPL_LOG"
   assert_output "3"
   assert_dir_not_exists "$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
@@ -7960,6 +8091,39 @@ pane_snapshot "$(jq -c '.label = "badlabel"' <<< "$base")" | hpl_cutover_snapsh
 exit 0
 CHECK
   run env HOME="$BATS_TEST_TMPDIR/cutover-label-home" bash "$script" "$library"
+  assert_success
+}
+
+function test_scripts_1303_herdr_pane_label_cutover_drains_canonical_claims_under_localized_callers() {
+  _bats_test_init 1303 'herdr pane-label cutover drains canonical claims under localized callers'
+  local library="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
+  local lock="$BATS_TEST_TMPDIR/canonical-claim/presentation.claim"
+  mkdir -p "$lock"
+  printf 'owner_id=%s\npid=42\nprocess_start=%s\nsocket_path=%s\n' \
+    "$(printf owner | base64 | tr -d '\n')" \
+    "$(printf 'Sat Sep 12 06:18:05 2026' | base64 | tr -d '\n')" \
+    "$(printf /tmp/localized.sock | base64 | tr -d '\n')" > "$lock/owner"
+
+  run env HOME="$BATS_TEST_TMPDIR/cutover-claim-home" bash -c '
+    source "$1"
+    hpl_cutover_pid_is_live() { return 0; }
+    hpl_cutover_process_start() {
+      if [ "${LC_ALL:-}" = C ]; then
+        printf %s "Sat Sep 12 06:18:05 2026"
+      else
+        printf %s "sam 12 sep 2026 06:18:05 UTC"
+      fi
+    }
+    hpl_cutover_process_command() { printf %s "bash /tmp/engine --presentation-worker"; }
+    hpl_cutover_socket_for_namespace() { printf %s /tmp/localized.sock; }
+    hpl_cutover_command_matches() { return 0; }
+    hpl_cutover_hook() { return 0; }
+    hpl_cutover_wait_pid_gone() { return 0; }
+    kill() { return 0; }
+    hpl_cutover_drain_claim "$2" /tmp/engine new "$3"
+    [ "$?" -eq 10 ]
+  ' _ "$library" "$lock" "${lock%/presentation.claim}"
+
   assert_success
 }
 
@@ -8152,7 +8316,8 @@ case "${1:-}" in
     write_socket
     mkdir -p "$namespace/sweep.lock"
     printf '%s' "$$" > "$namespace/sweep.lock/pid"
-    trap 'rm -f "$namespace/sweep.lock/pid"; rmdir "$namespace/sweep.lock" 2>/dev/null || true; exit 0' INT TERM EXIT
+    LC_ALL=C ps -p "$$" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' > "$namespace/sweep.lock/start"
+    trap 'rm -f "$namespace/sweep.lock/pid" "$namespace/sweep.lock/start"; rmdir "$namespace/sweep.lock" 2>/dev/null || true; exit 0' INT TERM EXIT
     while :; do sleep 1; done
     ;;
 esac
@@ -8767,6 +8932,7 @@ function test_scripts_265_herdr_child_delivery_claim_keeps_reap_fail_closed_with
   child_wait_for_file "$CHILD_STUB/parent-prompt-accepted"
   assert_file_exists "$run_dir/delivery-pending.state"
 
+  : > "$CHILD_STUB/fail-ps"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     bash "$HERDR_CHILD" reap --to "$(child_started_name)" --pane wT:p9
@@ -8774,6 +8940,7 @@ function test_scripts_265_herdr_child_delivery_claim_keeps_reap_fail_closed_with
   assert_output --partial 'supervision generation could not be invalidated'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
 
+  rm "$CHILD_STUB/fail-ps"
   : > "$CHILD_STUB/release-parent-prompt"
   child_wait_for_file "$CHILD_STUB/successful-prompts.log"
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do

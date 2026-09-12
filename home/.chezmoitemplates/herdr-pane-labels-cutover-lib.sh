@@ -260,8 +260,9 @@ hpl_cutover_claim_family() {
 
 hpl_cutover_drain_claim() {
   local lock="$1" engine="$2" kind="$3" namespace="$4" owner_file owner
-  local pid stored_start stored_socket socket start command family
-  local current_owner current_pid current_stored_start current_socket current_command second_start attempt=0
+  local pid stored_start stored_socket socket start canonical_start command family
+  local current_owner current_pid current_stored_start current_socket current_command
+  local second_start second_canonical_start attempt=0
   owner_file="$lock/owner"
   while [ ! -f "$owner_file" ] && [ "$attempt" -lt 3 ]; do
     attempt=$((attempt + 1))
@@ -304,9 +305,11 @@ hpl_cutover_drain_claim() {
     return 0
   fi
   start="$(hpl_cutover_process_start "$pid")"
+  canonical_start="$(LC_ALL=C hpl_cutover_process_start "$pid")"
   command="$(hpl_cutover_process_command "$pid")"
   family="$(hpl_cutover_claim_family "$lock" "$kind")"
-  if [ -z "$start" ] || [ "$start" != "$stored_start" ] || \
+  if [ -z "$start" ] || \
+    { [ "$start" != "$stored_start" ] && [ "$canonical_start" != "$stored_start" ]; } || \
     ! hpl_cutover_command_matches "$command" "$engine" "$family"; then
     hpl_cutover_error "refusing unrelated or unverifiable owner PID $pid from $lock"
     return 1
@@ -318,10 +321,12 @@ hpl_cutover_drain_claim() {
   current_stored_start="$(hpl_cutover_text_field "$owner_file" process_start 2>/dev/null)"
   current_socket="$(hpl_cutover_text_field "$owner_file" socket_path 2>/dev/null)"
   second_start="$(hpl_cutover_process_start "$pid")"
+  second_canonical_start="$(LC_ALL=C hpl_cutover_process_start "$pid")"
   current_command="$(hpl_cutover_process_command "$pid")"
   if ! hpl_cutover_pid_is_live "$pid"; then return 10; fi
   if [ "$current_owner" != "$owner" ] || [ "$current_pid" != "$pid" ] || \
     [ "$current_stored_start" != "$stored_start" ] || [ "$second_start" != "$start" ] || \
+    [ "$second_canonical_start" != "$canonical_start" ] || \
     [ "$current_socket" != "$socket" ] || \
     [ "$current_command" != "$command" ] || \
     ! hpl_cutover_command_matches "$current_command" "$engine" "$family"; then
@@ -929,27 +934,34 @@ EOF
 }
 
 hpl_cutover_verify_daemon() {
-  local socket="$1" engine="$2" cache="$3" namespace lock pid start command
-  local tries=0 second_start second_command
+  local socket="$1" engine="$2" cache="$3" namespace lock pid stored_start start command
+  local tries=0 canonical_start second_stored_start second_start second_canonical_start second_command
   namespace="$cache/sockets/$(hpl_cutover_encode_key "$socket")"
   lock="$namespace/sweep.lock"
   while [ "$tries" -lt 100 ]; do
     tries=$((tries + 1))
     pid="$(cat "$lock/pid" 2>/dev/null)"
     case "$pid" in '' | *[!0-9]*) sleep "${HERDR_PANE_LABELS_CUTOVER_POLL:-0.05}"; continue ;; esac
-    if hpl_cutover_pid_is_live "$pid"; then break; fi
+    stored_start="$(cat "$lock/start" 2>/dev/null)"
+    if hpl_cutover_pid_is_live "$pid" && [ -n "$stored_start" ]; then break; fi
     sleep "${HERDR_PANE_LABELS_CUTOVER_POLL:-0.05}"
   done
   case "${pid:-}" in '' | *[!0-9]*) return 1 ;; esac
   hpl_cutover_pid_is_live "$pid" || return 1
   [ "$(hpl_cutover_socket_for_namespace "$namespace")" = "$socket" ] || return 1
+  canonical_start="$(LC_ALL=C hpl_cutover_process_start "$pid")"
   start="$(hpl_cutover_process_start "$pid")"
   command="$(hpl_cutover_process_command "$pid")"
-  [ -n "$start" ] && hpl_cutover_command_matches "$command" "$engine" daemon || return 1
+  [ -n "$canonical_start" ] && [ "$stored_start" = "$canonical_start" ] && \
+    [ -n "$start" ] && hpl_cutover_command_matches "$command" "$engine" daemon || return 1
   [ "$(cat "$lock/pid" 2>/dev/null)" = "$pid" ] || return 1
+  second_stored_start="$(cat "$lock/start" 2>/dev/null)"
   second_start="$(hpl_cutover_process_start "$pid")"
+  second_canonical_start="$(LC_ALL=C hpl_cutover_process_start "$pid")"
   second_command="$(hpl_cutover_process_command "$pid")"
-  [ "$second_start" = "$start" ] && [ "$second_command" = "$command" ] || return 1
+  [ "$second_stored_start" = "$stored_start" ] && \
+    [ "$second_start" = "$start" ] && [ "$second_canonical_start" = "$canonical_start" ] && \
+    [ "$second_command" = "$command" ] || return 1
   hpl_cutover_trace "daemon-verified:$socket:$pid:$start"
 }
 
