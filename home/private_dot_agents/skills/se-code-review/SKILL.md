@@ -87,21 +87,21 @@ if ! printf '%s' "$CLAUDE_PROMPT" > "$CLAUDE_PROMPT_FILE" ||
   exit 1
 fi
 PAIR_STATUS=0
-se-external-leg-pair --repo-root "$REPO_ROOT" \
+se-external-leg-pair --complexity medium --effort high --repo-root "$REPO_ROOT" \
   --claude-prompt-file "$CLAUDE_PROMPT_FILE" \
   --opencode-prompt-file "$OPENCODE_PROMPT_FILE" \
   --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
 ```
 
-After the command returns, load any published result needed for diagnosis, then remove `PAIR_PARENT` on every status before synthesis or return. Require `PAIR_STATUS=0` and a complete parseable JSON report from each listed source. One failed or malformed peer degrades coverage; no valid peer report fails the review. Treat `identical-single` as one indeterminate source, never consensus. Report a waived scan. Do not pass peer context into `se-simplify`.
+After the command returns, retain `selection` from any parseable published result for the final coverage report, then remove `PAIR_PARENT` on every status before synthesis or return. Require `PAIR_STATUS=0` and a complete parseable JSON report from each listed source. One failed or malformed peer degrades coverage; no valid peer report fails the review. Treat `identical-single` as one indeterminate source, never consensus. Report a waived scan and the requested and resolved selection. Do not pass peer context into `se-simplify`.
 
 ## Synthesize reports
 
 Merge findings by file, nearby line, and issue substance:
 
 1. **Consensus**: both reports found the same issue.
-2. **Claude-only**: only Sonnet found it.
-3. **OpenCode-only**: only Terra found it.
+2. **Claude-only**: only the Claude peer found it.
+3. **OpenCode-only**: only the OpenCode peer found it.
 4. **Indeterminate-single**: an identical report has no model attribution and is never consensus.
 5. **Contradiction**: the reports disagree on whether the issue exists or what behavior is correct.
 6. **Fix divergence**: they agree on the issue but propose materially different fixes.

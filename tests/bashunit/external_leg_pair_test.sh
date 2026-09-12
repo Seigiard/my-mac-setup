@@ -210,7 +210,7 @@ function test_external_leg_pair_1301_scans_exact_inputs_before_launch_and_publis
   local result="$PAIR_RESULTS/distinct"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_ASSERT_NO_STAGE_ON_CLOSE=1 HERDR_ENV=1 HERDR_WORKSPACE_ID=wT \
-    bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    bash "$PAIR_SCRIPT" --complexity medium --effort high --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" \
       --exposed-document "$PAIR_WORK/document.md" --result-dir "$result"
@@ -287,7 +287,7 @@ function test_external_leg_pair_1302_refuses_before_tabs_and_records_an_explicit
   local refused="$PAIR_RESULTS/refused" waived="$PAIR_RESULTS/waived"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_SCAN_FAIL_AT=1 HERDR_ENV=1 HERDR_WORKSPACE_ID=wT \
-    bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    bash "$PAIR_SCRIPT" --complexity medium --effort high --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$refused"
   assert_failure 2
@@ -299,7 +299,8 @@ function test_external_leg_pair_1302_refuses_before_tabs_and_records_an_explicit
 
   rm -f "$PAIR_WORK/alias-count" "$PAIR_WORK/scan-count" "$PAIR_WORK/order.log"
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_SCAN_FAIL_AT=1 SE_SKIP_SECRET_SCAN=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$waived"
   assert_success
@@ -315,7 +316,8 @@ function test_external_leg_pair_1303_rescans_recovery_prompts_and_counts_identic
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CLAUDE_MODE=none PAIR_STUB_OPENCODE_MODE=none \
     PAIR_STUB_RECOVER=1 PAIR_STUB_RECOVER_BODY='same report' \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" \
       --exposed-document "$PAIR_WORK/document.md" --result-dir "$result"
@@ -356,7 +358,8 @@ function test_external_leg_pair_1304_withholds_results_when_cleanup_is_incomplet
   local result="$PAIR_RESULTS/cleanup-failed"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CLOSE_FAIL_TAB=wT:t1 PAIR_STUB_ASSERT_NO_STAGE_ON_CLOSE=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 3
@@ -384,7 +387,8 @@ function test_external_leg_pair_1305_preserves_a_valid_claude_report_when_openco
   local result="$PAIR_RESULTS/claude-only"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_OPENCODE_MODE=symlink \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_success
@@ -402,7 +406,8 @@ function test_external_leg_pair_1306_preserves_a_valid_opencode_report_when_clau
   local result="$PAIR_RESULTS/opencode-only"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CLAUDE_MODE=symlink \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_success
@@ -420,7 +425,8 @@ function test_external_leg_pair_1307_publishes_none_only_after_complete_cleanup(
   local result="$PAIR_RESULTS/none"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CLAUDE_MODE=symlink PAIR_STUB_OPENCODE_MODE=symlink \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 1
@@ -437,7 +443,8 @@ function test_external_leg_pair_1308_treats_untracked_tabs_and_failed_error_clea
   local malformed="$PAIR_RESULTS/malformed-tab" staging="$PAIR_RESULTS/staging-failed"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_MALFORMED_TAB_AT=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$malformed"
   assert_failure 3
@@ -449,7 +456,8 @@ function test_external_leg_pair_1308_treats_untracked_tabs_and_failed_error_clea
   rm -rf "$PAIR_WORK"
   pair_stub
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_MKTEMP_FAIL_AT=2 PAIR_STUB_RM_FAIL_TRANSPORT=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$staging"
   assert_failure 3
@@ -464,7 +472,8 @@ function test_external_leg_pair_1308_treats_untracked_tabs_and_failed_error_clea
   pair_stub
   local known_tab="$PAIR_RESULTS/known-tab"
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_MISSING_PANE_AT=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$known_tab"
   assert_success
@@ -484,7 +493,7 @@ function test_external_leg_pair_1309_recovers_mixed_start_races_and_keeps_an_ack
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_START_MIXED_TRANSIENT=1 \
     PAIR_STUB_PROMPT_ACK_FAIL_PANE=wT:p1 HERDR_ENV=1 HERDR_WORKSPACE_ID=wT \
-    bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    bash "$PAIR_SCRIPT" --complexity medium --effort high --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_success
@@ -504,7 +513,8 @@ function test_external_leg_pair_1310_degrades_when_one_tab_cannot_start() {
   local result="$PAIR_RESULTS/tab-failed"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_TAB_FAIL_AT=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_success
@@ -522,7 +532,8 @@ function test_external_leg_pair_1311_refuses_to_classify_when_report_comparison_
   local result="$PAIR_RESULTS/compare-failed"
 
   run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CMP_FAIL=1 \
-    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --repo-root "$PAIR_REPO" \
+    HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
+      --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 1
@@ -535,6 +546,155 @@ function test_external_leg_pair_1311_refuses_to_classify_when_report_comparison_
   local transport
   transport="$(dirname "$(cat "$PAIR_WORK/report-p1.path")")"
   assert_dir_not_exists "$transport"
+}
+
+function test_external_leg_pair_1312_refuses_missing_or_unsupported_selection_before_tabs() {
+  _bats_test_init 1312 'External leg pair refuses missing or unsupported selection before tabs'
+  pair_stub
+  local result="$PAIR_RESULTS/refused-selection"
+
+  run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
+    --effort high --repo-root "$PAIR_REPO" \
+    --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+    --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
+  assert_failure 2
+  assert_output --partial '--complexity is required'
+
+  run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
+    --complexity medium --repo-root "$PAIR_REPO" \
+    --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+    --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
+  assert_failure 2
+  assert_output --partial '--effort is required'
+
+  run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
+    --complexity extreme --effort high --repo-root "$PAIR_REPO" \
+    --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+    --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
+  assert_failure 2
+  assert_output --partial '--complexity must be one of: low, medium, high, xhigh'
+
+  run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
+    --complexity medium --effort extreme --repo-root "$PAIR_REPO" \
+    --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+    --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
+  assert_failure 2
+  assert_output --partial '--effort must be one of: low, medium, high, xhigh, max'
+  assert_file_not_exists "$PAIR_WORK/herdr.log"
+  assert_dir_not_exists "$result"
+}
+
+function test_external_leg_pair_1313_maps_every_complexity_and_effort_to_launch_settings() {
+  _bats_test_init 1313 'External leg pair maps every complexity and effort to launch settings'
+  local selection complexity effort claude_model opencode_model result
+
+  for selection in \
+    'low low sonnet openai/gpt-5.6-luna' \
+    'low medium sonnet openai/gpt-5.6-luna' \
+    'medium high sonnet openai/gpt-5.6-terra' \
+    'high xhigh opus openai/gpt-5.6-sol' \
+    'xhigh max fable openai/gpt-6-astra'; do
+    read -r complexity effort claude_model opencode_model <<< "$selection"
+    rm -rf "$BATS_TEST_TMPDIR/pair"
+    pair_stub
+    result="$PAIR_RESULTS/$complexity-$effort"
+
+    run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
+      --complexity "$complexity" --effort "$effort" --repo-root "$PAIR_REPO" \
+      --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+      --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
+    assert_success
+
+    run grep -F -- '--kind claude' "$PAIR_WORK/herdr.log"
+    assert_success
+    assert_output --partial "--model $claude_model"
+    assert_output --partial "--effort $effort"
+    run grep -F -- '--kind opencode' "$PAIR_WORK/herdr.log"
+    assert_success
+    assert_output --partial "--model $opencode_model"
+    run python3 - "$PAIR_WORK/herdr.log" "$effort" "$opencode_model" <<'PY'
+import json
+import shlex
+import sys
+
+for line in open(sys.argv[1], encoding="utf-8"):
+    arguments = shlex.split(line)
+    if arguments[:3] == ["herdr", "tab", "create"] and "--env" in arguments:
+        value = arguments[arguments.index("--env") + 1]
+        config = json.loads(value.split("=", 1)[1])
+        assert config["agent"]["build"]["model"] == sys.argv[3]
+        assert config["agent"]["build"]["variant"] == sys.argv[2]
+        break
+else:
+    raise AssertionError("OpenCode tab environment was not forwarded")
+PY
+    assert_success
+
+    run jq -cS '.selection' "$result/result.json"
+    assert_success
+    assert_output "{\"mapping\":\"external-leg-models/2026-09-12\",\"requested\":{\"complexity\":\"$complexity\",\"effort\":\"$effort\"},\"resolved\":{\"claude\":{\"effort\":\"$effort\",\"model\":\"$claude_model\"},\"opencode\":{\"model\":\"$opencode_model\",\"variant\":\"$effort\"}}}"
+  done
+}
+
+function test_external_leg_pair_1314_mapped_claude_aliases_and_efforts_exist_in_the_installed_client() {
+  _bats_test_init 1314 'External leg pair mapped Claude aliases and efforts exist in the installed client'
+  command_exists claude || skip "claude is not installed"
+  local help model effort
+
+  run claude --help
+  assert_success
+  help="$output"
+  for model in sonnet opus fable; do
+    run grep -F -- "'$model'" <<< "$help"
+    assert_success
+  done
+
+  for model in sonnet opus fable; do
+    for effort in low medium high xhigh max; do
+      run claude --model "$model" --effort "$effort" --version
+      assert_success
+      refute_output --partial 'Unknown --effort value'
+    done
+  done
+}
+
+function test_external_leg_pair_1315_mapped_opencode_settings_exist_in_the_installed_client() {
+  _bats_test_init 1315 'External leg pair mapped OpenCode settings exist in the installed client'
+  command_exists opencode || skip "opencode is not installed"
+  local catalog="$BATS_TEST_TMPDIR/opencode-models"
+
+  run opencode models openai --verbose
+  if [ "$status" -ne 0 ]; then
+    case "$output" in
+      *'Provider not found: openai'*) skip "installed opencode has no openai model catalog: $output" ;;
+      *) assert_success ;;
+    esac
+  fi
+  assert_success
+  printf '%s\n' "$output" > "$catalog"
+  run python3 - "$catalog" <<'PY'
+import json
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+decoder = json.JSONDecoder()
+catalog = {}
+for match in re.finditer(r"^(openai/[^\n]+)\n", text, re.MULTILINE):
+    metadata, _ = decoder.raw_decode(text[match.end():].lstrip())
+    catalog[match.group(1)] = metadata
+
+efforts = {"low", "medium", "high", "xhigh", "max"}
+for model in (
+    "openai/gpt-5.6-luna",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-6-astra",
+):
+    assert model in catalog
+    assert efforts <= set(catalog[model]["variants"])
+PY
+  assert_success
 }
 
 function set_up_before_script() {

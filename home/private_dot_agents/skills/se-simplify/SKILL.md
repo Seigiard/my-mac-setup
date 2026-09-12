@@ -88,13 +88,13 @@ if ! printf '%s' "$CLAUDE_PROMPT" > "$CLAUDE_PROMPT_FILE" ||
   exit 1
 fi
 PAIR_STATUS=0
-se-external-leg-pair --repo-root "$REPO_ROOT" \
+se-external-leg-pair --complexity medium --effort high --repo-root "$REPO_ROOT" \
   --claude-prompt-file "$CLAUDE_PROMPT_FILE" \
   --opencode-prompt-file "$OPENCODE_PROMPT_FILE" \
   --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
 ```
 
-After the command returns, load any published result needed for diagnosis, then remove `PAIR_PARENT` on every status before synthesis or return. Require `PAIR_STATUS=0`. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; no valid peer report fails the simplify run and applies nothing. Treat `identical-single` as one indeterminate source, never consensus. Report a waived scan.
+After the command returns, retain `selection` from any parseable published result for the final coverage report, then remove `PAIR_PARENT` on every status before synthesis or return. Require `PAIR_STATUS=0`. Accept a report only when Coverage accounts for all three reviewer dimensions, every surviving finding contains every required field, excluded candidates carry a reason, and the terminal line is exact. One failed or malformed peer degrades coverage; no valid peer report fails the simplify run and applies nothing. Treat `identical-single` as one indeterminate source, never consensus. Report a waived scan and the requested and resolved selection.
 
 ## Synthesize findings
 

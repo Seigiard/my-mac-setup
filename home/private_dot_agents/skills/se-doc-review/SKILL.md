@@ -106,13 +106,13 @@ if ! printf '%s' "$CLAUDE_PROMPT" > "$CLAUDE_PROMPT_FILE" ||
   exit 1
 fi
 PAIR_STATUS=0
-se-external-leg-pair --repo-root "$REPO_ROOT" \
+se-external-leg-pair --complexity medium --effort high --repo-root "$REPO_ROOT" \
   --claude-prompt-file "$CLAUDE_PROMPT_FILE" \
   --opencode-prompt-file "$OPENCODE_PROMPT_FILE" \
   --exposed-document "$DOC_COPY" --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
 ```
 
-After the command returns, load any published reports needed for synthesis and remove the result and prompt files on every status. Exit `3` then fails the review because peer cleanup is unconfirmed. Otherwise, invoke the local `ce-doc-review` skill with `mode:headless DOC_PATH`; it is the only pass allowed to mutate the document and starts only after peers can no longer read the checkout state attested by the launch scan. Exit `1` or `2` records both peers as failed but does not suppress the local pass.
+After the command returns, retain `selection` from any parseable published result for the final coverage report, load any published reports needed for synthesis, and remove the result and prompt files on every status. Exit `3` then fails the review because peer cleanup is unconfirmed. Otherwise, invoke the local `ce-doc-review` skill with `mode:headless DOC_PATH`; it is the only pass allowed to mutate the document and starts only after peers can no longer read the checkout state attested by the launch scan. Exit `1` or `2` records both peers as failed but does not suppress the local pass.
 
 Accept an envelope only when Coverage accounts for every attempted persona, its counts reconcile, every surviving finding is routed once with its required fields, and the terminal line is exact. A failed or malformed pass degrades coverage; synthesize any surviving envelopes. Treat `identical-single` as one indeterminate source, never consensus. If all three passes fail, fail the review without modifying the document further.
 
@@ -133,7 +133,7 @@ Present:
 
 ```text
 ## Cross-review synthesis
-Coverage: local personas: <list or failed>; Claude peer: <ok or failed>; OpenCode peer: <ok or failed>
+Coverage: local personas: <list or failed>; Claude peer: <ok or failed>; OpenCode peer: <ok or failed>; selection: <requested and resolved settings, or unavailable>
 ### Consensus (N)
 ### Source-unique findings (M)
 ### Contradictions / fix divergence (K)
