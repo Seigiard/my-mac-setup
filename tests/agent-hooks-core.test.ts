@@ -315,8 +315,8 @@ describe("applicability derivation", () => {
     expect(core.applicableClients(registry, policy)).toEqual(["claude"]);
   });
 
-  test("a tool absent from a profile makes its policy inapplicable there", () => {
-    // #given the shipped profiles, where pi still has no verified fff tool
+  test("the fff grep policy is applicable through every shipped profile", () => {
+    // #given a block policy for the fff grep tool
     const policy = {
       name: "fixture-query-guard",
       tools: ["fff-grep"],
@@ -327,8 +327,8 @@ describe("applicability derivation", () => {
     // #when applicability is derived
     const clients = core.applicableClients(registryWith([policy]), policy);
 
-    // #then it is declared statically, not missed at runtime
-    expect(clients).toEqual(["claude", "opencode"]);
+    // #then each verified spelling is declared statically
+    expect(clients).toEqual(["claude", "opencode", "pi"]);
   });
 });
 
@@ -757,6 +757,7 @@ describe("selfcheck canary over the shipped registry (R8)", () => {
     expect(results.map((result: any) => `${result.policy}@${result.client}`).sort()).toEqual([
       "fff-grep-guard@claude",
       "fff-grep-guard@opencode",
+      "fff-grep-guard@pi",
       "zsh-reserved-name-guard@claude",
       "zsh-reserved-name-guard@opencode",
       "zsh-reserved-name-guard@pi",

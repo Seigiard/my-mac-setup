@@ -210,6 +210,26 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     expect(clearances).toBeGreaterThan(0);
   });
 
+  test("the fff route pi exposes denies a multi-token query and allows one identifier", async () => {
+    // #given the deny and control in pi-fff's observed wire shape
+    const denied = policyFixture("fff-grep-guard", "fff/multi-token bare query is denied");
+    const allowed = policyFixture("fff-grep-guard", "fff/single identifier passes");
+    const host = await loadExtension(CORE_DIR);
+
+    // #when both go through pi-fff's default tool spelling and argument dialect
+    const deniedDecision = await callToolCall(host, {
+      toolName: "ffgrep",
+      input: { pattern: denied.payload.query },
+    });
+    const allowedDecision = await callToolCall(host, {
+      toolName: "ffgrep",
+      input: { pattern: allowed.payload.query },
+    });
+
+    // #then only the multi-token query is refused
+    expect(deniedDecision).toEqual({ block: true, reason: denied.text });
+    expect(allowedDecision).toBeUndefined();
+  });
 });
 
 // --- scenario 3: fail-open by absence ---------------------------------------
