@@ -1,12 +1,13 @@
 ---
 title: "Pi fff-grep route needs the pattern arg dialect"
-short_description: "Pi's fff grep tool is verified as ffgrep (@ff-labs/pi-fff 0.10.6, default mode tools-and-ui), but it sends its query as input.pattern while the agent-hooks core's pi reader only reads input.query, so adding the identifier to the registry alone would make fff-grep-guard applicable to Pi while every real call carries an empty query and silently passes."
+short_description: "Pi's default pi-fff route now maps ffgrep to fff-grep and translates input.pattern into the core's canonical query, so multi-identifier searches reach fff-grep-guard while single identifiers remain allowed."
 type: "follow-up"
 category: "agent-platform"
 tags: ["agent-hooks","fff","pi","tool-identifiers"]
 date: "2026-09-05"
-status: "open"
+status: "done"
 priority: "medium"
+closed: "2026-09-12"
 ---
 
 ## Why this exists
@@ -58,3 +59,7 @@ U5 therefore left Pi's profile without an fff entry, unchanged from U1.
   per session from session state. A static registry entry covers only the
   default mode; a second entry (`grep: "fff-grep"`) would collide with nothing
   today but would claim a name pi's own builtins do not use.
+
+## Resolution
+
+Mapped Pi's verified ffgrep spelling to the shared fff-grep tool kind and translated its input.pattern argument in both normalization and canary encoding. A direct Pi-wire regression test failed before the fix and now proves that multi-token queries are denied while a single-identifier control passes; the core, Pi adapter, and OpenCode adapter canonical targets pass, and make test-local confirms the managed files map to ~/.local/lib/agent-hooks without deployment-shape changes.
