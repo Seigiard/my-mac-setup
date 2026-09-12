@@ -64,13 +64,14 @@ function readOpencode(raw: any): RawRead {
 
 function readPi(raw: any): RawRead {
   const input = raw?.input ?? {};
+  const clientToolName = str(raw?.toolName);
   return {
-    clientToolName: str(raw?.toolName),
+    clientToolName,
     payload: {
       filePath: str(input.path),
       content: joinParts([input.content, ...editParts(input.edits, "newText")]),
       command: str(input.command),
-      query: str(input.query),
+      query: clientToolName === "ffgrep" ? str(input.pattern) : str(input.query),
       url: str(input.url),
     },
   };
@@ -141,7 +142,11 @@ const WRITERS: Record<ClientId, Writer> = {
           : { content: payload.content }
         : {}),
       ...(payload.command ? { command: payload.command } : {}),
-      ...(payload.query ? { query: payload.query } : {}),
+      ...(payload.query
+        ? tool === "fff-grep"
+          ? { pattern: payload.query }
+          : { query: payload.query }
+        : {}),
       ...(payload.url ? { url: payload.url } : {}),
     },
   }),

@@ -16,9 +16,8 @@ import type {
 
 // The fff MCP tool is spelled per client: Claude namespaces it mcp__fff__grep,
 // opencode flattens the server name to fff_grep (observed against the shipped
-// fff MCP server, U4). Pi's spelling is still unverified, so its profile omits
-// the tool and the derivation declares the policy inapplicable there
-// statically instead of missing it silently (R3).
+// fff MCP server, U4), and pi-fff exposes ffgrep in its default tools-and-ui
+// mode. Pi's argument dialect for this route is handled in normalize.ts.
 export const CLIENT_PROFILES: ClientProfile[] = [
   {
     client: "claude",
@@ -40,7 +39,7 @@ export const CLIENT_PROFILES: ClientProfile[] = [
   },
   {
     client: "pi",
-    tools: { edit: "edit", write: "write", bash: "bash" },
+    tools: { edit: "edit", write: "write", bash: "bash", ffgrep: "fff-grep" },
     outcomes: ["block"],
   },
 ];
