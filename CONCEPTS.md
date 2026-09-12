@@ -7,6 +7,12 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 ### Child-agent contract
 The agreement between a parent agent and child agents launched into sibling panes or their own `--tab`. `herdr-child` allocates each child a registered `color-animal` alias and returns it with the pane ID. Attached `--wait` keeps the result inside the current parent turn and arms no watcher. Managed `--detach` captures parent and child terminal/session identity, a fresh-state baseline, and a generation; an external per-child watcher then wakes the parent with generation-and-event markers for settlement, blockage, timeout, or unplanned disappearance. A child decision uses `ask`/`reply`; ordinary follow-ups use pair-addressed `prompt --wait|--detach`; reap requires the verified alias-plus-pane pair, invalidates supervision before pane closure, and preserves sibling panes in a child-owned tab. Lifecycle settlement is a wake signal, not a task verdict. Markers and metadata coordinate cooperative same-user clients and are not authorization credentials.
 
+### Agent mailbox
+The target communication boundary through which agents exchange durable, addressed messages without receiving the host control authority used to deliver them. A host-owned broker authenticates the sender, authorizes the recipient, records the message before delivery, and delegates wake-up to Herdr. Message contents are never executable authority by themselves; their type and the sender's role decide whether they are data, a question, or a continuation from a parent.
+
+### Launch relationship graph
+The communication authority created when one agent launches another. It records which parent, child, and explicitly connected peer relationships may address one another; being a live agent on the same machine or in the same repository grants no messaging authority. The graph authorizes delivery, while agent aliases and pane IDs remain coordination identity rather than credentials.
+
 ### herdr-worktree-identity
 The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
 
