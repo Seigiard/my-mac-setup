@@ -140,6 +140,39 @@ describe("tool_call deny and allow (R3)", () => {
   });
 });
 
+describe("openai-codex tool_call dialect (R3)", () => {
+  test("exec_command is denied from its observed input.cmd wire shape", async () => {
+    // #given the shipped known-bad command in pi-codex-conversion's wire shape
+    const policy = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
+    const fixture = corpus.fixture("codex exec command");
+    const host = await loadExtension(CORE_DIR);
+    expect(fixture.payload.command).toBe(policy.payload.command);
+
+    // #when the handler receives the provider's real tool spelling and field
+    const decision = await callToolCall(host, fixture.raw.pi);
+
+    // #then the same policy and reason reached by builtin bash deny the call
+    expect(decision).toEqual({ block: true, reason: policy.text });
+  });
+
+  test("exec_command allows the nearby ordinary-variable control", async () => {
+    // #given the same codex wire shape with a name zsh does not reserve
+    const policy = policyFixture(
+      "zsh-reserved-name-guard",
+      "zsh/an ordinary name zsh accepts is not blocked",
+    );
+    const fixture = corpus.fixture("codex exec command");
+    const raw = { ...fixture.raw.pi, input: { cmd: policy.payload.command } };
+    const host = await loadExtension(CORE_DIR);
+
+    // #when it reaches the same handler
+    const decision = await callToolCall(host, raw);
+
+    // #then pi reads the absent return as allow
+    expect(decision).toBeUndefined();
+  });
+});
+
 // --- scenario 2: the pi arg dialect -----------------------------------------
 
 describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {

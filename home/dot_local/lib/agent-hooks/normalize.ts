@@ -4,7 +4,7 @@
 // each client actually sends:
 //   claude   tool_input.content / file_path / new_string / edits[].new_string
 //   opencode args.content / filePath | file_path / newString
-//   pi       input.content / path / edits[].newText
+//   pi       input.content / path / edits[].newText / command | cmd / query | pattern
 // Content is aggregated across the full-content and edit fields alike: a Write
 // call carries its text only in `content`, and dropping it would let full-file
 // writes past every content policy.
@@ -70,7 +70,7 @@ function readPi(raw: any): RawRead {
     payload: {
       filePath: str(input.path),
       content: joinParts([input.content, ...editParts(input.edits, "newText")]),
-      command: str(input.command),
+      command: str(input.command) || str(input.cmd),
       query: clientToolName === "ffgrep" ? str(input.pattern) : str(input.query),
       url: str(input.url),
     },
