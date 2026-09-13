@@ -1,0 +1,2 @@
+{"bodies_repaired":0,"issues_closed":0,"issues_created":0,"issues_recovered":0,"labels_created":0,"mutations":0,"repository":"Seigiard/my-mac-setup","result":"noop"}
+noop apply rc=0
