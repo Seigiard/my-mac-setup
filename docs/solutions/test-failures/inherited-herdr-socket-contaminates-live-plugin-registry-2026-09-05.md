@@ -91,5 +91,5 @@ The regression assertion observes the filesystem boundary rather than trusting s
 - [Semantic regression tests over source shape](../design-patterns/semantic-regression-tests-over-source-shape.md)
 - [Herdr git-status playground plan](../../plans/2026-08-25-001-feat-herdr-git-status-playground-plan.md)
 - [A fake of another binary needs that binary as its oracle](../design-patterns/fakes-need-the-real-binary-as-oracle.md)
-- [Palette dynamic plugin action source](../../issues/2026-08-18-008-palette-dynamic-plugin-action-source.md)
+- [#221: Palette dynamic plugin action source](https://github.com/Seigiard/my-mac-setup/issues/221)
 - [Flattened argv overflows the per-string exec limit](flattened-argv-overflows-the-per-string-exec-limit.md) — the same nested-invocation boundary measured by size rather than by contents. `env -i` cannot prevent that failure, because the invoked tool builds the oversized variable from its own argv after the clean environment reaches it.

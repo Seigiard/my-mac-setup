@@ -27,11 +27,11 @@ Reference docs (read on demand):
 
 ### Issue tracker
 
-Issues are structured Markdown records under `docs/issues/`, managed through `python3 scripts/issues`. See `docs/agents/issue-tracker.md`.
+GitHub Issues in `Seigiard/my-mac-setup` are the sole repository work tracker. Use `gh` directly and follow `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-The canonical triage roles use their default names and are stored as issue tags. See `docs/agents/triage-labels.md`.
+The canonical triage roles use native GitHub labels. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
@@ -41,8 +41,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 
 | Command | What it does |
 |---|---|
-| `make test-python` | Run general Python contract tests without the local issue tracker |
-| `make test-issues` | Strictly validate repository issues and run issue CLI tests |
+| `make test-python` | Run general Python contract tests |
 | `make test-ubuntu` | Full source render, disposable-home apply, and test suite in Docker |
 | `make test-docker` | Build + run full Docker test suite |
 | `make test-suite` | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
@@ -165,7 +164,7 @@ Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCo
 
 ## Repository issues
 
-For repository issue queries, lifecycle changes, validation, or unresolved work, load the `repository-issues` skill. Apply its ownership gate before creating a `docs/issues/` record, and use `python3 scripts/issues` for mutations.
+For repository issue queries, lifecycle changes, or unresolved work, load the `repository-issues` skill. Apply its ownership gate before creating a GitHub issue, and use `gh` directly for queries and mutations.
 
 Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 

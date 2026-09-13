@@ -176,12 +176,11 @@ running, the check executes rather than skips, passing with 4 assertions.
 two agree, both returning `["snapshot","type"]`. One level down they diverge: the stub's
 `.result.snapshot` omits `focused_pane_id`, `focused_tab_id`, `focused_workspace_id`, and `version`,
 which the pane-label engine reads none of today. That is filed as
-`docs/issues/2026-09-05-007-pane-label-herdr-stub-omits-four-snapshot-keys-the-real-binary-returns.md`
-rather than encoded in the test.
+[#246](https://github.com/Seigiard/my-mac-setup/issues/246) rather than encoded in the test.
 
 **This is not fully closed.** The originating backlog record ("pane-label herdr stub is an
 unverified protocol fake") was closed by PR #179 and pruned once this document captured its lesson,
-but `2026-09-05-007` remains open and tracks those four divergent keys. The pattern here is the
+but [#246](https://github.com/Seigiard/my-mac-setup/issues/246) remains open and tracks those four divergent keys. The pattern here is the
 conformance boundary, not a claim that the fake is now faithful.
 
 ## Related
@@ -196,5 +195,4 @@ conformance boundary, not a claim that the fake is now faithful.
   extracted from the engine.
 - `skip-set-parity-proves-reduced-dependencies.md` — why the two skip paths above need identity
   comparison across environments, not a pass count.
-- `docs/issues/2026-09-05-007-pane-label-herdr-stub-omits-four-snapshot-keys-the-real-binary-returns.md`
-  — open follow-up on the divergence one level below the pinned depth.
+- [#246](https://github.com/Seigiard/my-mac-setup/issues/246) — open follow-up on the divergence one level below the pinned depth.

@@ -1,13 +1,26 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This repository stores those roles as issue tags because its local tracker has no native labels.
+The repository uses native GitHub labels for two independent roles.
 
-| Label in mattpocock/skills | Tag in our tracker | Meaning                                  |
-| -------------------------- | ------------------ | ---------------------------------------- |
-| `needs-triage`             | `needs-triage`     | Maintainer needs to evaluate this issue  |
-| `needs-info`               | `needs-info`       | Waiting on reporter for more information |
-| `ready-for-agent`          | `ready-for-agent`  | Fully specified, ready for an AFK agent  |
-| `ready-for-human`          | `ready-for-human`  | Requires human implementation            |
-| `wontfix`                  | `wontfix`          | Will not be actioned                     |
+## Category
 
-When a skill mentions a role, use the corresponding tag from this table. Preserve unrelated tags when changing roles because `scripts/issues edit --tag` replaces the complete tag list.
+Each issue has exactly one category label:
+
+| Label | Meaning |
+|---|---|
+| `bug` | Existing behavior is broken or regressed |
+| `enhancement` | New behavior, maintenance, documentation, or improvement work |
+
+## State
+
+Each issue has exactly one canonical state label:
+
+| Label | Meaning |
+|---|---|
+| `needs-triage` | A maintainer needs to evaluate the issue |
+| `needs-info` | Waiting on the reporter for more information |
+| `ready-for-agent` | Fully specified and ready for an AFK agent |
+| `ready-for-human` | Requires human implementation or judgment |
+| `wontfix` | Will not be actioned |
+
+Read all current labels before editing an issue. Remove the previous category or state label when changing that role, and preserve unrelated labels. The assignee is the in-progress signal; assigning a user claims the issue for immediate work.

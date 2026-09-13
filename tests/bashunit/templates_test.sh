@@ -791,7 +791,8 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
 
   # A hook deployed but never registered is a tracked defect class here, so the
   # registration is asserted alongside the hook rather than left to the smoke
-  # suite. See docs/issues/2026-09-03-004-user-prompt-skill-eval-hook-is-deployed-but-never-wired.md.
+  # suite. See the frozen source record at
+  # https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-03-004-user-prompt-skill-eval-hook-is-deployed-but-never-wired.md.
   run jq -r '.hooks.PreCompact[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial 'handoff-pre-compact.sh'
@@ -1130,8 +1131,8 @@ function test_templates_031_agent_skills_clients_use_portable_providers() {
   #
   # docs/agent-setup-inventory.md names the same four and would be the
   # independent side, but the template-test container mounts only home/,
-  # tests/, docs/issues, Makefile and README.md (docker/docker-compose.yml), so
-  # that file does not exist where this suite runs and cannot be read here.
+  # tests/, Makefile and README.md (docker/docker-compose.yml), so that file
+  # does not exist where this suite runs and cannot be read here.
   run jq -e '.enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
   assert_success
 }

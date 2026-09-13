@@ -132,7 +132,8 @@ Six transferable rules for any pipeline that sends repo content to an external s
 `dot_smithers/workflows/lib/pre-external-gate.ts`, which both standalone harnesses passed through
 before dispatching their legs; the follow-up tree-tier (`preExternalTreeGate`) closed the
 pre-`baseSha` exposure on 2026-08-15 (`2026-08-14-009`, done). **That gate was deleted with the
-Smithers runtime and nothing replaced it until issue `2026-09-04-001`.**
+Smithers runtime and nothing replaced it until the work preserved in the
+[frozen `2026-09-04-001` source record](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-04-001-pre-external-secret-scan-covers-one-of-five-external-peer-launch-paths.md).**
 
 Current state: `pre-external-secret-scan` is the shared scanner primitive. It pins gitleaks exit
 codes, redacts output, uses a trusted default-rule configuration instead of target or environment
@@ -145,7 +146,7 @@ before sending another peer turn.
 
 The peers still run against a live filesystem rather than an immutable sandbox. A scan attests the
 state it reads and cannot prevent a concurrent same-user process from changing that state afterward;
-filesystem containment remains separate work under `2026-08-18-002`.
+filesystem containment remains separate work under [#216](https://github.com/Seigiard/my-mac-setup/issues/216).
 
 ## Related
 

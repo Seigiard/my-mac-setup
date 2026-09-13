@@ -1,107 +1,70 @@
 ---
 name: repository-issues
-description: Repository issue ownership and lifecycle management for docs/issues. Use when querying, changing, or validating issues, or deciding whether unresolved work belongs in this repository's backlog.
+description: Apply the repository ownership gate and manage accepted work directly in GitHub Issues with gh. Use when querying, changing, or triaging issues, or deciding whether unresolved work belongs in this repository's backlog.
 ---
 
 # Repository Issues
 
-Use `python3 scripts/issues` from the repository root for all issue lifecycle operations. Treat `docs/issues/` as structured records, not free-form Markdown.
+GitHub Issues in `Seigiard/my-mac-setup` are the sole repository work tracker. Use `gh` directly from the repository root; do not create a repository-specific wrapper or local shadow record.
 
-## Schema
+## Ownership Gate
 
-Each issue is `docs/issues/YYYY-MM-DD-NNN-slug.md`. Its frontmatter has these required fields:
-
-| Field | Values or format |
-|---|---|
-| `title` | Concise, stable label for the issue |
-| `short_description` | One self-contained sentence that explains the issue beyond the title |
-| `type` | `bug`, `follow-up`, `idea`, or `chore` |
-| `category` | A category in the table below |
-| `tags` | JSON array of unique kebab-case tags |
-| `date` | `YYYY-MM-DD`, matching the filename date |
-| `status` | `open`, `in-progress`, `done`, or `wontfix` |
-| `priority` | `critical`, `high`, `medium`, or `low` |
-
-`parent-plan` is optional. Terminal issues also require `closed` and a `## Resolution` section. Active issues require `## Why this exists`, `## Scope`, and `## Open decisions`.
-
-### Writing titles and short descriptions
-
-Keep `title` concise and stable so lists remain scannable. Use `short_description` for the current, information-dense summary of the issue.
-
-A good `short_description`:
-
-- is one self-contained sentence;
-- adds concrete mechanism, impact, evidence, constraint, or intended outcome beyond the title;
-- keeps useful commands, paths, measurements, and known blockers when they explain why the issue matters;
-- describes the current understanding, not only the state when the issue was created;
-- does not repeat or lightly paraphrase the title.
-
-When investigation changes the diagnosis, impact, scope, blocker, or intended outcome, update `short_description` in the same lifecycle operation. Before finishing `start`, `edit`, `close`, or `wontfix` work, compare the description with the current issue body and revise stale wording through `scripts/issues edit`.
-
-Example:
-
-```yaml
-title: "macOS suite misses wall-time gate"
-short_description: "The parallel post-apply suite reaches 67% of the serial baseline against a 60% target; stable runs show a deferred optimization gap rather than a regression."
-```
-
-## Classification
-
-| Category | Use for |
-|---|---|
-| `testing-ci` | Tests, continuous integration, and verification |
-| `se-pipeline` | Software-engineering pipeline behavior |
-| `herdr` | Herdr panes, events, and task coordination |
-| `command-palette` | Command palette behavior |
-| `agent-platform` | Agent clients, skills, and integrations |
-| `dotfiles` | Managed machine configuration |
-| `repository-maintenance` | Repository structure and maintenance |
-
-Set `critical` for urgent breakage or data loss. Set `high` for important near-term work. Set `medium` for planned work. Set `low` for useful but deferrable work.
-
-## Commands
-
-List active issues and apply structured filters with `list`:
-
-```sh
-python3 scripts/issues validate
-python3 scripts/issues list --status open --priority high
-python3 scripts/issues search "search text" --json
-python3 scripts/issues show 2026-08-21-001 --json
-```
-
-The default list includes `open` and `in-progress`, groups readable output by category, and orders each category by priority and canonical ID. Repeating `--status`, `--category`, `--priority`, or `--type` matches any supplied value within that field. Repeating `--tag` requires every supplied tag. Different fields combine with AND. `search` applies the same filters and searches titles, descriptions, and bodies.
-
-`list --json` returns `{"issues":[...]}`. Each item has `category`, `id`, `priority`, `short_description`, `status`, and `title`. `show ID --json` returns `body`, `id`, `metadata`, and the repository-relative `path`. JSON keys and result ordering are stable for an unchanged corpus.
-
-Create and change lifecycle state through the CLI:
-
-```sh
-python3 scripts/issues create --title "Short title" --short-description "One sentence." --type bug --category testing-ci --priority high --tag regression
-python3 scripts/issues start 2026-08-21-001
-python3 scripts/issues edit 2026-08-21-001 --priority medium
-python3 scripts/issues close 2026-08-21-001 --resolution "Implemented and verified."
-python3 scripts/issues wontfix 2026-08-21-001 --rationale "The cost exceeds the benefit."
-```
-
-On success, `create` prints the repository-relative issue path. `start`, `edit`, `close`, and `wontfix` print the canonical ID, path, and resulting status. Run `validate` before treating a mutation as complete.
-
-Success exits `0`. Strict validation violations exit `1`. CLI contract errors exit `2`, write `CODE: detail` to stderr, and leave issue files unchanged. Argument parser errors also exit `2` with argparse usage text.
-
-Use `validate` to check the complete current corpus without rewriting records.
-
-## Ownership gate
-
-`docs/issues/` is the backlog for concrete work accepted by this repository, not a log of every problem observed during a task.
+The backlog is for concrete work accepted by this repository, not a log of every problem observed during a task.
 
 Before creating an issue:
 
-1. Search existing local issues. Continue only when none already tracks the same work.
+1. Search open and closed GitHub issues. Continue only when none already tracks the same work.
 2. Name the concrete repository change that will remain after the current task. Continue only when this repository owns that change.
 3. Confirm that the user requested the change, an accepted plan includes it, or an explicit repository rule requires it. A merely possible workaround does not qualify.
 
-Create the issue through the CLI only after all three checks pass.
-
-For an upstream-only defect, search for or create the upstream issue and report its URL without modifying this repository. When accepted local work depends on an upstream defect, create a local issue and link the upstream issue.
+For an upstream-only defect, search for or create the upstream issue and report its URL without creating a repository issue. When accepted local work depends on an upstream defect, create a local GitHub issue and link the upstream issue.
 
 When ownership is unclear, do not create an issue. Report the ambiguity and ask the user only when deciding whether to accept local follow-up work blocks the task.
+
+## Commands
+
+Use explicit repository arguments so commands remain safe outside the checkout:
+
+```sh
+gh api --paginate --slurp 'repos/Seigiard/my-mac-setup/issues?state=open&per_page=100' --jq 'add | map(select(has("pull_request") | not)) | .[] | [.number, .title, .html_url] | @tsv'
+gh api --paginate --slurp 'repos/Seigiard/my-mac-setup/issues?state=all&per_page=100' --jq 'add | map(select(has("pull_request") | not)) | .[] | {number, state, title, body, url: .html_url}'
+gh issue view 123 --repo Seigiard/my-mac-setup --comments
+gh issue create --repo Seigiard/my-mac-setup --title "Short title" --body-file /tmp/issue.md --label bug --label needs-triage
+gh issue edit 123 --repo Seigiard/my-mac-setup --add-assignee @me
+gh issue edit 123 --repo Seigiard/my-mac-setup --remove-label needs-triage --add-label ready-for-agent
+gh issue comment 123 --repo Seigiard/my-mac-setup --body-file /tmp/comment.md
+gh issue close 123 --repo Seigiard/my-mac-setup --comment "Implemented and verified."
+```
+
+Prefer `--body-file` over shell-interpolated multiline bodies. Read the current issue and its labels before editing it, and preserve unrelated labels.
+
+## Labels And State
+
+Each issue has exactly one category label:
+
+- `bug`: existing behavior is broken or regressed.
+- `enhancement`: new behavior, maintenance, documentation, or improvement work.
+
+Use one canonical state label:
+
+- `needs-triage`
+- `needs-info`
+- `ready-for-agent`
+- `ready-for-human`
+- `wontfix`
+
+The assignee is the in-progress signal. Assign `@me` only when claiming work that will begin now. Remove obsolete state labels when changing roles. Close completed work with a concise verification comment; for rejected work, add `wontfix` and close with the rationale.
+
+External reports are valid input. New or unclassified reports stay in `needs-triage` until a maintainer accepts, redirects, or closes them. Pull requests are delivery artifacts, not a triage queue.
+
+## Agent Briefs
+
+Use GitHub comments for triage notes, questions, and agent-ready briefs. Every note generated by the `triage` workflow must begin with:
+
+> *This was generated by AI during triage.*
+
+Keep the issue body as the durable problem statement and use comments for chronology. Update the body when investigation materially changes the diagnosis, scope, constraints, or intended outcome.
+
+## Done
+
+A query is complete when every requested page has been inspected. A mutation is complete only after `gh issue view --comments` confirms every intended effect, including comments; report the resulting issue URL.
