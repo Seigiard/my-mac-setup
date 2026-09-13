@@ -400,6 +400,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The production issue-migration manifest regression test rebuilds
+          # from its bound source commit. Keep that commit available in the
+          # lint job too, not only in the platform jobs.
+          fetch-depth: 0
 
       - name: Run general Python tests
         run: make test-python

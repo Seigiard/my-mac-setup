@@ -113,6 +113,10 @@ def body_markers(body: str) -> List[str]:
     return markers
 
 
+def target_entries(manifest: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+    return [entry for entry in manifest["entries"] if entry.get("target")]
+
+
 def stable_export(issue: Mapping[str, Any], source_id: str) -> Dict[str, Any]:
     return {
         "source_id": source_id,
@@ -161,7 +165,7 @@ def verify_migration(manifest_path: Path, state_path: Path, repository: str, req
     if state.get("manifest_sha256") != manifest_digest:
         raise VerificationError("state manifest digest differs from the reviewed manifest")
 
-    entries = {entry["source"]["id"]: entry for entry in manifest["entries"]}
+    entries = {entry["source"]["id"]: entry for entry in target_entries(manifest)}
     issues = [issue for issue in paginated("repos/%s/issues?state=all&" % repository) if "pull_request" not in issue]
     labels = {label["name"]: label for label in paginated("repos/%s/labels?" % repository)}
     for expected in manifest["labels"]:
@@ -258,11 +262,11 @@ def replay_export(manifest_path: Path, state_path: Path, export_path: Path) -> D
     by_source = {record.get("source_id"): record for record in records}
     if len(by_source) != len(records):
         raise VerificationError("target export contains duplicate source IDs")
-    if set(by_source) != {entry["source"]["id"] for entry in manifest["entries"]}:
+    if set(by_source) != {entry["source"]["id"] for entry in target_entries(manifest)}:
         raise VerificationError("target export source set differs from the manifest")
 
     repaired_links = 0
-    for entry in manifest["entries"]:
+    for entry in target_entries(manifest):
         source_id = entry["source"]["id"]
         record = by_source[source_id]
         target = entry["target"]
