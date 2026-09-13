@@ -160,6 +160,20 @@ LABELS = (
     {"name": "wontfix", "color": "ffffff", "description": "This will not be worked on"},
 )
 
+PRODUCTION_HUMAN_ONLY = {
+    "2026-08-17-001": "Accepted but deferred supervision-daemon design work whose remaining start/ownership decisions are maintainer-timed rather than directly executable.",
+    "2026-08-18-017": "Installing or adapting pane-content search requires maintainer privacy acceptance for live terminal and optional agent-log indexing.",
+    "2026-09-09-001": "The remote-machine setup crosses into a homelab-owned server and interactive herdr machine approval, so human access and repo-boundary judgment lead the next step.",
+}
+
+PRODUCTION_AMBIGUITIES = (
+    {
+        "source_id": "2026-08-18-024",
+        "planned_labels": ["bug", "ready-for-agent"],
+        "reason": "The record contains user-run chezmoi apply trials, but its first next action is an executor change, so the migration keeps it agent-ready and expects the agent to hand off when the live trial is reached.",
+    },
+)
+
 
 class MigrationError(RuntimeError):
     pass
@@ -456,6 +470,195 @@ def build_pilot_manifest(source_repository: str, source_commit: str, target_repo
     }
 
 
+def source_issue_paths(source_commit: str) -> List[str]:
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", source_commit, "docs/issues"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise MigrationError("cannot list issue corpus at %s: %s" % (source_commit, result.stderr.strip()))
+    return sorted(
+        path
+        for path in result.stdout.splitlines()
+        if path.endswith(".md") and not Path(path).name.startswith("_")
+    )
+
+
+def canonical_id(path: str) -> str:
+    match = re.match(r"^(\d{4}-\d{2}-\d{2}-\d{3})-", Path(path).name)
+    if not match:
+        raise MigrationError("issue path has no canonical ID: %s" % path)
+    return match.group(1)
+
+
+def planned_labels(source_id: str, metadata: Mapping[str, Any]) -> List[str]:
+    category = "bug" if metadata["type"] == "bug" else "enhancement"
+    state = "ready-for-human" if source_id in PRODUCTION_HUMAN_ONLY else "ready-for-agent"
+    return [category, state]
+
+
+def span_overlaps(spans: Sequence[Tuple[int, int]], start: int, end: int) -> bool:
+    return any(start < span_end and end > span_start for span_start, span_end in spans)
+
+
+def add_relation(
+    relations: List[Dict[str, Any]],
+    source_text: str,
+    target_id: str,
+    records_by_id: Mapping[str, Mapping[str, Any]],
+) -> None:
+    target = records_by_id[target_id]
+    relation = {
+        "source_text": source_text,
+        "kind": "target" if target["metadata"]["status"] in ("open", "in-progress") else "source",
+        "value": target_id if target["metadata"]["status"] in ("open", "in-progress") else target["path"],
+    }
+    for existing in relations:
+        if all(existing[key] == relation[key] for key in ("source_text", "kind", "value")):
+            existing["occurrences"] = existing.get("occurrences", 1) + 1
+            return
+    relations.append(relation)
+
+
+def detect_relations(source_id: str, body: str, records_by_id: Mapping[str, Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    relations: List[Dict[str, Any]] = []
+    claimed_spans: List[Tuple[int, int]] = []
+    path_to_id = {record["path"]: identifier for identifier, record in records_by_id.items() if identifier != source_id}
+    for path, target_id in sorted(path_to_id.items(), key=lambda item: len(item[0]), reverse=True):
+        for candidate in ("`%s`" % path, path):
+            start = 0
+            while True:
+                index = body.find(candidate, start)
+                if index < 0:
+                    break
+                end = index + len(candidate)
+                if not span_overlaps(claimed_spans, index, end):
+                    add_relation(relations, candidate, target_id, records_by_id)
+                    claimed_spans.append((index, end))
+                start = end
+
+    identifier = re.compile(r"`(\d{4}-\d{2}-\d{2}-\d{3})`|(?<![A-Za-z0-9_/-])(\d{4}-\d{2}-\d{2}-\d{3})(?![A-Za-z0-9_/-])")
+    for match in identifier.finditer(body):
+        target_id = match.group(1) or match.group(2)
+        if target_id == source_id or target_id not in records_by_id:
+            continue
+        if span_overlaps(claimed_spans, match.start(), match.end()):
+            continue
+        add_relation(relations, match.group(0), target_id, records_by_id)
+        claimed_spans.append((match.start(), match.end()))
+    return relations
+
+
+def build_production_manifest(source_repository: str, source_commit: str, target_repository: str) -> Dict[str, Any]:
+    records: List[Dict[str, Any]] = []
+    for path in source_issue_paths(source_commit):
+        contents = git_blob(source_commit, path)
+        metadata, body = split_document(contents)
+        records.append(
+            {
+                "id": canonical_id(path),
+                "path": path,
+                "contents": contents,
+                "metadata": metadata,
+                "body": body,
+            }
+        )
+    records_by_id = {record["id"]: record for record in records}
+    if len(records_by_id) != len(records):
+        raise MigrationError("issue corpus contains duplicate canonical IDs")
+
+    entries = []
+    source_inventory = []
+    status_counts: Dict[str, int] = {}
+    relation_counts = {"active_to_active": 0, "active_to_terminal": 0}
+    for record in records:
+        source_id = record["id"]
+        metadata = record["metadata"]
+        source = {
+            "id": source_id,
+            "path": record["path"],
+            "sha256": sha256_bytes(record["contents"]),
+            "status": metadata["status"],
+            "type": metadata["type"],
+            "category": metadata["category"],
+            "priority": metadata["priority"],
+            "tags": metadata["tags"],
+            "parent_plan": metadata.get("parent-plan"),
+            "synthetic": False,
+        }
+        source_inventory.append({key: source[key] for key in ("id", "path", "sha256", "status")})
+        status_counts[source["status"]] = status_counts.get(source["status"], 0) + 1
+        entry: Dict[str, Any] = {"source": source, "relations": []}
+        if source["status"] in ("open", "in-progress"):
+            relations = detect_relations(source_id, record["body"], records_by_id)
+            for relation in relations:
+                relation_counts["active_to_active" if relation["kind"] == "target" else "active_to_terminal"] += relation.get("occurrences", 1)
+            state, state_reason = desired_state(source["status"])
+            entry["target"] = {
+                "title": metadata["title"],
+                "body_template": transform_body(
+                    source_id,
+                    record["path"],
+                    metadata,
+                    record["body"],
+                    relations,
+                    source_commit,
+                ),
+                "labels": planned_labels(source_id, metadata),
+                "assignees": ["Seigiard"] if source["status"] == "in-progress" else [],
+                "state": state,
+                "state_reason": state_reason,
+            }
+            entry["relations"] = relations
+        else:
+            entry["target"] = None
+            entry["retention"] = {
+                "planned_github_target": False,
+                "reason": "terminal source record retained as provenance only",
+            }
+        entries.append(entry)
+
+    active_entries = [entry for entry in entries if entry.get("target")]
+    terminal_entries = [entry for entry in entries if not entry.get("target")]
+    return {
+        "schema_version": 1,
+        "manifest_id": "github-issues-production-v1",
+        "source_repository": source_repository,
+        "source_commit": source_commit,
+        "target_repository": target_repository,
+        "target_policy": {
+            "private": False,
+            "require_empty_on_first_apply": False,
+            "require_push_permission": True,
+            "allow_unmarked_existing_issues": True,
+        },
+        "labels": list(LABELS),
+        "source_corpus": {
+            "canonical_record_count": len(entries),
+            "active_record_count": len(active_entries),
+            "terminal_record_count": len(terminal_entries),
+            "status_counts": {key: status_counts[key] for key in sorted(status_counts)},
+            "source_inventory_sha256": sha256_bytes((compact_json(source_inventory) + "\n").encode("utf-8")),
+        },
+        "classification_review": {
+            "human_only": [
+                {
+                    "source_id": source_id,
+                    "planned_labels": planned_labels(source_id, records_by_id[source_id]["metadata"]),
+                    "reason": reason,
+                }
+                for source_id, reason in sorted(PRODUCTION_HUMAN_ONLY.items())
+            ],
+            "ambiguous_transformations": list(PRODUCTION_AMBIGUITIES),
+            "approval_required_before_import": True,
+        },
+        "relation_summary": relation_counts,
+        "entries": entries,
+    }
+
+
 def load_manifest(path: Path) -> Tuple[Dict[str, Any], str]:
     contents = path.read_bytes()
     try:
@@ -471,9 +674,14 @@ def load_manifest(path: Path) -> Tuple[Dict[str, Any], str]:
     if any(not value for value in identifiers) or len(set(identifiers)) != len(identifiers):
         raise MigrationError("manifest source IDs must be unique")
     known = set(identifiers)
+    targeted = {entry["source"]["id"] for entry in entries if entry.get("target")}
     for entry in entries:
         source_id = entry["source"]["id"]
         target = entry.get("target", {})
+        if target is None:
+            if entry.get("source", {}).get("status") not in ("done", "wontfix"):
+                raise MigrationError("%s has no planned target but is not terminal" % source_id)
+            continue
         if len(target.get("labels", [])) != 2:
             raise MigrationError("%s must have exactly two planned labels" % source_id)
         body = target.get("body_template", "")
@@ -481,16 +689,20 @@ def load_manifest(path: Path) -> Tuple[Dict[str, Any], str]:
         if markers != [source_id]:
             raise MigrationError("%s must contain exactly one matching marker" % source_id)
         for kind, value in PLACEHOLDER.findall(body):
-            if kind == "target" and value not in known:
+            if kind == "target" and value not in targeted:
                 raise MigrationError("%s targets unknown source %s" % (source_id, value))
         for relation in entry.get("relations", []):
             if relation.get("kind") not in ("source", "target") or not relation.get("source_text") or not relation.get("value"):
                 raise MigrationError("%s has an invalid relation" % source_id)
             if not isinstance(relation.get("occurrences", 1), int) or relation.get("occurrences", 1) < 1:
                 raise MigrationError("%s has an invalid relation occurrence count" % source_id)
-            if relation["kind"] == "target" and relation["value"] not in known:
+            if relation["kind"] == "target" and relation["value"] not in targeted:
                 raise MigrationError("%s targets unknown source %s" % (source_id, relation["value"]))
     return manifest, sha256_bytes(contents)
+
+
+def target_entries(manifest: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+    return [entry for entry in manifest["entries"] if entry.get("target")]
 
 
 def render_body(manifest: Mapping[str, Any], entry: Mapping[str, Any], mappings: Mapping[str, Any], final: bool) -> str:
@@ -584,7 +796,7 @@ def validate_target(
     eligible_assignees = {value["login"] for value in paginated("repos/%s/assignees?" % repository)}
     planned_assignees = {
         assignee
-        for entry in manifest["entries"]
+        for entry in target_entries(manifest)
         for assignee in entry["target"].get("assignees", [])
     }
     unavailable = sorted(planned_assignees - eligible_assignees)
@@ -626,7 +838,7 @@ def reconcile_remote(
     state: Dict[str, Any],
     remote_issues: Sequence[Mapping[str, Any]],
 ) -> Tuple[Dict[str, Dict[str, Any]], int]:
-    entries = {entry["source"]["id"]: entry for entry in manifest["entries"]}
+    entries = {entry["source"]["id"]: entry for entry in target_entries(manifest)}
     remote_by_marker: Dict[str, List[Mapping[str, Any]]] = {}
     for issue in remote_issues:
         markers = extract_markers(issue)
@@ -668,7 +880,7 @@ def known_representations(
     values = [expected_issue(manifest, entry, mappings, final=False, desired=True)]
     if target["state"] == "closed" and not complete:
         values.append(expected_issue(manifest, entry, mappings, final=False, desired=False))
-    if len(mappings) == len(manifest["entries"]):
+    if len(mappings) == len(target_entries(manifest)):
         values.append(expected_issue(manifest, entry, mappings, final=True, desired=True))
     if complete:
         values = [expected_issue(manifest, entry, mappings, final=True, desired=True)]
@@ -680,7 +892,7 @@ def known_representations(
 
 
 def preflight_remote(manifest: Mapping[str, Any], state: Mapping[str, Any], remote_by_marker: Mapping[str, Mapping[str, Any]]) -> None:
-    entries = {entry["source"]["id"]: entry for entry in manifest["entries"]}
+    entries = {entry["source"]["id"]: entry for entry in target_entries(manifest)}
     for source_id, issue in remote_by_marker.items():
         observed = actual_issue(issue)
         allowed = known_representations(manifest, entries[source_id], state["issues"], bool(state.get("complete")))
@@ -756,7 +968,7 @@ def apply_manifest(manifest_path: Path, state_path: Path, repository: str, inter
     closed_count = 0
     repaired_count = 0
 
-    for entry in manifest["entries"]:
+    for entry in target_entries(manifest):
         source_id = entry["source"]["id"]
         issue = remote_by_marker.get(source_id)
         if issue is None:
@@ -794,10 +1006,10 @@ def apply_manifest(manifest_path: Path, state_path: Path, repository: str, inter
             remote_by_marker[source_id] = issue
             closed_count += 1
 
-    if len(state["issues"]) != len(manifest["entries"]):
+    if len(state["issues"]) != len(target_entries(manifest)):
         raise MigrationError("not all target mappings were persisted")
 
-    for entry in manifest["entries"]:
+    for entry in target_entries(manifest):
         source_id = entry["source"]["id"]
         issue = issue_by_number(repository, remote_by_marker[source_id]["number"])
         final = expected_issue(manifest, entry, state["issues"], final=True, desired=True)
@@ -820,7 +1032,7 @@ def apply_manifest(manifest_path: Path, state_path: Path, repository: str, inter
         unmarked = [issue["number"] for issue in final_issues if not extract_markers(issue)]
         if unmarked:
             raise MigrationError("unexpected unmarked target issues: %s" % unmarked)
-    for entry in manifest["entries"]:
+    for entry in target_entries(manifest):
         source_id = entry["source"]["id"]
         fresh = final_by_marker[source_id]
         require_exact(source_id, fresh, expected_issue(manifest, entry, state["issues"], final=True, desired=True), "complete")
@@ -863,7 +1075,7 @@ def dry_run(manifest_path: Path, repository: str) -> int:
                 "path": "repos/%s/labels/%s" % (repository, label["name"]),
             }
         )
-    for entry in manifest["entries"]:
+    for entry in target_entries(manifest):
         source_id = entry["source"]["id"]
         initial_body = render_body(manifest, entry, {}, final=False)
         target = entry["target"]
@@ -960,7 +1172,8 @@ def dry_run(manifest_path: Path, repository: str) -> int:
         "network_mutations": 0,
         "manifest_sha256": digest,
         "repository": repository,
-        "target_transformations": manifest["entries"],
+        "target_transformations": target_entries(manifest),
+        "retained_provenance": [entry for entry in manifest["entries"] if not entry.get("target")],
         "planned_requests": requests,
     }
     print(json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True))
@@ -976,6 +1189,12 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     build.add_argument("--source-commit", required=True)
     build.add_argument("--target-repository", required=True)
     build.add_argument("--output", type=Path, required=True)
+
+    production = subcommands.add_parser("build-production-manifest")
+    production.add_argument("--source-repository", default="Seigiard/my-mac-setup")
+    production.add_argument("--source-commit", required=True)
+    production.add_argument("--target-repository", default="Seigiard/my-mac-setup")
+    production.add_argument("--output", type=Path, required=True)
 
     plan = subcommands.add_parser("dry-run")
     plan.add_argument("--manifest", type=Path, required=True)
@@ -994,6 +1213,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if arguments.command == "build-pilot-manifest":
             manifest = build_pilot_manifest(arguments.source_repository, arguments.source_commit, arguments.target_repository)
+            atomic_write_json(arguments.output, manifest)
+            print(arguments.output)
+            return 0
+        if arguments.command == "build-production-manifest":
+            manifest = build_production_manifest(arguments.source_repository, arguments.source_commit, arguments.target_repository)
             atomic_write_json(arguments.output, manifest)
             print(arguments.output)
             return 0
