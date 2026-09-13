@@ -5,7 +5,7 @@ date: 2026-09-12
 supersedes: []
 ---
 
-# ADR-0013: Use a host-owned mailbox for sandboxed agent communication
+# ADR-0015: Use a host-owned mailbox for sandboxed agent communication
 
 ## Context
 
@@ -17,11 +17,10 @@ requires and makes a narrow filesystem or process boundary harder to reason
 about.
 
 The project separately tracks what a child may do inside its worktree and what
-it can reach outside one in
-`docs/issues/2026-08-18-001-launch-time-permission-mode-for-child-agents.md` and
-`docs/issues/2026-08-18-002-sandbox-a-child-agents-filesystem-access.md`. Agent
-communication crosses both boundaries: it must remain available inside a
-sandbox without becoming a route to arbitrary host control.
+it can reach outside one in [GitHub issue #215][permission-mode] and
+[GitHub issue #216][filesystem-sandbox]. Agent communication crosses both
+boundaries: it must remain available inside a sandbox without becoming a route
+to arbitrary host control.
 
 ## Considered options
 
@@ -65,4 +64,8 @@ control, but the mailbox broker becomes security- and lifecycle-critical.
 Delivery can repeat across retries or wake-up recovery, so consumers must handle
 duplicate messages without repeating the represented decision or action.
 Implementation and verification are tracked in
-`docs/issues/2026-09-12-002-replace-child-ask-reply-with-a-sandbox-safe-mailbox.md`.
+[GitHub issue #253][mailbox-issue].
+
+[permission-mode]: https://github.com/Seigiard/my-mac-setup/issues/215
+[filesystem-sandbox]: https://github.com/Seigiard/my-mac-setup/issues/216
+[mailbox-issue]: https://github.com/Seigiard/my-mac-setup/issues/253
