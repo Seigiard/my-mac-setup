@@ -346,8 +346,8 @@ test 2724's stub records a `sleep 300 &` PID and polls until it disappears, beca
   `home/.chezmoiscripts/run_onchange_after_9-sync-agent-skills.sh.tmpl`,
   `home/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`,
   `home/dot_aliases`, `tests/bashunit/scripts_test.sh`.
-- Originating closed issues: `2026-09-04-004` (the skills wrapper; carries the verbatim
-  prompt transcript and the process evidence) is still a live file under `docs/issues/`.
+- Originating closed issues: [the frozen `2026-09-04-004` source record](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-04-004-skills-wrapper-hangs-silently-when-the-upstream-cli-prompts.md)
+  carries the skills wrapper's verbatim prompt transcript and process evidence.
   `2026-08-30-006` (the 1Password stall, resolved by PR #165) was pruned in a backlog
   sweep and survives only in git history. The wrapper fix landed as
   `f382d86` — committed directly, no PR — and was later reworked by #171, which decoupled

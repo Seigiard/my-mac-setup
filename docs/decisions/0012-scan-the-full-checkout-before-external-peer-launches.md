@@ -13,8 +13,8 @@ External Claude, OpenCode, and Pi peers can start at the live repository root an
 read tracked and untracked files, regardless of the narrower payload named in
 their prompt. Repository content then crosses an irreversible third-party
 boundary. The former shared scan disappeared with the Smithers runtime; the
-resulting gap is tracked in
-`docs/issues/2026-09-04-001-pre-external-secret-scan-covers-one-of-five-external-peer-launch-paths.md`.
+resulting gap was tracked in the
+[frozen source record](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-04-001-pre-external-secret-scan-covers-one-of-five-external-peer-launch-paths.md).
 
 ## Considered options
 

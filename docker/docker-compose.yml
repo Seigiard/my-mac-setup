@@ -61,9 +61,7 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
-      - ../scripts/issues:/home/testuser/issues-cli:ro
       - ../scripts/check_bats_assertions.py:/home/testuser/check-bats-assertions.py:ro
-      - ../docs/issues:/home/testuser/issues:ro
       - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
     environment:
@@ -99,9 +97,7 @@ services:
         mkdir -p /home/testuser/worktree/.git /home/testuser/worktree/docs /home/testuser/worktree/scripts
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
-        cp /home/testuser/issues-cli /home/testuser/worktree/scripts/issues
         cp /home/testuser/check-bats-assertions.py /home/testuser/worktree/scripts/check_bats_assertions.py
-        cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         cd /home/testuser/worktree
@@ -142,9 +138,7 @@ services:
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
-      - ../scripts/issues:/home/testuser/issues-cli:ro
       - ../scripts/check_bats_assertions.py:/home/testuser/check-bats-assertions.py:ro
-      - ../docs/issues:/home/testuser/issues:ro
       - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
     environment:
@@ -173,9 +167,7 @@ services:
         mkdir -p /home/testuser/worktree/.git /home/testuser/worktree/docs /home/testuser/worktree/scripts
         cp -r /home/testuser/dotfiles /home/testuser/worktree/home
         cp -r /home/testuser/tests /home/testuser/worktree/tests
-        cp /home/testuser/issues-cli /home/testuser/worktree/scripts/issues
         cp /home/testuser/check-bats-assertions.py /home/testuser/worktree/scripts/check_bats_assertions.py
-        cp -r /home/testuser/issues /home/testuser/worktree/docs/issues
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         cd /home/testuser/worktree

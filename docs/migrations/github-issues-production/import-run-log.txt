@@ -1,0 +1,2 @@
+{"bodies_repaired":2,"issues_closed":0,"issues_created":37,"issues_recovered":0,"labels_created":1,"mutations":40,"repository":"Seigiard/my-mac-setup","result":"complete"}
+apply rc=0

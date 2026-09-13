@@ -92,8 +92,8 @@ jobs:
             brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
             brew-${{ runner.os }}-
 
-      - name: Validate repository issues
-        run: make test-issues
+      - name: Run general Python tests
+        run: make test-python
 
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
@@ -263,8 +263,8 @@ jobs:
             brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
             brew-${{ runner.os }}-
 
-      - name: Validate repository issues
-        run: make test-issues
+      - name: Run general Python tests
+        run: make test-python
 
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
@@ -394,9 +394,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The production issue-migration manifest regression test rebuilds
+          # from its bound source commit. Keep that commit available in the
+          # lint job too, not only in the platform jobs.
+          fetch-depth: 0
 
-      - name: Validate repository issues
-        run: make test-issues
+      - name: Run general Python tests
+        run: make test-python
 
       # See the ubuntu job: the azure mirror hangs apt when it degrades.
       - name: Drop the azure apt mirror

@@ -1,0 +1,21 @@
+INTERRUPTED status=75
+{"event":"intentional-interruption","source_id":"2026-08-18-002","target":{"node_id":"I_kwDOUZVVfs8AAAABRF3rgQ","number":3,"url":"https://github.com/Seigiard/my-mac-setup-issue-migration-pilot-20260913/issues/3"}}
+INTERRUPTED_STATE local_mappings=2 remote_issues=3 distinct_remote_markers=3
+
+RESUMED status=0
+{"bodies_repaired":3,"issues_closed":2,"issues_created":7,"issues_recovered":1,"labels_created":0,"mutations":12,"repository":"Seigiard/my-mac-setup-issue-migration-pilot-20260913","result":"complete"}
+
+RERUN status=0
+{"bodies_repaired":0,"issues_closed":0,"issues_created":0,"issues_recovered":0,"labels_created":0,"mutations":0,"repository":"Seigiard/my-mac-setup-issue-migration-pilot-20260913","result":"noop"}
+
+VERIFY status=0
+{"duplicate_issue_count":0,"duplicate_marker_count":0,"issue_count":10,"manifest_sha256":"59327ddadeacb80fdd9e0be457cf842ec0bec9874da176b035b18b2f647f87a1","repaired_link_count":6,"repository":"Seigiard/my-mac-setup-issue-migration-pilot-20260913","schema_version":1,"unmarked_issue_count":0,"verified":true}
+
+DRIFT_PROBE status=1
+MIGRATION_FAILED: DRIFT source=2026-08-17-001 target=#1 phase=preflight title='A supervisor process that subscribes to herdr agent-status events [drift probe]' expected='A supervisor process that subscribes to herdr agent-status events'
+
+RESTORED_RERUN status=0
+{"bodies_repaired":0,"issues_closed":0,"issues_created":0,"issues_recovered":0,"labels_created":0,"mutations":0,"repository":"Seigiard/my-mac-setup-issue-migration-pilot-20260913","result":"noop"}
+
+FINAL_VERIFY status=0
+{"duplicate_issue_count":0,"duplicate_marker_count":0,"issue_count":10,"manifest_sha256":"59327ddadeacb80fdd9e0be457cf842ec0bec9874da176b035b18b2f647f87a1","repaired_link_count":6,"repository":"Seigiard/my-mac-setup-issue-migration-pilot-20260913","schema_version":1,"unmarked_issue_count":0,"verified":true}

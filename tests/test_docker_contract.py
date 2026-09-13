@@ -39,6 +39,32 @@ class TestDockerContract(unittest.TestCase):
         self.assertTrue(names, "no services parsed from docker-compose.yml")
         return names
 
+    def test_general_python_target_discovers_general_tests(self):
+        # The copied Makefile is the real producer, so this proves the public
+        # target still discovers and executes repository Python tests.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Makefile").write_bytes(MAKEFILE.read_bytes())
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_general.py").write_text(
+                "import unittest\n\n"
+                "print('general-contract-imported')\n\n"
+                "class GeneralTest(unittest.TestCase):\n"
+                "    def test_general_contract(self):\n"
+                "        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["make", "test-python"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("general-contract-imported", result.stdout)
+
     def service_block(self, service_name):
         pattern = r"^  %s:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|^\S|\Z)" % re.escape(service_name)
         match = re.search(pattern, self.compose, re.MULTILINE | re.DOTALL)
@@ -359,10 +385,10 @@ class TestDockerContract(unittest.TestCase):
             INVENTORY.read_bytes()
         )
 
-    def test_staging_lands_issue_cli_docs_and_makefile_in_the_worktree(self):
+    def test_staging_lands_general_files_without_the_local_issue_tracker(self):
         # Sources are created where the declared volume mounts put them, so a
-        # cp referencing a path no mount provides — or a dropped mount — fails
-        # here.
+        # stale cp referencing a removed mount fails here before the container
+        # can run any tests.
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 service = self.service_block(name)
@@ -391,8 +417,9 @@ class TestDockerContract(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
 
                     worktree = root / "home/testuser/worktree"
-                    self.assertTrue((worktree / "scripts/issues").is_file())
-                    self.assertTrue((worktree / "docs/issues/mount-marker").is_file())
+                    self.assertFalse((worktree / "scripts/issues").exists())
+                    self.assertFalse((worktree / "docs/issues").exists())
+                    self.assertTrue((worktree / "scripts/check_bats_assertions.py").is_file())
                     self.assertTrue((worktree / "Makefile").is_file())
                     self.assertTrue((worktree / "tests/helpers/chezmoi-unattended").is_file())
                     self.assertTrue(

@@ -1,0 +1,2 @@
+{"duplicate_issue_count": 0, "duplicate_marker_count": 0, "issue_count": 37, "manifest_sha256": "4956970874c38d81904f390ec8e0eb70380555d0aae3032489bd61ad1805ceb3", "repaired_link_count": 5, "repository": "Seigiard/my-mac-setup", "schema_version": 1, "unmarked_issue_count": 7, "verified": true}
+verify rc=0

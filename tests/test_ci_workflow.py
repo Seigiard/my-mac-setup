@@ -420,6 +420,17 @@ class TestDotfilesWorkflow(unittest.TestCase):
                     "%s job must declare timeout-minutes" % name,
                 )
 
+    def test_every_job_runs_the_general_python_gate(self):
+        text = self.workflow_text()
+        names = self.job_names(text)
+        self.assertGreaterEqual(len(names), 3, "job parser found fewer jobs than the workflow runs")
+        for name in names:
+            with self.subTest(job=name):
+                step = self.named_step_block(
+                    self.job_block(text, name), "Run general Python tests"
+                )
+                self.assertEqual("make test-python", self.step_value(step, "run", indent="        "))
+
 
 if __name__ == "__main__":
     unittest.main()

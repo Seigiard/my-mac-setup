@@ -1,6 +1,6 @@
 # External coding-agent CLI flags (headless invocation)
 
-Reference for invoking external coding-agent command-line interfaces in **headless / one-shot** mode. The `ask-in-herdr` skill does not use these recipes: it starts live agents through `herdr-child`. A headless peer consult was considered and declined (`docs/issues/2026-08-18-003-headless-peer-consult-outside-herdr.md`, wontfix): the herdr requirement is pipeline-wide, not local to one script. These recipes are reference material for calling the external CLIs directly, not a route back to a peer consult.
+Reference for invoking external coding-agent command-line interfaces in **headless / one-shot** mode. The `ask-in-herdr` skill does not use these recipes: it starts live agents through `herdr-child`. A headless peer consult was considered and declined ([frozen source record](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-08-18-003-headless-peer-consult-outside-herdr.md), wontfix): the herdr requirement is pipeline-wide, not local to one script. These recipes are reference material for calling the external CLIs directly, not a route back to a peer consult.
 
 **Provenance.** The `claude` row is **verified live** here (Claude Code 2.1.181:
 `claude -p` returns clean output, generates its own child session, does not

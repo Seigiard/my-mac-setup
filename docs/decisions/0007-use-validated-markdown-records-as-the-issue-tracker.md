@@ -1,6 +1,6 @@
 ---
 title: Use validated Markdown records as the issue tracker
-status: accepted
+status: superseded by ADR-0013
 date: 2026-09-11
 supersedes: []
 ---
