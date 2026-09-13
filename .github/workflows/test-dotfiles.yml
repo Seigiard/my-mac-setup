@@ -95,9 +95,6 @@ jobs:
       - name: Run general Python tests
         run: make test-python
 
-      - name: Validate repository issues
-        run: make test-issues
-
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
       # instead of waiting for the nightly run. About 4% of commits touch them,
@@ -269,9 +266,6 @@ jobs:
       - name: Run general Python tests
         run: make test-python
 
-      - name: Validate repository issues
-        run: make test-issues
-
       # A commit that edits a Brewfile is the commit that should prove it
       # installs, so a diff touching these paths restores the full render
       # instead of waiting for the nightly run. About 4% of commits touch them,
@@ -408,9 +402,6 @@ jobs:
 
       - name: Run general Python tests
         run: make test-python
-
-      - name: Validate repository issues
-        run: make test-issues
 
       # See the ubuntu job: the azure mirror hangs apt when it degrades.
       - name: Drop the azure apt mirror

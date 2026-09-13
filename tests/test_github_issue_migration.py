@@ -8,6 +8,8 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[1]
 SCRIPT = REPOSITORY / "scripts" / "github_issue_migration.py"
 PRODUCTION_MANIFEST = REPOSITORY / "docs" / "migrations" / "github-issues-production" / "manifest.json"
+PRODUCTION_STATE = REPOSITORY / "docs" / "migrations" / "github-issues-production" / "import-state.json"
+RESOLUTION_MANIFEST = REPOSITORY / "docs" / "migrations" / "github-issues-production" / "legacy-id-resolution-manifest.json"
 
 
 class ProductionManifestTests(unittest.TestCase):
@@ -61,6 +63,25 @@ class ProductionManifestTests(unittest.TestCase):
             self.assertEqual(1, len({"bug", "enhancement"}.intersection(labels)))
             self.assertEqual(1, len({"ready-for-agent", "ready-for-human"}.intersection(labels)))
             self.assertIn("Legacy source:", entry["target"]["body_template"])
+
+    def test_legacy_id_resolution_manifest_covers_every_source_record(self):
+        manifest = self.load_manifest()
+        state = json.loads(PRODUCTION_STATE.read_text(encoding="utf-8"))
+        resolution = json.loads(RESOLUTION_MANIFEST.read_text(encoding="utf-8"))
+        source_entries = {entry["source"]["id"]: entry for entry in manifest["entries"]}
+
+        self.assertEqual(manifest["source_commit"], resolution["source_commit"])
+        self.assertEqual(manifest["source_repository"], resolution["source_repository"])
+        self.assertEqual(set(source_entries), set(resolution["entries"]))
+        for source_id, entry in source_entries.items():
+            resolved = resolution["entries"][source_id]
+            if entry.get("target"):
+                self.assertEqual(
+                    {"github_issue_url": state["issues"][source_id]["url"]},
+                    resolved,
+                )
+            else:
+                self.assertEqual({"source_path": entry["source"]["path"]}, resolved)
 
     def test_production_manifest_surfaces_human_classification_exceptions_and_relation_repairs(self):
         manifest = self.load_manifest()

@@ -125,8 +125,14 @@ make test-python
 # Ran 34 tests in 9.778s - OK
 ```
 
-## Durable artifacts
+## Durable artifacts and legacy-ID resolution
 
+Resolve a former local ID through `legacy-id-resolution-manifest.json`. Its 37
+active entries contain production GitHub issue URLs. Its 22 terminal entries
+contain source paths that combine with the manifest's immutable `source_commit`
+to locate the exact record in GitHub source history.
+
+- `docs/migrations/github-issues-production/legacy-id-resolution-manifest.json` — permanent resolution for all 59 former local IDs.
 - `docs/migrations/github-issues-production/import-state.json` — source ID to production issue identity mapping.
 - `docs/migrations/github-issues-production/target-export.json` — verified paginated export after import.
 - `docs/migrations/github-issues-production/target-export-after-noop.json` — verified paginated export after the no-op rerun.

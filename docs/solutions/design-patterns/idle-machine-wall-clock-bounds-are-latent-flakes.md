@@ -178,6 +178,5 @@ therefore currently unimplemented: the one place it would apply, `ENGINE_TIMEOUT
   `2026-08-20-010`, `2026-08-21-014`, `2026-08-21-015`, `2026-08-21-020`, `2026-08-21-021`,
   `2026-08-21-024`. All were removed in the closed-issue cleanup; the evidence they carried is
   reproduced inline above.
-- `docs/issues/2026-09-02-013-palette-herdr-stub-tests-flake-under-parallel-load-on-a-busy-machine.md`
-  — open, and classified by this pattern: 1, 6, 5 and 7 failures across four consecutive
+- [#244](https://github.com/Seigiard/my-mac-setup/issues/244) — open, and classified by this pattern: 1, 6, 5 and 7 failures across four consecutive
   `tests/lib/bashunit -j 8` runs with four coding agents running concurrently (load average 10-16).

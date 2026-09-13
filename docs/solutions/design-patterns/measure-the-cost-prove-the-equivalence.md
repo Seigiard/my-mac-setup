@@ -457,15 +457,15 @@ Two further scope notes:
   from code the patch does not edit, because they come from the implementation being replaced.
 - `docs/agent-verification.md` — the gate these deployment-sensitive chezmoi-managed paths ran
   through (`make test-ubuntu`).
-- Source records, all three `status: done`, closed 2026-09-05 and present at the time of writing:
-  `docs/issues/2026-09-05-001-replace-fork-chains-in-state-encode-and-read-helpers.md`,
-  `docs/issues/2026-09-05-002-cut-per-call-subprocess-and-poll-overhead-in-the-test-suite.md`,
-  `docs/issues/2026-09-05-003-build-worktree-tokens-grows-super-linearly-with-worktree-count.md`.
+- Source records, all three `status: done`, closed 2026-09-05 and preserved as immutable history:
+  [replace fork chains](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-05-001-replace-fork-chains-in-state-encode-and-read-helpers.md),
+  [cut per-call overhead](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-05-002-cut-per-call-subprocess-and-poll-overhead-in-the-test-suite.md), and
+  [fix super-linear token growth](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-05-003-build-worktree-tokens-grows-super-linearly-with-worktree-count.md).
   This repository prunes a closed issue once its lesson is compounded — precedent `13402c1`, "Clean up
   closed issues and consolidate solution into design patterns doc", and a later pruning that removed
   fifteen more — so these three are expected to go. Their evidence is reproduced inline above against
   that day; once they are pruned, reach them by ID through git history rather than by path.
-- Open issues this method applies to: `2026-09-02-013` (palette herdr-stub tests flake at `-j 8`
+- Open issues this method applies to: [#244](https://github.com/Seigiard/my-mac-setup/issues/244) (palette herdr-stub tests flake at `-j 8`
   against a 2-second `HERDR_CALL_TIMEOUT_SECONDS` — a *deadline* problem, the boundary case showing
-  which of the two fused numbers is at fault) and `2026-08-18-024` (three 0.2-0.4s palette focus
+  which of the two fused numbers is at fault) and [#234](https://github.com/Seigiard/my-mac-setup/issues/234) (three 0.2-0.4s palette focus
   sleeps that sequence nothing).
