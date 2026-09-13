@@ -525,24 +525,7 @@ class WriteTests(IssueFixtures):
         self.assertIn("SEQUENCE_EXHAUSTED", exhausted.stderr)
 
 
-class ClientDiscoveryTests(unittest.TestCase):
-    def test_clients_share_the_canonical_repository_issues_skill(self):
-        skill = REPOSITORY / ".claude" / "skills" / "repository-issues" / "SKILL.md"
-        self.assertTrue(skill.is_file())
-
-        opencode_skill = REPOSITORY / ".opencode" / "skills" / "repository-issues"
-        self.assertTrue(opencode_skill.is_symlink())
-        self.assertFalse(Path(opencode_skill.readlink()).is_absolute())
-        self.assertEqual(skill, opencode_skill.resolve() / "SKILL.md")
-
-        pi_settings = REPOSITORY / ".pi" / "settings.json"
-        self.assertEqual({"skills": ["~/.claude/skills", "../.claude/skills"]}, json.loads(pi_settings.read_text()))
-
-        agents = REPOSITORY / "AGENTS.md"
-        self.assertTrue(agents.is_symlink())
-        self.assertEqual(Path("CLAUDE.md"), agents.readlink())
-        self.assertEqual((REPOSITORY / "CLAUDE.md").resolve(), agents.resolve())
-
+class RepositoryIntegrationTests(unittest.TestCase):
     def check_ignore(self, path):
         # git check-ignore exits 1 for a path that is NOT ignored -- that is
         # its normal "no match" signal, not a broken invocation, so callers
@@ -567,7 +550,7 @@ class ClientDiscoveryTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         return [line for line in result.stdout.splitlines() if line]
 
-    def test_issues_lock_is_ignored_and_agent_client_directories_are_not(self):
+    def test_issues_lock_is_ignored(self):
         # Evidence from Git's own decision, not from re-reading .gitignore
         # text: a rule that exists but is overridden by a later negation, or
         # a path ignored through .git/info/exclude or a nested .gitignore,
@@ -579,29 +562,6 @@ class ClientDiscoveryTests(unittest.TestCase):
         self.assertEqual(0, ignored.returncode, ignored.stdout + ignored.stderr)
         self.assertIn("docs/issues/.issues.lock", ignored.stdout)
         self.assertEqual([], self.tracked_paths("docs/issues/.issues.lock"))
-
-        # The agent-client directories must stay visible to Git: check-ignore
-        # must report "not ignored" (exit 1) and each must carry tracked
-        # files, so a directory that quietly became ignored cannot pass.
-        for client_dir in (".claude", ".opencode", ".pi"):
-            not_ignored = self.check_ignore(client_dir)
-            self.assertEqual(
-                1, not_ignored.returncode, not_ignored.stdout + not_ignored.stderr
-            )
-            self.assertNotEqual([], self.tracked_paths(client_dir))
-
-            # A directory-only rule (e.g. ".claude/*") leaves the bare
-            # directory path itself unignored while hiding every future file
-            # placed under it -- the check above alone would miss that. Probe
-            # a path that does not exist yet, so future additions are covered
-            # too, not just what happens to be tracked today.
-            child_probe = client_dir + "/git-ignore-reachability-probe"
-            child_not_ignored = self.check_ignore(child_probe)
-            self.assertEqual(
-                1,
-                child_not_ignored.returncode,
-                child_not_ignored.stdout + child_not_ignored.stderr,
-            )
 
 
 if __name__ == "__main__":

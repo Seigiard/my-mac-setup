@@ -1,9 +1,10 @@
-.PHONY: help test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
+.PHONY: help test-python test-issues test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
 
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
 	@echo ""
-	@echo "  make test-issues      Validate repository issues and run their Python tests"
+	@echo "  make test-python      Run general Python contract tests"
+	@echo "  make test-issues      Validate repository issues and run tracker tests"
 	@echo "  make test-ubuntu      Run tests in Ubuntu Docker container"
 	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests in Docker (may rebuild images)"
@@ -21,17 +22,20 @@ help:
 	@echo "  make build-docker     Build Docker image without running tests"
 	@echo "  make clean            Remove Docker containers and images"
 
+test-python:
+	python3 -m unittest discover -s tests -p 'test_*.py'
+
 test-issues:
 	python3 scripts/issues validate
-	python3 -m unittest discover -s tests -p 'test_*.py'
+	python3 -m unittest tests/issue_tracker_test.py
 
 build-docker:
 	docker compose -f docker/docker-compose.yml build
 
-test-ubuntu: test-issues build-docker
+test-ubuntu: test-python test-issues build-docker
 	docker compose -f docker/docker-compose.yml run --rm test-ubuntu
 
-test-templates: test-issues build-docker
+test-templates: test-python test-issues build-docker
 	docker compose -f docker/docker-compose.yml run --rm -T test-ubuntu \
 		'set -e && (cd /home/testuser/dotfiles && cp -r . /home/testuser/.local/share/chezmoi/) && \
 		tests/helpers/chezmoi-unattended --profile full-fixture -- init --source=/home/testuser/.local/share/chezmoi --promptString name="Test User" --promptString email="test@example.com" && \
@@ -72,7 +76,7 @@ test-suite:
 	@echo "NOTE: asserts against the ALREADY-APPLIED ~/ , not this checkout."
 	tests/run-post-apply.sh host-safe
 
-test-docker: test-issues build-docker
+test-docker: test-python test-issues build-docker
 	@echo "=== Running Ubuntu tests ==="
 	docker compose -f docker/docker-compose.yml run --rm test-full
 

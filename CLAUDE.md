@@ -41,6 +41,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 
 | Command | What it does |
 |---|---|
+| `make test-python` | Run general Python contract tests without the local issue tracker |
 | `make test-issues` | Strictly validate repository issues and run issue CLI tests |
 | `make test-ubuntu` | Full source render, disposable-home apply, and test suite in Docker |
 | `make test-docker` | Build + run full Docker test suite |
