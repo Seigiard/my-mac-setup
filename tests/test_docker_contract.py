@@ -39,6 +39,40 @@ class TestDockerContract(unittest.TestCase):
         self.assertTrue(names, "no services parsed from docker-compose.yml")
         return names
 
+    def test_general_python_target_excludes_the_issue_tracker_suite(self):
+        # The copied Makefile is the real producer. A passing general test and
+        # an issue-tracker module that raises during import make the observable
+        # boundary discriminating: the target succeeds only when unittest
+        # discovery reaches general coverage without importing tracker code.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Makefile").write_bytes(MAKEFILE.read_bytes())
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_general.py").write_text(
+                "import unittest\n\n"
+                "print('general-contract-imported')\n\n"
+                "class GeneralTest(unittest.TestCase):\n"
+                "    def test_general_contract(self):\n"
+                "        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            (tests / "issue_tracker_test.py").write_text(
+                "raise RuntimeError('tracker suite was imported')\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["make", "test-python"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("general-contract-imported", result.stdout)
+        self.assertNotIn("tracker suite was imported", result.stdout + result.stderr)
+
     def service_block(self, service_name):
         pattern = r"^  %s:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|^\S|\Z)" % re.escape(service_name)
         match = re.search(pattern, self.compose, re.MULTILINE | re.DOTALL)

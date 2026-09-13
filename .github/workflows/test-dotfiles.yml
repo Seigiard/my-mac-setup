@@ -92,6 +92,9 @@ jobs:
             brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
             brew-${{ runner.os }}-
 
+      - name: Run general Python tests
+        run: make test-python
+
       - name: Validate repository issues
         run: make test-issues
 
@@ -263,6 +266,9 @@ jobs:
             brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
             brew-${{ runner.os }}-
 
+      - name: Run general Python tests
+        run: make test-python
+
       - name: Validate repository issues
         run: make test-issues
 
@@ -394,6 +400,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Run general Python tests
+        run: make test-python
 
       - name: Validate repository issues
         run: make test-issues
