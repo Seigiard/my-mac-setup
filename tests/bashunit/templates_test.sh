@@ -540,7 +540,7 @@ PROBE
 }
 
 function test_templates_0091_zshenv_full_fixture_exports_all_canaries_without_op() {
-  _bats_test_init 91 'zshenv full fixture exports all five canaries without invoking op'
+  _bats_test_init 91 'zshenv full fixture randomly selects a Tavily canary without invoking op'
   command_exists zsh || skip "zsh not installed"
   local work="$BATS_TEST_TMPDIR/zshenv-full"
   local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
@@ -562,6 +562,7 @@ FAKE_OP
     MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=linear-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=tavily-2-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-zshenv-canary \
@@ -577,11 +578,20 @@ FAKE_OP
   assert_file_not_exists "$work/op-launched"
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|${+_tavily_api_keys}"
   ' _ "$work/home/.zshenv"
   assert_success
-  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary'
+  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary|0'
+
+  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=1
+    source "$1"
+    print -r -- "$TAVILY_API_KEY|${+_tavily_api_keys}"
+  ' _ "$work/home/.zshenv"
+  assert_success
+  assert_output 'tavily-2-zshenv-canary|0'
 }
 
 function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_and_reports_work() {
@@ -618,6 +628,7 @@ function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixt
   printf '%s\n' "$output" > "$work/zshenv.rendered"
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=2
     source "$1"
     print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
   ' _ "$work/zshenv.rendered"

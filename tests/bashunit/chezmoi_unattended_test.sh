@@ -126,6 +126,7 @@ run_full() {
     MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=linear-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=tavily-2-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-prime-canary \
@@ -237,6 +238,7 @@ function test_chezmoi_unattended_005_enforces_disposable_authority() {
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=x \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=x \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=x \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=x \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=x \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=x \
@@ -258,11 +260,12 @@ function test_chezmoi_unattended_005_enforces_disposable_authority() {
 }
 
 function test_chezmoi_unattended_006_requires_each_full_fixture() {
-  _bats_test_init 6 'requires all five nonempty full fixture variables'
+  _bats_test_init 6 'requires every nonempty full fixture variable'
   local missing
   for missing in \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY \
@@ -272,6 +275,7 @@ function test_chezmoi_unattended_006_requires_each_full_fixture() {
       MMS_DISPOSABLE_HOME=1 \
       MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=linear \
       MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily \
+      MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=tavily-2 \
       MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina \
       MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7 \
       MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector \
@@ -369,6 +373,7 @@ function test_chezmoi_unattended_010_diff_omits_exact_inventory_destinations() {
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=DO_NOT_LEAK_LINEAR \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=DO_NOT_LEAK_TAVILY \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=DO_NOT_LEAK_TAVILY_2 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=DO_NOT_LEAK_JINA \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=DO_NOT_LEAK_CONTEXT7 \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=DO_NOT_LEAK_VECTOR \
@@ -463,32 +468,32 @@ function test_chezmoi_unattended_013_rejects_malformed_launcher_invocations() {
   assert_file_exists "$FAKE_STATE/argv"
 }
 
-function test_chezmoi_unattended_014_inventory_requires_exactly_six_fixture_identities() {
-  _bats_test_init 14 'inventory requires exactly six distinct fixture identities'
+function test_chezmoi_unattended_014_inventory_requires_exactly_seven_fixture_identities() {
+  _bats_test_init 14 'inventory requires exactly seven distinct fixture identities'
   local copied="$BATS_TEST_TMPDIR/copied"
   mkdir -p "$copied"
   cp "$LAUNCHER" "$copied/chezmoi-unattended"
   chmod +x "$copied/chezmoi-unattended"
 
-  # Well-formed row, five distinct identities: only the count gate can reject.
-  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E\n' \
-    > "$copied/chezmoi-unattended-targets.tsv"
-  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
-    run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'inventory must register exactly six distinct fixture identities'
-  assert_final_not_reached
-
-  # Seven distinct identities: "exactly six" also rejects an over-count.
-  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G\n' \
-    > "$copied/chezmoi-unattended-targets.tsv"
-  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
-    run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'inventory must register exactly six distinct fixture identities'
-  assert_final_not_reached
-
+  # Well-formed row, six distinct identities: only the count gate can reject.
   printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F\n' \
+    > "$copied/chezmoi-unattended-targets.tsv"
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$copied/chezmoi-unattended" --profile host-partial -- verify
+  assert_failure
+  assert_output --partial 'inventory must register exactly seven distinct fixture identities'
+  assert_final_not_reached
+
+  # Eight distinct identities: "exactly seven" also rejects an over-count.
+  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G,MMS_CHEZMOI_FIXTURE_H\n' \
+    > "$copied/chezmoi-unattended-targets.tsv"
+  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
+    run "$copied/chezmoi-unattended" --profile host-partial -- verify
+  assert_failure
+  assert_output --partial 'inventory must register exactly seven distinct fixture identities'
+  assert_final_not_reached
+
+  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G\n' \
     > "$copied/chezmoi-unattended-targets.tsv"
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$copied/chezmoi-unattended" --profile host-partial -- verify
