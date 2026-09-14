@@ -90,10 +90,16 @@ A second probe ran the real Intercom client inside Docker Desktop. A private
 container Unix socket proxied to a host TCP relay, which terminated at the
 broker's authenticated remote gateway. Container-to-host send and
 host-to-container blocking ask/reply both completed without a broker protocol
-change. This proves a viable same-host container bridge, not normal adapter
-startup. Whether normal adapters need a launcher or upstream change for this path
-must be determined by a real container-harness probe rather than assumed from the
-low-level transport.
+change.
+
+Real container-harness probes then ran unmodified OpenCode 1.18.30 and Pi 0.85.1
+adapters inside Docker Desktop. Both consumed enrollment credentials, registered
+with broker-owned remote provenance, asked host OpenCode, received the correlated
+reply `42`, and exited successfully along with the host receiver. Normal adapter
+startup checks for a local broker endpoint, so the trusted container socket
+facade translates only `health_ok.endpoint` from `remote` to `local`. Registration
+and message traffic continue through the authenticated remote gateway. This is a
+placement-launcher concern, not an adapter or broker protocol change.
 
 Current candidate behavior is the baseline for deciding later semantics. Pi and
 OpenCode persist inbound messages before acknowledgement and wake idle sessions;
@@ -122,6 +128,13 @@ Claude running under `nono` then sent one blocking ask to host OpenCode and
 received the correlated reply `42`. Both processes exited successfully in each
 probe. Neither path required the authenticated remote gateway, a broker change,
 or an adapter change.
+
+Real Codex CLI 0.154.0 also used the unmodified Codex adapter 0.10.0 at commit
+`ff1f0e2258ded8c81ae6fcf33048c78a7f8580fe` to ask host OpenCode from both the
+host and the stock `nolabs-ai/codex` confinement profile. Each path issued one
+blocking plain-MCP ask, received the correlated reply `42`, and exited
+successfully along with the receiver. This establishes the plain-MCP outgoing
+flow; it does not establish wake behavior for a persistent `coi` worker.
 
 The permissive OpenCode profile keeps its XDG state inside an allowed sandbox
 runtime and exposes existing OpenCode auth files read-only. The Claude profile
