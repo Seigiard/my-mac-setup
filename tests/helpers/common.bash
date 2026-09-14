@@ -29,6 +29,7 @@ chezmoi_full_fixture() {
   MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
@@ -40,6 +41,7 @@ chezmoi_full_fixture_finite_stdin() {
   MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \

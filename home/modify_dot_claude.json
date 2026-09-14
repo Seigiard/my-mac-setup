@@ -1,6 +1,7 @@
 #!/bin/bash
-# Modify ~/.claude.json to register the MCP servers, injecting the API keys the
-# credentialed ones need from unattended fixtures or 1Password.
+# Modify ~/.claude.json to register the MCP servers. Jina receives its API key
+# from unattended fixtures or 1Password; Tavily expands the shell-selected key
+# when Claude starts.
 # Requires: jq. Optional: op (1Password CLI).
 
 existing=$(cat)
@@ -34,34 +35,26 @@ read_credential() {
 if [ "${MMS_CHEZMOI_UNATTENDED:-}" = "1" ]; then
   UNATTENDED=true
   JINA_KEY=${MMS_CHEZMOI_FIXTURE_JINA_API_KEY:-}
-  TAVILY_KEY=${MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY:-}
 else
   UNATTENDED=false
   JINA_KEY=$(read_credential "Jina API Key")
-  TAVILY_KEY=$(read_credential "Tavily API Key")
 fi
 
-# deepwiki, fff, and executor carry no credential, so they are registered
-# unconditionally. jina and tavily-mcp are added per key, independently of each
-# other: one absent credential is no reason to withhold the other's server.
+# Tavily uses Claude's environment expansion so it shares TAVILY_API_KEY with
+# OpenCode and direct API consumers. Jina remains conditional on its key.
 echo "$existing" | jq \
   --arg jina_key "$JINA_KEY" \
-  --arg tavily_key "$TAVILY_KEY" \
   --arg home "$HOME" \
   --argjson unattended "$UNATTENDED" \
   '(.mcpServers // {}) as $existing_servers
   | .mcpServers = ({
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
     "fff": { "type": "stdio", "command": ($home + "/.local/bin/fff-mcp"), "args": [], "env": {} },
-    "executor": { "type": "stdio", "command": ($home + "/.local/bin/executor"), "args": ["mcp"], "env": {} }
+    "executor": { "type": "stdio", "command": ($home + "/.local/bin/executor"), "args": ["mcp"], "env": {} },
+    "tavily-mcp": { "type": "http", "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}" }
   }
   + (if $jina_key != "" then {
       "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } }
     } elif $unattended and ($existing_servers | has("jina")) then {
       "jina": $existing_servers.jina
-    } else {} end)
-  + (if $tavily_key != "" then {
-      "tavily-mcp": { "type": "http", "url": ("https://mcp.tavily.com/mcp/?tavilyApiKey=" + $tavily_key) }
-    } elif $unattended and ($existing_servers | has("tavily-mcp")) then {
-      "tavily-mcp": $existing_servers["tavily-mcp"]
     } else {} end))'

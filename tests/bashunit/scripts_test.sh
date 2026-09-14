@@ -8563,25 +8563,24 @@ claude_modifier_setup() {
 printf '%s\n' "$2" >> "$MMS_TEST_OP_MARKER"
 case "$2" in
   *Jina*) printf '%s\n' 'interactive-jina' ;;
-  *Tavily*) printf '%s\n' 'interactive-tavily' ;;
 esac
 STUB
   chmod +x "$CLAUDE_MODIFIER_BIN/op"
 }
 
-function test_scripts_245_claude_settings_modifier_preserves_existing_credentials_unattended() {
-  _bats_test_init 245 'Claude settings modifier preserves both existing credentialed entries unattended'
+function test_scripts_245_claude_settings_modifier_preserves_jina_and_replaces_tavily_unattended() {
+  _bats_test_init 245 'Claude settings modifier preserves Jina and replaces Tavily with its env-backed entry unattended'
   claude_modifier_setup
   local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"},"stale":{"type":"stdio"}},"other":{"preserved":true}}'
 
-  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY \
     PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
     MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
   run jq -e '
     (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}})
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
     and (.mcpServers.executor == {"type":"stdio","command":"/stub/home/.local/bin/executor","args":["mcp"],"env":{}})
     and (.mcpServers | has("stale") | not)
     and (.other == {"preserved":true})
@@ -8591,16 +8590,20 @@ function test_scripts_245_claude_settings_modifier_preserves_existing_credential
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_246_claude_settings_modifier_keeps_clean_credentials_absent_unattended() {
-  _bats_test_init 246 'Claude settings modifier keeps credentialed entries absent on clean unattended input'
+function test_scripts_246_claude_settings_modifier_keeps_jina_absent_and_creates_tavily_unattended() {
+  _bats_test_init 246 'Claude settings modifier keeps Jina absent and creates env-backed Tavily on clean unattended input'
   claude_modifier_setup
 
-  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY \
     PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
     MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< '{"mcpServers":{}}'
 
   assert_success
-  run jq -e '((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])' <<< "$output"
+  run jq -e '
+    true
+    and ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
+    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}")
+  ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
@@ -8611,22 +8614,22 @@ function test_scripts_247_claude_settings_modifier_replaces_only_jina_unattended
   claude_modifier_setup
   local input='{"mcpServers":{"jina":{"type":"http","url":"https://old.jina"},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"}}}'
 
-  run env -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+  run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
     MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_CHEZMOI_UNATTENDED=1 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
   run jq -e '
     (.mcpServers.jina == {"type":"http","url":"https://mcp.jina.ai/v1","headers":{"Authorization":"Bearer jina-canary"}})
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_248_claude_settings_modifier_replaces_only_tavily_unattended() {
-  _bats_test_init 248 'Claude settings modifier replaces only Tavily from an unattended fixture'
+function test_scripts_248_claude_settings_modifier_does_not_embed_tavily_fixture() {
+  _bats_test_init 248 'Claude settings modifier uses env expansion instead of embedding the unattended Tavily fixture'
   claude_modifier_setup
   local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}},"tavily-mcp":{"type":"http","url":"https://old.tavily"}}}'
 
@@ -8637,15 +8640,15 @@ function test_scripts_248_claude_settings_modifier_replaces_only_tavily_unattend
   assert_success
   run jq -e '
     (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}})
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_249_claude_settings_modifier_creates_both_credentials_unattended() {
-  _bats_test_init 249 'Claude settings modifier creates both credentialed entries from unattended fixtures'
+function test_scripts_249_claude_settings_modifier_creates_jina_and_env_backed_tavily_unattended() {
+  _bats_test_init 249 'Claude settings modifier creates fixture-backed Jina and env-backed Tavily unattended'
   claude_modifier_setup
 
   run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
@@ -8655,7 +8658,7 @@ function test_scripts_249_claude_settings_modifier_creates_both_credentials_unat
   assert_success
   run jq -e '
     (.mcpServers.jina.headers.Authorization == "Bearer jina-canary")
-    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary")
+    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}")
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
@@ -8670,13 +8673,12 @@ function test_scripts_1324_claude_settings_modifier_treats_empty_fixtures_as_una
   run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
     MMS_CHEZMOI_UNATTENDED=1 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY= \
-    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY= \
     bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
   run jq -e '
     (.mcpServers.jina == {"sentinel":"existing-jina"})
-    and (.mcpServers["tavily-mcp"] == {"sentinel":"existing-tavily"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
@@ -8701,7 +8703,7 @@ function test_scripts_1325_claude_settings_modifier_requires_exact_unattended_se
     assert_success
     run jq -e '
       (.mcpServers.jina.headers.Authorization == "Bearer interactive-jina")
-      and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=interactive-tavily")
+      and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}")
     ' <<< "$output"
     assert_success
     assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
@@ -8723,7 +8725,7 @@ function test_scripts_1326_claude_settings_modifier_passes_settings_through_with
       run env -u MMS_CHEZMOI_UNATTENDED PATH="$stub_bin" bash "$modifier" <<< "$input"
     else
       run env PATH="$stub_bin" MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
-        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$modifier" <<< "$input"
+        bash "$modifier" <<< "$input"
     fi
 
     assert_success
@@ -8917,7 +8919,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
     "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
-  assert_output --partial "Passed: late child output lands after the result payload"
+  # Bashunit abbreviates long titles to the terminal width in Docker panes.
+  assert_output --partial "Passed: late child output"
   assert_output --partial "Assertions: 1 passed, 1 total"
 
   # Sequential leg: extract_result_counts parses the captured execution

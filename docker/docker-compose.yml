@@ -7,6 +7,7 @@ services:
       args:
         MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: mms-test-linear-canary
         MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: mms-test-tavily-canary
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2: mms-test-tavily-2-canary
         MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
         MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
         MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
@@ -40,6 +41,7 @@ services:
       - MMS_MACHINE_ROLE=server
       - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
       - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
+      - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
       - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
       - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
@@ -54,6 +56,7 @@ services:
       args:
         MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: mms-test-linear-canary
         MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: mms-test-tavily-canary
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2: mms-test-tavily-2-canary
         MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
         MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
         MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
@@ -85,6 +88,7 @@ services:
       - MMS_MACHINE_ROLE=server
       - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
       - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
+      - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
       - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
       - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
@@ -131,6 +135,7 @@ services:
       args:
         MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY: mms-test-linear-canary
         MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY: mms-test-tavily-canary
+        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2: mms-test-tavily-2-canary
         MMS_CHEZMOI_FIXTURE_JINA_API_KEY: mms-test-jina-canary
         MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY: mms-test-context7-canary
         MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY: mms-test-vector-prime-canary
@@ -156,6 +161,7 @@ services:
       - MMS_MACHINE_ROLE=server
       - MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary
       - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary
+      - MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary
       - MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary
       - MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary
       - MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary
