@@ -7,6 +7,27 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 ### Child-agent contract
 The agreement between a parent agent and child agents launched into sibling panes or their own `--tab`. `herdr-child` allocates each child a registered `color-animal` alias and returns it with the pane ID. Attached `--wait` keeps the result inside the current parent turn and arms no watcher. Managed `--detach` captures parent and child terminal/session identity, a fresh-state baseline, and a generation; an external per-child watcher then wakes the parent with generation-and-event markers for settlement, blockage, timeout, or unplanned disappearance. A child decision uses `ask`/`reply`; ordinary follow-ups use pair-addressed `prompt --wait|--detach`; reap requires the verified alias-plus-pane pair, invalidates supervision before pane closure, and preserves sibling panes in a child-owned tab. Lifecycle settlement is a wake signal, not a task verdict. Markers and metadata coordinate cooperative same-user clients and are not authorization credentials.
 
+### Agent intercom
+The shared communication substrate through which a coding agent can discover or explicitly address another agent, send a message, ask a blocking question, and reply without caring whether either endpoint runs directly on the host, under an agent-confinement backend, or inside an isolated development environment. Connectivity is the primary contract. Broker durability, strict hierarchy authorization, and typed control authority are optional hardening rather than prerequisites for the first useful slice.
+
+### Agent communication profile
+One supported placement and transport combination for Agent intercom, such as host-to-host process communication, host-to-`nono`, or host-to-container. The first communication fabric covers one physical host and containers running on it. Profiles may use different socket exposure or bridging mechanisms while preserving the same agent-facing operations and explicit-name addressing; local VMs and remote hosts require later profiles.
+
+### Agent communication identity
+The Herdr-assigned globally unique agent alias by which a person or agent addresses an Agent intercom participant. Every supported launcher passes that alias into the communication adapter, including `nono` and container profiles. Agent Intercom's session ID remains an internal transport detail. Discovery may hide an alias by policy without making an explicitly supplied alias unaddressable.
+
+### Agent confinement backend
+The inner boundary that restricts one agent principal and its subprocesses, such as `nono` or SRT. It controls which host resources that principal can reach but does not define where the development workspace or operating system runs.
+
+### Isolated development environment
+An optional outer container or VM that hosts a development workspace, toolchain, and potentially a separate operating system. It is independently selectable from the agent confinement backend, and the two layers may be composed, such as `nono` running inside a development VM.
+
+### Trusted control plane
+The nearest layer outside an agent-controlled boundary that may own communication credentials, socket bridges, network egress, and optional safety policy. It may run on the physical host or inside a trusted development container or VM. The first communication slice does not require every message to be durably owned by this layer.
+
+### Launch relationship graph
+The optional visibility policy created when one agent launches another. A subagent may discover only its parent and siblings by default, while an explicit agent name remains a deliberate escape hatch for addressing any registered agent. The graph narrows ambient discovery; it is not an absolute communication authorization boundary.
+
 ### herdr-worktree-identity
 The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
 

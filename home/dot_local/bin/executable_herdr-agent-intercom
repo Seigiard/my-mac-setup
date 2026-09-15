@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  printf 'usage: herdr-agent-intercom claude|opencode|pi [arguments...]\n' >&2
+  exit 2
+}
+
+[[ $# -gt 0 ]] || usage
+agent="$1"
+shift
+case "$agent" in
+  claude|opencode|pi) ;;
+  *) usage ;;
+esac
+
+agent_command="$(command -v "$agent" 2>/dev/null || true)"
+if [[ -z "$agent_command" ]]; then
+  printf 'herdr-agent-intercom: %s is not on PATH\n' "$agent" >&2
+  exit 1
+fi
+
+if [[ "${HERDR_ENV:-}" != "1" ]]; then
+  exec "$agent_command" "$@"
+fi
+
+intercom_name="${HERDR_CHILD_NAME:-}"
+if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]]; then
+  snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null)" || {
+    printf 'herdr-agent-intercom: cannot read Herdr pane %s\n' "$HERDR_PANE_ID" >&2
+    exit 1
+  }
+  intercom_name="$(printf '%s' "$snapshot" | python3 -c '
+import json
+import sys
+
+try:
+    name = json.load(sys.stdin)["result"]["agent"]["name"]
+except (KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(1)
+if not isinstance(name, str) or not name.strip():
+    raise SystemExit(1)
+sys.stdout.write(name.strip())
+')" || intercom_name=""
+fi
+
+if [[ -z "$intercom_name" ]]; then
+  printf 'herdr-agent-intercom: cannot resolve a Herdr alias for this session\n' >&2
+  exit 1
+fi
+
+intercom_root="$HOME/.local/share/agent-intercom"
+case "$agent" in
+  claude)
+    cci="$intercom_root/node_modules/.bin/cci"
+    if [[ ! -x "$cci" ]]; then
+      printf 'herdr-agent-intercom: cci is not installed at %s\n' "$cci" >&2
+      exit 1
+    fi
+    bridge="$HOME/.local/bin/herdr-agent-intercom-claude"
+    if [[ ! -x "$bridge" ]]; then
+      printf 'herdr-agent-intercom: Claude argument bridge is not installed at %s\n' "$bridge" >&2
+      exit 1
+    fi
+    export AGENT_INTERCOM_CLAUDE_COMMAND="$agent_command"
+    export AGENT_INTERCOM_CLAUDE_ARGC="$#"
+    arg_index=0
+    for arg in "$@"; do
+      printf -v "AGENT_INTERCOM_CLAUDE_ARG_$arg_index" '%s' "$arg"
+      export "AGENT_INTERCOM_CLAUDE_ARG_$arg_index"
+      arg_index=$((arg_index + 1))
+    done
+
+    # cci reparses its own argv and drops unknown native Claude options. Give it
+    # only the overlapping controls it must reconstruct; the bridge restores
+    # the complete native argv afterward.
+    cci_args=()
+    permission_args=(--dangerously-skip-permissions)
+    claude_args=("$@")
+    arg_index=0
+    while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
+      arg="${claude_args[$arg_index]}"
+      case "$arg" in
+        --) break ;;
+        --model|--effort|--add-dir)
+          next_index=$((arg_index + 1))
+          [[ "$next_index" -lt "${#claude_args[@]}" ]] || {
+            printf 'herdr-agent-intercom: %s requires a value\n' "$arg" >&2
+            exit 2
+          }
+          cci_args+=("$arg" "${claude_args[$next_index]}")
+          arg_index=$((arg_index + 2))
+          continue
+          ;;
+        --model=*|--effort=*|--add-dir=*) cci_args+=("$arg") ;;
+        --permission-mode)
+          next_index=$((arg_index + 1))
+          [[ "$next_index" -lt "${#claude_args[@]}" ]] || {
+            printf 'herdr-agent-intercom: --permission-mode requires a value\n' >&2
+            exit 2
+          }
+          permission_args=(--permission-mode "${claude_args[$next_index]}")
+          arg_index=$((arg_index + 2))
+          continue
+          ;;
+        --permission-mode=*) permission_args=("$arg") ;;
+        --dangerously-skip-permissions) permission_args=("$arg") ;;
+      esac
+      arg_index=$((arg_index + 1))
+    done
+    set +u
+    exec "$cci" "${cci_args[@]}" "${permission_args[@]}" \
+      --tui --transport mcp --name "$intercom_name" --claude "$bridge"
+    ;;
+  opencode)
+    export OPENCODE_INTERCOM_NAME="$intercom_name"
+    exec "$agent_command" "$@"
+    ;;
+  pi)
+    pi_args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name|-n)
+          [[ $# -gt 1 ]] || {
+            printf 'herdr-agent-intercom: %s requires a value\n' "$1" >&2
+            exit 2
+          }
+          shift 2
+          ;;
+        --name=*) shift ;;
+        --)
+          pi_args+=("$@")
+          break
+          ;;
+        *)
+          pi_args+=("$1")
+          shift
+          ;;
+      esac
+    done
+    set +u
+    exec "$agent_command" --name "$intercom_name" "${pi_args[@]}"
+    ;;
+esac
