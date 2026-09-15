@@ -157,6 +157,14 @@ authority typing, richer lifecycle states, attachments, file reservations, and
 task orchestration remain optional follow-up work rather than gates on basic
 connectivity.
 
+The first deployed host slice pins the tested Core, Claude, OpenCode, and Pi
+commits in one package root under `~/.local/share/agent-intercom`. A Herdr-only
+launcher derives the public name from the child alias or current pane record,
+runs Claude through live MCP `cci`, exports OpenCode's adapter name, and passes
+Pi's normal session name. OpenCode loads only its server plugin. Codex is deferred
+because its tested wakeable worker and proactive MCP surface register separate
+Intercom identities.
+
 ## Consequences
 
 The implementation must prove each supported placement with real agents rather
