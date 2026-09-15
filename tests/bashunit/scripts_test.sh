@@ -9859,7 +9859,7 @@ SH
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   mkdir -p "$(dirname "$lock")"
   : > "$BATS_TEST_TMPDIR/repository-owned"
-  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{"obsolete":{"source":"missing/source"}}}' > "$lock"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -9910,9 +9910,9 @@ SH
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
   mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$BATS_TEST_TMPDIR/config/agent-skills"
-  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
-  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
+  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"example/upstream-skills"}}}' > "$lock"
   printf '%s\n' original > "$canonical/local-skill/SKILL.md"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -9938,12 +9938,10 @@ function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
     canonical="$BATS_TEST_TMPDIR/$kind/canonical"
     mkdir -p "$(dirname "$lock")" "$canonical" "$BATS_TEST_TMPDIR/$kind/config/agent-skills"
     : > "$BATS_TEST_TMPDIR/$kind/config/agent-skills/repository-owned"
-    printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
-    printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
-    for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
-      mkdir -p "$canonical/$skill"
-      printf '%s\n' skill > "$canonical/$skill/SKILL.md"
-    done
+    printf '%s\n' 'example/upstream-skills upstream-skill' > "$manifest"
+    printf '%s\n' '{"version":3,"skills":{"upstream-skill":{"source":"example/upstream-skills"}}}' > "$lock"
+    mkdir -p "$canonical/upstream-skill"
+    printf '%s\n' skill > "$canonical/upstream-skill/SKILL.md"
     case "$kind" in
       symlink) ln -s /etc/passwd "$canonical/escape"; offender="$canonical/escape" ;;
       fifo) mkfifo "$canonical/non-regular"; offender="$canonical/non-regular" ;;
@@ -9972,11 +9970,7 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_large_document
   mkdir -p "$(dirname "$lock")" "$canonical/large-doc" "$BATS_TEST_TMPDIR/config/agent-skills"
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' 'example/large-doc large-doc' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"large-doc":{"source":"example/large-doc"}}}' > "$lock"
-  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
-    mkdir -p "$canonical/$skill"
-    printf '%s\n' skill > "$canonical/$skill/SKILL.md"
-  done
+  printf '%s\n' '{"version":3,"skills":{"large-doc":{"source":"example/large-doc"}}}' > "$lock"
   dd if=/dev/zero of="$canonical/large-doc/llms-full.txt" bs=1105837 count=1 2>/dev/null
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -10000,9 +9994,9 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
   canonical="$BATS_TEST_TMPDIR/canonical"
   mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
-  printf '%s\n' 'EveryInc/compound-engineering-plugin *' 'owner/repo desired' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"desired":{"source":"owner/repo"},"stale":{"source":"owner/repo"},"orphan":{"source":"gone/repo"}}}' > "$lock"
-  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work desired; do
+  printf '%s\n' 'example/upstream-skills *' 'owner/repo desired' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"upstream-skill":{"source":"example/upstream-skills"},"desired":{"source":"owner/repo"},"stale":{"source":"owner/repo"},"orphan":{"source":"gone/repo"}}}' > "$lock"
+  for skill in upstream-skill desired; do
     mkdir -p "$canonical/$skill"
     printf '%s\n' skill > "$canonical/$skill/SKILL.md"
   done
@@ -10010,13 +10004,13 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
-  assert_output --partial 'Installing skills from EveryInc/compound-engineering-plugin: *'
+  assert_output --partial 'Installing skills from example/upstream-skills: *'
   assert_output --partial 'Installing skills from owner/repo: desired'
   assert_output --partial 'drift: skills remove owner/repo stale'
   assert_output --partial 'keep:  skills add owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
   assert_output --partial 'keep:  skills add gone/repo orphan'
-  refute_output --partial 'ce-code-review'
+  refute_output --partial 'drift: skills remove example/upstream-skills upstream-skill'
 }
 
 # ===========================================
