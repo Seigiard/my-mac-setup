@@ -1,6 +1,6 @@
 # External leg pair interface
 
-An External leg pair is one Claude review and one OpenCode review of the same input. `se-external-leg-pair` owns their shared executable lifecycle for `se-code-review`, `se-doc-review`, and `se-simplify`. Calling skills own scope, complete peer prompts, report-schema validation, synthesis, and apply policy.
+An External leg pair is one Claude review and one OpenCode review of the same input. `se-external-leg-pair` owns their shared executable lifecycle for `se-code-review` and `se-simplify`. Calling skills own scope, complete peer prompts, report-schema validation, synthesis, and apply policy.
 
 ## Invocation
 
@@ -20,7 +20,7 @@ se-external-leg-pair \
   --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
 ```
 
-If either prompt tells a peer to read a document outside `REPO_ROOT`, add exactly one `--exposed-document "$ABSOLUTE_DOCUMENT"` so the file is scanned too. This is required for the immutable copy used by `se-doc-review`; the interface supports only one external document per pair.
+If either prompt tells a peer to read a document outside `REPO_ROOT`, add exactly one `--exposed-document "$ABSOLUTE_DOCUMENT"` so the file is scanned too. This is required for the immutable copy a caller stages outside the repo; the interface supports only one external document per pair.
 
 The command requires `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, and explicit `--complexity` and `--effort` values. Complexity selects each provider's model; effort becomes Claude's native effort and OpenCode's model variant. It also fixes the pair, permissions, retry limits, waits, report transport, and cleanup, so callers cannot override provider or lifecycle policy. `SE_SKIP_SECRET_SCAN=1` remains the only operator waiver. The result records `"scan": "waived"`, and the caller reports the waiver.
 
