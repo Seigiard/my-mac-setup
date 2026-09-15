@@ -881,6 +881,7 @@ assert_minimal_brewfile() {
   refute_line 'brew "imagemagick"'
   refute_line 'brew "shellcheck"'
   refute_line 'brew "herdr"'
+  refute_line 'brew "nono"'
   refute_line 'brew "fzf"'
 }
 
@@ -931,6 +932,7 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   assert_line 'brew "node"'
   assert_line --partial 'brew "oven-sh/bun/bun"'
   assert_line 'brew "gitleaks"'
+  assert_line 'brew "nono"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
