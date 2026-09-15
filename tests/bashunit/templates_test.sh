@@ -567,6 +567,8 @@ FAKE_OP
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=openrouter-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=vrt-r2-access-key-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=vrt-r2-secret-key-zshenv-canary \
     "$launcher" --profile full-fixture -- \
     apply --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" \
     --refresh-externals=never "$work/home/.zshenv"
@@ -580,10 +582,10 @@ FAKE_OP
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|${+_tavily_api_keys}"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY|$VRT_R2_BUCKET|$VRT_R2_ENDPOINT|$VRT_R2_PUBLIC_DOMAIN|${+_tavily_api_keys}"
   ' _ "$work/home/.zshenv"
   assert_success
-  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary|0'
+  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary|vrt-r2-access-key-zshenv-canary|vrt-r2-secret-key-zshenv-canary|membrane-visual-regression-testing|https://e9d416b8a5d9a9bd386258cc37fd3a98.r2.cloudflarestorage.com|vrt.membrane-dev.com|0'
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     RANDOM=1
@@ -630,10 +632,10 @@ function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixt
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY"
   ' _ "$work/zshenv.rendered"
   assert_success
-  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary'
+  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary|mms-test-vrt-r2-access-key-canary|mms-test-vrt-r2-secret-key-canary'
 }
 
 function test_templates_0094_zshenv_skip_secrets_omits_state_but_execute_template_fails() {
