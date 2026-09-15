@@ -39,19 +39,19 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 
 <important if="you need to run commands to build, test, lint, or run scripts">
 
-| Command | What it does |
-|---|---|
-| `make test-python` | Run general Python contract tests |
-| `make test-ubuntu` | Full source render, disposable-home apply, and test suite in Docker |
-| `make test-docker` | Build + run full Docker test suite |
-| `make test-suite` | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
-| `make test-templates` | Focused source-render tests in Docker; included in `make test-ubuntu` |
-| `make test-local` | Diff this checkout's `home/` against the current home (dry-run, no changes) |
-| `make lint` | shellcheck |
-| `make shell-ubuntu` | Interactive shell in Ubuntu container |
-| `make build-docker` | Build Docker image only |
-| `make clean` | Remove Docker resources |
-| `tests/lib/bashunit -j 8 tests/bashunit/smoke_test.sh` | Run a single test file |
+| Command                                                | What it does                                                                                    |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `make test-python`                                     | Run general Python contract tests                                                               |
+| `make test-ubuntu`                                     | Full source render, disposable-home apply, and test suite in Docker                             |
+| `make test-docker`                                     | Build + run full Docker test suite                                                              |
+| `make test-suite`                                      | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
+| `make test-templates`                                  | Focused source-render tests in Docker; included in `make test-ubuntu`                           |
+| `make test-local`                                      | Diff this checkout's `home/` against the current home (dry-run, no changes)                     |
+| `make lint`                                            | shellcheck                                                                                      |
+| `make shell-ubuntu`                                    | Interactive shell in Ubuntu container                                                           |
+| `make build-docker`                                    | Build Docker image only                                                                         |
+| `make clean`                                           | Remove Docker resources                                                                         |
+| `tests/lib/bashunit -j 8 tests/bashunit/smoke_test.sh` | Run a single test file                                                                          |
 
 </important>
 
@@ -101,12 +101,12 @@ Consequence: an edit in this checkout is **commit-ready but NOT live** — it ha
 
 Where new things go:
 
-| Adding | Destination |
-|---|---|
-| Cross-platform CLI tool | `home/private_dot_config/brewfiles/Brewfile.tmpl` |
-| macOS-only cask/app | `home/private_dot_config/brewfiles/Brewfile.macos.tmpl` |
-| Config file from `~/` | `home/` via `chezmoi add` |
-| External repo/archive (skills) | `home/.chezmoiexternal.toml` |
+| Adding                         | Destination                                             |
+| ------------------------------ | ------------------------------------------------------- |
+| Cross-platform CLI tool        | `home/private_dot_config/brewfiles/Brewfile.tmpl`       |
+| macOS-only cask/app            | `home/private_dot_config/brewfiles/Brewfile.macos.tmpl` |
+| Config file from `~/`          | `home/` via `chezmoi add`                               |
+| External repo/archive (skills) | `home/.chezmoiexternal.toml`                            |
 
 Tool versions (e.g. node) change only by editing `home/private_dot_config/mise/config.toml`, never via `mise use --global` — that writes straight to the deployed file and diverges from this source.
 
