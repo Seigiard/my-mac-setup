@@ -639,6 +639,18 @@ PY
   assert_success
 }
 
+function test_smoke_037_alerter_is_installed_for_focus_notify() {
+  _bats_test_init 37 'alerter is installed for focus notify (macOS only)'
+  is_macos || skip "Not on macOS"
+
+  run command -v alerter
+  assert_success
+
+  run alerter --version
+  assert_success
+  assert_output --partial '26.5'
+}
+
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 

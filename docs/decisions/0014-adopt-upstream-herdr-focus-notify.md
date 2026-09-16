@@ -55,10 +55,11 @@ script, and implementation tests.
 
 Dotfiles continues to own personal policy and machine dependencies:
 
-- Homebrew installs the host/build dependencies Cargo and
-  `vjeantet/tap/alerter`; package-private Rust dependencies stay declared and
-  locked by the upstream package. Terminal applications remain selected and
-  configured here.
+- Homebrew installs Cargo. Chezmoi installs the official `alerter` 26.5 release
+  archive at an explicit SHA-256 and exposes it through `~/.local/bin`; this
+  avoids trusting the health of unrelated formulae in its Homebrew tap.
+  Package-private Rust dependencies stay declared and locked by the upstream
+  package. Terminal applications remain selected and configured here.
 - `config.toml` keeps native Herdr toast delivery off, preventing duplicate
   notification producers.
 - The plugin learns the frontmost terminal per workspace at runtime; no package
