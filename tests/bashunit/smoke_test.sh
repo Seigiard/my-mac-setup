@@ -387,11 +387,11 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   done
 }
 
-function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
-  _bats_test_init 20 'explicit-only workflows keep manual invocation boundaries'
+function test_smoke_020_explicit_only_workflow_keeps_manual_invocation_b() {
+  _bats_test_init 20 'explicit-only workflow keeps manual invocation boundaries'
   local workflow claude_skill pi_skill opencode_command opencode_skill
 
-  for workflow in eli5 open-questions; do
+  for workflow in open-questions; do
     claude_skill="$HOME/.claude/skills/$workflow/SKILL.md"
     pi_skill="$HOME/.pi/agent/skills/$workflow"
     opencode_command="$HOME/.config/opencode/commands/$workflow.md"
