@@ -1861,7 +1861,8 @@ if [ "$*" = "plugin list --json" ]; then
   "result": {
     "plugins": [
       { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" }
+      { "plugin_id": "worktrunk" },
+      { "plugin_id": "seigi.focus-notify" }
     ]
   }
 }
@@ -1877,7 +1878,13 @@ SH
   assert_success
   run grep -Fx "plugin uninstall worktrunk" "$calls"
   assert_success
+  run grep -Fx "plugin uninstall seigi.focus-notify" "$calls"
+  assert_success
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
+  assert_success
+  run grep -Fx "plugin install yankewei/herdr-focus-notify --ref 560e70c5e1716fa0781b6746821ce8676f70a811 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
   assert_success
 }
 
@@ -1893,6 +1900,7 @@ printf 'Darwin\n'
 SH
   cat > "$fake_bin/herdr" <<'SH'
 #!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
 if [ "$*" = "plugin list --json" ]; then
   printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
 fi
@@ -1900,9 +1908,15 @@ exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env PATH="$fake_bin:$PATH" bash "$script"
+  local calls="$BATS_TEST_TMPDIR/herdr-malformed.calls"
+  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+  assert_output --partial "herdr plugin install yankewei/herdr-focus-notify --ref 560e70c5e1716fa0781b6746821ce8676f70a811 -y"
+  run grep -F "plugin install yankewei/herdr-focus-notify" "$calls"
+  assert_failure
+  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
+  assert_failure
 }
 
 # ask-in-herdr skill script

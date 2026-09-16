@@ -109,9 +109,9 @@ rows = [["state_icon", "workspace"], ["$branch", "$git_status"]]
 [ui.sidebar.agents]
 rows = [["state_icon", { token = "machine", bold = true }, "workspace"], [{ token = "pane", dim = false }, "$space_origin"]]
 
-# Native agent-status toasts are off: the herdr-focus-notify plugin sends its
-# own clickable notification (with `herdr agent focus` on click), and the two
-# would otherwise stack for every status change.
+# Native agent-status toasts are off: the pinned yankewei/herdr-focus-notify
+# plugin sends its own clickable notification, and the two would otherwise
+# stack for every status change.
 [ui.toast]
 delivery = "off" # off | herdr | terminal | system
 delay_seconds = 1

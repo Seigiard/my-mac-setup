@@ -902,8 +902,8 @@ function test_templates_020_mms_ci_minimal_1_renders_brewfile_macos_with_no() {
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
-  # No test in tests/ references any cask, or elio/terminal-notifier/linear,
-  # so the guard covers the whole file. `brew bundle` accepts empty.
+  # No test resolves a macOS-only cask or formula, so the guard covers the
+  # whole file. `brew bundle` accepts empty.
   refute_output --partial 'cask "'
   refute_output --partial 'brew "'
   refute_output --partial 'tap "'
@@ -938,6 +938,10 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   assert_success
   assert_line 'cask "spotify"'
   assert_line --partial 'brew "elio"'
+  assert_line 'tap "vjeantet/tap", trusted: true'
+  assert_line --partial 'brew "rust"'
+  assert_line --partial 'brew "vjeantet/tap/alerter"'
+  refute_line 'brew "terminal-notifier"'
 }
 
 function test_templates_022_an_empty_mms_ci_minimal_renders_the_full_brewfil() {

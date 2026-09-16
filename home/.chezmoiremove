@@ -13,3 +13,8 @@
 # empty now, so the file restates nothing and its one reader inlines the shape
 # instead. Left on disk it is an unreachable document.
 .claude/shared/decision-brief.md
+
+# Focus Notify is installed from its upstream source now. Remove the managed
+# local reimplementation before Herdr enables the replacement, or both event
+# hooks can produce the same notification.
+.config/herdr/plugins/herdr-focus-notify
