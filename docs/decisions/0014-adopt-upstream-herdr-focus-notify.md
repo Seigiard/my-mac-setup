@@ -50,9 +50,8 @@ commit `560e70c5e1716fa0781b6746821ce8676f70a811`. Install it with `herdr plugin
 install yankewei/herdr-focus-notify --ref
 560e70c5e1716fa0781b6746821ce8676f70a811 -y`, enable the upstream ID
 `herdr-focus-notify`, and uninstall the superseded local ID
-`seigi.focus-notify`. Do not install or enable the replacement when the old
-producer cannot be inspected or removed. Remove the local manifest, Python
-implementation, linking script, and implementation tests.
+`seigi.focus-notify`. Remove the local manifest, Python implementation, linking
+script, and implementation tests.
 
 Dotfiles continues to own personal policy and machine dependencies:
 
@@ -78,15 +77,11 @@ installation/deployment behavior here. No in-house plugin framework is required.
 
 Installation works without this checkout because Herdr fetches the pinned
 GitHub commit. A successful apply removes the old managed directory through
-`.chezmoiremove` and uninstalls the old plugin before enabling upstream, so only
-one producer remains. If migration cannot inspect or uninstall the old registry
-entry, apply does not install or enable the replacement and warns with the
-complete manual recovery. Because a successful fail-open `run_onchange` script
-does not rerun on an unchanged apply, first confirm `herdr plugin uninstall
-seigi.focus-notify` succeeds, then run `herdr plugin install
-yankewei/herdr-focus-notify --ref
-560e70c5e1716fa0781b6746821ce8676f70a811 -y && herdr plugin enable
-herdr-focus-notify && herdr server reload-config`.
+`.chezmoiremove`, attempts to uninstall the known local ID, and installs the
+upstream plugin. Inspection, uninstall, installation, enablement, and reload
+failures are warnings so notification setup cannot block the rest of apply.
+This migration does not inspect unrelated plugins or claim that Focus Notify is
+the machine's only notification producer.
 
 Removal is `herdr plugin uninstall herdr-focus-notify`, followed by deleting its
 entry and dependencies when no other consumer remains. Rollback normally means

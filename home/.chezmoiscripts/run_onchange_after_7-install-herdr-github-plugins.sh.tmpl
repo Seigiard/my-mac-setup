@@ -22,7 +22,6 @@ if ! command -v herdr >/dev/null 2>&1; then
 fi
 
 failed=()
-focus_notify_migration_safe=true
 
 # Remove plugins whose behavior moved elsewhere or whose local ID was superseded.
 if plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
@@ -45,20 +44,13 @@ raise SystemExit(0 if found else 1)
         echo "Removed obsolete Herdr plugin $obsolete_plugin"
       else
         failed+=("$obsolete_plugin (uninstall: herdr plugin uninstall $obsolete_plugin)")
-        if [[ "$obsolete_plugin" == "seigi.focus-notify" ]]; then
-          focus_notify_migration_safe=false
-        fi
       fi
     elif [[ $plugin_state -ne 1 ]]; then
       failed+=("failed to inspect obsolete plugin $obsolete_plugin (herdr plugin list --json)")
-      if [[ "$obsolete_plugin" == "seigi.focus-notify" ]]; then
-        focus_notify_migration_safe=false
-      fi
     fi
   done
 else
   failed+=("failed to list Herdr plugins (herdr plugin list --json)")
-  focus_notify_migration_safe=false
 fi
 
 plugins=(
@@ -73,11 +65,6 @@ for entry in "${plugins[@]}"; do
     install_args+=(--ref "$ref")
   fi
   install_args+=(-y)
-
-  if [[ "$plugin_id" == "herdr-focus-notify" && "$focus_notify_migration_safe" != true ]]; then
-    failed+=("$repo (migration blocked; first run: herdr plugin uninstall seigi.focus-notify; after it succeeds run: herdr ${install_args[*]} && herdr plugin enable $plugin_id && herdr server reload-config)")
-    continue
-  fi
 
   # Installation can fetch and build source. Stream its progress, but close
   # stdin so an unseen upstream prompt fails instead of blocking chezmoi apply.
