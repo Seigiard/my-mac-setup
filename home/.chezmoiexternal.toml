@@ -72,3 +72,13 @@
     executable = true
     url = "https://github.com/dmtrKovalenko/fff/releases/download/v0.10.6/fff-mcp-{{ $fffMcpTarget }}"
     checksum.sha256 = "{{ $fffMcpSha256 }}"
+
+{{ if eq .chezmoi.os "darwin" -}}
+# alerter, pinned to the official v26.5 release because its Homebrew tap can
+# become uninstallable when any unrelated formula in that tap is invalid.
+[".local/lib/alerter"]
+    type = "archive"
+    url = "https://github.com/vjeantet/alerter/releases/download/v26.5/alerter-26.5.zip"
+    checksum.sha256 = "11f63cddc9bb3f8554ed9b762632a120cfa7bee05e3c09d65734823e09d24f10"
+    exact = true
+{{ end }}

@@ -151,8 +151,6 @@ _smoke_critical_paths() {
       .config/herdr/plugins/herdr-caffeinate/lib.sh
       .config/herdr/plugins/herdr-caffeinate/actions.sh
       .config/herdr/plugins/herdr-caffeinate/config.example.sh
-      .config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml
-      .config/herdr/plugins/herdr-focus-notify/notify.py
     )
   fi
 }
@@ -612,131 +610,6 @@ function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
 }
 
 # ===========================================
-# herdr focus-notify plugin
-# ===========================================
-
-FOCUS_NOTIFY_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-focus-notify"
-
-# Behavior tests 033-035 run the deployed copy first — herdr executes
-# $HOME/.config/..., so a .chezmoiignore rule that drops notify.py from
-# deployment must fail these tests rather than stay green through the
-# checkout (same reasoning as test 1072's deployed manifest). The checkout
-# stays as a secondary leg so Linux CI, where the darwin-only plugin never
-# deploys, still proves the source behavior. Assigns the caller's
-# `notify_targets` via bash dynamic scoping, deployed copy first.
-_focus_notify_targets() {
-  notify_targets=("$FOCUS_NOTIFY_DIR/notify.py")
-  if is_macos; then
-    local deployed="$HOME/.config/herdr/plugins/herdr-focus-notify/notify.py"
-    assert_file_exists "$deployed"
-    notify_targets=("$deployed" "${notify_targets[@]}")
-  fi
-}
-
-# Runs one notify.py ($1) against a fake notifier that records its argv one
-# line per argument, so tests can assert the exact command terminal-notifier
-# would get. $2: event JSON.
-run_focus_notify() {
-  local notify_py="$1"
-  local event_json="$2"
-  local fake_bin="$BATS_TEST_TMPDIR/fake-notifier"
-  FOCUS_NOTIFY_ARGV="$BATS_TEST_TMPDIR/notifier.argv"
-  # A stale argv file from the previous target leg would satisfy (or fail)
-  # this leg's assertions on the wrong evidence.
-  rm -f "$FOCUS_NOTIFY_ARGV"
-  cat > "$fake_bin" <<SH
-#!/bin/sh
-printf '%s\n' "\$@" > "$FOCUS_NOTIFY_ARGV"
-SH
-  chmod +x "$fake_bin"
-  HERDR_PLUGIN_EVENT_JSON="$event_json" \
-    HERDR_FOCUS_NOTIFY_NOTIFIER_BIN="$fake_bin" \
-    HERDR_BIN_PATH="$BATS_TEST_TMPDIR/dir with space/herdr" \
-    run python3 "$notify_py"
-}
-
-function test_smoke_032_focus_notify_plugin_compiles() {
-  _bats_test_init 32 'focus-notify plugin compiles'
-  run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
-    python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
-  assert_success
-}
-
-function test_smoke_1072_focus_notify_deployed_manifest_declares_its_run() {
-  _bats_test_init 1072 'focus-notify deployed manifest declares its runtime entrypoint (macOS only)'
-  # The manifest wires the status event and the interpreter as argv arrays.
-  # Literal consumed outside this repo: herdr's plugin loader parses these two
-  # keys to decide which event fires the plugin and how to exec it. Assert the
-  # deployed copy, not $SOURCE_ROOT — reading the checkout here would be a
-  # source grep wearing a smoke test's name and would stay green when chezmoi
-  # never placed the file (same fix as test 009 in commit 50654e2). The plugin
-  # is darwin-only per home/.chezmoiignore, so it only deploys on macOS.
-  is_macos || skip "Not on macOS"
-  local manifest="$HOME/.config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml"
-  assert_file_exists "$manifest"
-  assert_file_contains "$manifest" '^on = "pane.agent_status_changed"$'
-  assert_file_contains "$manifest" '^command = \["python3", "notify.py"\]$'
-}
-
-function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
-  _bats_test_init 33 'focus-notify builds a safely quoted click command'
-  local notify_targets notify_py
-  _focus_notify_targets
-  for notify_py in "${notify_targets[@]}"; do
-    # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
-    run_focus_notify "$notify_py" '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
-    assert_success
-    assert_file_exists "$FOCUS_NOTIFY_ARGV"
-
-    run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
-import shlex, sys
-argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
-execute = argv[argv.index("-execute") + 1]
-# shlex.split proves the string survives sh word-splitting as exactly the
-# intended four tokens -- binary, agent, focus, pane id -- nothing executed.
-assert shlex.split(execute) == [sys.argv[2], "agent", "focus", "w1:p3; $(boom) &"], execute
-assert argv[argv.index("-group") + 1] == "herdr-w1-p3-boom-", argv
-assert argv[argv.index("-title") + 1] == "Codex needs your input", argv
-assert "-activate" in argv, argv
-PY
-    assert_success
-  done
-}
-
-function test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat() {
-  _bats_test_init 34 'focus-notify stays quiet for non-actionable statuses and missing pane id'
-  local notify_targets notify_py
-  _focus_notify_targets
-  for notify_py in "${notify_targets[@]}"; do
-    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
-    assert_success
-    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
-
-    run_focus_notify "$notify_py" '{"data":{"agent_status":"blocked","agent":"codex"}}'
-    assert_success
-    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
-  done
-}
-
-function test_smoke_035_focus_notify_uses_one_notification_group_per_pan() {
-  _bats_test_init 35 'focus-notify uses one notification group per pane for duplicate replacement'
-  local notify_targets notify_py
-  _focus_notify_targets
-  for notify_py in "${notify_targets[@]}"; do
-    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
-    assert_success
-
-    run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
-import sys
-argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
-assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
-assert argv[argv.index("-title") + 1] == "claude finished", argv
-PY
-    assert_success
-  done
-}
-
-# ===========================================
 # Hard tool dependencies
 # ===========================================
 
@@ -764,6 +637,18 @@ found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
 assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
 PY
   assert_success
+}
+
+function test_smoke_037_alerter_is_installed_for_focus_notify() {
+  _bats_test_init 37 'alerter is installed for focus notify (macOS only)'
+  is_macos || skip "Not on macOS"
+
+  run command -v alerter
+  assert_success
+
+  run alerter --version
+  assert_success
+  assert_output --partial '26.5'
 }
 
 # herdr alias presentation (engine, native integrations, sidebar)

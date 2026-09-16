@@ -23,9 +23,9 @@ fi
 
 failed=()
 
-# Remove plugins whose behavior moved into repository-owned or native Herdr flows.
-if plugin_json="$(herdr plugin list --json 2>/dev/null)"; then
-  for obsolete_plugin in artisann.zed-herdr worktrunk; do
+# Remove plugins whose behavior moved elsewhere or whose local ID was superseded.
+if plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  for obsolete_plugin in artisann.zed-herdr worktrunk seigi.focus-notify; do
     printf '%s\n' "$plugin_json" | python3 -c '
 import json, sys
 try:
@@ -40,7 +40,7 @@ raise SystemExit(0 if found else 1)
 ' "$obsolete_plugin" 2>/dev/null
     plugin_state=$?
     if [[ $plugin_state -eq 0 ]]; then
-      if herdr plugin uninstall "$obsolete_plugin" >/dev/null 2>&1; then
+      if herdr plugin uninstall "$obsolete_plugin" </dev/null >/dev/null 2>&1; then
         echo "Removed obsolete Herdr plugin $obsolete_plugin"
       else
         failed+=("$obsolete_plugin (uninstall: herdr plugin uninstall $obsolete_plugin)")
@@ -54,26 +54,33 @@ else
 fi
 
 plugins=(
-  "dio16/herdr-auto-update:herdr-auto-update"
+  "dio16/herdr-auto-update|herdr-auto-update|"
+  "yankewei/herdr-focus-notify|herdr-focus-notify|560e70c5e1716fa0781b6746821ce8676f70a811"
 )
 
 for entry in "${plugins[@]}"; do
-  repo="${entry%%:*}"
-  plugin_id="${entry#*:}"
+  IFS='|' read -r repo plugin_id ref <<< "$entry"
+  install_args=(plugin install "$repo")
+  if [[ -n "$ref" ]]; then
+    install_args+=(--ref "$ref")
+  fi
+  install_args+=(-y)
 
-  if ! herdr plugin install "$repo" -y >/dev/null 2>&1; then
-    failed+=("$repo (install: herdr plugin install $repo -y)")
+  # Installation can fetch and build source. Stream its progress, but close
+  # stdin so an unseen upstream prompt fails instead of blocking chezmoi apply.
+  if ! herdr "${install_args[@]}" </dev/null; then
+    failed+=("$repo (install: herdr ${install_args[*]})")
     continue
   fi
 
-  if herdr plugin enable "$plugin_id" >/dev/null 2>&1; then
-    echo "Installed and enabled Herdr plugin $plugin_id from $repo"
+  if herdr plugin enable "$plugin_id" </dev/null >/dev/null 2>&1; then
+    echo "Installed and enabled Herdr plugin $plugin_id from $repo${ref:+ at $ref}"
   else
     failed+=("$repo (enable: herdr plugin enable $plugin_id)")
   fi
 done
 
-if herdr server reload-config >/dev/null 2>&1; then
+if herdr server reload-config </dev/null >/dev/null 2>&1; then
   echo "Reloaded Herdr config"
 else
   echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2

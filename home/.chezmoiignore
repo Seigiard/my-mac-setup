@@ -42,12 +42,12 @@ Library/**
 .chezmoiscripts/darwin/**
 .config/herdr/plugins/herdr-caffeinate
 .config/herdr/plugins/herdr-caffeinate/**
-.config/herdr/plugins/herdr-focus-notify
-.config/herdr/plugins/herdr-focus-notify/**
-
 # Executor CLI: the symlink target lives inside /Applications/Executor.app,
 # which only exists on macOS.
 .local/bin/executor
+.local/bin/alerter
+.local/lib/alerter
+.local/lib/alerter/**
 {{ end }}
 
 # Python bytecode caches. Running any managed .py script (the herdr
