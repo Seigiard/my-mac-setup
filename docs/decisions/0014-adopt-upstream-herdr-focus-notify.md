@@ -53,6 +53,15 @@ install yankewei/herdr-focus-notify --ref
 `seigi.focus-notify`. Remove the local manifest, Python implementation, linking
 script, and implementation tests.
 
+Until [upstream PR #13](https://github.com/yankewei/herdr-focus-notify/pull/13)
+is merged and released, install the reviewed fork commit
+[`1bbcfb6`](https://github.com/Seigiard/herdr-focus-notify/tree/1bbcfb6c441fd90620e0da94a76ec107d3ebf91d).
+The fork replaces the agent-only focus sequence with Herdr's atomic
+`pane.focus` socket request, which also targets ordinary shell panes. Return the
+pin to `yankewei/herdr-focus-notify` after the upstream change is available;
+the fork is a delivery path for that contribution, not a new implementation
+owned by this repository.
+
 Dotfiles continues to own personal policy and machine dependencies:
 
 - Homebrew installs Cargo. Chezmoi installs the official `alerter` 26.5 release
@@ -92,12 +101,13 @@ the local plugin ID is not preserved as an alias because duplicate event hooks
 would recreate duplicate notifications.
 
 The supported live configuration is a local macOS Herdr 0.9.0 client in a
-dotfiles-managed terminal, after a normal pane focus has established that
-workspace's terminal binding. Upstream tests cover the agent-focus plus returned
-tab-focus sequence, including shared-server clients. Real notification display,
+dotfiles-managed terminal after that workspace has a terminal binding. Herdr
+0.9.0 does not emit `pane.focused` for client-local navigation; the upstream
+fix is implemented in [herdrdev/herdr#3824](https://github.com/herdrdev/herdr/issues/3824)
+and awaits a release. The temporary fork tests the raw `pane.focus` request,
+including shell panes without detected agents. Real notification display,
 learned Ghostty or Kitty binding, and click targeting still need a live macOS GUI
 session. CI proves the managed dependencies and pinned Herdr CLI calls; after
-deployment, focus one pane from each terminal in use, invoke `herdr plugin action
-invoke --plugin herdr-focus-notify test`, click the notification, and record
-that the intended pane and tab are shown. This evidence is intentionally
-reported separately from CI.
+deployment, invoke `herdr plugin action invoke test --plugin
+herdr-focus-notify`, click the notification, and record that the intended pane
+and tab are shown. This evidence is intentionally reported separately from CI.
