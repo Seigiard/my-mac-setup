@@ -98,6 +98,6 @@ tab-focus sequence, including shared-server clients. Real notification display,
 learned Ghostty or Kitty binding, and click targeting still need a live macOS GUI
 session. CI proves the managed dependencies and pinned Herdr CLI calls; after
 deployment, focus one pane from each terminal in use, invoke `herdr plugin action
-invoke --plugin herdr-focus-notify test`, click the notification, and record
+invoke test --plugin herdr-focus-notify`, click the notification, and record
 that the intended pane and tab are shown. This evidence is intentionally
 reported separately from CI.
