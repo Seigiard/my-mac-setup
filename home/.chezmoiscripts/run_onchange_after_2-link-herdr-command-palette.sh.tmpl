@@ -10,14 +10,22 @@
 # # {{ include "private_dot_config/herdr/plugins/command-palette/README.md" | sha256sum }}
 # # {{ include "private_dot_config/herdr/config.toml" | sha256sum }}
 # # {{ include "private_dot_config/herdr/command-palette/commands.toml" | sha256sum }}
+# # {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" | sha256sum }}
 
 # Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
 set -u
+
+# {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" }}
 
 plugin_dir="$HOME/.config/herdr/plugins/command-palette"
 
 if ! command -v herdr >/dev/null 2>&1; then
   echo "herdr not found; skipping command-palette plugin link"
+  exit 0
+fi
+
+if skip_reason="$(herdr_link_guard_skip_reason)"; then
+  echo "$skip_reason; skipping command-palette plugin link"
   exit 0
 fi
 

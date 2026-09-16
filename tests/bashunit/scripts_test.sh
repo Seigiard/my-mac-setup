@@ -1819,7 +1819,11 @@ function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_file
 
 function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
   _bats_test_init 85 'worktree setup relink uses the Herdr CLI contract'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
+  command_exists chezmoi || skip "chezmoi not available"
+  # Rendered rather than run raw: the plugin-link guard reaches the script
+  # through a chezmoi include, so a raw run would leave it undefined.
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/worktree-link.sh"
   local home="$BATS_TEST_TMPDIR/worktree-link-home"
   local stub="$BATS_TEST_TMPDIR/worktree-link-bin"
   mkdir -p "$home/.config/herdr/plugins/worktree-setup" "$stub"
@@ -1834,9 +1838,14 @@ if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected
 fi
 exit 2
 SH
-  chmod +x "$stub/herdr"
+  cat > "$stub/dscl" <<SH
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$home"
+SH
+  chmod +x "$stub/herdr" "$stub/dscl"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
-  run env HOME="$home" PATH="$stub:$PATH" bash "$script"
+  run env -u MMS_DISPOSABLE_HOME HOME="$home" PATH="$stub:$PATH" bash "$script"
   assert_success
   assert_file_exists "$home/plugin-linked"
 }
@@ -1903,6 +1912,96 @@ SH
   run env PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
+# Herdr plugin link guard
+# ===========================================
+
+# plugin-link script template : the plugin directory it registers
+HERDR_LINK_GUARD_SCRIPTS=(
+  "run_onchange_after_2-link-herdr-command-palette.sh.tmpl:command-palette"
+  "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
+  "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl:herdr-caffeinate"
+)
+
+# Renders one link script into $work and gives it a $HOME carrying the plugin
+# manifest, a herdr stub that records every call, a dscl stub that reports
+# $login_home as this account's login home, and a uname stub so the macOS-only
+# script runs everywhere the suite does.
+herdr_link_guard_prepare() {
+  local template="$1" plugin="$2" login_home="$3" work="$4"
+  local home="$work/home" stub="$work/bin"
+  mkdir -p "$home/.config/herdr/plugins/$plugin" "$stub"
+  printf 'id = "%s"\n' "$plugin" > "$home/.config/herdr/plugins/$plugin/herdr-plugin.toml"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+exit 0
+SH
+  cat > "$stub/dscl" <<SH
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$login_home"
+SH
+  cat > "$stub/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  chmod +x "$stub/herdr" "$stub/dscl" "$stub/uname"
+  : > "$work/herdr.calls"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" \
+    --file "$SOURCE_ROOT/.chezmoiscripts/$template" > "$work/script.sh"
+}
+
+function test_scripts_0853_herdr_plugin_link_scripts_register_only_from_the_login_home() {
+  _bats_test_init 853 'herdr plugin link scripts register a plugin only from the login home'
+  command_exists chezmoi || skip "chezmoi not available"
+  # `herdr plugin link` stores the absolute path it is given in a registry the
+  # running server owns. Linking from a throwaway $HOME leaves that temp path in
+  # the live registry, and Herdr drops the plugin's actions once the directory
+  # is gone -- run_onchange will not rerun to repair it.
+  local entry template plugin work
+  for entry in "${HERDR_LINK_GUARD_SCRIPTS[@]}"; do
+    template="${entry%%:*}"
+    plugin="${entry##*:}"
+
+    work="$BATS_TEST_TMPDIR/foreign-$plugin"
+    herdr_link_guard_prepare "$template" "$plugin" "$HOME" "$work"
+    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
+      PATH="$work/bin:$PATH" bash "$work/script.sh"
+    assert_success
+    assert_output --partial "is not the login home"
+    run cat "$work/herdr.calls"
+    assert_success
+    assert_output ""
+
+    # Control: the same script from a $HOME the account database calls the
+    # login home reaches the link.
+    work="$BATS_TEST_TMPDIR/live-$plugin"
+    mkdir -p "$work/home"
+    herdr_link_guard_prepare "$template" "$plugin" "$work/home" "$work"
+    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
+      PATH="$work/bin:$PATH" bash "$work/script.sh"
+    assert_success
+    run grep -Fx "plugin link $work/home/.config/herdr/plugins/$plugin" "$work/herdr.calls"
+    assert_success
+  done
+}
+
+function test_scripts_0854_herdr_plugin_link_scripts_refuse_a_disposable_home() {
+  _bats_test_init 854 'herdr plugin link scripts refuse a $HOME declared disposable'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/disposable-caffeinate"
+  mkdir -p "$work/home"
+  herdr_link_guard_prepare \
+    "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl" herdr-caffeinate "$work/home" "$work"
+
+  run env MMS_DISPOSABLE_HOME=1 HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
+    PATH="$work/bin:$PATH" bash "$work/script.sh"
+  assert_success
+  assert_output --partial "MMS_DISPOSABLE_HOME=1"
+  run cat "$work/herdr.calls"
+  assert_success
+  assert_output ""
 }
 
 # ask-in-herdr skill script

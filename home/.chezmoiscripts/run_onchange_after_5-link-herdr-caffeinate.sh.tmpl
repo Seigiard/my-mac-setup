@@ -10,9 +10,12 @@
 # # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/actions.sh" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/herdr-caffeinate/config.example.sh" | sha256sum }}
 # # {{ end }}
+# # {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" | sha256sum }}
 
 # Keep this tolerant: missing Herdr or a stopped server should not make chezmoi apply fail.
 set -u
+
+# {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" }}
 
 plugin_dir="$HOME/.config/herdr/plugins/herdr-caffeinate"
 
@@ -22,6 +25,11 @@ fi
 
 if ! command -v herdr >/dev/null 2>&1; then
   echo "herdr not found; skipping caffeinate plugin link"
+  exit 0
+fi
+
+if skip_reason="$(herdr_link_guard_skip_reason)"; then
+  echo "$skip_reason; skipping caffeinate plugin link"
   exit 0
 fi
 
