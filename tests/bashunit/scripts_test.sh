@@ -1841,11 +1841,12 @@ SH
   assert_file_exists "$home/plugin-linked"
 }
 
-function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
-  _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
+function test_scripts_0851_installer_removes_known_obsolete_plugins_before_installing_managed_plugins() {
+  _bats_test_init 851 'installer removes known obsolete plugins before installing managed plugins'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
   local calls="$BATS_TEST_TMPDIR/herdr.calls"
+  local expected="$BATS_TEST_TMPDIR/herdr.expected"
   mkdir -p "$fake_bin"
 
   cat > "$fake_bin/uname" <<'SH'
@@ -1874,17 +1875,18 @@ SH
 
   run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
-  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
-  assert_success
-  run grep -Fx "plugin uninstall worktrunk" "$calls"
-  assert_success
-  run grep -Fx "plugin uninstall seigi.focus-notify" "$calls"
-  assert_success
-  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
-  assert_success
-  run grep -Fx "plugin install yankewei/herdr-focus-notify --ref 560e70c5e1716fa0781b6746821ce8676f70a811 -y" "$calls"
-  assert_success
-  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
+  cat > "$expected" <<'EOF'
+plugin list --json
+plugin uninstall artisann.zed-herdr
+plugin uninstall worktrunk
+plugin uninstall seigi.focus-notify
+plugin install dio16/herdr-auto-update -y
+plugin enable herdr-auto-update
+plugin install yankewei/herdr-focus-notify --ref 560e70c5e1716fa0781b6746821ce8676f70a811 -y
+plugin enable herdr-focus-notify
+server reload-config
+EOF
+  run diff -u "$expected" "$calls"
   assert_success
 }
 
@@ -1892,6 +1894,7 @@ function test_scripts_0852_obsolete_plugin_inspection_failure_does_not_block_ins
   _bats_test_init 852 'obsolete plugin inspection failure does not block installs'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
+  local expected="$BATS_TEST_TMPDIR/herdr-malformed.expected"
   mkdir -p "$fake_bin"
 
   cat > "$fake_bin/uname" <<'SH'
@@ -1912,9 +1915,15 @@ SH
   run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
-  run grep -Fx "plugin install yankewei/herdr-focus-notify --ref 560e70c5e1716fa0781b6746821ce8676f70a811 -y" "$calls"
-  assert_success
-  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
+  cat > "$expected" <<'EOF'
+plugin list --json
+plugin install dio16/herdr-auto-update -y
+plugin enable herdr-auto-update
+plugin install yankewei/herdr-focus-notify --ref 560e70c5e1716fa0781b6746821ce8676f70a811 -y
+plugin enable herdr-focus-notify
+server reload-config
+EOF
+  run diff -u "$expected" "$calls"
   assert_success
 }
 
