@@ -141,11 +141,7 @@ _smoke_critical_paths() {
       .config/kitty/herdr.conf
       .config/karabiner
       .config/zed
-      .config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml
-      .config/herdr/plugins/herdr-caffeinate/reconcile.sh
-      .config/herdr/plugins/herdr-caffeinate/lib.sh
-      .config/herdr/plugins/herdr-caffeinate/actions.sh
-      .config/herdr/plugins/herdr-caffeinate/config.example.sh
+      .config/herdr/plugins/config/herdr-wakeup/config.json
     )
   fi
 }
@@ -507,15 +503,6 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
   # section drops them all together, so a single marker catches it.
   assert_file_contains "$config" "^    prevBlock-alt: р$"
   assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
-}
-
-function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
-  _bats_test_init 31 'herdr caffeinate plugin scripts are valid sh (macOS only)'
-  is_macos || skip "Not on macOS"
-  for f in reconcile.sh lib.sh actions.sh; do
-    run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
-    assert_success
-  done
 }
 
 # ===========================================

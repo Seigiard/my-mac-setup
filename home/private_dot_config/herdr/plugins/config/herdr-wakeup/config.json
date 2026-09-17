@@ -1,0 +1,10 @@
+{
+  "allow_cli_fallback": false,
+  "armed": true,
+  "autostart": true,
+  "display": true,
+  "notify": false,
+  "start_grace_seconds": 0,
+  "statuses": ["working"],
+  "stop_grace_seconds": 1200
+}
