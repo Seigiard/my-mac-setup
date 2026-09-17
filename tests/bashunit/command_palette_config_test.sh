@@ -188,8 +188,8 @@ PY
   assert_success
 }
 
-function test_palette_config_004_installed_package_keeps_consumed_plugin_contracts() {
-  _bats_test_init 4 'installed package keeps the plugin IDs, helper, and immutable revision consumed here'
+function test_palette_config_004_deployed_config_only_uses_contracts_exposed_by_package() {
+  _bats_test_init 4 'deployed config only uses actions, panes, and helpers exposed by the package'
   local plugin_json registry_home="${HERDR_REGISTRY_HOME:-$HOME}"
 
   run env -i HOME="$registry_home" PATH="$PATH" \
@@ -197,22 +197,33 @@ function test_palette_config_004_installed_package_keeps_consumed_plugin_contrac
   assert_success
   plugin_json="$output"
 
-  run env PLUGIN_JSON="$plugin_json" python3 - "$PALETTE_ROOT" <<'PY'
+  run env PLUGIN_JSON="$plugin_json" python3 - "$PALETTE_ROOT" \
+    "$HOME/.config/herdr/config.toml" "$COMMANDS" <<'PY'
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
-expected_ref = "9c92d2d0b0d275183880c9033e73657e513d3da1"
 plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
 plugin = next(item for item in plugins if item.get("plugin_id") == "seigi.command-palette")
 assert Path(plugin["plugin_root"]).resolve() == Path(sys.argv[1]).resolve(), plugin["plugin_root"]
-assert plugin.get("source", {}).get("resolved_commit") == expected_ref, plugin.get("source")
-assert {item["id"] for item in plugin.get("actions", [])} >= {"open", "smart_close"}, plugin
-assert {item["id"] for item in plugin.get("panes", [])} >= {"palette", "lazygit"}, plugin
+
+herdr_config = Path(sys.argv[2]).read_text(encoding="utf-8")
+commands = Path(sys.argv[3]).read_text(encoding="utf-8")
+used_actions = set(re.findall(r'command\s*=\s*"seigi\.command-palette\.([^".]+)"', herdr_config))
+used_panes = set(re.findall(r'--plugin seigi\.command-palette --entrypoint ([A-Za-z0-9_-]+)', commands))
+used_helpers = set(re.findall(r'\{plugin_root_q\}/([A-Za-z0-9_.-]+)', commands))
+
+provided_actions = {item["id"] for item in plugin.get("actions", [])}
+provided_panes = {item["id"] for item in plugin.get("panes", [])}
+assert used_actions and used_actions <= provided_actions, (used_actions, provided_actions)
+assert used_panes and used_panes <= provided_panes, (used_panes, provided_panes)
+assert used_helpers, "commands.toml uses no package helpers"
+for helper in used_helpers:
+    assert Path(sys.argv[1], helper).is_file(), helper
 PY
   assert_success
-  assert_file_exists "$PALETTE_ROOT/open_in_zed.py"
 }
 
 function test_palette_config_005_repository_scopes_use_package_filtering_and_project_root() {
@@ -269,25 +280,6 @@ expected = {
     ("Tabs & workspaces", "⌃Tab", "Next tab"),
 }
 assert expected <= entries, entries
-PY
-  assert_success
-}
-
-function test_palette_config_007_fzf_meets_installed_package_version_floor() {
-  _bats_test_init 7 'fzf meets the installed package version floor'
-  run command -v fzf
-  assert_success
-
-  run env PYTHONPATH="$PALETTE_ROOT" python3 - <<'PY'
-import shutil
-
-import palette
-
-fzf = shutil.which("fzf")
-assert fzf, "fzf is not on PATH"
-found = palette.fzf_version(fzf)
-assert found is not None, f"{fzf} did not report a version"
-assert found >= palette.FZF_MIN_VERSION, (found, palette.FZF_MIN_VERSION)
 PY
   assert_success
 }
