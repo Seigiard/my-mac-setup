@@ -78,6 +78,8 @@ A single review or analysis pass executed by a separate, headless agent-CLI proc
 
 One failed leg degrades a review's coverage; losing every leg fails it.
 
+A leg never launches agents of its own: work it would delegate to another pair or child agent it does itself.
+
 ### External leg pair
 Two fresh External legs given the same review scope through separate agents and classified together. The pair provides paired coverage only when both reports are independently attributable, valid, and distinct; one failed or invalid leg degrades it to single-source coverage, as does a byte-identical pair. Pair classification describes coverage, never agreement or corroboration between findings.
 

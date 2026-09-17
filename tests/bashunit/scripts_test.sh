@@ -3633,6 +3633,20 @@ function test_scripts_023_herdr_child_start_requires_exactly_one_explicit() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
+function test_scripts_27203_herdr_child_refuses_to_start_inside_an_external_leg() {
+  _bats_test_init 27203 'herdr-child refuses to start a child inside an External leg before Herdr mutation'
+  child_stub_herdr
+
+  SE_EXTERNAL_LEG=1 run child_start --kind claude --wait --timeout 5000
+  assert_failure 2
+  assert_output --partial "inside an external leg"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  SE_EXTERNAL_LEG= STUB_REQUIRE_SPLIT=1 run child_start --kind claude --wait --timeout 5000
+  assert_success
+  assert_file_exists "$CHILD_STUB/calls.log"
+}
+
 function test_scripts_024_herdr_child_validates_tab_placement_before_herdr() {
   _bats_test_init 24 'herdr-child validates tab placement before Herdr mutation'
   child_stub_herdr

@@ -131,6 +131,9 @@ result_parent="${result_dir%/*}"
 [ -n "$result_parent" ] || result_parent="/"
 [ -d "$result_parent" ] && [ -w "$result_parent" ] || refuse '--result-dir parent must be a writable directory.'
 
+# Leg tabs carry SE_EXTERNAL_LEG (see create_tab), so a leg or any subagent it
+# runs that reaches for a pair-launching skill is refused instead of nesting.
+[ -z "${SE_EXTERNAL_LEG:-}" ] || refuse 'already inside an external leg; do this work in the current session instead of launching a nested pair.'
 [ "${HERDR_ENV:-}" = 1 ] || refuse 'HERDR_ENV=1 is required.'
 [ -n "${HERDR_WORKSPACE_ID:-}" ] || refuse 'HERDR_WORKSPACE_ID is required.'
 for dependency in herdr herdr-peer-alias pre-external-secret-scan claude opencode python3; do
@@ -265,13 +268,17 @@ fi
 scan_state="clean"
 [ "${SE_SKIP_SECRET_SCAN:-0}" != 1 ] || scan_state="waived"
 
+leg_marker="SE_EXTERNAL_LEG=1"
+
 create_tab() {
   local leg="$1" output status tab pane
   if [ "$leg" = claude ]; then
-    output="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$repo_root" --no-focus 2>"$work_dir/claude-tab.err")"
+    output="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$repo_root" --no-focus \
+      --env "$leg_marker" 2>"$work_dir/claude-tab.err")"
     status=$?
   else
     output="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$repo_root" --no-focus \
+      --env "$leg_marker" \
       --env "OPENCODE_CONFIG_CONTENT={\"permission\":\"allow\",\"agent\":{\"build\":{\"permission\":\"allow\",\"model\":\"$opencode_model\",\"variant\":\"$opencode_variant\"}}}" \
       2>"$work_dir/opencode-tab.err")"
     status=$?
