@@ -14,17 +14,20 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # Interactively, an empty credential means "do not register that server". A
-# machine with no `op` stays quiet; `op` present but answering nothing is a
-# missing sign-in, which is worth a word on stderr. It is not worth a non-zero
-# exit: chezmoi aborts the whole apply over one MCP server. Unattended handling
-# below instead preserves a matching existing entry when its fixture is empty.
+# machine with no `op` stays quiet; a failed read keeps `op`'s diagnostic and
+# adds context. It is not worth a non-zero exit: chezmoi aborts the whole apply
+# over one MCP server. Unattended handling below instead preserves a matching
+# existing entry when its fixture is empty.
 read_credential() {
   command -v op &>/dev/null || return 0
 
   local value
-  value=$(op read "op://Private/$1/credential" --account my.1password.com 2>/dev/null || echo "")
+  if ! value=$(op read "op://Private/$1/credential" --account my.1password.com); then
+    echo "modify_dot_claude.json: could not read $1 from 1Password; skipping its MCP server" >&2
+    return 0
+  fi
   if [ -z "$value" ]; then
-    echo "modify_dot_claude.json: 1Password returned no $1; skipping its MCP server" >&2
+    echo "modify_dot_claude.json: 1Password returned an empty $1; skipping its MCP server" >&2
     return 0
   fi
 

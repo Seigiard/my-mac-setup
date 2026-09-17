@@ -55,7 +55,9 @@ script, and implementation tests.
 
 Until [upstream PR #13](https://github.com/yankewei/herdr-focus-notify/pull/13)
 is merged and released, install the reviewed fork commit
-[`1bbcfb6`](https://github.com/Seigiard/herdr-focus-notify/tree/1bbcfb6c441fd90620e0da94a76ec107d3ebf91d).
+[`97eab63`](https://github.com/Seigiard/herdr-focus-notify/tree/97eab638822033aec6fc3a6d9cd78ea710cd4e43),
+which the upstream maintainer rebased onto `v0.5.2` and extended with a read
+timeout on the socket request.
 The fork replaces the agent-only focus sequence with Herdr's atomic
 `pane.focus` socket request, which also targets ordinary shell panes. Return the
 pin to `yankewei/herdr-focus-notify` after the upstream change is available;
