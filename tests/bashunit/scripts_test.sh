@@ -1993,7 +1993,8 @@ SH
 
 palette_migration_apply() {
   local work="$1" fail_step="${2:-}"
-  HOME="$work/home" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
     HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
     --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
 }
