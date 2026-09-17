@@ -109,3 +109,30 @@ description = "Open commands.toml in a new tab with $EDITOR"
 type = "tab_run"
 label = "commands.toml"
 command = "${EDITOR:-vi} {config_file_q}"
+
+[[commands]]
+group = "Tests"
+title = "Lint shell scripts"
+description = "Run shellcheck via make lint"
+repositories = ["Seigiard/my-mac-setup"]
+type = "shell"
+command = "make -C {project_root_q} lint"
+pause = true
+
+[[commands]]
+group = "Tests"
+title = "Chezmoi diff"
+description = "Run the local chezmoi dry-run diff"
+repositories = ["Seigiard/my-mac-setup"]
+type = "shell"
+command = "make -C {project_root_q} test-local"
+pause = true
+
+[[commands]]
+group = "Tests"
+title = "Test templates"
+description = "Run the fast chezmoi template test suite"
+repositories = ["Seigiard/my-mac-setup"]
+type = "shell"
+command = "make -C {project_root_q} test-templates"
+pause = true

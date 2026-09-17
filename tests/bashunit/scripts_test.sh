@@ -1870,7 +1870,8 @@ if [ "$*" = "plugin list --json" ]; then
   "result": {
     "plugins": [
       { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" }
+      { "plugin_id": "worktrunk" },
+      { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } }
     ]
   }
 }
@@ -1880,14 +1881,55 @@ exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$BATS_TEST_TMPDIR/github-plugin-home" HERDR_CALLS="$calls" \
+    PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
   assert_success
   run grep -Fx "plugin uninstall worktrunk" "$calls"
   assert_success
+  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
+  assert_failure
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
   assert_success
+  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable seigi.command-palette" "$calls"
+  assert_success
+}
+
+function test_scripts_08511_github_command_palette_is_not_uninstalled_during_update() {
+  _bats_test_init 8511 'GitHub command palette is updated in place, not treated as the local cutover'
+  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-github-palette"
+  local calls="$BATS_TEST_TMPDIR/herdr-github-palette.calls"
+  mkdir -p "$fake_bin"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}}]}}'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$BATS_TEST_TMPDIR/github-palette-home" HERDR_CALLS="$calls" \
+    PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
+  assert_failure
+  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -F "herdr-focus-notify" "$calls"
+  assert_failure
+  run grep -F "herdr-auto-update" "$calls"
+  assert_failure
 }
 
 function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
@@ -1909,9 +1951,125 @@ exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$BATS_TEST_TMPDIR/malformed-plugin-home" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
+palette_migration_prepare() {
+  local work="$1"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p \
+    "$source/.chezmoiscripts" \
+    "$home/.config/herdr/plugins/command-palette" \
+    "$home/.config/herdr/command-palette" \
+    "$fake_bin"
+  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-command-palette.sh.tmpl" \
+    "$source/.chezmoiscripts/"
+  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/command-palette/palette.py"
+  printf 'user catalog\n' > "$home/.config/herdr/command-palette/commands.toml"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"local"}}]}}'
+    ;;
+  "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y")
+    [ "${HERDR_FAIL_STEP:-}" != install ]
+    ;;
+  "plugin enable seigi.command-palette")
+    [ "${HERDR_FAIL_STEP:-}" != enable ]
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/herdr"
+}
+
+palette_migration_apply() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+function test_scripts_08521_command_palette_migration_retries_after_install_failure() {
+  _bats_test_init 8521 'command palette migration restores local registration and retries after install failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/palette-install-failure"
+  palette_migration_prepare "$work"
+
+  run palette_migration_apply "$work" install
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
+  assert_success
+
+  run palette_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fc "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08522_command_palette_migration_retries_after_enable_failure() {
+  _bats_test_init 8522 'command palette migration restores local registration and retries after enable failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/palette-enable-failure"
+  palette_migration_prepare "$work"
+
+  run palette_migration_apply "$work" enable
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
+  assert_success
+
+  run palette_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fc "plugin enable seigi.command-palette" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
+  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
+  command_exists herdr || skip "herdr is not installed"
+  local plugin_json
+
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
+  [[ $status -eq 0 ]] || skip "real herdr returned no plugin list: $output"
+  plugin_json="$output"
+
+  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+import json
+import os
+
+plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
+assert plugins, "real herdr returned no plugins"
+kinds = set()
+for plugin in plugins:
+    assert isinstance(plugin.get("plugin_id"), str), plugin
+    source = plugin.get("source")
+    assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
+    kinds.add(source["kind"])
+assert kinds <= {"local", "github"}, kinds
+print(" ".join(sorted(kinds)))
+PY
+  assert_success
+  [[ " $output " == *" local "* && " $output " == *" github "* ]] \
+    || skip "real registry does not currently expose both local and github source kinds: $output"
 }
 
 # Herdr plugin link guard
@@ -1919,7 +2077,6 @@ SH
 
 # plugin-link script template : the plugin directory it registers
 HERDR_LINK_GUARD_SCRIPTS=(
-  "run_onchange_after_2-link-herdr-command-palette.sh.tmpl:command-palette"
   "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
   "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl:herdr-caffeinate"
 )
