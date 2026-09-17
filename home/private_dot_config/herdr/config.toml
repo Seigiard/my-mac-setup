@@ -1,15 +1,12 @@
 onboarding = false
 
-# herdr takes its whole palette from the host terminal's ANSI colors instead
-# of carrying a theme of its own, so the UI matches whatever kitty and ghostty
-# are set to and there is no second palette to keep in sync. That also makes
-# theme.auto_switch unnecessary: light and dark follow the terminal, not a
-# pair of herdr theme names.
+# herdr takes its palette from the host terminal's ANSI colors instead of
+# carrying a theme of its own, so the UI matches whatever kitty and ghostty
+# are set to and there is no second palette to keep in sync. The
+# [theme.custom] block at the end of this file overrides only the tokens
+# where the native mapping fails on Flexoki Light.
 [theme]
 name = "terminal"
-
-[theme.custom]
-panel_bg = "reset"
 
 [experimental]
 pane_history = true
@@ -83,10 +80,11 @@ sidebar_min_width = 32
 # 0.8.0 and still reproducing on 0.8.2), which is every worktree space here.
 # Custom tokens have no such gap, so every space shows its branch, and the
 # counts read ⇣pull ⇡push ~conflicts +staged !unstaged ?untracked with empty
-# positions omitted.
+# positions omitted. `dim = false` keeps the branch at the contextual text
+# color instead of herdr's faint, which washes out on Flexoki Light.
 [ui.sidebar.spaces]
 row_gap = 0
-rows = [["state_icon", "workspace"], ["$branch", "$git_status"]]
+rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_status"]]
 
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
@@ -96,18 +94,29 @@ rows = [["state_icon", "workspace"], ["$branch", "$git_status"]]
 # above its own alias. A space whose label already is the repository name
 # publishes no origin and the label stands alone. The branch itself lives in
 # the space rows below, so it is not repeated here.
-# herdr dims an agent's secondary row by default while space rows keep the
-# theme's ordinary foreground, so the same text read fainter here than two
-# panels up. `dim = false` restores the contextual color instead of naming
-# one: inline token styles accept only strict #RGB/#RRGGBB (the binary rejects
-# anything else with "sidebar token fg must be #RGB or #RRGGBB"), and a hex
-# value would survive a theme switch as the wrong color.
+# herdr dims an agent's secondary row by default; `dim = false` lifts that,
+# and the explicit base-400 fg separates the alias row from the names above
+# it (workspace tx-black > machine gray > alias base-400). Inline token
+# styles accept only strict #RGB/#RRGGBB (the binary rejects anything else
+# with "sidebar token fg must be #RGB or #RRGGBB"), so this hex is
+# Light-specific like the [theme.custom] values below and shares their fate
+# on a dark-theme switch.
 # `machine` renders only when the client has multiple machines and disappears
 # entirely on a solo Local setup; custom rows suppress the default layout's
 # machine label, so without this token remote agents are indistinguishable
-# from local ones. Bold rather than a color: the hex constraint above.
+# from local ones. Bold rather than a color so it survives theme switches.
 [ui.sidebar.agents]
-rows = [["state_icon", { token = "machine", bold = true }, "workspace"], [{ token = "pane", dim = false }, "$space_origin"]]
+rows = [
+  [
+    "state_icon",
+    { token = "machine", bold = true },
+    "workspace",
+  ],
+  [
+    { token = "$space_origin", dim = false, fg = "#9F9D96" },
+    { token = "pane", dim = false, fg = "#9F9D96" },
+  ],
+]
 
 # Native agent-status toasts are off: the pinned yankewei/herdr-focus-notify
 # plugin sends its own clickable notification, and the two would otherwise
@@ -115,3 +124,30 @@ rows = [["state_icon", { token = "machine", bold = true }, "workspace"], [{ toke
 [ui.toast]
 delivery = "off" # off | herdr | terminal | system
 delay_seconds = 1
+
+# Background/structure overrides only, values from nertzy/herdr-flexoki
+# flexoki-light.toml. Text tokens (overlay0, subtext0, text) stay unset on
+# purpose: herdr re-dims those labels even when a theme supplies the color,
+# ghostty renders that dim as a 50/50 blend with the background, and any
+# theme-provided gray washes out — while the native text path honors the
+# per-token `dim = false` set in the [ui.sidebar.*] rows above. Backgrounds
+# get no dim, so they are safe to theme. Light-specific hexes: switching the
+# terminal to a dark theme leaves these wrong — drop or swap them then.
+# Full diagnosis and the role→token map: docs/solutions/design-patterns/
+# herdr-terminal-theme-resolves-through-ansi-palette.md (issue #281).
+[theme.custom]
+panel_bg = "reset"
+sidebar_bg = "reset"
+# ui marks the focused workspace; ui-3 distinguishes keyboard navigation —
+# instead of the native ANSI-8 gray slab.
+active_row_bg = "#E6E4D9"
+selection_bg = "#CECDC3"
+# Structural grays: surface1 is the inactive tab background; surface_dim
+# draws the sidebar divider lines despite its name.
+surface0 = "#E6E4D9"
+surface1 = "#DAD8CE"
+surface_dim = "#E6E4D9"
+# Bright-text role (inactive tab labels). Renders undimmed there, so tx was
+# too black and base-600 collided with the sidebar's muted text; base-400
+# sits two steps lighter — distinct from both tx and the dimmed grays.
+overlay1 = "#9F9D96"
