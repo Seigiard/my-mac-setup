@@ -73,6 +73,17 @@ description = "close pane, then tab, but keep workspace"
 prompt_new_tab_name = false
 sidebar_min_width = 32
 
+# Account rate limits belong on one global surface, not on every agent row:
+# the figures are per-account, so five open Claude panes would repeat the same
+# number five times. `tab_bar_right` is herdr's only session-wide status area.
+# Herdr strips ESC sequences from `command` output, so the script carries
+# urgency in the reset countdown rather than in color. The 60s interval is well
+# under both windows; the script reads two local files and returns in ~0.07s.
+tab_bar_right = [
+  { type = "command", command = "~/.local/bin/herdr-agent-limits", interval_seconds = 60, timeout_seconds = 5 },
+]
+tab_bar_right_separator = "  |  "
+
 # Space rows read `$branch` and `$git_status` from workspace metadata, which
 # herdr-pane-labels publishes, rather than herdr's same-named built-ins. The
 # built-ins render only for a repository's primary checkout: a space on a
