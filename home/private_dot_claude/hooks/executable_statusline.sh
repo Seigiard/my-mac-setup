@@ -28,6 +28,29 @@ herdr_record_session_cwd() {
 }
 herdr_record_session_cwd
 
+# Account rate limits arrive here and nowhere else that stays fresh. Claude Code
+# caches them in ~/.claude/.claude.json too, but that copy is refreshed on its
+# own schedule and goes days stale; this payload carries them after every API
+# response. The figures are account-wide, so every session writes the same
+# snapshot and the last writer simply wins. Absent until the first response of a
+# session, and absent entirely outside Pro/Max, so a missing key is normal.
+claude_record_rate_limits() {
+    local cache tmp limits
+    limits=$(printf '%s' "$input" | jq -c '.rate_limits // empty' 2>/dev/null) || return 0
+    [ -n "$limits" ] || return 0
+    cache="${CLAUDE_RATE_LIMITS_CACHE:-$HOME/.cache/claude-rate-limits/latest.json}"
+    mkdir -p "${cache%/*}" 2>/dev/null || return 0
+    # The payload has no fetch time of its own, and a reader that cannot tell a
+    # live number from a stale one is worse than one that shows nothing.
+    tmp="$cache.$$"
+    printf '%s' "$limits" |
+        jq -c --argjson at "$(date +%s)" '{fetched_at: $at} + .' > "$tmp" 2>/dev/null &&
+        mv -f "$tmp" "$cache" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null
+    return 0
+}
+claude_record_rate_limits
+
 # The shared context-usage library owns the system-prompt allowance and the
 # arithmetic that turns it into a percentage (R1, R2). Sourcing it is
 # best-effort: a partially applied home must still render a status line. There

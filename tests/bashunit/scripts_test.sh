@@ -11658,3 +11658,116 @@ n
   assert_equal "$(git -C "$PINS_ROOT" status --porcelain --untracked-files=no)" \
     ' M private_dot_config/mise/config.toml'
 }
+
+# herdr-agent-limits tab bar status
+# ===========================================
+
+AGENT_LIMITS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-limits"
+
+# Writes a fixture home whose windows are all live, then leaves the caller to
+# age individual ones. Offsets are relative so the fixture never expires.
+agent_limits_fixture() {
+  local home="$1" cc_reset="$2" cx_reset="$3" now
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits" "$home/.codex/sessions/2026/09/17"
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":3,"resets_at":%s}}' \
+    "$now" "$((now + cc_reset))" > "$home/.cache/claude-rate-limits/latest.json"
+  printf '{"payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":15,"window_minutes":10080,"resets_at":%s}}}}\n' \
+    "$((now + cx_reset))" > "$home/.codex/sessions/2026/09/17/rollout-fixture.jsonl"
+}
+
+function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() {
+  _bats_test_init 27204 'agent limits drops windows whose reset has passed'
+  local home="$BATS_TEST_TMPDIR/limits-expiry"
+
+  # #given both providers report a window that is still open
+  agent_limits_fixture "$home" 3600 86400
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then each provider contributes its live window
+  assert_success
+  assert_output --partial 'cc 5h 3%'
+  assert_output --partial 'cx 7d 15%'
+
+  # #given the same numbers, but after both windows have reset
+  agent_limits_fixture "$home" -3600 -86400
+
+  # #when the status entry runs again
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then neither percentage is shown: a finished window describes a period
+  # that is over, and a stale number in a status bar misleads silently
+  assert_success
+  refute_output --partial '3%'
+  refute_output --partial '15%'
+}
+
+function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_claude_json() {
+  _bats_test_init 27205 'agent limits prefers the live cache over the stale claude json'
+  local home="$BATS_TEST_TMPDIR/limits-precedence" now
+  now="$(date +%s)"
+
+  # #given a live status-line cache alongside a week-old .claude.json holding a
+  # different figure for the same account-wide window
+  agent_limits_fixture "$home" 3600 86400
+  mkdir -p "$home/.claude"
+  printf '{"cachedUsageUtilization":{"fetchedAtMs":%s,"utilization":{"five_hour":{"utilization":88}}}}' \
+    "$(((now - 604800) * 1000))" > "$home/.claude/.claude.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then the live figure wins and the stale one never reaches the bar
+  assert_success
+  assert_output --partial 'cc 5h 3%'
+  refute_output --partial '88%'
+
+  # #given the live cache is gone, as on a home that has not run Claude yet
+  rm -f "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then the fallback figure appears, labelled with its age rather than
+  # passed off as current
+  assert_success
+  assert_output --partial 'cc 5h 88%'
+  assert_output --partial 'old)'
+}
+
+function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_into_it() {
+  _bats_test_init 27206 'agent limits marks a spent window without rounding into it'
+  local home="$BATS_TEST_TMPDIR/limits-spent" now exhausted
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits"
+  # nf-cod-circle_slash U+EABD
+  exhausted="$(printf '\356\252\275')"
+
+  # #given a window that is genuinely spent
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":100,"resets_at":%s}}' \
+    "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then it reads as a state rather than a stuck gauge, and still says when
+  # the allowance comes back
+  assert_success
+  assert_output --partial "${exhausted}100%"
+  assert_output --partial '⟳'
+
+  # #given a window that is merely close to spent
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":99.6,"resets_at":%s}}' \
+    "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then rounding never manufactures an exhaustion that has not happened
+  assert_success
+  assert_output --partial '5h 99%'
+  refute_output --partial '100%'
+  refute_output --partial "$exhausted"
+}

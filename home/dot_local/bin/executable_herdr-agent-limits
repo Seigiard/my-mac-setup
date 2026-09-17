@@ -1,0 +1,171 @@
+#!/bin/bash
+# One line for herdr's tab bar: account-wide rate limits for Claude and Codex.
+# Both figures are per-account, not per-session, so this belongs on one global
+# surface rather than repeated on every agent row in the sidebar.
+#
+# Herdr strips ESC sequences from `command` status entries, so urgency is
+# carried by the reset countdown rather than by color.
+set -u
+HOME="${HOME:-$(cd ~ && pwd)}"
+
+claude_part() {
+    # The live source is the cache the status line writes from Claude Code's
+    # own payload. ~/.claude/.claude.json holds the same shape but refreshes on
+    # its own schedule and goes days stale, so it is the fallback, never first.
+    python3 - "$HOME/.cache/claude-rate-limits/latest.json" "$HOME/.claude/.claude.json" <<'PY'
+import json, sys, time
+
+def fmt_reset(ts):
+    left = ts - time.time()
+    if left <= 0:
+        return None
+    if left < 3600:
+        return f"⟳{int(left // 60)}m"
+    if left < 86400:
+        return f"⟳{int(left // 3600)}h{int(left % 3600 // 60):02d}m"
+    return f"⟳{int(left // 86400)}d{int(left % 86400 // 3600)}h"
+
+# nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
+EXHAUSTED = "\ueabd"
+
+def fmt_pct(pct):
+    # A window at 100% is spent, and "100%" alone reads like a stuck gauge
+    # rather than a state, so it gets a marker. Rounding is the trap here:
+    # 99.6 would round to 100 and claim an exhaustion that has not happened,
+    # so only a real 100 is marked and everything below it caps at 99.
+    if pct >= 100:
+        return f"{EXHAUSTED}100%"
+    return f"{min(round(pct), 99)}%"
+
+def load_live(path):
+    try:
+        d = json.load(open(path))
+    except Exception:
+        return None
+    out = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        w = d.get(key) or {}
+        pct = w.get("used_percentage")
+        if pct is None:
+            continue
+        # A window whose reset has passed describes a period that is over.
+        r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
+        if w.get("resets_at") and r is None:
+            continue
+        out.append(f"{label} {fmt_pct(pct)}" + (f" {r}" if r else ""))
+    return out or None
+
+def load_fallback(path):
+    try:
+        cached = json.load(open(path)).get("cachedUsageUtilization") or {}
+    except Exception:
+        return None
+    util = cached.get("utilization") or {}
+    out = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        w = util.get(key) or {}
+        if w.get("utilization") is None:
+            continue
+        out.append(f"{label} {fmt_pct(w['utilization'])}")
+    if not out:
+        return None
+    # Say the number is old rather than passing it off as current. It hangs off
+    # the last window instead of standing as its own segment, because it
+    # qualifies the figures rather than being one of them.
+    ms = cached.get("fetchedAtMs")
+    if ms:
+        hours = (time.time() - ms / 1000) / 3600
+        if hours >= 1:
+            age = f"{int(hours)}h" if hours < 48 else f"{int(hours / 24)}d"
+            out[-1] += f" ({age} old)"
+    return out
+
+parts = load_live(sys.argv[1]) or load_fallback(sys.argv[2])
+if parts:
+    print("cc " + " · ".join(parts))
+PY
+}
+
+codex_part() {
+    local f
+    f=$(find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -type f -print0 2>/dev/null |
+        xargs -0 -r ls -t 2>/dev/null | head -1)
+    [ -n "${f:-}" ] || return 0
+    python3 - "$f" <<'PY'
+import json, sys, time
+
+def fmt_reset(ts):
+    left = ts - time.time()
+    if left <= 0:
+        return None
+    if left < 3600:
+        return f"⟳{int(left // 60)}m"
+    if left < 86400:
+        return f"⟳{int(left // 3600)}h{int(left % 3600 // 60):02d}m"
+    return f"⟳{int(left // 86400)}d{int(left % 86400 // 3600)}h"
+
+# nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
+EXHAUSTED = "\ueabd"
+
+def fmt_pct(pct):
+    # A window at 100% is spent, and "100%" alone reads like a stuck gauge
+    # rather than a state, so it gets a marker. Rounding is the trap here:
+    # 99.6 would round to 100 and claim an exhaustion that has not happened,
+    # so only a real 100 is marked and everything below it caps at 99.
+    if pct >= 100:
+        return f"{EXHAUSTED}100%"
+    return f"{min(round(pct), 99)}%"
+
+def find_rate_limits(obj):
+    stack, found = [obj], None
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            rl = cur.get("rate_limits")
+            if isinstance(rl, dict):
+                found = rl
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return found
+
+# Codex appends rate_limits to token_count events, so the last one is current.
+last = None
+for line in open(sys.argv[1], errors="replace"):
+    if '"rate_limits"' not in line:
+        continue
+    try:
+        found = find_rate_limits(json.loads(line))
+    except Exception:
+        continue
+    if found:
+        last = found
+if not last:
+    sys.exit(0)
+
+out = []
+for slot in ("primary", "secondary"):
+    w = last.get(slot) or {}
+    if w.get("used_percent") is None:
+        continue
+    mins = w.get("window_minutes") or 0
+    label = f"{mins // 1440}d" if mins >= 1440 else f"{mins // 60}h"
+    # Codex only writes while it runs, so a finished window means the rollout
+    # is older than the window it describes and the percentage is meaningless.
+    r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
+    if w.get("resets_at") and r is None:
+        continue
+    out.append(f"{label} {fmt_pct(w['used_percent'])}" + (f" {r}" if r else ""))
+if out:
+    print("cx " + " · ".join(out))
+PY
+}
+
+parts=()
+c=$(claude_part) && [ -n "$c" ] && parts+=("$c")
+x=$(codex_part) && [ -n "$x" ] && parts+=("$x")
+[ ${#parts[@]} -gt 0 ] || exit 0
+# IFS joins on a single character only, so build the separator explicitly.
+out="${parts[0]}"
+for p in "${parts[@]:1}"; do out="$out · $p"; done
+printf '%s\n' "$out"
