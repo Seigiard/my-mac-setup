@@ -77,8 +77,7 @@ plugins=(
 if [[ "$(uname -s)" == "Darwin" ]]; then
   plugins=("dio16/herdr-auto-update|herdr-auto-update|" "${plugins[@]}")
   plugins+=("$HERDR_WAKEUP_REPO|$HERDR_WAKEUP_PLUGIN_ID|$HERDR_WAKEUP_REF")
-  # Temporary fork pin while https://github.com/yankewei/herdr-focus-notify/pull/13 is upstreamed.
-  plugins+=("Seigiard/herdr-focus-notify|herdr-focus-notify|97eab638822033aec6fc3a6d9cd78ea710cd4e43")
+  plugins+=("yankewei/herdr-focus-notify|herdr-focus-notify|c2c0b835acda27dcc76666368000fe36ce6e0348")
 fi
 
 for entry in "${plugins[@]}"; do

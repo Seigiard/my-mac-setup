@@ -45,24 +45,21 @@ notification outage cannot block environment deployment.
 
 ## Decision
 
-Adopt `yankewei/herdr-focus-notify` release `v0.5.1`, pinned to its reviewed
-commit `560e70c5e1716fa0781b6746821ce8676f70a811`. Install it with `herdr plugin
+Adopt `yankewei/herdr-focus-notify` release `v0.6.0`, pinned to its reviewed
+commit `c2c0b835acda27dcc76666368000fe36ce6e0348`. Install it with `herdr plugin
 install yankewei/herdr-focus-notify --ref
-560e70c5e1716fa0781b6746821ce8676f70a811 -y`, enable the upstream ID
+c2c0b835acda27dcc76666368000fe36ce6e0348 -y`, enable the upstream ID
 `herdr-focus-notify`, and uninstall the superseded local ID
 `seigi.focus-notify`. Remove the local manifest, Python implementation, linking
 script, and implementation tests.
 
-Until [upstream PR #13](https://github.com/yankewei/herdr-focus-notify/pull/13)
-is merged and released, install the reviewed fork commit
-[`97eab63`](https://github.com/Seigiard/herdr-focus-notify/tree/97eab638822033aec6fc3a6d9cd78ea710cd4e43),
-which the upstream maintainer rebased onto `v0.5.2` and extended with a read
-timeout on the socket request.
-The fork replaces the agent-only focus sequence with Herdr's atomic
-`pane.focus` socket request, which also targets ordinary shell panes. Return the
-pin to `yankewei/herdr-focus-notify` after the upstream change is available;
-the fork is a delivery path for that contribution, not a new implementation
-owned by this repository.
+`v0.6.0` replaces the agent-only focus sequence with Herdr's atomic `pane.focus`
+socket request, which also targets ordinary shell panes, and bounds that socket
+read so a silent Herdr server cannot strand the detached click process. This
+repository contributed that change through
+[upstream PR #13](https://github.com/yankewei/herdr-focus-notify/pull/13) and
+carried it on a fork pin until the release; a fork is a delivery path for a
+contribution, never a new implementation owned here.
 
 Dotfiles continues to own personal policy and machine dependencies:
 
@@ -106,7 +103,7 @@ The supported live configuration is a local macOS Herdr 0.9.0 client in a
 dotfiles-managed terminal after that workspace has a terminal binding. Herdr
 0.9.0 does not emit `pane.focused` for client-local navigation; the upstream
 fix is implemented in [herdrdev/herdr#3824](https://github.com/herdrdev/herdr/issues/3824)
-and awaits a release. The temporary fork tests the raw `pane.focus` request,
+and awaits a release. The release tests the raw `pane.focus` request,
 including shell panes without detected agents. Real notification display,
 learned Ghostty or Kitty binding, and click targeting still need a live macOS GUI
 session. CI proves the managed dependencies and pinned Herdr CLI calls; after
