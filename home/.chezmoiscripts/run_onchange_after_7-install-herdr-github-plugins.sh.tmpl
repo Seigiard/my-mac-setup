@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
 # Install and enable Herdr plugins that remain managed by their GitHub sources.
 # Herdr records the source repository so herdr-auto-update can update these plugins later.
 # Runs last of the herdr scripts so its single `herdr server reload-config` also picks up the
 # locally linked plugins that scripts 4 through 6 install.
 #
 # Hash triggers:
-# {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
-# {{ if lookPath "herdr" }}herdr version: {{ output "herdr" "--version" | sha256sum }}{{ else }}herdr version: unavailable at apply time{{ end }}
+# # {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
+# # {{ if eq .chezmoi.os "darwin" }}# {{ include "private_dot_config/herdr/plugins/config/herdr-wakeup/config.json" | sha256sum }}# {{ end }}
+# # {{ if lookPath "herdr" }}herdr version: # {{ output "herdr" "--version" | sha256sum }}# {{ else }}herdr version: unavailable at apply time# {{ end }}
 
 # Keep this tolerant: a missing Herdr or an unavailable GitHub repository must not make
 # chezmoi apply fail. Report every failed plugin so the user has an exact recovery command.
 set -u
+
+# {{ include ".chezmoitemplates/herdr-wakeup-package.sh" }}
 
 if ! command -v herdr >/dev/null 2>&1; then
   echo "herdr not found; skipping GitHub plugin installation"
@@ -18,6 +22,13 @@ if ! command -v herdr >/dev/null 2>&1; then
 fi
 
 failed=()
+wakeup_ready=0
+wakeup_previously_installed=0
+
+restore_herdr_wakeup() {
+  herdr plugin enable "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1 &&
+    herdr plugin action invoke start --plugin "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1
+}
 
 plugin_matches() {
   local expected_id="$1" expected_kind="${2:-}"
@@ -65,36 +76,79 @@ plugins=(
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   plugins=("dio16/herdr-auto-update|herdr-auto-update|" "${plugins[@]}")
+  plugins+=("$HERDR_WAKEUP_REPO|$HERDR_WAKEUP_PLUGIN_ID|$HERDR_WAKEUP_REF")
   # Temporary fork pin while https://github.com/yankewei/herdr-focus-notify/pull/13 is upstreamed.
   plugins+=("Seigiard/herdr-focus-notify|herdr-focus-notify|1bbcfb6c441fd90620e0da94a76ec107d3ebf91d")
 fi
 
 for entry in "${plugins[@]}"; do
   IFS='|' read -r repo plugin_id ref <<< "$entry"
+  wakeup_was_installed=0
   install_args=(plugin install "$repo")
   if [[ -n "$ref" ]]; then
     install_args+=(--ref "$ref")
   fi
   install_args+=(-y)
 
+  if [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" ]]; then
+    # Upstream requires a clean watcher stop before replacing its binaries.
+    plugin_matches "$plugin_id"
+    wakeup_state=$?
+    if [[ $wakeup_state -eq 0 ]]; then
+      wakeup_was_installed=1
+      wakeup_previously_installed=1
+      if ! herdr plugin action invoke stop --plugin "$plugin_id" </dev/null >/dev/null 2>&1; then
+        failed+=("$repo (stop before update: herdr plugin action invoke stop --plugin $plugin_id)")
+        continue
+      fi
+    elif [[ $wakeup_state -ne 1 ]]; then
+      failed+=("$repo (inspect before update: herdr plugin list --json)")
+      continue
+    fi
+  fi
+
   # Installation can fetch and build source. Stream its progress, but close
   # stdin so an unseen upstream prompt fails instead of blocking chezmoi apply.
   if ! herdr "${install_args[@]}" </dev/null; then
     failed+=("$repo (install: herdr ${install_args[*]})")
+    if [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" && $wakeup_was_installed -eq 1 ]] && \
+      ! restore_herdr_wakeup; then
+      failed+=("$repo (restore after install failure: herdr plugin action invoke start --plugin $plugin_id)")
+    fi
     continue
   fi
 
   if herdr plugin enable "$plugin_id" </dev/null >/dev/null 2>&1; then
+    if [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" ]] && ! herdr_wakeup_configure; then
+      failed+=("$repo (config: link the managed policy from $(herdr plugin config-dir "$plugin_id" 2>/dev/null || printf 'the plugin config directory'))")
+      if [[ $wakeup_was_installed -eq 1 ]] && ! restore_herdr_wakeup; then
+        failed+=("$repo (restore after config failure: herdr plugin action invoke start --plugin $plugin_id)")
+      fi
+      continue
+    fi
+    [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" ]] && wakeup_ready=1
     echo "Installed and enabled Herdr plugin $plugin_id from $repo${ref:+ at $ref}"
   else
     failed+=("$repo (enable: herdr plugin enable $plugin_id)")
+    if [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" && $wakeup_was_installed -eq 1 ]] && \
+      ! restore_herdr_wakeup; then
+      failed+=("$repo (restore after enable failure: herdr plugin action invoke start --plugin $plugin_id)")
+    fi
   fi
 done
 
 if herdr server reload-config </dev/null >/dev/null 2>&1; then
   echo "Reloaded Herdr config"
+  if [[ $wakeup_ready -eq 1 ]]; then
+    herdr plugin action invoke start --plugin "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1 || \
+      failed+=("$HERDR_WAKEUP_REPO (start: herdr plugin action invoke start --plugin $HERDR_WAKEUP_PLUGIN_ID)")
+  fi
 else
   echo "Warning: failed to reload Herdr config; restart Herdr or run: herdr server reload-config" >&2
+  if [[ $wakeup_ready -eq 1 || $wakeup_previously_installed -eq 1 ]] && \
+    ! restore_herdr_wakeup; then
+    failed+=("$HERDR_WAKEUP_REPO (restore after reload failure: herdr plugin action invoke start --plugin $HERDR_WAKEUP_PLUGIN_ID)")
+  fi
 fi
 
 if [[ ${#failed[@]} -gt 0 ]]; then

@@ -1852,10 +1852,15 @@ SH
 
 function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
   _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
   local calls="$BATS_TEST_TMPDIR/herdr.calls"
-  mkdir -p "$fake_bin"
+  local home="$BATS_TEST_TMPDIR/github-plugin-home"
+  local wakeup_config="$home/.config/herdr/plugins/config/herdr-wakeup"
+  mkdir -p "$fake_bin" "$wakeup_config"
+  printf '%s\n' '{"stop_grace_seconds":1200}' > "$wakeup_config/config.json"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -1871,18 +1876,21 @@ if [ "$*" = "plugin list --json" ]; then
     "plugins": [
       { "plugin_id": "artisann.zed-herdr" },
       { "plugin_id": "worktrunk" },
+      { "plugin_id": "herdr-wakeup", "source": { "kind": "github" } },
       { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } }
     ]
   }
 }
 JSON
+elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
+  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
 fi
 exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env HOME="$BATS_TEST_TMPDIR/github-plugin-home" HERDR_CALLS="$calls" \
-    PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$home" HERDR_CALLS="$calls" \
+    HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
   assert_success
@@ -1896,14 +1904,26 @@ SH
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
+  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-wakeup" "$calls"
+  assert_success
+  local session_config="$wakeup_config/sessions/f60c672338465554/config.json"
+  run readlink "$session_config"
+  assert_success
+  assert_output "$wakeup_config/config.json"
 }
 
 function test_scripts_08511_github_command_palette_is_not_uninstalled_during_update() {
   _bats_test_init 8511 'GitHub command palette is updated in place, not treated as the local cutover'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-linux.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin-github-palette"
   local calls="$BATS_TEST_TMPDIR/herdr-github-palette.calls"
   mkdir -p "$fake_bin"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -1932,11 +1952,48 @@ SH
   assert_failure
 }
 
+function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
+  _bats_test_init 8512 'existing Herdr Wakeup is restored when managed policy linking fails'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-wakeup-config-failure.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-wakeup-config-failure"
+  local calls="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"herdr-wakeup","source":{"kind":"github"}}]}}'
+elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
+  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "config: link the managed policy"
+  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
+  assert_success
+  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$calls"
+  assert_success
+}
+
 function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
   _bats_test_init 852 'obsolete plugin removal reports malformed plugin entries'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-malformed.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
   mkdir -p "$fake_bin"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -2073,13 +2130,182 @@ PY
     || skip "real registry does not currently expose both local and github source kinds: $output"
 }
 
+caffeinate_migration_prepare() {
+  local work="$1" legacy_root="${2:-present}"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p \
+    "$source/.chezmoiscripts/darwin" \
+    "$source/.chezmoitemplates" \
+    "$source/private_dot_config/herdr/plugins/config/herdr-wakeup" \
+    "$home/.config/herdr/plugins/config/herdr-wakeup" \
+    "$fake_bin"
+  if [[ "$legacy_root" == present ]]; then
+    mkdir -p "$home/.config/herdr/plugins/herdr-caffeinate"
+    printf '%s\n' 'id = "keepawake.caffeinate"' \
+      > "$home/.config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml"
+    cat > "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh" <<'SH'
+#!/bin/sh
+: > "$HOME/legacy-reconciled"
+SH
+    chmod +x "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh"
+  fi
+  cp "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_6-migrate-herdr-caffeinate.sh.tmpl" \
+    "$source/.chezmoiscripts/darwin/"
+  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-wakeup-package.sh" \
+    "$source/.chezmoitemplates/"
+  printf '%s\n' '{"stop_grace_seconds":1200}' \
+    > "$source/private_dot_config/herdr/plugins/config/herdr-wakeup/config.json"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"keepawake.caffeinate","source":{"kind":"local"}}]}}'
+    ;;
+  "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y")
+    [ "$HERDR_FAIL_STEP" != install ] || exit 1
+    : > "$HOME/replacement-installed"
+    ;;
+  "plugin config-dir herdr-wakeup")
+    printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
+    ;;
+  "plugin enable herdr-wakeup")
+    [ "$HERDR_FAIL_STEP" != enable ] || exit 1
+    [ -f "$HOME/replacement-installed" ] || exit 3
+    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || exit 4
+    : > "$HOME/replacement-enabled"
+    ;;
+  "plugin action invoke stop --plugin keepawake.caffeinate")
+    [ -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || exit 1
+    [ -f "$HOME/replacement-enabled" ] || exit 5
+    : > "$HOME/legacy-stopped"
+    ;;
+  "plugin action invoke status --plugin keepawake.caffeinate")
+    [ -f "$HOME/legacy-reconciled" ] || exit 10
+    ;;
+  "plugin disable keepawake.caffeinate")
+    [ ! -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || \
+      [ -f "$HOME/legacy-stopped" ] || exit 6
+    : > "$HOME/legacy-disabled"
+    ;;
+  "server reload-config")
+    [ -f "$HOME/legacy-disabled" ] || exit 7
+    if [ "$HERDR_FAIL_STEP" = reload ] && [ ! -f "$HOME/activation-reload-failed" ]; then
+      : > "$HOME/activation-reload-failed"
+      exit 1
+    fi
+    : > "$HOME/server-reloaded"
+    ;;
+  "plugin action invoke start --plugin herdr-wakeup")
+    [ -f "$HOME/server-reloaded" ] || exit 8
+    : > "$HOME/replacement-started"
+    ;;
+  "plugin uninstall keepawake.caffeinate")
+    [ -f "$HOME/replacement-started" ] || exit 9
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/herdr"
+  : > "$work/herdr.calls"
+}
+
+caffeinate_migration_run() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock \
+    chezmoi_full_fixture apply --source "$work/source" --destination "$work/home" \
+      --config "$work/chezmoi.yaml"
+}
+
+function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replacement_is_ready() {
+  _bats_test_init 8524 'caffeinate migration configures the replacement before stopping the local plugin'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration"
+  local wakeup_config="$work/home/.config/herdr/plugins/config/herdr-wakeup"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run readlink "$wakeup_config/sessions/f60c672338465554/config.json"
+  assert_success
+  assert_output "$wakeup_config/config.json"
+  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-wakeup" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_installation_fails() {
+  _bats_test_init 8525 'caffeinate migration keeps the local wake-lock owner when replacement installation fails'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-install-failure"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work" install
+  assert_failure
+  assert_output --partial "Herdr Wakeup installation failed"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run grep -Fc "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08526_caffeinate_migration_removes_a_stale_local_registration_without_legacy_files() {
+  _bats_test_init 8526 'caffeinate migration removes the stale local registration after replacement startup'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-stale-registration"
+  caffeinate_migration_prepare "$work" absent
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_reload_fails() {
+  _bats_test_init 8527 'caffeinate migration restores the local owner when replacement activation fails'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-reload-failure"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work" reload
+  assert_failure
+  assert_output --partial "restored and reconciled the local owner"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  assert_file_exists "$work/home/legacy-reconciled"
+  run grep -Fx "plugin enable keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin action invoke status --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall herdr-wakeup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+}
+
 # Herdr plugin link guard
 # ===========================================
 
 # plugin-link script template : the plugin directory it registers
 HERDR_LINK_GUARD_SCRIPTS=(
   "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
-  "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl:herdr-caffeinate"
 )
 
 # Renders one link script into $work and gives it a $HOME carrying the plugin
@@ -2148,10 +2374,10 @@ function test_scripts_0853_herdr_plugin_link_scripts_register_only_from_the_logi
 function test_scripts_0854_herdr_plugin_link_scripts_refuse_a_disposable_home() {
   _bats_test_init 854 'herdr plugin link scripts refuse a $HOME declared disposable'
   command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/disposable-caffeinate"
+  local work="$BATS_TEST_TMPDIR/disposable-worktree-setup"
   mkdir -p "$work/home"
   herdr_link_guard_prepare \
-    "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl" herdr-caffeinate "$work/home" "$work"
+    "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl" worktree-setup "$work/home" "$work"
 
   run env MMS_DISPOSABLE_HOME=1 HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
     PATH="$work/bin:$PATH" bash "$work/script.sh"

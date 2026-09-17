@@ -87,6 +87,13 @@ at a reviewed commit. Personal commands stay in the managed
 new package release and changing the commit pin in
 `run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`.
 
+On macOS, chezmoi also installs
+[`usrivastava92/herdr-wakeup`](https://github.com/usrivastava92/herdr-wakeup)
+at a reviewed commit. Its managed policy keeps the Mac and display awake while
+an agent works, then retains the assertion for 20 minutes after the final agent
+goes quiet. Updating it uses the same reviewed-pin policy; implementation and
+behavioral tests stay upstream.
+
 ### Role-based SSH rollout
 
 The managed roles and aliases are:
