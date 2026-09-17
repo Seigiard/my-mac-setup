@@ -393,6 +393,18 @@ if len(matches)!=1 or not matches[0].get("terminal_id"): raise SystemExit(1)
 print(matches[0]["terminal_id"])' "$name" "$pane"
 }
 
+json_session_for_pair() {
+  local name="$1" pane="$2"
+  python3 -c 'import json,sys
+name,pane=sys.argv[1:3]
+agents=json.load(sys.stdin).get("result",{}).get("agents",[])
+matches=[a for a in agents if a.get("name")==name and a.get("pane_id")==pane]
+if len(matches)!=1 or not isinstance(matches[0].get("agent_session"),dict): raise SystemExit(1)
+session=matches[0]["agent_session"]
+if not session.get("value"): raise SystemExit(1)
+print(json.dumps(session,sort_keys=True,separators=(",",":")))' "$name" "$pane"
+}
+
 json_current_name_for_pane() {
   local pane="$1"
   python3 -c 'import json,sys

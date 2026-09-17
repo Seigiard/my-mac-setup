@@ -162,6 +162,24 @@ def connect_registry(create):
             ON operations (server_scope, status, pane_id, terminal_id)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_parent_edges (
+                server_scope TEXT NOT NULL,
+                child_session TEXT NOT NULL,
+                parent_session TEXT NOT NULL,
+                child_name TEXT NOT NULL,
+                parent_name TEXT NOT NULL,
+                PRIMARY KEY (server_scope, child_session)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS agent_parent_lookup
+            ON agent_parent_edges (server_scope, parent_session)
+            """
+        )
         connection.commit()
         if create:
             os.chmod(database, 0o600)
@@ -239,6 +257,75 @@ def finalize_operation(operation_id, resources):
                 raise RegistryError("operation intent is no longer finalizable")
     except sqlite3.Error as error:
         raise RegistryError(str(error)) from error
+    finally:
+        connection.close()
+
+
+def encode_session(session):
+    return json.dumps(session, sort_keys=True, separators=(",", ":"))
+
+
+def decode_stored_session(value, path):
+    try:
+        return normalize_session(json.loads(value), path)
+    except (json.JSONDecodeError, SnapshotError) as error:
+        raise RegistryError(str(error)) from error
+
+
+def record_parent_edge(scope, parent_session, child_session, parent_name, child_name):
+    parent_key = encode_session(parent_session)
+    child_key = encode_session(child_session)
+    if parent_key == child_key:
+        raise RegistryError("an Agent session cannot be its own parent")
+
+    connection = connect_registry(create=True)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        rows = connection.execute(
+            """
+            SELECT child_session, parent_session, child_name, parent_name
+            FROM agent_parent_edges
+            WHERE server_scope = ?
+            """,
+            (scope,),
+        ).fetchall()
+        by_child = {
+            stored_child: (stored_parent, stored_child_name, stored_parent_name)
+            for stored_child, stored_parent, stored_child_name, stored_parent_name in rows
+        }
+        existing = by_child.get(child_key)
+        expected = (parent_key, child_name, parent_name)
+        if existing is not None:
+            if existing != expected:
+                raise RegistryError("child Agent session already has a different parent edge")
+            connection.commit()
+            return
+
+        ancestor = parent_key
+        visited = set()
+        while ancestor in by_child:
+            if ancestor in visited:
+                raise RegistryError("stored Agent parentage contains a cycle")
+            visited.add(ancestor)
+            ancestor = by_child[ancestor][0]
+            if ancestor == child_key:
+                raise RegistryError("Agent parent edge would create a cycle")
+
+        connection.execute(
+            """
+            INSERT INTO agent_parent_edges (
+                server_scope, child_session, parent_session, child_name, parent_name
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (scope, child_key, parent_key, child_name, parent_name),
+        )
+        connection.commit()
+    except sqlite3.Error as error:
+        connection.rollback()
+        raise RegistryError(str(error)) from error
+    except RegistryError:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -556,6 +643,7 @@ def normalize_snapshot(envelope):
             "presentation_name": required_string(agent.get("name"), f"{path}.name"),
             "session": normalize_session(agent.get("agent_session"), f"{path}.agent_session"),
             "parent_session": None,
+            "parent_name": None,
         }
 
     normalized_workspaces = []
@@ -626,7 +714,7 @@ def normalize_snapshot(envelope):
         key=lambda workspace: (workspace["number"], workspace["id"])
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "scope": {
             "kind": "local-herdr-server",
             "version": required_string(snapshot.get("version"), "snapshot.version"),
@@ -695,17 +783,142 @@ def apply_creator_edges(tree, edges):
                 )
 
 
-def filter_creator_branch(tree, session):
+def load_parent_edges(scope):
+    connection = connect_registry(create=False)
+    if connection is None:
+        return {}
+    try:
+        rows = connection.execute(
+            """
+            SELECT child_session, parent_session, child_name, parent_name
+            FROM agent_parent_edges
+            WHERE server_scope = ?
+            ORDER BY child_session
+            """,
+            (scope,),
+        ).fetchall()
+    except sqlite3.Error as error:
+        raise RegistryError(str(error)) from error
+    finally:
+        connection.close()
+
+    edges = {}
+    for encoded_child, encoded_parent, child_name, parent_name in rows:
+        child = decode_stored_session(encoded_child, "stored child Agent session")
+        parent = decode_stored_session(encoded_parent, "stored parent Agent session")
+        if not isinstance(child_name, str) or not child_name:
+            raise RegistryError("stored child Agent name must be a non-empty string")
+        if not isinstance(parent_name, str) or not parent_name:
+            raise RegistryError("stored parent Agent name must be a non-empty string")
+        child_key = encode_session(child)
+        if child_key in edges:
+            raise RegistryError("child Agent session has conflicting parent edges")
+        edges[child_key] = {
+            "child_session": child,
+            "child_name": child_name,
+            "parent_session": parent,
+            "parent_name": parent_name,
+        }
+    return edges
+
+
+def iter_agents(tree):
+    for workspace in tree["workspaces"]:
+        for tab in workspace["tabs"]:
+            for pane in tab["panes"]:
+                if pane["agent"] is not None:
+                    yield pane["agent"]
+
+
+def find_pane(tree, pane_id):
+    for workspace in tree["workspaces"]:
+        for tab in workspace["tabs"]:
+            for pane in tab["panes"]:
+                if pane["id"] == pane_id:
+                    return pane
+    return None
+
+
+def apply_parent_edges(tree, edges):
+    for agent in iter_agents(tree):
+        session = agent["session"]
+        edge = edges.get(encode_session(session)) if session is not None else None
+        agent["parent_session"] = edge["parent_session"] if edge else None
+        agent["parent_name"] = edge["parent_name"] if edge else None
+
+
+def build_branch(tree, session, edges):
+    session_key = encode_session(session)
+    children = {}
+    for edge in edges.values():
+        parent_key = encode_session(edge["parent_session"])
+        children.setdefault(parent_key, []).append(edge)
+    for values in children.values():
+        values.sort(key=lambda edge: encode_session(edge["child_session"]))
+
+    descendants = []
+    descendant_keys = set()
+    frontier = list(children.get(session_key, []))
+    while frontier:
+        edge = frontier.pop(0)
+        child_key = encode_session(edge["child_session"])
+        if child_key in descendant_keys or child_key == session_key:
+            raise RegistryError("stored Agent parentage contains a cycle")
+        descendant_keys.add(child_key)
+        descendants.append(
+            {
+                "presentation_name": edge["child_name"],
+                "session": edge["child_session"],
+                "parent_session": edge["parent_session"],
+            }
+        )
+        frontier.extend(children.get(child_key, []))
+
+    current_name = None
+    for agent in iter_agents(tree):
+        if agent["session"] == session:
+            current_name = agent["presentation_name"]
+            break
+    if current_name is None and session_key in edges:
+        current_name = edges[session_key]["child_name"]
+
+    parent_edge = edges.get(session_key)
+    parent = None
+    if parent_edge is not None:
+        parent = {
+            "presentation_name": parent_edge["parent_name"],
+            "session": parent_edge["parent_session"],
+        }
+    return {
+        "session": session,
+        "presentation_name": current_name,
+        "parent": parent,
+        "descendants": descendants,
+    }, {session_key, *descendant_keys}
+
+
+def filter_creator_branch(tree, creator_keys):
     workspaces = []
     for workspace in tree["workspaces"]:
         tabs = []
         for tab in workspace["tabs"]:
             panes = [
-                pane for pane in tab["panes"] if pane["creator_session"] == session
+                pane
+                for pane in tab["panes"]
+                if pane["creator_session"] is not None
+                and encode_session(pane["creator_session"]) in creator_keys
             ]
-            if tab["creator_session"] == session or panes:
+            tab_created = (
+                tab["creator_session"] is not None
+                and encode_session(tab["creator_session"]) in creator_keys
+            )
+            if tab_created or panes:
                 tabs.append({**tab, "panes": panes})
-        if workspace["creator_session"] == session or tabs:
+        workspace_created = (
+            workspace["creator_session"] is not None
+            and encode_session(workspace["creator_session"]) in creator_keys
+        )
+        if workspace_created or tabs:
             workspaces.append({**workspace, "tabs": tabs})
     return {**tree, "workspaces": workspaces}
 
@@ -726,9 +939,26 @@ def display_session(session):
 
 def render_human(tree):
     scope = tree["scope"]
-    lines = [
+    lines = []
+    branch = tree.get("branch")
+    if branch is not None:
+        lines.append(
+            f"Agent branch: {display_label(branch['presentation_name'])} "
+            f"[{display_session(branch['session'])}]"
+        )
+        if branch["parent"] is not None:
+            lines.append(
+                f"Parent agent: {display_label(branch['parent']['presentation_name'])} "
+                f"[{display_session(branch['parent']['session'])}]"
+            )
+        for descendant in branch["descendants"]:
+            lines.append(
+                f"Descendant agent: {display_label(descendant['presentation_name'])} "
+                f"[{display_session(descendant['session'])}]"
+            )
+    lines.append(
         f"local Herdr server (version {scope['version']}, protocol {scope['protocol']})"
-    ]
+    )
     if not tree["workspaces"]:
         lines.append("(no open workspaces)")
         return "\n".join(lines)
@@ -754,8 +984,91 @@ def render_human(tree):
                     f"{display_label(agent['presentation_name'])}"
                 )
                 lines.append(f"      session: {display_session(agent['session'])}")
-                lines.append("      parent: unknown")
+                if agent["parent_session"] is None:
+                    lines.append("      parent: unknown")
+                else:
+                    lines.append(
+                        f"      parent: {display_label(agent['parent_name'])} "
+                        f"({display_session(agent['parent_session'])})"
+                    )
     return "\n".join(lines)
+
+
+def context_limit():
+    raw = os.environ.get("HERDR_RESOURCE_CONTEXT_MAX_CHARS", "4096")
+    try:
+        limit = int(raw)
+    except ValueError as error:
+        raise ValueError("HERDR_RESOURCE_CONTEXT_MAX_CHARS must be an integer") from error
+    if not 256 <= limit <= 16384:
+        raise ValueError(
+            "HERDR_RESOURCE_CONTEXT_MAX_CHARS must be between 256 and 16384"
+        )
+    return limit
+
+
+def render_context(tree, limit):
+    branch = tree["branch"]
+    lines = []
+    parent = branch["parent"]
+    if parent is not None:
+        lines.append(
+            f"Parent agent: {display_label(parent['presentation_name'])} "
+            f"[{display_session(parent['session'])}]"
+        )
+    for descendant in branch["descendants"]:
+        lines.append(
+            f"Descendant agent: {display_label(descendant['presentation_name'])} "
+            f"[{display_session(descendant['session'])}]"
+        )
+
+    if tree["workspaces"]:
+        lines.append("Resources:")
+        for workspace in tree["workspaces"]:
+            lines.append(
+                f"- workspace {display_label(workspace['label'])} [{workspace['id']}] "
+                f"creator={display_session(workspace['creator_session'])}"
+            )
+            for tab in workspace["tabs"]:
+                lines.append(
+                    f"  - tab {display_label(tab['label'])} [{tab['id']}] "
+                    f"creator={display_session(tab['creator_session'])}"
+                )
+                for pane in tab["panes"]:
+                    lines.append(
+                        f"    - pane {display_label(pane['label'])} [{pane['id']}] "
+                        f"terminal={pane['terminal_id']} "
+                        f"creator={display_session(pane['creator_session'])}"
+                    )
+                    agent = pane["agent"]
+                    if agent is not None:
+                        parent_link = display_session(agent["parent_session"])
+                        if agent["parent_name"] is not None:
+                            parent_link = (
+                                f"{display_label(agent['parent_name'])} [{parent_link}]"
+                            )
+                        lines.append(
+                            f"      occupant={agent['client']} "
+                            f"{display_label(agent['presentation_name'])} "
+                            f"session={display_session(agent['session'])} "
+                            f"parent={parent_link}"
+                        )
+
+    full = "\n".join(lines)
+    if len(full) <= limit:
+        return full
+
+    marker = "Context truncated. Full branch: `herdr-resource-tree --branch`."
+    kept = []
+    used = len(marker)
+    for line in lines:
+        additional = len(line) + 1
+        if used + additional > limit:
+            break
+        kept.append(line)
+        used += additional
+    kept.append(marker)
+    return "\n".join(kept)
 
 
 def retrieve_snapshot():
@@ -786,6 +1099,137 @@ def retrieve_snapshot():
     return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
 
+def snapshot_failure_detail(completed):
+    return (
+        completed.stderr.strip()
+        or completed.stdout.strip()
+        or f"herdr exited with status {completed.returncode}"
+    )
+
+
+def parse_record_child_args(argv):
+    parser = argparse.ArgumentParser(
+        prog="herdr-resource-tree record-child",
+        description="Record verified managed Agent parentage.",
+    )
+    parser.add_argument("--pane", required=True, help="the launched child pane ID")
+    parser.add_argument(
+        "--terminal", required=True, help="the launched child terminal identity"
+    )
+    parser.add_argument(
+        "--child-name", required=True, help="the verified launched Agent name"
+    )
+    parser.add_argument(
+        "--child-session-json",
+        required=True,
+        help="the verified launched Agent session identity",
+    )
+    return parser.parse_args(argv)
+
+
+def record_child_main(argv):
+    args = parse_record_child_args(argv)
+    try:
+        expected_child_session = normalize_session(
+            json.loads(args.child_session_json), "verified child Agent session"
+        )
+    except (json.JSONDecodeError, SnapshotError) as error:
+        print(f"herdr-resource-tree: parentage verification failed: {error}", file=sys.stderr)
+        return 1
+    try:
+        caller = identify_caller("herdr")
+    except (OSError, SnapshotError) as error:
+        print(
+            f"herdr-resource-tree: parent identity unavailable: {error}",
+            file=sys.stderr,
+        )
+        return 1
+    if caller is None:
+        print(
+            "herdr-resource-tree: parent identity unavailable: current pane has no Agent session",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        completed = retrieve_snapshot()
+    except SnapshotTimeout as error:
+        print(f"herdr-resource-tree: parentage snapshot failed: {error}", file=sys.stderr)
+        return 124
+    except OSError as error:
+        print(f"herdr-resource-tree: parentage snapshot failed: {error}", file=sys.stderr)
+        return 1
+    if completed.returncode != 0:
+        print(
+            "herdr-resource-tree: parentage snapshot failed: "
+            f"{snapshot_failure_detail(completed)}",
+            file=sys.stderr,
+        )
+        return completed.returncode if 1 <= completed.returncode <= 125 else 1
+
+    try:
+        tree = normalize_snapshot(json.loads(completed.stdout))
+        scope = server_scope()
+        apply_creator_edges(tree, load_creator_edges(scope))
+        pane = find_pane(tree, args.pane)
+        if pane is None:
+            raise SnapshotError(f"launched child pane {args.pane!r} is not live")
+        if pane["terminal_id"] != args.terminal:
+            raise SnapshotError("launched child pane terminal identity changed")
+        if pane["creator_session"] != caller["session"]:
+            raise SnapshotError(
+                "launched child pane was not created by the current parent session"
+            )
+        child = pane["agent"]
+        if child is None or child["session"] is None:
+            raise SnapshotError("launched child Agent session is unavailable")
+        if (
+            child["presentation_name"] != args.child_name
+            or child["session"] != expected_child_session
+        ):
+            raise SnapshotError("launched child identity changed before parentage recording")
+
+        parents = [
+            agent for agent in iter_agents(tree) if agent["session"] == caller["session"]
+        ]
+        if len(parents) != 1:
+            raise SnapshotError("current parent session is not uniquely observable")
+        parent = parents[0]
+        record_parent_edge(
+            scope,
+            caller["session"],
+            child["session"],
+            parent["presentation_name"],
+            child["presentation_name"],
+        )
+    except (json.JSONDecodeError, SnapshotError) as error:
+        print(f"herdr-resource-tree: parentage verification failed: {error}", file=sys.stderr)
+        return 1
+    except RegistryError as error:
+        print(f"herdr-resource-tree: parentage recording failed: {error}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "parent": {
+                    "presentation_name": parent["presentation_name"],
+                    "session": caller["session"],
+                },
+                "child": {
+                    "presentation_name": child["presentation_name"],
+                    "session": child["session"],
+                    "pane": pane["id"],
+                    "terminal": pane["terminal_id"],
+                },
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
+    return 0
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         prog="herdr-resource-tree",
@@ -801,7 +1245,15 @@ def parse_args(argv):
         action="store_true",
         help="show only resources created by the invoking agent session",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--context",
+        action="store_true",
+        help="emit bounded Agent resource context for a client adapter",
+    )
+    args = parser.parse_args(argv)
+    if args.context and args.json:
+        parser.error("--context cannot be combined with --json")
+    return args
 
 
 def main(argv):
@@ -810,6 +1262,8 @@ def main(argv):
             print("herdr wrapper: wrapper path is required", file=sys.stderr)
             return 127
         return wrapper_main(argv[1], argv[2:])
+    if argv and argv[0] == "record-child":
+        return record_child_main(argv[1:])
 
     args = parse_args(argv)
     try:
@@ -822,9 +1276,7 @@ def main(argv):
         return 1
 
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip()
-        if not detail:
-            detail = f"herdr exited with status {completed.returncode}"
+        detail = snapshot_failure_detail(completed)
         print(
             f"herdr-resource-tree: snapshot retrieval failed: {detail}",
             file=sys.stderr,
@@ -841,12 +1293,15 @@ def main(argv):
         return 1
 
     try:
-        apply_creator_edges(tree, load_creator_edges(server_scope()))
+        scope = server_scope()
+        apply_creator_edges(tree, load_creator_edges(scope))
+        parent_edges = load_parent_edges(scope)
+        apply_parent_edges(tree, parent_edges)
     except RegistryError as error:
         print(f"herdr-resource-tree: provenance lookup failed: {error}", file=sys.stderr)
         return 1
 
-    if args.branch:
+    if args.branch or args.context:
         try:
             caller = identify_caller("herdr")
         except (OSError, SnapshotError) as error:
@@ -861,9 +1316,23 @@ def main(argv):
                 file=sys.stderr,
             )
             return 1
-        tree = filter_creator_branch(tree, caller["session"])
+        try:
+            branch, creator_keys = build_branch(tree, caller["session"], parent_edges)
+            tree = filter_creator_branch(tree, creator_keys)
+            tree["branch"] = branch
+        except RegistryError as error:
+            print(f"herdr-resource-tree: parentage lookup failed: {error}", file=sys.stderr)
+            return 1
 
-    if args.json:
+    if args.context:
+        try:
+            context = render_context(tree, context_limit())
+        except ValueError as error:
+            print(f"herdr-resource-tree: context configuration failed: {error}", file=sys.stderr)
+            return 2
+        if context:
+            print(context)
+    elif args.json:
         print(json.dumps(tree, ensure_ascii=False, indent=2))
     else:
         print(render_human(tree))

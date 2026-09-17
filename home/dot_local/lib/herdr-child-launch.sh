@@ -12,7 +12,7 @@ start_child() {
   local supervision_timeout_set=0
   local pane="" list_json="" split_json="" parent_identity="" child_identity=""
   local parent_terminal="" parent_session="" child_terminal="" child_session=""
-  local verified_terminal="" pre_delay_session="" child_identity_status=0
+  local verified_terminal="" pre_delay_session="" child_session_json="" child_identity_status=0
   local launch_terminal="" occupied_names="" registered=0
   local baseline_json="" baseline_snapshot="" baseline_seq=""
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
@@ -260,10 +260,23 @@ EOF
   trap 'owned_launch_signal TERM' TERM
 
   if [ "$tab_mode" -eq 1 ]; then
-    split_json="$(herdr "${split_args[@]}")" || {
-      printf 'herdr-child: tab create failed\n' >&2
-      exit 1
-    }
+    local creation_status=0 partial_identity="" partial_pane="" partial_terminal="" partial_tab=""
+    set +e
+    split_json="$(herdr "${split_args[@]}")"
+    creation_status=$?
+    set -e
+    if [ "$creation_status" -ne 0 ]; then
+      partial_identity="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
+      if [ -n "$partial_identity" ]; then
+        IFS=$'\t' read -r partial_pane partial_terminal partial_tab <<< "$partial_identity"
+        printf '%s\n' "$split_json"
+        printf 'herdr-child: tab creation returned status %s after reporting pane %s terminal %s in tab %s; resources preserved and automatic creation retry is unsafe\n' \
+          "$creation_status" "$partial_pane" "$partial_terminal" "$partial_tab" >&2
+      else
+        printf 'herdr-child: tab create failed\n' >&2
+      fi
+      return "$creation_status"
+    fi
     hold_launch_barrier "${HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER:-}" test-capture-barrier-expired
     identity="$(printf '%s' "$split_json" | json_tab_identity)" || {
       preserved_tab="$(printf '%s' "$split_json" | json_created_tab_hint)"
@@ -274,10 +287,23 @@ EOF
     tab_note=" (tab $tab)"
     hold_launch_barrier "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" test-barrier-expired
   else
-    split_json="$(herdr "${split_args[@]}")" || {
-      printf 'herdr-child: pane split failed\n' >&2
-      exit 1
-    }
+    local creation_status=0 partial_identity="" partial_pane="" partial_terminal=""
+    set +e
+    split_json="$(herdr "${split_args[@]}")"
+    creation_status=$?
+    set -e
+    if [ "$creation_status" -ne 0 ]; then
+      partial_identity="$(printf '%s' "$split_json" | json_pane_identity 2>/dev/null || true)"
+      if [ -n "$partial_identity" ]; then
+        IFS=$'\t' read -r partial_pane partial_terminal <<< "$partial_identity"
+        printf '%s\n' "$split_json"
+        printf 'herdr-child: pane creation returned status %s after reporting pane %s terminal %s; resource preserved and automatic creation retry is unsafe\n' \
+          "$creation_status" "$partial_pane" "$partial_terminal" >&2
+      else
+        printf 'herdr-child: pane split failed\n' >&2
+      fi
+      return "$creation_status"
+    fi
     hold_launch_barrier "${HERDR_CHILD_TEST_SPLIT_CAPTURED_BARRIER:-}" test-capture-barrier-expired
     identity="$(printf '%s' "$split_json" | json_pane_identity)" || {
       printf 'herdr-child: pane split returned no pane and terminal identity; pane was preserved\n' >&2
@@ -435,12 +461,34 @@ EOF
       ;;
   esac
 
-  if [ "$mode" = detach ]; then
-    if [ -z "$child_session" ]; then
-      printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
-      cleanup_pane detached-session-validation || true
+  if [ "$mode" = detach ] && [ -z "$child_session" ]; then
+    printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
+    cleanup_pane detached-session-validation || true
+    return 1
+  fi
+
+  if [ -n "$parent_session" ]; then
+    child_session_json="$(printf '%s' "$list_json" | json_session_for_pair "$name" "$pane")" || {
+      printf 'herdr-child: verified child session could not be prepared for parentage recording; child preserved and automatic launch retry is unsafe\n' >&2
+      print_start_result "$name" "$pane" "$tab"
+      trap - HUP INT TERM
       return 1
+    }
+    local parentage_status=0 resource_tree_cli="${HERDR_RESOURCE_TREE_CLI:-herdr-resource-tree}"
+    set +e
+    "$resource_tree_cli" record-child --pane "$pane" --terminal "$launch_terminal" \
+      --child-name "$name" --child-session-json "$child_session_json" >/dev/null
+    parentage_status=$?
+    set -e
+    if [ "$parentage_status" -ne 0 ]; then
+      printf 'herdr-child: parentage recording failed after Agent start; child preserved and automatic launch retry is unsafe\n' >&2
+      print_start_result "$name" "$pane" "$tab"
+      trap - HUP INT TERM
+      return "$parentage_status"
     fi
+  fi
+
+  if [ "$mode" = detach ]; then
     baseline_json="$(herdr agent get "$pane")" || {
       printf 'herdr-child: child baseline state could not be read after agent start\n' >&2
       cleanup_pane detached-baseline-read || true

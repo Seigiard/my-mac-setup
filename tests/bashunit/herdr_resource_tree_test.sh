@@ -8,6 +8,7 @@ load 'helpers/common'
 
 TREE_CLI="$SOURCE_ROOT/dot_local/bin/executable_herdr-resource-tree"
 HERDR_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_herdr"
+HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
 
 setup() {
   TREE_WORK="$BATS_TEST_TMPDIR/resource-tree"
@@ -259,7 +260,7 @@ import json
 import sys
 
 tree = json.loads(sys.argv[1])
-assert tree["schema_version"] == 1
+assert tree["schema_version"] == 2
 assert tree["scope"] == {"kind": "local-herdr-server", "version": "0.9.0", "protocol": 22}
 assert [workspace["id"] for workspace in tree["workspaces"]] == ["w1", "w2"]
 assert [tab["id"] for tab in tree["workspaces"][0]["tabs"]] == ["w1:t1", "w1:t2"]
@@ -1364,6 +1365,366 @@ PY
   run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" workspace close "$TREE_LIVE_WORKSPACE"
   assert_success
   TREE_LIVE_WORKSPACE=""
+}
+
+function test_resource_tree_015_managed_parentage_drives_descendant_branches_without_claiming_occupants() {
+  _bats_test_init 15 'managed parentage drives descendant branches without claiming occupants'
+  tree_install_managed_creation_stub
+
+  cat > "$TREE_WORK/created-snapshot.json" <<'JSON'
+{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"workspaces":[{"workspace_id":"w1","number":1,"label":"Project"}],"tabs":[{"workspace_id":"w1","tab_id":"w1:t1","number":1,"label":"Agents"}],"panes":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pA","label":"parent","terminal_id":"term-A"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pB","label":"child-b","terminal_id":"term-B"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pC","label":"child-c","terminal_id":"term-C"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pD","label":"c-server","terminal_id":"term-D"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pS","label":"sibling","terminal_id":"term-S"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pX","label":"manual-occupant","terminal_id":"term-X"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pY","label":"unrelated-child","terminal_id":"term-Y"}],"agents":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pA","terminal_id":"term-A","agent":"claude","name":"agent-a","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-A"}},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pB","terminal_id":"term-B","agent":"opencode","name":"agent-b","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-B"}},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pC","terminal_id":"term-C","agent":"pi","name":"agent-c","agent_session":{"agent":"pi","kind":"id","source":"herdr:pi","value":"session-C"}},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pS","terminal_id":"term-S","agent":"claude","name":"agent-s","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-S"}},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pX","terminal_id":"term-X","agent":"opencode","name":"agent-x","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-X"}},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pY","terminal_id":"term-Y","agent":"claude","name":"agent-y","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-Y"}}]}}}
+JSON
+
+  local parent child pane terminal client child_client child_name child_session_json
+  while IFS=$'\t' read -r parent child pane terminal; do
+    case "$parent" in
+      A | S | Y) client=claude ;;
+      B | X) client=opencode ;;
+      C) client=pi ;;
+    esac
+    cat > "$TREE_WORK/caller.json" <<JSON
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p$parent","terminal_id":"term-$parent","agent":"$client","agent_session":{"agent":"$client","kind":"id","source":"herdr:$client","value":"session-$parent"}}}}
+JSON
+    cat > "$TREE_WORK/split.json" <<JSON
+{"id":"cli:pane:split","result":{"type":"pane_split","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"$pane","terminal_id":"$terminal","focused":false,"agent_status":"unknown","revision":1}}}
+JSON
+    run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane "w1:p$parent"
+    assert_success
+    if [ "$child" != - ]; then
+      case "$child" in
+        A | S | Y) child_client=claude ;;
+        B | X) child_client=opencode ;;
+        C) child_client=pi ;;
+      esac
+      child_name="agent-$(printf '%s' "$child" | tr '[:upper:]' '[:lower:]')"
+      child_session_json="{\"agent\":\"$child_client\",\"kind\":\"id\",\"source\":\"herdr:$child_client\",\"value\":\"session-$child\"}"
+      run tree_wrapper_fixture_run "$TREE_CLI" record-child \
+        --pane "$pane" --terminal "$terminal" \
+        --child-name "$child_name" --child-session-json "$child_session_json"
+      assert_success
+    fi
+  done <<'CASES'
+A	B	w1:pB	term-B
+A	S	w1:pS	term-S
+B	C	w1:pC	term-C
+C	-	w1:pD	term-D
+B	-	w1:pX	term-X
+X	Y	w1:pY	term-Y
+CASES
+
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pB","terminal_id":"term-B","agent":"opencode","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-B"}}}}
+JSON
+  run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  local branch_json="$output"
+  run python3 - "$branch_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert tree["schema_version"] == 2
+assert tree["branch"]["session"]["value"] == "session-B"
+assert tree["branch"]["parent"] == {
+    "presentation_name": "agent-a",
+    "session": {
+        "agent": "claude",
+        "kind": "id",
+        "source": "herdr:claude",
+        "value": "session-A",
+    },
+}
+assert [item["session"]["value"] for item in tree["branch"]["descendants"]] == ["session-C"]
+panes = {
+    pane["id"]: pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+}
+assert set(panes) == {"w1:pC", "w1:pD", "w1:pX"}
+assert panes["w1:pC"]["creator_session"]["value"] == "session-B"
+assert panes["w1:pD"]["creator_session"]["value"] == "session-C"
+assert panes["w1:pX"]["agent"]["presentation_name"] == "agent-x"
+assert panes["w1:pX"]["agent"]["parent_session"] is None
+PY
+  assert_success
+
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pA","terminal_id":"term-A","agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-A"}}}}
+JSON
+  run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  local ancestor_branch="$output"
+  run python3 - "$ancestor_branch" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert {item["session"]["value"] for item in tree["branch"]["descendants"]} == {
+    "session-B",
+    "session-C",
+    "session-S",
+}
+panes = {
+    pane["id"]
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+}
+assert panes == {"w1:pB", "w1:pC", "w1:pD", "w1:pS", "w1:pX"}
+PY
+  assert_success
+
+  run python3 - "$TREE_WORK/created-snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    envelope = json.load(handle)
+agents = envelope["result"]["snapshot"]["agents"]
+child = next(agent for agent in agents if agent["pane_id"] == "w1:pC")
+child.update(
+    agent="opencode",
+    name="replacement-z",
+    agent_session={
+        "agent": "opencode",
+        "kind": "id",
+        "source": "herdr:opencode",
+        "value": "session-Z",
+    },
+)
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(envelope, handle)
+PY
+  assert_success
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pB","terminal_id":"term-B","agent":"opencode","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-B"}}}}
+JSON
+  run tree_wrapper_fixture_run "$TREE_CLI" record-child \
+    --pane w1:pC --terminal term-C --child-name agent-c \
+    --child-session-json '{"agent":"pi","kind":"id","source":"herdr:pi","value":"session-C"}'
+  assert_failure
+  assert_output --partial 'launched child identity changed before parentage recording'
+  run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  local replacement_branch="$output"
+  run python3 - "$replacement_branch" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert [item["session"]["value"] for item in tree["branch"]["descendants"]] == ["session-C"]
+PY
+  assert_success
+
+  run tree_wrapper_fixture_run "$TREE_CLI" --context
+  assert_success
+  assert_output --partial 'Parent agent: "agent-a" [herdr:claude/id/session-A]'
+  assert_output --partial 'Descendant agent: "agent-c" [herdr:pi/id/session-C]'
+  assert_output --partial 'pane "child-c" [w1:pC] terminal=term-C creator=herdr:opencode/id/session-B'
+  assert_output --partial 'pane "c-server" [w1:pD] terminal=term-D creator=herdr:pi/id/session-C'
+  assert_output --partial 'pane "manual-occupant" [w1:pX] terminal=term-X creator=herdr:opencode/id/session-B'
+  refute_output --partial '"sibling"'
+  refute_output --partial '"unrelated-child"'
+
+  HERDR_RESOURCE_CONTEXT_MAX_CHARS=320 run tree_wrapper_fixture_run "$TREE_CLI" --context
+  assert_success
+  assert_output --partial 'Context truncated. Full branch: `herdr-resource-tree --branch`.'
+  run python3 - "$output" <<'PY'
+import sys
+
+assert len(sys.argv[1]) <= 320
+PY
+  assert_success
+
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pS","terminal_id":"term-S","agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-S"}}}}
+JSON
+  run tree_wrapper_fixture_run "$TREE_CLI" --context
+  assert_success
+  assert_output 'Parent agent: "agent-a" [herdr:claude/id/session-A]'
+  refute_output --partial 'Resources:'
+}
+
+function test_resource_tree_016_child_launcher_records_parentage_through_the_real_shared_service() {
+  _bats_test_init 16 'child launcher records parentage through the real shared service'
+  local front_bin="$TREE_WORK/front-bin" native_bin="$TREE_WORK/native-bin"
+  mkdir -p "$front_bin" "$native_bin"
+  cat > "$front_bin/herdr" <<'SH'
+#!/usr/bin/env bash
+exec "$TREE_WRAPPER" "$@"
+SH
+  cat > "$front_bin/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+exec "$TREE_RESOURCE_CLI" "$@"
+SH
+  chmod +x "$front_bin/herdr" "$front_bin/herdr-resource-tree"
+
+  cat > "$native_bin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%q ' "$@" >> "$TREE_CALLS"
+printf '\n' >> "$TREE_CALLS"
+session() {
+  local client="$1" value="$2"
+  printf '{"agent":"%s","kind":"id","source":"herdr:%s","value":"%s"}' "$client" "$client" "$value"
+}
+agent() {
+  local name="$1" client="$2" tab="$3" pane="$4" terminal="$5" value="$6"
+  printf '{"name":"%s","agent":"%s","workspace_id":"w1","tab_id":"%s","pane_id":"%s","terminal_id":"%s","revision":1,"state_change_seq":1,"agent_session":%s}' \
+    "$name" "$client" "$tab" "$pane" "$terminal" "$value"
+}
+parent_session="$(session claude session-A)"
+if [ "${TREE_MODE:-pane}" = tab ]; then
+  child_tab=w1:t2 child_pane=w1:pT child_terminal=term-T child_value=session-T
+else
+  child_tab=w1:t1 child_pane=w1:pB child_terminal=term-B child_value=session-B
+fi
+child_session="$(session opencode "$child_value")"
+started_file="$TREE_WORK/started-${TREE_MODE:-pane}"
+case "${1:-}:${2:-}" in
+  pane:current)
+    if [ "${TREE_CURRENT:-parent}" = child ]; then
+      printf '{"result":{"pane":{"workspace_id":"w1","tab_id":"%s","pane_id":"%s","terminal_id":"%s","agent":"opencode","agent_session":%s}}}\n' \
+        "$child_tab" "$child_pane" "$child_terminal" "$child_session"
+    else
+      printf '{"result":{"pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pA","terminal_id":"term-A","agent":"claude","agent_session":%s}}}\n' "$parent_session"
+    fi
+    ;;
+  agent:list)
+    parent="$(agent agent-a claude w1:t1 w1:pA term-A "$parent_session")"
+    if [ -f "$started_file" ]; then
+      child="$(agent "$(cat "$started_file")" opencode "$child_tab" "$child_pane" "$child_terminal" "$child_session")"
+      printf '{"result":{"agents":[%s,%s]}}\n' "$parent" "$child"
+    else
+      printf '{"result":{"agents":[%s]}}\n' "$parent"
+    fi
+    ;;
+  pane:split)
+    printf '{"result":{"pane":{"workspace_id":"w1","tab_id":"%s","pane_id":"%s","terminal_id":"%s"}}}\n' \
+      "$child_tab" "$child_pane" "$child_terminal"
+    ;;
+  tab:create)
+    printf '{"result":{"tab":{"workspace_id":"w1","tab_id":"%s"},"root_pane":{"workspace_id":"w1","tab_id":"%s","pane_id":"%s","terminal_id":"%s"}}}\n' \
+      "$child_tab" "$child_tab" "$child_pane" "$child_terminal"
+    ;;
+  agent:start)
+    printf '%s' "$3" > "$started_file"
+    printf '{"result":{"agent":{"interactive_ready":true}}}\n'
+    ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"%s","agent_session":%s}}}\n' \
+      "$child_pane" "$child_terminal" "$child_session"
+    ;;
+  pane:report-metadata)
+    printf '{"result":{"type":"pane_metadata_reported"}}\n'
+    ;;
+  agent:prompt)
+    printf '{"result":{"agent":{"agent_status":"idle"}}}\n'
+    ;;
+  api:snapshot)
+    agents="$(agent agent-a claude w1:t1 w1:pA term-A "$parent_session")"
+    tabs='{"workspace_id":"w1","tab_id":"w1:t1","number":1,"label":"Agents"}'
+    if [ "${TREE_MODE:-pane}" = tab ]; then
+      tabs="$tabs,{\"workspace_id\":\"w1\",\"tab_id\":\"w1:t2\",\"number\":2,\"label\":\"Child\"}"
+    fi
+    if [ -f "$started_file" ]; then
+      child="$(agent "$(cat "$started_file")" opencode "$child_tab" "$child_pane" "$child_terminal" "$child_session")"
+      agents="$agents,$child"
+    fi
+    printf '{"result":{"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"workspaces":[{"workspace_id":"w1","number":1,"label":"Project"}],"tabs":[%s],"panes":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pA","label":"parent","terminal_id":"term-A"},{"workspace_id":"w1","tab_id":"%s","pane_id":"%s","label":"managed-child","terminal_id":"%s"}],"agents":[%s]}}}\n' \
+      "$tabs" "$child_tab" "$child_pane" "$child_terminal" "$agents"
+    ;;
+  *) exit 64 ;;
+esac
+SH
+  chmod +x "$native_bin/herdr"
+
+  run env PATH="$front_bin:$native_bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:pA \
+    HERDR_BIN_PATH="$native_bin/herdr" HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-state" \
+    HERDR_RESOURCE_TREE_CLI="$front_bin/herdr-resource-tree" \
+    HERDR_CHILD_STATE_DIR="$TREE_WORK/child-state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_ALIAS_TEST_SEED=resource-tree TREE_WRAPPER="$HERDR_WRAPPER" \
+    TREE_RESOURCE_CLI="$TREE_CLI" TREE_WORK="$TREE_WORK" TREE_CALLS="$TREE_CALLS" \
+    bash "$HERDR_CHILD" start --kind opencode --wait --prompt 'test task'
+  assert_success
+  assert_output --partial '"pane":"w1:pB"'
+
+  run env PATH="$front_bin:$native_bin:$PATH" HERDR_BIN_PATH="$native_bin/herdr" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-state" \
+    TREE_WRAPPER="$HERDR_WRAPPER" TREE_RESOURCE_CLI="$TREE_CLI" \
+    TREE_WORK="$TREE_WORK" TREE_CALLS="$TREE_CALLS" "$TREE_CLI" --branch --json
+  assert_success
+  local parent_branch="$output"
+  run python3 - "$parent_branch" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert [item["session"]["value"] for item in tree["branch"]["descendants"]] == ["session-B"]
+pane = tree["workspaces"][0]["tabs"][0]["panes"][0]
+assert pane["id"] == "w1:pB"
+assert pane["creator_session"]["value"] == "session-A"
+assert pane["agent"]["parent_session"]["value"] == "session-A"
+PY
+  assert_success
+
+  run env PATH="$front_bin:$native_bin:$PATH" HERDR_BIN_PATH="$native_bin/herdr" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" TREE_CURRENT=child \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-state" \
+    TREE_WRAPPER="$HERDR_WRAPPER" TREE_RESOURCE_CLI="$TREE_CLI" \
+    TREE_WORK="$TREE_WORK" TREE_CALLS="$TREE_CALLS" "$TREE_CLI" --branch --json
+  assert_success
+  local child_branch="$output"
+  run python3 - "$child_branch" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert tree["workspaces"] == []
+assert tree["branch"]["session"]["value"] == "session-B"
+assert tree["branch"]["parent"]["presentation_name"] == "agent-a"
+assert tree["branch"]["parent"]["session"]["value"] == "session-A"
+PY
+  assert_success
+
+  run env PATH="$front_bin:$native_bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:pA \
+    HERDR_WORKSPACE_ID=w1 HERDR_BIN_PATH="$native_bin/herdr" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" TREE_MODE=tab \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-tab-state" \
+    HERDR_RESOURCE_TREE_CLI="$front_bin/herdr-resource-tree" \
+    HERDR_CHILD_STATE_DIR="$TREE_WORK/child-tab-state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_ALIAS_TEST_SEED=resource-tree-tab TREE_WRAPPER="$HERDR_WRAPPER" \
+    TREE_RESOURCE_CLI="$TREE_CLI" TREE_WORK="$TREE_WORK" TREE_CALLS="$TREE_CALLS" \
+    bash "$HERDR_CHILD" start --kind opencode --tab --wait --prompt 'test tab task'
+  assert_success
+  assert_output --partial '"pane":"w1:pT"'
+  assert_output --partial '"tab":"w1:t2"'
+
+  run env PATH="$front_bin:$native_bin:$PATH" HERDR_BIN_PATH="$native_bin/herdr" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" TREE_MODE=tab \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-tab-state" \
+    TREE_WRAPPER="$HERDR_WRAPPER" TREE_RESOURCE_CLI="$TREE_CLI" \
+    TREE_WORK="$TREE_WORK" TREE_CALLS="$TREE_CALLS" "$TREE_CLI" --branch --json
+  assert_success
+  local tab_branch="$output"
+  run python3 - "$tab_branch" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert [item["session"]["value"] for item in tree["branch"]["descendants"]] == ["session-T"]
+tab = tree["workspaces"][0]["tabs"][0]
+assert tab["id"] == "w1:t2"
+assert tab["creator_session"]["value"] == "session-A"
+assert [pane["id"] for pane in tab["panes"]] == ["w1:pT"]
+assert tab["panes"][0]["creator_session"]["value"] == "session-A"
+assert tab["panes"][0]["agent"]["parent_session"]["value"] == "session-A"
+PY
+  assert_success
 }
 
 function tear_down_after_script() {

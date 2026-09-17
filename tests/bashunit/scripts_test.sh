@@ -2689,7 +2689,8 @@ case "${1:-} ${2:-}" in
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
-    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n' ;;
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'
+    exit "${STUB_SPLIT_STATUS:-0}" ;;
   "tab create")
     [ "${STUB_TAB_CREATE_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
@@ -2699,7 +2700,8 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":""},"tab":{"tab_id":"wT:tA"}}}\n'
     else
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}\n'
-    fi ;;
+    fi
+    exit "${STUB_TAB_CREATE_STATUS:-0}" ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -2796,6 +2798,17 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+printf '%q ' "$@" >> "$CHILD_STUB/resource-tree.log"
+printf '\n' >> "$CHILD_STUB/resource-tree.log"
+[ "${STUB_PARENTAGE_FAIL:-0}" != 1 ] || {
+  printf 'injected parentage failure\n' >&2
+  exit 75
+}
+printf '{"parent":{"presentation_name":"parent"},"child":{"presentation_name":"child"}}\n'
+SH
+  chmod +x "$CHILD_STUB/herdr-resource-tree"
   cat > "$CHILD_STUB/ps" <<'SH'
 #!/usr/bin/env bash
 if [ -f "$CHILD_STUB/fail-ps" ]; then
@@ -3324,8 +3337,40 @@ function test_scripts_026_herdr_child_attached_mode_starts_no_watcher() {
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_LAUNCH_MODE=wait'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_TERMINAL=term-parent'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_SESSION=parent-session'
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
   run grep -q 'supervised' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1240_herdr_child_preserves_a_verified_child_when_parentage_recording_fails() {
+  _bats_test_init 1240 'herdr-child preserves a verified child when parentage recording fails'
+  child_stub_herdr
+
+  STUB_PARENTAGE_FAIL=1 run child_start --kind claude --wait
+  assert_failure 75
+  assert_output --partial 'injected parentage failure'
+  assert_output --partial 'parentage recording failed after Agent start'
+  assert_output --partial 'child preserved'
+  assert_output --partial 'automatic launch retry is unsafe'
+  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+  run grep -Eq '^(pane close|agent prompt)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_1241_herdr_child_preserves_a_wrapper_partial_success_without_retrying() {
+  _bats_test_init 1241 'herdr-child preserves a wrapper partial success without retrying'
+  child_stub_herdr
+
+  STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'pane creation returned status 70 after reporting pane wT:p9'
+  assert_output --partial 'automatic creation retry is unsafe'
+  run grep -Ec '^(pane split|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output '1'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
@@ -3337,6 +3382,16 @@ function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
   assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
   run grep -Eq '^(pane split|agent start|agent prompt|pane report-metadata)' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1242_herdr_child_attached_mode_keeps_unknown_parent_launches_usable() {
+  _bats_test_init 1242 'herdr-child attached mode keeps unknown-parent launches usable'
+  child_stub_herdr
+
+  STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --wait
+  assert_success
+  assert_output --partial '"pane":"wT:p9"'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_028_herdr_child_detached_mode_closes_only_its_new_pa() {
@@ -4828,6 +4883,7 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   [[ "$call5" == agent\ list* ]] || fail "unexpected fifth tab-mode call: $call5"
   [[ "$call6" == pane\ get*wT:p9* ]] || fail "unexpected sixth tab-mode call: $call6"
   [[ "$call7" == agent\ prompt*--wait* ]] || fail "unexpected seventh tab-mode call: $call7"
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
 }
 
 function test_scripts_066_herdr_child_tab_launch_signal_closes_a_parsed_cr() {
@@ -4974,6 +5030,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
   assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent-tab.*child-tab=wT:tA'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent.*child_mode=detach'
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
 }
 
 function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
@@ -4985,6 +5042,22 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_output --partial "tab wT:tA was preserved"
   run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_success_without_retrying() {
+  _bats_test_init 1243 'herdr-child tab mode preserves wrapper partial success without retrying'
+  child_stub_herdr
+
+  STUB_TAB_CREATE_STATUS=70 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'tab creation returned status 70 after reporting pane wT:p9'
+  assert_output --partial 'automatic creation retry is unsafe'
+  run grep -Ec '^(tab create|pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output '1'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_0681_herdr_child_tab_mode_cleans_owned_pane_on_repor() {

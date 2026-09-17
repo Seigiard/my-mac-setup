@@ -69,6 +69,12 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$stub/herdr"
+  cat > "$stub/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = record-child ] || exit 2
+printf '{"parent":{"presentation_name":"parent"},"child":{"presentation_name":"child"}}\n'
+SH
+  chmod +x "$stub/herdr-resource-tree"
 
   run env HCD_WORK="$work" HCD_STUB="$stub" HCD_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child" \
     TMPDIR="$work/tmp" \
