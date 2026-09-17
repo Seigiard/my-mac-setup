@@ -29,7 +29,7 @@ class CapturedCommandTimeout(TimeoutError):
         self.stderr = stderr
 
 
-class CreatedPaneError(SnapshotError):
+class CreatedResourcesError(SnapshotError):
     def __init__(self, message, coordinates):
         super().__init__(message)
         self.coordinates = coordinates
@@ -141,10 +141,21 @@ def connect_registry(create):
                 pane_id TEXT,
                 terminal_id TEXT,
                 workspace_id TEXT,
-                tab_id TEXT
+                tab_id TEXT,
+                workspace_created INTEGER NOT NULL DEFAULT 0,
+                tab_created INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(operations)")
+        }
+        for column in ("workspace_created", "tab_created"):
+            if column not in columns:
+                connection.execute(
+                    f"ALTER TABLE operations ADD COLUMN {column} "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS operations_creator_lookup
@@ -200,7 +211,7 @@ def record_native_failure(operation_id, exit_status):
         connection.close()
 
 
-def finalize_operation(operation_id, pane):
+def finalize_operation(operation_id, resources):
     if os.environ.get("HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE") == "1":
         raise RegistryError("injected finalization failure")
     connection = connect_registry(create=True)
@@ -210,14 +221,17 @@ def finalize_operation(operation_id, pane):
                 """
                 UPDATE operations
                 SET status = 'finalized', pane_id = ?, terminal_id = ?,
-                    workspace_id = ?, tab_id = ?
+                    workspace_id = ?, tab_id = ?, workspace_created = ?,
+                    tab_created = ?
                 WHERE operation_id = ? AND status = 'intent-recorded'
                 """,
                 (
-                    pane["pane_id"],
-                    pane["terminal_id"],
-                    pane["workspace_id"],
-                    pane["tab_id"],
+                    resources["pane_id"],
+                    resources["terminal_id"],
+                    resources["workspace_id"],
+                    resources["tab_id"],
+                    resources["workspace_created"],
+                    resources["tab_created"],
                     operation_id,
                 ),
             )
@@ -267,26 +281,80 @@ def identify_caller(original):
     return parse_current_caller(completed.stdout)
 
 
-def parse_created_pane(stdout):
+def parse_created_resources(stdout, creation_kind):
     try:
         envelope = json.loads(stdout)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SnapshotError(f"native success response is not valid JSON: {error}") from error
     result = envelope.get("result") if isinstance(envelope, dict) else None
-    pane = result.get("pane") if isinstance(result, dict) else None
-    if not isinstance(pane, dict):
-        raise SnapshotError("native success response has no result.pane object")
+    if not isinstance(result, dict):
+        raise SnapshotError("native success response has no result object")
+
     coordinates = {}
     first_error = None
+
+    if creation_kind == "workspace":
+        workspace = result.get("workspace")
+        if not isinstance(workspace, dict):
+            first_error = SnapshotError(
+                "native success response has no result.workspace object"
+            )
+        else:
+            try:
+                coordinates["workspace_id"] = required_string(
+                    workspace.get("workspace_id"), "created workspace workspace_id"
+                )
+            except SnapshotError as error:
+                first_error = error
+
+    if creation_kind in ("tab", "workspace"):
+        tab = result.get("tab")
+        if not isinstance(tab, dict):
+            if first_error is None:
+                first_error = SnapshotError(
+                    "native success response has no result.tab object"
+                )
+        else:
+            for key in ("workspace_id", "tab_id"):
+                try:
+                    value = required_string(tab.get(key), f"created tab {key}")
+                    existing = coordinates.get(key)
+                    if existing is not None and existing != value:
+                        raise SnapshotError(
+                            f"created tab {key} does not match returned container"
+                        )
+                    coordinates[key] = value
+                except SnapshotError as error:
+                    if first_error is None:
+                        first_error = error
+
+    pane_key = "pane" if creation_kind == "pane" else "root_pane"
+    pane = result.get(pane_key)
+    if not isinstance(pane, dict):
+        if first_error is None:
+            first_error = SnapshotError(
+                f"native success response has no result.{pane_key} object"
+            )
+        pane = {}
     for key in ("pane_id", "terminal_id", "workspace_id", "tab_id"):
         try:
-            coordinates[key] = required_string(pane.get(key), f"created pane {key}")
+            value = required_string(pane.get(key), f"created pane {key}")
+            existing = coordinates.get(key)
+            if existing is not None and existing != value:
+                raise SnapshotError(
+                    f"created pane {key} does not match returned container"
+                )
+            coordinates[key] = value
         except SnapshotError as error:
             if first_error is None:
                 first_error = error
     if first_error is not None:
-        raise CreatedPaneError(str(first_error), coordinates) from first_error
-    return coordinates
+        raise CreatedResourcesError(str(first_error), coordinates) from first_error
+    return {
+        **coordinates,
+        "workspace_created": int(creation_kind == "workspace"),
+        "tab_created": int(creation_kind in ("tab", "workspace")),
+    }
 
 
 def write_native_output(completed):
@@ -296,13 +364,15 @@ def write_native_output(completed):
     sys.stderr.buffer.flush()
 
 
-def report_untracked_creation(operation_id, pane, detail):
+def report_untracked_creation(operation_id, resources, detail):
     coordinates = ""
-    if pane:
-        coordinates = " " + " ".join(f"{key}={value}" for key, value in pane.items())
+    if resources:
+        coordinates = " " + " ".join(
+            f"{key}={value}" for key, value in resources.items()
+        )
     print(
         f"herdr wrapper: creation operation {operation_id}{coordinates} succeeded, "
-        f"but provenance finalization failed: {detail}; the resource remains open "
+        f"but provenance finalization failed: {detail}; created resources remain open "
         "and automatic creation retry is unsafe; do not retry creation",
         file=sys.stderr,
     )
@@ -317,7 +387,7 @@ def report_uncertain_creation(operation_id, detail):
     )
 
 
-def managed_split(original, argv, caller):
+def managed_creation(original, argv, caller, creation_kind):
     operation_id = str(uuid.uuid4())
     try:
         scope = server_scope()
@@ -355,16 +425,16 @@ def managed_split(original, argv, caller):
             return 128 - completed.returncode
         return completed.returncode
 
-    pane = None
+    resources = None
     try:
-        pane = parse_created_pane(completed.stdout)
-        finalize_operation(operation_id, pane)
-    except CreatedPaneError as error:
-        pane = error.coordinates
-        report_untracked_creation(operation_id, pane, error)
+        resources = parse_created_resources(completed.stdout, creation_kind)
+        finalize_operation(operation_id, resources)
+    except CreatedResourcesError as error:
+        resources = error.coordinates
+        report_untracked_creation(operation_id, resources, error)
         return 70
     except (SnapshotError, RegistryError) as error:
-        report_untracked_creation(operation_id, pane, error)
+        report_untracked_creation(operation_id, resources, error)
         return 70
     return 0
 
@@ -375,7 +445,12 @@ def wrapper_main(wrapper_path, argv):
     except OSError as error:
         print(f"herdr wrapper: {error}", file=sys.stderr)
         return 127
-    if argv[:2] == ["pane", "split"] and not any(
+    creation_kind = {
+        ("pane", "split"): "pane",
+        ("tab", "create"): "tab",
+        ("workspace", "create"): "workspace",
+    }.get(tuple(argv[:2]))
+    if creation_kind is not None and not any(
         argument in ("-h", "--help") for argument in argv[2:]
     ):
         try:
@@ -388,7 +463,7 @@ def wrapper_main(wrapper_path, argv):
             )
             return 69
         if caller is not None:
-            return managed_split(original, argv, caller)
+            return managed_creation(original, argv, caller, creation_kind)
     os.execv(original, [original, *argv])
 
 
@@ -564,11 +639,12 @@ def normalize_snapshot(envelope):
 def load_creator_edges(scope):
     connection = connect_registry(create=False)
     if connection is None:
-        return {}
+        return {"workspaces": {}, "tabs": {}, "panes": {}}
     try:
         rows = connection.execute(
             """
-            SELECT pane_id, terminal_id, caller_session
+            SELECT workspace_id, tab_id, pane_id, terminal_id,
+                   workspace_created, tab_created, caller_session
             FROM operations
             WHERE server_scope = ? AND status = 'finalized'
             """,
@@ -579,8 +655,16 @@ def load_creator_edges(scope):
     finally:
         connection.close()
 
-    edges = {}
-    for pane_id, terminal_id, encoded_session in rows:
+    edges = {"workspaces": {}, "tabs": {}, "panes": {}}
+    for (
+        workspace_id,
+        tab_id,
+        pane_id,
+        terminal_id,
+        workspace_created,
+        tab_created,
+        encoded_session,
+    ) in rows:
         try:
             session = normalize_session(
                 json.loads(encoded_session),
@@ -588,20 +672,25 @@ def load_creator_edges(scope):
             )
         except (json.JSONDecodeError, SnapshotError) as error:
             raise RegistryError(str(error)) from error
-        key = (pane_id, terminal_id)
-        if key in edges and edges[key] != session:
-            raise RegistryError(
-                f"conflicting creator records for pane {pane_id!r} terminal {terminal_id!r}"
-            )
-        edges[key] = session
+        resource_keys = [("panes", (pane_id, terminal_id))]
+        if workspace_created:
+            resource_keys.append(("workspaces", workspace_id))
+        if tab_created:
+            resource_keys.append(("tabs", tab_id))
+        for kind, key in resource_keys:
+            if key in edges[kind] and edges[kind][key] != session:
+                raise RegistryError(f"conflicting creator records for {kind[:-1]} {key!r}")
+            edges[kind][key] = session
     return edges
 
 
 def apply_creator_edges(tree, edges):
     for workspace in tree["workspaces"]:
+        workspace["creator_session"] = edges["workspaces"].get(workspace["id"])
         for tab in workspace["tabs"]:
+            tab["creator_session"] = edges["tabs"].get(tab["id"])
             for pane in tab["panes"]:
-                pane["creator_session"] = edges.get(
+                pane["creator_session"] = edges["panes"].get(
                     (pane["id"], pane["terminal_id"])
                 )
 
@@ -614,9 +703,9 @@ def filter_creator_branch(tree, session):
             panes = [
                 pane for pane in tab["panes"] if pane["creator_session"] == session
             ]
-            if panes:
+            if tab["creator_session"] == session or panes:
                 tabs.append({**tab, "panes": panes})
-        if tabs:
+        if workspace["creator_session"] == session or tabs:
             workspaces.append({**workspace, "tabs": tabs})
     return {**tree, "workspaces": workspaces}
 
@@ -646,10 +735,10 @@ def render_human(tree):
 
     for workspace in tree["workspaces"]:
         lines.append(f"workspace {display_label(workspace['label'])} [{workspace['id']}]")
-        lines.append("  creator: unknown")
+        lines.append(f"  creator: {display_session(workspace['creator_session'])}")
         for tab in workspace["tabs"]:
             lines.append(f"  tab {display_label(tab['label'])} [{tab['id']}]")
-            lines.append("    creator: unknown")
+            lines.append(f"    creator: {display_session(tab['creator_session'])}")
             for pane in tab["panes"]:
                 lines.append(f"    pane {display_label(pane['label'])} [{pane['id']}]")
                 lines.append(f"      terminal: {pane['terminal_id']}")
@@ -710,7 +799,7 @@ def parse_args(argv):
     parser.add_argument(
         "--branch",
         action="store_true",
-        help="show only panes created by the invoking agent session",
+        help="show only resources created by the invoking agent session",
     )
     return parser.parse_args(argv)
 
