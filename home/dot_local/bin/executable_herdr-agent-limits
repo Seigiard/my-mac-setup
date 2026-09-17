@@ -8,6 +8,12 @@
 set -u
 HOME="${HOME:-$(cd ~ && pwd)}"
 
+CODEX_CACHE="$HOME/.cache/codex-rate-limits/latest.json"
+# The tab bar redraws every 60s and the backend read costs ~0.7s, so the render
+# never waits on it: it prints the cache and refreshes behind the redraw.
+CODEX_MAX_AGE="${CODEX_LIMITS_MAX_AGE:-60}"
+CODEX_RPC_TIMEOUT="${CODEX_LIMITS_RPC_TIMEOUT:-20}"
+
 claude_part() {
     # The live source is the cache the status line writes from Claude Code's
     # own payload. ~/.claude/.claude.json holds the same shape but refreshes on
@@ -86,13 +92,115 @@ if parts:
 PY
 }
 
+# Codex's rollouts carry a `rate_limits` block, but only for turns codex itself
+# ran: opencode drives the same ChatGPT account against the same backend and
+# writes nothing, so a file-derived figure reports the account as idle while the
+# window is being spent. The account is what the backend knows, so ask it — the
+# app-server's `account/rateLimits/read` reads usage without starting a turn.
+codex_refresh() {
+    local dir lock
+    dir="${CODEX_CACHE%/*}"
+    lock="$dir/refresh.lock"
+    mkdir -p "$dir" || return 0
+    # A killed refresh leaves its lock behind; 2 minutes is far past the ~1s
+    # call, so a lock that old is debris rather than a peer still working.
+    if [ -d "$lock" ] && [ -z "$(find "$lock" -maxdepth 0 -mmin -2 2>/dev/null)" ]; then
+        rmdir "$lock" 2>/dev/null
+    fi
+    # mkdir is the atomic test-and-set: a tab bar redrawing every 60s must not
+    # pile refreshes up behind one slow call.
+    mkdir "$lock" 2>/dev/null || return 0
+    trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+    python3 - "$CODEX_CACHE" "$CODEX_RPC_TIMEOUT" <<'PY'
+import json, os, subprocess, sys, threading, time
+
+cache, timeout = sys.argv[1], float(sys.argv[2])
+
+try:
+    p = subprocess.Popen(
+        ["codex", "app-server"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, bufsize=1,
+    )
+except Exception:
+    sys.exit(0)
+
+# codex app-server speaks newline-delimited JSON-RPC and answers a request only
+# after `initialize`. `excludeResetCreditDetails` skips the per-credit lookup;
+# the bar shows the count, not the rows.
+def send(obj):
+    p.stdin.write(json.dumps(obj) + "\n")
+    p.stdin.flush()
+
+result = {}
+def pump():
+    for line in p.stdout:
+        try:
+            msg = json.loads(line)
+        except Exception:
+            continue
+        if msg.get("id") == 2:
+            result["value"] = msg.get("result")
+            return
+
+try:
+    send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+          "params": {"clientInfo": {"name": "herdr-agent-limits", "version": "1"}}})
+    send({"jsonrpc": "2.0", "method": "initialized"})
+    send({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read",
+          "params": {"excludeResetCreditDetails": True}})
+    t = threading.Thread(target=pump, daemon=True)
+    t.start()
+    t.join(timeout)
+except Exception:
+    pass
+finally:
+    p.kill()
+
+res = result.get("value")
+if not isinstance(res, dict):
+    sys.exit(0)
+rl = res.get("rateLimits") or {}
+
+windows = []
+for slot in ("primary", "secondary"):
+    w = rl.get(slot) or {}
+    if w.get("usedPercent") is None:
+        continue
+    windows.append({
+        "used_percent": w["usedPercent"],
+        "window_minutes": w.get("windowDurationMins"),
+        "resets_at": w.get("resetsAt"),
+    })
+
+# The display reads this file and formats it; nothing here is left for it to
+# interpret, so a cache written by an older version cannot change what a newer
+# bar means by a field.
+out = {
+    "fetched_at": int(time.time()),
+    "windows": windows,
+    # Spend control and depleted credits block the account while every window
+    # still reads below 100%, so the bar cannot infer this from a percentage.
+    "blocked": res.get("ordinaryUsageAllowed") is False,
+    "reset_credits": ((res.get("rateLimitResetCredits") or {}).get("availableCount") or 0),
+}
+tmp = cache + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(out, fh)
+os.replace(tmp, cache)
+PY
+}
+
 codex_part() {
-    local f
-    f=$(find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -type f -print0 2>/dev/null |
-        xargs -0 -r ls -t 2>/dev/null | head -1)
-    [ -n "${f:-}" ] || return 0
-    python3 - "$f" <<'PY'
+    # Without codex there is no way to ask, and a bar segment that cannot be
+    # refreshed is worse than an absent one.
+    command -v codex >/dev/null 2>&1 || return 0
+    local out status
+    out=$(python3 - "$CODEX_CACHE" "$CODEX_MAX_AGE" <<'PY'
 import json, sys, time
+
+STALE_EXIT = 10
 
 def fmt_reset(ts):
     left = ts - time.time()
@@ -108,58 +216,64 @@ def fmt_reset(ts):
 EXHAUSTED = "\ueabd"
 
 def fmt_pct(pct):
-    # A window at 100% is spent, and "100%" alone reads like a stuck gauge
-    # rather than a state, so it gets a marker. Rounding is the trap here:
-    # 99.6 would round to 100 and claim an exhaustion that has not happened,
-    # so only a real 100 is marked and everything below it caps at 99.
+    # Same rule as the Claude side: only a real 100 is marked as spent, and
+    # everything below it caps at 99 so rounding cannot invent an exhaustion.
     if pct >= 100:
         return f"{EXHAUSTED}100%"
     return f"{min(round(pct), 99)}%"
 
-def find_rate_limits(obj):
-    stack, found = [obj], None
-    while stack:
-        cur = stack.pop()
-        if isinstance(cur, dict):
-            rl = cur.get("rate_limits")
-            if isinstance(rl, dict):
-                found = rl
-            stack.extend(cur.values())
-        elif isinstance(cur, list):
-            stack.extend(cur)
-    return found
+cache, max_age = sys.argv[1], float(sys.argv[2])
+try:
+    d = json.load(open(cache))
+except Exception:
+    # Nothing to print yet; the caller fills the cache for the next redraw.
+    sys.exit(STALE_EXIT)
 
-# Codex appends rate_limits to token_count events, so the last one is current.
-last = None
-for line in open(sys.argv[1], errors="replace"):
-    if '"rate_limits"' not in line:
-        continue
-    try:
-        found = find_rate_limits(json.loads(line))
-    except Exception:
-        continue
-    if found:
-        last = found
-if not last:
-    sys.exit(0)
-
+age = time.time() - (d.get("fetched_at") or 0)
 out = []
-for slot in ("primary", "secondary"):
-    w = last.get(slot) or {}
-    if w.get("used_percent") is None:
-        continue
+for w in d.get("windows") or []:
     mins = w.get("window_minutes") or 0
     label = f"{mins // 1440}d" if mins >= 1440 else f"{mins // 60}h"
-    # Codex only writes while it runs, so a finished window means the rollout
-    # is older than the window it describes and the percentage is meaningless.
+    # A window whose reset has passed describes a period that is over.
     r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
     if w.get("resets_at") and r is None:
         continue
     out.append(f"{label} {fmt_pct(w['used_percent'])}" + (f" {r}" if r else ""))
+
 if out:
-    print("cx " + " · ".join(out))
+    # Blocked while nothing reads 100% means the stop came from spend control
+    # or depleted credits, which no percentage in the line would reveal.
+    head = EXHAUSTED if d.get("blocked") and not any("100%" in p for p in out) else ""
+    # Refreshes run every minute, so this only appears once they are failing —
+    # offline, or logged out. Say the number is old rather than imply it is now.
+    # It qualifies the figures, so it hangs off the last one rather than
+    # standing as its own segment, and lands before the credit count.
+    if age >= 600:
+        out[-1] += f" ({int(age // 60)}m old)" if age < 5400 else f" ({int(age // 3600)}h old)"
+    # Reset credits buy back a spent window, so the bar says how many are in
+    # hand: at 100% they are the difference between waiting and carrying on.
+    credits = d.get("reset_credits") or 0
+    if credits:
+        out.append(f"r{credits}")
+    print(f"cx {head}" + " · ".join(out))
+
+sys.exit(STALE_EXIT if age >= max_age else 0)
 PY
+    )
+    status=$?
+    [ -n "$out" ] && printf '%s\n' "$out"
+    # Refresh after printing: the bar shows what is known now, and the backend
+    # read lands in time for the next redraw.
+    if [ "$status" -eq 10 ]; then
+        (codex_refresh >/dev/null 2>&1 &) 2>/dev/null
+    fi
+    return 0
 }
+
+if [ "${1:-}" = "--refresh-codex" ]; then
+    codex_refresh
+    exit 0
+fi
 
 parts=()
 c=$(claude_part) && [ -n "$c" ] && parts+=("$c")

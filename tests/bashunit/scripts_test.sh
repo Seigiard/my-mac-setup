@@ -11669,11 +11669,31 @@ AGENT_LIMITS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-limits"
 agent_limits_fixture() {
   local home="$1" cc_reset="$2" cx_reset="$3" now
   now="$(date +%s)"
-  mkdir -p "$home/.cache/claude-rate-limits" "$home/.codex/sessions/2026/09/17"
+  mkdir -p "$home/.cache/claude-rate-limits" "$home/.cache/codex-rate-limits" "$home/bin"
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":3,"resets_at":%s}}' \
     "$now" "$((now + cc_reset))" > "$home/.cache/claude-rate-limits/latest.json"
-  printf '{"payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":15,"window_minutes":10080,"resets_at":%s}}}}\n' \
-    "$((now + cx_reset))" > "$home/.codex/sessions/2026/09/17/rollout-fixture.jsonl"
+  codex_limits_cache "$home" 15 "$((now + cx_reset))" false 0 "$now"
+  # The codex segment is offered only where codex could refresh it. The display
+  # path reads the cache and never runs the binary, so presence is all a
+  # display fixture needs; test 27209 exercises the refresh against the real one.
+  printf '#!/bin/sh\nexit 0\n' > "$home/bin/codex"
+  chmod +x "$home/bin/codex"
+}
+
+# The cache the refresh writes and the bar reads, as a single window.
+codex_limits_cache() {
+  local home="$1" pct="$2" resets_at="$3" blocked="$4" credits="$5" fetched_at="$6"
+  mkdir -p "$home/.cache/codex-rate-limits"
+  printf '{"fetched_at":%s,"windows":[{"used_percent":%s,"window_minutes":10080,"resets_at":%s}],"blocked":%s,"reset_credits":%s}' \
+    "$fetched_at" "$pct" "$resets_at" "$blocked" "$credits" \
+    > "$home/.cache/codex-rate-limits/latest.json"
+}
+
+# A hermetic PATH: the fixture's codex, plus enough to resolve python3. The
+# outer PATH stays out so a developer's real codex cannot answer for the stub.
+agent_limits_run() {
+  local home="$1"
+  run env -i HOME="$home" PATH="$home/bin:/usr/bin:/bin" bash "$AGENT_LIMITS_SCRIPT"
 }
 
 function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() {
@@ -11684,7 +11704,7 @@ function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() 
   agent_limits_fixture "$home" 3600 86400
 
   # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  agent_limits_run "$home"
 
   # #then each provider contributes its live window
   assert_success
@@ -11695,7 +11715,7 @@ function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() 
   agent_limits_fixture "$home" -3600 -86400
 
   # #when the status entry runs again
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  agent_limits_run "$home"
 
   # #then neither percentage is shown: a finished window describes a period
   # that is over, and a stale number in a status bar misleads silently
@@ -11717,7 +11737,7 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
     "$(((now - 604800) * 1000))" > "$home/.claude/.claude.json"
 
   # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  agent_limits_run "$home"
 
   # #then the live figure wins and the stale one never reaches the bar
   assert_success
@@ -11728,7 +11748,7 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
   rm -f "$home/.cache/claude-rate-limits/latest.json"
 
   # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  agent_limits_run "$home"
 
   # #then the fallback figure appears, labelled with its age rather than
   # passed off as current
@@ -11770,4 +11790,127 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
   assert_output --partial '5h 99%'
   refute_output --partial '100%'
   refute_output --partial "$exhausted"
+}
+
+function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_still_do() {
+  _bats_test_init 27207 'agent limits says what a blocked codex account can still do'
+  local home="$BATS_TEST_TMPDIR/limits-credits" now exhausted
+  now="$(date +%s)"
+  # nf-cod-circle_slash U+EABD
+  exhausted="$(printf '\356\252\275')"
+  agent_limits_fixture "$home" 3600 86400
+
+  # #given a spent window with reset credits in hand
+  codex_limits_cache "$home" 100 "$((now + 86400))" true 2 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the count reaches the bar: at 100% it is the difference between
+  # waiting for the reset and carrying on now. The spelling is ours; what the
+  # zero-credit control below fixes is that the count appears at all.
+  assert_success
+  assert_output --partial 'r2'
+
+  # #given the same spent window with no credits left
+  codex_limits_cache "$home" 100 "$((now + 86400))" true 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then nothing claims a credit that is not there
+  assert_success
+  refute_output --partial 'r0'
+  refute_output --partial ' r'
+
+  # #given an account blocked while its window still reads below 100%, which
+  # is what spend control and depleted credits look like
+  codex_limits_cache "$home" 40 "$((now + 86400))" true 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the segment carries the state, because no percentage in the line
+  # would reveal it
+  assert_success
+  assert_output --partial "cx ${exhausted}"
+
+  # #given the same figure on an account that is not blocked
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the marker stays off: it reports the backend's verdict, not a
+  # threshold this script picked
+  assert_success
+  refute_output --partial "$exhausted"
+}
+
+function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopped_updating() {
+  _bats_test_init 27208 'agent limits labels a codex figure the refresh stopped updating'
+  local home="$BATS_TEST_TMPDIR/limits-stale" now
+  now="$(date +%s)"
+  agent_limits_fixture "$home" 3600 86400
+
+  # #given a cache the minute-by-minute refresh has not touched for an hour,
+  # as when the account is logged out or the machine is offline
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the figure is labelled old rather than passed off as current
+  assert_success
+  assert_output --partial 'cx 7d 40%'
+  assert_output --partial 'old)'
+
+  # #given the same figure from a refresh that is keeping up
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the bar says nothing about age, because there is nothing to qualify
+  assert_success
+  assert_output --partial 'cx 7d 40%'
+  refute_output --partial 'old)'
+}
+
+function test_scripts_27209_codex_limits_refresh_fills_its_cache_from_the_real_app_server() {
+  _bats_test_init 27209 'codex limits refresh fills its cache from the real app server'
+  command_exists codex || skip "codex is not installed"
+  local home="$BATS_TEST_TMPDIR/limits-refresh" cache
+  mkdir -p "$home"
+  cache="$home/.cache/codex-rate-limits/latest.json"
+
+  # #given the real app server, reached with the real account: a fake codex
+  # here would only compare this patch against itself, and the cache's fields
+  # are a claim about codex's response that only codex can adjudicate.
+  # #when the refresh path runs against it
+  run env HOME="$home" CODEX_HOME="$HOME/.codex" \
+    bash "$AGENT_LIMITS_SCRIPT" --refresh-codex
+  assert_success
+
+  # A logged-out or offline machine has no oracle, only a silent empty cache,
+  # so say which one is missing instead of asserting an invented shape.
+  [[ -f "$cache" ]] || skip "codex app-server returned no rate limits (logged out or offline?)"
+
+  # #then every field the bar formats arrives populated. The depth stops at
+  # what the display reads: anything further restates a response shape codex
+  # owns and would fail on its next release for no local reason.
+  run python3 -c '
+import json, sys, time
+d = json.load(open(sys.argv[1]))
+assert time.time() - d["fetched_at"] < 300, "cache is not fresh"
+assert isinstance(d["blocked"], bool), d["blocked"]
+assert isinstance(d["reset_credits"], int), d["reset_credits"]
+assert d["windows"], "no window carried a used_percent"
+for w in d["windows"]:
+    assert isinstance(w["used_percent"], (int, float)), w
+    assert w["window_minutes"], w
+print("ok")
+' "$cache"
+  assert_success
+  assert_output --partial 'ok'
 }
