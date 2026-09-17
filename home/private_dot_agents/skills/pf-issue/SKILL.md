@@ -1,12 +1,12 @@
 ---
 name: pf-issue
-description: Audit a tracker issue against the product contracts and the code, treating the issue as a hypothesis, then deliver validated solution options as a show-me markdown report. Defect entry to the /pf-research → /pf-spec → /pf-build cycle: hands off to /pf-spec when the chosen fix changes a contract, to se-plan otherwise. Use when the user says "pf-issue <issue>", asks to study or explain an issue relative to code and contracts, or asks in Russian ("изучи <issue> относительно кода и контрактов", "исследуй <issue>, посмотри код и контракты", "в чём проблема и варианты решения").
+description: Audit a tracker issue against the product contracts and the code, treating the issue as a hypothesis, then deliver validated solution options as a show-me markdown report. Defect entry to the /pf-research → /pf-spec → /pf-build cycle: hands off to /pf-spec when the chosen fix changes a contract, to /to-spec or /implement otherwise. Use when the user says "pf-issue <issue>", asks to study or explain an issue relative to code and contracts, or asks in Russian ("изучи <issue> относительно кода и контрактов", "исследуй <issue>, посмотри код и контракты", "в чём проблема и варианты решения").
 argument-hint: "<issue URL or ID>"
 ---
 
 # /pf-issue — audit a tracker issue against contracts and code
 
-The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `se-plan` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first. This step changes nothing in the repo and writes nothing to the tracker.
+The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/to-spec` or `/implement` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first. This step changes nothing in the repo and writes nothing to the tracker.
 
 Authority runs contracts → code → issue. Past audits confirmed the issue's complaint every time and found it incomplete every time: a stale number, a second symmetric leak, a wrong mechanism, a premise the contract itself contradicts. The audit's value is what the issue did not say and the fix direction it got wrong.
 
@@ -67,7 +67,7 @@ Done when both candidates carry a verdict you have re-verified and every require
 Load the `show-me` skill and write `~/.claude/artifacts/<ISSUE-ID>/issue.md` with the shape in `references/report.md`; then `open` it and give a chat summary under fifteen lines. Verdict first, plain words, every term expanded, no labels coined in this session. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type:
 
 - `/pf-spec <ISSUE-ID>` when the chosen option changes a contract — the audit is the research narrative `/pf-spec` reads, and the contract owner's confirmation is part of that step.
-- `se-plan` on the chosen option when the fix stays inside the contracts; implement directly when it is a few lines.
+- When the fix stays inside the contracts: `/to-spec` in this same session when it needs more than one session — it synthesizes the conversation, and `/to-tickets` then `/implement` per ticket follow — or `/implement` right here when it fits one session. `/to-spec` and `/to-tickets` publish to the tracker, so they run only when the user types them.
 - Follow-ups stay as ticket-ready text in the report until the user asks to file them.
 
 A menu widget for that decision gets declined; write prose.
