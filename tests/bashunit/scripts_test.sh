@@ -9044,6 +9044,10 @@ claude_modifier_setup() {
   cat > "$CLAUDE_MODIFIER_BIN/op" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$2" >> "$MMS_TEST_OP_MARKER"
+if [ "${MMS_TEST_OP_MODE:-}" = error ]; then
+  printf '%s\n' 'op: account is not signed in' >&2
+  exit 1
+fi
 case "$2" in
   *Jina*) printf '%s\n' 'interactive-jina' ;;
 esac
@@ -9214,6 +9218,25 @@ function test_scripts_1326_claude_settings_modifier_passes_settings_through_with
     assert_success
     assert_output "$input"
   done
+}
+
+function test_scripts_1327_claude_settings_modifier_reports_1password_read_errors() {
+  _bats_test_init 1327 'Claude settings modifier preserves the 1Password error when Jina cannot be read'
+  claude_modifier_setup
+
+  run --separate-stderr env -u MMS_CHEZMOI_UNATTENDED PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_TEST_OP_MODE=error \
+    bash "$CLAUDE_MODIFIER" <<< '{}'
+
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker, so an
+  # unattended run that never reaches `op` cannot pass on empty stderr alone.
+  assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
+  assert_stderr --partial 'op: account is not signed in'
+  assert_stderr --partial 'modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
+  refute_stderr --partial '1Password returned no Jina API Key'
+  run jq -e '.mcpServers | has("jina") | not' <<< "$output"
+  assert_success
 }
 
 # ===========================================
