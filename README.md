@@ -79,11 +79,13 @@ After running chezmoi, configure these manually:
 
 ### Herdr
 
-The command-palette plugin files are managed by chezmoi, but registering the plugin needs a running Herdr server — which isn't up during `chezmoi apply`. After launching Herdr for the first time, link it once (the registration persists across restarts):
-
-```bash
-herdr plugin link ~/.config/herdr/plugins/command-palette
-```
+Chezmoi installs and enables the Command Palette from
+[`Seigiard/herdr-command-palette`](https://github.com/Seigiard/herdr-command-palette)
+at a reviewed commit. Personal commands stay in the managed
+`~/.config/herdr/command-palette/commands.toml`; project-specific entries use a
+`repositories` field in that same file. Updating the plugin means reviewing a
+new package release and changing the commit pin in
+`run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`.
 
 ### Role-based SSH rollout
 
@@ -183,8 +185,8 @@ key or backup until both laptops pass the checks below after a restart.
 home/
 ├── .chezmoiscripts/          # Install scripts (run by chezmoi)
 │   ├── run_onchange_after_1-install-packages.sh.tmpl
-│   ├── run_onchange_after_2-link-herdr-command-palette.sh.tmpl
 │   ├── run_onchange_after_3-setup-herdr-integrations.sh.tmpl
+│   ├── run_onchange_after_7-install-herdr-github-plugins.sh.tmpl
 │   └── darwin/
 │       └── run_once_after_macos-tunes.sh
 ├── private_dot_config/

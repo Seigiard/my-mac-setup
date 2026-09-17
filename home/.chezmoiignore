@@ -50,10 +50,10 @@ Library/**
 .local/lib/alerter/**
 {{ end }}
 
-# Python bytecode caches. Running any managed .py script (the herdr
-# command-palette plugin, for example) drops a __pycache__ directory next to
-# it. Without this rule a stray cache inside home/ becomes a managed file and
-# shows up in every chezmoi diff. Python regenerates these on demand.
+# Python bytecode caches. Running a managed .py script can drop a __pycache__
+# directory next to it. Without this rule a stray cache inside home/ becomes a
+# managed file and shows up in every chezmoi diff. Python regenerates these on
+# demand.
 **/__pycache__
 **/__pycache__/**
 

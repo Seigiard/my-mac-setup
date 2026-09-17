@@ -964,17 +964,19 @@ detach_worker() {
   local -a worker_args
   prompt_file="$(umask 077; mktemp "${TMPDIR:-/tmp}/herdr-worktree-identity.XXXXXX")" || return 0
   printf '%s' "$prompt" > "$prompt_file" || { rm -f "$prompt_file"; return 0; }
+  exec 9< "$prompt_file" || { rm -f "$prompt_file"; return 0; }
   worker_args=(bash "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" --worker --agent "$agent" --session "$session")
   [ -z "$pane" ] || worker_args+=(--pane "$pane")
   [ -z "$workspace" ] || worker_args+=(--workspace "$workspace")
   if command -v setsid >/dev/null 2>&1; then
-    setsid "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+    setsid "${worker_args[@]}" <&9 >/dev/null 2>&1 &
   elif command -v python3 >/dev/null 2>&1; then
     python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
-      "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+      "${worker_args[@]}" <&9 >/dev/null 2>&1 &
   else
-    nohup "${worker_args[@]}" < "$prompt_file" >/dev/null 2>&1 &
+    nohup "${worker_args[@]}" <&9 >/dev/null 2>&1 &
   fi
+  exec 9<&-
   rm -f "$prompt_file"
 }
 

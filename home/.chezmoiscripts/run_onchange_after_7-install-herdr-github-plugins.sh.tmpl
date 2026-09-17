@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install and enable the macOS Herdr plugins that remain managed by their GitHub sources.
+# Install and enable Herdr plugins that remain managed by their GitHub sources.
 # Herdr records the source repository so herdr-auto-update can update these plugins later.
 # Runs last of the herdr scripts so its single `herdr server reload-config` also picks up the
-# locally linked plugins that scripts 5 and 6 install.
+# locally linked plugins that scripts 4 through 6 install.
 #
 # Hash triggers:
 # {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
@@ -12,10 +12,6 @@
 # chezmoi apply fail. Report every failed plugin so the user has an exact recovery command.
 set -u
 
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  exit 0
-fi
-
 if ! command -v herdr >/dev/null 2>&1; then
   echo "herdr not found; skipping GitHub plugin installation"
   exit 0
@@ -23,21 +19,31 @@ fi
 
 failed=()
 
-# Remove plugins whose behavior moved elsewhere or whose local ID was superseded.
-if plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
-  for obsolete_plugin in artisann.zed-herdr worktrunk seigi.focus-notify; do
-    printf '%s\n' "$plugin_json" | python3 -c '
+plugin_matches() {
+  local expected_id="$1" expected_kind="${2:-}"
+  printf '%s\n' "$plugin_json" | python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)
     plugins = data.get("result", {}).get("plugins", [])
     if not isinstance(plugins, list) or not all(isinstance(plugin, dict) for plugin in plugins):
         raise TypeError
-    found = any(plugin.get("plugin_id") == sys.argv[1] for plugin in plugins)
+    found = any(
+        plugin.get("plugin_id") == sys.argv[1]
+        and (not sys.argv[2] or plugin.get("source", {}).get("kind") == sys.argv[2])
+        for plugin in plugins
+    )
 except (AttributeError, json.JSONDecodeError, TypeError):
     raise SystemExit(2)
 raise SystemExit(0 if found else 1)
-' "$obsolete_plugin" 2>/dev/null
+' "$expected_id" "$expected_kind" 2>/dev/null
+}
+
+# Remove plugins whose behavior moved elsewhere or whose local ID was superseded.
+plugin_json=""
+if plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  for obsolete_plugin in artisann.zed-herdr worktrunk seigi.focus-notify; do
+    plugin_matches "$obsolete_plugin"
     plugin_state=$?
     if [[ $plugin_state -eq 0 ]]; then
       if herdr plugin uninstall "$obsolete_plugin" </dev/null >/dev/null 2>&1; then
@@ -54,10 +60,14 @@ else
 fi
 
 plugins=(
-  "dio16/herdr-auto-update|herdr-auto-update|"
-  # Temporary fork pin while https://github.com/yankewei/herdr-focus-notify/pull/13 is upstreamed.
-  "Seigiard/herdr-focus-notify|herdr-focus-notify|1bbcfb6c441fd90620e0da94a76ec107d3ebf91d"
+  "Seigiard/herdr-command-palette|seigi.command-palette|9c92d2d0b0d275183880c9033e73657e513d3da1"
 )
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  plugins=("dio16/herdr-auto-update|herdr-auto-update|" "${plugins[@]}")
+  # Temporary fork pin while https://github.com/yankewei/herdr-focus-notify/pull/13 is upstreamed.
+  plugins+=("Seigiard/herdr-focus-notify|herdr-focus-notify|1bbcfb6c441fd90620e0da94a76ec107d3ebf91d")
+fi
 
 for entry in "${plugins[@]}"; do
   IFS='|' read -r repo plugin_id ref <<< "$entry"
