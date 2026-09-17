@@ -7,13 +7,57 @@ _bats_file_init "${BASH_SOURCE[0]}"
 load 'helpers/common'
 
 TREE_CLI="$SOURCE_ROOT/dot_local/bin/executable_herdr-resource-tree"
+HERDR_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_herdr"
 
 setup() {
   TREE_WORK="$BATS_TEST_TMPDIR/resource-tree"
   TREE_BIN="$TREE_WORK/bin"
   TREE_CALLS="$TREE_WORK/herdr.calls"
   TREE_SERVER_PID=""
+  TREE_LIVE_PANE=""
+  TREE_LIVE_HERDR=""
   mkdir -p "$TREE_BIN"
+  : > "$TREE_WORK/herdr.sock"
+
+  cat > "$TREE_WORK/run-bounded" <<'PY'
+#!/usr/bin/env python3
+import os
+import signal
+import subprocess
+import sys
+
+process = subprocess.Popen(
+    sys.argv[1:],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=40)
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        stdout, stderr = process.communicate(timeout=1)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = process.communicate()
+    sys.stdout.buffer.write(stdout)
+    sys.stderr.buffer.write(stderr)
+    raise SystemExit(124)
+sys.stdout.buffer.write(stdout)
+sys.stderr.buffer.write(stderr)
+if process.returncode < 0:
+    raise SystemExit(128 - process.returncode)
+raise SystemExit(process.returncode)
+PY
+  chmod +x "$TREE_WORK/run-bounded"
 
   cat > "$TREE_WORK/snapshot.json" <<'JSON'
 {"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"workspaces":[{"workspace_id":"w2","number":2,"label":"Unrelated"},{"workspace_id":"w1","number":1,"label":"Project"}],"tabs":[{"workspace_id":"w2","tab_id":"w2:t1","number":1,"label":"Elsewhere"},{"workspace_id":"w1","tab_id":"w1:t2","number":2,"label":"Shells"},{"workspace_id":"w1","tab_id":"w1:t1","number":1,"label":"Agents"}],"panes":[{"workspace_id":"w1","tab_id":"w1:t2","pane_id":"w1:p2","label":"logs","terminal_id":"term-2"},{"workspace_id":"w2","tab_id":"w2:t1","pane_id":"w2:p1","label":"manual","terminal_id":"term-3"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","label":"implementation","terminal_id":"term-1"}],"agents":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"opencode","name":"red-fox","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-1"}},{"workspace_id":"w2","tab_id":"w2:t1","pane_id":"w2:p1","terminal_id":"term-3","agent":"claude","name":"blue-whale"}]}}}
@@ -49,9 +93,73 @@ SH
 
 tree_stub_run() {
   env PATH="$TREE_BIN:$PATH" TREE_CALLS="$TREE_CALLS" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
     TREE_SNAPSHOT="$TREE_WORK/snapshot.json" \
     TREE_DESCENDANT_PID="${TREE_DESCENDANT_PID:-}" \
     TREE_STUB_MODE="${TREE_STUB_MODE:-valid}" "$TREE_CLI" "$@"
+}
+
+tree_install_managed_split_stub() {
+  # These fixtures emulate Herdr 0.9.0/protocol 22. Tests 003 and 004 compare
+  # the exact pane/session fields consumed below against the installed binary.
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"opencode","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-caller"}}}}
+JSON
+  cat > "$TREE_WORK/split.json" <<'JSON'
+{"id":"cli:pane:split","result":{"type":"pane_split","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p3","terminal_id":"term-4","focused":false,"agent_status":"unknown","revision":1}}}
+JSON
+  cat > "$TREE_WORK/created-snapshot.json" <<'JSON'
+{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"workspaces":[{"workspace_id":"w1","number":1,"label":"Project"}],"tabs":[{"workspace_id":"w1","tab_id":"w1:t1","number":1,"label":"Agents"}],"panes":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","label":"caller","terminal_id":"term-1"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p2","label":"target","terminal_id":"term-2"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p3","label":"created","terminal_id":"term-4"}],"agents":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"opencode","name":"caller-agent","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-caller"}},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p2","terminal_id":"term-2","agent":"claude","name":"target-agent","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-target"}}]}}}
+JSON
+  cat > "$TREE_BIN/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TREE_CALLS"
+case "${1:-}:${2:-}" in
+  pane:current) cat "$TREE_CALLER" ;;
+  pane:split)
+    if [[ "${TREE_NATIVE_FAIL:-0}" == 1 ]]; then
+      printf 'native split stdout\n'
+      printf 'native split stderr\n' >&2
+      exit 23
+    fi
+    cat "$TREE_SPLIT"
+    ;;
+  api:snapshot) cat "$TREE_CREATED_SNAPSHOT" ;;
+  *) printf 'unexpected native command: %s\n' "$*" >&2; exit 64 ;;
+esac
+SH
+  chmod +x "$TREE_BIN/herdr"
+}
+
+tree_wrapper_fixture_run() {
+  env HERDR_BIN_PATH="$TREE_BIN/herdr" \
+    HERDR_RESOURCE_TREE_STATE_DIR="${HERDR_RESOURCE_TREE_STATE_DIR:-$TREE_WORK/state}" \
+    HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE="${HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE:-0}" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
+    TREE_CALLS="$TREE_CALLS" TREE_CALLER="$TREE_WORK/caller.json" \
+    TREE_SPLIT="$TREE_WORK/split.json" \
+    TREE_CREATED_SNAPSHOT="$TREE_WORK/created-snapshot.json" \
+    TREE_NATIVE_FAIL="${TREE_NATIVE_FAIL:-0}" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$TREE_BIN:$PATH" "$@"
+}
+
+tree_wait_for_file() {
+  local path="$1"
+  if ! python3 - "$path" <<'PY'
+import os
+import sys
+import time
+
+path = sys.argv[1]
+deadline = time.monotonic() + 10
+while not os.path.exists(path) and time.monotonic() < deadline:
+    time.sleep(0.01)
+if not os.path.exists(path):
+    raise SystemExit(f"causal barrier was not reached: {path}")
+PY
+  then
+    fail "causal barrier was not reached: $path"
+  fi
 }
 
 tree_real_env() {
@@ -77,6 +185,10 @@ tree_close_inherited_descriptors() {
 }
 
 teardown() {
+  if [[ -n "${TREE_LIVE_PANE:-}" && -x "${TREE_LIVE_HERDR:-}" ]]; then
+    "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" pane close \
+      "$TREE_LIVE_PANE" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${TREE_SERVER_PID:-}" ]] && kill -0 "$TREE_SERVER_PID" 2>/dev/null; then
     tree_real_env herdr server stop >/dev/null 2>&1 || kill -TERM "$TREE_SERVER_PID" 2>/dev/null || true
     wait "$TREE_SERVER_PID" 2>/dev/null || true
@@ -210,6 +322,38 @@ TOML
   run tree_real_env herdr workspace create --cwd "$TREE_WORK/home" --label disposable-resource-tree
   assert_success
 
+  run tree_real_env "$TREE_WORK/run-bounded" herdr api snapshot
+  assert_success
+  local native_snapshot="$output"
+  run python3 - "$native_snapshot" <<'PY'
+import json
+import sys
+
+print(json.loads(sys.argv[1])["result"]["snapshot"]["panes"][0]["pane_id"])
+PY
+  assert_success
+  local initial_pane="$output" native_herdr
+  native_herdr="$(command -v herdr)"
+
+  run tree_real_env "$TREE_WORK/run-bounded" env HERDR_BIN_PATH="$native_herdr" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$PATH" \
+    "$HERDR_WRAPPER" pane split --pane "$initial_pane" --direction right
+  assert_success
+  local native_split="$output"
+  tree_install_managed_split_stub
+  run python3 - "$native_split" "$TREE_WORK/split.json" <<'PY'
+import json
+import sys
+
+real_pane = json.loads(sys.argv[1])["result"]["pane"]
+fake_pane = json.load(open(sys.argv[2], encoding="utf-8"))["result"]["pane"]
+for key in ("workspace_id", "tab_id", "pane_id", "terminal_id"):
+    assert type(fake_pane[key]) is type(real_pane[key]), key
+print(real_pane["pane_id"])
+PY
+  assert_success
+  local created_pane="$output"
+
   run tree_real_env "$TREE_CLI" --json
   assert_success
   local tree_json="$output"
@@ -223,12 +367,15 @@ assert len(tree["workspaces"]) == 1
 workspace = tree["workspaces"][0]
 assert workspace["label"] == "disposable-resource-tree"
 assert len(workspace["tabs"]) == 1
-assert len(workspace["tabs"][0]["panes"]) == 1
-pane = workspace["tabs"][0]["panes"][0]
-assert pane["terminal_id"].startswith("term_")
-assert pane["creator_session"] is None
-assert pane["agent"] is None
+assert len(workspace["tabs"][0]["panes"]) == 2
+for pane in workspace["tabs"][0]["panes"]:
+    assert pane["terminal_id"].startswith("term_")
+    assert pane["creator_session"] is None
+    assert pane["agent"] is None
 PY
+  assert_success
+
+  run tree_real_env "$TREE_WORK/run-bounded" herdr pane close "$created_pane"
   assert_success
 
   run tree_real_env herdr server stop
@@ -274,7 +421,26 @@ PY
     skip "real Herdr returned no snapshot: $output"
   fi
   local real_snapshot="$output"
-  run python3 - "$real_snapshot" "$TREE_WORK/snapshot.json" <<'PY'
+  run "$TREE_WORK/run-bounded" herdr pane current --current
+  if [[ "$status" -ne 0 ]]; then
+    skip "real Herdr returned no current pane: $output"
+  fi
+  local real_current="$output"
+  run python3 - "$real_current" <<'PY'
+import json
+import sys
+
+pane = json.loads(sys.argv[1])["result"]["pane"]
+if not pane.get("agent") or not pane.get("agent_session"):
+    raise SystemExit(77)
+PY
+  if [[ "$status" -eq 77 ]]; then
+    skip 'the current real Herdr pane has no native Agent session identity'
+  fi
+  assert_success
+  tree_install_managed_split_stub
+  run python3 - "$real_snapshot" "$TREE_WORK/snapshot.json" \
+    "$real_current" "$TREE_WORK/caller.json" <<'PY'
 import json
 import sys
 
@@ -294,10 +460,548 @@ real_pane = next(pane for pane in real["panes"] if pane["pane_id"] == real_agent
 fixture_pane = next(pane for pane in fixture["panes"] if pane["pane_id"] == fixture_agent["pane_id"])
 for key in ("workspace_id", "tab_id", "pane_id", "terminal_id"):
     assert type(fixture_pane[key]) is type(real_pane[key]), key
+
+real_current = json.loads(sys.argv[3])["result"]["pane"]
+fixture_current = json.load(open(sys.argv[4], encoding="utf-8"))["result"]["pane"]
+for key in ("pane_id", "terminal_id", "agent"):
+    assert type(fixture_current[key]) is type(real_current[key]), key
+for key in ("agent", "kind", "source", "value"):
+    assert type(fixture_current["agent_session"][key]) is type(real_current["agent_session"][key]), key
 PY
   if [[ "$status" -eq 77 ]]; then
     skip 'the running Herdr server has no agent with a native session identity'
   fi
+  assert_success
+}
+
+function test_resource_tree_005_creation_failures_preserve_the_native_boundary() {
+  _bats_test_init 5 'creation failures preserve the native boundary'
+  tree_install_managed_split_stub
+
+  local blocked_state="$TREE_WORK/state-blocker/child"
+  : > "$TREE_WORK/state-blocker"
+  HERDR_RESOURCE_TREE_STATE_DIR="$blocked_state" run --separate-stderr \
+    tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
+  assert_failure 69
+  assert_output ''
+  assert_stderr --partial 'intent recording failed; native creation was not called'
+  run python3 - "$TREE_CALLS" <<'PY'
+import sys
+
+calls = open(sys.argv[1], encoding="utf-8").read().splitlines()
+assert sum(call.startswith("pane split") for call in calls) == 0
+PY
+  assert_success
+
+  : > "$TREE_CALLS"
+  HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE=1 run --separate-stderr \
+    tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
+  assert_failure 70
+  assert_output "$(<"$TREE_WORK/split.json")"
+  assert_stderr --partial 'creation operation '
+  assert_stderr --partial 'pane_id=w1:p3'
+  assert_stderr --partial 'terminal_id=term-4'
+  assert_stderr --partial 'workspace_id=w1'
+  assert_stderr --partial 'tab_id=w1:t1'
+  assert_stderr --partial 'automatic creation retry is unsafe'
+  assert_stderr --partial 'do not retry creation'
+  run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  local uncertain_branch="$output"
+  run python3 - "$uncertain_branch" <<'PY'
+import json
+import sys
+
+assert json.loads(sys.argv[1])["workspaces"] == []
+PY
+  assert_success
+
+  : > "$TREE_CALLS"
+  TREE_NATIVE_FAIL=1 run --separate-stderr \
+    tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
+  assert_failure 23
+  assert_output 'native split stdout'
+  assert_equal "$stderr" 'native split stderr'
+  run python3 - "$TREE_CALLS" <<'PY'
+import sys
+
+calls = open(sys.argv[1], encoding="utf-8").read().splitlines()
+assert sum(call.startswith("pane split") for call in calls) == 1
+PY
+  assert_success
+
+  cat > "$TREE_WORK/split.json" <<'JSON'
+{"id":"cli:pane:split","result":{"type":"pane_split","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p3"}}}
+JSON
+  : > "$TREE_CALLS"
+  run --separate-stderr tree_wrapper_fixture_run \
+    "$HERDR_WRAPPER" pane split --pane w1:p2
+  assert_failure 70
+  assert_output "$(<"$TREE_WORK/split.json")"
+  assert_stderr --partial 'pane_id=w1:p3'
+  assert_stderr --partial 'workspace_id=w1'
+  assert_stderr --partial 'tab_id=w1:t1'
+  assert_stderr --partial 'created pane terminal_id must be a non-empty string'
+}
+
+function test_resource_tree_006_human_splits_stay_usable_and_incomplete_agent_identity_is_rejected() {
+  _bats_test_init 6 'human splits stay usable and incomplete agent identity is rejected'
+  tree_install_managed_split_stub
+
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1"}}}
+JSON
+  run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
+  assert_success
+  assert_output "$(<"$TREE_WORK/split.json")"
+  run tree_wrapper_fixture_run "$TREE_CLI" --json
+  assert_success
+  local human_tree="$output"
+  run python3 - "$human_tree" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+created = next(
+    pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+    if pane["id"] == "w1:p3"
+)
+assert created["creator_session"] is None
+PY
+  assert_success
+
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"opencode"}}}
+JSON
+  : > "$TREE_CALLS"
+  run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
+  assert_failure 69
+  assert_output --partial 'caller identity unavailable; native creation was not called'
+  run python3 - "$TREE_CALLS" <<'PY'
+import sys
+
+calls = open(sys.argv[1], encoding="utf-8").read().splitlines()
+assert sum(call.startswith("pane split") for call in calls) == 0
+PY
+  assert_success
+}
+
+function test_resource_tree_007_concurrent_splits_keep_independent_operations_and_creators() {
+  _bats_test_init 7 'concurrent splits keep independent operations and creators'
+
+  cat > "$TREE_WORK/concurrent-snapshot.json" <<'JSON'
+{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"workspaces":[{"workspace_id":"w1","number":1,"label":"Project"}],"tabs":[{"workspace_id":"w1","tab_id":"w1:t1","number":1,"label":"Agents"}],"panes":[{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pa","label":"created-a","terminal_id":"term-a"},{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pb","label":"created-b","terminal_id":"term-b"}],"agents":[]}}}
+JSON
+  local concurrent_bin="$TREE_WORK/concurrent-bin"
+  mkdir -p "$concurrent_bin"
+  cat > "$concurrent_bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TREE_CONCURRENT_CALLS"
+case "${1:-}:${2:-}" in
+  pane:current)
+    printf '{"id":"current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:caller-%s","terminal_id":"term-caller-%s","agent":"opencode","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-%s"}}}}\n' "$TREE_ID" "$TREE_ID" "$TREE_ID"
+    ;;
+  pane:split)
+    : > "$TREE_READY"
+    while [[ ! -e "$TREE_RELEASE" ]]; do sleep 0.01; done
+    printf '{"id":"split","result":{"type":"pane_split","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p%s","terminal_id":"term-%s","focused":false,"agent_status":"unknown","revision":1}}}\n' "$TREE_ID" "$TREE_ID"
+    ;;
+  api:snapshot) cat "$TREE_CONCURRENT_SNAPSHOT" ;;
+  *) exit 64 ;;
+esac
+SH
+  chmod +x "$concurrent_bin/herdr"
+
+  local state="$TREE_WORK/concurrent-state" scope="$TREE_WORK/concurrent.sock"
+  local calls_a="$TREE_WORK/calls-a" calls_b="$TREE_WORK/calls-b"
+  : > "$scope"
+  env HERDR_BIN_PATH="$concurrent_bin/herdr" HERDR_RESOURCE_TREE_STATE_DIR="$state" \
+    HERDR_SOCKET_PATH="$scope" TREE_ID=a TREE_CONCURRENT_CALLS="$calls_a" \
+    TREE_READY="$TREE_WORK/ready-a" TREE_RELEASE="$TREE_WORK/release-a" \
+    TREE_CONCURRENT_SNAPSHOT="$TREE_WORK/concurrent-snapshot.json" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$concurrent_bin:$PATH" \
+    "$HERDR_WRAPPER" pane split --pane w1:target-a > "$TREE_WORK/out-a" 2> "$TREE_WORK/err-a" &
+  local pid_a=$!
+  env HERDR_BIN_PATH="$concurrent_bin/herdr" HERDR_RESOURCE_TREE_STATE_DIR="$state" \
+    HERDR_SOCKET_PATH="$scope" TREE_ID=b TREE_CONCURRENT_CALLS="$calls_b" \
+    TREE_READY="$TREE_WORK/ready-b" TREE_RELEASE="$TREE_WORK/release-b" \
+    TREE_CONCURRENT_SNAPSHOT="$TREE_WORK/concurrent-snapshot.json" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$concurrent_bin:$PATH" \
+    "$HERDR_WRAPPER" pane split --pane w1:target-b > "$TREE_WORK/out-b" 2> "$TREE_WORK/err-b" &
+  local pid_b=$!
+
+  tree_wait_for_file "$TREE_WORK/ready-a"
+  tree_wait_for_file "$TREE_WORK/ready-b"
+  : > "$TREE_WORK/release-b"
+  : > "$TREE_WORK/release-a"
+  wait "$pid_b"
+  wait "$pid_a"
+
+  run env HERDR_BIN_PATH="$concurrent_bin/herdr" HERDR_RESOURCE_TREE_STATE_DIR="$state" \
+    HERDR_SOCKET_PATH="$scope" TREE_ID=a TREE_CONCURRENT_CALLS="$calls_a" \
+    TREE_CONCURRENT_SNAPSHOT="$TREE_WORK/concurrent-snapshot.json" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$concurrent_bin:$PATH" "$TREE_CLI" --json
+  assert_success
+  local concurrent_tree="$output"
+  run python3 - "$concurrent_tree" "$calls_a" "$calls_b" <<'PY'
+import json
+import re
+import sys
+
+tree = json.loads(sys.argv[1])
+panes = {
+    pane["id"]: pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+}
+assert panes["w1:pa"]["creator_session"]["value"] == "session-a"
+assert panes["w1:pb"]["creator_session"]["value"] == "session-b"
+operations = []
+for path in sys.argv[2:]:
+    text = open(path, encoding="utf-8").read()
+    match = re.search(r"HERDR_RESOURCE_OPERATION_ID=([0-9a-f-]+)", text)
+    assert match, path
+    operations.append(match.group(1))
+assert len(set(operations)) == 2
+PY
+  assert_success
+}
+
+function test_resource_tree_008_crash_after_creation_keeps_the_resource_unattributed() {
+  _bats_test_init 8 'crash after creation keeps the resource unattributed'
+  tree_install_managed_split_stub
+  cat > "$TREE_BIN/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TREE_CALLS"
+case "${1:-}:${2:-}" in
+  pane:current) cat "$TREE_CALLER" ;;
+  pane:split)
+    : > "$TREE_CRASH_READY"
+    while [[ ! -e "$TREE_CRASH_RELEASE" ]]; do sleep 0.01; done
+    cat "$TREE_SPLIT"
+    : > "$TREE_CRASH_DONE"
+    ;;
+  api:snapshot) cat "$TREE_CREATED_SNAPSHOT" ;;
+  *) exit 64 ;;
+esac
+SH
+  chmod +x "$TREE_BIN/herdr"
+
+  env HERDR_BIN_PATH="$TREE_BIN/herdr" HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/state" \
+    HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" TREE_CALLS="$TREE_CALLS" \
+    TREE_CALLER="$TREE_WORK/caller.json" TREE_SPLIT="$TREE_WORK/split.json" \
+    TREE_CREATED_SNAPSHOT="$TREE_WORK/created-snapshot.json" \
+    TREE_CRASH_READY="$TREE_WORK/crash.ready" TREE_CRASH_RELEASE="$TREE_WORK/crash.release" \
+    TREE_CRASH_DONE="$TREE_WORK/crash.done" PATH="$(dirname "$HERDR_WRAPPER"):$TREE_BIN:$PATH" \
+    "$HERDR_WRAPPER" pane split --pane w1:p2 > "$TREE_WORK/crash.out" 2> "$TREE_WORK/crash.err" &
+  local wrapper_pid=$!
+  tree_wait_for_file "$TREE_WORK/crash.ready"
+  kill -TERM "$wrapper_pid"
+  : > "$TREE_WORK/crash.release"
+  if wait "$wrapper_pid"; then
+    fail 'crashed wrapper unexpectedly returned success'
+  fi
+  tree_wait_for_file "$TREE_WORK/crash.done"
+
+  run tree_wrapper_fixture_run "$TREE_CLI" --json
+  assert_success
+  local crash_tree="$output"
+  run python3 - "$crash_tree" "$TREE_CALLS" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+created = next(
+    pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+    if pane["id"] == "w1:p3"
+)
+assert created["creator_session"] is None
+calls = open(sys.argv[2], encoding="utf-8").read().splitlines()
+assert sum(call.startswith("pane split") for call in calls) == 1
+PY
+  assert_success
+
+  run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  local crash_branch="$output"
+  run python3 - "$crash_branch" <<'PY'
+import json
+import sys
+
+assert json.loads(sys.argv[1])["workspaces"] == []
+PY
+  assert_success
+}
+
+function test_resource_tree_009_real_agent_split_is_attributed_and_cleaned_up() {
+  _bats_test_init 9 'real Agent split is attributed and cleaned up'
+  command_exists herdr || skip 'herdr is not installed, so the native managed-split oracle is unavailable'
+
+  TREE_LIVE_HERDR="$(command -v herdr)"
+  run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" pane current --current
+  if [[ "$status" -ne 0 ]]; then
+    skip "real Herdr returned no current pane: $output"
+  fi
+  local current_json="$output"
+  run python3 - "$current_json" <<'PY'
+import json
+import sys
+
+pane = json.loads(sys.argv[1])["result"]["pane"]
+session = pane.get("agent_session")
+if not pane.get("agent") or not isinstance(session, dict):
+    raise SystemExit(77)
+for key in ("agent", "kind", "source", "value"):
+    assert isinstance(session.get(key), str) and session[key]
+print(pane["pane_id"])
+PY
+  if [[ "$status" -eq 77 ]]; then
+    skip 'the current real Herdr pane has no native Agent session identity'
+  fi
+  assert_success
+  local current_pane="$output"
+
+  run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot
+  assert_success
+  local before_split="$output"
+
+  run --separate-stderr "$TREE_WORK/run-bounded" env HERDR_BIN_PATH="$TREE_LIVE_HERDR" \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/live-state" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$PATH" \
+    "$HERDR_WRAPPER" pane split --pane "$current_pane" --direction right --no-focus
+  local split_status="$status" split_stderr="$stderr" split_json="$output"
+  run python3 - "$split_json" <<'PY'
+import json
+import sys
+
+print(json.loads(sys.argv[1])["result"]["pane"]["pane_id"])
+PY
+  if [[ "$status" -eq 0 ]]; then
+    TREE_LIVE_PANE="$output"
+  else
+    run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot
+    assert_success
+    local after_split="$output"
+    run python3 - "$before_split" "$after_split" <<'PY'
+import json
+import sys
+
+def pane_ids(envelope):
+    return {
+        pane["pane_id"]
+        for pane in json.loads(envelope)["result"]["snapshot"]["panes"]
+    }
+
+created = pane_ids(sys.argv[2]) - pane_ids(sys.argv[1])
+assert len(created) == 1, created
+print(created.pop())
+PY
+    assert_success
+    TREE_LIVE_PANE="$output"
+  fi
+  status="$split_status"
+  output="$split_json"
+  stderr="$split_stderr"
+  assert_success
+
+  run env HERDR_BIN_PATH="$TREE_LIVE_HERDR" \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/live-state" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$PATH" "$TREE_CLI" --branch --json
+  assert_success
+  local branch_json="$output"
+  run python3 - "$branch_json" "$TREE_LIVE_PANE" "$current_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+pane_id = sys.argv[2]
+session = json.loads(sys.argv[3])["result"]["pane"]["agent_session"]
+panes = [
+    pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+]
+assert [pane["id"] for pane in panes] == [pane_id]
+assert panes[0]["creator_session"] == session
+PY
+  assert_success
+
+  run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" pane close "$TREE_LIVE_PANE"
+  assert_success
+  TREE_LIVE_PANE=""
+}
+
+function test_resource_tree_010_wrapper_delegates_without_recursing_or_changing_the_command() {
+  _bats_test_init 10 'wrapper delegates without recursing or changing the command'
+
+  cat > "$TREE_BIN/herdr" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}:${2:-}:${3:-}" == 'pane:split:--help' ]]; then
+  printf 'native pane split help\n'
+  exit 0
+fi
+printf 'native stdout:'
+printf ' <%s>' "$@"
+printf '\n'
+printf 'native stderr\n' >&2
+exit 42
+SH
+  chmod +x "$TREE_BIN/herdr"
+
+  run --separate-stderr env HERDR_BIN_PATH="$HERDR_WRAPPER" \
+    PATH="$(dirname "$HERDR_WRAPPER"):$TREE_BIN:$PATH" \
+    "$HERDR_WRAPPER" status client --json 'argument with spaces'
+  assert_failure 42
+  assert_output 'native stdout: <status> <client> <--json> <argument with spaces>'
+  assert_equal "$stderr" 'native stderr'
+
+  run env HERDR_BIN_PATH="$HERDR_WRAPPER" HERDR_PANE_ID=w1:p1 \
+    PATH="$(dirname "$HERDR_WRAPPER"):$TREE_BIN:$PATH" \
+    "$HERDR_WRAPPER" pane split --help
+  assert_success
+  assert_output 'native pane split help'
+}
+
+function test_resource_tree_011_split_records_the_caller_and_persists_its_branch() {
+  _bats_test_init 11 'split records the caller and persists its branch'
+
+  tree_install_managed_split_stub
+  run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2 --direction right
+  assert_success
+  assert_output "$(<"$TREE_WORK/split.json")"
+
+  run tree_wrapper_fixture_run "$TREE_CLI" --json
+  assert_success
+  local overall_json="$output"
+  run python3 - "$overall_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+panes = {
+    pane["id"]: pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+}
+assert panes["w1:p1"]["creator_session"] is None
+assert panes["w1:p2"]["creator_session"] is None
+assert panes["w1:p3"]["creator_session"] == {
+    "agent": "opencode",
+    "kind": "id",
+    "source": "herdr:opencode",
+    "value": "session-caller",
+}
+PY
+  assert_success
+
+  run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  local branch_json="$output"
+  run python3 - "$branch_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert [workspace["id"] for workspace in tree["workspaces"]] == ["w1"]
+assert [tab["id"] for tab in tree["workspaces"][0]["tabs"]] == ["w1:t1"]
+assert [pane["id"] for pane in tree["workspaces"][0]["tabs"][0]["panes"]] == ["w1:p3"]
+PY
+  assert_success
+
+  run python3 - "$TREE_WORK/created-snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+created = next(
+    pane
+    for pane in snapshot["result"]["snapshot"]["panes"]
+    if pane["pane_id"] == "w1:p3"
+)
+created["terminal_id"] = "term-reused"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+  run tree_wrapper_fixture_run "$TREE_CLI" --json
+  assert_success
+  local reused_json="$output"
+  run python3 - "$reused_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+created = next(
+    pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+    if pane["id"] == "w1:p3"
+)
+assert created["label"] == "created"
+assert created["creator_session"] is None
+PY
+  assert_success
+
+  run python3 - "$TREE_WORK/created-snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+created = next(
+    pane
+    for pane in snapshot["result"]["snapshot"]["panes"]
+    if pane["pane_id"] == "w1:p3"
+)
+created["terminal_id"] = "term-4"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+  rm "$TREE_WORK/herdr.sock"
+  : > "$TREE_WORK/herdr.sock"
+  run tree_wrapper_fixture_run "$TREE_CLI" --json
+  assert_success
+  local restarted_json="$output"
+  run python3 - "$restarted_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+created = next(
+    pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+    if pane["id"] == "w1:p3"
+)
+assert created["terminal_id"] == "term-4"
+assert created["creator_session"] is None
+PY
+  assert_success
+
+  run python3 - "$TREE_CALLS" <<'PY'
+import sys
+
+calls = open(sys.argv[1], encoding="utf-8").read().splitlines()
+assert sum(call.startswith("pane split ") for call in calls) == 1
+assert any(call == "pane split --pane w1:p2 --direction right" or
+           call.startswith("pane split --pane w1:p2 --direction right --env HERDR_RESOURCE_OPERATION_ID=")
+           for call in calls)
+PY
   assert_success
 }
 
