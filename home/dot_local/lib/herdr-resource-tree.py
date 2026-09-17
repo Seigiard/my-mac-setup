@@ -113,7 +113,15 @@ def server_scope():
         raise RegistryError(
             f"local Herdr socket identity unavailable for {socket_path}: {error}"
         ) from error
-    return f"socket:{socket_path}:{socket_identity.st_dev}:{socket_identity.st_ino}"
+    return (
+        f"socket:{socket_path}:{socket_identity.st_dev}:{socket_identity.st_ino}:"
+        f"{socket_identity.st_ctime_ns}"
+    )
+
+
+def require_server_scope(expected):
+    if server_scope() != expected:
+        raise RegistryError("server identity changed during snapshot retrieval")
 
 
 def connect_registry(create):
@@ -128,6 +136,7 @@ def connect_registry(create):
         connection = sqlite3.connect(database, timeout=5)
         connection.execute("PRAGMA busy_timeout = 5000")
         connection.execute("PRAGMA synchronous = FULL")
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS operations (
@@ -136,7 +145,9 @@ def connect_registry(create):
                 caller_session TEXT NOT NULL,
                 caller_pane_id TEXT NOT NULL,
                 caller_terminal_id TEXT NOT NULL,
+                creation_kind TEXT NOT NULL DEFAULT 'unknown',
                 status TEXT NOT NULL,
+                unresolved_reason TEXT,
                 native_exit_status INTEGER,
                 pane_id TEXT,
                 terminal_id TEXT,
@@ -150,11 +161,16 @@ def connect_registry(create):
         columns = {
             row[1] for row in connection.execute("PRAGMA table_info(operations)")
         }
-        for column in ("workspace_created", "tab_created"):
+        migrations = {
+            "creation_kind": "TEXT NOT NULL DEFAULT 'unknown'",
+            "unresolved_reason": "TEXT",
+            "workspace_created": "INTEGER NOT NULL DEFAULT 0",
+            "tab_created": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, definition in migrations.items():
             if column not in columns:
                 connection.execute(
-                    f"ALTER TABLE operations ADD COLUMN {column} "
-                    "INTEGER NOT NULL DEFAULT 0"
+                    f"ALTER TABLE operations ADD COLUMN {column} {definition}"
                 )
         connection.execute(
             """
@@ -188,7 +204,7 @@ def connect_registry(create):
         raise RegistryError(str(error)) from error
 
 
-def record_intent(operation_id, scope, caller):
+def record_intent(operation_id, scope, caller, creation_kind):
     connection = connect_registry(create=True)
     try:
         with connection:
@@ -196,8 +212,8 @@ def record_intent(operation_id, scope, caller):
                 """
                 INSERT INTO operations (
                     operation_id, server_scope, caller_session,
-                    caller_pane_id, caller_terminal_id, status
-                ) VALUES (?, ?, ?, ?, ?, 'intent-recorded')
+                    caller_pane_id, caller_terminal_id, creation_kind, status
+                ) VALUES (?, ?, ?, ?, ?, ?, 'intent-recorded')
                 """,
                 (
                     operation_id,
@@ -205,6 +221,7 @@ def record_intent(operation_id, scope, caller):
                     json.dumps(caller["session"], sort_keys=True),
                     caller["pane_id"],
                     caller["terminal_id"],
+                    creation_kind,
                 ),
             )
     except sqlite3.Error as error:
@@ -227,6 +244,41 @@ def record_native_failure(operation_id, exit_status):
         pass
     except sqlite3.Error:
         connection.close()
+
+
+def record_uncertain_operation(operation_id, reason, resources=None):
+    resources = resources or {}
+    connection = connect_registry(create=True)
+    try:
+        with connection:
+            connection.execute(
+                """
+                UPDATE operations
+                SET status = 'unresolved', unresolved_reason = ?,
+                    pane_id = ?, terminal_id = ?, workspace_id = ?, tab_id = ?
+                WHERE operation_id = ? AND status = 'intent-recorded'
+                """,
+                (
+                    reason,
+                    resources.get("pane_id"),
+                    resources.get("terminal_id"),
+                    resources.get("workspace_id"),
+                    resources.get("tab_id"),
+                    operation_id,
+                ),
+            )
+    except sqlite3.Error as error:
+        raise RegistryError(str(error)) from error
+    finally:
+        connection.close()
+
+
+def preserve_uncertain_operation(operation_id, detail, resources=None):
+    try:
+        record_uncertain_operation(operation_id, detail, resources)
+    except RegistryError as error:
+        return f"{detail}; unresolved state recording failed: {error}"
+    return detail
 
 
 def finalize_operation(operation_id, resources):
@@ -474,11 +526,10 @@ def report_uncertain_creation(operation_id, detail):
     )
 
 
-def managed_creation(original, argv, caller, creation_kind):
+def managed_creation(original, argv, caller, creation_kind, scope):
     operation_id = str(uuid.uuid4())
     try:
-        scope = server_scope()
-        record_intent(operation_id, scope, caller)
+        record_intent(operation_id, scope, caller, creation_kind)
     except RegistryError as error:
         print(
             f"herdr wrapper: intent recording failed; native creation was not called: {error}",
@@ -503,25 +554,34 @@ def managed_creation(original, argv, caller, creation_kind):
             native_argv, 124, error.stdout, error.stderr
         )
         write_native_output(completed)
-        report_uncertain_creation(operation_id, "native creation timed out after 30 seconds")
+        detail = "native creation timed out after 30 seconds"
+        detail = preserve_uncertain_operation(operation_id, detail)
+        report_uncertain_creation(operation_id, detail)
         return 124
     write_native_output(completed)
     if completed.returncode != 0:
-        record_native_failure(operation_id, completed.returncode)
         if completed.returncode < 0:
-            return 128 - completed.returncode
+            exit_status = 128 - completed.returncode
+            detail = f"native creation terminated by signal {-completed.returncode}"
+            detail = preserve_uncertain_operation(operation_id, detail)
+            report_uncertain_creation(operation_id, detail)
+            return exit_status
+        record_native_failure(operation_id, completed.returncode)
         return completed.returncode
 
     resources = None
     try:
         resources = parse_created_resources(completed.stdout, creation_kind)
+        require_server_scope(scope)
         finalize_operation(operation_id, resources)
     except CreatedResourcesError as error:
         resources = error.coordinates
-        report_untracked_creation(operation_id, resources, error)
+        detail = preserve_uncertain_operation(operation_id, str(error), resources)
+        report_untracked_creation(operation_id, resources, detail)
         return 70
     except (SnapshotError, RegistryError) as error:
-        report_untracked_creation(operation_id, resources, error)
+        detail = preserve_uncertain_operation(operation_id, str(error), resources)
+        report_untracked_creation(operation_id, resources, detail)
         return 70
     return 0
 
@@ -550,7 +610,27 @@ def wrapper_main(wrapper_path, argv):
             )
             return 69
         if caller is not None:
-            return managed_creation(original, argv, caller, creation_kind)
+            try:
+                scope = server_scope()
+                verified_caller = identify_caller(original)
+                require_server_scope(scope)
+            except (OSError, SnapshotError, RegistryError) as error:
+                print(
+                    "herdr wrapper: caller identity could not be revalidated; native "
+                    f"creation was not called: {error}",
+                    file=sys.stderr,
+                )
+                return 69
+            if verified_caller != caller:
+                print(
+                    "herdr wrapper: caller identity changed during verification; native "
+                    "creation was not called",
+                    file=sys.stderr,
+                )
+                return 69
+            return managed_creation(
+                original, argv, caller, creation_kind, scope
+            )
     os.execv(original, [original, *argv])
 
 
@@ -619,6 +699,12 @@ def normalize_snapshot(envelope):
     workspace_index = resource_index(workspaces, "workspaces", "workspace_id")
     tab_index = resource_index(tabs, "tabs", "tab_id")
     pane_index = resource_index(panes, "panes", "pane_id")
+    terminal_ids = set()
+    for pane_id, (pane, path) in pane_index.items():
+        terminal_id = required_string(pane.get("terminal_id"), f"{path}.terminal_id")
+        if terminal_id in terminal_ids:
+            raise SnapshotError(f"duplicate terminal_id {terminal_id!r}")
+        terminal_ids.add(terminal_id)
 
     observed_agents = {}
     for index, agent in enumerate(agents):
@@ -714,7 +800,7 @@ def normalize_snapshot(envelope):
         key=lambda workspace: (workspace["number"], workspace["id"])
     )
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "scope": {
             "kind": "local-herdr-server",
             "version": required_string(snapshot.get("version"), "snapshot.version"),
@@ -760,7 +846,7 @@ def load_creator_edges(scope):
             )
         except (json.JSONDecodeError, SnapshotError) as error:
             raise RegistryError(str(error)) from error
-        resource_keys = [("panes", (pane_id, terminal_id))]
+        resource_keys = [("panes", terminal_id)]
         if workspace_created:
             resource_keys.append(("workspaces", workspace_id))
         if tab_created:
@@ -772,15 +858,70 @@ def load_creator_edges(scope):
     return edges
 
 
+def load_unresolved_operations(scope):
+    connection = connect_registry(create=False)
+    if connection is None:
+        return []
+    try:
+        rows = connection.execute(
+            """
+            SELECT operation_id, creation_kind, caller_session,
+                   unresolved_reason, workspace_id, tab_id, pane_id, terminal_id
+            FROM operations
+            WHERE server_scope = ? AND status IN ('intent-recorded', 'unresolved')
+            ORDER BY operation_id
+            """,
+            (scope,),
+        ).fetchall()
+    except sqlite3.Error as error:
+        raise RegistryError(str(error)) from error
+    finally:
+        connection.close()
+
+    operations = []
+    for (
+        operation_id,
+        creation_kind,
+        encoded_session,
+        reason,
+        workspace_id,
+        tab_id,
+        pane_id,
+        terminal_id,
+    ) in rows:
+        known_resources = {
+            key: value
+            for key, value in (
+                ("workspace_id", workspace_id),
+                ("tab_id", tab_id),
+                ("pane_id", pane_id),
+                ("terminal_id", terminal_id),
+            )
+            if value is not None
+        }
+        operations.append(
+            {
+                "operation_id": operation_id,
+                "creation_kind": creation_kind,
+                "caller_session": decode_stored_session(
+                    encoded_session, f"stored caller for operation {operation_id!r}"
+                ),
+                "reason": reason
+                or "creation ended before a final native outcome was recorded",
+                "known_resources": known_resources,
+                "retry_safe": False,
+            }
+        )
+    return operations
+
+
 def apply_creator_edges(tree, edges):
     for workspace in tree["workspaces"]:
         workspace["creator_session"] = edges["workspaces"].get(workspace["id"])
         for tab in workspace["tabs"]:
             tab["creator_session"] = edges["tabs"].get(tab["id"])
             for pane in tab["panes"]:
-                pane["creator_session"] = edges["panes"].get(
-                    (pane["id"], pane["terminal_id"])
-                )
+                pane["creator_session"] = edges["panes"].get(pane["terminal_id"])
 
 
 def load_parent_edges(scope):
@@ -828,6 +969,36 @@ def iter_agents(tree):
             for pane in tab["panes"]:
                 if pane["agent"] is not None:
                     yield pane["agent"]
+
+
+def active_parent_edges(tree, edges):
+    anchors = {
+        encode_session(agent["session"])
+        for agent in iter_agents(tree)
+        if agent["session"] is not None
+    }
+    for workspace in tree["workspaces"]:
+        if workspace["creator_session"] is not None:
+            anchors.add(encode_session(workspace["creator_session"]))
+        for tab in workspace["tabs"]:
+            if tab["creator_session"] is not None:
+                anchors.add(encode_session(tab["creator_session"]))
+            for pane in tab["panes"]:
+                if pane["creator_session"] is not None:
+                    anchors.add(encode_session(pane["creator_session"]))
+
+    active = {}
+    for anchor in anchors:
+        current = anchor
+        visited = set()
+        while current in edges:
+            if current in visited:
+                raise RegistryError("stored Agent parentage contains a cycle")
+            visited.add(current)
+            edge = edges[current]
+            active[current] = edge
+            current = encode_session(edge["parent_session"])
+    return active
 
 
 def find_pane(tree, pane_id):
@@ -923,6 +1094,14 @@ def filter_creator_branch(tree, creator_keys):
     return {**tree, "workspaces": workspaces}
 
 
+def filter_unresolved_operations(operations, creator_keys):
+    return [
+        operation
+        for operation in operations
+        if encode_session(operation["caller_session"]) in creator_keys
+    ]
+
+
 def display_label(label):
     if label is None:
         return "(unlabeled)"
@@ -961,36 +1140,51 @@ def render_human(tree):
     )
     if not tree["workspaces"]:
         lines.append("(no open workspaces)")
-        return "\n".join(lines)
-
-    for workspace in tree["workspaces"]:
-        lines.append(f"workspace {display_label(workspace['label'])} [{workspace['id']}]")
-        lines.append(f"  creator: {display_session(workspace['creator_session'])}")
-        for tab in workspace["tabs"]:
-            lines.append(f"  tab {display_label(tab['label'])} [{tab['id']}]")
-            lines.append(f"    creator: {display_session(tab['creator_session'])}")
-            for pane in tab["panes"]:
-                lines.append(f"    pane {display_label(pane['label'])} [{pane['id']}]")
-                lines.append(f"      terminal: {pane['terminal_id']}")
-                lines.append(
-                    f"      creator: {display_session(pane['creator_session'])}"
-                )
-                agent = pane["agent"]
-                if agent is None:
-                    lines.append("      agent: none")
-                    continue
-                lines.append(
-                    f"      agent: {agent['client']} "
-                    f"{display_label(agent['presentation_name'])}"
-                )
-                lines.append(f"      session: {display_session(agent['session'])}")
-                if agent["parent_session"] is None:
-                    lines.append("      parent: unknown")
-                else:
+    else:
+        for workspace in tree["workspaces"]:
+            lines.append(
+                f"workspace {display_label(workspace['label'])} [{workspace['id']}]"
+            )
+            lines.append(f"  creator: {display_session(workspace['creator_session'])}")
+            for tab in workspace["tabs"]:
+                lines.append(f"  tab {display_label(tab['label'])} [{tab['id']}]")
+                lines.append(f"    creator: {display_session(tab['creator_session'])}")
+                for pane in tab["panes"]:
+                    lines.append(f"    pane {display_label(pane['label'])} [{pane['id']}]")
+                    lines.append(f"      terminal: {pane['terminal_id']}")
                     lines.append(
-                        f"      parent: {display_label(agent['parent_name'])} "
-                        f"({display_session(agent['parent_session'])})"
+                        f"      creator: {display_session(pane['creator_session'])}"
                     )
+                    agent = pane["agent"]
+                    if agent is None:
+                        lines.append("      agent: none")
+                        continue
+                    lines.append(
+                        f"      agent: {agent['client']} "
+                        f"{display_label(agent['presentation_name'])}"
+                    )
+                    lines.append(f"      session: {display_session(agent['session'])}")
+                    if agent["parent_session"] is None:
+                        lines.append("      parent: unknown")
+                    else:
+                        lines.append(
+                            f"      parent: {display_label(agent['parent_name'])} "
+                            f"({display_session(agent['parent_session'])})"
+                        )
+    for operation in tree["unresolved_operations"]:
+        lines.append(
+            f"unresolved {operation['creation_kind']} creation operation "
+            f"{operation['operation_id']}: automatic retry is unsafe"
+        )
+        if operation["known_resources"]:
+            lines.append(
+                "  known resources: "
+                + " ".join(
+                    f"{key}={value}"
+                    for key, value in operation["known_resources"].items()
+                )
+            )
+        lines.append(f"  reason: {operation['reason']}")
     return "\n".join(lines)
 
 
@@ -1053,6 +1247,13 @@ def render_context(tree, limit):
                             f"session={display_session(agent['session'])} "
                             f"parent={parent_link}"
                         )
+    if tree["unresolved_operations"]:
+        lines.append("Unresolved creations (automatic retry is unsafe):")
+        for operation in tree["unresolved_operations"]:
+            lines.append(
+                f"- {operation['creation_kind']} operation "
+                f"{operation['operation_id']} reason={operation['reason']}"
+            )
 
     full = "\n".join(lines)
     if len(full) <= limit:
@@ -1137,6 +1338,14 @@ def record_child_main(argv):
         print(f"herdr-resource-tree: parentage verification failed: {error}", file=sys.stderr)
         return 1
     try:
+        scope = server_scope()
+    except RegistryError as error:
+        print(
+            f"herdr-resource-tree: parentage scope unavailable: {error}",
+            file=sys.stderr,
+        )
+        return 1
+    try:
         caller = identify_caller("herdr")
     except (OSError, SnapshotError) as error:
         print(
@@ -1169,7 +1378,7 @@ def record_child_main(argv):
 
     try:
         tree = normalize_snapshot(json.loads(completed.stdout))
-        scope = server_scope()
+        require_server_scope(scope)
         apply_creator_edges(tree, load_creator_edges(scope))
         pane = find_pane(tree, args.pane)
         if pane is None:
@@ -1267,6 +1476,11 @@ def main(argv):
 
     args = parse_args(argv)
     try:
+        scope = server_scope()
+    except RegistryError as error:
+        print(f"herdr-resource-tree: provenance lookup failed: {error}", file=sys.stderr)
+        return 1
+    try:
         completed = retrieve_snapshot()
     except SnapshotTimeout as error:
         print(f"herdr-resource-tree: snapshot retrieval failed: {error}", file=sys.stderr)
@@ -1293,9 +1507,10 @@ def main(argv):
         return 1
 
     try:
-        scope = server_scope()
+        require_server_scope(scope)
         apply_creator_edges(tree, load_creator_edges(scope))
-        parent_edges = load_parent_edges(scope)
+        tree["unresolved_operations"] = load_unresolved_operations(scope)
+        parent_edges = active_parent_edges(tree, load_parent_edges(scope))
         apply_parent_edges(tree, parent_edges)
     except RegistryError as error:
         print(f"herdr-resource-tree: provenance lookup failed: {error}", file=sys.stderr)
@@ -1319,10 +1534,19 @@ def main(argv):
         try:
             branch, creator_keys = build_branch(tree, caller["session"], parent_edges)
             tree = filter_creator_branch(tree, creator_keys)
+            tree["unresolved_operations"] = filter_unresolved_operations(
+                tree["unresolved_operations"], creator_keys
+            )
             tree["branch"] = branch
         except RegistryError as error:
             print(f"herdr-resource-tree: parentage lookup failed: {error}", file=sys.stderr)
             return 1
+
+    try:
+        require_server_scope(scope)
+    except RegistryError as error:
+        print(f"herdr-resource-tree: provenance lookup failed: {error}", file=sys.stderr)
+        return 1
 
     if args.context:
         try:
