@@ -13,7 +13,7 @@
 # Keep this tolerant: a missing herdr or a stopped server must not make chezmoi apply fail.
 set -u
 
-if ! herdr --version >/dev/null 2>&1; then
+if ! HERDR_WRAPPER_REQUIRE_NATIVE=1 herdr --version >/dev/null 2>&1; then
   echo "herdr not found; skipping agent-state integration refresh"
   exit 0
 fi

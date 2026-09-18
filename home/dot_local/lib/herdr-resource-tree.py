@@ -590,6 +590,9 @@ def wrapper_main(wrapper_path, argv):
     try:
         original = find_original_herdr(wrapper_path)
     except OSError as error:
+        if argv == ["--version"] and os.environ.get("HERDR_WRAPPER_REQUIRE_NATIVE") != "1":
+            print("herdr wrapper: native herdr unavailable")
+            return 0
         print(f"herdr wrapper: {error}", file=sys.stderr)
         return 127
     creation_kind = {
