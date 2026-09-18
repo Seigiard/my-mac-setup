@@ -1933,7 +1933,13 @@ case "$*" in
     exit 0
     ;;
   "plugin list --json")
-    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
+    if [ "${HERDR_FAIL_STEP:-}" = malformed ]; then
+      printf '%s\n' '{"result":{"plugins":[null]}}'
+    elif [ "${HERDR_FAIL_STEP:-}" = refresh ] && [ "$(grep -Fc "plugin list --json" "$HERDR_CALLS")" -gt 1 ]; then
+      exit 1
+    else
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
+    fi
     ;;
   "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
@@ -2050,6 +2056,33 @@ function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_regi
   assert_success
   run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
   assert_success
+}
+
+function test_scripts_08536_worktree_setup_migration_rolls_back_after_registry_refresh_failure() {
+  _bats_test_init 8536 'worktree setup migration removes the new registration after registry refresh failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-refresh-failure"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" refresh
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08537_worktree_setup_migration_rejects_malformed_plugin_registry_data() {
+  _bats_test_init 8537 'worktree setup migration rejects malformed plugin registry data'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-malformed-registry"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" malformed
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -F "plugin install Seigiard/herdr-worktree-setup" "$work/herdr.calls"
+  assert_failure
 }
 
 function test_scripts_08533_worktree_setup_migration_restores_a_local_plugin_from_a_live_home() {
@@ -2256,6 +2289,7 @@ assert plugins, "real herdr returned no plugins"
 kinds = set()
 for plugin in plugins:
     assert isinstance(plugin.get("plugin_id"), str), plugin
+    assert isinstance(plugin.get("enabled"), bool), plugin
     source = plugin.get("source")
     assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
     kinds.add(source["kind"])
@@ -2265,6 +2299,50 @@ PY
   assert_success
   [[ " $output " == *" local "* && " $output " == *" github "* ]] \
     || skip "real registry does not currently expose both local and github source kinds: $output"
+
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin enable missing.plugin
+  assert_failure
+  local enable_error="$output"
+  run env ENABLE_ERROR="$enable_error" python3 - <<'PY'
+import json
+import os
+
+error = json.loads(os.environ["ENABLE_ERROR"])["error"]
+assert error["code"] == "server_not_running", error
+PY
+  assert_success
+}
+
+function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
+  _bats_test_init 8524 'standalone Worktree Setup is installed enabled and pinned to the reviewed commit'
+  command_exists herdr || skip "herdr is not installed"
+  [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
+  local plugin_json
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
+  assert_success
+  plugin_json="$output"
+
+  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+import json
+import os
+
+plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
+matches = [
+    plugin for plugin in plugins
+    if plugin.get("plugin_id") == "seigi.worktree-setup"
+]
+assert len(matches) == 1, matches
+plugin = matches[0]
+source = plugin["source"]
+assert plugin["enabled"] is True, plugin
+assert source["kind"] == "github", source
+assert source["owner"] == "Seigiard" and source["repo"] == "herdr-worktree-setup", source
+assert source["resolved_commit"] == "70048c616979719aa592df36f37ec076227b2ac8", source
+PY
+  assert_success
 }
 
 caffeinate_migration_prepare() {

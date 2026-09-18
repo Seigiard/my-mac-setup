@@ -19,6 +19,8 @@ plugin_is_local() {
 import json, sys
 try:
     plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    if not isinstance(plugins, list) or not all(isinstance(plugin, dict) for plugin in plugins):
+        raise TypeError
     found = any(
         isinstance(plugin, dict)
         and plugin.get("plugin_id") == sys.argv[1]
@@ -110,6 +112,7 @@ fi
 # keeps its in-memory registry until the next list/reload request.
 if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
   echo "Worktree Setup migration could not refresh Herdr's plugin registry; retry on the next apply" >&2
+  herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
   if [[ $local_state -eq 0 ]]; then
     if restore_local_plugin; then
       echo "Worktree Setup registry refresh failed; restored the local plugin for the next retry" >&2
