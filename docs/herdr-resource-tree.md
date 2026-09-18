@@ -294,14 +294,17 @@ Claude's adapter supplies the projection as `additionalContext` on
 mid-session projection is unchanged. When the projection changes, the new
 reminder declares itself authoritative and invalidates the earlier generated
 context. Claude's transcript is append-only, so the earlier reminder remains in
-history; the supported hook API cannot physically remove it.
+history; the supported hook API cannot physically remove it. A failed query
+emits an unavailable reminder that explicitly invalidates the earlier generated
+context without claiming the branch is empty.
 
 OpenCode's adapter queries with the native `sessionID` at
 `experimental.chat.system.transform`, the model-request boundary used for
 ordinary, resumed, and compaction requests. Each successful query replaces any
 earlier generated resource-context system entry; a successful empty projection
-removes it. A failed query leaves the request unchanged. The adapter never sends
-a synthetic prompt or keeps a client-owned conversation registry.
+removes it. A failed query replaces any generated entry with an explicit
+unavailable entry. The adapter never sends a synthetic prompt or keeps a
+client-owned conversation registry.
 
 Pi's adapter binds `ctx.sessionManager.getSessionId()` on every supported
 `session_start`; Pi emits that event for startup, reload, new, resume, and fork.

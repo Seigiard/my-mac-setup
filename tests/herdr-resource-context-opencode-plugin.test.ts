@@ -151,10 +151,10 @@ describe("OpenCode model-request resource context", () => {
     system.push(prior);
     writeFileSync(join(root, "fail-session-B"), "snapshot unavailable\n");
     await host.transform({ sessionID: "session-B" }, { system });
-    // Failure is not an empty projection: it cannot authorize deleting the
-    // same request's last-known entry. OpenCode rebuilds this array for each
-    // request, so a replacement conversation starts from the clean case below.
-    expect(system).toEqual(["You are OpenCode.", prior]);
+    expect(system).toEqual([
+      "You are OpenCode.",
+      `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
+    ]);
   });
 
   test("each model request re-queries the same conversation and rejects a new pane occupant", async () => {
@@ -186,7 +186,8 @@ describe("OpenCode model-request resource context", () => {
 
     const replacement = ["new conversation"];
     await host.transform({ sessionID: "session-new" }, { system: replacement });
-    expect(replacement).toEqual(["new conversation"]);
+    expect(replacement.join("\n")).toContain("Herdr resource context unavailable");
+    expect(replacement.join("\n")).not.toContain('pane "refreshed"');
     expect(host.promptAsyncCalls()).toBe(0);
   });
 

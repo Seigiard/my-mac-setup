@@ -34,18 +34,41 @@ fi
 
 resource_cli="${HERDR_RESOURCE_CONTEXT_CLI:-${HOME:-}/.local/bin/herdr-resource-tree}"
 [ -x "$resource_cli" ] || exit 0
-context="$("$resource_cli" --context --caller-agent claude --caller-session-id "$session" 2>/dev/null)" || exit 0
-
 state_dir="${HERDR_RESOURCE_CONTEXT_STATE_DIR:-${HOME:-}/.cache/herdr-resource-context}"
 [ -n "$state_dir" ] || exit 0
 umask 077
 mkdir -p "$state_dir" 2>/dev/null || exit 0
 state_file="$state_dir/$session"
+write_state() {
+  local value="$1" temporary
+  temporary="$(mktemp "$state_dir/.${session}.XXXXXX" 2>/dev/null)" || return 1
+  printf '%s' "$value" > "$temporary" 2>/dev/null || {
+    rm -f "$temporary"
+    return 1
+  }
+  mv -f "$temporary" "$state_file" 2>/dev/null || {
+    rm -f "$temporary"
+    return 1
+  }
+}
+
 had_state=false
 previous=""
 if [ -f "$state_file" ]; then
   had_state=true
   previous="$(cat "$state_file" 2>/dev/null)" || exit 0
+fi
+
+if ! context="$("$resource_cli" --context --caller-agent claude --caller-session-id "$session" 2>/dev/null)"; then
+  write_state '__HERDR_RESOURCE_CONTEXT_UNAVAILABLE__' || exit 0
+  context='Agent resource context unavailable: the shared resource query failed. The earlier generated resource context is stale, and this must not be treated as an empty resource branch.'
+  jq -n --arg event "$event" --arg context "$context" '{
+    hookSpecificOutput: {
+      hookEventName: $event,
+      additionalContext: $context
+    }
+  }' 2>/dev/null || exit 0
+  exit 0
 fi
 
 # Session restoration needs the projection again after resume or compaction.
@@ -55,15 +78,7 @@ if [ "$event" != SessionStart ] && [ "$had_state" = true ] && [ "$context" = "$p
   exit 0
 fi
 
-temporary="$(mktemp "$state_dir/.${session}.XXXXXX" 2>/dev/null)" || exit 0
-printf '%s' "$context" > "$temporary" 2>/dev/null || {
-  rm -f "$temporary"
-  exit 0
-}
-mv -f "$temporary" "$state_file" 2>/dev/null || {
-  rm -f "$temporary"
-  exit 0
-}
+write_state "$context" || exit 0
 
 if [ -z "$context" ]; then
   if [ "$had_state" = true ] && [ -n "$previous" ]; then

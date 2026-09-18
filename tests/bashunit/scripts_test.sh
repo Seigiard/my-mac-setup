@@ -10494,8 +10494,8 @@ function test_scripts_1225_claude_resource_context_reaches_each_model_request_wi
   assert_file_contains "$root/state-input" '"source":"resume"'
 }
 
-function test_scripts_1226_claude_resource_context_is_session_scoped_and_fails_open() {
-  _bats_test_init 1226 'Claude resource context does not leak across sessions or unavailable queries'
+function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_unavailable_queries() {
+  _bats_test_init 1226 'Claude resource context does not leak across sessions and marks unavailable queries'
   local root="$BATS_TEST_TMPDIR/resource-context-guards"
   hrc_stub_hooks "$root"
   printf '%s\n' 'Resources:' '- pane "owned" [w1:p1]' > "$root/context"
@@ -10523,10 +10523,28 @@ function test_scripts_1226_claude_resource_context_is_session_scoped_and_fails_o
   # arguments. Query failure must not be presented as a complete empty tree.
   HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-fresh startup
   assert_success
-  assert_output ''
+  local unavailable="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  assert_output --partial 'earlier generated resource context is stale'
+  assert_output --partial 'must not be treated as an empty resource branch'
   run paste -sd ' ' "$root/query-argv"
   assert_success
   assert_output '--context --caller-agent claude --caller-session-id session-fresh'
+
+  # A transient failure invalidates the dedupe state. The next successful
+  # query must restore the projection even when its value did not change.
+  printf '%s\n' 'Resources:' '- pane "restored" [w1:p2]' > "$root/context"
+  run hrc_run "$root" SessionStart session-recovery startup
+  assert_success
+  assert_output --partial 'pane \"restored\"'
+  HRC_QUERY_STATUS=1 run hrc_run "$root" UserPromptSubmit session-recovery
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  run hrc_run "$root" UserPromptSubmit session-recovery
+  assert_success
+  assert_output --partial 'pane \"restored\"'
 
   rm -f "$root/query-argv"
   run hrc_run "$root" UserPromptSubmit session-fresh '' subagent-1

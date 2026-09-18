@@ -1816,7 +1816,14 @@ TS
     HRC_OPENCODE_PLUGIN="$HRC_OPENCODE_PLUGIN" \
     run tree_wrapper_fixture_run bun "$TREE_WORK/opencode-model-request.ts" stale-conversation
   assert_success
-  assert_output '["base"]'
+  local unavailable_system="$output"
+  run jq -e '
+    length == 2
+    and .[0] == "base"
+    and (.[1] | contains("Herdr resource context unavailable"))
+    and (.[1] | contains("must not be treated as an empty resource branch"))
+  ' <<< "$unavailable_system"
+  assert_success
 
   HERDR_RESOURCE_CONTEXT_MAX_CHARS=320 run tree_wrapper_fixture_run "$TREE_CLI" --context
   assert_success

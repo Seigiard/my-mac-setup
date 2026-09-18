@@ -676,6 +676,12 @@ function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
 }
 
+function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapper() {
+  _bats_test_init 1074 'managed zsh resolves herdr through the provenance wrapper'
+  run zsh -fc 'source "$HOME/.zshrc"; [[ "$(command -v herdr)" = "$HOME/.local/bin/herdr" ]]'
+  assert_success
+}
+
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
   _bats_test_init 1052 'herdr child and consult contracts use allocator-owned pair addressing'
   # The reap/verify/reply flow itself is owned by scripts_test.sh, which runs

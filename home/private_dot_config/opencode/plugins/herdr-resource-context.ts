@@ -38,11 +38,15 @@ export const HerdrResourceContextPlugin: Plugin = async () => {
       if (!sessionID || !Array.isArray(system)) return
 
       const context = await queryContext(sessionID)
-      if (context === undefined) return
-
       const retained = system.filter((entry) => !generatedContext(entry))
       system.length = 0
       system.push(...retained)
+      if (context === undefined) {
+        system.push(
+          `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
+        )
+        return
+      }
       if (context !== "") system.push(`${HEADING}\n${context}`)
     },
   }
