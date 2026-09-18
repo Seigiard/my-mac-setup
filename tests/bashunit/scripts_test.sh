@@ -1842,6 +1842,43 @@ SH
   assert_failure
 }
 
+function test_scripts_08513_github_plugin_install_accepts_an_enabled_offline_registry() {
+  _bats_test_init 8513 'GitHub plugin installation accepts an enabled local registry when Herdr is offline'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-offline.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline"
+  local calls="$BATS_TEST_TMPDIR/herdr-offline.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-offline-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}}]}}'
+    ;;
+  "plugin enable "*)
+    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  local result="$output"
+  [[ "$result" == *'registered enabled for the next start'* ]] || fail 'offline registration was not accepted'
+  [[ "$result" != *'Warning: failed to configure Herdr plugin'* ]] || fail 'offline registration was reported as failed'
+}
+
 worktree_migration_prepare() {
   local work="$1"
   local source="$work/source" home="$work/home" fake_bin="$work/bin"
@@ -1929,6 +1966,21 @@ function test_scripts_08531_worktree_setup_migration_retries_after_enable_failur
   run grep -Fc "plugin enable seigi.worktree-setup" "$work/herdr.calls"
   assert_success
   assert_output "2"
+}
+
+function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_registration() {
+  _bats_test_init 8532 'worktree setup migration replaces a stale local registration without legacy files'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-stale-migration"
+  worktree_migration_prepare "$work"
+  rm -rf "$work/home/.config/herdr/plugins/worktree-setup"
+
+  run worktree_migration_apply "$work"
+  assert_success
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  assert_success
 }
 
 function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {

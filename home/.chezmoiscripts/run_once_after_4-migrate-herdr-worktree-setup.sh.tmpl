@@ -48,22 +48,26 @@ restore_local_plugin() {
   herdr plugin link "$legacy_root" --enabled </dev/null >/dev/null 2>&1
 }
 
-if [[ ! -d "$legacy_root" ]]; then
-  exit 0
-fi
+legacy_present=0
+[[ -d "$legacy_root" ]] && legacy_present=1
 
 if ! herdr --version >/dev/null 2>&1; then
+  [[ $legacy_present -eq 0 ]] && exit 0
   echo "Worktree Setup migration needs herdr; retry after herdr is installed" >&2
   exit 1
 fi
 
 if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  [[ $legacy_present -eq 0 ]] && exit 0
   echo "Worktree Setup migration could not inspect Herdr plugins; retry on the next apply" >&2
   exit 1
 fi
 
 plugin_is_local
 local_state=$?
+if [[ $legacy_present -eq 0 && $local_state -eq 1 ]]; then
+  exit 0
+fi
 if [[ $local_state -eq 0 ]]; then
   if ! herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1; then
     echo "Worktree Setup migration could not unregister the local plugin; retry on the next apply" >&2

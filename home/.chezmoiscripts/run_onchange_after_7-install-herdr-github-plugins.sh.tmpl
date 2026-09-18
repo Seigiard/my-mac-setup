@@ -50,14 +50,35 @@ raise SystemExit(0 if found else 1)
 ' "$expected_id" "$expected_kind" 2>/dev/null
 }
 
+plugin_is_enabled() {
+  local expected_id="$1"
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    found = any(
+        isinstance(plugin, dict)
+        and plugin.get("plugin_id") == sys.argv[1]
+        and plugin.get("enabled") is True
+        for plugin in plugins
+    )
+except (AttributeError, json.JSONDecodeError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if found else 1)
+' "$expected_id" 2>/dev/null
+}
+
 enable_plugin() {
   local plugin_id="$1" output
   if output="$(herdr plugin enable "$plugin_id" </dev/null 2>&1)"; then
     return 0
   fi
   if [[ "$output" == *server_not_running* ]]; then
-    echo "Herdr server is not running; $plugin_id is registered enabled for the next start"
-    return 0
+    plugin_is_enabled "$plugin_id"
+    if [[ $? -eq 0 ]]; then
+      echo "Herdr server is not running; $plugin_id is registered enabled for the next start"
+      return 0
+    fi
   fi
   [[ -z "$output" ]] || printf '%s\n' "$output" >&2
   return 1
@@ -133,7 +154,7 @@ for entry in "${plugins[@]}"; do
 
   # `plugin install` updates the on-disk registry, while the running Herdr server
   # keeps its in-memory registry until the next list/reload request.
-  if ! herdr plugin list --json </dev/null >/dev/null 2>&1; then
+  if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
     failed+=("$repo (refresh: herdr plugin list --json)")
     continue
   fi
