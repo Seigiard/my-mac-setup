@@ -50,6 +50,19 @@ raise SystemExit(0 if found else 1)
 ' "$expected_id" "$expected_kind" 2>/dev/null
 }
 
+enable_plugin() {
+  local plugin_id="$1" output
+  if output="$(herdr plugin enable "$plugin_id" </dev/null 2>&1)"; then
+    return 0
+  fi
+  if [[ "$output" == *server_not_running* ]]; then
+    echo "Herdr server is not running; $plugin_id is registered enabled for the next start"
+    return 0
+  fi
+  [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+  return 1
+}
+
 # Remove plugins whose behavior moved elsewhere or whose local ID was superseded.
 plugin_json=""
 if plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
@@ -125,7 +138,7 @@ for entry in "${plugins[@]}"; do
     continue
   fi
 
-  if herdr plugin enable "$plugin_id" </dev/null >/dev/null 2>&1; then
+  if enable_plugin "$plugin_id"; then
     if [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" ]] && ! herdr_wakeup_configure; then
       failed+=("$repo (config: link the managed policy from $(herdr plugin config-dir "$plugin_id" 2>/dev/null || printf 'the plugin config directory'))")
       if [[ $wakeup_was_installed -eq 1 ]] && ! restore_herdr_wakeup; then

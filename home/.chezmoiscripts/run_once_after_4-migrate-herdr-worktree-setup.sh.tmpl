@@ -26,6 +26,23 @@ raise SystemExit(0 if found else 1)
 ' "$plugin_id" 2>/dev/null
 }
 
+plugin_is_enabled() {
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    found = any(
+        isinstance(plugin, dict)
+        and plugin.get("plugin_id") == sys.argv[1]
+        and plugin.get("enabled") is True
+        for plugin in plugins
+    )
+except (AttributeError, json.JSONDecodeError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if found else 1)
+' "$plugin_id" 2>/dev/null
+}
+
 restore_local_plugin() {
   [[ -d "$legacy_root" ]] || return 1
   herdr plugin link "$legacy_root" --enabled </dev/null >/dev/null 2>&1
@@ -72,7 +89,7 @@ fi
 
 # `plugin install` updates the on-disk registry, while the running Herdr server
 # keeps its in-memory registry until the next list/reload request.
-if ! herdr plugin list --json </dev/null >/dev/null 2>&1; then
+if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
   echo "Worktree Setup migration could not refresh Herdr's plugin registry; retry on the next apply" >&2
   if [[ $local_state -eq 0 ]]; then
     if restore_local_plugin; then
@@ -86,18 +103,24 @@ fi
 
 enable_output=""
 if ! enable_output="$(herdr plugin enable "$plugin_id" </dev/null 2>&1)"; then
-  [[ -z "$enable_output" ]] || printf '%s\n' "$enable_output" >&2
-  herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
-  if [[ $local_state -eq 0 ]]; then
-    if restore_local_plugin; then
-      echo "Worktree Setup enable failed; restored the local plugin for the next retry" >&2
-    else
-      echo "Worktree Setup enable failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
-    fi
+  plugin_is_enabled
+  enabled_state=$?
+  if [[ "$enable_output" == *server_not_running* && $enabled_state -eq 0 ]]; then
+    echo "Herdr server is not running; Worktree Setup is registered enabled for the next start"
   else
-    echo "Worktree Setup enable failed; retained the legacy files for the next retry" >&2
+    [[ -z "$enable_output" ]] || printf '%s\n' "$enable_output" >&2
+    herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
+    if [[ $local_state -eq 0 ]]; then
+      if restore_local_plugin; then
+        echo "Worktree Setup enable failed; restored the local plugin for the next retry" >&2
+      else
+        echo "Worktree Setup enable failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
+      fi
+    else
+      echo "Worktree Setup enable failed; retained the legacy files for the next retry" >&2
+    fi
+    exit 1
   fi
-  exit 1
 fi
 
 if ! rm -rf -- "$legacy_root"; then
