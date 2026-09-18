@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Install the pinned Agent Intercom package set after mise has installed Node.
+# Re-run triggers:
+# package.json: {{ include "dot_local/share/agent-intercom/package.json" | sha256sum }}
+# package-lock.json: {{ include "dot_local/share/agent-intercom/package-lock.json" | sha256sum }}
+
+set -euo pipefail
+
+root="$HOME/.local/share/agent-intercom"
+# Chezmoi runs each script in a fresh process, so repeat the PATH bootstrap from
+# the package installer instead of relying on its shell-local `brew shellenv`.
+for brew_bin in /opt/homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew /usr/local/bin/brew; do
+  if [[ -x "$brew_bin" ]]; then
+    eval "$("$brew_bin" shellenv)"
+    break
+  fi
+done
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  printf 'Agent Intercom requires Node >=22.19.0 and npm; run mise install, then re-apply chezmoi\n' >&2
+  exit 1
+fi
+
+if ! node -e '
+const [major, minor] = process.versions.node.split(".").map(Number)
+process.exit(major > 22 || (major === 22 && minor >= 19) ? 0 : 1)
+'; then
+  printf 'Agent Intercom requires Node >=22.19.0; found %s\n' "$(node --version)" >&2
+  exit 1
+fi
+
+npm ci --prefix "$root" --omit=dev --no-audit --no-fund
+
+required=(
+  "$root/node_modules/.bin/cci"
+  "$root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
+  "$root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+  "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
+  "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
+)
+for path in "${required[@]}"; do
+  if [[ ! -e "$path" ]]; then
+    printf 'Agent Intercom install is incomplete: missing %s\n' "$path" >&2
+    exit 1
+  fi
+done
+
+printf 'Installed pinned Agent Intercom adapters for Claude Code, OpenCode, and Pi\n'
