@@ -21,6 +21,7 @@ if (process.env.HERDR_ENV === "1" && intercomName) {
     // Intercom is additive; an incomplete optional install must not block OpenCode.
   }
 }
+// Do not leak this session's alias to nested OpenCode processes.
 delete process.env.OPENCODE_INTERCOM_NAME
 
 // OpenCode treats every export as a plugin factory, so expose exactly one and
@@ -28,14 +29,12 @@ delete process.env.OPENCODE_INTERCOM_NAME
 export const AgentIntercomPlugin: Plugin = async (input) => {
   if (!intercomPlugin || !intercomName) return {}
 
-  const previousName = process.env.OPENCODE_INTERCOM_NAME
   process.env.OPENCODE_INTERCOM_NAME = intercomName
   try {
     return await intercomPlugin(input)
   } catch {
     return {}
   } finally {
-    if (previousName === undefined) delete process.env.OPENCODE_INTERCOM_NAME
-    else process.env.OPENCODE_INTERCOM_NAME = previousName
+    delete process.env.OPENCODE_INTERCOM_NAME
   }
 }

@@ -848,6 +848,7 @@ SH
   assert_success
   assert_output --partial '<--disallowed-tools><Edit Write NotebookEdit AskUserQuestion>'
   refute_output --partial '<--dangerously-skip-permissions>'
+  refute_output --partial '<--permission-mode><manual>'
 }
 
 assert_herdr_label_writer_contract() {

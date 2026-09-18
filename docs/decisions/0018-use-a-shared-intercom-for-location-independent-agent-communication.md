@@ -163,9 +163,12 @@ launcher derives the public name from the child alias or current pane record,
 runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
 adapter name, and passes Pi's normal session name. Claude and Pi utility
 launches, plus nested and unidentified launches for all clients, pass through
-unchanged. OpenCode does not classify subcommands at the launcher boundary and
-loads only its server plugin. Codex is deferred because its tested wakeable
-worker and proactive MCP surface register separate Intercom identities.
+unchanged. The Claude bridge removes `cci`'s synthetic permission selector;
+the caller's native flag, or otherwise Claude's project and user settings,
+continues to decide the permission mode. OpenCode does not classify subcommands
+at the launcher boundary and loads only its server plugin. Codex is deferred
+because its tested wakeable worker and proactive MCP surface register separate
+Intercom identities.
 
 ## Consequences
 

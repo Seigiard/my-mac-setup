@@ -284,10 +284,16 @@ function test_scripts_1335_agent_intercom_claude_bridge_preserves_native_argumen
     AGENT_INTERCOM_CLAUDE_ARG_0=--disallowed-tools \
     AGENT_INTERCOM_CLAUDE_ARG_1='Edit Write NotebookEdit AskUserQuestion' \
     AGENT_INTERCOM_CLAUDE_ARG_2='prompt with spaces' AGENT_INTERCOM_CLAUDE_ARG_3= \
-    bash "$bridge" --plugin-dir /managed/intercom --permission-mode bypassPermissions
+    bash "$bridge" --plugin-dir /managed/intercom --permission-mode manual
 
   assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--disallowed-tools><Edit Write NotebookEdit AskUserQuestion><prompt with spaces><><--plugin-dir></managed/intercom><--permission-mode><bypassPermissions>'
+  assert_output 'claude name=<> args= active=<> pi_load=<><--disallowed-tools><Edit Write NotebookEdit AskUserQuestion><prompt with spaces><><--plugin-dir></managed/intercom>'
+
+  run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub/claude" AGENT_INTERCOM_CLAUDE_ARGC=2 \
+    AGENT_INTERCOM_CLAUDE_ARG_0=--permission-mode AGENT_INTERCOM_CLAUDE_ARG_1=acceptEdits \
+    bash "$bridge" --plugin-dir /managed/intercom --permission-mode manual
+  assert_success
+  assert_output 'claude name=<> args= active=<> pi_load=<><--permission-mode><acceptEdits><--plugin-dir></managed/intercom>'
 
   run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub/claude" AGENT_INTERCOM_CLAUDE_ARGC=3 \
     AGENT_INTERCOM_CLAUDE_ARG_0=-- AGENT_INTERCOM_CLAUDE_ARG_1=--model \

@@ -40,6 +40,22 @@ for arg in "${original_args[@]}"; do
   fi
 done
 
-# Generated identity and permission controls come last among native options,
-# so the managed Herdr posture wins if a caller supplies a conflicting value.
-exec "$claude_command" "${before_terminator[@]}" "$@" "${after_terminator[@]}"
+# cci always generates a permission selector, defaulting to manual. The native
+# argv already carries any caller selector, so drop cci's copy and let Claude
+# settings remain authoritative when the caller supplied none.
+generated_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --permission-mode)
+      shift
+      [[ $# -eq 0 ]] || shift
+      ;;
+    --permission-mode=*|--dangerously-skip-permissions) shift ;;
+    *)
+      generated_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+exec "$claude_command" "${before_terminator[@]}" "${generated_args[@]}" "${after_terminator[@]}"
