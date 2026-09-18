@@ -111,6 +111,7 @@ _smoke_critical_paths() {
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
     .pi/agent/extensions/agent-hooks.ts
+    .pi/agent/extensions/herdr-resource-context.ts
     .claude/hooks/agent-hooks-dispatch.sh
     .local/lib/agent-hooks/index.ts
     .local/lib/agent-hooks/claude.ts
@@ -799,6 +800,18 @@ function test_smoke_1072_deployed_opencode_resource_context_reaches_model_reques
   assert_file_exists "$plugin"
   run env HERDR_RESOURCE_CONTEXT_OPENCODE_PLUGIN_PATH="$plugin" \
     bun test "$BATS_TEST_DIRNAME/herdr-resource-context-opencode-plugin.test.ts"
+  assert_success
+}
+
+# The checkout suite proves the adapter behavior. This deployed run proves
+# chezmoi installed the Pi extension that will bind the native session manager
+# and consume the deployed shared CLI at model-request time.
+function test_smoke_1073_deployed_pi_resource_context_reaches_model_requests() {
+  _bats_test_init 1073 'deployed Pi Herdr resource context reaches model requests'
+  local extension="$HOME/.pi/agent/extensions/herdr-resource-context.ts"
+  assert_file_exists "$extension"
+  run env HERDR_RESOURCE_CONTEXT_PI_EXTENSION_PATH="$extension" \
+    bun test "$BATS_TEST_DIRNAME/herdr-resource-context-pi-extension.test.ts"
   assert_success
 }
 

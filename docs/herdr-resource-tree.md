@@ -303,6 +303,34 @@ earlier generated resource-context system entry; a successful empty projection
 removes it. A failed query leaves the request unchanged. The adapter never sends
 a synthetic prompt or keeps a client-owned conversation registry.
 
+Pi's adapter binds `ctx.sessionManager.getSessionId()` on every supported
+`session_start`; Pi emits that event for startup, reload, new, resume, and fork.
+The adapter then requires the same native session UUID at
+`before_agent_start`. Pi 0.85.1's session manager retains that UUID when
+reopening a session file and allocates a different UUID for a new conversation;
+neither pane identity nor presentation name participates. The adapter re-queries
+the shared projection before each user-initiated agent run and replaces its
+delimited generated system-prompt block. A successful empty projection removes
+that block. Missing or changed identity and query failure instead produce an
+explicit unavailable block, so they cannot masquerade as an empty branch. It
+never persists a context message or calls `sendMessage` or `triggerTurn`.
+
+The native identity and delivery gap was measured against the installed Pi
+0.85.1 on 2026-09-18. Reconstructing a public `SessionManager.inMemory` from an
+existing session header preserved UUID
+`01a0b354-a5f9-7376-b726-a9ce77b57ca3`; a fresh manager allocated
+`01a0b354-a5fb-7376-b726-a9d191701ac8`. Two real `pi --session` launches over
+one seeded session file exposed the same
+`11111111-1111-4111-8111-111111111111` UUID at both `session_start` and
+`before_agent_start`; a real new-session launch exposed
+`22222222-2222-4222-8222-222222222222` instead. With the managed adapter loaded
+before a recorder extension, the latter's actual `before_agent_start`
+`systemPrompt` contained the generated parent line and a Pi-created resource,
+and the stubbed shared CLI recorded the corresponding guarded Pi UUID. This also
+demonstrated Pi's documented chaining of multiple system-prompt handlers. Each
+user prompt produced one ordinary model request and one projection query; the
+adapter produced no additional turn.
+
 Snapshot command failures, invalid JSON, missing arrays, duplicate identities,
 and inconsistent containment return nonzero with a diagnostic on stderr. They
 never produce a complete-looking empty tree.
