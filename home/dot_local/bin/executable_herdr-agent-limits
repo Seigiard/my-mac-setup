@@ -11,8 +11,9 @@ HOME="${HOME:-$(cd ~ && pwd)}"
 CODEX_CACHE="$HOME/.cache/codex-rate-limits/latest.json"
 # Herdr runs status commands asynchronously, but kills their process group when
 # the command exits. Keep the backend read inside that lifecycle and below the
-# tab bar's five-second command timeout.
-CODEX_MAX_AGE="${CODEX_LIMITS_MAX_AGE:-60}"
+# tab bar's five-second command timeout. Fifteen minutes keeps the account
+# figure useful without asking the backend on every minute-by-minute redraw.
+CODEX_MAX_AGE="${CODEX_LIMITS_MAX_AGE:-900}"
 CODEX_RPC_TIMEOUT="${CODEX_LIMITS_RPC_TIMEOUT:-4}"
 
 claude_part() {
@@ -27,11 +28,13 @@ def fmt_reset(ts):
     if left <= 0:
         return None
     if left < 3600:
-        return f"⟳{int(left // 60)}m"
+        return f"↻{int(left // 60)}m"
     if left < 86400:
-        return f"⟳{int(left // 3600)}h{int(left % 3600 // 60):02d}m"
-    return f"⟳{int(left // 86400)}d{int(left % 86400 // 3600)}h"
+        return f"↻{int(left // 3600)}:{int(left % 3600 // 60):02d}"
+    return f"↻{int(left // 86400)}d{int(left % 86400 // 3600)}h"
 
+# nf-cod-claude U+EC82
+PROVIDER = "\uec82"
 # nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
 EXHAUSTED = "\ueabd"
 
@@ -59,7 +62,7 @@ def load_live(path):
         r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
         if w.get("resets_at") and r is None:
             continue
-        out.append(f"{label} {fmt_pct(pct)}" + (f" {r}" if r else ""))
+        out.append(f"{label}/{fmt_pct(pct)}" + (f" {r}" if r else ""))
     return out or None
 
 def load_fallback(path):
@@ -73,7 +76,7 @@ def load_fallback(path):
         w = util.get(key) or {}
         if w.get("utilization") is None:
             continue
-        out.append(f"{label} {fmt_pct(w['utilization'])}")
+        out.append(f"{label}/{fmt_pct(w['utilization'])}")
     if not out:
         return None
     # Say the number is old rather than passing it off as current. It hangs off
@@ -89,7 +92,7 @@ def load_fallback(path):
 
 parts = load_live(sys.argv[1]) or load_fallback(sys.argv[2])
 if parts:
-    print("cc " + " · ".join(parts))
+    print(f"{PROVIDER}  " + " ".join(parts))
 PY
 }
 
@@ -208,11 +211,13 @@ def fmt_reset(ts):
     if left <= 0:
         return None
     if left < 3600:
-        return f"⟳{int(left // 60)}m"
+        return f"↻{int(left // 60)}m"
     if left < 86400:
-        return f"⟳{int(left // 3600)}h{int(left % 3600 // 60):02d}m"
-    return f"⟳{int(left // 86400)}d{int(left % 86400 // 3600)}h"
+        return f"↻{int(left // 3600)}:{int(left % 3600 // 60):02d}"
+    return f"↻{int(left // 86400)}d{int(left % 86400 // 3600)}h"
 
+# nf-cod-openai U+EC81
+PROVIDER = "\uec81"
 # nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
 EXHAUSTED = "\ueabd"
 
@@ -239,24 +244,26 @@ for w in d.get("windows") or []:
     r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
     if w.get("resets_at") and r is None:
         continue
-    out.append(f"{label} {fmt_pct(w['used_percent'])}" + (f" {r}" if r else ""))
+    out.append(f"{label}/{fmt_pct(w['used_percent'])}" + (f" {r}" if r else ""))
 
 if out:
     # Blocked while nothing reads 100% means the stop came from spend control
     # or depleted credits, which no percentage in the line would reveal.
     head = EXHAUSTED if d.get("blocked") and not any("100%" in p for p in out) else ""
-    # Refreshes run every minute, so this only appears once they are failing —
-    # offline, or logged out. Say the number is old rather than imply it is now.
+    # Refreshes start after 15 minutes, but brief failures are not status-bar
+    # news. Qualify the figure only once it has been stale for a full hour.
     # It qualifies the figures, so it hangs off the last one rather than
     # standing as its own segment, and lands before the credit count.
-    if age >= 600:
-        out[-1] += f" ({int(age // 60)}m old)" if age < 5400 else f" ({int(age // 3600)}h old)"
+    if age >= 3600:
+        hours = age / 3600
+        old = f"{int(hours)}h" if hours < 48 else f"{int(hours // 24)}d"
+        out[-1] += f" ({old} old)"
     # Reset credits buy back a spent window, so the bar says how many are in
     # hand: at 100% they are the difference between waiting and carrying on.
     credits = d.get("reset_credits") or 0
     if credits:
-        out.append(f"r{credits}")
-    print(f"cx {head}" + " · ".join(out))
+        out.append(f"×{credits}")
+    print(f"{PROVIDER}  {head}" + " ".join(out))
 
 sys.exit(STALE_EXIT if age >= max_age else 0)
 PY

@@ -11708,8 +11708,8 @@ function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() 
 
   # #then each provider contributes its live window
   assert_success
-  assert_output --partial 'cc 5h 3%'
-  assert_output --partial 'cx 7d 15%'
+  assert_output --partial '  5h/3%'
+  assert_output --partial '  7d/15%'
 
   # #given the same numbers, but after both windows have reset
   agent_limits_fixture "$home" -3600 -86400
@@ -11741,7 +11741,7 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
 
   # #then the live figure wins and the stale one never reaches the bar
   assert_success
-  assert_output --partial 'cc 5h 3%'
+  assert_output --partial '  5h/3%'
   refute_output --partial '88%'
 
   # #given the live cache is gone, as on a home that has not run Claude yet
@@ -11753,7 +11753,7 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
   # #then the fallback figure appears, labelled with its age rather than
   # passed off as current
   assert_success
-  assert_output --partial 'cc 5h 88%'
+  assert_output --partial '  5h/88%'
   assert_output --partial 'old)'
 }
 
@@ -11776,7 +11776,7 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
   # the allowance comes back
   assert_success
   assert_output --partial "${exhausted}100%"
-  assert_output --partial '⟳'
+  assert_output --partial '↻'
 
   # #given a window that is merely close to spent
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":99.6,"resets_at":%s}}' \
@@ -11787,7 +11787,7 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
 
   # #then rounding never manufactures an exhaustion that has not happened
   assert_success
-  assert_output --partial '5h 99%'
+  assert_output --partial '5h/99%'
   refute_output --partial '100%'
   refute_output --partial "$exhausted"
 }
@@ -11810,7 +11810,7 @@ function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_s
   # waiting for the reset and carrying on now. The spelling is ours; what the
   # zero-credit control below fixes is that the count appears at all.
   assert_success
-  assert_output --partial 'r2'
+  assert_output --partial '×2'
 
   # #given the same spent window with no credits left
   codex_limits_cache "$home" 100 "$((now + 86400))" true 0 "$now"
@@ -11820,8 +11820,8 @@ function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_s
 
   # #then nothing claims a credit that is not there
   assert_success
-  refute_output --partial 'r0'
-  refute_output --partial ' r'
+  refute_output --partial '×0'
+  refute_output --partial ' ×'
 
   # #given an account blocked while its window still reads below 100%, which
   # is what spend control and depleted credits look like
@@ -11833,7 +11833,7 @@ function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_s
   # #then the segment carries the state, because no percentage in the line
   # would reveal it
   assert_success
-  assert_output --partial "cx ${exhausted}"
+  assert_output --partial "  ${exhausted}"
 
   # #given the same figure on an account that is not blocked
   codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
@@ -11853,17 +11853,27 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
   now="$(date +%s)"
   agent_limits_fixture "$home" 3600 86400
 
-  # #given a cache the minute-by-minute refresh has not touched for an hour,
-  # as when the account is logged out or the machine is offline
-  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
+  # #given a cache old enough to trigger its 15-minute refresh, but not old
+  # enough to turn a brief backend failure into status-bar noise
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 1140))"
 
   # #when the status entry runs
   agent_limits_run "$home"
 
-  # #then the figure is labelled old rather than passed off as current
+  # #then the last known figure remains available without a 19m-old warning
   assert_success
-  assert_output --partial 'cx 7d 40%'
-  assert_output --partial 'old)'
+  assert_output --partial '  7d/40%'
+  refute_output --partial 'old)'
+
+  # #given refreshes have failed for a full hour
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
+
+  # #when the status entry runs again
+  agent_limits_run "$home"
+
+  # #then the bar makes the stale data explicit
+  assert_success
+  assert_output --partial '(1h old)'
 
   # #given the same figure from a refresh that is keeping up
   codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
@@ -11873,7 +11883,7 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
 
   # #then the bar says nothing about age, because there is nothing to qualify
   assert_success
-  assert_output --partial 'cx 7d 40%'
+  assert_output --partial '  7d/40%'
   refute_output --partial 'old)'
 }
 
@@ -11917,15 +11927,17 @@ print("ok")
 
 function test_scripts_27210_agent_limits_refreshes_stale_codex_data_before_rendering() {
   _bats_test_init 27210 'agent limits refreshes stale codex data before rendering'
-  local home="$BATS_TEST_TMPDIR/limits-refresh-render" now
+  local home="$BATS_TEST_TMPDIR/limits-refresh-render" now marker
   now="$(date +%s)"
+  marker="$home/codex-called"
   agent_limits_fixture "$home" 3600 86400
-  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 43200))"
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 840))"
 
   # This fixture exercises our request lifecycle; test 27209 keeps the response
   # fields calibrated against the real app server.
   cat > "$home/bin/codex" <<EOF
 #!/bin/sh
+printf 'called\n' > "$marker"
 while IFS= read -r request; do
   case "\$request" in
     *'"id": 2'*)
@@ -11937,14 +11949,63 @@ done
 EOF
   chmod +x "$home/bin/codex"
 
-  # #when Herdr runs the status command with an old snapshot
+  # #when Herdr runs the status command before the 15-minute refresh interval
+  agent_limits_run "$home"
+
+  # #then the cache is rendered without asking the backend
+  assert_success
+  assert_output --partial '  7d/40%'
+  refute_output --partial '  7d/7%'
+  assert_file_not_exists "$marker"
+
+  # #given the same snapshot has crossed the refresh interval
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 1140))"
+
+  # #when Herdr runs the status command again
   agent_limits_run "$home"
 
   # #then that invocation waits for the bounded refresh and renders its result;
   # no background descendant or leaked lock is needed for a later redraw
   assert_success
-  assert_output --partial 'cx 7d 7%'
-  assert_output --partial 'r1'
+  assert_output --partial '  7d/7%'
+  assert_output --partial '×1'
   refute_output --partial 'old)'
+  assert_file_exists "$marker"
   assert_dir_not_exists "$home/.cache/codex-rate-limits/refresh.lock"
+}
+
+function test_scripts_27211_agent_limits_compacts_reset_countdowns() {
+  _bats_test_init 27211 'agent limits compacts reset countdowns'
+  local home="$BATS_TEST_TMPDIR/limits-compact-resets"
+  # Leave enough boundary margin that command startup cannot change the minute
+  # or hour represented by either countdown.
+  agent_limits_fixture "$home" 7250 90050
+
+  # #when the status entry renders hour-minute and day-hour countdowns
+  agent_limits_run "$home"
+
+  # #then units already carried by position are not repeated
+  assert_success
+  assert_output --partial '  5h/3% ↻2:00'
+  assert_output --partial '  7d/15% ↻1d1h'
+}
+
+function test_scripts_27212_agent_limits_renders_the_compact_provider_layout() {
+  _bats_test_init 27212 'agent limits renders the compact provider layout'
+  local home="$BATS_TEST_TMPDIR/limits-compact-layout" now
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits" "$home/bin"
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":1,"resets_at":%s},"seven_day":{"used_percentage":18,"resets_at":%s}}' \
+    "$now" "$((now + 6530))" "$((now + 356450))" \
+    > "$home/.cache/claude-rate-limits/latest.json"
+  codex_limits_cache "$home" 2 "$((now + 558050))" false 1 "$now"
+  printf '#!/bin/sh\nexit 0\n' > "$home/bin/codex"
+  chmod +x "$home/bin/codex"
+
+  # #when the complete provider line renders
+  agent_limits_run "$home"
+
+  # #then its separators and spacing match the tab-bar layout exactly
+  assert_success
+  assert_output '  5h/1% ↻1:48 7d/18% ↻4d3h ·   7d/2% ↻6d11h ×1'
 }

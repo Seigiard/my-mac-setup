@@ -77,10 +77,10 @@ sidebar_min_width = 32
 # the figures are per-account, so five open Claude panes would repeat the same
 # number five times. `tab_bar_right` is herdr's only session-wide status area.
 # Herdr strips ESC sequences from `command` output, so the script carries
-# urgency in the reset countdown rather than in color. The 60s interval is well
-# under both windows. Claude reads a local cache; stale Codex data is refreshed
-# inside Herdr's asynchronous command lifecycle, because Herdr terminates any
-# background descendants when that command exits.
+# urgency in the reset countdown rather than in color. The command redraws the
+# countdown every minute; Claude reads a local cache, while Codex refreshes its
+# backend snapshot every 15 minutes inside Herdr's command lifecycle because
+# Herdr terminates any background descendants when that command exits.
 tab_bar_right = [
   { type = "command", command = "~/.local/bin/herdr-agent-limits", interval_seconds = 60, timeout_seconds = 5 },
 ]
