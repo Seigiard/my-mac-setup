@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
+# Replace the local Caffeinate implementation with the pinned Herdr Wakeup package.
+# The old wake-lock owner remains registered until the replacement is installed,
+# configured, enabled, started, and verified by its own start action.
+set -u
+
+# {{ include ".chezmoitemplates/herdr-wakeup-package.sh" }}
+
+legacy_id="keepawake.caffeinate"
+legacy_root="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/herdr-caffeinate"
+
+plugin_is_local() {
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    found = any(
+        isinstance(plugin, dict)
+        and plugin.get("plugin_id") == sys.argv[1]
+        and plugin.get("source", {}).get("kind") == "local"
+        for plugin in plugins
+    )
+except (AttributeError, json.JSONDecodeError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if found else 1)
+' "$legacy_id" 2>/dev/null
+}
+
+release_legacy_lock() {
+  local state_dir pidfile modefile pid command
+  if herdr plugin action invoke stop --plugin "$legacy_id" </dev/null >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # A stale local registration can outlive its deleted manifest. Clean only
+  # the PID tracked by that implementation, after validating its executable.
+  state_dir="${TMPDIR:-/tmp}/herdr-caffeinate"
+  pidfile="$state_dir/caffeinate.pid"
+  modefile="$state_dir/caffeinate.mode"
+  [[ -f "$pidfile" ]] || return 0
+  read -r pid < "$pidfile" || return 1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  command="$(ps -p "$pid" -o comm= 2>/dev/null)" || return 1
+  [[ "$command" == *caffeinate ]] || return 1
+  kill "$pid" 2>/dev/null || return 1
+  rm -f "$pidfile" "$modefile"
+}
+
+rollback_replacement() {
+  herdr plugin action invoke stop --plugin "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1 || true
+  herdr plugin uninstall "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1 || true
+  [[ $legacy_state -eq 0 && -f "$legacy_root/reconcile.sh" ]] || return 1
+  herdr plugin enable "$legacy_id" </dev/null >/dev/null 2>&1 || return 1
+  herdr server reload-config </dev/null >/dev/null 2>&1 || return 1
+  HERDR_PLUGIN_ROOT="$legacy_root" sh "$legacy_root/reconcile.sh" </dev/null >/dev/null 2>&1 || return 1
+  herdr plugin action invoke status --plugin "$legacy_id" </dev/null >/dev/null 2>&1
+}
+
+fail_after_rollback() {
+  local reason="$1"
+  if rollback_replacement; then
+    echo "$reason; restored and reconciled the local owner" >&2
+  else
+    echo "$reason; automatic rollback failed, retry after restoring the local plugin" >&2
+  fi
+  exit 1
+}
+
+if ! herdr --version >/dev/null 2>&1; then
+  [[ -d "$legacy_root" ]] || exit 0
+  echo "Caffeinate migration needs herdr; retry after herdr is installed" >&2
+  exit 1
+fi
+
+if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  echo "Caffeinate migration could not inspect Herdr plugins; retry on the next apply" >&2
+  exit 1
+fi
+
+plugin_is_local
+legacy_state=$?
+if [[ $legacy_state -ne 0 && $legacy_state -ne 1 ]]; then
+  echo "Caffeinate migration could not parse Herdr's plugin registry; retry on the next apply" >&2
+  exit 1
+fi
+if [[ $legacy_state -eq 1 && ! -d "$legacy_root" ]]; then
+  exit 0
+fi
+
+if ! herdr plugin install "$HERDR_WAKEUP_REPO" --ref "$HERDR_WAKEUP_REF" -y </dev/null; then
+  echo "Herdr Wakeup installation failed; kept the local Caffeinate owner for the next retry" >&2
+  exit 1
+fi
+
+if ! herdr_wakeup_configure; then
+  herdr plugin uninstall "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1 || true
+  echo "Herdr Wakeup configuration failed; kept the local Caffeinate owner for the next retry" >&2
+  exit 1
+fi
+
+if ! herdr plugin enable "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1; then
+  herdr plugin uninstall "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1 || true
+  echo "Herdr Wakeup enable failed; kept the local Caffeinate owner for the next retry" >&2
+  exit 1
+fi
+
+if [[ $legacy_state -eq 0 ]]; then
+  if ! release_legacy_lock; then
+    fail_after_rollback "Could not release the local Caffeinate wake lock"
+  fi
+  if ! herdr plugin disable "$legacy_id" </dev/null >/dev/null 2>&1; then
+    fail_after_rollback "Could not disable the local Caffeinate owner"
+  fi
+fi
+
+if ! herdr server reload-config </dev/null >/dev/null 2>&1; then
+  fail_after_rollback "Could not reload Herdr for the Caffeinate cutover"
+fi
+if ! herdr plugin action invoke start --plugin "$HERDR_WAKEUP_PLUGIN_ID" </dev/null >/dev/null 2>&1; then
+  fail_after_rollback "Could not start Herdr Wakeup"
+fi
+
+if [[ $legacy_state -eq 0 ]] && \
+  ! herdr plugin uninstall "$legacy_id" </dev/null >/dev/null 2>&1; then
+  echo "Herdr Wakeup is active, but the disabled local registration could not be removed" >&2
+  exit 1
+fi
+
+if [[ -d "$legacy_root" ]] && ! rm -rf -- "$legacy_root"; then
+  echo "Could not remove $legacy_root; retry on the next apply" >&2
+  exit 1
+fi
+
+echo "Migrated Caffeinate to $HERDR_WAKEUP_REPO at $HERDR_WAKEUP_REF"

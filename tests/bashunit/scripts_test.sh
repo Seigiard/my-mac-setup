@@ -1994,7 +1994,11 @@ function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_file
 
 function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
   _bats_test_init 85 'worktree setup relink uses the Herdr CLI contract'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
+  command_exists chezmoi || skip "chezmoi not available"
+  # Rendered rather than run raw: the plugin-link guard reaches the script
+  # through a chezmoi include, so a raw run would leave it undefined.
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/worktree-link.sh"
   local home="$BATS_TEST_TMPDIR/worktree-link-home"
   local stub="$BATS_TEST_TMPDIR/worktree-link-bin"
   mkdir -p "$home/.config/herdr/plugins/worktree-setup" "$stub"
@@ -2003,25 +2007,38 @@ function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
   cat > "$stub/herdr" <<'SH'
 #!/bin/sh
 expected="$HOME/.config/herdr/plugins/worktree-setup"
+if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
+  exit 0
+fi
 if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected" ]; then
   : > "$HOME/plugin-linked"
   exit 0
 fi
 exit 2
 SH
-  chmod +x "$stub/herdr"
+  cat > "$stub/dscl" <<SH
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$home"
+SH
+  chmod +x "$stub/herdr" "$stub/dscl"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
-  run env HOME="$home" PATH="$stub:$PATH" bash "$script"
+  run env -u MMS_DISPOSABLE_HOME HOME="$home" PATH="$stub:$PATH" bash "$script"
   assert_success
   assert_file_exists "$home/plugin-linked"
 }
 
 function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
   _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
   local calls="$BATS_TEST_TMPDIR/herdr.calls"
-  mkdir -p "$fake_bin"
+  local home="$BATS_TEST_TMPDIR/github-plugin-home"
+  local wakeup_config="$home/.config/herdr/plugins/config/herdr-wakeup"
+  mkdir -p "$fake_bin" "$wakeup_config"
+  printf '%s\n' '{"stop_grace_seconds":1200}' > "$wakeup_config/config.json"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -2036,31 +2053,125 @@ if [ "$*" = "plugin list --json" ]; then
   "result": {
     "plugins": [
       { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" }
+      { "plugin_id": "worktrunk" },
+      { "plugin_id": "herdr-wakeup", "source": { "kind": "github" } },
+      { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } }
     ]
   }
 }
 JSON
+elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
+  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
 fi
 exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$home" HERDR_CALLS="$calls" \
+    HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
   assert_success
   run grep -Fx "plugin uninstall worktrunk" "$calls"
   assert_success
+  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
+  assert_failure
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable seigi.command-palette" "$calls"
+  assert_success
+  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-wakeup" "$calls"
+  assert_success
+  local session_config="$wakeup_config/sessions/f60c672338465554/config.json"
+  run readlink "$session_config"
+  assert_success
+  assert_output "$wakeup_config/config.json"
+}
+
+function test_scripts_08511_github_command_palette_is_not_uninstalled_during_update() {
+  _bats_test_init 8511 'GitHub command palette is updated in place, not treated as the local cutover'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-linux.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-github-palette"
+  local calls="$BATS_TEST_TMPDIR/herdr-github-palette.calls"
+  mkdir -p "$fake_bin"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}}]}}'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$BATS_TEST_TMPDIR/github-palette-home" HERDR_CALLS="$calls" \
+    PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
+  assert_failure
+  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -F "herdr-focus-notify" "$calls"
+  assert_failure
+  run grep -F "herdr-auto-update" "$calls"
+  assert_failure
+}
+
+function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
+  _bats_test_init 8512 'existing Herdr Wakeup is restored when managed policy linking fails'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-wakeup-config-failure.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-wakeup-config-failure"
+  local calls="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"herdr-wakeup","source":{"kind":"github"}}]}}'
+elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
+  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "config: link the managed policy"
+  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
+  assert_success
+  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$calls"
   assert_success
 }
 
 function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
   _bats_test_init 852 'obsolete plugin removal reports malformed plugin entries'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-malformed.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
   mkdir -p "$fake_bin"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -2075,9 +2186,399 @@ exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$BATS_TEST_TMPDIR/malformed-plugin-home" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
+palette_migration_prepare() {
+  local work="$1"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p \
+    "$source/.chezmoiscripts" \
+    "$home/.config/herdr/plugins/command-palette" \
+    "$home/.config/herdr/command-palette" \
+    "$fake_bin"
+  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-command-palette.sh.tmpl" \
+    "$source/.chezmoiscripts/"
+  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/command-palette/palette.py"
+  printf 'user catalog\n' > "$home/.config/herdr/command-palette/commands.toml"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"local"}}]}}'
+    ;;
+  "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y")
+    [ "${HERDR_FAIL_STEP:-}" != install ]
+    ;;
+  "plugin enable seigi.command-palette")
+    [ "${HERDR_FAIL_STEP:-}" != enable ]
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/herdr"
+}
+
+palette_migration_apply() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+function test_scripts_08521_command_palette_migration_retries_after_install_failure() {
+  _bats_test_init 8521 'command palette migration restores local registration and retries after install failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/palette-install-failure"
+  palette_migration_prepare "$work"
+
+  run palette_migration_apply "$work" install
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
+  assert_success
+
+  run palette_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fc "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08522_command_palette_migration_retries_after_enable_failure() {
+  _bats_test_init 8522 'command palette migration restores local registration and retries after enable failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/palette-enable-failure"
+  palette_migration_prepare "$work"
+
+  run palette_migration_apply "$work" enable
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
+  assert_success
+
+  run palette_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fc "plugin enable seigi.command-palette" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
+  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
+  command_exists herdr || skip "herdr is not installed"
+  local plugin_json
+
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
+  [[ $status -eq 0 ]] || skip "real herdr returned no plugin list: $output"
+  plugin_json="$output"
+
+  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+import json
+import os
+
+plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
+assert plugins, "real herdr returned no plugins"
+kinds = set()
+for plugin in plugins:
+    assert isinstance(plugin.get("plugin_id"), str), plugin
+    source = plugin.get("source")
+    assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
+    kinds.add(source["kind"])
+assert kinds <= {"local", "github"}, kinds
+print(" ".join(sorted(kinds)))
+PY
+  assert_success
+  [[ " $output " == *" local "* && " $output " == *" github "* ]] \
+    || skip "real registry does not currently expose both local and github source kinds: $output"
+}
+
+caffeinate_migration_prepare() {
+  local work="$1" legacy_root="${2:-present}"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p \
+    "$source/.chezmoiscripts/darwin" \
+    "$source/.chezmoitemplates" \
+    "$source/private_dot_config/herdr/plugins/config/herdr-wakeup" \
+    "$home/.config/herdr/plugins/config/herdr-wakeup" \
+    "$fake_bin"
+  if [[ "$legacy_root" == present ]]; then
+    mkdir -p "$home/.config/herdr/plugins/herdr-caffeinate"
+    printf '%s\n' 'id = "keepawake.caffeinate"' \
+      > "$home/.config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml"
+    cat > "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh" <<'SH'
+#!/bin/sh
+: > "$HOME/legacy-reconciled"
+SH
+    chmod +x "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh"
+  fi
+  cp "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_6-migrate-herdr-caffeinate.sh.tmpl" \
+    "$source/.chezmoiscripts/darwin/"
+  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-wakeup-package.sh" \
+    "$source/.chezmoitemplates/"
+  printf '%s\n' '{"stop_grace_seconds":1200}' \
+    > "$source/private_dot_config/herdr/plugins/config/herdr-wakeup/config.json"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"keepawake.caffeinate","source":{"kind":"local"}}]}}'
+    ;;
+  "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y")
+    [ "$HERDR_FAIL_STEP" != install ] || exit 1
+    : > "$HOME/replacement-installed"
+    ;;
+  "plugin config-dir herdr-wakeup")
+    printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
+    ;;
+  "plugin enable herdr-wakeup")
+    [ "$HERDR_FAIL_STEP" != enable ] || exit 1
+    [ -f "$HOME/replacement-installed" ] || exit 3
+    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || exit 4
+    : > "$HOME/replacement-enabled"
+    ;;
+  "plugin action invoke stop --plugin keepawake.caffeinate")
+    [ -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || exit 1
+    [ -f "$HOME/replacement-enabled" ] || exit 5
+    : > "$HOME/legacy-stopped"
+    ;;
+  "plugin action invoke status --plugin keepawake.caffeinate")
+    [ -f "$HOME/legacy-reconciled" ] || exit 10
+    ;;
+  "plugin disable keepawake.caffeinate")
+    [ ! -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || \
+      [ -f "$HOME/legacy-stopped" ] || exit 6
+    : > "$HOME/legacy-disabled"
+    ;;
+  "server reload-config")
+    [ -f "$HOME/legacy-disabled" ] || exit 7
+    if [ "$HERDR_FAIL_STEP" = reload ] && [ ! -f "$HOME/activation-reload-failed" ]; then
+      : > "$HOME/activation-reload-failed"
+      exit 1
+    fi
+    : > "$HOME/server-reloaded"
+    ;;
+  "plugin action invoke start --plugin herdr-wakeup")
+    [ -f "$HOME/server-reloaded" ] || exit 8
+    : > "$HOME/replacement-started"
+    ;;
+  "plugin uninstall keepawake.caffeinate")
+    [ -f "$HOME/replacement-started" ] || exit 9
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/herdr"
+  : > "$work/herdr.calls"
+}
+
+caffeinate_migration_run() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock \
+    chezmoi_full_fixture apply --source "$work/source" --destination "$work/home" \
+      --config "$work/chezmoi.yaml"
+}
+
+function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replacement_is_ready() {
+  _bats_test_init 8524 'caffeinate migration configures the replacement before stopping the local plugin'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration"
+  local wakeup_config="$work/home/.config/herdr/plugins/config/herdr-wakeup"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run readlink "$wakeup_config/sessions/f60c672338465554/config.json"
+  assert_success
+  assert_output "$wakeup_config/config.json"
+  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-wakeup" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_installation_fails() {
+  _bats_test_init 8525 'caffeinate migration keeps the local wake-lock owner when replacement installation fails'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-install-failure"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work" install
+  assert_failure
+  assert_output --partial "Herdr Wakeup installation failed"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run grep -Fc "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08526_caffeinate_migration_removes_a_stale_local_registration_without_legacy_files() {
+  _bats_test_init 8526 'caffeinate migration removes the stale local registration after replacement startup'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-stale-registration"
+  caffeinate_migration_prepare "$work" absent
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_reload_fails() {
+  _bats_test_init 8527 'caffeinate migration restores the local owner when replacement activation fails'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-reload-failure"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work" reload
+  assert_failure
+  assert_output --partial "restored and reconciled the local owner"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  assert_file_exists "$work/home/legacy-reconciled"
+  run grep -Fx "plugin enable keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin action invoke status --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall herdr-wakeup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+}
+
+function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
+  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
+  caffeinate_migration_prepare "$work" absent
+  cat > "$work/bin/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$work/bin/herdr"
+
+  run caffeinate_migration_run "$work"
+
+  assert_success
+}
+
+# Herdr plugin link guard
+# ===========================================
+
+# plugin-link script template : the plugin directory it registers
+HERDR_LINK_GUARD_SCRIPTS=(
+  "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
+)
+
+# Renders one link script into $work and gives it a $HOME carrying the plugin
+# manifest, a herdr stub that records every call, a dscl stub that reports
+# $login_home as this account's login home, and a uname stub so the macOS-only
+# script runs everywhere the suite does.
+herdr_link_guard_prepare() {
+  local template="$1" plugin="$2" login_home="$3" work="$4"
+  local home="$work/home" stub="$work/bin"
+  mkdir -p "$home/.config/herdr/plugins/$plugin" "$stub"
+  printf 'id = "%s"\n' "$plugin" > "$home/.config/herdr/plugins/$plugin/herdr-plugin.toml"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+exit 0
+SH
+  cat > "$stub/dscl" <<SH
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$login_home"
+SH
+  cat > "$stub/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  chmod +x "$stub/herdr" "$stub/dscl" "$stub/uname"
+  : > "$work/herdr.calls"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" \
+    --file "$SOURCE_ROOT/.chezmoiscripts/$template" > "$work/script.sh"
+}
+
+function test_scripts_0853_herdr_plugin_link_scripts_register_only_from_the_login_home() {
+  _bats_test_init 853 'herdr plugin link scripts register a plugin only from the login home'
+  command_exists chezmoi || skip "chezmoi not available"
+  # `herdr plugin link` stores the absolute path it is given in a registry the
+  # running server owns. Linking from a throwaway $HOME leaves that temp path in
+  # the live registry, and Herdr drops the plugin's actions once the directory
+  # is gone -- run_onchange will not rerun to repair it.
+  local entry template plugin work
+  for entry in "${HERDR_LINK_GUARD_SCRIPTS[@]}"; do
+    template="${entry%%:*}"
+    plugin="${entry##*:}"
+
+    work="$BATS_TEST_TMPDIR/foreign-$plugin"
+    herdr_link_guard_prepare "$template" "$plugin" "$HOME" "$work"
+    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
+      PATH="$work/bin:$PATH" bash "$work/script.sh"
+    assert_success
+    assert_output --partial "is not the login home"
+    run cat "$work/herdr.calls"
+    assert_success
+    assert_output ""
+
+    # Control: the same script from a $HOME the account database calls the
+    # login home reaches the link.
+    work="$BATS_TEST_TMPDIR/live-$plugin"
+    mkdir -p "$work/home"
+    herdr_link_guard_prepare "$template" "$plugin" "$work/home" "$work"
+    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
+      PATH="$work/bin:$PATH" bash "$work/script.sh"
+    assert_success
+    run grep -Fx "plugin link $work/home/.config/herdr/plugins/$plugin" "$work/herdr.calls"
+    assert_success
+  done
+}
+
+function test_scripts_0854_herdr_plugin_link_scripts_refuse_a_disposable_home() {
+  _bats_test_init 854 'herdr plugin link scripts refuse a $HOME declared disposable'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/disposable-worktree-setup"
+  mkdir -p "$work/home"
+  herdr_link_guard_prepare \
+    "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl" worktree-setup "$work/home" "$work"
+
+  run env MMS_DISPOSABLE_HOME=1 HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
+    PATH="$work/bin:$PATH" bash "$work/script.sh"
+  assert_success
+  assert_output --partial "MMS_DISPOSABLE_HOME=1"
+  run cat "$work/herdr.calls"
+  assert_success
+  assert_output ""
 }
 
 # ask-in-herdr skill script
@@ -2765,7 +3266,12 @@ case "${1:-} ${2:-}" in
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
-    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n' ;;
+    if [ "${STUB_SPLIT_NO_TERMINAL:-0}" = 1 ]; then
+      printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":""}}}\n'
+    else
+      printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'
+    fi
+    exit "${STUB_SPLIT_STATUS:-0}" ;;
   "tab create")
     [ "${STUB_TAB_CREATE_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
@@ -2775,7 +3281,8 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":""},"tab":{"tab_id":"wT:tA"}}}\n'
     else
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}\n'
-    fi ;;
+    fi
+    exit "${STUB_TAB_CREATE_STATUS:-0}" ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -2872,6 +3379,17 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+printf '%q ' "$@" >> "$CHILD_STUB/resource-tree.log"
+printf '\n' >> "$CHILD_STUB/resource-tree.log"
+[ "${STUB_PARENTAGE_FAIL:-0}" != 1 ] || {
+  printf 'injected parentage failure\n' >&2
+  exit 75
+}
+printf '{"parent":{"presentation_name":"parent"},"child":{"presentation_name":"child"}}\n'
+SH
+  chmod +x "$CHILD_STUB/herdr-resource-tree"
   cat > "$CHILD_STUB/ps" <<'SH'
 #!/usr/bin/env bash
 if [ -f "$CHILD_STUB/fail-ps" ]; then
@@ -3325,6 +3843,20 @@ function test_scripts_023_herdr_child_start_requires_exactly_one_explicit() {
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
+function test_scripts_27203_herdr_child_refuses_to_start_inside_an_external_leg() {
+  _bats_test_init 27203 'herdr-child refuses to start a child inside an External leg before Herdr mutation'
+  child_stub_herdr
+
+  SE_EXTERNAL_LEG=1 run child_start --kind claude --wait --timeout 5000
+  assert_failure 2
+  assert_output --partial "inside an external leg"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  SE_EXTERNAL_LEG= STUB_REQUIRE_SPLIT=1 run child_start --kind claude --wait --timeout 5000
+  assert_success
+  assert_file_exists "$CHILD_STUB/calls.log"
+}
+
 function test_scripts_024_herdr_child_validates_tab_placement_before_herdr() {
   _bats_test_init 24 'herdr-child validates tab placement before Herdr mutation'
   child_stub_herdr
@@ -3400,8 +3932,40 @@ function test_scripts_026_herdr_child_attached_mode_starts_no_watcher() {
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_LAUNCH_MODE=wait'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_TERMINAL=term-parent'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_SESSION=parent-session'
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
   run grep -q 'supervised' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1240_herdr_child_preserves_a_verified_child_when_parentage_recording_fails() {
+  _bats_test_init 1240 'herdr-child preserves a verified child when parentage recording fails'
+  child_stub_herdr
+
+  STUB_PARENTAGE_FAIL=1 run child_start --kind claude --wait
+  assert_failure 75
+  assert_output --partial 'injected parentage failure'
+  assert_output --partial 'parentage recording failed after Agent start'
+  assert_output --partial 'child preserved'
+  assert_output --partial 'automatic launch retry is unsafe'
+  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+  run grep -Eq '^(pane close|agent prompt)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_1241_herdr_child_preserves_a_wrapper_partial_success_without_retrying() {
+  _bats_test_init 1241 'herdr-child preserves a wrapper partial success without retrying'
+  child_stub_herdr
+
+  STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'pane creation returned status 70 after reporting pane wT:p9'
+  assert_output --partial 'automatic creation retry is unsafe'
+  run grep -Ec '^(pane split|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output '1'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
@@ -3412,6 +3976,88 @@ function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
   assert_output --partial "parent agent_session is unavailable"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
   run grep -Eq '^(pane split|agent start|agent prompt|pane report-metadata)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_1242_herdr_child_attached_mode_keeps_unknown_parent_launches_usable() {
+  _bats_test_init 1242 'herdr-child attached mode keeps unknown-parent launches usable'
+  child_stub_herdr
+
+  STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --wait
+  assert_success
+  assert_output --partial '"pane":"wT:p9"'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+}
+
+child_deployed_tree() {
+  # A deployed layout: the provenance wrapper sits beside herdr-child, and a
+  # different herdr comes first on PATH. Only a wrapper reached by path can
+  # record the creator edge record-child later requires.
+  local root="$CHILD_STUB/deployed"
+  mkdir -p "$root/bin"
+  ln -sf "$SOURCE_ROOT/dot_local/lib" "$root/lib"
+  cp "$HERDR_CHILD" "$root/bin/herdr-child"
+  chmod +x "$root/bin/herdr-child"
+  cat > "$root/bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CHILD_STUB/wrapper.log"
+exec "$CHILD_STUB/herdr" "$@"
+SH
+  chmod +x "$root/bin/herdr"
+  printf '%s\n' "$root/bin/herdr-child"
+}
+
+function test_scripts_1244_herdr_child_creates_through_the_wrapper_beside_it() {
+  _bats_test_init 1244 'herdr-child creates through the wrapper beside it, not through PATH'
+  child_stub_herdr
+  local deployed
+  deployed="$(child_deployed_tree)"
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    STUB_START_CONTEXT=1 HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
+    HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    bash "$deployed" start --kind claude --wait --prompt "test task"
+  assert_success
+
+  # The creation reached the sibling wrapper even though PATH resolves a
+  # different herdr first.
+  assert_file_contains "$CHILD_STUB/wrapper.log" '^pane split'
+
+  # Reads stay off the wrapper: interception is only needed for creation, and
+  # routing every call through it would pay its startup cost on each poll.
+  run grep -q '^agent list' "$CHILD_STUB/wrapper.log"
+  assert_failure
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
+}
+
+function test_scripts_1245_herdr_child_attached_mode_keeps_unknown_child_session_launches_usable() {
+  _bats_test_init 1245 'herdr-child attached mode keeps unknown-child-session launches usable'
+  child_stub_herdr
+
+  # Herdr may observe the child before supplying its optional conversation
+  # identity. Attached mode records no edge rather than failing a live child.
+  STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --wait
+  assert_success
+  assert_output --partial '"pane":"wT:p9"'
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+}
+
+function test_scripts_1246_herdr_child_replays_an_unparseable_partial_creation_response() {
+  _bats_test_init 1246 'herdr-child replays a partial creation response it cannot parse'
+  child_stub_herdr
+
+  # The wrapper exits nonzero after Herdr created the pane, and the response is
+  # too partial to yield an identity. The surviving coordinates only reach the
+  # caller if the native result is replayed before parsing.
+  STUB_SPLIT_NO_TERMINAL=1 STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'pane split failed'
+  run grep -Eq '^(agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
 }
 
@@ -4904,6 +5550,7 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   [[ "$call5" == agent\ list* ]] || fail "unexpected fifth tab-mode call: $call5"
   [[ "$call6" == pane\ get*wT:p9* ]] || fail "unexpected sixth tab-mode call: $call6"
   [[ "$call7" == agent\ prompt*--wait* ]] || fail "unexpected seventh tab-mode call: $call7"
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
 }
 
 function test_scripts_066_herdr_child_tab_launch_signal_closes_a_parsed_cr() {
@@ -5050,6 +5697,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
   assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent-tab.*child-tab=wT:tA'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent.*child_mode=detach'
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
 }
 
 function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
@@ -5061,6 +5709,22 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_output --partial "tab wT:tA was preserved"
   run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_success_without_retrying() {
+  _bats_test_init 1243 'herdr-child tab mode preserves wrapper partial success without retrying'
+  child_stub_herdr
+
+  STUB_TAB_CREATE_STATUS=70 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'tab creation returned status 70 after reporting pane wT:p9'
+  assert_output --partial 'automatic creation retry is unsafe'
+  run grep -Ec '^(tab create|pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output '1'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_0681_herdr_child_tab_mode_cleans_owned_pane_on_repor() {
@@ -5628,6 +6292,30 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial "skipping agent-state integration refresh"
+}
+
+function test_scripts_0932_herdr_integrations_template_renders_when_only_a_broken_wrapper_is_on_path() {
+  _bats_test_init 932 'herdr-integrations template renders when only a broken wrapper is on PATH'
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  local stub="$BATS_TEST_TMPDIR/wrapper-only" chezmoi_dir
+  chezmoi_dir="$(dirname "$(command -v chezmoi)")"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$stub/herdr"
+
+  PATH="$stub:$chezmoi_dir:/usr/bin:/bin" run --separate-stderr \
+    chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+  assert_output --partial '# herdr version:'
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
+
+  run env PATH="$stub:/usr/bin:/bin" bash "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
+  assert_success
+  assert_output --partial 'skipping agent-state integration refresh'
 }
 
 # Present leg of 093's pair: with herdr on PATH the refresh must actually issue
@@ -7748,9 +8436,10 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
   assert_output "$HPL_ICON_BRANCH"
 }
 
-# Gate for the stub-conformance tests. Their oracle is the installed herdr
+# Gate for the stub-conformance tests. Their oracle is a working upstream herdr
 # binary (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md),
-# and each environment answers its absence differently:
+# not the managed provenance wrapper, and each environment answers its absence
+# differently:
 # - workstation without herdr: a missing developer tool -- visible skip;
 # - disposable home under MMS_CI_MINIMAL: push/PR CI renders the CI-minimal
 #   Brewfile, which deliberately guards out `brew "herdr"`
@@ -7766,16 +8455,16 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
 # multiplexer and this suite runs headless under chezmoi apply), so that
 # skip is irreducible there and never a fail.
 require_real_herdr_oracle() {
-  command_exists herdr && return 0
+  command_exists herdr && herdr --version >/dev/null 2>&1 && return 0
   case "$(mms_disposable_home_verdict)" in
     run)
       if [ -n "${MMS_CI_MINIMAL:-}" ]; then
         skip "herdr is guarded out of the CI-minimal Brewfile render"
       fi
-      fail "herdr is missing inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
+      fail "a working upstream herdr is unavailable inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
       return 1
       ;;
-    *) skip "herdr is not installed" ;;
+    *) skip "a working upstream herdr is not installed" ;;
   esac
 }
 
@@ -8722,6 +9411,24 @@ function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_wit
   assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
 }
 
+function test_scripts_1327_herdr_pane_label_after_script_skips_a_broken_wrapper_() {
+  _bats_test_init 1327 'herdr pane-label after script skips a broken wrapper without a transaction'
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  rm "$HPL_STUB/herdr"
+  cat > "$HPL_STUB/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$HPL_STUB/herdr"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  assert_output --partial "herdr not found; skipping pane-labels plugin link"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+}
+
 
 
 # ===========================================
@@ -8736,27 +9443,30 @@ claude_modifier_setup() {
   cat > "$CLAUDE_MODIFIER_BIN/op" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$2" >> "$MMS_TEST_OP_MARKER"
+if [ "${MMS_TEST_OP_MODE:-}" = error ]; then
+  printf '%s\n' 'op: account is not signed in' >&2
+  exit 1
+fi
 case "$2" in
   *Jina*) printf '%s\n' 'interactive-jina' ;;
-  *Tavily*) printf '%s\n' 'interactive-tavily' ;;
 esac
 STUB
   chmod +x "$CLAUDE_MODIFIER_BIN/op"
 }
 
-function test_scripts_245_claude_settings_modifier_preserves_existing_credentials_unattended() {
-  _bats_test_init 245 'Claude settings modifier preserves both existing credentialed entries unattended'
+function test_scripts_245_claude_settings_modifier_preserves_jina_and_replaces_tavily_unattended() {
+  _bats_test_init 245 'Claude settings modifier preserves Jina and replaces Tavily with its env-backed entry unattended'
   claude_modifier_setup
   local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"},"stale":{"type":"stdio"}},"other":{"preserved":true}}'
 
-  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY \
     PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
     MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
   run jq -e '
     (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina","X-Keep":"yes"}})
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
     and (.mcpServers.executor == {"type":"stdio","command":"/stub/home/.local/bin/executor","args":["mcp"],"env":{}})
     and (.mcpServers | has("stale") | not)
     and (.other == {"preserved":true})
@@ -8766,16 +9476,20 @@ function test_scripts_245_claude_settings_modifier_preserves_existing_credential
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_246_claude_settings_modifier_keeps_clean_credentials_absent_unattended() {
-  _bats_test_init 246 'Claude settings modifier keeps credentialed entries absent on clean unattended input'
+function test_scripts_246_claude_settings_modifier_keeps_jina_absent_and_creates_tavily_unattended() {
+  _bats_test_init 246 'Claude settings modifier keeps Jina absent and creates env-backed Tavily on clean unattended input'
   claude_modifier_setup
 
-  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY \
+  run env -u MMS_CHEZMOI_FIXTURE_JINA_API_KEY \
     PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
     MMS_CHEZMOI_UNATTENDED=1 bash "$CLAUDE_MODIFIER" <<< '{"mcpServers":{}}'
 
   assert_success
-  run jq -e '((.mcpServers | keys | sort) == ["deepwiki","executor","fff"])' <<< "$output"
+  run jq -e '
+    true
+    and ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
+    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}")
+  ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
@@ -8786,22 +9500,22 @@ function test_scripts_247_claude_settings_modifier_replaces_only_jina_unattended
   claude_modifier_setup
   local input='{"mcpServers":{"jina":{"type":"http","url":"https://old.jina"},"tavily-mcp":{"type":"http","url":"https://existing.tavily/key=existing-tavily"}}}'
 
-  run env -u MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+  run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
     MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_CHEZMOI_UNATTENDED=1 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
   run jq -e '
     (.mcpServers.jina == {"type":"http","url":"https://mcp.jina.ai/v1","headers":{"Authorization":"Bearer jina-canary"}})
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://existing.tavily/key=existing-tavily"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_248_claude_settings_modifier_replaces_only_tavily_unattended() {
-  _bats_test_init 248 'Claude settings modifier replaces only Tavily from an unattended fixture'
+function test_scripts_248_claude_settings_modifier_does_not_embed_tavily_fixture() {
+  _bats_test_init 248 'Claude settings modifier uses env expansion instead of embedding the unattended Tavily fixture'
   claude_modifier_setup
   local input='{"mcpServers":{"jina":{"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}},"tavily-mcp":{"type":"http","url":"https://old.tavily"}}}'
 
@@ -8812,15 +9526,15 @@ function test_scripts_248_claude_settings_modifier_replaces_only_tavily_unattend
   assert_success
   run jq -e '
     (.mcpServers.jina == {"type":"http","url":"https://existing.jina","headers":{"Authorization":"Bearer existing-jina"}})
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
   assert_file_not_exists "$CLAUDE_MODIFIER_OP_MARKER"
 }
 
-function test_scripts_249_claude_settings_modifier_creates_both_credentials_unattended() {
-  _bats_test_init 249 'Claude settings modifier creates both credentialed entries from unattended fixtures'
+function test_scripts_249_claude_settings_modifier_creates_jina_and_env_backed_tavily_unattended() {
+  _bats_test_init 249 'Claude settings modifier creates fixture-backed Jina and env-backed Tavily unattended'
   claude_modifier_setup
 
   run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
@@ -8830,7 +9544,7 @@ function test_scripts_249_claude_settings_modifier_creates_both_credentials_unat
   assert_success
   run jq -e '
     (.mcpServers.jina.headers.Authorization == "Bearer jina-canary")
-    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=tavily-canary")
+    and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}")
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
@@ -8845,13 +9559,12 @@ function test_scripts_1324_claude_settings_modifier_treats_empty_fixtures_as_una
   run env PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" \
     MMS_CHEZMOI_UNATTENDED=1 \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY= \
-    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY= \
     bash "$CLAUDE_MODIFIER" <<< "$input"
 
   assert_success
   run jq -e '
     (.mcpServers.jina == {"sentinel":"existing-jina"})
-    and (.mcpServers["tavily-mcp"] == {"sentinel":"existing-tavily"})
+    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
   ' <<< "$output"
   assert_success
   # oracle: only the controlled fake helper can create this launch marker.
@@ -8876,7 +9589,7 @@ function test_scripts_1325_claude_settings_modifier_requires_exact_unattended_se
     assert_success
     run jq -e '
       (.mcpServers.jina.headers.Authorization == "Bearer interactive-jina")
-      and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=interactive-tavily")
+      and (.mcpServers["tavily-mcp"].url == "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}")
     ' <<< "$output"
     assert_success
     assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
@@ -8898,12 +9611,31 @@ function test_scripts_1326_claude_settings_modifier_passes_settings_through_with
       run env -u MMS_CHEZMOI_UNATTENDED PATH="$stub_bin" bash "$modifier" <<< "$input"
     else
       run env PATH="$stub_bin" MMS_CHEZMOI_UNATTENDED=1 MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-canary \
-        MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-canary bash "$modifier" <<< "$input"
+        bash "$modifier" <<< "$input"
     fi
 
     assert_success
     assert_output "$input"
   done
+}
+
+function test_scripts_1327_claude_settings_modifier_reports_1password_read_errors() {
+  _bats_test_init 1327 'Claude settings modifier preserves the 1Password error when Jina cannot be read'
+  claude_modifier_setup
+
+  run --separate-stderr env -u MMS_CHEZMOI_UNATTENDED PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_TEST_OP_MODE=error \
+    bash "$CLAUDE_MODIFIER" <<< '{}'
+
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker, so an
+  # unattended run that never reaches `op` cannot pass on empty stderr alone.
+  assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
+  assert_stderr --partial 'op: account is not signed in'
+  assert_stderr --partial 'modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
+  refute_stderr --partial '1Password returned no Jina API Key'
+  run jq -e '.mcpServers | has("jina") | not' <<< "$output"
+  assert_success
 }
 
 # ===========================================
@@ -9092,7 +9824,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
     "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
-  assert_output --partial "Passed: late child output lands after the result payload"
+  # Bashunit abbreviates long titles to the terminal width in Docker panes.
+  assert_output --partial "Passed: late child output"
   assert_output --partial "Assertions: 1 passed, 1 total"
 
   # Sequential leg: extract_result_counts parses the captured execution
@@ -10031,7 +10764,7 @@ SH
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   mkdir -p "$(dirname "$lock")"
   : > "$BATS_TEST_TMPDIR/repository-owned"
-  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{"obsolete":{"source":"missing/source"}}}' > "$lock"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -10082,9 +10815,9 @@ SH
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
   mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$BATS_TEST_TMPDIR/config/agent-skills"
-  printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
-  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
+  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"example/upstream-skills"}}}' > "$lock"
   printf '%s\n' original > "$canonical/local-skill/SKILL.md"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -10110,12 +10843,10 @@ function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
     canonical="$BATS_TEST_TMPDIR/$kind/canonical"
     mkdir -p "$(dirname "$lock")" "$canonical" "$BATS_TEST_TMPDIR/$kind/config/agent-skills"
     : > "$BATS_TEST_TMPDIR/$kind/config/agent-skills/repository-owned"
-    printf '%s\n' 'EveryInc/compound-engineering-plugin *' > "$manifest"
-    printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"}}}' > "$lock"
-    for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
-      mkdir -p "$canonical/$skill"
-      printf '%s\n' skill > "$canonical/$skill/SKILL.md"
-    done
+    printf '%s\n' 'example/upstream-skills upstream-skill' > "$manifest"
+    printf '%s\n' '{"version":3,"skills":{"upstream-skill":{"source":"example/upstream-skills"}}}' > "$lock"
+    mkdir -p "$canonical/upstream-skill"
+    printf '%s\n' skill > "$canonical/upstream-skill/SKILL.md"
     case "$kind" in
       symlink) ln -s /etc/passwd "$canonical/escape"; offender="$canonical/escape" ;;
       fifo) mkfifo "$canonical/non-regular"; offender="$canonical/non-regular" ;;
@@ -10144,11 +10875,7 @@ function test_scripts_2781_skills_sync_default_file_limit_accepts_large_document
   mkdir -p "$(dirname "$lock")" "$canonical/large-doc" "$BATS_TEST_TMPDIR/config/agent-skills"
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' 'example/large-doc large-doc' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"large-doc":{"source":"example/large-doc"}}}' > "$lock"
-  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
-    mkdir -p "$canonical/$skill"
-    printf '%s\n' skill > "$canonical/$skill/SKILL.md"
-  done
+  printf '%s\n' '{"version":3,"skills":{"large-doc":{"source":"example/large-doc"}}}' > "$lock"
   dd if=/dev/zero of="$canonical/large-doc/llms-full.txt" bs=1105837 count=1 2>/dev/null
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -10172,9 +10899,9 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
   canonical="$BATS_TEST_TMPDIR/canonical"
   mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
-  printf '%s\n' 'EveryInc/compound-engineering-plugin *' 'owner/repo desired' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"ce-code-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-doc-review":{"source":"EveryInc/compound-engineering-plugin"},"ce-plan":{"source":"EveryInc/compound-engineering-plugin"},"ce-simplify-code":{"source":"EveryInc/compound-engineering-plugin"},"ce-work":{"source":"EveryInc/compound-engineering-plugin"},"desired":{"source":"owner/repo"},"stale":{"source":"owner/repo"},"orphan":{"source":"gone/repo"}}}' > "$lock"
-  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work desired; do
+  printf '%s\n' 'example/upstream-skills *' 'owner/repo desired' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"upstream-skill":{"source":"example/upstream-skills"},"desired":{"source":"owner/repo"},"stale":{"source":"owner/repo"},"orphan":{"source":"gone/repo"}}}' > "$lock"
+  for skill in upstream-skill desired; do
     mkdir -p "$canonical/$skill"
     printf '%s\n' skill > "$canonical/$skill/SKILL.md"
   done
@@ -10182,13 +10909,13 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
-  assert_output --partial 'Installing skills from EveryInc/compound-engineering-plugin: *'
+  assert_output --partial 'Installing skills from example/upstream-skills: *'
   assert_output --partial 'Installing skills from owner/repo: desired'
   assert_output --partial 'drift: skills remove owner/repo stale'
   assert_output --partial 'keep:  skills add owner/repo stale'
   assert_output --partial 'drift: skills remove gone/repo orphan'
   assert_output --partial 'keep:  skills add gone/repo orphan'
-  refute_output --partial 'ce-code-review'
+  refute_output --partial 'drift: skills remove example/upstream-skills upstream-skill'
 }
 
 # ===========================================
@@ -10316,6 +11043,7 @@ function tear_down() {
 
 HWI_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-worktree-identity-hook.sh"
 HWI_OPENCODE_PLUGIN_SOURCE="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-worktree-identity.ts"
+HRC_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-resource-context.sh"
 
 hwi_adapter_stub_engine() {
   local root="$1"
@@ -10392,6 +11120,255 @@ function test_scripts_1223_claude_worktree_identity_hook_fails_open_without_engi
   run find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' -print
   assert_success
   assert_output ''
+}
+
+hrc_stub_hooks() {
+  local root="$1"
+  mkdir -p "$root/bin"
+  cat > "$root/bin/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$HRC_TEST_DIR/query-argv"
+[ -z "${HRC_QUERY_STATUS:-}" ] || exit "$HRC_QUERY_STATUS"
+cat "$HRC_TEST_DIR/context"
+SH
+  cat > "$root/bin/herdr-agent-state" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$HRC_TEST_DIR/state-argv"
+cat >> "$HRC_TEST_DIR/state-input"
+SH
+  chmod +x "$root/bin/herdr-resource-tree" "$root/bin/herdr-agent-state"
+}
+
+hrc_payload() {
+  local event="$1" session="$2" source="${3:-}" agent_id="${4:-}"
+  jq -nc --arg event "$event" --arg session "$session" --arg source "$source" --arg agent_id "$agent_id" '
+    {hook_event_name: $event, session_id: $session, cwd: "/tmp"}
+    + (if $source == "" then {} else {source: $source} end)
+    + (if $agent_id == "" then {} else {agent_id: $agent_id} end)'
+}
+
+hrc_run() {
+  local root="$1" event="$2" session="$3" source="${4:-}" agent_id="${5:-}"
+  env HOME="$root/home" HERDR_ENV=1 HRC_TEST_DIR="$root" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    HERDR_AGENT_STATE_HOOK="$root/bin/herdr-agent-state" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$root/state" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload "$event" "$session" "$source" "$agent_id")"
+}
+
+function test_scripts_1225_claude_resource_context_reaches_each_model_request_without_duplicate_turns() {
+  _bats_test_init 1225 'Claude resource context reaches model input and refreshes only when changed'
+  local root="$BATS_TEST_TMPDIR/resource-context" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' \
+    'Descendant agent: "child-old" [herdr:pi/id/child-old]' > "$root/context"
+
+  run hrc_run "$root" SessionStart session-current startup
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'SessionStart'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'Parent agent: "parent-a"'
+  assert_output --partial 'child-old'
+  run jq -e 'has("initialUserMessage") or has("systemMessage") or has("decision")' <<< "$response"
+  assert_failure
+  assert_file_contains "$root/state-argv" '^session$'
+  assert_file_contains "$root/state-input" '"session_id":"session-current"'
+  run paste -sd ' ' "$root/query-argv"
+  assert_success
+  assert_output '--context --caller-agent claude --caller-session-id session-current'
+
+  # The unchanged projection is already in the conversation. Re-emitting it on
+  # every lifecycle event would only add duplicate system reminders.
+  run hrc_run "$root" UserPromptSubmit session-current
+  assert_success
+  assert_output ''
+
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' \
+    'Descendant agent: "child-new" [herdr:pi/id/child-new]' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-current
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'UserPromptSubmit'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'child-new'
+  refute_output --partial 'child-old'
+
+  run hrc_run "$root" PostToolBatch session-current
+  assert_success
+  assert_output ''
+  printf '%s\n' 'Descendant agent: "child-latest" [herdr:pi/id/child-latest]' > "$root/context"
+  run hrc_run "$root" PostToolBatch session-current
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'PostToolBatch'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'child-latest'
+
+  # Compaction keeps the Claude session identity, but the compacted model input
+  # needs the current projection restored even when it has not changed.
+  run hrc_run "$root" SessionStart session-current compact
+  assert_success
+  assert_output --partial 'child-latest'
+  assert_file_contains "$root/state-input" '"source":"compact"'
+
+  run hrc_run "$root" SessionStart session-current resume
+  assert_success
+  assert_output --partial 'child-latest'
+  assert_file_contains "$root/state-input" '"source":"resume"'
+}
+
+function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_unavailable_queries() {
+  _bats_test_init 1226 'Claude resource context does not leak across sessions and marks unavailable queries'
+  local root="$BATS_TEST_TMPDIR/resource-context-guards"
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Resources:' '- pane "owned" [w1:p1]' > "$root/context"
+
+  run hrc_run "$root" SessionStart session-old startup
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'pane "owned"'
+
+  # A successful empty projection invalidates stale generated context without
+  # inventing an empty resource listing.
+  : > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-old
+  assert_success
+  local cleared="$output"
+  run jq -e '.hookSpecificOutput.additionalContext | length > 0' <<< "$cleared"
+  assert_success
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$cleared"
+  assert_success
+  refute_output --partial 'Resources:'
+
+  # The shared query rejects a stale pane occupant through the expected session
+  # arguments. Query failure must not be presented as a complete empty tree.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-fresh startup
+  assert_success
+  local unavailable="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  assert_output --partial 'earlier generated resource context is stale'
+  assert_output --partial 'must not be treated as an empty resource branch'
+  run paste -sd ' ' "$root/query-argv"
+  assert_success
+  assert_output '--context --caller-agent claude --caller-session-id session-fresh'
+
+  # A transient failure invalidates the dedupe state. The next successful
+  # query must restore the projection even when its value did not change.
+  printf '%s\n' 'Resources:' '- pane "restored" [w1:p2]' > "$root/context"
+  run hrc_run "$root" SessionStart session-recovery startup
+  assert_success
+  assert_output --partial 'pane \"restored\"'
+  HRC_QUERY_STATUS=1 run hrc_run "$root" UserPromptSubmit session-recovery
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  run hrc_run "$root" UserPromptSubmit session-recovery
+  assert_success
+  assert_output --partial 'pane \"restored\"'
+
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-fresh '' subagent-1
+  assert_success
+  assert_output ''
+  assert_file_not_exists "$root/query-argv"
+
+  # A subagent id carrying a newline still suppresses the hook. Reading the
+  # payload one line per field would leave agent_id empty and promote the
+  # remainder into session_id, querying the parent pane's branch from a
+  # subagent turn.
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-fresh '' "$(printf '\nsub')"
+  assert_success
+  assert_output ''
+  assert_file_not_exists "$root/query-argv"
+
+  # Control: the same turn without an agent id must reach the CLI, so the
+  # rejection above cannot pass by never querying at all.
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-control
+  assert_success
+  assert_file_exists "$root/query-argv"
+
+  run env HOME="$root/home" HERDR_ENV= HRC_TEST_DIR="$root/outside" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload UserPromptSubmit outside)"
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$root/outside"
+}
+
+hrc_run_without_jq() {
+  local root="$1" event="$2" session="$3" minimal="$1/nojq"
+  # PATH carries only what the hook and the stubbed reporter need to run, so
+  # jq is genuinely absent rather than merely shadowed.
+  mkdir -p "$minimal"
+  ln -sf "$(command -v bash)" "$minimal/bash"
+  ln -sf "$(command -v cat)" "$minimal/cat"
+  env HOME="$root/home" HERDR_ENV=1 HRC_TEST_DIR="$root" PATH="$minimal" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    HERDR_AGENT_STATE_HOOK="$root/bin/herdr-agent-state" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$root/state" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload "$event" "$session" startup)"
+}
+
+function test_scripts_1247_claude_resource_context_reports_session_identity_without_jq() {
+  _bats_test_init 1247 'Claude resource context reports Agent session identity without jq'
+  local root="$BATS_TEST_TMPDIR/resource-context-nojq"
+  hrc_stub_hooks "$root"
+  : > "$root/context"
+
+  # Herdr's reporter needs no jq, and creator attribution, record-child and
+  # branch resolution all fail once the Agent session is unknown. A missing jq
+  # must degrade only the projection.
+  run hrc_run_without_jq "$root" SessionStart session-nojq
+  assert_success
+  assert_output ''
+  assert_file_contains "$root/state-argv" '^session$'
+
+  # Control: the projection is the part jq gates, so it must not have queried.
+  assert_file_not_exists "$root/query-argv"
+}
+
+function test_scripts_1248_claude_resource_context_states_one_outage_once() {
+  _bats_test_init 1248 'Claude resource context states a persistent outage once per conversation'
+  local root="$BATS_TEST_TMPDIR/resource-context-outage"
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' > "$root/context"
+
+  # A pane with no observable Agent session fails for the whole conversation,
+  # and Claude's transcript is append-only: restating the notice on every tool
+  # batch only grows context.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" UserPromptSubmit session-outage
+  assert_success
+  assert_output --partial 'resource context unavailable'
+
+  HRC_QUERY_STATUS=1 run hrc_run "$root" PostToolBatch session-outage
+  assert_success
+  assert_output ''
+
+  # A fresh conversation cannot know about the outage, so SessionStart still
+  # emits.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-outage
+  assert_success
+  assert_output --partial 'resource context unavailable'
+
+  # Recovery re-declares the projection authoritative rather than staying quiet.
+  run hrc_run "$root" PostToolBatch session-outage
+  assert_success
+  assert_output --partial 'parent-a'
 }
 
 function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
@@ -11315,4 +12292,379 @@ n
   assert_file_exists "$PINS_ROOT/stray-artifact"
   assert_equal "$(git -C "$PINS_ROOT" status --porcelain --untracked-files=no)" \
     ' M private_dot_config/mise/config.toml'
+}
+
+# herdr-agent-limits tab bar status
+# ===========================================
+
+AGENT_LIMITS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-limits"
+
+# Writes a fixture home whose windows are all live, then leaves the caller to
+# age individual ones. Offsets are relative so the fixture never expires.
+agent_limits_fixture() {
+  local home="$1" cc_reset="$2" cx_reset="$3" now
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits" "$home/.cache/codex-rate-limits" "$home/bin"
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":3,"resets_at":%s}}' \
+    "$now" "$((now + cc_reset))" > "$home/.cache/claude-rate-limits/latest.json"
+  codex_limits_cache "$home" 15 "$((now + cx_reset))" false 0 "$now"
+  # The codex segment is offered only where codex could refresh it. The display
+  # path reads the cache and never runs the binary, so presence is all a
+  # display fixture needs; test 27209 exercises the refresh against the real one.
+  printf '#!/bin/sh\nexit 0\n' > "$home/bin/codex"
+  chmod +x "$home/bin/codex"
+}
+
+# The cache the refresh writes and the bar reads, as a single window.
+codex_limits_cache() {
+  local home="$1" pct="$2" resets_at="$3" blocked="$4" credits="$5" fetched_at="$6"
+  mkdir -p "$home/.cache/codex-rate-limits"
+  printf '{"fetched_at":%s,"windows":[{"used_percent":%s,"window_minutes":10080,"resets_at":%s}],"blocked":%s,"reset_credits":%s}' \
+    "$fetched_at" "$pct" "$resets_at" "$blocked" "$credits" \
+    > "$home/.cache/codex-rate-limits/latest.json"
+}
+
+# A hermetic PATH: the fixture's codex, plus enough to resolve python3. The
+# outer PATH stays out so a developer's real codex cannot answer for the stub.
+agent_limits_run() {
+  local home="$1"
+  run env -i HOME="$home" PATH="$home/bin:/usr/bin:/bin" bash "$AGENT_LIMITS_SCRIPT"
+}
+
+function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() {
+  _bats_test_init 27204 'agent limits drops windows whose reset has passed'
+  local home="$BATS_TEST_TMPDIR/limits-expiry"
+
+  # #given both providers report a window that is still open
+  agent_limits_fixture "$home" 3600 86400
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then each provider contributes its live window
+  assert_success
+  assert_output --partial '  5h/3%'
+  assert_output --partial '  7d/15%'
+
+  # #given the same numbers, but after both windows have reset
+  agent_limits_fixture "$home" -3600 -86400
+
+  # #when the status entry runs again
+  agent_limits_run "$home"
+
+  # #then neither percentage is shown: a finished window describes a period
+  # that is over, and a stale number in a status bar misleads silently
+  assert_success
+  refute_output --partial '3%'
+  refute_output --partial '15%'
+}
+
+function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_claude_json() {
+  _bats_test_init 27205 'agent limits prefers the live cache over the stale claude json'
+  local home="$BATS_TEST_TMPDIR/limits-precedence" now
+  now="$(date +%s)"
+
+  # #given a live status-line cache alongside a week-old .claude.json holding a
+  # different figure for the same account-wide window
+  agent_limits_fixture "$home" 3600 86400
+  mkdir -p "$home/.claude"
+  printf '{"cachedUsageUtilization":{"fetchedAtMs":%s,"utilization":{"five_hour":{"utilization":88}}}}' \
+    "$(((now - 604800) * 1000))" > "$home/.claude/.claude.json"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the live figure wins and the stale one never reaches the bar
+  assert_success
+  assert_output --partial '  5h/3%'
+  refute_output --partial '88%'
+
+  # #given the live cache is gone, as on a home that has not run Claude yet
+  rm -f "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the fallback figure appears, labelled with its age rather than
+  # passed off as current
+  assert_success
+  assert_output --partial '  5h/88%'
+  assert_output --partial 'old)'
+}
+
+function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_into_it() {
+  _bats_test_init 27206 'agent limits marks a spent window without rounding into it'
+  local home="$BATS_TEST_TMPDIR/limits-spent" now exhausted
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits"
+  # nf-cod-circle_slash U+EABD
+  exhausted="$(printf '\356\252\275')"
+
+  # #given a window that is genuinely spent
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":100,"resets_at":%s}}' \
+    "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then it reads as a state rather than a stuck gauge, and still says when
+  # the allowance comes back
+  assert_success
+  assert_output --partial "${exhausted}100%"
+  assert_output --partial '↻'
+
+  # #given a window that is merely close to spent
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":99.6,"resets_at":%s}}' \
+    "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then rounding never manufactures an exhaustion that has not happened
+  assert_success
+  assert_output --partial '5h/99%'
+  refute_output --partial '100%'
+  refute_output --partial "$exhausted"
+}
+
+function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_still_do() {
+  _bats_test_init 27207 'agent limits says what a blocked codex account can still do'
+  local home="$BATS_TEST_TMPDIR/limits-credits" now exhausted
+  now="$(date +%s)"
+  # nf-cod-circle_slash U+EABD
+  exhausted="$(printf '\356\252\275')"
+  agent_limits_fixture "$home" 3600 86400
+
+  # #given a spent window with reset credits in hand
+  codex_limits_cache "$home" 100 "$((now + 86400))" true 2 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the count reaches the bar: at 100% it is the difference between
+  # waiting for the reset and carrying on now. The spelling is ours; what the
+  # zero-credit control below fixes is that the count appears at all.
+  assert_success
+  assert_output --partial '×2'
+
+  # #given the same spent window with no credits left
+  codex_limits_cache "$home" 100 "$((now + 86400))" true 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then nothing claims a credit that is not there
+  assert_success
+  refute_output --partial '×0'
+  refute_output --partial ' ×'
+
+  # #given an account blocked while its window still reads below 100%, which
+  # is what spend control and depleted credits look like
+  codex_limits_cache "$home" 40 "$((now + 86400))" true 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the segment carries the state, because no percentage in the line
+  # would reveal it
+  assert_success
+  assert_output --partial "  ${exhausted}"
+
+  # #given the same figure on an account that is not blocked
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the marker stays off: it reports the backend's verdict, not a
+  # threshold this script picked
+  assert_success
+  refute_output --partial "$exhausted"
+}
+
+function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopped_updating() {
+  _bats_test_init 27208 'agent limits labels a codex figure the refresh stopped updating'
+  local home="$BATS_TEST_TMPDIR/limits-stale" now
+  now="$(date +%s)"
+  agent_limits_fixture "$home" 3600 86400
+
+  # #given a cache old enough to trigger its 15-minute refresh, but not old
+  # enough to turn a brief backend failure into status-bar noise
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 1140))"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the last known figure remains available without a 19m-old warning
+  assert_success
+  assert_output --partial '  7d/40%'
+  refute_output --partial 'old)'
+
+  # #given refreshes have failed for a full hour
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
+
+  # #when the status entry runs again
+  agent_limits_run "$home"
+
+  # #then the bar makes the stale data explicit
+  assert_success
+  assert_output --partial '(1h old)'
+
+  # #given the same figure from a refresh that is keeping up
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the bar says nothing about age, because there is nothing to qualify
+  assert_success
+  assert_output --partial '  7d/40%'
+  refute_output --partial 'old)'
+}
+
+function test_scripts_27209_codex_limits_refresh_fills_its_cache_from_the_real_app_server() {
+  _bats_test_init 27209 'codex limits refresh fills its cache from the real app server'
+  [[ "${MMS_LIVE_CODEX_TEST:-}" = 1 ]] || skip "set MMS_LIVE_CODEX_TEST=1 to query the live Codex account"
+  command_exists codex || skip "codex is not installed"
+  local home="$BATS_TEST_TMPDIR/limits-refresh" cache
+  mkdir -p "$home"
+  cache="$home/.cache/codex-rate-limits/latest.json"
+
+  # #given the real app server, reached with the real account: a fake codex
+  # here would only compare this patch against itself, and the cache's fields
+  # are a claim about codex's response that only codex can adjudicate.
+  # #when the refresh path runs against it
+  run env HOME="$home" CODEX_HOME="$HOME/.codex" \
+    bash "$AGENT_LIMITS_SCRIPT" --refresh-codex
+  assert_success
+
+  # A logged-out or offline machine has no oracle, only a silent empty cache,
+  # so say which one is missing instead of asserting an invented shape.
+  [[ -f "$cache" ]] || skip "codex app-server returned no rate limits (logged out or offline?)"
+
+  # #then every field the bar formats arrives populated. The depth stops at
+  # what the display reads: anything further restates a response shape codex
+  # owns and would fail on its next release for no local reason.
+  run python3 -c '
+import json, sys, time
+d = json.load(open(sys.argv[1]))
+assert time.time() - d["fetched_at"] < 300, "cache is not fresh"
+assert isinstance(d["blocked"], bool), d["blocked"]
+assert isinstance(d["reset_credits"], int), d["reset_credits"]
+assert d["windows"], "no window carried a used_percent"
+for w in d["windows"]:
+    assert isinstance(w["used_percent"], (int, float)), w
+    assert w["window_minutes"], w
+print("ok")
+' "$cache"
+  assert_success
+  assert_output --partial 'ok'
+}
+
+function test_scripts_27210_agent_limits_refreshes_stale_codex_data_before_rendering() {
+  _bats_test_init 27210 'agent limits refreshes stale codex data before rendering'
+  local home="$BATS_TEST_TMPDIR/limits-refresh-render" now marker
+  now="$(date +%s)"
+  marker="$home/codex-called"
+  agent_limits_fixture "$home" 3600 86400
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 840))"
+
+  # This fixture exercises our request lifecycle; test 27209 keeps the response
+  # fields calibrated against the real app server.
+  cat > "$home/bin/codex" <<EOF
+#!/bin/sh
+printf 'called\n' > "$marker"
+while IFS= read -r request; do
+  case "\$request" in
+    *'"id": 2'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":7,"windowDurationMins":10080,"resetsAt":$((now + 86400))}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":1}}}'
+      exit 0
+      ;;
+  esac
+done
+EOF
+  chmod +x "$home/bin/codex"
+
+  # #when Herdr runs the status command before the 15-minute refresh interval
+  agent_limits_run "$home"
+
+  # #then the cache is rendered without asking the backend
+  assert_success
+  assert_output --partial '  7d/40%'
+  refute_output --partial '  7d/7%'
+  assert_file_not_exists "$marker"
+
+  # #given the same snapshot has crossed the refresh interval
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 1140))"
+
+  # #when Herdr runs the status command again
+  agent_limits_run "$home"
+
+  # #then that invocation waits for the bounded refresh and renders its result;
+  # no background descendant or leaked lock is needed for a later redraw
+  assert_success
+  assert_output --partial '  7d/7%'
+  assert_output --partial '×1'
+  refute_output --partial 'old)'
+  assert_file_exists "$marker"
+  assert_dir_not_exists "$home/.cache/codex-rate-limits/refresh.lock"
+}
+
+function test_scripts_27211_agent_limits_compacts_reset_countdowns() {
+  _bats_test_init 27211 'agent limits compacts reset countdowns'
+  local home="$BATS_TEST_TMPDIR/limits-compact-resets"
+  # Leave enough boundary margin that command startup cannot change the minute
+  # or hour represented by either countdown.
+  agent_limits_fixture "$home" 7250 90050
+
+  # #when the status entry renders hour-minute and day-hour countdowns
+  agent_limits_run "$home"
+
+  # #then units already carried by position are not repeated
+  assert_success
+  assert_output --partial '  5h/3% ↻2:00'
+  assert_output --partial '  7d/15% ↻1d1h'
+}
+
+function test_scripts_27212_agent_limits_renders_the_compact_provider_layout() {
+  _bats_test_init 27212 'agent limits renders the compact provider layout'
+  local home="$BATS_TEST_TMPDIR/limits-compact-layout" now
+  now="$(date +%s)"
+  agent_limits_fixture "$home" 6530 558050
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":1,"resets_at":%s},"seven_day":{"used_percentage":18,"resets_at":%s}}' \
+    "$now" "$((now + 6530))" "$((now + 356450))" \
+    > "$home/.cache/claude-rate-limits/latest.json"
+  codex_limits_cache "$home" 2 "$((now + 558050))" false 1 "$now"
+
+  # #when the complete provider line renders
+  agent_limits_run "$home"
+
+  # #then its separators and spacing match the tab-bar layout exactly
+  assert_success
+  assert_output '  5h/1% ↻1:48 7d/18% ↻4d3h ·   7d/2% ↻6d11h ×1'
+}
+
+function test_scripts_27213_agent_limits_backs_off_after_a_failed_codex_refresh() {
+  _bats_test_init 27213 'agent limits backs off after a failed codex refresh'
+  local home="$BATS_TEST_TMPDIR/limits-refresh-backoff" marker now
+  now="$(date +%s)"
+  marker="$home/codex-called"
+  agent_limits_fixture "$home" 3600 86400
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 1140))"
+  cat > "$home/bin/codex" <<EOF
+#!/bin/sh
+printf 'called\n' >> "$marker"
+exit 0
+EOF
+  chmod +x "$home/bin/codex"
+
+  # #when two redraws encounter the same stale cache and a failing backend
+  agent_limits_run "$home"
+  assert_success
+  agent_limits_run "$home"
+  assert_success
+
+  # #then the persisted attempt suppresses the second backend call
+  assert_equal "$(<"$marker")" 'called'
+  assert_file_exists "$home/.cache/codex-rate-limits/last-attempt"
 }

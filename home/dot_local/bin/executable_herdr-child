@@ -25,6 +25,12 @@ source "$SCRIPT_DIR/../lib/herdr-child-reap.sh"
 
 SOURCE_ID="child-agent"
 TAB_SOURCE_ID="child-agent-tab"
+# Resource creation must reach the managed provenance wrapper beside this
+# script, not whichever herdr PATH resolves first: only the wrapper records the
+# creator edge record-child later requires, and a pane whose environment predates
+# the PATH fix still finds the native binary first.
+HERDR_CREATION_CLI="${HERDR_CHILD_HERDR_CLI:-$SCRIPT_DIR/herdr}"
+[ -x "$HERDR_CREATION_CLI" ] || HERDR_CREATION_CLI=herdr
 WAITING_TTL_MS=3600000
 SUPERVISED_TTL_MS=90000
 DEFAULT_SUPERVISION_TIMEOUT=3600000

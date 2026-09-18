@@ -1,6 +1,6 @@
 ---
 name: se-orchestrator
-description: Execute a plan through its checklist — take the first unchecked item, do it, verify, commit the work and the checkbox together. Use to run, continue, or resume a plan, spec, or TODO document, whether structured or hand-written, and when asked where to continue from. Writing the plan is ce-plan; an open-ended bug is ce-debug.
+description: Execute a plan through its checklist — take the first unchecked item, do it, verify, commit the work and the checkbox together. Use to run, continue, or resume a plan, spec, or TODO document, whether structured or hand-written, and when asked where to continue from. An open-ended bug is ce-debug.
 ---
 
 # Execute a plan through its checklist

@@ -86,6 +86,13 @@ export LINEAR_ISSUE_SORT="manual"
 # -------------------------------------------
 export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
+# Visual Regression Testing R2. The secret references below use the item UUID
+# because 1Password URIs reject the brackets in the item's display name:
+# Development/[Visual regression testing] Cloudflare R2 bucket
+export VRT_R2_BUCKET="membrane-visual-regression-testing"
+export VRT_R2_ENDPOINT="https://e9d416b8a5d9a9bd386258cc37fd3a98.r2.cloudflarestorage.com"
+export VRT_R2_PUBLIC_DOMAIN="vrt.membrane-dev.com"
+
 {{ if .is_darwin }}
 # -------------------------------------------
 # Agent Browser
@@ -98,27 +105,48 @@ export AGENT_BROWSER_EXECUTABLE_PATH="/Applications/Helium.app/Contents/MacOS/He
 {{ if and $unattended (eq $unattendedProfile "full-fixture") }}
 # API Keys (from unattended fixtures)
 export LINEAR_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY" | quote }}
-export TAVILY_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY" | quote }}
+_tavily_api_keys=(
+  {{ env "MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY" | quote }}
+  {{ env "MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2" | quote }}
+)
+export TAVILY_API_KEY="${_tavily_api_keys[$((RANDOM % ${#_tavily_api_keys[@]} + 1))]}"
+unset _tavily_api_keys
 export JINA_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_JINA_API_KEY" | quote }}
 export CONTEXT7_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY" | quote }}
 export VECTOR_PRIME_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY" | quote }}
 export OPENROUTER_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY" | quote }}
+export VRT_R2_ACCESS_KEY_ID={{ env "MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID" | quote }}
+export VRT_R2_SECRET_ACCESS_KEY={{ env "MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY" | quote }}
 {{- else if and $unattended (eq $unattendedProfile "host-partial") }}
 # API Keys (secret-backed target; omitted from host-partial state operations)
 export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
-export TAVILY_API_KEY="{{ onepasswordRead "op://Private/Tavily API Key/credential" "my.1password.com" }}"
+_tavily_api_keys=(
+  {{ onepasswordRead "op://Private/Tavily API Key/credential" "my.1password.com" | quote }}
+  {{ onepasswordRead "op://Private/Tavily API Key 2/credential" "my.1password.com" | quote }}
+)
+export TAVILY_API_KEY="${_tavily_api_keys[$((RANDOM % ${#_tavily_api_keys[@]} + 1))]}"
+unset _tavily_api_keys
 export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
 export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
+export VRT_R2_ACCESS_KEY_ID="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Access Key ID" "getmembrane.1password.com" }}"
+export VRT_R2_SECRET_ACCESS_KEY="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Secret Access Key" "getmembrane.1password.com" }}"
 {{- else if $unattended }}
 {{-   fail "invalid unattended chezmoi profile" }}
 {{- else if lookPath "op" }}
 # API Keys (from 1Password)
 export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
-export TAVILY_API_KEY="{{ onepasswordRead "op://Private/Tavily API Key/credential" "my.1password.com" }}"
+_tavily_api_keys=(
+  {{ onepasswordRead "op://Private/Tavily API Key/credential" "my.1password.com" | quote }}
+  {{ onepasswordRead "op://Private/Tavily API Key 2/credential" "my.1password.com" | quote }}
+)
+export TAVILY_API_KEY="${_tavily_api_keys[$((RANDOM % ${#_tavily_api_keys[@]} + 1))]}"
+unset _tavily_api_keys
 export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
 export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
+export VRT_R2_ACCESS_KEY_ID="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Access Key ID" "getmembrane.1password.com" }}"
+export VRT_R2_SECRET_ACCESS_KEY="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Secret Access Key" "getmembrane.1password.com" }}"
 {{- end }}

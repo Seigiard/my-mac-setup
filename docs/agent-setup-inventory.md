@@ -15,8 +15,8 @@ reserves names managed from `home/private_dot_agents/skills/`. Claude Code
 receives symlink adapters under `~/.claude/skills`; OpenCode and Pi discover
 `~/.agents/skills` natively. No effective skill name may have both owners.
 
-`eli5` and `open-questions` are explicit-only: Claude and Pi receive manual
-skill adapters, while OpenCode receives command adapters only.
+`open-questions` is explicit-only: Claude and Pi receive a manual skill
+adapter, while OpenCode receives a command adapter only.
 
 `handoff` is absent and is not managed. `linear-cli`, not `linear`, is the
 selected upstream skill name.

@@ -1,1 +1,0 @@
-MIGRATION_FAILED: DRIFT source=2026-08-17-001 target=#1 phase=preflight title='A supervisor process that subscribes to herdr agent-status events [drift probe]' expected='A supervisor process that subscribes to herdr agent-status events'

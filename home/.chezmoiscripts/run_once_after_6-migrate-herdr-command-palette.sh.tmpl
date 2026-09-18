@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Replace the former chezmoi-managed Command Palette with the pinned GitHub package.
+# A failed run leaves the local files in place, restores their registration, and
+# exits non-zero so chezmoi retries this run_once migration on the next apply.
+set -u
+
+plugin_id="seigi.command-palette"
+repo="Seigiard/herdr-command-palette"
+ref="9c92d2d0b0d275183880c9033e73657e513d3da1"
+legacy_root="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/command-palette"
+
+plugin_is_local() {
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    found = any(
+        isinstance(plugin, dict)
+        and plugin.get("plugin_id") == sys.argv[1]
+        and plugin.get("source", {}).get("kind") == "local"
+        for plugin in plugins
+    )
+except (AttributeError, json.JSONDecodeError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if found else 1)
+' "$plugin_id" 2>/dev/null
+}
+
+restore_local_plugin() {
+  [[ -d "$legacy_root" ]] || return 1
+  herdr plugin link "$legacy_root" --enabled </dev/null >/dev/null 2>&1
+}
+
+if [[ ! -d "$legacy_root" ]]; then
+  exit 0
+fi
+
+if ! herdr --version >/dev/null 2>&1; then
+  echo "Command Palette migration needs herdr; retry after herdr is installed" >&2
+  exit 1
+fi
+
+if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  echo "Command Palette migration could not inspect Herdr plugins; retry on the next apply" >&2
+  exit 1
+fi
+
+plugin_is_local
+palette_state=$?
+if [[ $palette_state -eq 0 ]]; then
+  if ! herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1; then
+    echo "Command Palette migration could not unregister the local plugin; retry on the next apply" >&2
+    exit 1
+  fi
+elif [[ $palette_state -ne 1 ]]; then
+  echo "Command Palette migration could not parse Herdr's plugin registry; retry on the next apply" >&2
+  exit 1
+fi
+
+if ! herdr plugin install "$repo" --ref "$ref" -y </dev/null; then
+  if [[ $palette_state -eq 0 ]]; then
+    if restore_local_plugin; then
+      echo "Command Palette installation failed; restored the local plugin for the next retry" >&2
+    else
+      echo "Command Palette installation failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
+    fi
+  else
+    echo "Command Palette installation failed; retained the legacy files for the next retry" >&2
+  fi
+  exit 1
+fi
+
+if ! herdr plugin enable "$plugin_id" </dev/null >/dev/null 2>&1; then
+  herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
+  if [[ $palette_state -eq 0 ]]; then
+    if restore_local_plugin; then
+      echo "Command Palette enable failed; restored the local plugin for the next retry" >&2
+    else
+      echo "Command Palette enable failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
+    fi
+  else
+    echo "Command Palette enable failed; retained the legacy files for the next retry" >&2
+  fi
+  exit 1
+fi
+
+if ! rm -rf -- "$legacy_root"; then
+  echo "Command Palette migration could not remove $legacy_root; retry on the next apply" >&2
+  exit 1
+fi
+echo "Migrated Command Palette from the local plugin to $repo at $ref"

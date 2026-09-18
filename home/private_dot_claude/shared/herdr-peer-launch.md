@@ -1,6 +1,6 @@
 # External leg pair interface
 
-An External leg pair is one Claude review and one OpenCode review of the same input. `se-external-leg-pair` owns their shared executable lifecycle for `se-code-review`, `se-doc-review`, and `se-simplify`. Calling skills own scope, complete peer prompts, report-schema validation, synthesis, and apply policy.
+An External leg pair is one Claude review and one OpenCode review of the same input. `se-external-leg-pair` owns their shared executable lifecycle for `se-code-review` and `se-simplify`. Calling skills own scope, complete peer prompts, report-schema validation, synthesis, and apply policy.
 
 ## Invocation
 
@@ -20,7 +20,7 @@ se-external-leg-pair \
   --result-dir "$PAIR_RESULT" || PAIR_STATUS=$?
 ```
 
-If either prompt tells a peer to read a document outside `REPO_ROOT`, add exactly one `--exposed-document "$ABSOLUTE_DOCUMENT"` so the file is scanned too. This is required for the immutable copy used by `se-doc-review`; the interface supports only one external document per pair.
+If either prompt tells a peer to read a document outside `REPO_ROOT`, add exactly one `--exposed-document "$ABSOLUTE_DOCUMENT"` so the file is scanned too. This is required for the immutable copy a caller stages outside the repo; the interface supports only one external document per pair.
 
 The command requires `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, and explicit `--complexity` and `--effort` values. Complexity selects each provider's model; effort becomes Claude's native effort and OpenCode's model variant. It also fixes the pair, permissions, retry limits, waits, report transport, and cleanup, so callers cannot override provider or lifecycle policy. `SE_SKIP_SECRET_SCAN=1` remains the only operator waiver. The result records `"scan": "waived"`, and the caller reports the waiver.
 
@@ -34,6 +34,8 @@ Mapping `external-leg-models/2026-09-12` was verified against Claude Code 2.1.23
 | `xhigh` | `fable` | `openai/gpt-6-astra` |
 
 Both clients support `low`, `medium`, `high`, `xhigh`, and `max` effort for these models. The three current callers declare `medium/high`, preserving their previous Sonnet/high and Terra behavior.
+
+Both leg tabs start with `SE_EXTERNAL_LEG=1`, which the agent, its tool processes, and its subagents inherit. The command refuses with status `2` when that variable is already set to any non-empty value, and `herdr-child start` refuses the same way, so no leg can open a nested pair or child. A skill that finds itself inside a leg does its work in that session instead.
 
 ## Result
 
@@ -57,7 +59,7 @@ Exit statuses:
 
 - `0`: cleanup completed and at least one report is available.
 - `1`: cleanup completed but no report is available, or result publication failed.
-- `2`: refused before peer creation because input, environment, dependencies, or the initial scan were invalid.
+- `2`: refused before peer creation because input, environment, dependencies, or the initial scan were invalid, or because the caller is itself an External leg.
 - `3`: cleanup was incomplete; synthesis is forbidden.
 - `129`, `130`, or `143`: the process received HUP, INT, or TERM and cleanup completed. Incomplete cleanup overrides these with `3`.
 

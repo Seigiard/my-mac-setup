@@ -6,12 +6,20 @@
 # # {{ include "private_dot_config/herdr/plugins/worktree-setup/herdr-plugin.toml" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/worktree-setup/setup.ts" | sha256sum }}
 # # {{ include "private_dot_config/herdr/plugins/config/seigi.worktree-setup/config.toml" | sha256sum }}
+# # {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" | sha256sum }}
 
 set -u
 
+# {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" }}
+
 plugin_dir="$HOME/.config/herdr/plugins/worktree-setup"
 
-if ! command -v herdr >/dev/null 2>&1; then
+if skip_reason="$(herdr_link_guard_skip_reason)"; then
+  echo "$skip_reason; skipping worktree-setup plugin link"
+  exit 0
+fi
+
+if ! herdr --version >/dev/null 2>&1; then
   echo "herdr not found; skipping worktree-setup plugin link"
   exit 0
 fi

@@ -540,7 +540,7 @@ PROBE
 }
 
 function test_templates_0091_zshenv_full_fixture_exports_all_canaries_without_op() {
-  _bats_test_init 91 'zshenv full fixture exports all five canaries without invoking op'
+  _bats_test_init 91 'zshenv full fixture randomly selects a Tavily canary without invoking op'
   command_exists zsh || skip "zsh not installed"
   local work="$BATS_TEST_TMPDIR/zshenv-full"
   local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
@@ -562,10 +562,13 @@ FAKE_OP
     MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=linear-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=tavily-2-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=jina-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-zshenv-canary \
     MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=openrouter-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=vrt-r2-access-key-zshenv-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=vrt-r2-secret-key-zshenv-canary \
     "$launcher" --profile full-fixture -- \
     apply --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" \
     --refresh-externals=never "$work/home/.zshenv"
@@ -577,11 +580,20 @@ FAKE_OP
   assert_file_not_exists "$work/op-launched"
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY|$VRT_R2_BUCKET|$VRT_R2_ENDPOINT|$VRT_R2_PUBLIC_DOMAIN|${+_tavily_api_keys}"
   ' _ "$work/home/.zshenv"
   assert_success
-  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary'
+  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|jina-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary|vrt-r2-access-key-zshenv-canary|vrt-r2-secret-key-zshenv-canary|membrane-visual-regression-testing|https://e9d416b8a5d9a9bd386258cc37fd3a98.r2.cloudflarestorage.com|vrt.membrane-dev.com|0'
+
+  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=1
+    source "$1"
+    print -r -- "$TAVILY_API_KEY|${+_tavily_api_keys}"
+  ' _ "$work/home/.zshenv"
+  assert_success
+  assert_output 'tavily-2-zshenv-canary|0'
 }
 
 function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_and_reports_work() {
@@ -618,11 +630,12 @@ function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixt
   printf '%s\n' "$output" > "$work/zshenv.rendered"
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$JINA_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY"
   ' _ "$work/zshenv.rendered"
   assert_success
-  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary'
+  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-jina-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary|mms-test-vrt-r2-access-key-canary|mms-test-vrt-r2-secret-key-canary'
 }
 
 function test_templates_0094_zshenv_skip_secrets_omits_state_but_execute_template_fails() {
@@ -764,7 +777,7 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 # private_settings.json.tmpl retirement contract
 # ===========================================
 function test_templates_0151_private_settings_registers_worktree_identity_prompt_hook() {
-  _bats_test_init 151 'private settings register the worktree identity prompt and session-start hooks'
+  _bats_test_init 151 'private settings register the worktree identity and handoff hooks'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
   run grep -F '{{' "$BATS_TEST_TMPFILE"
@@ -774,7 +787,6 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   assert_output --partial 'herdr-worktree-identity-hook.sh'
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output --partial 'herdr-agent-state.sh'
   assert_output --partial 'handoff-session-start.sh'
   run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-session-start.sh"
@@ -868,6 +880,7 @@ assert_minimal_brewfile() {
   refute_line 'brew "imagemagick"'
   refute_line 'brew "shellcheck"'
   refute_line 'brew "herdr"'
+  refute_line 'brew "nono"'
   refute_line 'brew "fzf"'
 }
 
@@ -888,8 +901,8 @@ function test_templates_020_mms_ci_minimal_1_renders_brewfile_macos_with_no() {
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
-  # No test in tests/ references any cask, or elio/terminal-notifier/linear,
-  # so the guard covers the whole file. `brew bundle` accepts empty.
+  # No test resolves a macOS-only cask or formula, so the guard covers the
+  # whole file. `brew bundle` accepts empty.
   refute_output --partial 'cask "'
   refute_output --partial 'brew "'
   refute_output --partial 'tap "'
@@ -918,11 +931,14 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   assert_line 'brew "node"'
   assert_line --partial 'brew "oven-sh/bun/bun"'
   assert_line 'brew "gitleaks"'
+  assert_line 'brew "nono"'
 
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
   assert_line 'cask "spotify"'
   assert_line --partial 'brew "elio"'
+  assert_line --partial 'brew "rust"'
+  refute_line 'brew "terminal-notifier"'
 }
 
 function test_templates_022_an_empty_mms_ci_minimal_renders_the_full_brewfil() {

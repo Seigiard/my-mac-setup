@@ -619,9 +619,13 @@ import sys
 
 for line in open(sys.argv[1], encoding="utf-8"):
     arguments = shlex.split(line)
-    if arguments[:3] == ["herdr", "tab", "create"] and "--env" in arguments:
-        value = arguments[arguments.index("--env") + 1]
-        config = json.loads(value.split("=", 1)[1])
+    if arguments[:3] != ["herdr", "tab", "create"]:
+        continue
+    prefix = "OPENCODE_CONFIG_CONTENT="
+    values = [arguments[i + 1] for i, word in enumerate(arguments) if word == "--env"]
+    configs = [value[len(prefix):] for value in values if value.startswith(prefix)]
+    if configs:
+        config = json.loads(configs[0])
         assert config["agent"]["build"]["model"] == sys.argv[3]
         assert config["agent"]["build"]["variant"] == sys.argv[2]
         break
@@ -695,6 +699,51 @@ for model in (
     assert efforts <= set(catalog[model]["variants"])
 PY
   assert_success
+}
+
+function test_external_leg_pair_1316_marks_both_legs_and_refuses_to_launch_from_inside_a_leg() {
+  _bats_test_init 1316 'External leg pair marks both legs and refuses to launch from inside a leg'
+  pair_stub
+  local outer="$PAIR_RESULTS/outer" nested="$PAIR_RESULTS/nested" leg_marker
+
+  run env -u SE_EXTERNAL_LEG PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT \
+    bash "$PAIR_SCRIPT" --complexity medium --effort high --repo-root "$PAIR_REPO" \
+      --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+      --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$outer"
+  assert_success
+
+  run python3 - "$PAIR_WORK/herdr.log" <<'PY'
+import shlex
+import sys
+
+tab_envs = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    words = shlex.split(line)
+    if words[1:3] != ["tab", "create"]:
+        continue
+    tab_envs.append({words[i + 1] for i, word in enumerate(words) if word == "--env"})
+assert len(tab_envs) == 2
+markers = {value for value in tab_envs[0] if value.startswith("SE_EXTERNAL_LEG=")}
+assert len(markers) == 1
+for envs in tab_envs:
+    assert markers <= envs
+print(markers.pop())
+PY
+  assert_success
+  leg_marker="$output"
+
+  rm -f "$PAIR_WORK/herdr.log" "$PAIR_WORK/scan-count" "$PAIR_WORK/mktemp-count" "$PAIR_WORK/alias-count"
+  run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT "$leg_marker" \
+    bash "$PAIR_SCRIPT" --complexity medium --effort high --repo-root "$PAIR_REPO" \
+      --claude-prompt-file "$PAIR_WORK/claude.prompt" \
+      --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$nested"
+  assert_failure 2
+  assert_output --partial 'inside an external leg'
+  assert_dir_not_exists "$nested"
+  assert_file_not_exists "$PAIR_WORK/herdr.log"
+  assert_file_not_exists "$PAIR_WORK/scan-count"
+  assert_file_not_exists "$PAIR_WORK/mktemp-count"
+  assert_file_not_exists "$PAIR_WORK/alias-count"
 }
 
 function set_up_before_script() {

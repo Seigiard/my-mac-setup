@@ -39,19 +39,19 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 
 <important if="you need to run commands to build, test, lint, or run scripts">
 
-| Command | What it does |
-|---|---|
-| `make test-python` | Run general Python contract tests |
-| `make test-ubuntu` | Full source render, disposable-home apply, and test suite in Docker |
-| `make test-docker` | Build + run full Docker test suite |
-| `make test-suite` | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
-| `make test-templates` | Focused source-render tests in Docker; included in `make test-ubuntu` |
-| `make test-local` | Diff this checkout's `home/` against the current home (dry-run, no changes) |
-| `make lint` | shellcheck |
-| `make shell-ubuntu` | Interactive shell in Ubuntu container |
-| `make build-docker` | Build Docker image only |
-| `make clean` | Remove Docker resources |
-| `tests/lib/bashunit -j 8 tests/bashunit/smoke_test.sh` | Run a single test file |
+| Command                                                | What it does                                                                                    |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `make test-python`                                     | Run general Python contract tests                                                               |
+| `make test-ubuntu`                                     | Full source render, disposable-home apply, and test suite in Docker                             |
+| `make test-docker`                                     | Build + run full Docker test suite                                                              |
+| `make test-suite`                                      | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
+| `make test-templates`                                  | Focused source-render tests in Docker; included in `make test-ubuntu`                           |
+| `make test-local`                                      | Diff this checkout's `home/` against the current home (dry-run, no changes)                     |
+| `make lint`                                            | shellcheck                                                                                      |
+| `make shell-ubuntu`                                    | Interactive shell in Ubuntu container                                                           |
+| `make build-docker`                                    | Build Docker image only                                                                         |
+| `make clean`                                           | Remove Docker resources                                                                         |
+| `tests/lib/bashunit -j 8 tests/bashunit/smoke_test.sh` | Run a single test file                                                                          |
 
 </important>
 
@@ -101,12 +101,12 @@ Consequence: an edit in this checkout is **commit-ready but NOT live** — it ha
 
 Where new things go:
 
-| Adding | Destination |
-|---|---|
-| Cross-platform CLI tool | `home/private_dot_config/brewfiles/Brewfile.tmpl` |
-| macOS-only cask/app | `home/private_dot_config/brewfiles/Brewfile.macos.tmpl` |
-| Config file from `~/` | `home/` via `chezmoi add` |
-| External repo/archive (skills) | `home/.chezmoiexternal.toml` |
+| Adding                         | Destination                                             |
+| ------------------------------ | ------------------------------------------------------- |
+| Cross-platform CLI tool        | `home/private_dot_config/brewfiles/Brewfile.tmpl`       |
+| macOS-only cask/app            | `home/private_dot_config/brewfiles/Brewfile.macos.tmpl` |
+| Config file from `~/`          | `home/` via `chezmoi add`                               |
+| External repo/archive (skills) | `home/.chezmoiexternal.toml`                            |
 
 Tool versions (e.g. node) change only by editing `home/private_dot_config/mise/config.toml`, never via `mise use --global` — that writes straight to the deployed file and diverges from this source.
 
@@ -115,7 +115,7 @@ Adding a managed config, step by step:
 1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
 2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
 3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
-4. Coverage passes the test-oracle gate first: state the oracle line (consumer, observable failure, oracle independent of this change) — when it cannot be completed, zero new tests is the correct outcome. When it can, extend the narrowest test that proves deployment behavior; use `tests/bashunit/smoke_test.sh` only for cross-component coverage.
+4. Apply the **test-oracle gate** before proposing coverage.
 5. A new managed path is deployment-sensitive; follow `docs/agent-verification.md`.
 
 `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
@@ -126,7 +126,7 @@ Adding a managed config, step by step:
 
 - `home/private_dot_config/agent-skills/manifest` is the source of truth for selected upstream skills. Use `~/.local/bin/skills {add|remove|update|sync}` to manage the live global installation; `sync` reports drift but never removes it.
 - `home/private_dot_agents/skills/` is chezmoi's canonical storage for repository-owned model-invocable skills. The Skills CLI owns separate children in `~/.agents/skills` and records their ownership in its global lock; do not let either owner claim the same effective skill name.
-- `eli5` and `open-questions` are explicit-only Claude/Pi adapters with OpenCode command adapters. Client plugins retain non-skill functionality only. Restart Claude Code, OpenCode, and Pi after deployment or discovery changes.
+- `open-questions` is an explicit-only Claude/Pi adapter with an OpenCode command adapter. Client plugins retain non-skill functionality only. Restart Claude Code, OpenCode, and Pi after deployment or discovery changes.
 
 </important>
 
@@ -168,9 +168,9 @@ For repository issue queries, lifecycle changes, or unresolved work, load the `r
 
 Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
-<important if="you are adding, changing, or reviewing tests">
+<important if="you are deciding whether a test is warranted, or adding, changing, or reviewing tests">
 
-- Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`; it defines semantic regression tests, control fixtures, coverage ownership, and honest verification.
+- **Test-oracle gate:** Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md` first to decide whether a permanent test is warranted — including the zero-new-tests outcome — before designing one.
 - Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
 - Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/bashunit/smoke_test.sh` for deployed cross-component behavior.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.

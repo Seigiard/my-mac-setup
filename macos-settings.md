@@ -97,8 +97,6 @@
     - Schedule: Sunset to Sunrise
 - Users & Groups:
   - Login Items:
-    - noTunes
-    - Hammerspoon
     - Dropbox
     - CleanShotX
 

@@ -1,0 +1,299 @@
+#!/bin/bash
+# One line for herdr's tab bar: account-wide rate limits for Claude and Codex.
+# Both figures are per-account, not per-session, so this belongs on one global
+# surface rather than repeated on every agent row in the sidebar.
+#
+# Herdr strips ESC sequences from `command` status entries, so urgency is
+# carried by the reset countdown rather than by color.
+set -u
+HOME="${HOME:-$(cd ~ && pwd)}"
+
+CODEX_CACHE="$HOME/.cache/codex-rate-limits/latest.json"
+# Herdr runs status commands asynchronously, but kills their process group when
+# the command exits. Keep the backend read inside that lifecycle and below the
+# tab bar's five-second command timeout. Fifteen minutes keeps the account
+# figure useful without asking the backend on every minute-by-minute redraw.
+CODEX_MAX_AGE="${CODEX_LIMITS_MAX_AGE:-900}"
+CODEX_RPC_TIMEOUT="${CODEX_LIMITS_RPC_TIMEOUT:-4}"
+CODEX_RETRY_AGE="${CODEX_LIMITS_RETRY_AGE:-300}"
+
+render_part() {
+    python3 - "$@" <<'PY'
+import json, sys, time
+
+mode = sys.argv[1]
+STALE_EXIT = 10
+# nf-cod-claude U+EC82, nf-cod-openai U+EC81
+PROVIDERS = {"claude": "\uec82", "codex": "\uec81"}
+# nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
+EXHAUSTED = "\ueabd"
+
+def fmt_reset(ts):
+    left = ts - time.time()
+    if left <= 0:
+        return None
+    if left < 3600:
+        return f"↻{int(left // 60)}m"
+    if left < 86400:
+        return f"↻{int(left // 3600)}:{int(left % 3600 // 60):02d}"
+    return f"↻{int(left // 86400)}d{int(left % 86400 // 3600)}h"
+
+def fmt_pct(pct):
+    # Only a real 100 is spent; cap lower rounded values so 99.6 cannot invent
+    # an exhaustion.
+    if pct >= 100:
+        return f"{EXHAUSTED}100%"
+    return f"{min(round(pct), 99)}%"
+
+def fmt_window(label, pct, resets_at=None):
+    reset = fmt_reset(resets_at) if resets_at else None
+    if resets_at and reset is None:
+        return None
+    return f"{label}/{fmt_pct(pct)}" + (f" {reset}" if reset else "")
+
+def load_claude_live(path):
+    try:
+        data = json.load(open(path))
+    except Exception:
+        return None
+    out = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        window = data.get(key) or {}
+        if window.get("used_percentage") is None:
+            continue
+        rendered = fmt_window(label, window["used_percentage"], window.get("resets_at"))
+        if rendered:
+            out.append(rendered)
+    return out or None
+
+def load_claude_fallback(path):
+    try:
+        cached = json.load(open(path)).get("cachedUsageUtilization") or {}
+    except Exception:
+        return None
+    utilization = cached.get("utilization") or {}
+    out = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        window = utilization.get(key) or {}
+        if window.get("utilization") is not None:
+            out.append(fmt_window(label, window["utilization"]))
+    if not out:
+        return None
+    fetched_at = cached.get("fetchedAtMs")
+    if fetched_at:
+        hours = (time.time() - fetched_at / 1000) / 3600
+        if hours >= 1:
+            age = f"{int(hours)}h" if hours < 48 else f"{int(hours / 24)}d"
+            out[-1] += f" ({age} old)"
+    return out
+
+def render_claude():
+    # The status-line cache is live; ~/.claude.json is a potentially stale
+    # fallback for a home whose first Claude response has not arrived yet.
+    parts = load_claude_live(sys.argv[2]) or load_claude_fallback(sys.argv[3])
+    if parts:
+        print(f"{PROVIDERS['claude']}  " + " ".join(parts))
+
+def render_codex():
+    cache, max_age = sys.argv[2], float(sys.argv[3])
+    try:
+        data = json.load(open(cache))
+    except Exception:
+        sys.exit(STALE_EXIT)
+
+    age = time.time() - (data.get("fetched_at") or 0)
+    out = []
+    for window in data.get("windows") or []:
+        minutes = window.get("window_minutes") or 0
+        label = f"{minutes // 1440}d" if minutes >= 1440 else f"{minutes // 60}h"
+        rendered = fmt_window(label, window["used_percent"], window.get("resets_at"))
+        if rendered:
+            out.append(rendered)
+
+    if out:
+        blocked = EXHAUSTED if data.get("blocked") and not any("100%" in item for item in out) else ""
+        if age >= 3600:
+            hours = age / 3600
+            old = f"{int(hours)}h" if hours < 48 else f"{int(hours // 24)}d"
+            out[-1] += f" ({old} old)"
+        credits = data.get("reset_credits") or 0
+        if credits:
+            out.append(f"×{credits}")
+        print(f"{PROVIDERS['codex']}  {blocked}" + " ".join(out))
+
+    sys.exit(STALE_EXIT if age >= max_age else 0)
+
+if mode == "claude":
+    render_claude()
+elif mode == "codex":
+    render_codex()
+else:
+    sys.exit(2)
+PY
+}
+
+claude_part() {
+    render_part claude "$HOME/.cache/claude-rate-limits/latest.json" "$HOME/.claude/.claude.json"
+}
+
+# Codex's rollouts carry a `rate_limits` block, but only for turns codex itself
+# ran: opencode drives the same ChatGPT account against the same backend and
+# writes nothing, so a file-derived figure reports the account as idle while the
+# window is being spent. The account is what the backend knows, so ask it — the
+# app-server's `account/rateLimits/read` reads usage without starting a turn.
+codex_refresh() {
+    local dir lock attempt now last status
+    dir="${CODEX_CACHE%/*}"
+    lock="$dir/refresh.lock"
+    attempt="$dir/last-attempt"
+    mkdir -p "$dir" || return 0
+    # A killed refresh leaves its lock behind; 2 minutes is far past the ~1s
+    # call, so a lock that old is debris rather than a peer still working.
+    if [ -d "$lock" ] && [ -z "$(find "$lock" -maxdepth 0 -mmin -2 2>/dev/null)" ]; then
+        rmdir "$lock" 2>/dev/null
+    fi
+    # mkdir is the atomic test-and-set: a tab bar redrawing every 60s must not
+    # pile refreshes up behind one slow call.
+    mkdir "$lock" 2>/dev/null || return 0
+    trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+    # A failed backend read should not turn every minute-by-minute redraw into
+    # another network attempt. Successful reads remove this marker; explicit
+    # refreshes bypass it.
+    if [ "${1:-}" != "--force" ] && [ -r "$attempt" ]; then
+        IFS= read -r last < "$attempt" || last=0
+        case "$last" in *[!0-9]*|'') last=0 ;; esac
+        now=$(date +%s)
+        if [ "$((now - last))" -lt "$CODEX_RETRY_AGE" ]; then
+            rmdir "$lock" 2>/dev/null
+            trap - EXIT
+            return 0
+        fi
+    fi
+    now=$(date +%s)
+
+    python3 - "$CODEX_CACHE" "$CODEX_RPC_TIMEOUT" <<'PY'
+import json, os, subprocess, sys, threading, time
+
+cache, timeout = sys.argv[1], float(sys.argv[2])
+
+try:
+    p = subprocess.Popen(
+        ["codex", "app-server"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, bufsize=1,
+    )
+except Exception:
+    sys.exit(1)
+
+# codex app-server speaks newline-delimited JSON-RPC and answers a request only
+# after `initialize`. `excludeResetCreditDetails` skips the per-credit lookup;
+# the bar shows the count, not the rows.
+def send(obj):
+    p.stdin.write(json.dumps(obj) + "\n")
+    p.stdin.flush()
+
+result = {}
+def pump():
+    for line in p.stdout:
+        try:
+            msg = json.loads(line)
+        except Exception:
+            continue
+        if msg.get("id") == 2:
+            result["value"] = msg.get("result")
+            return
+
+try:
+    send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+          "params": {"clientInfo": {"name": "herdr-agent-limits", "version": "1"}}})
+    send({"jsonrpc": "2.0", "method": "initialized"})
+    send({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read",
+          "params": {"excludeResetCreditDetails": True}})
+    t = threading.Thread(target=pump, daemon=True)
+    t.start()
+    t.join(timeout)
+except Exception:
+    pass
+finally:
+    p.kill()
+
+res = result.get("value")
+if not isinstance(res, dict):
+    sys.exit(1)
+rl = res.get("rateLimits") or {}
+
+windows = []
+for slot in ("primary", "secondary"):
+    w = rl.get(slot) or {}
+    if w.get("usedPercent") is None:
+        continue
+    windows.append({
+        "used_percent": w["usedPercent"],
+        "window_minutes": w.get("windowDurationMins"),
+        "resets_at": w.get("resetsAt"),
+    })
+
+# The display reads this file and formats it; nothing here is left for it to
+# interpret, so a cache written by an older version cannot change what a newer
+# bar means by a field.
+out = {
+    "fetched_at": int(time.time()),
+    "windows": windows,
+    # Spend control and depleted credits block the account while every window
+    # still reads below 100%, so the bar cannot infer this from a percentage.
+    "blocked": res.get("ordinaryUsageAllowed") is False,
+    "reset_credits": ((res.get("rateLimitResetCredits") or {}).get("availableCount") or 0),
+}
+tmp = cache + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(out, fh)
+os.replace(tmp, cache)
+PY
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        rm -f "$attempt"
+    else
+        printf '%s\n' "$now" > "$attempt.tmp" 2>/dev/null && mv -f "$attempt.tmp" "$attempt"
+        rm -f "$attempt.tmp" 2>/dev/null
+    fi
+    rmdir "$lock" 2>/dev/null
+    trap - EXIT
+    return "$status"
+}
+
+codex_render() {
+    render_part codex "$CODEX_CACHE" "$CODEX_MAX_AGE"
+}
+
+codex_part() {
+    # Without codex there is no way to ask, and a bar segment that cannot be
+    # refreshed is worse than an absent one.
+    command -v codex >/dev/null 2>&1 || return 0
+    local out status
+    out=$(codex_render)
+    status=$?
+    # A detached refresh is killed with Herdr's status-command process group.
+    # Refresh within the bounded command instead, then render the new snapshot
+    # in the same invocation so an attach after a reset never starts out stale.
+    if [ "$status" -eq 10 ]; then
+        codex_refresh >/dev/null 2>&1
+        out=$(codex_render)
+    fi
+    [ -n "$out" ] && printf '%s\n' "$out"
+    return 0
+}
+
+if [ "${1:-}" = "--refresh-codex" ]; then
+    codex_refresh --force
+    exit 0
+fi
+
+parts=()
+c=$(claude_part) && [ -n "$c" ] && parts+=("$c")
+x=$(codex_part) && [ -n "$x" ] && parts+=("$x")
+[ ${#parts[@]} -gt 0 ] || exit 0
+# IFS joins on a single character only, so build the separator explicitly.
+out="${parts[0]}"
+for p in "${parts[@]:1}"; do out="$out · $p"; done
+printf '%s\n' "$out"

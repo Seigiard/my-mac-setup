@@ -11,6 +11,7 @@ related_components:
   - ci
   - chezmoi
 applies_when:
+  - "Deciding whether a change or review finding warrants a permanent test"
   - "Adding a regression test for a behavior that already has neighboring coverage"
   - "Reviewing tests that grep source code or assert implementation-specific strings"
   - "Building fixtures for validators, event aggregation, or subprocess behavior"
@@ -46,7 +47,21 @@ These failures share one cause: the check proves that some implementation shape 
 
 A **semantic regression test** changes verdict with the protected behavior: red when the regression is present, green when the behavior is correct. Its completion criterion is evidence of both states, not the presence of a new test case.
 
-### Start from the contract
+### Decide whether a permanent test is warranted
+
+Before proposing or writing a test, including one requested by a reviewer, pass the **test-oracle gate**:
+
+1. **Need:** name the consumer and observable malfunction. Protect a requirement that survives a different implementation. Installation choices — package selection, file layout, pinned versions — need verification, not automatic permanent coverage. An ADR recording a choice does not make it a consumer requirement. Valid user configuration changes must pass without editing tests: protect format or loading requirements where warranted, rather than freezing selected actions, commands, scopes, or hints.
+2. **Oracle:** cite evidence for the correct result independent of this patch's implementation choices: a reproduced failure, a consumer's documented interface, or an explicit requirement for observable behavior. Assert exact shape only when the consumer demonstrably requires it.
+3. **Ownership:** name the locally maintained logic or integration whose defect the test catches. A plugin owns the parsing, confirmation, escaping, and filtering it implements. Our configuration, adapters, and deployment qualify only when they pass this same gate; exercise their consumer boundary, using the real dependency where needed.
+
+Proceed to test design only when all three answers are concrete and existing coverage leaves a gap. Otherwise choose **zero new tests**, state why, and leave any review request for that test advisory.
+
+For example, a local integration bug that loads a plugin twice can justify testing single handler execution. Moving that plugin to an external installer alone does not justify asserting that its old directory stays absent.
+
+Verification and permanent coverage are separate decisions: run the applicable checks from `docs/agent-verification.md` either way.
+
+### Choose the contract boundary
 
 Name the externally observable contract before choosing an assertion. Prefer the lowest stable boundary that a consumer can observe:
 
@@ -143,7 +158,7 @@ The important result is not fewer tests by itself. The resulting suite has fewer
 
 ## When to Apply
 
-Apply this pattern whenever a test is added, changed, reviewed, or used as release evidence. It is especially important for source-grep tests, subprocess wrappers, validators, event aggregators, generated configuration, test suites with skip guards, and repositories with multiple CI entry points.
+Apply this pattern when deciding whether coverage is warranted, or adding, changing, reviewing, or using tests as release evidence. It is especially important for source-grep tests, subprocess wrappers, validators, event aggregators, generated configuration, test suites with skip guards, and repositories with multiple CI entry points.
 
 Do not replace exact-format contract tests merely because they inspect text. First decide whether consumers depend on the exact text. If they do, render or deploy through the real producer and assert that contract at its consumption boundary.
 

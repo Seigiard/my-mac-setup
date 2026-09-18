@@ -1,4 +1,4 @@
-EveryInc/compound-engineering-plugin *
+EveryInc/compound-engineering-plugin ce-code-review ce-simplify-code ce-commit ce-commit-push-pr ce-babysit-pr ce-resolve-pr-feedback ce-debug ce-noslop
 mattpocock/skills *
 schpet/linear-cli linear-cli
 dexhorthy/slopfiles improve-claude-md
@@ -6,6 +6,7 @@ vercel-labs/skills find-skills
 anthropics/skills frontend-design skill-creator
 Nutlope/variate *
 humanlayer/skills show-me
-claude-office-skills/skills pdf-extraction
 will-ness-ai/skills grill-design
 metarhia/skills error-handling js-gof
+nolabs-ai/nono-packs nono-sandbox
+jakubkrehel/skills *

@@ -29,10 +29,13 @@ chezmoi_full_fixture() {
   MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
     MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=mms-test-vrt-r2-access-key-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=mms-test-vrt-r2-secret-key-canary \
     chezmoi_unattended full-fixture "$@"
 }
 
@@ -40,10 +43,13 @@ chezmoi_full_fixture_finite_stdin() {
   MMS_DISPOSABLE_HOME=1 \
     MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=mms-test-linear-canary \
     MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=mms-test-tavily-canary \
+    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=mms-test-tavily-2-canary \
     MMS_CHEZMOI_FIXTURE_JINA_API_KEY=mms-test-jina-canary \
     MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=mms-test-context7-canary \
     MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=mms-test-vector-prime-canary \
     MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=mms-test-openrouter-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=mms-test-vrt-r2-access-key-canary \
+    MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=mms-test-vrt-r2-secret-key-canary \
     chezmoi_unattended_finite_stdin full-fixture "$@"
 }
 

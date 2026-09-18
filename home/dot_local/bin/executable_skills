@@ -404,18 +404,6 @@ validate_canonical_tree() {
   done < <(find "$root" -mindepth 1 -print0)
 }
 
-validate_mandatory_compound_skills() {
-  local skill source
-  for skill in ce-code-review ce-doc-review ce-plan ce-simplify-code ce-work; do
-    source="$(lock_source_for_skill "$skill")"
-    [ "$source" = 'EveryInc/compound-engineering-plugin' ] || {
-      fail "missing mandatory Compound Engineering skill: $skill"
-      return 1
-    }
-    validate_canonical_tree "$CANONICAL_ROOT/$skill" || return 1
-  done
-}
-
 report_drift() {
   local name source entry desired wildcard=0
   while IFS=$'\t' read -r name source; do
@@ -482,7 +470,6 @@ sync() {
     [ "$skill" = '*' ] || validate_canonical_tree "$CANONICAL_ROOT/$skill" || { rm -rf "$workdir"; return 1; }
   done
   validate_canonical_tree "$CANONICAL_ROOT" || { rm -rf "$workdir"; return 1; }
-  validate_mandatory_compound_skills || { rm -rf "$workdir"; return 1; }
   report_drift
   rm -rf "$workdir"
 }

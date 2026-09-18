@@ -112,6 +112,7 @@ _smoke_critical_paths() {
     .pi/agent/extensions/agents-local.ts
     .pi/agent/extensions/agent-hooks.ts
     .pi/agent/extensions/agent-intercom.ts
+    .pi/agent/extensions/herdr-resource-context.ts
     .claude/hooks/agent-hooks-dispatch.sh
     .local/lib/agent-hooks/index.ts
     .local/lib/agent-hooks/claude.ts
@@ -122,12 +123,8 @@ _smoke_critical_paths() {
     .config/opencode/plugins/agent-hooks.ts
     .config/opencode/plugins/agent-intercom.ts
     .config/opencode/plugins/agents-local.ts
+    .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
-    .config/herdr/plugins/command-palette/herdr-plugin.toml
-    .config/herdr/plugins/command-palette/open.py
-    .config/herdr/plugins/command-palette/open_in_zed.py
-    .config/herdr/plugins/command-palette/palette.py
-    .config/herdr/plugins/command-palette/smart_close.py
     .config/herdr/plugins/worktree-setup/herdr-plugin.toml
     .config/herdr/plugins/worktree-setup/setup.ts
     .config/herdr/plugins/config/seigi.worktree-setup/config.toml
@@ -152,13 +149,7 @@ _smoke_critical_paths() {
       .config/kitty/herdr.conf
       .config/karabiner
       .config/zed
-      .config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml
-      .config/herdr/plugins/herdr-caffeinate/reconcile.sh
-      .config/herdr/plugins/herdr-caffeinate/lib.sh
-      .config/herdr/plugins/herdr-caffeinate/actions.sh
-      .config/herdr/plugins/herdr-caffeinate/config.example.sh
-      .config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml
-      .config/herdr/plugins/herdr-focus-notify/notify.py
+      .config/herdr/plugins/config/herdr-wakeup/config.json
     )
   fi
 }
@@ -229,62 +220,6 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
   assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
-}
-
-# Literal consumed outside this repo: herdr's plugin manifest parser matches
-# this exact `id` to register the palette entry, same category as test 006.
-function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
-  _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
-  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
-}
-
-function test_smoke_013_herdr_command_palette_loads_toml_and_project_loc() {
-  _bats_test_init 13 'herdr command palette loads TOML and project-local commands'
-  tmpdir="$(mktemp -d)"
-  mkdir -p "$tmpdir/global" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette"
-  cat > "$tmpdir/global/commands.toml" <<'TOML'
-[[commands]]
-title = "Global TOML"
-type = "shell"
-command = "echo global"
-
-[[commands]]
-name = "Search"
-type = "form"
-command = "echo {value_q}"
-
-[commands.form]
-prompt = "Search for"
-TOML
-  cat > "$tmpdir/repo/.herdr/command-palette/project.toml" <<'TOML'
-name = "Project Choice"
-type = "select"
-command = "echo {value_q}"
-
-[[options]]
-label = "One"
-value = "one"
-TOML
-
-  run env HERDR_COMMAND_PALETTE_CONFIG="$tmpdir/global/commands.toml" HERDR_TARGET_CWD="$tmpdir/repo/sub" python3 - <<'PY'
-import importlib.util, os, sys
-path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
-spec=importlib.util.spec_from_file_location("palette", path)
-mod=importlib.util.module_from_spec(spec)
-sys.modules[spec.name]=mod
-spec.loader.exec_module(mod)
-cfg, cmds = mod.load_commands()
-by_title = {cmd.title: cmd for cmd in cmds}
-assert cfg.name == "commands.toml"
-assert by_title["Project Choice"].origin == "Project"
-assert by_title["Project Choice"].kind == "select"
-assert by_title["Search"].kind == "form"
-assert by_title["Global TOML"].origin == "Global"
-assert mod.command_kind({"name": "Default Shell", "command": "echo hi"}) == "shell"
-assert mod.context_vars(cfg)["project_root"].endswith("/repo")
-PY
-  assert_success
-  rm -rf "$tmpdir"
 }
 
 # ===========================================
@@ -393,11 +328,11 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   done
 }
 
-function test_smoke_020_explicit_only_workflows_keep_manual_invocation_b() {
-  _bats_test_init 20 'explicit-only workflows keep manual invocation boundaries'
+function test_smoke_020_explicit_only_workflow_keeps_manual_invocation_b() {
+  _bats_test_init 20 'explicit-only workflow keeps manual invocation boundaries'
   local workflow claude_skill pi_skill opencode_command opencode_skill
 
-  for workflow in eli5 open-questions; do
+  for workflow in open-questions; do
     claude_skill="$HOME/.claude/skills/$workflow/SKILL.md"
     pi_skill="$HOME/.pi/agent/skills/$workflow"
     opencode_command="$HOME/.config/opencode/commands/$workflow.md"
@@ -568,36 +503,6 @@ function test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar() {
   [ -z "$risky" ] || fail "bindings missing --allow-fallback: $risky"
 }
 
-# The real consumer is the palette's own hint parser: load_key_binding_groups()
-# reads `# palette: Group | Key | Description` comments out of the terminal
-# config and builds the panel from them, silently dropping any line that does
-# not split into three non-empty fields. Grepping the literal comment cannot
-# see that drop, so run the deployed parser over the deployed kitty config
-# (pinned via HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG, which is the parser's
-# own override, so the result does not depend on which terminal hosts the run)
-# and assert the entries it actually produces.
-function test_smoke_029_kitty_carries_command_palette_hints_for_the_herd() {
-  _bats_test_init 29 'kitty command-palette hints parse into palette key-binding groups (macOS only)'
-  is_macos || skip "Not on macOS"
-  run env \
-    HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG="$HOME/.config/kitty/herdr.conf" \
-    PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
-    python3 - <<'PY'
-import importlib.util, os, sys
-
-path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
-spec = importlib.util.spec_from_file_location("palette", path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-spec.loader.exec_module(mod)
-
-groups = dict(mod.load_key_binding_groups())
-assert ("⌘T", "New tab") in groups.get("Tabs & workspaces", []), groups
-assert ("⌘D", "Split right") in groups.get("Panes", []), groups
-PY
-  assert_success
-}
-
 function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
   _bats_test_init 30 'lazygit config keeps Russian-layout keybindings and popup exit (macOS only)'
   is_macos || skip "Not on macOS"
@@ -608,186 +513,49 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
   assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
 }
 
-function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
-  _bats_test_init 31 'herdr caffeinate plugin scripts are valid sh (macOS only)'
-  is_macos || skip "Not on macOS"
-  for f in reconcile.sh lib.sh actions.sh; do
-    run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
-    assert_success
-  done
-}
-
-# ===========================================
-# herdr focus-notify plugin
-# ===========================================
-
-FOCUS_NOTIFY_DIR="$SOURCE_ROOT/private_dot_config/herdr/plugins/herdr-focus-notify"
-
-# Behavior tests 033-035 run the deployed copy first — herdr executes
-# $HOME/.config/..., so a .chezmoiignore rule that drops notify.py from
-# deployment must fail these tests rather than stay green through the
-# checkout (same reasoning as test 1072's deployed manifest). The checkout
-# stays as a secondary leg so Linux CI, where the darwin-only plugin never
-# deploys, still proves the source behavior. Assigns the caller's
-# `notify_targets` via bash dynamic scoping, deployed copy first.
-_focus_notify_targets() {
-  notify_targets=("$FOCUS_NOTIFY_DIR/notify.py")
-  if is_macos; then
-    local deployed="$HOME/.config/herdr/plugins/herdr-focus-notify/notify.py"
-    assert_file_exists "$deployed"
-    notify_targets=("$deployed" "${notify_targets[@]}")
-  fi
-}
-
-# Runs one notify.py ($1) against a fake notifier that records its argv one
-# line per argument, so tests can assert the exact command terminal-notifier
-# would get. $2: event JSON.
-run_focus_notify() {
-  local notify_py="$1"
-  local event_json="$2"
-  local fake_bin="$BATS_TEST_TMPDIR/fake-notifier"
-  FOCUS_NOTIFY_ARGV="$BATS_TEST_TMPDIR/notifier.argv"
-  # A stale argv file from the previous target leg would satisfy (or fail)
-  # this leg's assertions on the wrong evidence.
-  rm -f "$FOCUS_NOTIFY_ARGV"
-  cat > "$fake_bin" <<SH
-#!/bin/sh
-printf '%s\n' "\$@" > "$FOCUS_NOTIFY_ARGV"
-SH
-  chmod +x "$fake_bin"
-  HERDR_PLUGIN_EVENT_JSON="$event_json" \
-    HERDR_FOCUS_NOTIFY_NOTIFIER_BIN="$fake_bin" \
-    HERDR_BIN_PATH="$BATS_TEST_TMPDIR/dir with space/herdr" \
-    run python3 "$notify_py"
-}
-
-function test_smoke_032_focus_notify_plugin_compiles() {
-  _bats_test_init 32 'focus-notify plugin compiles'
-  run env PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
-    python3 -m py_compile "$FOCUS_NOTIFY_DIR/notify.py"
-  assert_success
-}
-
-function test_smoke_1072_focus_notify_deployed_manifest_declares_its_run() {
-  _bats_test_init 1072 'focus-notify deployed manifest declares its runtime entrypoint (macOS only)'
-  # The manifest wires the status event and the interpreter as argv arrays.
-  # Literal consumed outside this repo: herdr's plugin loader parses these two
-  # keys to decide which event fires the plugin and how to exec it. Assert the
-  # deployed copy, not $SOURCE_ROOT — reading the checkout here would be a
-  # source grep wearing a smoke test's name and would stay green when chezmoi
-  # never placed the file (same fix as test 009 in commit 50654e2). The plugin
-  # is darwin-only per home/.chezmoiignore, so it only deploys on macOS.
-  is_macos || skip "Not on macOS"
-  local manifest="$HOME/.config/herdr/plugins/herdr-focus-notify/herdr-plugin.toml"
-  assert_file_exists "$manifest"
-  assert_file_contains "$manifest" '^on = "pane.agent_status_changed"$'
-  assert_file_contains "$manifest" '^command = \["python3", "notify.py"\]$'
-}
-
-function test_smoke_033_focus_notify_builds_a_safely_quoted_click_comman() {
-  _bats_test_init 33 'focus-notify builds a safely quoted click command'
-  local notify_targets notify_py
-  _focus_notify_targets
-  for notify_py in "${notify_targets[@]}"; do
-    # A hostile pane id proves the quoting: nothing here may reach sh as syntax.
-    run_focus_notify "$notify_py" '{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p3; $(boom) &","agent_status":"blocked","agent":"codex","display_agent":"Codex"}}'
-    assert_success
-    assert_file_exists "$FOCUS_NOTIFY_ARGV"
-
-    run python3 - "$FOCUS_NOTIFY_ARGV" "$BATS_TEST_TMPDIR/dir with space/herdr" <<'PY'
-import shlex, sys
-argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
-execute = argv[argv.index("-execute") + 1]
-# shlex.split proves the string survives sh word-splitting as exactly the
-# intended four tokens -- binary, agent, focus, pane id -- nothing executed.
-assert shlex.split(execute) == [sys.argv[2], "agent", "focus", "w1:p3; $(boom) &"], execute
-assert argv[argv.index("-group") + 1] == "herdr-w1-p3-boom-", argv
-assert argv[argv.index("-title") + 1] == "Codex needs your input", argv
-assert "-activate" in argv, argv
-PY
-    assert_success
-  done
-}
-
-function test_smoke_034_focus_notify_stays_quiet_for_non_actionable_stat() {
-  _bats_test_init 34 'focus-notify stays quiet for non-actionable statuses and missing pane id'
-  local notify_targets notify_py
-  _focus_notify_targets
-  for notify_py in "${notify_targets[@]}"; do
-    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p1","agent_status":"working","agent":"codex"}}'
-    assert_success
-    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
-
-    run_focus_notify "$notify_py" '{"data":{"agent_status":"blocked","agent":"codex"}}'
-    assert_success
-    assert_file_not_exists "$FOCUS_NOTIFY_ARGV"
-  done
-}
-
-function test_smoke_035_focus_notify_uses_one_notification_group_per_pan() {
-  _bats_test_init 35 'focus-notify uses one notification group per pane for duplicate replacement'
-  local notify_targets notify_py
-  _focus_notify_targets
-  for notify_py in "${notify_targets[@]}"; do
-    run_focus_notify "$notify_py" '{"data":{"pane_id":"w1:p3","agent_status":"done","agent":"claude"}}'
-    assert_success
-
-    run python3 - "$FOCUS_NOTIFY_ARGV" <<'PY'
-import sys
-argv = open(sys.argv[1], encoding="utf-8").read().split("\n")
-assert argv[argv.index("-group") + 1] == "herdr-w1-p3", argv
-assert argv[argv.index("-title") + 1] == "claude finished", argv
-PY
-    assert_success
-  done
-}
-
 # ===========================================
 # Hard tool dependencies
 # ===========================================
 
-# fzf is a hard dependency of the command palette: palette.py shells out to
-# `fzf --filter` as its only scorer and refuses to start without it. So this
-# test asserts rather than skips, and it asserts the version floor. The floor
-# is read from palette.py's own FZF_MIN_VERSION so the two cannot drift.
-function test_smoke_036_fzf_is_installed_and_meets_the_command_palette_s() {
-  _bats_test_init 36 'fzf is installed and meets the command palette'\''s version floor'
-  run command -v fzf
+function test_smoke_037_alerter_is_installed_for_focus_notify() {
+  _bats_test_init 37 'alerter is installed for focus notify (macOS only)'
+  is_macos || skip "Not on macOS"
+
+  run command -v alerter
   assert_success
 
-  run fzf --version
+  run alerter --version
   assert_success
-  local version="${output%% *}"
-
-  run python3 - "$version" <<'PY'
-import importlib.util, os, sys
-path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
-spec = importlib.util.spec_from_file_location("palette", path)
-palette = importlib.util.module_from_spec(spec)
-sys.modules["palette"] = palette
-spec.loader.exec_module(palette)
-found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
-assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
-PY
-  assert_success
+  assert_output --partial '26.5'
 }
 
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 
 function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
-  _bats_test_init 1051 'herdr alias, pane-label, child, and secret scan files are deployed'
+  _bats_test_init 1051 'herdr runtime files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
+  assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
   assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
   assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
+  assert_file_exists "$HOME/.local/bin/herdr-resource-tree"
+  assert_file_executable "$HOME/.local/bin/herdr-resource-tree"
+  assert_file_exists "$HOME/.local/bin/herdr"
+  assert_file_executable "$HOME/.local/bin/herdr"
   assert_file_exists "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_executable "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_exists "$HOME/.local/bin/se-external-leg-pair"
   assert_file_executable "$HOME/.local/bin/se-external-leg-pair"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
+}
+
+function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapper() {
+  _bats_test_init 1074 'managed zsh resolves herdr through the provenance wrapper'
+  run zsh -fc 'source "$HOME/.zshrc"; [[ "$(command -v herdr)" = "$HOME/.local/bin/herdr" ]]'
+  assert_success
 }
 
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
@@ -800,13 +568,11 @@ function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p
     'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-# Single owner of the task-sync retirement: the absence (no task-sync hook
-# registered anywhere) is paired with the positive capability that replaced it
-# (the native agent-state hook on SessionStart), so a settings file that lost
-# both would still go red. This test also owns the deployed SessionStart
-# registration of herdr-agent-state.sh — do not re-assert it elsewhere.
-function test_smoke_1054_claude_settings_omit_task_sync_hooks_and_retain_native_() {
-  _bats_test_init 1054 'claude settings omit task-sync hooks and retain native agent state'
+# Single deployed owner for Claude's Herdr session/context chain. The managed
+# resource hook invokes the native Agent-session reporter before its SessionStart
+# query, then refreshes at each supported pre-model boundary.
+function test_smoke_1054_claude_settings_deliver_herdr_resource_context() {
+  _bats_test_init 1054 'claude settings deploy Herdr resource context without Stop continuation'
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
   run python3 - "$settings" <<'PY'
@@ -814,10 +580,20 @@ import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]
 commands = [h["command"] for entries in hooks.values() for entry in entries for h in entry["hooks"]]
 assert not any("herdr-task-sync-hook.sh" in command for command in commands), commands
-session = [h["command"] for entry in hooks["SessionStart"] for h in entry["hooks"]]
-assert any("herdr-agent-state.sh" in c for c in session), session
+
+def event_commands(event):
+    return [h["command"] for entry in hooks.get(event, []) for h in entry["hooks"]]
+
+for event in ("SessionStart", "UserPromptSubmit", "PostToolBatch"):
+    found = event_commands(event)
+    assert any("herdr-resource-context.sh" in command for command in found), (event, found)
+assert not any("herdr-resource-context.sh" in command for command in event_commands("Stop"))
 PY
   assert_success
+  assert_file_executable "$HOME/.claude/hooks/herdr-resource-context.sh"
+  if [ -z "${MMS_CI_MINIMAL:-}" ]; then
+    assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
+  fi
 }
 
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
@@ -897,6 +673,29 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
     PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
     AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agents-local-opencode-plugin.test.ts"
+  assert_success
+}
+
+# The checkout suite proves the adapter contract. This deployed run also proves
+# chezmoi kept the new plugin path managed and OpenCode can load that exact file.
+function test_smoke_1072_deployed_opencode_resource_context_reaches_model_requests() {
+  _bats_test_init 1072 'deployed opencode Herdr resource context reaches model requests'
+  local plugin="$HOME/.config/opencode/plugins/herdr-resource-context.ts"
+  assert_file_exists "$plugin"
+  run env HERDR_RESOURCE_CONTEXT_OPENCODE_PLUGIN_PATH="$plugin" \
+    bun test "$BATS_TEST_DIRNAME/herdr-resource-context-opencode-plugin.test.ts"
+  assert_success
+}
+
+# The checkout suite proves the adapter behavior. This deployed run proves
+# chezmoi installed the Pi extension that will bind the native session manager
+# and consume the deployed shared CLI at model-request time.
+function test_smoke_1073_deployed_pi_resource_context_reaches_model_requests() {
+  _bats_test_init 1073 'deployed Pi Herdr resource context reaches model requests'
+  local extension="$HOME/.pi/agent/extensions/herdr-resource-context.ts"
+  assert_file_exists "$extension"
+  run env HERDR_RESOURCE_CONTEXT_PI_EXTENSION_PATH="$extension" \
+    bun test "$BATS_TEST_DIRNAME/herdr-resource-context-pi-extension.test.ts"
   assert_success
 }
 

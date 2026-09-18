@@ -2,18 +2,15 @@
 # sync with home/private_dot_agents/skills so wildcard installs cannot claim a
 # repository-owned canonical tree.
 ask-in-herdr
-eli5
 herdr
 markdown-new
 open-questions
 pf-build
+pf-issue
 pf-research
 pf-spec
-plan-explainer
 se-code-review
-se-doc-review
 se-orchestrator
-se-plan
 se-simplify
 vector-prime
 work-summary

@@ -8,7 +8,7 @@
 # parent would delete their managed children out from under them.
 [".oh-my-zsh"]
     type = "archive"
-    url = "https://github.com/ohmyzsh/ohmyzsh/archive/c6e66edee824d83e84473ec666917b58323630df.tar.gz"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/0ee67f042872d1dfab74270c31867771ca35aef4.tar.gz"
     exact = false
     stripComponents = 1
 
@@ -29,7 +29,7 @@
 
 [".oh-my-zsh/custom/plugins/zsh-history-substring-search"]
     type = "archive"
-    url = "https://github.com/zsh-users/zsh-history-substring-search/archive/14c8d2e0ffaee98f2df9850b19944f32546fdea5.tar.gz"
+    url = "https://github.com/zsh-users/zsh-history-substring-search/archive/a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a.tar.gz"
     exact = true
     stripComponents = 1
 
@@ -72,3 +72,13 @@
     executable = true
     url = "https://github.com/dmtrKovalenko/fff/releases/download/v0.10.6/fff-mcp-{{ $fffMcpTarget }}"
     checksum.sha256 = "{{ $fffMcpSha256 }}"
+
+{{ if eq .chezmoi.os "darwin" -}}
+# alerter, pinned to the official v26.5 release because its Homebrew tap can
+# become uninstallable when any unrelated formula in that tap is invalid.
+[".local/lib/alerter"]
+    type = "archive"
+    url = "https://github.com/vjeantet/alerter/releases/download/v26.5/alerter-26.5.zip"
+    checksum.sha256 = "11f63cddc9bb3f8554ed9b762632a120cfa7bee05e3c09d65734823e09d24f10"
+    exact = true
+{{ end }}

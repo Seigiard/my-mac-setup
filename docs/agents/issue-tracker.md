@@ -4,7 +4,7 @@ GitHub Issues in `Seigiard/my-mac-setup` are the sole authority for repository w
 
 ## Source Of Truth
 
-The current GitHub issue body, labels, assignees, state, and comments define the work record. The migration artifacts under `docs/migrations/github-issues-production/` preserve the mapping and import evidence for records that predate the cutover, but they are not an active tracker.
+The current GitHub issue body, labels, assignees, state, and comments define the work record. To resolve a former local issue ID from before the cutover, see `docs/migrations/github-issues-production/README.md`; that provenance is not an active tracker.
 
 ## Conventions
 

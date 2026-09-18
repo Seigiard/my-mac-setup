@@ -4,6 +4,23 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 
 ## herdr
 
+### Agent session
+A particular agent conversation, whose identity continues through context compaction and resume. A new conversation in the same pane is a different agent session and does not automatically inherit the previous session's resource responsibilities.
+
+### Resource creator
+The agent session that opened a resource and remains responsible for it. Asking another agent to work in that resource does not transfer responsibility; creator attribution is distinct from the resource's current location or occupant.
+
+### Resource tree
+The context available to an agent about currently open workspaces, tabs, panes, agent sessions, and who opened them, including indirect descendants. Closed ancestors remain only as links to open descendants, rather than a full history; existing labels identify resources without a separate purpose field. The tree does not track task progress, result collection, or cleanup acknowledgements, which agents determine by inspecting their resources.
+
+The same resources have two views: the creator branch shows an agent's descendants with their current locations, while the overall view groups resources by workspace, tab, and pane with creator attribution. Moving a resource changes its location, not its creator relationship.
+
+### Agent resource context
+An agent's own resource branch, including its descendants, plus its parent agent's name when it has a parent. It does not include the parent's panes or tabs; resources with an unknown creator belong in the overall resource tree without being attributed to an agent's branch.
+
+### Parent agent
+The agent session that launched another agent session. A pane's creator is not automatically the parent of an agent later started in that pane; an unknown launch origin leaves the parent relationship unknown.
+
 ### Child-agent contract
 The agreement between a parent agent and child agents launched into sibling panes or their own `--tab`. `herdr-child` allocates each child a registered `color-animal` alias and returns it with the pane ID. Attached `--wait` keeps the result inside the current parent turn and arms no watcher. Managed `--detach` captures parent and child terminal/session identity, a fresh-state baseline, and a generation; an external per-child watcher then wakes the parent with generation-and-event markers for settlement, blockage, timeout, or unplanned disappearance. A child decision uses `ask`/`reply`; ordinary follow-ups use pair-addressed `prompt --wait|--detach`; reap requires the verified alias-plus-pane pair, invalidates supervision before pane closure, and preserves sibling panes in a child-owned tab. Lifecycle settlement is a wake signal, not a task verdict. Markers and metadata coordinate cooperative same-user clients and are not authorization credentials.
 
@@ -81,6 +98,8 @@ Delivery is the half that silently fails. A handoff rendered to the operator's s
 A single review or analysis pass executed by a separate, headless agent-CLI process that returns a report and nothing else. A leg is a subprocess, not a collaborator: it can die silently, return partially, or return a well-formed report describing work it never did, so its output is judged by payload rather than by any status word it reports about itself. Absence of a well-formed result is failure, never a clean pass.
 
 One failed leg degrades a review's coverage; losing every leg fails it.
+
+A leg never launches agents of its own: work it would delegate to another pair or child agent it does itself.
 
 ### External leg pair
 Two fresh External legs given the same review scope through separate agents and classified together. The pair provides paired coverage only when both reports are independently attributable, valid, and distinct; one failed or invalid leg degrades it to single-source coverage, as does a byte-identical pair. Pair classification describes coverage, never agreement or corroboration between findings.

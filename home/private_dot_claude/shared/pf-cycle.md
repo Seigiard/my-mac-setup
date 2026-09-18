@@ -1,11 +1,12 @@
-# The pf cycle — shared mechanics for `/pf-research`, `/pf-spec`, `/pf-build`
+# The pf cycle — shared mechanics for `/pf-issue`, `/pf-research`, `/pf-spec`, `/pf-build`
 
-Not a command. This file holds the mechanics shared by the three-step development cycle so each command file states them once. Each command tells you when to read this; follow it as part of that command.
+Not a command. This file holds the mechanics shared by the development cycle so each command file states them once. The cycle has two entries: `/pf-research` for a product change, `/pf-issue` for a reported defect. Both end at the same fork — `/pf-spec` when the change touches a contract, `/to-spec` (multi-session) or `/implement` (one session) when it stays inside the contracts. Each command tells you when to read this; follow it as part of that command.
 
 ## The cycle
 
 | Step           | Does                                                                                                                      | Artifact                                                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `/pf-issue`    | Audit a tracker issue against the contracts and the code; validate the top options with subagents. No repo changes.       | The **issue audit** — a markdown report the user decides on          |
 | `/pf-research` | Gather everything relevant; narrate what is and what should become. No repo changes.                                      | The **research narrative** — an HTML page the user confirms          |
 | `/pf-spec`     | Write the approved research into the product contracts; open the **epic PR**; iterate until it matches theory.            | Contract deltas in the epic PR + the **spec narrative**              |
 | `/pf-build`    | Implement the contract spec in real code via opencode sub-issue PRs auto-merged into the epic branch; prove it live.      | The **demo** — walkthrough + discrepancy report vs the contract spec |
@@ -25,9 +26,9 @@ The cycle's terms — research narrative, contract spec, epic PR, demo — are p
 
 ## Artifact storage
 
-Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic exists (pre-existing, or created on explicit request), use the epic id instead and rename a slug-named directory to it.
+Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic or issue exists (pre-existing, or created on explicit request), use its id instead and rename a slug-named directory to it.
 
-- Canonical sources: `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
+- Canonical sources: `issue.md` (with its `issue-source.md`, `context.md`, `candidates.md` working files), `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
 - Built pages: `research.html`, `spec.html`, `demo.html`.
 - Publish `research.html` and `spec.html` with the Artifact tool and **republish the same file path every iteration** so the shared link stays current; label versions. The raw file doubles as a Slack/Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
 - The built pages get shared beyond this chat, so their visible text — `<title>`, headings, badges, prose — follows **Naming on public surfaces** above.
