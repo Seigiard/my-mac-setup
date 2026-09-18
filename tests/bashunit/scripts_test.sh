@@ -1392,9 +1392,8 @@ function test_scripts_1188_worktree_identity_declines_marker_and_retries_content
   assert_equal "$(hwi_workspace_rename_count)" 0
 
   rm "$state"
-  HERDR_PLUGIN_CONFIG_DIR="$HWI_PLUGIN_CONFIG" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$HWI_CHECKOUT\",\"branch\":\"$HWI_BRANCH\"}}}" \
-    bun "$HWI_WORKTREE_SETUP_PLUGIN" >/dev/null
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  printf '%s\n' "$HWI_BRANCH" > "$marker"
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   state="$(hwi_identity_state_path)"
   local lock="$(namespace_dir "$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)")/branch-rename.claim"
@@ -1710,90 +1709,6 @@ function test_scripts_0081_retired_se_cleanup_migration_preserves_an_independent
   assert_dir_not_exists "$orphan_home/.claude/skills/se-cleanup"
 }
 
-function test_scripts_0082_worktree_setup_uses_one_repository_keyed_config() {
-  _bats_test_init 82 'worktree setup uses one repository-keyed config for copy and setup steps'
-  local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
-  local root="$BATS_TEST_TMPDIR/worktree-setup" main worktree config marker
-  main="$root/main"
-  worktree="$root/feature"
-  config="$root/config"
-  mkdir -p "$main" "$config"
-  git -C "$main" init --quiet -b main
-  git -C "$main" config user.email test@example.com
-  git -C "$main" config user.name 'Test User'
-  printf '%s\n' tracked > "$main/tracked"
-  printf '%s\n' secret > "$main/.env"
-  git -C "$main" add tracked
-  git -C "$main" commit --quiet -m initial
-  git -C "$main" remote add origin git@github.com:membranehq/platform.git
-  git -C "$main" worktree add --quiet -b feature "$worktree"
-  cat > "$config/config.toml" <<'TOML'
-[projects."github.com/membranehq/platform"]
-fresh-base = false
-copy = [".env"]
-steps = ["printf '%s' \"$HERDR_BRANCH\" > setup-ran"]
-TOML
-
-  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"feature\"}}}" \
-    bun "$plugin"
-  assert_success
-  assert_file_contains "$worktree/.env" '^secret$'
-  assert_file_contains "$worktree/setup-ran" '^feature$'
-  marker="$(git -C "$worktree" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
-  assert_file_contains "$marker" '^feature$'
-}
-
-function test_scripts_0083_worktree_setup_refreshes_a_new_branch_from_origin_head() {
-  _bats_test_init 83 'worktree setup refreshes an untouched new branch from origin HEAD'
-  local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
-  local root="$BATS_TEST_TMPDIR/worktree-fresh" origin main worktree dirty config expected old
-  origin="$root/origin.git"
-  main="$root/main"
-  worktree="$root/feature"
-  dirty="$root/dirty"
-  config="$root/config"
-  mkdir -p "$root" "$config"
-  git init --quiet --bare "$origin"
-  git -C "$origin" symbolic-ref HEAD refs/heads/main
-  git init --quiet -b main "$main"
-  git -C "$main" config user.email test@example.com
-  git -C "$main" config user.name 'Test User'
-  printf '%s\n' old > "$main/tracked"
-  git -C "$main" add tracked
-  git -C "$main" commit --quiet -m old
-  git -C "$main" remote add origin "$origin"
-  git -C "$main" push --quiet -u origin main
-  git -C "$main" worktree add --quiet -b feature "$worktree"
-  old="$(git -C "$worktree" rev-parse HEAD)"
-  git -C "$main" worktree add --quiet -b dirty "$dirty" "$old"
-  printf '%s\n' local > "$dirty/untracked"
-  printf '%s\n' new > "$main/tracked"
-  git -C "$main" commit --quiet -am new
-  git -C "$main" push --quiet
-  expected="$(git -C "$main" rev-parse HEAD)"
-  cat > "$config/config.toml" <<TOML
-[projects."${origin%.git}"]
-fresh-base = true
-TOML
-
-  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"feature\"}}}" \
-    bun "$plugin"
-  assert_success
-  run git -C "$worktree" rev-parse HEAD
-  assert_success
-  assert_output "$expected"
-
-  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$dirty\",\"branch\":\"dirty\"}}}" \
-    bun "$plugin"
-  assert_success
-  run git -C "$dirty" rev-parse HEAD
-  assert_success
-  assert_output "$old"
-}
-
 function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_files() {
   _bats_test_init 84 'retired Worktrunk migration removes only formerly managed files'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-worktrunk.sh"
@@ -1815,42 +1730,6 @@ function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_file
   assert_file_not_exists "$home/.config/herdr/plugins/command-palette/new_worktree.py"
   assert_file_not_exists "$home/.config/herdr/plugins/command-palette/open_new_worktree.py"
   assert_file_exists "$home/.config/worktrunk/user-note"
-}
-
-function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
-  _bats_test_init 85 'worktree setup relink uses the Herdr CLI contract'
-  command_exists chezmoi || skip "chezmoi not available"
-  # Rendered rather than run raw: the plugin-link guard reaches the script
-  # through a chezmoi include, so a raw run would leave it undefined.
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/worktree-link.sh"
-  local home="$BATS_TEST_TMPDIR/worktree-link-home"
-  local stub="$BATS_TEST_TMPDIR/worktree-link-bin"
-  mkdir -p "$home/.config/herdr/plugins/worktree-setup" "$stub"
-  printf '%s\n' 'id = "seigi.worktree-setup"' \
-    > "$home/.config/herdr/plugins/worktree-setup/herdr-plugin.toml"
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-expected="$HOME/.config/herdr/plugins/worktree-setup"
-if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
-  exit 0
-fi
-if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected" ]; then
-  : > "$HOME/plugin-linked"
-  exit 0
-fi
-exit 2
-SH
-  cat > "$stub/dscl" <<SH
-#!/bin/sh
-printf 'NFSHomeDirectory: %s\n' "$home"
-SH
-  chmod +x "$stub/herdr" "$stub/dscl"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  run env -u MMS_DISPOSABLE_HOME HOME="$home" PATH="$stub:$PATH" bash "$script"
-  assert_success
-  assert_file_exists "$home/plugin-linked"
 }
 
 function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
@@ -1907,6 +1786,10 @@ SH
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
+  assert_success
   run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
   assert_success
   run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
@@ -1936,7 +1819,7 @@ SH
 #!/bin/sh
 printf '%s\n' "$*" >> "$HERDR_CALLS"
 if [ "$*" = "plugin list --json" ]; then
-  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}}]}}'
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}},{"plugin_id":"seigi.worktree-setup","source":{"kind":"github","owner":"Seigiard","repo":"herdr-worktree-setup"}}]}}'
 fi
 exit 0
 SH
@@ -1947,12 +1830,296 @@ SH
   assert_success
   run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
   assert_failure
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$calls"
+  assert_failure
   run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
   assert_success
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
   run grep -F "herdr-auto-update" "$calls"
   assert_failure
+}
+
+function test_scripts_08513_github_plugin_install_accepts_an_enabled_offline_registry() {
+  _bats_test_init 8513 'GitHub plugin installation accepts an enabled local registry when Herdr is offline'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-offline.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline"
+  local calls="$BATS_TEST_TMPDIR/herdr-offline.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-offline-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}}]}}'
+    ;;
+  "plugin enable "*)
+    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  local result="$output"
+  [[ "$result" == *'registered enabled for the next start'* ]] || fail 'offline registration was not accepted'
+  [[ "$result" != *'Warning: failed to configure Herdr plugin'* ]] || fail 'offline registration was reported as failed'
+}
+
+function test_scripts_08514_github_plugin_install_rejects_an_disabled_offline_registry() {
+  _bats_test_init 8514 'GitHub plugin installation rejects a disabled local registry when Herdr is offline'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-offline-disabled.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline-disabled"
+  local calls="$BATS_TEST_TMPDIR/herdr-offline-disabled.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-offline-disabled-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":false,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":false,"source":{"kind":"github"}}]}}'
+    ;;
+  "plugin enable "*)
+    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial 'Warning: failed to configure Herdr plugin'
+}
+
+worktree_migration_prepare() {
+  local work="$1"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p "$source/.chezmoiscripts" "$source/.chezmoitemplates" \
+    "$home/.config/herdr/plugins/worktree-setup" "$fake_bin"
+  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
+    "$source/.chezmoiscripts/"
+  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-plugin-link-guard.sh" "$source/.chezmoitemplates/"
+  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/worktree-setup/setup.ts"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  --version)
+    exit 0
+    ;;
+  "plugin list --json")
+    if [ "${HERDR_FAIL_STEP:-}" = malformed ]; then
+      printf '%s\n' '{"result":{"plugins":[null]}}'
+    elif [ "${HERDR_FAIL_STEP:-}" = refresh ] && [ "$(grep -Fc "plugin list --json" "$HERDR_CALLS")" -gt 1 ]; then
+      exit 1
+    else
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
+    fi
+    ;;
+  "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y")
+    [ "${HERDR_FAIL_STEP:-}" != install ]
+    ;;
+  "plugin uninstall seigi.worktree-setup")
+    [ "${HERDR_FAIL_STEP:-}" != uninstall ]
+    ;;
+  "plugin enable seigi.worktree-setup")
+    [ "${HERDR_FAIL_STEP:-}" != enable ]
+    ;;
+  "plugin link "*)
+    [ "${HERDR_FAIL_STEP:-}" != link ]
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  cat > "$fake_bin/getent" <<'SH'
+#!/bin/sh
+[ "${1:-}" = passwd ] || exit 1
+printf 'test:x:1000:1000:Test User:%s:/bin/bash\n' "$HOME"
+SH
+  cat > "$fake_bin/dscl" <<'SH'
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$HOME"
+SH
+  chmod +x "$fake_bin/herdr" "$fake_bin/getent" "$fake_bin/dscl"
+}
+
+worktree_migration_apply() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+worktree_migration_apply_custom_xdg() {
+  local work="$1"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/custom-config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+worktree_migration_live_apply() {
+  local work="$1" fail_step="${2:-}"
+  chezmoi_full_fixture execute-template -S "$work/source" \
+    --file "$work/source/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
+    > "$work/migration.sh"
+  env -u MMS_DISPOSABLE_HOME -u HERDR_SOCKET_PATH \
+    HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" bash "$work/migration.sh"
+}
+
+function test_scripts_0853_worktree_setup_migration_retries_after_install_failure() {
+  _bats_test_init 853 'worktree setup migration retains local files and retries after install failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-migration"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" install
+  assert_failure
+  local migration_output="$output"
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_failure
+  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08531_worktree_setup_migration_retries_after_enable_failure() {
+  _bats_test_init 8531 'worktree setup migration restores local files and retries after enable failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-enable-migration"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" enable
+  assert_failure
+  local migration_output="$output"
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_failure
+  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin enable seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_registration() {
+  _bats_test_init 8532 'worktree setup migration replaces a stale local registration without legacy files'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-stale-migration"
+  worktree_migration_prepare "$work"
+  rm -rf "$work/home/.config/herdr/plugins/worktree-setup"
+
+  run worktree_migration_apply "$work"
+  assert_success
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08536_worktree_setup_migration_rolls_back_after_registry_refresh_failure() {
+  _bats_test_init 8536 'worktree setup migration removes the new registration after registry refresh failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-refresh-failure"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" refresh
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08537_worktree_setup_migration_rejects_malformed_plugin_registry_data() {
+  _bats_test_init 8537 'worktree setup migration rejects malformed plugin registry data'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-malformed-registry"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" malformed
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -F "plugin install Seigiard/herdr-worktree-setup" "$work/herdr.calls"
+  assert_failure
+}
+
+function test_scripts_08533_worktree_setup_migration_restores_a_local_plugin_from_a_live_home() {
+  _bats_test_init 8533 'worktree setup migration restores a local plugin when a live-home install fails'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-live-rollback"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_live_apply "$work" install
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08534_worktree_setup_migration_preserves_unmanaged_legacy_files() {
+  _bats_test_init 8534 'worktree setup migration preserves unmanaged files in the legacy directory'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-unmanaged-legacy"
+  worktree_migration_prepare "$work"
+  printf 'keep me\n' > "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_file_exists "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
+  assert_file_not_exists "$work/home/.config/herdr/plugins/worktree-setup/setup.ts"
+}
+
+function test_scripts_08535_worktree_setup_migration_finds_the_managed_path_with_custom_xdg() {
+  _bats_test_init 8535 'worktree setup migration finds the managed path when XDG_CONFIG_HOME is customized'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-custom-xdg"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply_custom_xdg "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
 }
 
 function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
@@ -2122,6 +2289,7 @@ assert plugins, "real herdr returned no plugins"
 kinds = set()
 for plugin in plugins:
     assert isinstance(plugin.get("plugin_id"), str), plugin
+    assert isinstance(plugin.get("enabled"), bool), plugin
     source = plugin.get("source")
     assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
     kinds.add(source["kind"])
@@ -2131,6 +2299,51 @@ PY
   assert_success
   [[ " $output " == *" local "* && " $output " == *" github "* ]] \
     || skip "real registry does not currently expose both local and github source kinds: $output"
+
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin enable missing.plugin
+  assert_failure
+  local enable_error="$output"
+  run env ENABLE_ERROR="$enable_error" python3 - <<'PY'
+import json
+import os
+
+error = json.loads(os.environ["ENABLE_ERROR"])["error"]
+assert error["code"] == "server_not_running", error
+PY
+  assert_success
+}
+
+function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
+  _bats_test_init 8524 'standalone Worktree Setup is installed enabled and pinned to the reviewed commit'
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "a working upstream herdr is not installed"
+  [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
+  local plugin_json
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
+  assert_success
+  plugin_json="$output"
+
+  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+import json
+import os
+
+plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
+matches = [
+    plugin for plugin in plugins
+    if plugin.get("plugin_id") == "seigi.worktree-setup"
+]
+assert len(matches) == 1, matches
+plugin = matches[0]
+source = plugin["source"]
+assert plugin["enabled"] is True, plugin
+assert source["kind"] == "github", source
+assert source["owner"] == "Seigiard" and source["repo"] == "herdr-worktree-setup", source
+assert source["resolved_commit"] == "70048c616979719aa592df36f37ec076227b2ac8", source
+PY
+  assert_success
 }
 
 caffeinate_migration_prepare() {
@@ -2316,94 +2529,6 @@ SH
   run caffeinate_migration_run "$work"
 
   assert_success
-}
-
-# Herdr plugin link guard
-# ===========================================
-
-# plugin-link script template : the plugin directory it registers
-HERDR_LINK_GUARD_SCRIPTS=(
-  "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
-)
-
-# Renders one link script into $work and gives it a $HOME carrying the plugin
-# manifest, a herdr stub that records every call, a dscl stub that reports
-# $login_home as this account's login home, and a uname stub so the macOS-only
-# script runs everywhere the suite does.
-herdr_link_guard_prepare() {
-  local template="$1" plugin="$2" login_home="$3" work="$4"
-  local home="$work/home" stub="$work/bin"
-  mkdir -p "$home/.config/herdr/plugins/$plugin" "$stub"
-  printf 'id = "%s"\n' "$plugin" > "$home/.config/herdr/plugins/$plugin/herdr-plugin.toml"
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-exit 0
-SH
-  cat > "$stub/dscl" <<SH
-#!/bin/sh
-printf 'NFSHomeDirectory: %s\n' "$login_home"
-SH
-  cat > "$stub/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  chmod +x "$stub/herdr" "$stub/dscl" "$stub/uname"
-  : > "$work/herdr.calls"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" \
-    --file "$SOURCE_ROOT/.chezmoiscripts/$template" > "$work/script.sh"
-}
-
-function test_scripts_0853_herdr_plugin_link_scripts_register_only_from_the_login_home() {
-  _bats_test_init 853 'herdr plugin link scripts register a plugin only from the login home'
-  command_exists chezmoi || skip "chezmoi not available"
-  # `herdr plugin link` stores the absolute path it is given in a registry the
-  # running server owns. Linking from a throwaway $HOME leaves that temp path in
-  # the live registry, and Herdr drops the plugin's actions once the directory
-  # is gone -- run_onchange will not rerun to repair it.
-  local entry template plugin work
-  for entry in "${HERDR_LINK_GUARD_SCRIPTS[@]}"; do
-    template="${entry%%:*}"
-    plugin="${entry##*:}"
-
-    work="$BATS_TEST_TMPDIR/foreign-$plugin"
-    herdr_link_guard_prepare "$template" "$plugin" "$HOME" "$work"
-    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
-      PATH="$work/bin:$PATH" bash "$work/script.sh"
-    assert_success
-    assert_output --partial "is not the login home"
-    run cat "$work/herdr.calls"
-    assert_success
-    assert_output ""
-
-    # Control: the same script from a $HOME the account database calls the
-    # login home reaches the link.
-    work="$BATS_TEST_TMPDIR/live-$plugin"
-    mkdir -p "$work/home"
-    herdr_link_guard_prepare "$template" "$plugin" "$work/home" "$work"
-    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
-      PATH="$work/bin:$PATH" bash "$work/script.sh"
-    assert_success
-    run grep -Fx "plugin link $work/home/.config/herdr/plugins/$plugin" "$work/herdr.calls"
-    assert_success
-  done
-}
-
-function test_scripts_0854_herdr_plugin_link_scripts_refuse_a_disposable_home() {
-  _bats_test_init 854 'herdr plugin link scripts refuse a $HOME declared disposable'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/disposable-worktree-setup"
-  mkdir -p "$work/home"
-  herdr_link_guard_prepare \
-    "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl" worktree-setup "$work/home" "$work"
-
-  run env MMS_DISPOSABLE_HOME=1 HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
-    PATH="$work/bin:$PATH" bash "$work/script.sh"
-  assert_success
-  assert_output --partial "MMS_DISPOSABLE_HOME=1"
-  run cat "$work/herdr.calls"
-  assert_success
-  assert_output ""
 }
 
 # ask-in-herdr skill script

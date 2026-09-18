@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# Replace the former chezmoi-managed Worktree Setup plugin with the pinned
+# standalone package. A failed run leaves the local files in place so chezmoi
+# retries this migration on the next apply.
+set -u
+
+# {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" }}
+
+plugin_id="seigi.worktree-setup"
+repo="Seigiard/herdr-worktree-setup"
+ref="70048c616979719aa592df36f37ec076227b2ac8"
+legacy_root="$HOME/.config/herdr/plugins/worktree-setup"
+if [[ ! -d "$legacy_root" ]]; then
+  legacy_root="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/worktree-setup"
+fi
+
+plugin_is_local() {
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    if not isinstance(plugins, list) or not all(isinstance(plugin, dict) for plugin in plugins):
+        raise TypeError
+    found = any(
+        isinstance(plugin, dict)
+        and plugin.get("plugin_id") == sys.argv[1]
+        and plugin.get("source", {}).get("kind") == "local"
+        for plugin in plugins
+    )
+except (AttributeError, json.JSONDecodeError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if found else 1)
+' "$plugin_id" 2>/dev/null
+}
+
+plugin_is_enabled() {
+  printf '%s\n' "$plugin_json" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("result", {}).get("plugins", [])
+    found = any(
+        isinstance(plugin, dict)
+        and plugin.get("plugin_id") == sys.argv[1]
+        and plugin.get("enabled") is True
+        for plugin in plugins
+    )
+except (AttributeError, json.JSONDecodeError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if found else 1)
+' "$plugin_id" 2>/dev/null
+}
+
+restore_local_plugin() {
+  [[ -d "$legacy_root" ]] || return 1
+  local skip_reason
+  if skip_reason="$(herdr_link_guard_skip_reason)"; then
+    echo "$skip_reason; skipping local plugin rollback" >&2
+    return 1
+  fi
+  env -u HERDR_SOCKET_PATH herdr plugin link "$legacy_root" --enabled </dev/null >/dev/null 2>&1
+}
+
+remove_legacy_plugin() {
+  rm -f -- "$legacy_root/herdr-plugin.toml" "$legacy_root/setup.ts" || return 1
+  rmdir -- "$legacy_root" 2>/dev/null || true
+}
+
+legacy_present=0
+[[ -d "$legacy_root" ]] && legacy_present=1
+
+if ! herdr --version >/dev/null 2>&1; then
+  [[ $legacy_present -eq 0 ]] && exit 0
+  echo "Worktree Setup migration needs herdr; retry after herdr is installed" >&2
+  exit 1
+fi
+
+if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  [[ $legacy_present -eq 0 ]] && exit 0
+  echo "Worktree Setup migration could not inspect Herdr plugins; retry on the next apply" >&2
+  exit 1
+fi
+
+plugin_is_local
+local_state=$?
+if [[ $legacy_present -eq 0 && $local_state -eq 1 ]]; then
+  exit 0
+fi
+if [[ $local_state -eq 0 ]]; then
+  if ! herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1; then
+    echo "Worktree Setup migration could not unregister the local plugin; retry on the next apply" >&2
+    exit 1
+  fi
+elif [[ $local_state -ne 1 ]]; then
+  echo "Worktree Setup migration could not parse Herdr's plugin registry; retry on the next apply" >&2
+  exit 1
+fi
+
+if ! herdr plugin install "$repo" --ref "$ref" -y </dev/null; then
+  if [[ $local_state -eq 0 ]]; then
+    if restore_local_plugin; then
+      echo "Worktree Setup installation failed; restored the local plugin for the next retry" >&2
+    else
+      echo "Worktree Setup installation failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
+    fi
+  else
+    echo "Worktree Setup installation failed; retained the legacy files for the next retry" >&2
+  fi
+  exit 1
+fi
+
+# `plugin install` updates the on-disk registry, while the running Herdr server
+# keeps its in-memory registry until the next list/reload request.
+if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
+  echo "Worktree Setup migration could not refresh Herdr's plugin registry; retry on the next apply" >&2
+  herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
+  if [[ $local_state -eq 0 ]]; then
+    if restore_local_plugin; then
+      echo "Worktree Setup registry refresh failed; restored the local plugin for the next retry" >&2
+    else
+      echo "Worktree Setup registry refresh failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
+    fi
+  fi
+  exit 1
+fi
+
+enable_output=""
+if ! enable_output="$(herdr plugin enable "$plugin_id" </dev/null 2>&1)"; then
+  plugin_is_enabled
+  enabled_state=$?
+  if [[ "$enable_output" == *server_not_running* && $enabled_state -eq 0 ]]; then
+    echo "Herdr server is not running; Worktree Setup is registered enabled for the next start"
+  else
+    [[ -z "$enable_output" ]] || printf '%s\n' "$enable_output" >&2
+    herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
+    if [[ $local_state -eq 0 ]]; then
+      if restore_local_plugin; then
+        echo "Worktree Setup enable failed; restored the local plugin for the next retry" >&2
+      else
+        echo "Worktree Setup enable failed and the local registration could not be restored: herdr plugin link $legacy_root --enabled" >&2
+      fi
+    else
+      echo "Worktree Setup enable failed; retained the legacy files for the next retry" >&2
+    fi
+    exit 1
+  fi
+fi
+
+if ! remove_legacy_plugin; then
+  echo "Worktree Setup migration could not remove $legacy_root; retry on the next apply" >&2
+  exit 1
+fi
+echo "Migrated Worktree Setup from the local plugin to $repo at $ref"

@@ -123,8 +123,6 @@ _smoke_critical_paths() {
     .config/opencode/plugins/agents-local.ts
     .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
-    .config/herdr/plugins/worktree-setup/herdr-plugin.toml
-    .config/herdr/plugins/worktree-setup/setup.ts
     .config/herdr/plugins/config/seigi.worktree-setup/config.toml
     .config/herdr/command-palette/commands.toml
     .local/lib/herdr-process.sh
