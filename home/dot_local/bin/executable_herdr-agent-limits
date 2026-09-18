@@ -9,10 +9,11 @@ set -u
 HOME="${HOME:-$(cd ~ && pwd)}"
 
 CODEX_CACHE="$HOME/.cache/codex-rate-limits/latest.json"
-# The tab bar redraws every 60s and the backend read costs ~0.7s, so the render
-# never waits on it: it prints the cache and refreshes behind the redraw.
+# Herdr runs status commands asynchronously, but kills their process group when
+# the command exits. Keep the backend read inside that lifecycle and below the
+# tab bar's five-second command timeout.
 CODEX_MAX_AGE="${CODEX_LIMITS_MAX_AGE:-60}"
-CODEX_RPC_TIMEOUT="${CODEX_LIMITS_RPC_TIMEOUT:-20}"
+CODEX_RPC_TIMEOUT="${CODEX_LIMITS_RPC_TIMEOUT:-4}"
 
 claude_part() {
     # The live source is the cache the status line writes from Claude Code's
@@ -98,7 +99,7 @@ PY
 # window is being spent. The account is what the backend knows, so ask it — the
 # app-server's `account/rateLimits/read` reads usage without starting a turn.
 codex_refresh() {
-    local dir lock
+    local dir lock status
     dir="${CODEX_CACHE%/*}"
     lock="$dir/refresh.lock"
     mkdir -p "$dir" || return 0
@@ -190,14 +191,14 @@ with open(tmp, "w") as fh:
     json.dump(out, fh)
 os.replace(tmp, cache)
 PY
+    status=$?
+    rmdir "$lock" 2>/dev/null
+    trap - EXIT
+    return "$status"
 }
 
-codex_part() {
-    # Without codex there is no way to ask, and a bar segment that cannot be
-    # refreshed is worse than an absent one.
-    command -v codex >/dev/null 2>&1 || return 0
-    local out status
-    out=$(python3 - "$CODEX_CACHE" "$CODEX_MAX_AGE" <<'PY'
+codex_render() {
+    python3 - "$CODEX_CACHE" "$CODEX_MAX_AGE" <<'PY'
 import json, sys, time
 
 STALE_EXIT = 10
@@ -259,14 +260,23 @@ if out:
 
 sys.exit(STALE_EXIT if age >= max_age else 0)
 PY
-    )
+}
+
+codex_part() {
+    # Without codex there is no way to ask, and a bar segment that cannot be
+    # refreshed is worse than an absent one.
+    command -v codex >/dev/null 2>&1 || return 0
+    local out status
+    out=$(codex_render)
     status=$?
-    [ -n "$out" ] && printf '%s\n' "$out"
-    # Refresh after printing: the bar shows what is known now, and the backend
-    # read lands in time for the next redraw.
+    # A detached refresh is killed with Herdr's status-command process group.
+    # Refresh within the bounded command instead, then render the new snapshot
+    # in the same invocation so an attach after a reset never starts out stale.
     if [ "$status" -eq 10 ]; then
-        (codex_refresh >/dev/null 2>&1 &) 2>/dev/null
+        codex_refresh >/dev/null 2>&1
+        out=$(codex_render)
     fi
+    [ -n "$out" ] && printf '%s\n' "$out"
     return 0
 }
 

@@ -11914,3 +11914,37 @@ print("ok")
   assert_success
   assert_output --partial 'ok'
 }
+
+function test_scripts_27210_agent_limits_refreshes_stale_codex_data_before_rendering() {
+  _bats_test_init 27210 'agent limits refreshes stale codex data before rendering'
+  local home="$BATS_TEST_TMPDIR/limits-refresh-render" now
+  now="$(date +%s)"
+  agent_limits_fixture "$home" 3600 86400
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 43200))"
+
+  # This fixture exercises our request lifecycle; test 27209 keeps the response
+  # fields calibrated against the real app server.
+  cat > "$home/bin/codex" <<EOF
+#!/bin/sh
+while IFS= read -r request; do
+  case "\$request" in
+    *'"id": 2'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":7,"windowDurationMins":10080,"resetsAt":$((now + 86400))}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":1}}}'
+      exit 0
+      ;;
+  esac
+done
+EOF
+  chmod +x "$home/bin/codex"
+
+  # #when Herdr runs the status command with an old snapshot
+  agent_limits_run "$home"
+
+  # #then that invocation waits for the bounded refresh and renders its result;
+  # no background descendant or leaked lock is needed for a later redraw
+  assert_success
+  assert_output --partial 'cx 7d 7%'
+  assert_output --partial 'r1'
+  refute_output --partial 'old)'
+  assert_dir_not_exists "$home/.cache/codex-rate-limits/refresh.lock"
+}
