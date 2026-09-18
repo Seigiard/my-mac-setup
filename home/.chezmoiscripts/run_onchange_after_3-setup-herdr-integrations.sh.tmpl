@@ -6,8 +6,9 @@
 #
 # Re-run trigger — the hashed herdr version below changes on upgrade, so chezmoi re-runs
 # this script then. The trigger is a single comment line (shellcheck-safe in the raw
-# template); lookPath guards `output` so CI/Docker without herdr still renders cleanly:
-# {{ if lookPath "herdr" }}herdr version: {{ output "herdr" "--version" | sha256sum }}{{ else }}herdr version: unavailable at apply time{{ end }}
+# template). The probe degrades to a stable unavailable hash when PATH contains
+# only the managed wrapper and no native Herdr binary:
+# herdr version: {{ output "sh" "-c" "herdr --version 2>/dev/null || printf '%s' 'unavailable at apply time'" | sha256sum }}
 
 # Keep this tolerant: a missing herdr or a stopped server must not make chezmoi apply fail.
 set -u

@@ -5627,6 +5627,25 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   assert_output --partial "skipping agent-state integration refresh"
 }
 
+function test_scripts_0932_herdr_integrations_template_renders_when_only_a_broken_wrapper_is_on_path() {
+  _bats_test_init 932 'herdr-integrations template renders when only a broken wrapper is on PATH'
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  local stub="$BATS_TEST_TMPDIR/wrapper-only" chezmoi_dir
+  chezmoi_dir="$(dirname "$(command -v chezmoi)")"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$stub/herdr"
+
+  PATH="$stub:$chezmoi_dir:/usr/bin:/bin" run --separate-stderr \
+    chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+  assert_output --partial '# herdr version:'
+}
+
 # Present leg of 093's pair: with herdr on PATH the refresh must actually issue
 # one `integration install <target>` per agent client. The stub records argv,
 # so the oracle is what herdr received at runtime, not the script's source.
