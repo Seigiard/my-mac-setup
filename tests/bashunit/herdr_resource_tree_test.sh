@@ -107,8 +107,13 @@ SH
 }
 
 tree_stub_run() {
+  # Pin every host-supplied input this fixture depends on. A developer shell
+  # inside Herdr exports HERDR_BIN_PATH and an XDG state home of its own, and
+  # inheriting either points the CLI at the real server and the real registry.
   env PATH="$TREE_BIN:$PATH" TREE_CALLS="$TREE_CALLS" \
+    HERDR_BIN_PATH="$TREE_BIN/herdr" \
     HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
+    HERDR_RESOURCE_TREE_STATE_DIR="${HERDR_RESOURCE_TREE_STATE_DIR:-$TREE_WORK/state}" \
     TREE_SNAPSHOT="$TREE_WORK/snapshot.json" \
     TREE_DESCENDANT_PID="${TREE_DESCENDANT_PID:-}" \
     TREE_SNAPSHOT_READY="${TREE_SNAPSHOT_READY:-}" \
@@ -185,6 +190,7 @@ tree_wrapper_fixture_run() {
     HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE="${HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE:-0}" \
     HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
     TREE_CALLS="$TREE_CALLS" TREE_CALLER="$TREE_WORK/caller.json" \
+    TREE_CALLER_NEXT="${TREE_CALLER_NEXT:-$TREE_WORK/caller.json}" \
     TREE_SPLIT="$TREE_WORK/split.json" \
     TREE_TAB="$TREE_WORK/tab.json" TREE_WORKSPACE="$TREE_WORK/workspace.json" \
     TREE_CREATED_SNAPSHOT="$TREE_WORK/created-snapshot.json" \
@@ -1780,8 +1786,8 @@ PY
   run tree_wrapper_fixture_run "$TREE_CLI" --context \
     --caller-agent opencode --caller-session-id session-B
   assert_success
-  # Issue #271's client contract exposes the parent name only; the parent's
-  # native identity would let an adapter reach outside the child's branch.
+  # The client contract exposes the parent name only; the parent's native
+  # identity would let an adapter reach outside the child's branch.
   assert_output --partial 'Parent agent: "agent-a"'
   refute_output --partial 'herdr:claude/id/session-A'
   assert_output --partial 'Descendant agent: "agent-c" [herdr:pi/id/session-C]'
@@ -2071,6 +2077,8 @@ function test_resource_tree_017_query_rejects_a_server_scope_change_during_snaps
 
   local ready="$TREE_WORK/snapshot.ready" release="$TREE_WORK/snapshot.release"
   env PATH="$TREE_BIN:$PATH" TREE_CALLS="$TREE_CALLS" \
+    HERDR_BIN_PATH="$TREE_BIN/herdr" \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/state" \
     HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" TREE_SNAPSHOT="$TREE_WORK/snapshot.json" \
     TREE_STUB_MODE=scope-changing TREE_SNAPSHOT_READY="$ready" \
     TREE_SNAPSHOT_RELEASE="$release" "$TREE_CLI" --json \
@@ -2229,6 +2237,40 @@ PY
   assert_success
 }
 
+function test_resource_tree_020_empty_path_entry_does_not_resolve_the_working_directory() {
+  _bats_test_init 20 'empty PATH entry does not resolve the working directory'
+
+  cat > "$TREE_BIN/herdr" <<'SH'
+#!/usr/bin/env bash
+printf 'native\n'
+SH
+  chmod +x "$TREE_BIN/herdr"
+
+  local trap_dir="$TREE_WORK/checkout"
+  mkdir -p "$trap_dir"
+  cat > "$trap_dir/herdr" <<'SH'
+#!/usr/bin/env bash
+printf 'checkout trap\n'
+SH
+  chmod +x "$trap_dir/herdr"
+
+  # A leading empty PATH entry means the current directory to a POSIX shell.
+  # The wrapper runs wherever the agent works, so a herdr committed to a
+  # repository must never win resolution.
+  run env HERDR_BIN_PATH="$HERDR_WRAPPER" PATH=":$TREE_BIN:$PATH" \
+    bash -c 'cd "$1" && exec "$2" status client' _ "$trap_dir" "$HERDR_WRAPPER"
+  assert_success
+  assert_output 'native'
+
+  # Control: named explicitly ahead of the native directory, the same binary in
+  # the same directory does win, so the assertion above cannot pass by failing
+  # to resolve anything.
+  run env HERDR_BIN_PATH="$HERDR_WRAPPER" PATH="$trap_dir:$TREE_BIN:$PATH" \
+    bash -c 'cd "$1" && exec "$2" status client' _ "$trap_dir" "$HERDR_WRAPPER"
+  assert_success
+  assert_output 'checkout trap'
+}
+
 function tear_down_after_script() {
   _bats_file_cleanup
 }
@@ -2238,3 +2280,79 @@ function set_up_before_script() {
 }
 
 function tear_down() { _bats_run_teardown; }
+
+function test_resource_tree_021_a_read_only_registry_still_answers_queries() {
+  _bats_test_init 21 'a read-only registry still answers queries'
+
+  tree_install_managed_creation_stub
+  run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2 --direction right
+  assert_success
+
+  # A query writes nothing. Answering one inside a write transaction makes the
+  # whole projection unavailable on a registry the process cannot write, and
+  # serializes every concurrent query against every creation.
+  chmod 0444 "$TREE_WORK/state/registry.sqlite3"
+  run tree_wrapper_fixture_run "$TREE_CLI" --json
+  chmod 0600 "$TREE_WORK/state/registry.sqlite3"
+  assert_success
+  local read_only_json="$output"
+  run python3 - "$read_only_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+created = next(
+    pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+    if pane["id"] == "w1:p3"
+)
+assert created["creator_session"]["value"] == "session-caller", created
+PY
+  assert_success
+}
+
+function test_resource_tree_022_a_pane_occupancy_change_during_the_snapshot_fails_the_query() {
+  _bats_test_init 22 'a pane occupancy change during the snapshot fails the query'
+
+  tree_install_managed_creation_stub
+  # Identity is sampled on both sides of the snapshot it authenticates. This
+  # stub hands out the original occupant first and a replacement afterwards.
+  cat > "$TREE_BIN/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TREE_CALLS"
+seen="$TREE_CALLS.caller-seen"
+case "${1:-}:${2:-}" in
+  pane:current)
+    if [[ -e "$seen" ]]; then
+      cat "$TREE_CALLER_NEXT"
+    else
+      : > "$seen"
+      cat "$TREE_CALLER"
+    fi
+    ;;
+  api:snapshot) cat "$TREE_CREATED_SNAPSHOT" ;;
+  *) printf 'unexpected native command: %s\n' "$*" >&2; exit 64 ;;
+esac
+SH
+  chmod +x "$TREE_BIN/herdr"
+
+  cat > "$TREE_WORK/caller-next.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"opencode","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-replacement"}}}}
+JSON
+
+  TREE_CALLER_NEXT="$TREE_WORK/caller-next.json" \
+    run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_failure 1
+  assert_output --partial 'caller identity changed during snapshot retrieval'
+  refute_output --partial '"branch"'
+
+  # Control: the same fixture with a stable occupant must reach the branch, so
+  # the rejection above cannot pass by never projecting at all.
+  rm -f "$TREE_CALLS.caller-seen"
+  TREE_CALLER_NEXT="$TREE_WORK/caller.json" \
+    run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
+  assert_success
+  assert_output --partial '"branch"'
+}

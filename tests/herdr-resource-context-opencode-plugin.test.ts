@@ -191,6 +191,25 @@ describe("OpenCode model-request resource context", () => {
     expect(host.promptAsyncCalls()).toBe(0);
   });
 
+  test("a request without a session identity retracts the earlier branch", async () => {
+    const root = temporaryDir("herdr-resource-context-no-session-");
+    writeFileSync(join(root, "context"), 'Resources:\n- pane "owned" [w1:p1]');
+    const host = await loadTransform(root);
+
+    const system = ["You are OpenCode."];
+    await host.transform({ sessionID: "session-B" }, { system });
+    expect(system.join("\n")).toContain('pane "owned"');
+
+    // sessionID is optional in the plugin API, so an absent one is a supported
+    // state. Returning early would leave the previous request's branch in the
+    // system prompt, presented as current.
+    await host.transform({}, { system });
+    expect(system).toEqual([
+      "You are OpenCode.",
+      `${HEADING}\nHerdr resource context unavailable: OpenCode did not expose a native session identity. This must not be treated as an empty resource branch.`,
+    ]);
+  });
+
   test("outside Herdr the plugin leaves ordinary OpenCode behavior untouched", async () => {
     const root = temporaryDir("herdr-resource-context-outside-");
     writeFileSync(join(root, "context"), 'Resources:\n- pane "must-not-appear" [w1:p1]');

@@ -4,9 +4,20 @@
 set -uo pipefail
 
 [ "${HERDR_ENV:-}" = 1 ] || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
 
 input="$(cat 2>/dev/null)" || exit 0
+
+# Herdr's native integration owns the Agent session identity, and creator
+# attribution, record-child and branch resolution all fail once it is unknown.
+# Delegate before this hook parses anything of its own: the reporter needs no jq
+# and discards every event and subagent invocation it does not handle, so a
+# missing jq degrades only the projection below.
+agent_state_hook="${HERDR_AGENT_STATE_HOOK:-${HOME:-}/.claude/hooks/herdr-agent-state.sh}"
+if [ -x "$agent_state_hook" ]; then
+  printf '%s' "$input" | "$agent_state_hook" session >/dev/null 2>&1 || true
+fi
+
+command -v jq >/dev/null 2>&1 || exit 0
 field() {
   printf '%s' "$input" | jq -r "$1" 2>/dev/null
 }
@@ -23,15 +34,6 @@ esac
 session="$(field '.session_id // empty')" || exit 0
 [[ "$session" =~ ^[A-Za-z0-9._-]+$ ]] || exit 0
 
-# Herdr's native SessionStart integration owns the Agent session identity. Run
-# it first so a new conversation cannot query the previous pane occupant.
-if [ "$event" = SessionStart ]; then
-  agent_state_hook="${HERDR_AGENT_STATE_HOOK:-${HOME:-}/.claude/hooks/herdr-agent-state.sh}"
-  if [ -x "$agent_state_hook" ]; then
-    printf '%s' "$input" | "$agent_state_hook" session >/dev/null 2>&1 || true
-  fi
-fi
-
 resource_cli="${HERDR_RESOURCE_CONTEXT_CLI:-${HOME:-}/.local/bin/herdr-resource-tree}"
 [ -x "$resource_cli" ] || exit 0
 state_dir="${HERDR_RESOURCE_CONTEXT_STATE_DIR:-${HOME:-}/.cache/herdr-resource-context}"
@@ -39,6 +41,7 @@ state_dir="${HERDR_RESOURCE_CONTEXT_STATE_DIR:-${HOME:-}/.cache/herdr-resource-c
 umask 077
 mkdir -p "$state_dir" 2>/dev/null || exit 0
 state_file="$state_dir/$session"
+unavailable_sentinel='__HERDR_RESOURCE_CONTEXT_UNAVAILABLE__'
 write_state() {
   local value="$1" temporary
   temporary="$(mktemp "$state_dir/.${session}.XXXXXX" 2>/dev/null)" || return 1
@@ -60,7 +63,15 @@ if [ -f "$state_file" ]; then
 fi
 
 if ! context="$("$resource_cli" --context --caller-agent claude --caller-session-id "$session" 2>/dev/null)"; then
-  write_state '__HERDR_RESOURCE_CONTEXT_UNAVAILABLE__' || exit 0
+  write_state "$unavailable_sentinel" || exit 0
+  # A failed query stays failed for a whole conversation when the pane has no
+  # observable Agent session, and Claude's transcript is append-only: restating
+  # the notice on every tool batch only grows context. A fresh session still
+  # needs it, so SessionStart always emits.
+  if [ "$event" != SessionStart ] && [ "$had_state" = true ] && \
+    [ "$previous" = "$unavailable_sentinel" ]; then
+    exit 0
+  fi
   context='Agent resource context unavailable: the shared resource query failed. The earlier generated resource context is stale, and this must not be treated as an empty resource branch.'
   jq -n --arg event "$event" --arg context "$context" '{
     hookSpecificOutput: {

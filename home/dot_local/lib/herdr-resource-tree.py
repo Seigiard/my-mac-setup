@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+import contextlib
+import functools
 import json
 import os
+import pathlib
 import signal
 import sqlite3
 import subprocess
@@ -35,12 +38,13 @@ class CreatedResourcesError(SnapshotError):
         self.coordinates = coordinates
 
 
-def run_captured(argv, timeout):
+def run_captured(argv, timeout, text=False):
     process = subprocess.Popen(
         argv,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        text=text,
         start_new_session=True,
     )
     try:
@@ -69,13 +73,35 @@ def same_executable(left, right):
         return os.path.realpath(left) == os.path.realpath(right)
 
 
+@functools.lru_cache(maxsize=1)
+def native_herdr():
+    """Resolve the real herdr once per process.
+
+    Read-only calls must not pay the provenance wrapper's extra bash and Python
+    startup; only creation needs the interception, and the wrapper's own
+    creation path already resolves the original binary itself.
+    """
+    wrapper = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), os.pardir, "bin", "herdr"
+    )
+    try:
+        return find_original_herdr(os.path.abspath(wrapper))
+    except FileNotFoundError:
+        return "herdr"
+
+
 def find_original_herdr(wrapper_path):
     candidates = []
     configured = os.environ.get("HERDR_BIN_PATH")
     if configured:
         candidates.append(configured)
     for directory in os.environ.get("PATH", "").split(os.pathsep):
-        candidates.append(os.path.join(directory or os.curdir, "herdr"))
+        # An empty PATH entry means the current directory to a POSIX shell. The
+        # wrapper runs in whatever checkout the agent is working in, so honoring
+        # that would execute a herdr dropped into the repository.
+        if not directory:
+            continue
+        candidates.append(os.path.join(directory, "herdr"))
 
     for candidate in candidates:
         if not os.path.isfile(candidate) or not os.access(candidate, os.X_OK):
@@ -129,10 +155,20 @@ def connect_registry(create):
     if not create and not os.path.exists(database):
         return None
     try:
-        if create:
-            directory = os.path.dirname(database)
-            os.makedirs(directory, mode=0o700, exist_ok=True)
-            os.chmod(directory, 0o700)
+        if not create:
+            # A query must neither take a write lock nor migrate: the context
+            # hook runs one on every tool batch across concurrent panes, and the
+            # registry file can legitimately be read-only on disk.
+            connection = sqlite3.connect(
+                f"{pathlib.Path(os.path.abspath(database)).as_uri()}?mode=ro",
+                uri=True,
+                timeout=5,
+            )
+            connection.execute("PRAGMA busy_timeout = 5000")
+            return connection
+        directory = os.path.dirname(database)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        os.chmod(directory, 0o700)
         connection = sqlite3.connect(database, timeout=5)
         connection.execute("PRAGMA busy_timeout = 5000")
         connection.execute("PRAGMA synchronous = FULL")
@@ -197,37 +233,74 @@ def connect_registry(create):
             """
         )
         connection.commit()
-        if create:
-            os.chmod(database, 0o600)
+        os.chmod(database, 0o600)
         return connection
     except (OSError, sqlite3.Error) as error:
         raise RegistryError(str(error)) from error
 
 
-def record_intent(operation_id, scope, caller, creation_kind):
+@contextlib.contextmanager
+def registry_write():
+    """Open the registry for one transaction, closing it and surfacing sqlite
+    failures as RegistryError."""
     connection = connect_registry(create=True)
     try:
         with connection:
-            connection.execute(
-                """
-                INSERT INTO operations (
-                    operation_id, server_scope, caller_session,
-                    caller_pane_id, caller_terminal_id, creation_kind, status
-                ) VALUES (?, ?, ?, ?, ?, ?, 'intent-recorded')
-                """,
-                (
-                    operation_id,
-                    scope,
-                    json.dumps(caller["session"], sort_keys=True),
-                    caller["pane_id"],
-                    caller["terminal_id"],
-                    creation_kind,
-                ),
-            )
+            yield connection
     except sqlite3.Error as error:
         raise RegistryError(str(error)) from error
     finally:
         connection.close()
+
+
+def registry_schema_gap(error):
+    """True when a query failed because the registry predates this schema."""
+    message = str(error)
+    return "no such table" in message or "no such column" in message
+
+
+def registry_rows(sql, params):
+    """Return rows for a read-only registry query, or None when no registry
+    exists yet.
+
+    The query takes a read lock and never migrates. Only a registry an older
+    wrapper wrote needs the schema work, and that case reopens for writing so a
+    stale column cannot masquerade as an empty result.
+    """
+    connection = connect_registry(create=False)
+    if connection is None:
+        return None
+    try:
+        return connection.execute(sql, params).fetchall()
+    except sqlite3.OperationalError as error:
+        if not registry_schema_gap(error):
+            raise RegistryError(str(error)) from error
+    except sqlite3.Error as error:
+        raise RegistryError(str(error)) from error
+    finally:
+        connection.close()
+    with registry_write() as migrated:
+        return migrated.execute(sql, params).fetchall()
+
+
+def record_intent(operation_id, scope, caller, creation_kind):
+    with registry_write() as connection:
+        connection.execute(
+            """
+            INSERT INTO operations (
+                operation_id, server_scope, caller_session,
+                caller_pane_id, caller_terminal_id, creation_kind, status
+            ) VALUES (?, ?, ?, ?, ?, ?, 'intent-recorded')
+            """,
+            (
+                operation_id,
+                scope,
+                encode_session(caller["session"]),
+                caller["pane_id"],
+                caller["terminal_id"],
+                creation_kind,
+            ),
+        )
 
 
 def record_native_failure(operation_id, exit_status):
@@ -248,29 +321,23 @@ def record_native_failure(operation_id, exit_status):
 
 def record_uncertain_operation(operation_id, reason, resources=None):
     resources = resources or {}
-    connection = connect_registry(create=True)
-    try:
-        with connection:
-            connection.execute(
-                """
-                UPDATE operations
-                SET status = 'unresolved', unresolved_reason = ?,
-                    pane_id = ?, terminal_id = ?, workspace_id = ?, tab_id = ?
-                WHERE operation_id = ? AND status = 'intent-recorded'
-                """,
-                (
-                    reason,
-                    resources.get("pane_id"),
-                    resources.get("terminal_id"),
-                    resources.get("workspace_id"),
-                    resources.get("tab_id"),
-                    operation_id,
-                ),
-            )
-    except sqlite3.Error as error:
-        raise RegistryError(str(error)) from error
-    finally:
-        connection.close()
+    with registry_write() as connection:
+        connection.execute(
+            """
+            UPDATE operations
+            SET status = 'unresolved', unresolved_reason = ?,
+                pane_id = ?, terminal_id = ?, workspace_id = ?, tab_id = ?
+            WHERE operation_id = ? AND status = 'intent-recorded'
+            """,
+            (
+                reason,
+                resources.get("pane_id"),
+                resources.get("terminal_id"),
+                resources.get("workspace_id"),
+                resources.get("tab_id"),
+                operation_id,
+            ),
+        )
 
 
 def preserve_uncertain_operation(operation_id, detail, resources=None):
@@ -284,33 +351,27 @@ def preserve_uncertain_operation(operation_id, detail, resources=None):
 def finalize_operation(operation_id, resources):
     if os.environ.get("HERDR_RESOURCE_TREE_TEST_FAIL_FINALIZE") == "1":
         raise RegistryError("injected finalization failure")
-    connection = connect_registry(create=True)
-    try:
-        with connection:
-            cursor = connection.execute(
-                """
-                UPDATE operations
-                SET status = 'finalized', pane_id = ?, terminal_id = ?,
-                    workspace_id = ?, tab_id = ?, workspace_created = ?,
-                    tab_created = ?
-                WHERE operation_id = ? AND status = 'intent-recorded'
-                """,
-                (
-                    resources["pane_id"],
-                    resources["terminal_id"],
-                    resources["workspace_id"],
-                    resources["tab_id"],
-                    resources["workspace_created"],
-                    resources["tab_created"],
-                    operation_id,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise RegistryError("operation intent is no longer finalizable")
-    except sqlite3.Error as error:
-        raise RegistryError(str(error)) from error
-    finally:
-        connection.close()
+    with registry_write() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE operations
+            SET status = 'finalized', pane_id = ?, terminal_id = ?,
+                workspace_id = ?, tab_id = ?, workspace_created = ?,
+                tab_created = ?
+            WHERE operation_id = ? AND status = 'intent-recorded'
+            """,
+            (
+                resources["pane_id"],
+                resources["terminal_id"],
+                resources["workspace_id"],
+                resources["tab_id"],
+                resources["workspace_created"],
+                resources["tab_created"],
+                operation_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RegistryError("operation intent is no longer finalizable")
 
 
 def encode_session(session):
@@ -420,6 +481,23 @@ def identify_caller(original):
     return parse_current_caller(completed.stdout)
 
 
+def merge_coordinates(coordinates, source, keys, label, first_error):
+    """Merge validated coordinates, keeping the first validation error seen."""
+    for key in keys:
+        try:
+            value = required_string(source.get(key), f"created {label} {key}")
+            existing = coordinates.get(key)
+            if existing is not None and existing != value:
+                raise SnapshotError(
+                    f"created {label} {key} does not match returned container"
+                )
+            coordinates[key] = value
+        except SnapshotError as error:
+            if first_error is None:
+                first_error = error
+    return first_error
+
+
 def parse_created_resources(stdout, creation_kind):
     try:
         envelope = json.loads(stdout)
@@ -454,18 +532,9 @@ def parse_created_resources(stdout, creation_kind):
                     "native success response has no result.tab object"
                 )
         else:
-            for key in ("workspace_id", "tab_id"):
-                try:
-                    value = required_string(tab.get(key), f"created tab {key}")
-                    existing = coordinates.get(key)
-                    if existing is not None and existing != value:
-                        raise SnapshotError(
-                            f"created tab {key} does not match returned container"
-                        )
-                    coordinates[key] = value
-                except SnapshotError as error:
-                    if first_error is None:
-                        first_error = error
+            first_error = merge_coordinates(
+                coordinates, tab, ("workspace_id", "tab_id"), "tab", first_error
+            )
 
     pane_key = "pane" if creation_kind == "pane" else "root_pane"
     pane = result.get(pane_key)
@@ -475,18 +544,13 @@ def parse_created_resources(stdout, creation_kind):
                 f"native success response has no result.{pane_key} object"
             )
         pane = {}
-    for key in ("pane_id", "terminal_id", "workspace_id", "tab_id"):
-        try:
-            value = required_string(pane.get(key), f"created pane {key}")
-            existing = coordinates.get(key)
-            if existing is not None and existing != value:
-                raise SnapshotError(
-                    f"created pane {key} does not match returned container"
-                )
-            coordinates[key] = value
-        except SnapshotError as error:
-            if first_error is None:
-                first_error = error
+    first_error = merge_coordinates(
+        coordinates,
+        pane,
+        ("pane_id", "terminal_id", "workspace_id", "tab_id"),
+        "pane",
+        first_error,
+    )
     if first_error is not None:
         raise CreatedResourcesError(str(first_error), coordinates) from first_error
     return {
@@ -811,23 +875,17 @@ def normalize_snapshot(envelope):
 
 
 def load_creator_edges(scope):
-    connection = connect_registry(create=False)
-    if connection is None:
+    rows = registry_rows(
+        """
+        SELECT workspace_id, tab_id, pane_id, terminal_id,
+               workspace_created, tab_created, caller_session
+        FROM operations
+        WHERE server_scope = ? AND status = 'finalized'
+        """,
+        (scope,),
+    )
+    if rows is None:
         return {"workspaces": {}, "tabs": {}, "panes": {}}
-    try:
-        rows = connection.execute(
-            """
-            SELECT workspace_id, tab_id, pane_id, terminal_id,
-                   workspace_created, tab_created, caller_session
-            FROM operations
-            WHERE server_scope = ? AND status = 'finalized'
-            """,
-            (scope,),
-        ).fetchall()
-    except sqlite3.Error as error:
-        raise RegistryError(str(error)) from error
-    finally:
-        connection.close()
 
     edges = {"workspaces": {}, "tabs": {}, "panes": {}}
     for (
@@ -859,24 +917,18 @@ def load_creator_edges(scope):
 
 
 def load_unresolved_operations(scope):
-    connection = connect_registry(create=False)
-    if connection is None:
+    rows = registry_rows(
+        """
+        SELECT operation_id, creation_kind, caller_session,
+               unresolved_reason, workspace_id, tab_id, pane_id, terminal_id
+        FROM operations
+        WHERE server_scope = ? AND status IN ('intent-recorded', 'unresolved')
+        ORDER BY operation_id
+        """,
+        (scope,),
+    )
+    if rows is None:
         return []
-    try:
-        rows = connection.execute(
-            """
-            SELECT operation_id, creation_kind, caller_session,
-                   unresolved_reason, workspace_id, tab_id, pane_id, terminal_id
-            FROM operations
-            WHERE server_scope = ? AND status IN ('intent-recorded', 'unresolved')
-            ORDER BY operation_id
-            """,
-            (scope,),
-        ).fetchall()
-    except sqlite3.Error as error:
-        raise RegistryError(str(error)) from error
-    finally:
-        connection.close()
 
     operations = []
     for (
@@ -925,23 +977,17 @@ def apply_creator_edges(tree, edges):
 
 
 def load_parent_edges(scope):
-    connection = connect_registry(create=False)
-    if connection is None:
+    rows = registry_rows(
+        """
+        SELECT child_session, parent_session, child_name, parent_name
+        FROM agent_parent_edges
+        WHERE server_scope = ?
+        ORDER BY child_session
+        """,
+        (scope,),
+    )
+    if rows is None:
         return {}
-    try:
-        rows = connection.execute(
-            """
-            SELECT child_session, parent_session, child_name, parent_name
-            FROM agent_parent_edges
-            WHERE server_scope = ?
-            ORDER BY child_session
-            """,
-            (scope,),
-        ).fetchall()
-    except sqlite3.Error as error:
-        raise RegistryError(str(error)) from error
-    finally:
-        connection.close()
 
     edges = {}
     for encoded_child, encoded_parent, child_name, parent_name in rows:
@@ -1269,32 +1315,19 @@ def render_context(tree, limit):
     return "\n".join(kept)
 
 
+def read_caller_identity():
+    """Return the invoking pane's identity, raising when it has no Agent session."""
+    caller = identify_caller(native_herdr())
+    if caller is None:
+        raise SnapshotError("current pane has no agent session")
+    return caller
+
+
 def retrieve_snapshot():
-    process = subprocess.Popen(
-        ["herdr", "api", "snapshot"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
     try:
-        stdout, stderr = process.communicate(timeout=10)
-    except subprocess.TimeoutExpired as error:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.communicate(timeout=1)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.communicate()
+        return run_captured([native_herdr(), "api", "snapshot"], timeout=10, text=True)
+    except CapturedCommandTimeout as error:
         raise SnapshotTimeout("herdr api snapshot timed out after 10 seconds") from error
-    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
 
 def snapshot_failure_detail(completed):
@@ -1343,7 +1376,7 @@ def record_child_main(argv):
         )
         return 1
     try:
-        caller = identify_caller("herdr")
+        caller = identify_caller(native_herdr())
     except (OSError, SnapshotError) as error:
         print(
             f"herdr-resource-tree: parent identity unavailable: {error}",
@@ -1489,6 +1522,30 @@ def main(argv):
     except RegistryError as error:
         print(f"herdr-resource-tree: provenance lookup failed: {error}", file=sys.stderr)
         return 1
+
+    # Identity is read before the snapshot and confirmed after it. Sampling only
+    # afterwards lets a replacement pane occupant be authenticated against a
+    # snapshot taken while the previous one still held the pane.
+    caller = None
+    if args.branch or args.context:
+        try:
+            caller = read_caller_identity()
+        except (OSError, SnapshotError) as error:
+            print(
+                f"herdr-resource-tree: caller identity unavailable: {error}",
+                file=sys.stderr,
+            )
+            return 1
+        if args.caller_agent and (
+            caller["session"]["agent"] != args.caller_agent
+            or caller["session"]["value"] != args.caller_session_id
+        ):
+            print(
+                "herdr-resource-tree: caller identity changed before context projection",
+                file=sys.stderr,
+            )
+            return 1
+
     try:
         completed = retrieve_snapshot()
     except SnapshotTimeout as error:
@@ -1527,25 +1584,16 @@ def main(argv):
 
     if args.branch or args.context:
         try:
-            caller = identify_caller("herdr")
+            confirmed = read_caller_identity()
         except (OSError, SnapshotError) as error:
             print(
                 f"herdr-resource-tree: caller identity unavailable: {error}",
                 file=sys.stderr,
             )
             return 1
-        if caller is None:
+        if confirmed != caller:
             print(
-                "herdr-resource-tree: caller identity unavailable: current pane has no agent session",
-                file=sys.stderr,
-            )
-            return 1
-        if args.caller_agent and (
-            caller["session"]["agent"] != args.caller_agent
-            or caller["session"]["value"] != args.caller_session_id
-        ):
-            print(
-                "herdr-resource-tree: caller identity changed before context projection",
+                "herdr-resource-tree: caller identity changed during snapshot retrieval",
                 file=sys.stderr,
             )
             return 1

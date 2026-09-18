@@ -7,6 +7,10 @@ ordinary `herdr pane split`, `herdr tab create`, and `herdr workspace create`
 use. The service persists provenance, not a second copy of placement, and does
 not read pane contents or manage resource lifecycle.
 
+[ADR-0017](decisions/0017-intercept-herdr-resource-creation-with-a-path-wrapper.md)
+records why creation is intercepted through a PATH wrapper rather than a helper
+command, a Herdr plugin, or a native provenance API.
+
 Use the human-readable view interactively:
 
 ```sh
@@ -117,14 +121,22 @@ another Agent therefore remains an unrelated occupant.
 Raw `herdr agent start` calls likewise have unknown parentage. Both pane and tab
 launch modes use the same recorder after their existing launch verification. An
 attached launch from a shell without an observable parent Agent session remains
-usable and records no parent rather than inventing one.
+usable and records no parent rather than inventing one. The same tolerance
+applies to the child: when Herdr has not yet supplied the launched Agent's
+optional conversation identity, an attached launch records no edge instead of
+failing a child that has already started. A detached launch still requires that
+identity, because supervision is keyed on it.
 
 If parentage recording fails after Agent start, `herdr-child` returns the
 recorder's nonzero status, reports the child coordinates, and preserves the live
 child without submitting the initial task. It explicitly warns that automatic
 launch retry is unsafe. If the managed wrapper returns nonzero after reporting a
 created pane or tab, the launcher preserves and reprints that native result and
-does not start an Agent, retry creation, or clean up the surviving resource.
+does not start an Agent, retry creation, or clean up the surviving resource. The
+native result is reprinted whenever the wrapper returned one, including a
+response too partial to yield a usable identity. Because attribution depends on
+reaching the wrapper, `herdr-child` resolves it by path beside itself rather
+than through `PATH`.
 
 If identity or intent recording fails, the wrapper returns nonzero before
 creating resources. If Herdr creates resources but response parsing or
@@ -287,7 +299,9 @@ herdr-resource-tree --context \
 Both guard options are required together and are valid only with `--context`.
 The query fails when the current Herdr Agent session's client or native id no
 longer matches, so a fresh conversation cannot receive the previous occupant's
-resource branch.
+resource branch. Caller identity is read before the snapshot and confirmed
+unchanged after it; a pane whose occupant changes across that interval fails
+rather than authenticating one session against another's observation.
 
 Claude's adapter supplies the projection as `additionalContext` on
 `SessionStart`, `UserPromptSubmit`, and `PostToolBatch`. It emits nothing when a
@@ -303,7 +317,9 @@ OpenCode's adapter queries with the native `sessionID` at
 ordinary, resumed, and compaction requests. Each successful query replaces any
 earlier generated resource-context system entry; a successful empty projection
 removes it. A failed query replaces any generated entry with an explicit
-unavailable entry. The adapter never sends a synthetic prompt or keeps a
+unavailable entry, as does a request where OpenCode supplies no `sessionID`;
+that field is optional in the plugin API, so an absent one is a supported state
+and must not leave the previous request's branch presented as current. The adapter never sends a synthetic prompt or keeps a
 client-owned conversation registry.
 
 Pi's adapter binds `ctx.sessionManager.getSessionId()` on every supported
@@ -352,7 +368,9 @@ CLI/JSON boundary:
   resources.
 - A concurrent query can observe an operation before finalization as unresolved or
   unattributed, but the read-only reconciliation cannot erase the later successful
-  finalization.
+  finalization. Queries open the registry read-only and take no write lock, so
+  they neither block nor are blocked by a concurrent creation. Only a registry
+  written by an older wrapper reopens for writing, to migrate its schema once.
 - Failed, malformed, timed-out, or cross-scope snapshots return nonzero and do not
   prune durable provenance.
 

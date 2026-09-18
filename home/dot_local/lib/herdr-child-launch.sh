@@ -266,17 +266,21 @@ EOF
   trap 'owned_launch_signal INT' INT
   trap 'owned_launch_signal TERM' TERM
 
+  local creation_status=0 partial_identity="" partial_pane="" partial_terminal="" partial_tab=""
+  set +e
+  split_json="$("$HERDR_CREATION_CLI" "${split_args[@]}")"
+  creation_status=$?
+  set -e
+
   if [ "$tab_mode" -eq 1 ]; then
-    local creation_status=0 partial_identity="" partial_pane="" partial_terminal="" partial_tab=""
-    set +e
-    split_json="$(herdr "${split_args[@]}")"
-    creation_status=$?
-    set -e
     if [ "$creation_status" -ne 0 ]; then
+      # The wrapper can exit nonzero after Herdr already created the resource.
+      # Replay whatever it returned before parsing: a response too partial to
+      # yield an identity still names the tab that survived.
+      [ -z "$split_json" ] || printf '%s\n' "$split_json"
       partial_identity="$(printf '%s' "$split_json" | json_tab_identity 2>/dev/null || true)"
       if [ -n "$partial_identity" ]; then
         IFS=$'\t' read -r partial_pane partial_terminal partial_tab <<< "$partial_identity"
-        printf '%s\n' "$split_json"
         printf 'herdr-child: tab creation returned status %s after reporting pane %s terminal %s in tab %s; resources preserved and automatic creation retry is unsafe\n' \
           "$creation_status" "$partial_pane" "$partial_terminal" "$partial_tab" >&2
       else
@@ -294,16 +298,14 @@ EOF
     tab_note=" (tab $tab)"
     hold_launch_barrier "${HERDR_CHILD_TEST_TAB_CREATED_BARRIER:-}" test-barrier-expired
   else
-    local creation_status=0 partial_identity="" partial_pane="" partial_terminal=""
-    set +e
-    split_json="$(herdr "${split_args[@]}")"
-    creation_status=$?
-    set -e
     if [ "$creation_status" -ne 0 ]; then
+      # The wrapper can exit nonzero after Herdr already created the pane.
+      # Replay whatever it returned before parsing: a response too partial to
+      # yield an identity still names the pane that survived.
+      [ -z "$split_json" ] || printf '%s\n' "$split_json"
       partial_identity="$(printf '%s' "$split_json" | json_pane_identity 2>/dev/null || true)"
       if [ -n "$partial_identity" ]; then
         IFS=$'\t' read -r partial_pane partial_terminal <<< "$partial_identity"
-        printf '%s\n' "$split_json"
         printf 'herdr-child: pane creation returned status %s after reporting pane %s terminal %s; resource preserved and automatic creation retry is unsafe\n' \
           "$creation_status" "$partial_pane" "$partial_terminal" >&2
       else
@@ -474,7 +476,10 @@ EOF
     return 1
   fi
 
-  if [ -n "$parent_session" ]; then
+  # Herdr may observe the child before it supplies the optional conversation
+  # identity. Detached mode already required it above; an attached launch records
+  # no parent edge rather than failing a child that has started and is usable.
+  if [ -n "$parent_session" ] && [ -n "$child_session" ]; then
     child_session_json="$(printf '%s' "$list_json" | json_session_for_pair "$name" "$pane")" || {
       printf 'herdr-child: verified child session could not be prepared for parentage recording; child preserved and automatic launch retry is unsafe\n' >&2
       print_start_result "$name" "$pane" "$tab"

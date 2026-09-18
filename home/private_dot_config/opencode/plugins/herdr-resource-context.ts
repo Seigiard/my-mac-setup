@@ -33,14 +33,25 @@ export const HerdrResourceContextPlugin: Plugin = async () => {
 
   return {
     "experimental.chat.system.transform": async (input, output) => {
-      const sessionID = input?.sessionID
       const system = output?.system
-      if (!sessionID || !Array.isArray(system)) return
+      if (!Array.isArray(system)) return
 
-      const context = await queryContext(sessionID)
+      // Strip our own earlier entry before anything else can return: sessionID
+      // is optional in the plugin API, and leaving a stale entry in place would
+      // present a previous request's branch as the current one.
       const retained = system.filter((entry) => !generatedContext(entry))
       system.length = 0
       system.push(...retained)
+
+      const sessionID = input?.sessionID
+      if (!sessionID) {
+        system.push(
+          `${HEADING}\nHerdr resource context unavailable: OpenCode did not expose a native session identity. This must not be treated as an empty resource branch.`,
+        )
+        return
+      }
+
+      const context = await queryContext(sessionID)
       if (context === undefined) {
         system.push(
           `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
