@@ -1957,7 +1957,11 @@ SH
 [ "${1:-}" = passwd ] || exit 1
 printf 'test:x:1000:1000:Test User:%s:/bin/bash\n' "$HOME"
 SH
-  chmod +x "$fake_bin/herdr" "$fake_bin/getent"
+  cat > "$fake_bin/dscl" <<'SH'
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$HOME"
+SH
+  chmod +x "$fake_bin/herdr" "$fake_bin/getent" "$fake_bin/dscl"
 }
 
 worktree_migration_apply() {
@@ -1966,6 +1970,17 @@ worktree_migration_apply() {
     PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
     HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
     --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+worktree_migration_live_apply() {
+  local work="$1" fail_step="${2:-}"
+  chezmoi_full_fixture execute-template -S "$work/source" \
+    --file "$work/source/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
+    > "$work/migration.sh"
+  env -u MMS_DISPOSABLE_HOME -u HERDR_SOCKET_PATH \
+    HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" bash "$work/migration.sh"
 }
 
 function test_scripts_0853_worktree_setup_migration_retries_after_install_failure() {
@@ -2026,6 +2041,19 @@ function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_regi
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
   assert_success
   run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08533_worktree_setup_migration_restores_a_local_plugin_from_a_live_home() {
+  _bats_test_init 8533 'worktree setup migration restores a local plugin when a live-home install fails'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-live-rollback"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_live_apply "$work" install
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
   assert_success
 }
 
