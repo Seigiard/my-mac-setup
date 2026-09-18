@@ -139,7 +139,6 @@ case "$agent" in
     # the complete native argv afterward.
     cci_args=()
     permission_args=(--dangerously-skip-permissions)
-    claude_args=("$@")
     arg_index=0
     while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
       arg="${claude_args[$arg_index]}"
