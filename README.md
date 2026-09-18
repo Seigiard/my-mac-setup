@@ -92,9 +92,9 @@ Worktree preparation is provided by the standalone
 package. This repository retains its repository-keyed copy, setup-step, and
 fresh-base policy in
 `~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`; the package
-owns only the event handler and its behavior tests. The generated-worktree
-marker written by the package is the authorization boundary consumed by
-`herdr-worktree-identity`.
+owns the event handler, manifest, implementation tests, documentation, CI, and
+releases. The generated-worktree marker written by the package is the
+authorization boundary consumed by `herdr-worktree-identity`.
 
 On macOS, chezmoi also installs
 [`usrivastava92/herdr-wakeup`](https://github.com/usrivastava92/herdr-wakeup)

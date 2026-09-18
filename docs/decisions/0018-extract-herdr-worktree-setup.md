@@ -33,7 +33,7 @@ Own the reusable implementation, manifest, behavioral tests, documentation, CI,
 and releases in
 [`Seigiard/herdr-worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup).
 The package is installed and enabled at reviewed immutable commit
-`81373a59bcd0833ce928f66e64da1a6c4b56ba40` (release `v0.1.1`).
+`70048c6f9465ec2ef687141792f03ca55a14a545` (release `v0.1.1`).
 
 Keep the repository-keyed `copy`, `steps`, and `fresh-base` policy in
 `config.toml` managed by this repository. A one-time chezmoi migration replaces
