@@ -8185,9 +8185,10 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
   assert_output "$HPL_ICON_BRANCH"
 }
 
-# Gate for the stub-conformance tests. Their oracle is the installed herdr
+# Gate for the stub-conformance tests. Their oracle is a working upstream herdr
 # binary (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md),
-# and each environment answers its absence differently:
+# not the managed provenance wrapper, and each environment answers its absence
+# differently:
 # - workstation without herdr: a missing developer tool -- visible skip;
 # - disposable home under MMS_CI_MINIMAL: push/PR CI renders the CI-minimal
 #   Brewfile, which deliberately guards out `brew "herdr"`
@@ -8203,16 +8204,16 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
 # multiplexer and this suite runs headless under chezmoi apply), so that
 # skip is irreducible there and never a fail.
 require_real_herdr_oracle() {
-  command_exists herdr && return 0
+  command_exists herdr && herdr --version >/dev/null 2>&1 && return 0
   case "$(mms_disposable_home_verdict)" in
     run)
       if [ -n "${MMS_CI_MINIMAL:-}" ]; then
         skip "herdr is guarded out of the CI-minimal Brewfile render"
       fi
-      fail "herdr is missing inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
+      fail "a working upstream herdr is unavailable inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
       return 1
       ;;
-    *) skip "herdr is not installed" ;;
+    *) skip "a working upstream herdr is not installed" ;;
   esac
 }
 
