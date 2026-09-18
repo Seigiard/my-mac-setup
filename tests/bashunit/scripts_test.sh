@@ -10310,6 +10310,7 @@ function tear_down() {
 
 HWI_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-worktree-identity-hook.sh"
 HWI_OPENCODE_PLUGIN_SOURCE="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-worktree-identity.ts"
+HRC_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-resource-context.sh"
 
 hwi_adapter_stub_engine() {
   local root="$1"
@@ -10386,6 +10387,159 @@ function test_scripts_1223_claude_worktree_identity_hook_fails_open_without_engi
   run find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' -print
   assert_success
   assert_output ''
+}
+
+hrc_stub_hooks() {
+  local root="$1"
+  mkdir -p "$root/bin"
+  cat > "$root/bin/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$HRC_TEST_DIR/query-argv"
+[ -z "${HRC_QUERY_STATUS:-}" ] || exit "$HRC_QUERY_STATUS"
+cat "$HRC_TEST_DIR/context"
+SH
+  cat > "$root/bin/herdr-agent-state" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$HRC_TEST_DIR/state-argv"
+cat >> "$HRC_TEST_DIR/state-input"
+SH
+  chmod +x "$root/bin/herdr-resource-tree" "$root/bin/herdr-agent-state"
+}
+
+hrc_payload() {
+  local event="$1" session="$2" source="${3:-}" agent_id="${4:-}"
+  jq -nc --arg event "$event" --arg session "$session" --arg source "$source" --arg agent_id "$agent_id" '
+    {hook_event_name: $event, session_id: $session, cwd: "/tmp"}
+    + (if $source == "" then {} else {source: $source} end)
+    + (if $agent_id == "" then {} else {agent_id: $agent_id} end)'
+}
+
+hrc_run() {
+  local root="$1" event="$2" session="$3" source="${4:-}" agent_id="${5:-}"
+  env HOME="$root/home" HERDR_ENV=1 HRC_TEST_DIR="$root" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    HERDR_AGENT_STATE_HOOK="$root/bin/herdr-agent-state" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$root/state" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload "$event" "$session" "$source" "$agent_id")"
+}
+
+function test_scripts_1225_claude_resource_context_reaches_each_model_request_without_duplicate_turns() {
+  _bats_test_init 1225 'Claude resource context reaches model input and refreshes only when changed'
+  local root="$BATS_TEST_TMPDIR/resource-context" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' \
+    'Descendant agent: "child-old" [herdr:pi/id/child-old]' > "$root/context"
+
+  run hrc_run "$root" SessionStart session-current startup
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'SessionStart'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'Parent agent: "parent-a"'
+  assert_output --partial 'child-old'
+  run jq -e 'has("initialUserMessage") or has("systemMessage") or has("decision")' <<< "$response"
+  assert_failure
+  assert_file_contains "$root/state-argv" '^session$'
+  assert_file_contains "$root/state-input" '"session_id":"session-current"'
+  run paste -sd ' ' "$root/query-argv"
+  assert_success
+  assert_output '--context --caller-agent claude --caller-session-id session-current'
+
+  # The unchanged projection is already in the conversation. Re-emitting it on
+  # every lifecycle event would only add duplicate system reminders.
+  run hrc_run "$root" UserPromptSubmit session-current
+  assert_success
+  assert_output ''
+
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' \
+    'Descendant agent: "child-new" [herdr:pi/id/child-new]' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-current
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'UserPromptSubmit'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'child-new'
+  refute_output --partial 'child-old'
+
+  run hrc_run "$root" PostToolBatch session-current
+  assert_success
+  assert_output ''
+  printf '%s\n' 'Descendant agent: "child-latest" [herdr:pi/id/child-latest]' > "$root/context"
+  run hrc_run "$root" PostToolBatch session-current
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'PostToolBatch'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'child-latest'
+
+  # Compaction keeps the Claude session identity, but the compacted model input
+  # needs the current projection restored even when it has not changed.
+  run hrc_run "$root" SessionStart session-current compact
+  assert_success
+  assert_output --partial 'child-latest'
+  assert_file_contains "$root/state-input" '"source":"compact"'
+
+  run hrc_run "$root" SessionStart session-current resume
+  assert_success
+  assert_output --partial 'child-latest'
+  assert_file_contains "$root/state-input" '"source":"resume"'
+}
+
+function test_scripts_1226_claude_resource_context_is_session_scoped_and_fails_open() {
+  _bats_test_init 1226 'Claude resource context does not leak across sessions or unavailable queries'
+  local root="$BATS_TEST_TMPDIR/resource-context-guards"
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Resources:' '- pane "owned" [w1:p1]' > "$root/context"
+
+  run hrc_run "$root" SessionStart session-old startup
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'pane "owned"'
+
+  # A successful empty projection invalidates stale generated context without
+  # inventing an empty resource listing.
+  : > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-old
+  assert_success
+  local cleared="$output"
+  run jq -e '.hookSpecificOutput.additionalContext | length > 0' <<< "$cleared"
+  assert_success
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$cleared"
+  assert_success
+  refute_output --partial 'Resources:'
+
+  # The shared query rejects a stale pane occupant through the expected session
+  # arguments. Query failure must not be presented as a complete empty tree.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-fresh startup
+  assert_success
+  assert_output ''
+  run paste -sd ' ' "$root/query-argv"
+  assert_success
+  assert_output '--context --caller-agent claude --caller-session-id session-fresh'
+
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-fresh '' subagent-1
+  assert_success
+  assert_output ''
+  assert_file_not_exists "$root/query-argv"
+
+  run env HOME="$root/home" HERDR_ENV= HRC_TEST_DIR="$root/outside" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload UserPromptSubmit outside)"
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$root/outside"
 }
 
 function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {

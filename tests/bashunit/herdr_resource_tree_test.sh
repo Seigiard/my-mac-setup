@@ -1771,15 +1771,24 @@ assert replacement["parent_session"] is None
 PY
   assert_success
 
-  run tree_wrapper_fixture_run "$TREE_CLI" --context
+  run tree_wrapper_fixture_run "$TREE_CLI" --context \
+    --caller-agent opencode --caller-session-id session-B
   assert_success
-  assert_output --partial 'Parent agent: "agent-a" [herdr:claude/id/session-A]'
+  # Issue #271's client contract exposes the parent name only; the parent's
+  # native identity would let an adapter reach outside the child's branch.
+  assert_output --partial 'Parent agent: "agent-a"'
+  refute_output --partial 'herdr:claude/id/session-A'
   assert_output --partial 'Descendant agent: "agent-c" [herdr:pi/id/session-C]'
   assert_output --partial 'pane "child-c" [w1:pC] terminal=term-C creator=herdr:opencode/id/session-B'
   assert_output --partial 'pane "c-server" [w1:pD] terminal=term-D creator=herdr:pi/id/session-C'
   assert_output --partial 'pane "manual-occupant" [w1:pX] terminal=term-X creator=herdr:opencode/id/session-B'
   refute_output --partial '"sibling"'
   refute_output --partial '"unrelated-child"'
+
+  run tree_wrapper_fixture_run "$TREE_CLI" --context \
+    --caller-agent claude --caller-session-id stale-conversation
+  assert_failure
+  assert_output --partial 'caller identity changed before context projection'
 
   HERDR_RESOURCE_CONTEXT_MAX_CHARS=320 run tree_wrapper_fixture_run "$TREE_CLI" --context
   assert_success
@@ -1796,7 +1805,7 @@ PY
 JSON
   run tree_wrapper_fixture_run "$TREE_CLI" --context
   assert_success
-  assert_output 'Parent agent: "agent-a" [herdr:claude/id/session-A]'
+  assert_output 'Parent agent: "agent-a"'
   refute_output --partial 'Resources:'
 
   cat > "$TREE_WORK/caller.json" <<'JSON'

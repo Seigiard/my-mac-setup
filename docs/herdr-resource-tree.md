@@ -262,7 +262,7 @@ herdr-resource-tree --context
 ```
 
 The command resolves the invoking native Agent session exactly as `--branch`
-does. It emits the known parent name and session, descendant identities, and the
+does. It emits the known parent name, descendant identities, and the
 filtered resource branch with existing labels, native coordinates, terminal
 identities, creators, occupants, and parent links. It never includes pane
 contents, native activity labels, task status, or inferred verdicts.
@@ -274,6 +274,27 @@ projection does not fit, it ends with
 Agent with no created resources gets no empty `Resources` section. A known
 parent line remains available even when that Agent's resource branch is empty;
 a root with no resources, descendants, or unresolved creations emits no context.
+
+Client adapters that receive a native conversation identity should guard against
+a pane-occupant race:
+
+```sh
+herdr-resource-tree --context \
+  --caller-agent claude \
+  --caller-session-id "$CLAUDE_SESSION_ID"
+```
+
+Both guard options are required together and are valid only with `--context`.
+The query fails when the current Herdr Agent session's client or native id no
+longer matches, so a fresh conversation cannot receive the previous occupant's
+resource branch.
+
+Claude's adapter supplies the projection as `additionalContext` on
+`SessionStart`, `UserPromptSubmit`, and `PostToolBatch`. It emits nothing when a
+mid-session projection is unchanged. When the projection changes, the new
+reminder declares itself authoritative and invalidates the earlier generated
+context. Claude's transcript is append-only, so the earlier reminder remains in
+history; the supported hook API cannot physically remove it.
 
 Snapshot command failures, invalid JSON, missing arrays, duplicate identities,
 and inconsistent containment return nonzero with a diagnostic on stderr. They

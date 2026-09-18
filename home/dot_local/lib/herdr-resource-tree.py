@@ -1206,10 +1206,7 @@ def render_context(tree, limit):
     lines = []
     parent = branch["parent"]
     if parent is not None:
-        lines.append(
-            f"Parent agent: {display_label(parent['presentation_name'])} "
-            f"[{display_session(parent['session'])}]"
-        )
+        lines.append(f"Parent agent: {display_label(parent['presentation_name'])}")
     for descendant in branch["descendants"]:
         lines.append(
             f"Descendant agent: {display_label(descendant['presentation_name'])} "
@@ -1459,9 +1456,21 @@ def parse_args(argv):
         action="store_true",
         help="emit bounded Agent resource context for a client adapter",
     )
+    parser.add_argument(
+        "--caller-agent",
+        help="require the invoking Agent session to use this client",
+    )
+    parser.add_argument(
+        "--caller-session-id",
+        help="require the invoking Agent session to have this native id",
+    )
     args = parser.parse_args(argv)
     if args.context and args.json:
         parser.error("--context cannot be combined with --json")
+    if bool(args.caller_agent) != bool(args.caller_session_id):
+        parser.error("--caller-agent and --caller-session-id must be used together")
+    if args.caller_agent and not args.context:
+        parser.error("caller identity guards require --context")
     return args
 
 
@@ -1528,6 +1537,15 @@ def main(argv):
         if caller is None:
             print(
                 "herdr-resource-tree: caller identity unavailable: current pane has no agent session",
+                file=sys.stderr,
+            )
+            return 1
+        if args.caller_agent and (
+            caller["session"]["agent"] != args.caller_agent
+            or caller["session"]["value"] != args.caller_session_id
+        ):
+            print(
+                "herdr-resource-tree: caller identity changed before context projection",
                 file=sys.stderr,
             )
             return 1

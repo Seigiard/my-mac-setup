@@ -684,13 +684,11 @@ function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p
     'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-# Single owner of the task-sync retirement: the absence (no task-sync hook
-# registered anywhere) is paired with the positive capability that replaced it
-# (the native agent-state hook on SessionStart), so a settings file that lost
-# both would still go red. This test also owns the deployed SessionStart
-# registration of herdr-agent-state.sh — do not re-assert it elsewhere.
-function test_smoke_1054_claude_settings_omit_task_sync_hooks_and_retain_native_() {
-  _bats_test_init 1054 'claude settings omit task-sync hooks and retain native agent state'
+# Single deployed owner for Claude's Herdr session/context chain. The managed
+# resource hook invokes the native Agent-session reporter before its SessionStart
+# query, then refreshes at each supported pre-model boundary.
+function test_smoke_1054_claude_settings_deliver_herdr_resource_context() {
+  _bats_test_init 1054 'claude settings deploy Herdr resource context without Stop continuation'
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
   run python3 - "$settings" <<'PY'
@@ -698,10 +696,18 @@ import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]
 commands = [h["command"] for entries in hooks.values() for entry in entries for h in entry["hooks"]]
 assert not any("herdr-task-sync-hook.sh" in command for command in commands), commands
-session = [h["command"] for entry in hooks["SessionStart"] for h in entry["hooks"]]
-assert any("herdr-agent-state.sh" in c for c in session), session
+
+def event_commands(event):
+    return [h["command"] for entry in hooks.get(event, []) for h in entry["hooks"]]
+
+for event in ("SessionStart", "UserPromptSubmit", "PostToolBatch"):
+    found = event_commands(event)
+    assert any("herdr-resource-context.sh" in command for command in found), (event, found)
+assert not any("herdr-resource-context.sh" in command for command in event_commands("Stop"))
 PY
   assert_success
+  assert_file_executable "$HOME/.claude/hooks/herdr-resource-context.sh"
+  assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
 }
 
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {

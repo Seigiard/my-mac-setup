@@ -777,7 +777,7 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 # private_settings.json.tmpl retirement contract
 # ===========================================
 function test_templates_0151_private_settings_registers_worktree_identity_prompt_hook() {
-  _bats_test_init 151 'private settings register the worktree identity prompt and session-start hooks'
+  _bats_test_init 151 'private settings register the worktree identity and handoff hooks'
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
   run grep -F '{{' "$BATS_TEST_TMPFILE"
@@ -787,7 +787,6 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   assert_output --partial 'herdr-worktree-identity-hook.sh'
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output --partial 'herdr-agent-state.sh'
   assert_output --partial 'handoff-session-start.sh'
   run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-session-start.sh"
