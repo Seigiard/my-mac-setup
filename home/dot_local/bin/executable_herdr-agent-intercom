@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  printf 'usage: herdr-agent-intercom claude|opencode|pi [arguments...]\n' >&2
+  exit 2
+}
+
+[[ $# -gt 0 ]] || usage
+agent="$1"
+shift
+case "$agent" in
+  claude|opencode|pi) ;;
+  *) usage ;;
+esac
+
+agent_command="$(command -v "$agent" 2>/dev/null || true)"
+if [[ -z "$agent_command" ]]; then
+  printf 'herdr-agent-intercom: %s is not on PATH\n' "$agent" >&2
+  exit 1
+fi
+
+if [[ "${HERDR_ENV:-}" != "1" ]]; then
+  exec "$agent_command" "$@"
+fi
+
+if [[ "${HERDR_AGENT_INTERCOM_ACTIVE:-}" == "1" ]] &&
+  { [[ -z "${HERDR_AGENT_INTERCOM_NAME:-}" ]] ||
+    [[ -z "${HERDR_CHILD_NAME:-}" ]] ||
+    [[ "$HERDR_CHILD_NAME" == "$HERDR_AGENT_INTERCOM_NAME" ]]; }; then
+  exec "$agent_command" "$@"
+fi
+
+case "$agent" in
+  claude)
+    for arg in "$@"; do
+      [[ "$arg" != "--" ]] || break
+      case "$arg" in
+        -h|--help|-v|--version|-p|--print) exec "$agent_command" "$@" ;;
+      esac
+    done
+    claude_args=("$@")
+    arg_index=0
+    while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
+      arg="${claude_args[$arg_index]}"
+      case "$arg" in
+        agents|auth|auto-mode|doctor|gateway|import|install|mcp|plugin|plugins|project|setup-token|ultrareview|update|upgrade)
+          exec "$agent_command" "$@"
+          ;;
+        --allow-dangerously-skip-permissions|--ax-screen-reader|--background|--bare|--bg|--brief|-c|--chrome|--continue|--dangerously-skip-permissions|--disable-slash-commands|--exclude-dynamic-system-prompt-sections|--fork-session|--forward-subagent-text|--ide|--include-hook-events|--include-partial-messages|--no-chrome|--no-session-persistence|--replay-user-messages|--safe-mode|--strict-mcp-config|--verbose)
+          arg_index=$((arg_index + 1))
+          ;;
+        --agent|--agents|--append-system-prompt|--autocompact|--debug-file|--effort|--environment|--fallback-model|--input-format|--json-schema|--max-budget-usd|--model|--name|-n|--output-format|--permission-mode|--plugin-dir|--plugin-url|--remote-control-session-name-prefix|--session-id|--setting-sources|--settings|--system-prompt)
+          arg_index=$((arg_index + 2))
+          ;;
+        --cloud|--debug|-d|--from-pr|--prompt-suggestions|--remote-control|--resume|-r|--teleport|--tmux|--worktree|-w)
+          arg_index=$((arg_index + 1))
+          if [[ "$arg_index" -lt "${#claude_args[@]}" ]]; then
+            case "${claude_args[$arg_index]}" in
+              -*) ;;
+              *) arg_index=$((arg_index + 1)) ;;
+            esac
+          fi
+          ;;
+        --add-dir|--allowedTools|--allowed-tools|--betas|--disallowedTools|--disallowed-tools|--file|--mcp-config|--tools)
+          arg_index=$((arg_index + 1))
+          while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
+            case "${claude_args[$arg_index]}" in
+              -*) break ;;
+              *) arg_index=$((arg_index + 1)) ;;
+            esac
+          done
+          ;;
+        --*=*) arg_index=$((arg_index + 1)) ;;
+        *) break ;;
+      esac
+    done
+    ;;
+  pi)
+    for arg in "$@"; do
+      [[ "$arg" != "--" ]] || break
+      case "$arg" in
+        -p|--print|--export|--export=*|--list-models|--list-models=*)
+          exec "$agent_command" "$@"
+          ;;
+      esac
+    done
+    case "${1:-}" in
+      auth|config|install|list|remove|uninstall|update|-h|--help|-v|--version)
+        exec "$agent_command" "$@"
+        ;;
+    esac
+    ;;
+esac
+
+intercom_name="${HERDR_CHILD_NAME:-}"
+if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]]; then
+  snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null || true)"
+  intercom_name="$(printf '%s' "$snapshot" | python3 -c '
+import json
+import sys
+
+try:
+    name = json.load(sys.stdin)["result"]["agent"]["name"]
+except (KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(1)
+if not isinstance(name, str) or not name.strip():
+    raise SystemExit(1)
+sys.stdout.write(name.strip())
+')" || intercom_name=""
+fi
+
+if [[ -z "$intercom_name" ]]; then
+  exec "$agent_command" "$@"
+fi
+
+intercom_root="$HOME/.local/share/agent-intercom"
+export HERDR_AGENT_INTERCOM_ACTIVE=1
+export HERDR_AGENT_INTERCOM_NAME="$intercom_name"
+case "$agent" in
+  claude)
+    cci="$intercom_root/node_modules/.bin/cci"
+    bridge="$HOME/.local/bin/herdr-agent-intercom-claude"
+    claude_server="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
+    inbox_monitor="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+    if [[ ! -x "$cci" || ! -x "$bridge" || ! -f "$claude_server" || ! -f "$inbox_monitor" ]]; then
+      exec "$agent_command" "$@"
+    fi
+    export AGENT_INTERCOM_CLAUDE_COMMAND="$agent_command"
+    export AGENT_INTERCOM_CLAUDE_ARGC="$#"
+    arg_index=0
+    for arg in "$@"; do
+      printf -v "AGENT_INTERCOM_CLAUDE_ARG_$arg_index" '%s' "$arg"
+      export "AGENT_INTERCOM_CLAUDE_ARG_$arg_index"
+      arg_index=$((arg_index + 1))
+    done
+
+    # cci reparses its own argv and drops unknown native Claude options. Give it
+    # only the overlapping controls it must reconstruct; the bridge restores
+    # the complete native argv afterward.
+    cci_args=()
+    permission_args=()
+    arg_index=0
+    while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
+      arg="${claude_args[$arg_index]}"
+      case "$arg" in
+        --) break ;;
+        --model|--effort|--add-dir)
+          next_index=$((arg_index + 1))
+          [[ "$next_index" -lt "${#claude_args[@]}" ]] || {
+            printf 'herdr-agent-intercom: %s requires a value\n' "$arg" >&2
+            exit 2
+          }
+          cci_args+=("$arg" "${claude_args[$next_index]}")
+          arg_index=$((arg_index + 2))
+          continue
+          ;;
+        --model=*|--effort=*|--add-dir=*) cci_args+=("$arg") ;;
+        --permission-mode)
+          next_index=$((arg_index + 1))
+          [[ "$next_index" -lt "${#claude_args[@]}" ]] || {
+            printf 'herdr-agent-intercom: --permission-mode requires a value\n' >&2
+            exit 2
+          }
+          permission_args=(--permission-mode "${claude_args[$next_index]}")
+          arg_index=$((arg_index + 2))
+          continue
+          ;;
+        --permission-mode=*) permission_args=("$arg") ;;
+        --dangerously-skip-permissions) permission_args=("$arg") ;;
+      esac
+      arg_index=$((arg_index + 1))
+    done
+    set +u
+    exec "$cci" "${cci_args[@]}" "${permission_args[@]}" \
+      --tui --transport mcp --name "$intercom_name" --claude "$bridge"
+    ;;
+  opencode)
+    export OPENCODE_INTERCOM_NAME="$intercom_name"
+    exec "$agent_command" "$@"
+    ;;
+  pi)
+    export HERDR_AGENT_INTERCOM_PI_LOAD="$$"
+    pi_args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name|-n)
+          [[ $# -gt 1 ]] || {
+            printf 'herdr-agent-intercom: %s requires a value\n' "$1" >&2
+            exit 2
+          }
+          shift 2
+          ;;
+        --name=*) shift ;;
+        --)
+          pi_args+=("$@")
+          break
+          ;;
+        *)
+          pi_args+=("$1")
+          shift
+          ;;
+      esac
+    done
+    set +u
+    exec "$agent_command" --name "$intercom_name" "${pi_args[@]}"
+    ;;
+esac

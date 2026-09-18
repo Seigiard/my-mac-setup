@@ -1,0 +1,15 @@
+{
+  "name": "my-mac-setup-agent-intercom",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned Agent Intercom runtime for Claude Code, OpenCode, and Pi",
+  "dependencies": {
+    "@dataforxyz/agent-intercom-core": "git+https://github.com/dataforxyz/agent-intercom-core.git#8316cbab548f422ad11c78ed887fabeef94817c1",
+    "@dataforxyz/agent-intercom-claude": "git+https://github.com/dataforxyz/agent-intercom-claude.git#7de76e5d4f6461b007b19dfc5dbcf11928868adc",
+    "@dataforxyz/agent-intercom-opencode": "git+https://github.com/dataforxyz/agent-intercom-opencode.git#91ce62f03f14b89ea11fc39eedf7d44bca808cf4",
+    "@dataforxyz/agent-intercom-pi": "git+https://github.com/dataforxyz/agent-intercom-pi.git#0fffed27d15055b866fe4e52803be6adcd363051"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

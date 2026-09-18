@@ -5,6 +5,22 @@
 # Helpers (if not already defined in .zshrc)
 has() { command -v "$1" > /dev/null 2>&1; }
 
+# Herdr owns the visible session alias. Agent Intercom is additive: utility,
+# nested, unidentified, and non-Herdr launches reach each executable unchanged.
+_agent_intercom_launch() {
+  local agent="$1"
+  shift
+  if [[ "${HERDR_ENV:-}" == "1" ]]; then
+    command "$HOME/.local/bin/herdr-agent-intercom" "$agent" "$@"
+  else
+    command "$agent" "$@"
+  fi
+}
+
+claude() { _agent_intercom_launch claude "$@"; }
+opencode() { _agent_intercom_launch opencode "$@"; }
+pi() { _agent_intercom_launch pi "$@"; }
+
 # Detect OS
 case "$(uname -s)" in
   Darwin) OS="macos" ;;

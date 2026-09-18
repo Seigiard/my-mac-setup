@@ -111,6 +111,7 @@ _smoke_critical_paths() {
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
     .pi/agent/extensions/agent-hooks.ts
+    .pi/agent/extensions/agent-intercom.ts
     .pi/agent/extensions/herdr-resource-context.ts
     .claude/hooks/agent-hooks-dispatch.sh
     .local/lib/agent-hooks/index.ts
@@ -120,11 +121,10 @@ _smoke_critical_paths() {
     .local/lib/agent-hooks/policies/index.ts
     .local/lib/agent-hooks/local-instructions.ts
     .config/opencode/plugins/agent-hooks.ts
+    .config/opencode/plugins/agent-intercom.ts
     .config/opencode/plugins/agents-local.ts
     .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
-    .config/herdr/plugins/worktree-setup/herdr-plugin.toml
-    .config/herdr/plugins/worktree-setup/setup.ts
     .config/herdr/plugins/config/seigi.worktree-setup/config.toml
     .config/herdr/command-palette/commands.toml
     .local/lib/herdr-process.sh
@@ -134,6 +134,10 @@ _smoke_critical_paths() {
     .local/lib/herdr-child-launch.sh
     .local/lib/herdr-child-continuation.sh
     .local/lib/herdr-child-reap.sh
+    .local/bin/herdr-agent-intercom
+    .local/bin/herdr-agent-intercom-claude
+    .local/share/agent-intercom/package.json
+    .local/share/agent-intercom/package-lock.json
   )
   if is_macos; then
     paths+=(
@@ -795,6 +799,54 @@ function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
   run env AGENT_HOOKS_PI_EXTENSION_PATH="$extension" AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agent-hooks-pi-adapter.test.ts"
   assert_success
+}
+
+# The checkout tests exercise thin loaders against fakes. This deployment check
+# proves that chezmoi ran the installer and that those same entrypoints exist in
+# the package tree the real clients resolve.
+function test_smoke_1073_deployed_agent_intercom_package_exposes_each_selected_adapter() {
+  _bats_test_init 1073 'deployed Agent Intercom package exposes each selected adapter'
+  local root="$HOME/.local/share/agent-intercom"
+  assert_file_exists "$HOME/.local/bin/herdr-agent-intercom"
+  assert_file_exists "$HOME/.local/bin/herdr-agent-intercom-claude"
+  assert_file_exists "$HOME/.config/opencode/plugins/agent-intercom.ts"
+  assert_file_exists "$HOME/.pi/agent/extensions/agent-intercom.ts"
+  assert_file_exists "$root/node_modules/.bin/cci"
+  assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
+  assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
+
+  run env \
+    AGENT_INTERCOM_OPENCODE_LOADER_PATH="$HOME/.config/opencode/plugins/agent-intercom.ts" \
+    AGENT_INTERCOM_PI_LOADER_PATH="$HOME/.pi/agent/extensions/agent-intercom.ts" \
+    bun test "$BATS_TEST_DIRNAME/agent-intercom-loaders.test.ts"
+  assert_success
+
+  run env HOME="$HOME" bun -e '
+const opencode = await import(process.argv[1])
+const pi = await import(process.argv[2])
+if (typeof opencode.default !== "function") throw new Error("OpenCode adapter is unavailable")
+if (typeof pi.default !== "function") throw new Error("Pi adapter is unavailable")
+' "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs" \
+    "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
+  assert_success
+
+  local stub="$BATS_TEST_TMPDIR/claude" log="$BATS_TEST_TMPDIR/agent-intercom-claude.args"
+  cat > "$stub" <<'SH'
+#!/usr/bin/env bash
+printf '<%s>' "$@" > "$AGENT_INTERCOM_TEST_CLAUDE_LOG"
+SH
+  chmod +x "$stub"
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=smoke-ibis HOME="$HOME" \
+    AGENT_INTERCOM_TEST_CLAUDE_LOG="$log" PATH="$BATS_TEST_TMPDIR:$PATH" \
+    "$HOME/.local/bin/herdr-agent-intercom" claude \
+    --disallowed-tools 'Edit Write NotebookEdit AskUserQuestion'
+  assert_success
+  assert_file_exists "$log"
+  run cat "$log"
+  assert_success
+  assert_output --partial '<--disallowed-tools><Edit Write NotebookEdit AskUserQuestion>'
+  refute_output --partial '<--dangerously-skip-permissions>'
+  refute_output --partial '<--permission-mode><manual>'
 }
 
 assert_herdr_label_writer_contract() {
