@@ -1879,12 +1879,49 @@ SH
   [[ "$result" != *'Warning: failed to configure Herdr plugin'* ]] || fail 'offline registration was reported as failed'
 }
 
+function test_scripts_08514_github_plugin_install_rejects_an_disabled_offline_registry() {
+  _bats_test_init 8514 'GitHub plugin installation rejects a disabled local registry when Herdr is offline'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-offline-disabled.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline-disabled"
+  local calls="$BATS_TEST_TMPDIR/herdr-offline-disabled.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-offline-disabled-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":false,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":false,"source":{"kind":"github"}}]}}'
+    ;;
+  "plugin enable "*)
+    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial 'Warning: failed to configure Herdr plugin'
+}
+
 worktree_migration_prepare() {
   local work="$1"
   local source="$work/source" home="$work/home" fake_bin="$work/bin"
-  mkdir -p "$source/.chezmoiscripts" "$home/.config/herdr/plugins/worktree-setup" "$fake_bin"
+  mkdir -p "$source/.chezmoiscripts" "$source/.chezmoitemplates" \
+    "$home/.config/herdr/plugins/worktree-setup" "$fake_bin"
   cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
     "$source/.chezmoiscripts/"
+  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-plugin-link-guard.sh" "$source/.chezmoitemplates/"
   printf 'legacy plugin\n' > "$home/.config/herdr/plugins/worktree-setup/setup.ts"
   write_test_config "$work/chezmoi.yaml"
 
@@ -1915,7 +1952,12 @@ case "$*" in
     ;;
 esac
 SH
-  chmod +x "$fake_bin/herdr"
+  cat > "$fake_bin/getent" <<'SH'
+#!/bin/sh
+[ "${1:-}" = passwd ] || exit 1
+printf 'test:x:1000:1000:Test User:%s:/bin/bash\n' "$HOME"
+SH
+  chmod +x "$fake_bin/herdr" "$fake_bin/getent"
 }
 
 worktree_migration_apply() {
@@ -1934,9 +1976,11 @@ function test_scripts_0853_worktree_setup_migration_retries_after_install_failur
 
   run worktree_migration_apply "$work" install
   assert_failure
+  local migration_output="$output"
   assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
   run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
-  assert_success
+  assert_failure
+  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
 
   run worktree_migration_apply "$work"
   assert_success
@@ -1954,11 +1998,13 @@ function test_scripts_08531_worktree_setup_migration_retries_after_enable_failur
 
   run worktree_migration_apply "$work" enable
   assert_failure
+  local migration_output="$output"
   assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
   assert_success
   run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
-  assert_success
+  assert_failure
+  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
 
   run worktree_migration_apply "$work"
   assert_success

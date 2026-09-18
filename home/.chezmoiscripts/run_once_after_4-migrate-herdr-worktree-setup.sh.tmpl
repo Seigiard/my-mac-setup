@@ -4,6 +4,8 @@
 # retries this migration on the next apply.
 set -u
 
+# {{ include ".chezmoitemplates/herdr-plugin-link-guard.sh" }}
+
 plugin_id="seigi.worktree-setup"
 repo="Seigiard/herdr-worktree-setup"
 ref="70048c616979719aa592df36f37ec076227b2ac8"
@@ -45,7 +47,12 @@ raise SystemExit(0 if found else 1)
 
 restore_local_plugin() {
   [[ -d "$legacy_root" ]] || return 1
-  herdr plugin link "$legacy_root" --enabled </dev/null >/dev/null 2>&1
+  local skip_reason
+  if skip_reason="$(herdr_link_guard_skip_reason)"; then
+    echo "$skip_reason; skipping local plugin rollback" >&2
+    return 1
+  fi
+  env -u HERDR_SOCKET_PATH herdr plugin link "$legacy_root" --enabled </dev/null >/dev/null 2>&1
 }
 
 legacy_present=0
