@@ -63,7 +63,7 @@ A reviewed manifest binds all 59 former IDs and paths to the source commit and
 records target URLs for imported issues. After a private scratch-repository
 pilot, production migration uses a short local write freeze, restart-safe
 idempotent import, a second link-repair pass, parity verification, and one source-
-of-truth switch. The temporary importer remains available for a seven-day
+of-truth switch. The temporary importer remains available for a four-day
 stabilization period, during which rerunning it must be a no-op, and is then
 removed. Permanent mirroring or dual-write is forbidden.
 
@@ -89,3 +89,21 @@ pretending the import is lossless. A pilot failure blocks production import and
 must be fixed and rerun. This decision is reconsidered only if GitHub has a
 fundamental limitation whose workaround would require rebuilding a substantial
 custom tracker layer.
+
+## Amendment 2026-09-18: stabilization window shortened to four days
+
+The stabilization period above originally read seven days. The maintainer
+shortened it to four on 2026-09-18, and the Decision section now states four.
+This amendment records that the number was revised after the fact rather than
+having been four when the decision was accepted on 2026-09-13.
+
+Four complete days after the authority switch (2026-09-13T20:43:09Z) elapsed on
+2026-09-17T20:43:09Z, so the shortened window had closed before the migration
+tooling was retired. The verification the window exists to produce was performed
+first: the importer ran in dry-run mode with zero network mutations, a complete
+paginated export resolved all 37 migrated issues by marker, and every
+post-cutover difference was accounted for as ordinary triage. Rollback was
+reviewed and found no longer viable, because reverting would discard the
+post-cutover triage and four issues since transferred to another repository.
+
+The rest of the decision stands.
