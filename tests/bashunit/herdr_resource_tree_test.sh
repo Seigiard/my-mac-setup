@@ -409,9 +409,14 @@ function test_resource_tree_002_snapshot_failures_cannot_look_like_an_empty_tree
   fi
 }
 
+resource_tree_require_real_herdr() {
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip 'a working upstream herdr is not installed, so the native oracle is unavailable'
+}
+
 function test_resource_tree_003_real_herdr_snapshot_populates_a_disposable_server_tree() {
   _bats_test_init 3 'real Herdr snapshot populates a disposable server tree'
-  command_exists herdr || skip 'herdr is not installed, so the native snapshot oracle is unavailable'
+  resource_tree_require_real_herdr
 
   TREE_SOCKET="$BATS_RUN_TMPDIR/htr-$BATS_TEST_NUMBER.sock"
   mkdir -p "$TREE_WORK/config/herdr" "$TREE_WORK/runtime" "$TREE_WORK/home"
@@ -554,7 +559,7 @@ PY
 
 function test_resource_tree_004_agent_fixture_matches_the_installed_herdr_boundary() {
   _bats_test_init 4 'agent fixture matches the installed Herdr boundary'
-  command_exists herdr || skip 'herdr is not installed, so the native agent oracle is unavailable'
+  resource_tree_require_real_herdr
 
   run python3 - <<'PY'
 import os
@@ -989,7 +994,7 @@ PY
 
 function test_resource_tree_009_real_agent_split_is_attributed_and_cleaned_up() {
   _bats_test_init 9 'real Agent split is attributed and cleaned up'
-  command_exists herdr || skip 'herdr is not installed, so the native managed-split oracle is unavailable'
+  resource_tree_require_real_herdr
 
   TREE_LIVE_HERDR="$(command -v herdr)"
   run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" pane current --current
@@ -1516,7 +1521,7 @@ PY
 
 function test_resource_tree_014_real_agent_composite_creations_are_attributed_and_cleaned_up() {
   _bats_test_init 14 'real Agent composite creations are attributed and cleaned up'
-  command_exists herdr || skip 'herdr is not installed, so the native composite-creation oracle is unavailable'
+  resource_tree_require_real_herdr
 
   TREE_LIVE_HERDR="$(command -v herdr)"
   run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" pane current --current
@@ -2088,7 +2093,7 @@ function test_resource_tree_017_query_rejects_a_server_scope_change_during_snaps
 
 function test_resource_tree_018_cold_restore_exposes_no_proven_server_continuity() {
   _bats_test_init 18 'cold restore exposes no proven server continuity'
-  command_exists herdr || skip 'herdr is not installed, so the native restore oracle is unavailable'
+  resource_tree_require_real_herdr
 
   TREE_SOCKET="$BATS_RUN_TMPDIR/htr-restore-$BATS_TEST_NUMBER.sock"
   mkdir -p "$TREE_WORK/config/herdr" "$TREE_WORK/runtime" "$TREE_WORK/home"
