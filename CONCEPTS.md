@@ -24,6 +24,29 @@ The agent session that launched another agent session. A pane's creator is not a
 ### Child-agent contract
 The agreement between a parent agent and child agents launched into sibling panes or their own `--tab`. `herdr-child` allocates each child a registered `color-animal` alias and returns it with the pane ID. Attached `--wait` keeps the result inside the current parent turn and arms no watcher. Managed `--detach` captures parent and child terminal/session identity, a fresh-state baseline, and a generation; an external per-child watcher then wakes the parent with generation-and-event markers for settlement, blockage, timeout, or unplanned disappearance. A child decision uses `ask`/`reply`; ordinary follow-ups use pair-addressed `prompt --wait|--detach`; reap requires the verified alias-plus-pane pair, invalidates supervision before pane closure, and preserves sibling panes in a child-owned tab. Lifecycle settlement is a wake signal, not a task verdict. Markers and metadata coordinate cooperative same-user clients and are not authorization credentials.
 
+### Supervision interest
+The durable-supervisor design below was cancelled as premature; these terms describe the archived design, not deployed behavior or an active implementation commitment. The existing Child-agent contract above remains in effect.
+
+A durable obligation for one managed child turn to deliver supervision signals to its identity-matched Parent agent. It identifies the exact server, parent and child Agent sessions, child resource, and generation. Registration does not grant resource ownership or prove that a task ran; uncertain identity or turn attribution requires recovery instead of retargeting the obligation.
+
+### Delivery owner
+The sole supervision backend entitled to send signals for a generation. A generation belongs either to the legacy per-child watcher or to the durable supervisor; the two never supervise and deliver for that same generation concurrently. This is delivery authority, not resource ownership.
+
+### Supervision observer
+The single live lifecycle observer owned by a durable supervisor for one local Herdr server. It observes native state for active Supervision interests. A native event prompts verification of current evidence; it does not itself identify a child turn. The observer's connection epoch is diagnostic, not a lifecycle-event identity.
+
+### Observation gap
+A continuous interval in which a Supervision observer cannot reliably observe Herdr lifecycle transitions. Each interval has a durable occurrence identity that survives reconnect attempts and distinguishes a later gap in the same generation. Restoring verified observation ends the interval without erasing its undelivered notice. A gap does not reveal which child transitions were missed.
+
+### Supervision deadline
+The preserved inspection deadline for an activated generation. Expiry can request that the Parent agent inspect the child; it does not mean the child is still working or that its task failed. Restarting observation does not renew the deadline, and the deadline is distinct from the lifetime of the Supervision interest.
+
+### Supervision recovery
+The handling of an unresolved Supervision interest when delivery or observation cannot safely establish a lifecycle event. Recovery preserves exact generation and identity, requests independent evidence inspection, and distinguishes a pending retry from a terminal supervision failure. It never claims task success, task failure, or an unobserved child outcome.
+
+### Supervision event
+A signal for one Supervision interest and generation: a verified lifecycle observation, deadline expiry, or request to inspect uncertain evidence. Retries preserve the signal's identity; distinct recovery occurrences have distinct identities. A confirmed delivery suppresses retries of that signal, while an uncertain delivery may repeat. No signal is a task-success verdict.
+
 ### herdr-worktree-identity
 The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
 
