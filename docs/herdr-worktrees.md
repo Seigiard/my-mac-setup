@@ -70,8 +70,15 @@ unsupported creation paths remain unknown-provenance paths.
   after the standalone package is installed and enabled. Failed installation or
   enablement retains the local plugin for the next apply.
 - The GitHub-plugin installer removes a previously installed Worktrunk plugin.
-- A one-time migration removes the obsolete local plugin directory after
-  cutover; the separately managed policy directory is preserved.
+- A one-time migration removes only the obsolete local manifest and handler
+  after cutover; unrelated files left in that directory are preserved, as is
+  the separately managed policy directory.
+- To remove the standalone package from this machine, first remove its entry
+  from the `plugins` list in
+  `home/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`,
+  apply the dotfiles, then run `herdr plugin uninstall seigi.worktree-setup`.
+  Uninstalling it without removing that managed entry is not durable: the next
+  apply restores the package by design.
 - Chezmoi changes are not live from this checkout. They become active only
   after this repository is committed, synced into chezmoi's source clone, and
   applied by the user.

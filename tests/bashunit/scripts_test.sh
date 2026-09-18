@@ -1972,6 +1972,14 @@ worktree_migration_apply() {
     --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
 }
 
+worktree_migration_apply_custom_xdg() {
+  local work="$1"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/custom-config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
 worktree_migration_live_apply() {
   local work="$1" fail_step="${2:-}"
   chezmoi_full_fixture execute-template -S "$work/source" \
@@ -2055,6 +2063,30 @@ function test_scripts_08533_worktree_setup_migration_restores_a_local_plugin_fro
   assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
   run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
   assert_success
+}
+
+function test_scripts_08534_worktree_setup_migration_preserves_unmanaged_legacy_files() {
+  _bats_test_init 8534 'worktree setup migration preserves unmanaged files in the legacy directory'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-unmanaged-legacy"
+  worktree_migration_prepare "$work"
+  printf 'keep me\n' > "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_file_exists "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
+  assert_file_not_exists "$work/home/.config/herdr/plugins/worktree-setup/setup.ts"
+}
+
+function test_scripts_08535_worktree_setup_migration_finds_the_managed_path_with_custom_xdg() {
+  _bats_test_init 8535 'worktree setup migration finds the managed path when XDG_CONFIG_HOME is customized'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-custom-xdg"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply_custom_xdg "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
 }
 
 function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
