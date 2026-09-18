@@ -8,7 +8,7 @@
 # Hash triggers:
 # # {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
 # # {{ if eq .chezmoi.os "darwin" }}# {{ include "private_dot_config/herdr/plugins/config/herdr-wakeup/config.json" | sha256sum }}# {{ end }}
-# # {{ if lookPath "herdr" }}herdr version: # {{ output "herdr" "--version" | sha256sum }}# {{ else }}herdr version: unavailable at apply time# {{ end }}
+# # herdr version: # {{ output "sh" "-c" "herdr --version 2>/dev/null || printf '%s' 'unavailable at apply time'" | sha256sum }}
 
 # Keep this tolerant: a missing Herdr or an unavailable GitHub repository must not make
 # chezmoi apply fail. Report every failed plugin so the user has an exact recovery command.
@@ -16,7 +16,7 @@ set -u
 
 # {{ include ".chezmoitemplates/herdr-wakeup-package.sh" }}
 
-if ! command -v herdr >/dev/null 2>&1; then
+if ! herdr --version >/dev/null 2>&1; then
   echo "herdr not found; skipping GitHub plugin installation"
   exit 0
 fi

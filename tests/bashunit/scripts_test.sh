@@ -1832,6 +1832,9 @@ function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
   cat > "$stub/herdr" <<'SH'
 #!/bin/sh
 expected="$HOME/.config/herdr/plugins/worktree-setup"
+if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
+  exit 0
+fi
 if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected" ]; then
   : > "$HOME/plugin-linked"
   exit 0
@@ -2298,6 +2301,21 @@ function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_r
   assert_success
   run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
   assert_failure
+}
+
+function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
+  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
+  caffeinate_migration_prepare "$work" absent
+  cat > "$work/bin/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$work/bin/herdr"
+
+  run caffeinate_migration_run "$work"
+
+  assert_success
 }
 
 # Herdr plugin link guard

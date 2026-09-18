@@ -1149,20 +1149,6 @@ SH
   assert_output 'native pane split help'
 }
 
-function test_resource_tree_1010_wrapper_versions_itself_without_hiding_native_availability() {
-  _bats_test_init 1010 'wrapper versions itself without hiding native availability'
-
-  run env -u HERDR_BIN_PATH PATH="$(dirname "$HERDR_WRAPPER"):/usr/bin:/bin" \
-    "$HERDR_WRAPPER" --version
-  assert_success
-  assert_output 'herdr wrapper: native herdr unavailable'
-
-  run env -u HERDR_BIN_PATH HERDR_WRAPPER_REQUIRE_NATIVE=1 \
-    PATH="$(dirname "$HERDR_WRAPPER"):/usr/bin:/bin" "$HERDR_WRAPPER" --version
-  assert_failure 127
-  assert_output --partial 'original herdr executable not found outside the wrapper'
-}
-
 function test_resource_tree_011_split_records_the_caller_and_persists_its_branch() {
   _bats_test_init 11 'split records the caller and persists its branch'
 

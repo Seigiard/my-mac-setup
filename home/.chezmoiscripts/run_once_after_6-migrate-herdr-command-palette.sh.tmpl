@@ -35,7 +35,7 @@ if [[ ! -d "$legacy_root" ]]; then
   exit 0
 fi
 
-if ! command -v herdr >/dev/null 2>&1; then
+if ! herdr --version >/dev/null 2>&1; then
   echo "Command Palette migration needs herdr; retry after herdr is installed" >&2
   exit 1
 fi
