@@ -296,6 +296,13 @@ reminder declares itself authoritative and invalidates the earlier generated
 context. Claude's transcript is append-only, so the earlier reminder remains in
 history; the supported hook API cannot physically remove it.
 
+OpenCode's adapter queries with the native `sessionID` at
+`experimental.chat.system.transform`, the model-request boundary used for
+ordinary, resumed, and compaction requests. Each successful query replaces any
+earlier generated resource-context system entry; a successful empty projection
+removes it. A failed query leaves the request unchanged. The adapter never sends
+a synthetic prompt or keeps a client-owned conversation registry.
+
 Snapshot command failures, invalid JSON, missing arrays, duplicate identities,
 and inconsistent containment return nonzero with a diagnostic on stderr. They
 never produce a complete-looking empty tree.

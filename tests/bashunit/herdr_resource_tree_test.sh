@@ -9,6 +9,7 @@ load 'helpers/common'
 TREE_CLI="$SOURCE_ROOT/dot_local/bin/executable_herdr-resource-tree"
 HERDR_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_herdr"
 HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
+HRC_OPENCODE_PLUGIN="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-resource-context.ts"
 
 setup() {
   TREE_WORK="$BATS_TEST_TMPDIR/resource-tree"
@@ -1785,10 +1786,37 @@ PY
   refute_output --partial '"sibling"'
   refute_output --partial '"unrelated-child"'
 
+  cat > "$TREE_WORK/opencode-model-request.ts" <<'TS'
+const module = await import(process.env.HRC_OPENCODE_PLUGIN!)
+const hooks = await module.HerdrResourceContextPlugin({})
+const system = ["base"]
+await hooks["experimental.chat.system.transform"](
+  { sessionID: process.argv[2], model: {} },
+  { system },
+)
+console.log(JSON.stringify(system))
+TS
+  HERDR_ENV=1 HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
+    HRC_OPENCODE_PLUGIN="$HRC_OPENCODE_PLUGIN" \
+    run tree_wrapper_fixture_run bun "$TREE_WORK/opencode-model-request.ts" session-B
+  assert_success
+  assert_output --partial 'Parent agent: \"agent-a\"'
+  assert_output --partial 'pane \"child-c\" [w1:pC]'
+  assert_output --partial 'pane \"c-server\" [w1:pD]'
+  assert_output --partial 'pane \"manual-occupant\" [w1:pX]'
+  refute_output --partial '\"sibling\"'
+  refute_output --partial '\"unrelated-child\"'
+
   run tree_wrapper_fixture_run "$TREE_CLI" --context \
     --caller-agent claude --caller-session-id stale-conversation
   assert_failure
   assert_output --partial 'caller identity changed before context projection'
+
+  HERDR_ENV=1 HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
+    HRC_OPENCODE_PLUGIN="$HRC_OPENCODE_PLUGIN" \
+    run tree_wrapper_fixture_run bun "$TREE_WORK/opencode-model-request.ts" stale-conversation
+  assert_success
+  assert_output '["base"]'
 
   HERDR_RESOURCE_CONTEXT_MAX_CHARS=320 run tree_wrapper_fixture_run "$TREE_CLI" --context
   assert_success

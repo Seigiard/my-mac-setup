@@ -120,6 +120,7 @@ _smoke_critical_paths() {
     .local/lib/agent-hooks/local-instructions.ts
     .config/opencode/plugins/agent-hooks.ts
     .config/opencode/plugins/agents-local.ts
+    .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
     .config/herdr/plugins/command-palette/herdr-plugin.toml
     .config/herdr/plugins/command-palette/open.py
@@ -787,6 +788,17 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
     PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
     AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agents-local-opencode-plugin.test.ts"
+  assert_success
+}
+
+# The checkout suite proves the adapter contract. This deployed run also proves
+# chezmoi kept the new plugin path managed and OpenCode can load that exact file.
+function test_smoke_1072_deployed_opencode_resource_context_reaches_model_requests() {
+  _bats_test_init 1072 'deployed opencode Herdr resource context reaches model requests'
+  local plugin="$HOME/.config/opencode/plugins/herdr-resource-context.ts"
+  assert_file_exists "$plugin"
+  run env HERDR_RESOURCE_CONTEXT_OPENCODE_PLUGIN_PATH="$plugin" \
+    bun test "$BATS_TEST_DIRNAME/herdr-resource-context-opencode-plugin.test.ts"
   assert_success
 }
 
