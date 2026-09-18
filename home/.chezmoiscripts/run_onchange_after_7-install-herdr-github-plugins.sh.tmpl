@@ -118,6 +118,13 @@ for entry in "${plugins[@]}"; do
     continue
   fi
 
+  # `plugin install` updates the on-disk registry, while the running Herdr server
+  # keeps its in-memory registry until the next list/reload request.
+  if ! herdr plugin list --json </dev/null >/dev/null 2>&1; then
+    failed+=("$repo (refresh: herdr plugin list --json)")
+    continue
+  fi
+
   if herdr plugin enable "$plugin_id" </dev/null >/dev/null 2>&1; then
     if [[ "$plugin_id" == "$HERDR_WAKEUP_PLUGIN_ID" ]] && ! herdr_wakeup_configure; then
       failed+=("$repo (config: link the managed policy from $(herdr plugin config-dir "$plugin_id" 2>/dev/null || printf 'the plugin config directory'))")
