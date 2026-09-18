@@ -1786,7 +1786,7 @@ SH
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c6f9465ec2ef687141792f03ca55a14a545 -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
   assert_success
@@ -1834,7 +1834,7 @@ SH
   assert_failure
   run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c6f9465ec2ef687141792f03ca55a14a545 -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
   assert_success
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
@@ -1861,7 +1861,7 @@ case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
     ;;
-  "plugin install Seigiard/herdr-worktree-setup --ref 70048c6f9465ec2ef687141792f03ca55a14a545 -y")
+  "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
     ;;
   "plugin uninstall seigi.worktree-setup")
@@ -1904,7 +1904,7 @@ function test_scripts_0853_worktree_setup_migration_retries_after_install_failur
   run worktree_migration_apply "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 70048c6f9465ec2ef687141792f03ca55a14a545 -y" "$work/herdr.calls"
+  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
