@@ -15,13 +15,18 @@ CODEX_CACHE="$HOME/.cache/codex-rate-limits/latest.json"
 # figure useful without asking the backend on every minute-by-minute redraw.
 CODEX_MAX_AGE="${CODEX_LIMITS_MAX_AGE:-900}"
 CODEX_RPC_TIMEOUT="${CODEX_LIMITS_RPC_TIMEOUT:-4}"
+CODEX_RETRY_AGE="${CODEX_LIMITS_RETRY_AGE:-300}"
 
-claude_part() {
-    # The live source is the cache the status line writes from Claude Code's
-    # own payload. ~/.claude/.claude.json holds the same shape but refreshes on
-    # its own schedule and goes days stale, so it is the fallback, never first.
-    python3 - "$HOME/.cache/claude-rate-limits/latest.json" "$HOME/.claude/.claude.json" <<'PY'
+render_part() {
+    python3 - "$@" <<'PY'
 import json, sys, time
+
+mode = sys.argv[1]
+STALE_EXIT = 10
+# nf-cod-claude U+EC82, nf-cod-openai U+EC81
+PROVIDERS = {"claude": "\uec82", "codex": "\uec81"}
+# nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
+EXHAUSTED = "\ueabd"
 
 def fmt_reset(ts):
     left = ts - time.time()
@@ -33,67 +38,102 @@ def fmt_reset(ts):
         return f"↻{int(left // 3600)}:{int(left % 3600 // 60):02d}"
     return f"↻{int(left // 86400)}d{int(left % 86400 // 3600)}h"
 
-# nf-cod-claude U+EC82
-PROVIDER = "\uec82"
-# nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
-EXHAUSTED = "\ueabd"
-
 def fmt_pct(pct):
-    # A window at 100% is spent, and "100%" alone reads like a stuck gauge
-    # rather than a state, so it gets a marker. Rounding is the trap here:
-    # 99.6 would round to 100 and claim an exhaustion that has not happened,
-    # so only a real 100 is marked and everything below it caps at 99.
+    # Only a real 100 is spent; cap lower rounded values so 99.6 cannot invent
+    # an exhaustion.
     if pct >= 100:
         return f"{EXHAUSTED}100%"
     return f"{min(round(pct), 99)}%"
 
-def load_live(path):
+def fmt_window(label, pct, resets_at=None):
+    reset = fmt_reset(resets_at) if resets_at else None
+    if resets_at and reset is None:
+        return None
+    return f"{label}/{fmt_pct(pct)}" + (f" {reset}" if reset else "")
+
+def load_claude_live(path):
     try:
-        d = json.load(open(path))
+        data = json.load(open(path))
     except Exception:
         return None
     out = []
     for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
-        w = d.get(key) or {}
-        pct = w.get("used_percentage")
-        if pct is None:
+        window = data.get(key) or {}
+        if window.get("used_percentage") is None:
             continue
-        # A window whose reset has passed describes a period that is over.
-        r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
-        if w.get("resets_at") and r is None:
-            continue
-        out.append(f"{label}/{fmt_pct(pct)}" + (f" {r}" if r else ""))
+        rendered = fmt_window(label, window["used_percentage"], window.get("resets_at"))
+        if rendered:
+            out.append(rendered)
     return out or None
 
-def load_fallback(path):
+def load_claude_fallback(path):
     try:
         cached = json.load(open(path)).get("cachedUsageUtilization") or {}
     except Exception:
         return None
-    util = cached.get("utilization") or {}
+    utilization = cached.get("utilization") or {}
     out = []
     for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
-        w = util.get(key) or {}
-        if w.get("utilization") is None:
-            continue
-        out.append(f"{label}/{fmt_pct(w['utilization'])}")
+        window = utilization.get(key) or {}
+        if window.get("utilization") is not None:
+            out.append(fmt_window(label, window["utilization"]))
     if not out:
         return None
-    # Say the number is old rather than passing it off as current. It hangs off
-    # the last window instead of standing as its own segment, because it
-    # qualifies the figures rather than being one of them.
-    ms = cached.get("fetchedAtMs")
-    if ms:
-        hours = (time.time() - ms / 1000) / 3600
+    fetched_at = cached.get("fetchedAtMs")
+    if fetched_at:
+        hours = (time.time() - fetched_at / 1000) / 3600
         if hours >= 1:
             age = f"{int(hours)}h" if hours < 48 else f"{int(hours / 24)}d"
             out[-1] += f" ({age} old)"
     return out
 
-parts = load_live(sys.argv[1]) or load_fallback(sys.argv[2])
-if parts:
-    print(f"{PROVIDER}  " + " ".join(parts))
+def render_claude():
+    # The status-line cache is live; ~/.claude.json is a potentially stale
+    # fallback for a home whose first Claude response has not arrived yet.
+    parts = load_claude_live(sys.argv[2]) or load_claude_fallback(sys.argv[3])
+    if parts:
+        print(f"{PROVIDERS['claude']}  " + " ".join(parts))
+
+def render_codex():
+    cache, max_age = sys.argv[2], float(sys.argv[3])
+    try:
+        data = json.load(open(cache))
+    except Exception:
+        sys.exit(STALE_EXIT)
+
+    age = time.time() - (data.get("fetched_at") or 0)
+    out = []
+    for window in data.get("windows") or []:
+        minutes = window.get("window_minutes") or 0
+        label = f"{minutes // 1440}d" if minutes >= 1440 else f"{minutes // 60}h"
+        rendered = fmt_window(label, window["used_percent"], window.get("resets_at"))
+        if rendered:
+            out.append(rendered)
+
+    if out:
+        blocked = EXHAUSTED if data.get("blocked") and not any("100%" in item for item in out) else ""
+        if age >= 3600:
+            hours = age / 3600
+            old = f"{int(hours)}h" if hours < 48 else f"{int(hours // 24)}d"
+            out[-1] += f" ({old} old)"
+        credits = data.get("reset_credits") or 0
+        if credits:
+            out.append(f"×{credits}")
+        print(f"{PROVIDERS['codex']}  {blocked}" + " ".join(out))
+
+    sys.exit(STALE_EXIT if age >= max_age else 0)
+
+if mode == "claude":
+    render_claude()
+elif mode == "codex":
+    render_codex()
+else:
+    sys.exit(2)
 PY
+}
+
+claude_part() {
+    render_part claude "$HOME/.cache/claude-rate-limits/latest.json" "$HOME/.claude/.claude.json"
 }
 
 # Codex's rollouts carry a `rate_limits` block, but only for turns codex itself
@@ -102,9 +142,10 @@ PY
 # window is being spent. The account is what the backend knows, so ask it — the
 # app-server's `account/rateLimits/read` reads usage without starting a turn.
 codex_refresh() {
-    local dir lock status
+    local dir lock attempt now last status
     dir="${CODEX_CACHE%/*}"
     lock="$dir/refresh.lock"
+    attempt="$dir/last-attempt"
     mkdir -p "$dir" || return 0
     # A killed refresh leaves its lock behind; 2 minutes is far past the ~1s
     # call, so a lock that old is debris rather than a peer still working.
@@ -115,6 +156,21 @@ codex_refresh() {
     # pile refreshes up behind one slow call.
     mkdir "$lock" 2>/dev/null || return 0
     trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+    # A failed backend read should not turn every minute-by-minute redraw into
+    # another network attempt. Successful reads remove this marker; explicit
+    # refreshes bypass it.
+    if [ "${1:-}" != "--force" ] && [ -r "$attempt" ]; then
+        IFS= read -r last < "$attempt" || last=0
+        case "$last" in *[!0-9]*|'') last=0 ;; esac
+        now=$(date +%s)
+        if [ "$((now - last))" -lt "$CODEX_RETRY_AGE" ]; then
+            rmdir "$lock" 2>/dev/null
+            trap - EXIT
+            return 0
+        fi
+    fi
+    now=$(date +%s)
 
     python3 - "$CODEX_CACHE" "$CODEX_RPC_TIMEOUT" <<'PY'
 import json, os, subprocess, sys, threading, time
@@ -128,7 +184,7 @@ try:
         text=True, bufsize=1,
     )
 except Exception:
-    sys.exit(0)
+    sys.exit(1)
 
 # codex app-server speaks newline-delimited JSON-RPC and answers a request only
 # after `initialize`. `excludeResetCreditDetails` skips the per-credit lookup;
@@ -164,7 +220,7 @@ finally:
 
 res = result.get("value")
 if not isinstance(res, dict):
-    sys.exit(0)
+    sys.exit(1)
 rl = res.get("rateLimits") or {}
 
 windows = []
@@ -195,78 +251,19 @@ with open(tmp, "w") as fh:
 os.replace(tmp, cache)
 PY
     status=$?
+    if [ "$status" -eq 0 ]; then
+        rm -f "$attempt"
+    else
+        printf '%s\n' "$now" > "$attempt.tmp" 2>/dev/null && mv -f "$attempt.tmp" "$attempt"
+        rm -f "$attempt.tmp" 2>/dev/null
+    fi
     rmdir "$lock" 2>/dev/null
     trap - EXIT
     return "$status"
 }
 
 codex_render() {
-    python3 - "$CODEX_CACHE" "$CODEX_MAX_AGE" <<'PY'
-import json, sys, time
-
-STALE_EXIT = 10
-
-def fmt_reset(ts):
-    left = ts - time.time()
-    if left <= 0:
-        return None
-    if left < 3600:
-        return f"↻{int(left // 60)}m"
-    if left < 86400:
-        return f"↻{int(left // 3600)}:{int(left % 3600 // 60):02d}"
-    return f"↻{int(left // 86400)}d{int(left % 86400 // 3600)}h"
-
-# nf-cod-openai U+EC81
-PROVIDER = "\uec81"
-# nf-cod-circle_slash U+EABD, the same codicon family as herdr-pane-labels.
-EXHAUSTED = "\ueabd"
-
-def fmt_pct(pct):
-    # Same rule as the Claude side: only a real 100 is marked as spent, and
-    # everything below it caps at 99 so rounding cannot invent an exhaustion.
-    if pct >= 100:
-        return f"{EXHAUSTED}100%"
-    return f"{min(round(pct), 99)}%"
-
-cache, max_age = sys.argv[1], float(sys.argv[2])
-try:
-    d = json.load(open(cache))
-except Exception:
-    # Nothing to print yet; the caller fills the cache for the next redraw.
-    sys.exit(STALE_EXIT)
-
-age = time.time() - (d.get("fetched_at") or 0)
-out = []
-for w in d.get("windows") or []:
-    mins = w.get("window_minutes") or 0
-    label = f"{mins // 1440}d" if mins >= 1440 else f"{mins // 60}h"
-    # A window whose reset has passed describes a period that is over.
-    r = fmt_reset(w["resets_at"]) if w.get("resets_at") else None
-    if w.get("resets_at") and r is None:
-        continue
-    out.append(f"{label}/{fmt_pct(w['used_percent'])}" + (f" {r}" if r else ""))
-
-if out:
-    # Blocked while nothing reads 100% means the stop came from spend control
-    # or depleted credits, which no percentage in the line would reveal.
-    head = EXHAUSTED if d.get("blocked") and not any("100%" in p for p in out) else ""
-    # Refreshes start after 15 minutes, but brief failures are not status-bar
-    # news. Qualify the figure only once it has been stale for a full hour.
-    # It qualifies the figures, so it hangs off the last one rather than
-    # standing as its own segment, and lands before the credit count.
-    if age >= 3600:
-        hours = age / 3600
-        old = f"{int(hours)}h" if hours < 48 else f"{int(hours // 24)}d"
-        out[-1] += f" ({old} old)"
-    # Reset credits buy back a spent window, so the bar says how many are in
-    # hand: at 100% they are the difference between waiting and carrying on.
-    credits = d.get("reset_credits") or 0
-    if credits:
-        out.append(f"×{credits}")
-    print(f"{PROVIDER}  {head}" + " ".join(out))
-
-sys.exit(STALE_EXIT if age >= max_age else 0)
-PY
+    render_part codex "$CODEX_CACHE" "$CODEX_MAX_AGE"
 }
 
 codex_part() {
@@ -288,7 +285,7 @@ codex_part() {
 }
 
 if [ "${1:-}" = "--refresh-codex" ]; then
-    codex_refresh
+    codex_refresh --force
     exit 0
 fi
 

@@ -11889,6 +11889,7 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
 
 function test_scripts_27209_codex_limits_refresh_fills_its_cache_from_the_real_app_server() {
   _bats_test_init 27209 'codex limits refresh fills its cache from the real app server'
+  [[ "${MMS_LIVE_CODEX_TEST:-}" = 1 ]] || skip "set MMS_LIVE_CODEX_TEST=1 to query the live Codex account"
   command_exists codex || skip "codex is not installed"
   local home="$BATS_TEST_TMPDIR/limits-refresh" cache
   mkdir -p "$home"
@@ -11994,13 +11995,11 @@ function test_scripts_27212_agent_limits_renders_the_compact_provider_layout() {
   _bats_test_init 27212 'agent limits renders the compact provider layout'
   local home="$BATS_TEST_TMPDIR/limits-compact-layout" now
   now="$(date +%s)"
-  mkdir -p "$home/.cache/claude-rate-limits" "$home/bin"
+  agent_limits_fixture "$home" 6530 558050
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":1,"resets_at":%s},"seven_day":{"used_percentage":18,"resets_at":%s}}' \
     "$now" "$((now + 6530))" "$((now + 356450))" \
     > "$home/.cache/claude-rate-limits/latest.json"
   codex_limits_cache "$home" 2 "$((now + 558050))" false 1 "$now"
-  printf '#!/bin/sh\nexit 0\n' > "$home/bin/codex"
-  chmod +x "$home/bin/codex"
 
   # #when the complete provider line renders
   agent_limits_run "$home"
@@ -12008,4 +12007,29 @@ function test_scripts_27212_agent_limits_renders_the_compact_provider_layout() {
   # #then its separators and spacing match the tab-bar layout exactly
   assert_success
   assert_output '  5h/1% ↻1:48 7d/18% ↻4d3h ·   7d/2% ↻6d11h ×1'
+}
+
+function test_scripts_27213_agent_limits_backs_off_after_a_failed_codex_refresh() {
+  _bats_test_init 27213 'agent limits backs off after a failed codex refresh'
+  local home="$BATS_TEST_TMPDIR/limits-refresh-backoff" marker now
+  now="$(date +%s)"
+  marker="$home/codex-called"
+  agent_limits_fixture "$home" 3600 86400
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 1140))"
+  cat > "$home/bin/codex" <<EOF
+#!/bin/sh
+printf 'called\n' >> "$marker"
+exit 0
+EOF
+  chmod +x "$home/bin/codex"
+
+  # #when two redraws encounter the same stale cache and a failing backend
+  agent_limits_run "$home"
+  assert_success
+  agent_limits_run "$home"
+  assert_success
+
+  # #then the persisted attempt suppresses the second backend call
+  assert_equal "$(<"$marker")" 'called'
+  assert_file_exists "$home/.cache/codex-rate-limits/last-attempt"
 }
