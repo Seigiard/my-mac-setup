@@ -84,7 +84,9 @@ if ! herdr plugin list --json </dev/null >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! herdr plugin enable "$plugin_id" </dev/null >/dev/null 2>&1; then
+enable_output=""
+if ! enable_output="$(herdr plugin enable "$plugin_id" </dev/null 2>&1)"; then
+  [[ -z "$enable_output" ]] || printf '%s\n' "$enable_output" >&2
   herdr plugin uninstall "$plugin_id" </dev/null >/dev/null 2>&1 || true
   if [[ $local_state -eq 0 ]]; then
     if restore_local_plugin; then
